@@ -3707,27 +3707,7 @@ export class FSEntryStore extends PuterStore {
         );
 
         if (oldPath && oldPath !== '/' && oldPath !== newPath) {
-            const likePattern = `${this.#escapeLikePattern(oldPath)}/%`;
-            // SUBSTR counts characters, not UTF-16 code units.
-            const oldLen = [...oldPath].length;
-            const rewrittenPath = this.clients.db.case({
-                postgres: '? || SUBSTR(path, ?)',
-                otherwise: 'CONCAT(?, SUBSTR(path, ?))',
-            });
-            const groups = await this.#subtreePatterns(oldPath, likePattern, {
-                rootPaths: [oldPath, newPath],
-                primary: true,
-            });
-            for (const patterns of groups) {
-                await this.clients.db.write(
-                    `UPDATE fsentries
-                     SET path = ${rewrittenPath},
-                         modified = ?
-                     WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}`,
-                    [newPath, oldLen + 1, now, userId, ...patterns],
-                );
-            }
-            await this.#invalidateRebasedSubtree(oldPath, newPath, groups);
+            await this.#rebaseOwnedSubtree(userId, oldPath, newPath, now);
         }
 
         // Invalidate root cache under both old and new keys.
@@ -3744,6 +3724,125 @@ export class FSEntryStore extends PuterStore {
             await this.#writeEntryToCache(refreshed);
         }
         return refreshed;
+    }
+
+    // Finishes a home rename that stopped partway: moves the owner's rows under `oldPath` and drops their cached copies and the home's.
+    async rebaseUserSubtree(
+        userId: number,
+        oldPath: string,
+        newPath: string,
+    ): Promise<number> {
+        const from = this.#normalizePath(oldPath);
+        const to = this.#normalizePath(newPath);
+        if (from === '/' || to === '/') {
+            throw new HttpError(
+                400,
+                'Cannot rewrite path prefix to/from root',
+                { legacyCode: 'bad_request' },
+            );
+        }
+        if (from === to) return 0;
+        const moved = await this.#rebaseOwnedSubtree(
+            userId,
+            from,
+            to,
+            Math.floor(Date.now() / 1000),
+        );
+        const homes = (await this.clients.db.pread(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
+             WHERE user_id = ? AND parent_uid IS NULL AND path IN (?, ?)`,
+            [userId, from, to],
+        )) as unknown as FSEntryRow[];
+        await this.#invalidateEntriesCache(
+            homes.map((row) => this.#mapFSEntryRow(row)),
+        );
+        // A home cached under the old path may no longer have a row there.
+        await this.publishCacheKeys({
+            keys: [entryCacheKey('path', from)],
+            broadcast: this.#takeBroadcastBudget(1) > 0,
+        });
+        return moved;
+    }
+
+    // The owner's rows under `path`, matched as a rewrite matches them, from the primary; `homePath` is where the home row sits if it moved.
+    async countUserSubtree(
+        userId: number,
+        path: string,
+        homePath?: string,
+    ): Promise<number> {
+        const prefix = this.#normalizePath(path);
+        if (prefix === '/') return 0;
+        const groups = await this.#subtreePatterns(
+            prefix,
+            `${this.#escapeLikePattern(prefix)}/%`,
+            {
+                rootPaths: homePath
+                    ? [prefix, this.#normalizePath(homePath)]
+                    : [prefix],
+                primary: true,
+            },
+        );
+        let total = 0;
+        for (const patterns of groups) {
+            const rows = (await this.clients.db.pread(
+                `SELECT COUNT(*) AS n FROM fsentries WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}`,
+                [userId, ...patterns],
+            )) as unknown as { n: number | string }[];
+            total += Number(rows[0]?.n ?? 0);
+        }
+        return total;
+    }
+
+    // The owner-scoped prefix rewrite behind renameUserHome and rebaseUserSubtree.
+    async #rebaseOwnedSubtree(
+        userId: number,
+        oldPath: string,
+        newPath: string,
+        now: number,
+    ): Promise<number> {
+        const likePattern = `${this.#escapeLikePattern(oldPath)}/%`;
+        // SUBSTR counts characters, not UTF-16 code units.
+        const oldLen = [...oldPath].length;
+        const rewrittenPath = this.clients.db.case({
+            postgres: '? || SUBSTR(path, ?)',
+            otherwise: 'CONCAT(?, SUBSTR(path, ?))',
+        });
+        const groups = await this.#subtreePatterns(oldPath, likePattern, {
+            rootPaths: [oldPath, newPath],
+            primary: true,
+        });
+        let affected = 0;
+        let remaining = REBASED_INVALIDATION_MAX;
+        for (const patterns of groups) {
+            // Read before the rewrite: afterwards the owner's rows under
+            // `newPath` include ones already there, which never moved.
+            const moving =
+                remaining > 0
+                    ? ((await this.clients.db.pread(
+                          `SELECT id, uuid, path FROM fsentries
+                           WHERE user_id = ? AND ${this.#pathLikeAny(patterns)} LIMIT ?`,
+                          [userId, ...patterns, remaining],
+                      )) as Array<{ id: number; uuid: string; path: string }>)
+                    : [];
+            const result = await this.clients.db.write(
+                `UPDATE fsentries
+                 SET path = ${rewrittenPath},
+                     modified = ?
+                 WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}`,
+                [newPath, oldLen + 1, now, userId, ...patterns],
+            );
+            affected += this.#affectedRows(result);
+            remaining -= moving.length;
+            await this.#invalidateMovedEntries(
+                moving.map((row) => ({
+                    id: Number(row.id),
+                    uuid: row.uuid,
+                    path: String(row.path),
+                })),
+            );
+        }
+        if (remaining <= 0) this.#warnRebasedCap(newPath);
+        return affected;
     }
 
     // Rewrites path column for every descendant of `oldPrefix` to use `newPrefix`,
@@ -3838,23 +3937,35 @@ export class FSEntryStore extends PuterStore {
                 [...patterns, remaining],
             )) as Array<{ id: number; uuid: string; path: string }>;
             remaining -= rows.length;
-            const moved = rows.map((row) => ({
-                id: Number(row.id),
-                uuid: row.uuid,
-                path: oldPrefix + String(row.path).slice(newPrefix.length),
-            }));
-            await runWithConcurrencyLimit(
-                this.#chunk(moved, BULK_QUERY_CHUNK_SIZE),
-                DEFAULT_DB_CHUNK_CONCURRENCY,
-                (chunk) => this.#invalidateEntriesCache(chunk),
+            await this.#invalidateMovedEntries(
+                rows.map((row) => ({
+                    id: Number(row.id),
+                    uuid: row.uuid,
+                    path: oldPrefix + String(row.path).slice(newPrefix.length),
+                })),
             );
             if (remaining <= 0) {
-                console.warn(
-                    `[FSEntryStore] moved ${REBASED_INVALIDATION_MAX}+ entries under ${newPrefix}; any others expire from cache on their TTL`,
-                );
+                this.#warnRebasedCap(newPrefix);
                 return;
             }
         }
+    }
+
+    /** Drops moved rows' keys, each listed with the path it moved from. */
+    async #invalidateMovedEntries(
+        moved: Array<Pick<FSEntry, 'id' | 'uuid' | 'path'>>,
+    ): Promise<void> {
+        await runWithConcurrencyLimit(
+            this.#chunk(moved, BULK_QUERY_CHUNK_SIZE),
+            DEFAULT_DB_CHUNK_CONCURRENCY,
+            (chunk) => this.#invalidateEntriesCache(chunk),
+        );
+    }
+
+    #warnRebasedCap(newPrefix: string): void {
+        console.warn(
+            `[FSEntryStore] moved ${REBASED_INVALIDATION_MAX}+ entries under ${newPrefix}; any others expire from cache on their TTL`,
+        );
     }
 
     async deleteEntry(entry: FSEntry): Promise<void> {

@@ -21,6 +21,7 @@ import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
+import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
 
 // How long a completed usage load stays fresh enough to skip a repeat. Long
@@ -31,11 +32,13 @@ const USAGE_REFRESH_DEBOUNCE_MS = 5_000;
 function buildRecentAppsHTML() {
     let h = '';
 
-    if (window.launch_apps?.recent?.length > 0) {
+    // Show up to 6 recent apps (2 columns x 3 rows); drop entries the backend
+    // marks unlaunchable so a deleted or reclaimed app leaves the panel.
+    const recentApps = filterLaunchableApps(window.launch_apps?.recent).slice(0, 6);
+
+    if (recentApps.length > 0) {
         h += '<div class="bento-recent-apps-grid">';
 
-        // Show up to 6 recent apps (2 columns x 3 rows)
-        const recentApps = window.launch_apps.recent.slice(0, 6);
         for (const app_info of recentApps) {
             // External apps (not owned by a Puter user) can report an opaque
             // app-… id as their title (uid === name === title); in that case show
@@ -50,12 +53,12 @@ function buildRecentAppsHTML() {
                 app_info.target_link = app_info.index_url;
             }
 
-            h += `<div class="bento-recent-app" data-app-name="${html_encode(app_info.name)}" data-target-link="${html_encode(app_info.target_link)}">`;
-            // Icon
-            h += `<img class="bento-recent-app-icon" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
+            h += `<button type="button" class="bento-recent-app" data-app-name="${html_encode(app_info.name)}" data-target-link="${html_encode(app_info.target_link)}">`;
+            // Icon (the title names the button)
+            h += `<img class="bento-recent-app-icon" alt="" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
             // Title
             h += `<span class="bento-recent-app-title">${html_encode(app_info.title)}</span>`;
-            h += '</div>';
+            h += '</button>';
         }
         h += '</div>';
     } else {
@@ -67,8 +70,8 @@ function buildRecentAppsHTML() {
         h +=
             '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>';
         h += '</svg>';
-        h += '<p>No recent apps yet</p>';
-        h += '<span>Apps you use will appear here</span>';
+        h += `<p>${i18n('no_recent_apps')}</p>`;
+        h += `<span>${i18n('no_recent_apps_hint')}</span>`;
         h += '</div>';
     }
 
@@ -95,13 +98,13 @@ function buildUsageHTML() {
     h += '<div class="bento-plan-warning" style="display: none;"></div>';
     h += '<div class="bento-plan-note" style="display: none;"></div>';
     h +=
-        '<a href="#" class="bento-plan-upgrade" style="display: none;">Upgrade →</a>';
+        `<a href="#" class="bento-plan-upgrade" style="display: none;">${i18n('plan_upgrade_link')}</a>`;
     h += '</div>';
 
     // Storage section
     h += '<div class="bento-usage-section bento-usage-card">';
     h += '<a href="#" class="bento-usage-card-header" data-target-tab="usage">';
-    h += `<h3>Your ${i18n('Storage')}</h3>`;
+    h += `<h3>${i18n('your_storage')}</h3>`;
     h += '<span class="bento-usage-card-arrow">›</span>';
     h += '</a>';
     h += '<div class="bento-usage-card-bar-wrapper">';
@@ -109,16 +112,19 @@ function buildUsageHTML() {
     h += '</div>';
     h += '<div class="bento-usage-card-info">';
     h +=
-        '<span class="bento-usage-card-used bento-storage-used">-- Used</span>';
+        `<span class="bento-usage-card-used bento-storage-used">${i18n('amount_used', { amount: '--' })}</span>`;
     h +=
-        '<span class="bento-usage-card-details"><span class="bento-storage-percent">--%</span> of <span class="bento-storage-capacity">--</span></span>';
+        `<span class="bento-usage-card-details">${i18n('usage_percent_of_capacity', {
+            percent: '<span class="bento-storage-percent">--%</span>',
+            capacity: '<span class="bento-storage-capacity">--</span>',
+        }, false)}</span>`;
     h += '</div>';
     h += '</div>';
 
     // Resources section
     h += '<div class="bento-usage-section bento-usage-card">';
     h += '<a href="#" class="bento-usage-card-header" data-target-tab="usage">';
-    h += `<h3>Your ${i18n('Resources')}</h3>`;
+    h += `<h3>${i18n('your_resources')}</h3>`;
     h += '<span class="bento-usage-card-arrow">›</span>';
     h += '</a>';
     h += '<div class="bento-usage-card-bar-wrapper">';
@@ -126,9 +132,12 @@ function buildUsageHTML() {
     h += '</div>';
     h += '<div class="bento-usage-card-info">';
     h +=
-        '<span class="bento-usage-card-used bento-resources-used">-- Used</span>';
+        `<span class="bento-usage-card-used bento-resources-used">${i18n('amount_used', { amount: '--' })}</span>`;
     h +=
-        '<span class="bento-usage-card-details"><span class="bento-resources-percent">--%</span> of <span class="bento-resources-capacity">--</span></span>';
+        `<span class="bento-usage-card-details">${i18n('usage_percent_of_capacity', {
+            percent: '<span class="bento-resources-percent">--%</span>',
+            capacity: '<span class="bento-resources-capacity">--</span>',
+        }, false)}</span>`;
     h +=
         '<span class="bento-usage-card-details bento-resources-addon" style="display: none;"></span>';
     h += '</div>';
@@ -166,10 +175,10 @@ function formatTrialEnd(trialEndsAt) {
         days,
         countdown:
             days === 0
-                ? 'ends today'
+                ? i18n('trial_ends_today', [], false)
                 : days === 1
-                  ? '1 day left'
-                  : `${days} days left`,
+                  ? i18n('trial_one_day_left', [], false)
+                  : i18n('trial_days_left', { days }, false),
     };
 }
 
@@ -177,18 +186,21 @@ function formatTrialEnd(trialEndsAt) {
 // Null when the trial gets the plan's full usage.
 function trialUsageNote(fraction, planName) {
     if (!(fraction > 0 && fraction < 1)) return null;
-    const share = fraction === 0.5 ? 'half' : `${Math.round(fraction * 100)}%`;
+    const share =
+        fraction === 0.5
+            ? i18n('trial_usage_half', [], false)
+            : `${Math.round(fraction * 100)}%`;
     const multiple = Math.round((1 / fraction) * 10) / 10;
-    return `Trial includes ${share} of ${planName}'s usage; the paid plan gives you ${multiple}×.`;
+    return i18n('trial_usage_note', { share, plan: planName, multiple }, false);
 }
 
 const TabHome = {
     id: 'home',
-    label: 'Home',
+    label: i18n('home'),
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
 
     html() {
-        const username = window.user?.username || 'User';
+        const username = window.user?.username || i18n('user', [], false);
         const profilePicture =
             window.user?.profile?.picture || window.icons['profile.svg'];
 
@@ -225,11 +237,11 @@ const TabHome = {
             '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';
         h += '</div>';
         h += '<div class="bento-card-fancy-text">';
-        h += '<h2>Apps</h2>';
+        h += `<h2>${i18n('apps')}</h2>`;
         h += '<span class="bento-card-fancy-subtitle">';
         h +=
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
-        h += 'Recently used';
+        h += i18n('recently_used');
         h += '</span>';
         h += '</div>';
         h += '</a>';
@@ -251,7 +263,7 @@ const TabHome = {
         h += '<span class="bento-card-fancy-subtitle">';
         h +=
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>';
-        h += 'Monthly overview';
+        h += i18n('monthly_overview');
         h += '</span>';
         h += '</div>';
         h += '</a>';
@@ -273,7 +285,7 @@ const TabHome = {
         h += '<span class="bento-card-fancy-subtitle">';
         h +=
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>';
-        h += 'Switch to the desktop interface';
+        h += i18n('open_desktop_hint');
         h += '</span>';
         h += '</div>';
         h += '<span class="bento-desktop-arrow">›</span>';
@@ -332,7 +344,19 @@ const TabHome = {
                 scheduleRefreshAndBroadcast();
         };
         document.addEventListener('visibilitychange', onVisibility);
-        window.addEventListener('focus', scheduleRefreshAndBroadcast);
+        // `focus` also fires whenever focus comes back from an app's iframe,
+        // which never left Puter; only a return from another window counts.
+        let leftPage = false;
+        window.addEventListener('blur', () => {
+            setTimeout(() => {
+                leftPage = !document.hasFocus();
+            }, 0);
+        });
+        window.addEventListener('focus', () => {
+            if (!leftPage) return;
+            leftPage = false;
+            scheduleRefreshAndBroadcast();
+        });
 
         // Handle app clicks
         $el_window.on('click', '.bento-recent-app', function (e) {
@@ -420,7 +444,18 @@ const TabHome = {
     // precisely to pull new state (subscription change, returning from the
     // billing portal) — those must never be served a cached decision.
     async loadUsageData($el_window, { force = false } = {}) {
-        if (this._usageLoadInFlight) return this._usageLoadInFlight;
+        if (this._usageLoadInFlight) {
+            if (!force) return this._usageLoadInFlight;
+            // The running load may have read the state before the change
+            // that forced this one, so run once more after it.
+            this._usageForcedReload ??= this._usageLoadInFlight
+                .catch(() => {})
+                .then(() => {
+                    this._usageForcedReload = null;
+                    return this.loadUsageData($el_window, { force: true });
+                });
+            return this._usageForcedReload;
+        }
         if (
             !force &&
             this._usageLoadedAt &&
@@ -497,11 +532,9 @@ const TabHome = {
 
             if (hasSubscription) {
                 if (pastDue) {
-                    $badge.text('Payment past due').addClass('past-due');
+                    $badge.text(i18n('plan_past_due', [], false)).addClass('past-due');
                     $warning
-                        .text(
-                            'Your last payment failed. Update your payment method to keep your subscription — access will be revoked shortly.',
-                        )
+                        .text(i18n('plan_past_due_warning', [], false))
                         .show();
                 } else if (trialing) {
                     // This is a glance surface sitting between two usage
@@ -512,8 +545,8 @@ const TabHome = {
                     $badge
                         .text(
                             trialEnds
-                                ? `Free trial · ${trialEnds.countdown}`
-                                : 'Free trial',
+                                ? i18n('free_trial_countdown', { countdown: trialEnds.countdown }, false)
+                                : i18n('free_trial', [], false),
                         )
                         .addClass('trial');
                     const usage = trialUsageNote(
@@ -524,30 +557,30 @@ const TabHome = {
                         .text(
                             (usage ? `${usage} ` : '') +
                                 (trialEnds
-                                    ? `First charge ${trialEnds.short} unless you cancel.`
-                                    : 'Continues as a paid plan when the trial ends.'),
+                                    ? i18n('trial_first_charge', { date: trialEnds.short }, false)
+                                    : i18n('trial_continues_paid', [], false)),
                         )
                         .show();
                 } else {
-                    $badge.text('Current').addClass('active');
+                    $badge.text(i18n('plan_current', [], false)).addClass('active');
                 }
-                $el_window.find('.bento-plan-upgrade').text('Manage →').show();
+                $el_window.find('.bento-plan-upgrade').text(i18n('plan_manage_link', [], false)).show();
             } else {
                 $badge
                     .text(
                         seat
                             ? i18n('plan_team_seat')
-                            : 'Upgrade for more features',
+                            : i18n('plan_upgrade_hint', [], false),
                     )
                     .addClass('free');
                 // Reset the label too — otherwise it keeps saying "Manage →"
                 // after a subscription lapses/cancels.
-                $el_window.find('.bento-plan-upgrade').text('Upgrade →').show();
+                $el_window.find('.bento-plan-upgrade').text(i18n('plan_upgrade_link', [], false)).show();
             }
 
             // A seat cannot change its plan, so name who can.
             if (seat && teamName) {
-                $note.text(i18n('plan_team_managed', [teamName])).show();
+                $note.text(i18n('plan_team_managed', [teamName], false)).show();
             }
 
             // A seat's plan is the team's; the link only reaches a refusal.
@@ -588,7 +621,7 @@ const TabHome = {
 
             $el_window
                 .find('.bento-storage-used')
-                .text(`${window.byte_format(general_used)} Used`);
+                .text(i18n('amount_used', { amount: window.byte_format(general_used) }, false));
             $el_window
                 .find('.bento-storage-capacity')
                 .text(window.byte_format(res.capacity));
@@ -617,7 +650,7 @@ const TabHome = {
 
             $el_window
                 .find('.bento-resources-used')
-                .text(`${amount(budget.used)} Used`);
+                .text(i18n('amount_used', { amount: amount(budget.used) }, false));
             $el_window
                 .find('.bento-resources-capacity')
                 .text(

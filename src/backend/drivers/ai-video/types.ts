@@ -40,6 +40,8 @@ export interface IVideoModel {
     keyframes?: string[] | null;
     promptLength?: { min: number; max: number } | null;
     promptSupported?: boolean | null;
+    /** Accepts a source video through `input_video`. */
+    videoInput?: boolean;
 }
 
 export interface IGenerateVideoParams {
@@ -66,6 +68,7 @@ export interface IGenerateVideoParams {
     last_frame?: string;
     metadata?: object;
     input_reference?: unknown;
+    input_video?: unknown;
     no_extra_params?: boolean;
     puter_output_path?: string;
 }

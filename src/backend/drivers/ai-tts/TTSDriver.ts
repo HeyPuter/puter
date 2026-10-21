@@ -32,6 +32,7 @@ import { TTS_CATALOG, TTS_DRIVER_ALIASES } from './providerAliases.js';
 import { AWSPollyTTSProvider } from './providers/awsPolly/AWSPollyTTSProvider.js';
 import { ElevenLabsTTSProvider } from './providers/elevenlabs/ElevenLabsTTSProvider.js';
 import { GeminiTTSProvider } from './providers/gemini/GeminiTTSProvider.js';
+import { KlingTTSProvider } from './providers/kling/KlingTTSProvider.js';
 import { OpenAITTSProvider } from './providers/openai/OpenAITTSProvider.js';
 import { SpeechifyTTSProvider } from './providers/speechify/SpeechifyTTSProvider.js';
 import { XAITTSProvider } from './providers/xai/XAITTSProvider.js';
@@ -277,6 +278,18 @@ export class TTSDriver extends PuterDriver {
                 (apiKey) => new SpeechifyTTSProvider(m, { apiKey }),
                 providers['speechify'],
                 providers['speechify-tts'],
+            ),
+        );
+        // One `kling` key covers video, image and TTS.
+        register('kling', () =>
+            keyed(
+                (apiKey) =>
+                    new KlingTTSProvider(m, {
+                        apiKey,
+                        apiBaseUrl: providers['kling']?.apiBaseUrl as
+                            string | undefined,
+                    }),
+                providers['kling'],
             ),
         );
     }

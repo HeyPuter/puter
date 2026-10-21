@@ -195,8 +195,9 @@
  *   delivers to everything listening; `single` delivers to exactly one
  *   consumer, which must acknowledge, and requires a `handlerName`.
  * @property {Array<'socket' | 'worker' | 'push'>} [targets] Transports the
- *   deliveries may take. Defaults to `['socket', 'worker']`. A `single`
- *   subscription may not target `push`.
+ *   deliveries may take. Defaults to `['socket', 'worker']` when an app
+ *   subscribes and `['socket']` when an account session with no app does. A
+ *   `single` subscription may not target `push`.
  * @property {string} [handlerName] The published handler this subscription
  *   binds to. Required for `single`.
  * @property {Function | string | { file: string }} [handler] The handler

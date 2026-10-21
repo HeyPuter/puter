@@ -99,6 +99,57 @@ export function getBoolean(
     return undefined;
 }
 
+// Non-negative safe integer from a number or a plain digit string; anything
+// else (exponents, hex, whitespace) is rejected.
+function parseByteParam(raw: unknown, name: string, min: number): number {
+    const value =
+        typeof raw === 'number'
+            ? raw
+            : typeof raw === 'string' && /^\d+$/.test(raw)
+              ? Number(raw)
+              : NaN;
+    if (!Number.isSafeInteger(value) || value < min) {
+        throw new HttpError(400, `Invalid ${name}`, {
+            legacyCode: 'bad_request',
+        });
+    }
+    return value;
+}
+
+/**
+ * Resolves an HTTP Range header string from explicit `headersRange` or fallback
+ * `offset` / `byte_count` query parameters.
+ */
+export function resolveReadRange(
+    headersRange: unknown,
+    query: Record<string, unknown>,
+): string | undefined {
+    if (typeof headersRange === 'string' && headersRange.length > 0) {
+        return headersRange;
+    }
+    const isSet = (v: unknown) => v !== undefined && v !== null && v !== '';
+    const offset = isSet(query.offset)
+        ? parseByteParam(query.offset, 'offset', 0)
+        : undefined;
+    const byteCount = isSet(query.byte_count)
+        ? parseByteParam(query.byte_count, 'byte_count', 1)
+        : undefined;
+
+    if (byteCount !== undefined) {
+        const last = (offset ?? 0) + byteCount - 1;
+        if (!Number.isSafeInteger(last)) {
+            throw new HttpError(400, 'Invalid byte_count', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return `bytes=${offset ?? 0}-${last}`;
+    }
+    if (offset !== undefined) {
+        return `bytes=${offset}-`;
+    }
+    return undefined;
+}
+
 // Accepts either `{ path }` or `{ uid }` or `{ id }` or `{ parent, name }`
 // from a legacy body field. Returns a resolved entry (throwing 404 if not
 // found or 400 if no usable ref is present).

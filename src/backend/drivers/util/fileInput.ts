@@ -91,12 +91,17 @@ export interface OpenedFileInput {
 
 type FileInputStores = { fsEntry: FSEntryStore; s3Object: S3ObjectStore };
 
+interface FileInputOptions {
+    maxBytes?: number;
+    acceptWebInput?: true;
+}
+
 export async function loadFileInput(
     stores: FileInputStores,
     fsService: FSService,
     actor: Actor,
     input: unknown,
-    options: { maxBytes?: number; acceptWebInput?: true } = {},
+    options: FileInputOptions = {},
 ): Promise<LoadedFile> {
     const resolved = await resolveFileInput(
         stores,
@@ -118,7 +123,7 @@ export async function resolveFileInput(
     fsService: FSService,
     actor: Actor,
     input: unknown,
-    options: { maxBytes?: number; acceptWebInput?: true } = {},
+    options: FileInputOptions = {},
 ): Promise<ResolvedFileInput> {
     if (!input) {
         throw new HttpError(400, 'Missing file input', {
@@ -152,6 +157,7 @@ export async function resolveFileInput(
     ) {
         const response = await secureFetch(input);
         if (!response.ok) {
+            await response.body?.cancel();
             throw new HttpError(
                 400,
                 `Failed to fetch URL (status ${response.status})`,
@@ -180,7 +186,7 @@ export async function resolveFileInput(
         input as FileInputRef,
     );
     if (options.maxBytes && (entry.size ?? 0) > options.maxBytes) {
-        throw tooLarge(options.maxBytes);
+        throw fileInputTooLarge(options.maxBytes);
     }
     let loading: Promise<LoadedFile> | undefined;
     return {
@@ -312,7 +318,7 @@ async function openEntryStream(
         );
     if (contentLength && options.maxBytes && contentLength > options.maxBytes) {
         body.destroy();
-        throw tooLarge(options.maxBytes);
+        throw fileInputTooLarge(options.maxBytes);
     }
     return {
         body,
@@ -330,7 +336,7 @@ async function openEntryStream(
 async function collectStream(
     body: Readable,
     maxBytes: number | undefined,
-    tooLargeError: (maxBytes: number) => Error = tooLarge,
+    tooLargeError: (maxBytes: number) => Error = fileInputTooLarge,
 ): Promise<Buffer> {
     const chunks: Buffer[] = [];
     let total = 0;
@@ -355,7 +361,7 @@ async function collectStream(
 export async function readBoundedBody(
     response: Response,
     maxBytes: number | undefined,
-    tooLargeError: (maxBytes: number) => Error = tooLarge,
+    tooLargeError: (maxBytes: number) => Error = fileInputTooLarge,
 ): Promise<Buffer> {
     const declaredLength = Number(response.headers.get('content-length'));
     if (maxBytes && declaredLength > maxBytes) {
@@ -379,7 +385,7 @@ function requireActorUser(actor: Actor): void {
     }
 }
 
-function tooLarge(maxBytes: number): HttpError {
+export function fileInputTooLarge(maxBytes: number): HttpError {
     return new HttpError(413, `File exceeds max size (${maxBytes} bytes)`, {
         legacyCode: 'input_too_large',
     });

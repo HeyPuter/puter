@@ -348,60 +348,64 @@ body {
     color: var(--dashboard-text);
 }
 
-/* Collapsed sidebar state */
-.dashboard-sidebar.collapsed {
-    width: 50px;
-    min-width: 50px;
-    padding: 16px 6px;
-}
+/* Collapsed sidebar state. Desktop only: below the drawer breakpoint the
+   collapse toggle is hidden, so a remembered collapse would strand the
+   drawer as an unlabeled icon strip. */
+@media (min-width: 769px) {
+    .dashboard-sidebar.collapsed {
+        width: 50px;
+        min-width: 50px;
+        padding: 16px 6px;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-header {
-    justify-content: center;
-    padding: 4px 0 12px;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-header {
+        justify-content: center;
+        padding: 4px 0 12px;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-logo,
-.dashboard-sidebar.collapsed .dashboard-sidebar-team {
-    display: none;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-logo,
+    .dashboard-sidebar.collapsed .dashboard-sidebar-team {
+        display: none;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-close {
-    display: none;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-close {
+        display: none;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-open {
-    display: block;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-open {
+        display: block;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-item {
-    justify-content: center;
-    padding: 10px;
-    gap: 0;
-    overflow: hidden;
-    font-size: 0;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-item {
+        justify-content: center;
+        padding: 10px;
+        gap: 0;
+        overflow: hidden;
+        font-size: 0;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-item svg {
-    flex-shrink: 0;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-item svg {
+        flex-shrink: 0;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-separator {
-    margin: 8px 4px;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-separator {
+        margin: 8px 4px;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-user-options {
-    padding-top: 8px;
-}
+    .dashboard-sidebar.collapsed .dashboard-user-options {
+        padding-top: 8px;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-user-btn {
-    justify-content: center;
-    padding: 10px;
-    gap: 0;
-}
+    .dashboard-sidebar.collapsed .dashboard-user-btn {
+        justify-content: center;
+        padding: 10px;
+        gap: 0;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-user-name,
-.dashboard-sidebar.collapsed .dashboard-user-chevron {
-    display: none;
+    .dashboard-sidebar.collapsed .dashboard-user-name,
+    .dashboard-sidebar.collapsed .dashboard-user-chevron {
+        display: none;
+    }
 }
 
 /* Tooltip for collapsed sidebar */
@@ -466,9 +470,14 @@ body {
 
 .dashboard-sidebar-nav {
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    /* Scrolls on short viewports (a landscape phone's drawer) so the lower
+       tabs stay reachable */
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .dashboard-sidebar-separator {
@@ -535,6 +544,12 @@ body {
     display: flex;
     align-items: center;
     gap: 10px;
+    width: 100%;
+    border: none;
+    background: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
     padding: 10px 12px;
     border-radius: 6px;
     cursor: pointer;
@@ -1491,15 +1506,19 @@ input.myapps-group-name:focus {
     z-index: 300;
 }
 .myapps-modal {
+    /* Mounted outside .dashboard's border-box rule; the caps keep the card
+       inside a 16px gutter on narrow phones */
+    box-sizing: border-box;
     background: var(--dashboard-card-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 12px;
     padding: 24px;
-    min-width: 320px;
-    max-width: 400px;
+    min-width: min(370px, calc(100vw - 32px));
+    max-width: min(450px, calc(100vw - 32px));
     box-shadow: 0 8px 32px var(--dashboard-shadow-medium);
 }
 .myapps-modal h3 {
+    overflow-wrap: anywhere;
     margin: 0 0 8px;
     font-size: 16px;
     font-weight: 600;
@@ -3937,6 +3956,14 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* Keyboard focus on the folder sidebar, crumbs, and nav arrows */
+.dashboard-section-files .directories li:focus-visible,
+.dashboard-section-files .header .path .dirname:focus-visible,
+.dashboard-section-files .header .path-btn:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: -2px;
+}
+
 .dashboard-section-files .header .path-btn-disabled {
     opacity: 0.1;
     pointer-events: none;
@@ -5789,10 +5816,20 @@ body.myapps-reordering .myapps-tile {
     flex-direction: row;
     align-items: center;
     padding: 8px 0;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    font: inherit;
+    color: inherit;
     cursor: pointer;
     transition: transform 0.15s ease;
     gap: 12px;
     width: 200px;
+}
+
+.dashboard .bento-recent-app:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: 2px;
 }
 
 @media (hover: hover) {
@@ -7307,7 +7344,10 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     width: 100%;
     border: none;
     background: none;
-    font: inherit;
+    /* Family and line height only: font-size and weight come from
+       .dashboard-sidebar-item, so the bell matches its neighbors. */
+    font-family: inherit;
+    line-height: inherit;
     text-align: left;
     margin-bottom: 6px;
     -webkit-tap-highlight-color: transparent;
@@ -7365,13 +7405,15 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     box-shadow: 0 0 0 2px var(--dashboard-sidebar-background);
 }
 
-.dashboard-sidebar.collapsed .dashboard-notifications-badge,
-.dashboard-sidebar.collapsed .dashboard-notifications-btn-label {
-    display: none;
-}
+@media (min-width: 769px) {
+    .dashboard-sidebar.collapsed .dashboard-notifications-badge,
+    .dashboard-sidebar.collapsed .dashboard-notifications-btn-label {
+        display: none;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-notifications-btn.has-unread .dashboard-notifications-dot {
-    display: block;
+    .dashboard-sidebar.collapsed .dashboard-notifications-btn.has-unread .dashboard-notifications-dot {
+        display: block;
+    }
 }
 
 /* Bell rings once when the count goes up */
@@ -7905,6 +7947,12 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 /* -- Bottom sheet below the drawer breakpoint -- */
 
 @media (max-width: 768px) {
+    /* Track the drawer's 20px nav icons */
+    .dashboard-notifications-btn-icon {
+        width: 20px;
+        height: 20px;
+    }
+
     .dashboard-notifications-scrim {
         display: block;
         position: fixed;

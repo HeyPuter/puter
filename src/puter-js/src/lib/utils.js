@@ -138,7 +138,7 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
         return reject_func(resp);
     }
     // error - other
-    else if ( response.status !== 200 ) {
+    else if ( response.status < 200 || response.status >= 300 ) {
         // if error callback is provided, call it
         if ( error_cb && typeof error_cb === 'function' )
         {

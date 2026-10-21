@@ -19,9 +19,11 @@ import { normalizeSubdomain } from './lib/args.js';
  * Creates a new subdomain served from the given directory. Rejects if a
  * subdomain with that name already exists or the path does not exist.
  *
- * Accepts `create(subdomain)`, `create(subdomain, dirPath)`, or the object
- * form `create({ subdomain, root_dir })`. A full host (`sub.puter.site`) is
- * accepted in place of a bare subdomain and stripped to its label.
+ * Accepts `create(subdomain, dirPath)` or the object form
+ * `create({ subdomain, root_dir })`; both need the directory. A full
+ * `sub.puter.site` or `sub.puter.com` host is accepted in place of a bare
+ * subdomain and stripped to its label, when the label is only lowercase
+ * letters and digits.
  *
  * @this {import('./index.js').HostingModule}
  * @param {string | { subdomain: string, root_dir?: string }} subdomainOrObject

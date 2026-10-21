@@ -83,6 +83,7 @@ import {
     createWwwRedirect,
     createUserSubdomainNotFound,
     createNativeAppStatic,
+    isMainPipelineClaim,
 } from './core/http/middleware/hostRedirects';
 import { createEgressMeteringMiddleware } from './core/http/middleware/egressMetering';
 import { createLocalWorkerProxyMiddleware } from './core/http/middleware/localWorkerProxy';
@@ -120,7 +121,7 @@ import type {
 } from './types';
 
 /** Idle keep-alive timeout used when `keep_alive_timeout` is unset. */
-const DEFAULT_KEEP_ALIVE_TIMEOUT = 620_000;
+const DEFAULT_KEEP_ALIVE_TIMEOUT = 920_000;
 
 /** Route options a claimed subdomain's routes may use. */
 const CLAIMED_ROUTE_OPTIONS = new Set([
@@ -452,7 +453,7 @@ export class PuterServer {
         this.#app.use(
             createUserSubdomainNotFound(this.#config, (name) => {
                 const claim = extensionStore.claimedSubdomains.get(name);
-                if (!claim) return undefined;
+                if (!claim || isMainPipelineClaim(claim)) return claim;
                 return {
                     authorize: claim.authorize,
                     handler: this.#claimRouters.get(name),
@@ -1377,26 +1378,29 @@ export class PuterServer {
     }
 
     /**
-     * The claimed subdomain a route is declared for, if any. Claimed hosts
-     * authenticate through the claim's `authorize`, so options that rely on the
-     * main pipeline's actor or origin handling fail the boot instead.
+     * The gated claim a route is declared for, if any. Gated hosts authenticate
+     * through the claim's `authorize`, so options that rely on the main
+     * pipeline's actor or origin handling fail the boot instead.
      */
     static #claimedSubdomainOf(
         opts: RouteOptions,
         label: string,
     ): string | undefined {
-        const claims = extensionStore.claimedSubdomains;
+        const gated = (name: string) => {
+            const claim = extensionStore.claimedSubdomains.get(name);
+            return isMainPipelineClaim(claim) ? undefined : claim;
+        };
         const labels = [opts.subdomain ?? []].flat();
         for (const name of labels) {
             const lower = name.toLowerCase();
-            if (lower !== name && claims.has(lower)) {
+            if (lower !== name && gated(lower)) {
                 throw new Error(
                     `${label}: claimed subdomain '${lower}' must be written in lowercase`,
                 );
             }
         }
         if (Array.isArray(opts.subdomain)) {
-            const mixed = opts.subdomain.find((s) => claims.has(s));
+            const mixed = opts.subdomain.find((s) => gated(s));
             if (mixed !== undefined) {
                 throw new Error(
                     `${label}: claimed subdomain '${mixed}' must be the route's only subdomain`,
@@ -1405,7 +1409,7 @@ export class PuterServer {
             return undefined;
         }
         if (typeof opts.subdomain !== 'string') return undefined;
-        const claim = claims.get(opts.subdomain);
+        const claim = gated(opts.subdomain);
         if (!claim) return undefined;
         for (const [key, value] of Object.entries(opts)) {
             if (value === undefined || value === false) continue;

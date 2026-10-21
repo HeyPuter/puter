@@ -552,6 +552,40 @@ describe('ACLService.check — public folders', () => {
         ).toBe(false);
     });
 
+    it('stays closed for a case variant that resolved a private folder', async () => {
+        const { service, stores } = publicService();
+        stores.user.getByUsername.mockResolvedValue({
+            username: 'owner',
+            email_confirmed: true,
+        });
+        // What MySQL hands back for `/owner/Public/...` when the owner's
+        // folder is stored as `public`: the lookup collates case-insensitively.
+        const variant: ResourceDescriptor = {
+            path: '/owner/Public/secret.txt',
+            resolveAncestors: async () => [
+                { uid: 'uid:secret', path: '/owner/public/secret.txt' },
+                { uid: 'uid:public', path: '/owner/public' },
+                { uid: 'uid:owner', path: '/owner' },
+            ],
+        };
+        expect(await service.check(issuerActor, variant, 'read')).toBe(false);
+    });
+
+    it('stays closed when no Public folder is stored under the path', async () => {
+        const { service, stores } = publicService();
+        stores.user.getByUsername.mockResolvedValue({
+            username: 'owner',
+            email_confirmed: true,
+        });
+        const orphan: ResourceDescriptor = {
+            path: '/owner/Public/index.html',
+            resolveAncestors: async () => [
+                { uid: 'uid:owner', path: '/owner' },
+            ],
+        };
+        expect(await service.check(issuerActor, orphan, 'read')).toBe(false);
+    });
+
     it('stays closed when the feature flag is off', async () => {
         const { service, stores } = makeService();
         stores.user.getByUsername.mockResolvedValue({

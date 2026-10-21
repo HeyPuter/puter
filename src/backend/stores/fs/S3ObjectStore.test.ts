@@ -571,6 +571,35 @@ describe('S3ObjectStore object round trips', () => {
         expect(nonFinite.url).toContain('X-Amz-Expires=3600');
     });
 
+    it('mints a presigned read URL that serves the bytes and signs the content type', async () => {
+        const key = uuidv4();
+        await putObject(key, 'video bytes');
+        const url = await store().createSignedReadUrl(
+            {
+                bucket,
+                objectKey: key,
+                expiresInSeconds: 900,
+                contentType: 'video/mp4',
+            },
+            region,
+        );
+
+        expect(url).toContain('X-Amz-Expires=900');
+        // The local S3 ignores the override, so only the signed query is checked.
+        expect(new URL(url).searchParams.get('response-content-type')).toBe(
+            'video/mp4',
+        );
+        const response = await fetch(url);
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe('video bytes');
+
+        const clamped = await store().createSignedReadUrl(
+            { bucket, objectKey: key, expiresInSeconds: 60 * 60 * 24 },
+            region,
+        );
+        expect(clamped).toContain('X-Amz-Expires=3600');
+    });
+
     it('signs the requested part numbers of an existing multipart upload', async () => {
         const key = uuidv4();
         const opened = await store().createSignedUploadUrl(

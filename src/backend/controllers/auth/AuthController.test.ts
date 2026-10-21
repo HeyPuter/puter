@@ -8317,7 +8317,7 @@ describe('AuthController 2FA flows', () => {
             otp_recovery_codes: 'a,b,c',
         });
         const res = makeRes();
-        await controller.handleDisable2fa(makeReq({}, { actor }), res);
+        await controller.handleDisable2fa(makeReq({ code: liveTotp(user.username, 'TESTSECRETBASE32') }, { actor }), res);
         expect(res.body).toEqual({ success: true });
         const after = await server.stores.user.getById(user.id, {
             force: true,

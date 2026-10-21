@@ -535,8 +535,16 @@ describe('SubdomainStore app_owner filtering', () => {
             rows.map((row) => row.subdomain).sort();
         expect(await store.listAppCascade({ appId: app.id })).toEqual(
             expect.arrayContaining([
-                { subdomain: owned.subdomain, root_dir_id: null },
-                { subdomain: associated.subdomain, root_dir_id: 7 },
+                {
+                    uuid: owned.uuid,
+                    subdomain: owned.subdomain,
+                    root_dir_id: null,
+                },
+                {
+                    uuid: associated.uuid,
+                    subdomain: associated.subdomain,
+                    root_dir_id: 7,
+                },
             ]),
         );
         expect(names(await store.listAppCascade({ appId: app.id }))).toEqual(
@@ -545,6 +553,51 @@ describe('SubdomainStore app_owner filtering', () => {
         expect(
             names(await store.listAppCascade({ ownerUserId: developer })),
         ).toEqual(names([owned, associated, siblings]));
+    });
+
+    it('emits subdomain.delete for each row an app delete cascades to', async () => {
+        const developer = await makeUser();
+        const siteOwner = await makeUser();
+        const app = await makeApp(developer);
+        const name = (tag: string) =>
+            `sds-cascade-ev-${tag}-${Math.random().toString(36).slice(2, 8)}`;
+        const owned = await store.create({
+            userId: siteOwner,
+            subdomain: name('owned'),
+            appOwner: app.id,
+        });
+        const associated = await store.create({
+            userId: siteOwner,
+            subdomain: name('associated'),
+            associatedAppId: app.id,
+        });
+
+        const events: Array<{ subdomain: string; uid?: string }> = [];
+        const listener = (
+            _key: string,
+            data: { subdomain: string; uid?: string },
+        ) => {
+            events.push(data);
+        };
+        server.clients.event.on('subdomain.delete', listener);
+        try {
+            expect(await server.stores.app.delete(app.id)).toBe(true);
+            await vi.waitFor(() => expect(events).toHaveLength(2));
+        } finally {
+            server.clients.event.off('subdomain.delete', listener);
+        }
+
+        expect(events).toEqual(
+            expect.arrayContaining([
+                { subdomain: owned.subdomain, uid: owned.uuid },
+                { subdomain: associated.subdomain, uid: associated.uuid },
+            ]),
+        );
+        // SQLite reuses the deleted app's id; drop anything it left behind.
+        await server.clients.db.write(
+            'DELETE FROM `subdomains` WHERE `uuid` IN (?, ?)',
+            [owned.uuid, associated.uuid],
+        );
     });
 
     it('lists an app cascade past one page', async () => {

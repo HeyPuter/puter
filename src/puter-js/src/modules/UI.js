@@ -286,6 +286,14 @@ const pipError = (name, message) => {
     return err;
 };
 
+const getGUIOrigin = (origin) => {
+    try {
+        return new URL(origin).origin;
+    } catch {
+        return null;
+    }
+};
+
 const MAX_REQUESTED_PERMISSIONS = 16;
 
 // Short on purpose: a request usually spends a user gesture while it waits.
@@ -355,12 +363,13 @@ export class AppConnection extends EventListener {
             target,
         }).info(`AppConnection created to ${target}`, this);
 
-        // TODO: Set this.#puterOrigin to the puter origin
+        this.#puterOrigin = getGUIOrigin(puter.defaultGUIOrigin);
 
         const onMessage = event => {
             // Relayed by the host environment; a window that guessed an
             // appInstanceID must not be able to forge one directly.
-            if ( event.source !== this.messageTarget ) return;
+            if ( event.source !== this.messageTarget ||
+                ! this.#puterOrigin || event.origin !== this.#puterOrigin ) return;
             if ( ! event.data ) return;
 
             if ( event.data.msg === 'messageToApp' ) {
@@ -552,19 +561,6 @@ export class UIModule extends EventListener {
     // these windows, so a repeated picker reuses one entry.
     #pickerPopups = new Set();
 
-    // Canonical origin of the GUI we open popups on. The popup's messages
-    // arrive tagged with the browser's serialization of its origin, while
-    // `defaultGUIOrigin` is configuration-supplied text that may carry a
-    // trailing slash, an explicit default port or a stray path. Null when it
-    // can't be parsed, which no popup reply can then match.
-    #guiOrigin () {
-        try {
-            return new URL(puter.defaultGUIOrigin).origin;
-        } catch (e) {
-            return null;
-        }
-    }
-
     #trackPickerPopup (popup) {
         // Also shared with the SDK, whose token handler pins on the same set.
         puter.trackOpenedWindow_?.(popup);
@@ -574,11 +570,10 @@ export class UIModule extends EventListener {
 
     // Whether a message on the window may drive this module.
     #isTrustedMessageSource (e) {
-        // `app` env: the host frame relays everything. Its origin is whatever
-        // the deployment is served from, so pin the window instead — that
-        // keeps locally-hosted and self-hosted GUIs working while still
-        // rejecting a sibling app iframe or a third-party page that framed us.
-        if ( this.messageTarget ) return e.source === this.messageTarget;
+        if ( this.messageTarget ) {
+            return e.source === this.messageTarget &&
+                e.origin === getGUIOrigin(puter.defaultGUIOrigin);
+        }
 
         // `web` env (a third-party site): there is no host frame to pin. The
         // picker popups we opened post back directly, and always from the GUI
@@ -586,7 +581,7 @@ export class UIModule extends EventListener {
         // window too when we can still see it: the picker calls
         // window.close() right after posting, and a discarded browsing
         // context can leave `event.source` null.
-        const guiOrigin = this.#guiOrigin();
+        const guiOrigin = getGUIOrigin(puter.defaultGUIOrigin);
         if ( ! guiOrigin || e.origin !== guiOrigin ) return false;
         if ( ! e.source ) return this.#pickerPopups.size > 0;
         return this.#pickerPopups.has(e.source);
@@ -638,6 +633,7 @@ export class UIModule extends EventListener {
     #postMessageWithObject (name, value) {
         const dehydrator = this.util.rpc.getDehydrator({
             target: this.messageTarget,
+            origin: getGUIOrigin(puter.defaultGUIOrigin),
         });
         this.messageTarget?.postMessage({
             msg: name,
@@ -659,7 +655,10 @@ export class UIModule extends EventListener {
                 done_setting_resolve();
             });
         });
-        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget, { once: true });
+        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget, {
+            once: true,
+            origin: getGUIOrigin(puter.defaultGUIOrigin),
+        });
         this.messageTarget?.postMessage({
             $: 'puter-ipc',
             v: 2,
@@ -1068,6 +1067,36 @@ export class UIModule extends EventListener {
      * @param {(items: FSItem[]) => void} callback
      * @returns {void}
      */
+    /**
+     * The item the app was launched with, read from the `puter.item.*` URL
+     * params the host appends, or null when there is none.
+     *
+     * @returns {FSItem|null}
+     */
+    #launchItemFromURL () {
+        const URLParams = new URLSearchParams(globalThis.location.search);
+        if ( !URLParams.has('puter.item.name') || !URLParams.has('puter.item.uid') || !URLParams.has('puter.item.read_url') ) {
+            return null;
+        }
+        let fpath = URLParams.get('puter.item.path');
+        if ( !fpath.startsWith('~/') && !fpath.startsWith('/') ) {
+            fpath = `~/${fpath}`;
+        }
+        return new FSItem({
+            name: URLParams.get('puter.item.name'),
+            path: fpath,
+            uid: URLParams.get('puter.item.uid'),
+            is_dir: URLParams.get('puter.item.is_dir') === 'true',
+            readURL: URLParams.get('puter.item.read_url'),
+            writeURL: URLParams.get('puter.item.write_url'),
+            metadataURL: URLParams.get('puter.item.metadata_url'),
+            size: URLParams.get('puter.item.size'),
+            accessed: URLParams.get('puter.item.accessed'),
+            modified: URLParams.get('puter.item.modified'),
+            created: URLParams.get('puter.item.created'),
+        });
+    }
+
     onItemsOpened (callback) {
         // DEPRECATED - this is also called when items are dropped on the app, which in new versions should be handled
         // with the 'drop' event.
@@ -1077,27 +1106,9 @@ export class UIModule extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onItemsOpened) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if ( ! this.#onItemsOpened ) {
-            let URLParams = new URLSearchParams(globalThis.location.search);
-            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ) {
-                let fpath = URLParams.get('puter.item.path');
-
-                if ( !fpath.startsWith('~/') && !fpath.startsWith('/') )
-                {
-                    fpath = `~/${fpath}`;
-                }
-
-                callback([new FSItem({
-                    name: URLParams.get('puter.item.name'),
-                    path: fpath,
-                    uid: URLParams.get('puter.item.uid'),
-                    readURL: URLParams.get('puter.item.read_url'),
-                    writeURL: URLParams.get('puter.item.write_url'),
-                    metadataURL: URLParams.get('puter.item.metadata_url'),
-                    size: URLParams.get('puter.item.size'),
-                    accessed: URLParams.get('puter.item.accessed'),
-                    modified: URLParams.get('puter.item.modified'),
-                    created: URLParams.get('puter.item.created'),
-                })]);
+            const launchItem = this.#launchItemFromURL();
+            if ( launchItem ) {
+                callback([launchItem]);
             }
         }
 
@@ -1133,27 +1144,9 @@ export class UIModule extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onLaunchedWithItems) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if ( ! this.#onLaunchedWithItems ) {
-            let URLParams = new URLSearchParams(globalThis.location.search);
-            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ) {
-                let fpath = URLParams.get('puter.item.path');
-
-                if ( !fpath.startsWith('~/') && !fpath.startsWith('/') )
-                {
-                    fpath = `~/${fpath}`;
-                }
-
-                callback([new FSItem({
-                    name: URLParams.get('puter.item.name'),
-                    path: fpath,
-                    uid: URLParams.get('puter.item.uid'),
-                    readURL: URLParams.get('puter.item.read_url'),
-                    writeURL: URLParams.get('puter.item.write_url'),
-                    metadataURL: URLParams.get('puter.item.metadata_url'),
-                    size: URLParams.get('puter.item.size'),
-                    accessed: URLParams.get('puter.item.accessed'),
-                    modified: URLParams.get('puter.item.modified'),
-                    created: URLParams.get('puter.item.created'),
-                })]);
+            const launchItem = this.#launchItemFromURL();
+            if ( launchItem ) {
+                callback([launchItem]);
             }
         }
 

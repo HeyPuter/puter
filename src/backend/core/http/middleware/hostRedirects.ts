@@ -41,8 +41,9 @@ const NATIVE_APP_SUBDOMAINS = [
 const NATIVE_APPS_WITH_DIST = new Set(['docs', 'developer']);
 
 /**
- * Subdomains that v2 serves itself. Anything NOT in this set that lives on the
- * root domain is treated as a user-defined site and rejected with a 404.
+ * Subdomains that v2 serves itself. A root-domain subdomain neither in this set
+ * nor claimed by an extension is treated as a user-defined site and rejected
+ * with a 404.
  *
  * Kept as a plain Set so `has()` is O(1); order doesn't matter.
  */
@@ -55,8 +56,6 @@ const RESERVED_SUBDOMAINS = new Set<string>([
     ...NATIVE_APP_SUBDOMAINS,
     // App-icon serving subdomain.
     'puter-app-icons',
-    // Extension-owned subdomains.
-    'onlyoffice',
 ]);
 
 /**
@@ -69,7 +68,8 @@ export type ClaimAuthorize = (
     res: Response,
 ) => boolean | Promise<boolean>;
 
-export interface SubdomainClaim {
+/** A claim answered on its own router, only past `authorize`. */
+export interface GatedSubdomainClaim {
     authorize: ClaimAuthorize;
     /**
      * Vets each route declared for the claim as the server builds it; a throw
@@ -78,15 +78,38 @@ export interface SubdomainClaim {
     checkRoute?: (options: RouteOptions, label: string) => void;
 }
 
-/** A claim as dispatch sees it: its gate, plus the routes served behind it. */
-export interface ResolvedClaim {
-    authorize: ClaimAuthorize;
-    handler?: RequestHandler;
+/** Served like core's own subdomains: CORS, auth and every route. */
+export interface MainPipelineSubdomainClaim {
+    mainPipeline: true;
 }
+
+export type SubdomainClaim = GatedSubdomainClaim | MainPipelineSubdomainClaim;
+
+/** A claim as dispatch sees it: a gate and the routes behind it, or neither. */
+export type ResolvedClaim =
+    | { authorize: ClaimAuthorize; handler?: RequestHandler }
+    | MainPipelineSubdomainClaim;
+
+export const isMainPipelineClaim = (
+    claim: SubdomainClaim | ResolvedClaim | undefined,
+): claim is MainPipelineSubdomainClaim =>
+    (claim as { mainPipeline?: unknown } | undefined)?.mainPipeline === true;
 
 export type ClaimLookup = (name: string) => ResolvedClaim | undefined;
 
 const SUBDOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/** The label `x` when `host` is exactly `x.<domain>`, ignoring case and port. */
+export const subdomainLabelOf = (
+    host: string,
+    domain: string,
+): string | undefined => {
+    const hostName = host.toLowerCase().split(':')[0];
+    const base = domain.toLowerCase().split(':')[0];
+    if (!base || !hostName.endsWith(`.${base}`)) return undefined;
+    const label = hostName.slice(0, -(base.length + 1));
+    return label && !label.includes('.') ? label : undefined;
+};
 
 /**
  * Record a claim on `<name>.<domain>`. Throws on a malformed or uppercase
@@ -105,6 +128,15 @@ export const addClaimedSubdomain = (
     }
     if (claims.has(name)) {
         throw new Error(`Subdomain '${name}' is already claimed`);
+    }
+    if (isMainPipelineClaim(claim)) {
+        if ('authorize' in claim || 'checkRoute' in claim) {
+            throw new Error(
+                `Subdomain '${name}' claimed for the main pipeline with a gate`,
+            );
+        }
+        claims.set(name, { mainPipeline: true });
+        return;
     }
     if (typeof claim?.authorize !== 'function') {
         throw new Error(`Subdomain '${name}' claimed without authorize`);
@@ -131,7 +163,7 @@ const subdomainNotFound = () =>
  * unclaimed-subdomain 404, and errors reach the error handler.
  */
 const dispatchClaimed = async (
-    claim: ResolvedClaim,
+    claim: Exclude<ResolvedClaim, MainPipelineSubdomainClaim>,
     req: Request,
     res: Response,
     next: NextFunction,
@@ -190,7 +222,8 @@ export const createWwwRedirect = (config: IConfig): RequestHandler => {
  * Passes through when:
  *
  * - No active subdomain (root)
- * - Active subdomain is reserved (api, js, native apps, …)
+ * - Active subdomain is reserved (api, js, native apps, …) or claimed for the
+ *   main pipeline
  * - Host is on one of the hosting domains (they may nest under `config.domain`)
  * - Host is a local worker host and the local worker server is on
  * - Host isn't under `config.domain` (custom domains, other hosts)
@@ -223,6 +256,8 @@ export const createUserSubdomainNotFound = (
             req.subdomains?.[req.subdomains.length - 1] ?? ''
         ).toLowerCase();
         if (active === '' || RESERVED_SUBDOMAINS.has(active)) return next();
+        const claim = lookupClaim(active);
+        if (isMainPipelineClaim(claim)) return next();
 
         const hostName = (req.headers.host ?? '').toLowerCase().split(':')[0];
         if (
@@ -239,8 +274,9 @@ export const createUserSubdomainNotFound = (
         // responder, body parsing, auth and every route, `subdomain: '*'` ones
         // included. One label deep only: `<name>.x.<domain>` is not the claim.
         const claimed =
-            req.subdomains?.length === 1 && hostName === `${active}.${domain}`
-                ? lookupClaim(active)
+            req.subdomains?.length === 1 &&
+            subdomainLabelOf(hostName, domain) === active
+                ? claim
                 : undefined;
         if (claimed) {
             void dispatchClaimed(claimed, req, res, next);

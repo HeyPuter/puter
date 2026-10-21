@@ -459,6 +459,32 @@ describe('AppStore CRUD and cache invalidation', () => {
 
     // -- create --------------------------------------------------------
 
+    it.each(['create', 'update'])(
+        'normalizes valid URLs on %s while preserving legacy invalid values',
+        async (operation) => {
+            for (const [input, expected] of [
+                [
+                    'HTTPS://BÜCHER.example:443/Path',
+                    'https://xn--bcher-kva.example/Path',
+                ],
+                ['not a url', 'not a url'],
+            ]) {
+                const app =
+                    operation === 'create'
+                        ? await createApp({ index_url: input })
+                        : await appStore.update((await createApp()).id, {
+                              index_url: input,
+                          });
+                expect(app.index_url).toBe(expected);
+                const [stored] = await db.pread(
+                    'SELECT index_url FROM apps WHERE id = ?',
+                    [app.id],
+                );
+                expect(stored.index_url).toBe(expected);
+            }
+        },
+    );
+
     it('creates an app with an `app-` prefixed uid and the caller-supplied owner', async () => {
         const app = await createApp({ title: 'Created' });
 

@@ -9,7 +9,6 @@
  *     | 'data'
  *     | 'error'
  *     | 'close'
- *     | 'drain'
  *     | 'tlsdata'
  *     | 'tlsopen'
  *     | 'tlsclose'} SocketEvent
@@ -21,8 +20,8 @@
  * restrictions.
  *
  * @typedef {Object} Networking
- * @property {() => Promise<string>} generateWispV1URL Mints a relay URL (server plus single-use
- * token) for speaking the Wisp v1 protocol directly.
+ * @property {() => Promise<string>} generateWispV1URL Mints a relay URL (server plus a token valid
+ * for 24 hours) for speaking the Wisp v1 protocol directly.
  * @property {typeof import('./PSocket.js').PSocket} Socket Constructor for a raw TCP `Socket`.
  * @property {{ TLSSocket: typeof import('./PTLS.js').PTLSSocket }} tls Constructor for a
  * TLS-protected `TLSSocket`.

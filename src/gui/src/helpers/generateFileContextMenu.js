@@ -26,6 +26,7 @@ import UIWindowPublishWorker from '../UI/UIWindowPublishWorker.js';
 import UIWindowShare from '../UI/UIWindowShare.js';
 import publish_as_website from './publishAsWebsite.js';
 import open_item from './openItem.js';
+import openWithAI from './openWithAI.js';
 import launch_app from './launchApp.js';
 import path from '../lib/path.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from './weblink.js';
@@ -96,13 +97,18 @@ const generate_file_context_menu = async function (options) {
                 }
             },
         });
+    }
 
-        // -------------------------------------------
-        // Separator
-        // -------------------------------------------
-        if ( options.associated_app_name || is_trash ) {
-            menu_items.push('-');
-        }
+    // -------------------------------------------
+    // Open with AI
+    // -------------------------------------------
+    if ( !is_trashed && !is_trash ) {
+        menu_items.push({
+            html: i18n('open_with_ai'),
+            onClick: () => {
+                openWithAI(el_item);
+            },
+        });
     }
 
     // -------------------------------------------
@@ -114,7 +120,12 @@ const generate_file_context_menu = async function (options) {
             html: i18n('open_with'),
             items: openWithItems,
         });
+    }
 
+    // -------------------------------------------
+    // Separator
+    // -------------------------------------------
+    if ( ! is_trashed ) {
         menu_items.push('-');
     }
 

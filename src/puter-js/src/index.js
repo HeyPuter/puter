@@ -801,7 +801,7 @@ export class Puter {
         /** @type {import('./modules/networking/types.js').Networking} */
         this.net = {
             /**
-             * Mints a relay URL (server + single-use token) for speaking
+             * Mints a relay URL (server + 24-hour token) for speaking
              * the Wisp v1 protocol directly, which is what the sockets
              * below do for you.
              *

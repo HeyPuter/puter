@@ -175,6 +175,12 @@ const isNoSuchKeyError = (err: unknown): boolean => {
     return e.name === 'NoSuchKey' || e.Code === 'NoSuchKey';
 };
 
+const isInvalidRangeError = (err: unknown): boolean => {
+    if (!err || typeof err !== 'object') return false;
+    const e = err as { name?: unknown; Code?: unknown };
+    return e.name === 'InvalidRange' || e.Code === 'InvalidRange';
+};
+
 /** Also recorded as the failure reason on a session refused for it. */
 const UPLOAD_NOT_RECEIVED = 'Upload content was not received';
 const uploadNotReceivedError = (): HttpError =>
@@ -3886,6 +3892,13 @@ export class FSService extends PuterService {
                     },
                 });
             }
+            // Range starts at or past the end of the object.
+            if (isInvalidRangeError(err)) {
+                throw new HttpError(416, 'Requested range not satisfiable', {
+                    legacyCode: 'bad_request',
+                    cause: err,
+                });
+            }
             throw err;
         }
     }
@@ -4939,9 +4952,14 @@ export class FSService extends PuterService {
         }
 
         // Authorized without write there, so a collision must not answer.
+        const actor = Context.get('actor') as Actor | undefined;
         const intoSomeoneElsesTrash =
             isOwnersTrash(source, destinationParent) &&
             destinationParent.userId !== userId;
+        const intoRestrictedTrash =
+            isOwnersTrash(source, destinationParent) &&
+            (intoSomeoneElsesTrash ||
+                (actor !== undefined && !isAccountContext(actor)));
 
         let name = input.newName ?? source.name;
         this.#assertUsableName(name);
@@ -4973,7 +4991,7 @@ export class FSService extends PuterService {
                 destinationParent,
                 name,
                 input,
-                { intoSomeoneElsesTrash },
+                { intoRestrictedTrash },
             );
         }
 
@@ -5025,7 +5043,7 @@ export class FSService extends PuterService {
                     destinationParent,
                     name,
                     input,
-                    { intoSomeoneElsesTrash },
+                    { intoRestrictedTrash },
                 );
             }
             updated = await applyMove(name);
@@ -5087,10 +5105,10 @@ export class FSService extends PuterService {
         destinationParent: FSEntry,
         name: string,
         input: { overwrite?: boolean; dedupeName?: boolean },
-        opts: { intoSomeoneElsesTrash?: boolean } = {},
+        opts: { intoRestrictedTrash?: boolean } = {},
     ): Promise<string> {
         // Ahead of `overwrite`: no write here, so a collision destroys nothing.
-        if (opts.intoSomeoneElsesTrash) {
+        if (opts.intoRestrictedTrash) {
             return this.#findDedupedName(destinationParent, name);
         }
         if (input.overwrite) {

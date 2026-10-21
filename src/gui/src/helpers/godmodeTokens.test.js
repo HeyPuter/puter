@@ -218,6 +218,62 @@ describe('renewGodmodeToken', () => {
         expect(reusableGodmodeToken('app-1')).toBeNull();
     });
 
+    it.each([0, 60 * 1000])('rejects a navigated frame before token delivery or mint after %s ms', async (age) => {
+        const fetchImpl = reply(200, {
+            token: jwt('t2'), godmode: true, expires_at: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+        });
+        vi.stubGlobal('fetch', fetchImpl);
+        await mintGodmodeToken('app-1', deps(reply(200, {
+            token: jwt('t1'), godmode: true, expires_at: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+        })));
+        trackGodmodeToken('instance-navigated', 'app-1', jwt('t1'), 0, Date.now() - age);
+
+        expect(await renewGodmodeToken('instance-navigated', { origin: 'https://untrusted.test' })).toBe(false);
+        expect(fetchImpl).not.toHaveBeenCalled();
+        expect(postMessage).not.toHaveBeenCalled();
+        expect(reusableGodmodeToken('app-1')).not.toBeNull();
+    });
+
+    it('keeps the launch origin even if the iframe src attribute changes', async () => {
+        trackGodmodeToken('instance-src', 'app-1', jwt('t1'), 0);
+        window.iframe_for_app_instance = () => ({ src: 'https://untrusted.test/', contentWindow: { postMessage } });
+        expect(await renewGodmodeToken('instance-src', { origin: 'https://untrusted.test' })).toBe(false);
+        expect(postMessage).not.toHaveBeenCalled();
+        expect(await renewGodmodeToken('instance-src')).toBe(true);
+        expect(postMessage).toHaveBeenCalledWith({ msg: 'puter.token', token: jwt('t1') }, 'https://app.test');
+    });
+
+    it.each(['null', '', 'file://', 'https://app.test.evil'])('rejects an invalid or different request origin %s', async (origin) => {
+        trackGodmodeToken('instance-invalid', 'app-1', jwt('t1'), 0);
+        expect(await renewGodmodeToken('instance-invalid', { origin })).toBe(false);
+        expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    it.each(['null', 'file://', 'invalid'])('does not track a launch without a usable origin %s', async (origin) => {
+        trackGodmodeToken('instance-untracked', 'app-1', jwt('t1'), 0, Date.now(), origin);
+        expect(await renewGodmodeToken('instance-untracked')).toBe(false);
+        expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    it('pins an explicit launch origin before the iframe exists', async () => {
+        window.iframe_for_app_instance = () => null;
+        trackGodmodeToken('instance-launch', 'app-1', jwt('t1'), 0, Date.now(), 'https://launch.test');
+        window.iframe_for_app_instance = () => ({ src: 'https://launch.test/path', contentWindow: { postMessage } });
+        expect(await renewGodmodeToken('instance-launch', { origin: 'https://launch.test' })).toBe(true);
+        expect(postMessage).toHaveBeenCalledWith({ msg: 'puter.token', token: jwt('t1') }, 'https://launch.test');
+    });
+
+    it.each([
+        ['https://launch.test/path?value=1', 'https://launch.test'],
+        ['chrome-extension://extension-id/page.html', 'chrome-extension://extension-id'],
+    ])('pins the origin of a resolved launch URL %s', async (launchUrl, origin) => {
+        window.iframe_for_app_instance = () => null;
+        trackGodmodeToken('instance-resolved', 'app-1', jwt('t1'), 0, Date.now(), launchUrl);
+        window.iframe_for_app_instance = () => ({ src: launchUrl, contentWindow: { postMessage } });
+        expect(await renewGodmodeToken('instance-resolved', { origin })).toBe(true);
+        expect(postMessage).toHaveBeenCalledWith({ msg: 'puter.token', token: jwt('t1') }, origin);
+    });
+
     it('mints afresh for a reused token whose mint is past the cooldown', async () => {
         const fetchImpl = reply(200, {
             token: jwt('t2'),
