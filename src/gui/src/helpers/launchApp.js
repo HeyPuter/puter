@@ -522,7 +522,10 @@ const launch_app = async (options) => {
                 ?? await mintGodmodeToken(launch_app_uid);
             if ( godmode_token.ok ) {
                 launch_token = godmode_token.token;
-                trackGodmodeToken(uuid, launch_app_uid, godmode_token.token, godmode_token.expiresAt, godmode_token.mintedAt);
+                trackGodmodeToken(
+                    uuid, launch_app_uid, godmode_token.token,
+                    godmode_token.expiresAt, godmode_token.mintedAt, iframe_url.href,
+                );
             } else {
                 tokenResult = { token: null, reason: 'godmode-token-request-failed', ...godmode_token };
             }

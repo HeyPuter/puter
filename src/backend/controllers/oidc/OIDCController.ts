@@ -24,6 +24,12 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
 import { startWebSession } from '../auth/webSession.js';
+import {
+    completeOidcLoginReturn,
+    mintOidcPopupReturn,
+    OIDC_POPUP_RETURN_COOKIE_NAME,
+    type OidcLoginContinuation,
+} from '../auth/oidcLoginReturn.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { normalizeBonusCode } from '../../util/signupBonus.js';
@@ -42,11 +48,6 @@ const REVALIDATION_EXPIRY_SEC = 300;
 // browser-binding cookie must expire together.
 const OIDC_NONCE_COOKIE_NAME = 'puter_oidc_nonce';
 const OIDC_NONCE_EXPIRY_SEC = 600;
-
-// Single-use, and binds a popup-return proof to the browser that earned it.
-// Expiry mirrors POPUP_RETURN_EXPIRY_SEC in OIDCService.
-const OIDC_POPUP_RETURN_COOKIE_NAME = 'puter_oidc_popup_return';
-const OIDC_POPUP_RETURN_EXPIRY_SEC = 300;
 
 // The popup branch below hard-codes this return target.
 const POPUP_RETURN_ACTION = 'sign-in';
@@ -282,11 +283,6 @@ function buildErrorRedirectUrl(
         params.set(SHARE_RECIPIENT_PARAM, shareRecipientUuid);
     }
     return `${base}${pagePath}?${params.toString()}`;
-}
-
-function appendQueryParam(url: string, key: string, value: string): string {
-    const sep = url.includes('?') ? '&' : '?';
-    return `${url}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
 }
 
 /** Length-safe constant-time string compare (never throws on mismatch). */
@@ -803,18 +799,9 @@ if (window.opener) {
 
     /** Sign a popup-return proof, bound to this browser and this popup. */
     #mintPopupReturn(res: Response, payload: Record<string, unknown>): string {
-        const nonce = crypto.randomBytes(32).toString('base64url');
-        res.cookie(OIDC_POPUP_RETURN_COOKIE_NAME, nonce, {
-            // Redeemed same-origin.
-            ...sessionCookieFlags(this.config, { crossSite: false }),
-            httpOnly: true,
-            maxAge: OIDC_POPUP_RETURN_EXPIRY_SEC * 1000,
-            path: '/',
-        });
-        return this.services.oidc.signPopupReturn({
-            action: POPUP_RETURN_ACTION,
-            ...payload,
-            nonce,
+        return mintOidcPopupReturn(res, payload, {
+            config: this.config,
+            oidc: this.services.oidc,
         });
     }
 
@@ -1012,49 +999,71 @@ if (window.opener) {
         stateDecoded: Record<string, unknown>,
         extraQueryParams?: Record<string, string>,
     ): Promise<void> {
+        const origin = (this.config.origin ?? '').replace(/\/$/, '');
+        const continuation: OidcLoginContinuation = {
+            userUuid: user.uuid,
+            redirectUri:
+                typeof stateDecoded.redirect_uri === 'string'
+                    ? stateDecoded.redirect_uri
+                    : origin || '/',
+            embeddedInPopup: stateDecoded.embedded_in_popup === true,
+            openerOrigin:
+                typeof stateDecoded.opener_origin === 'string'
+                    ? stateDecoded.opener_origin
+                    : null,
+            messageId:
+                stateDecoded.msg_id == null
+                    ? null
+                    : String(stateDecoded.msg_id),
+            switchedToLogin: extraQueryParams?.oidc_switched === 'login',
+        };
+        if (user.otp_enabled) {
+            const challenge = this.services.token.sign(
+                'otp',
+                {
+                    purpose: 'otp-login',
+                    user_uid: user.uuid,
+                    jti: crypto.randomUUID(),
+                    oidcContinuation: continuation,
+                },
+                { expiresIn: '5m' },
+            );
+            res.set('Cache-Control', 'no-store');
+            res.set('Referrer-Policy', 'no-referrer');
+            let retryUrl = `${origin}/action/login`;
+            if (continuation.embeddedInPopup) {
+                const retry = new URL(
+                    buildErrorRedirectUrl(
+                        origin,
+                        'login',
+                        'other',
+                        'unauthorized',
+                        stateDecoded,
+                        undefined,
+                        (payload) => this.#mintPopupReturn(res, payload),
+                    ),
+                );
+                retry.searchParams.delete('auth_error');
+                retry.searchParams.delete('message');
+                retryUrl = retry.href;
+            }
+            const fragment = new URLSearchParams({
+                token: challenge,
+                retryUrl,
+            });
+            res.redirect(302, `${origin}/action/oidc-2fa#${fragment}`);
+            return;
+        }
         await startWebSession(req, res, user, {
             config: this.config,
             auth: this.services.auth,
         });
-
-        const origin = (this.config.origin ?? '').replace(/\/$/, '');
-        let target = (stateDecoded.redirect_uri as string) || origin || '/';
-        if (!isSameOrigin(target, origin)) {
-            target = origin || '/';
-        }
-
-        if (stateDecoded.embedded_in_popup) {
-            target = appendQueryParam(target, 'oidc_login', 'true');
-            // `opener_origin` and `oidc_login` reach the popup as bare query
-            // parameters, which say nothing about where they came from: the
-            // URL a verified state produces is byte-identical to one anybody
-            // can type. The popup treats the opener's origin as the app
-            // identity to mint a token for, so it needs the integrity this
-            // state already carries — re-signed here, at the one point where
-            // the round trip is known to have actually happened.
-            //
-            // `user_uuid` binds the proof to the account that just completed
-            // OIDC. Without it a proof from one login could be replayed in
-            // another signed-in browser to skip its account picker; the popup
-            // only honors `oidc_login` when this matches its current user.
-            target = appendQueryParam(
-                target,
-                'opener_state',
-                this.#mintPopupReturn(res, {
-                    opener_origin: stateDecoded.opener_origin ?? null,
-                    msg_id: stateDecoded.msg_id ?? null,
-                    oidc_login: true,
-                    user_uuid: user.uuid,
-                }),
-            );
-        }
-
-        if (extraQueryParams) {
-            for (const [k, v] of Object.entries(extraQueryParams)) {
-                if (v != null) target = appendQueryParam(target, k, v);
-            }
-        }
-
-        res.redirect(302, target);
+        res.redirect(
+            302,
+            completeOidcLoginReturn(res, user, continuation, {
+                config: this.config,
+                oidc: this.services.oidc,
+            }),
+        );
     }
 }

@@ -26,7 +26,8 @@ import { PuterServer } from '../../../server';
 import { HOSTED_ASSET_COOKIES } from '../../../services/auth/AuthService';
 import { setupTestServer } from '../../../testUtil';
 import type { IConfig } from '../../../types';
-import type { Actor } from '../../actor';
+import { makeActor, type Actor } from '../../actor';
+import { runWithContext } from '../../context';
 import { generateDefaultFsentries } from '../../../util/userProvisioning';
 import { createPuterSiteMiddleware } from './puterSite';
 
@@ -1850,6 +1851,223 @@ describe('createPuterSiteMiddleware — delegated site roots', () => {
         expect((await serveSite(sub)).statusCode).toBe(404);
     });
 
+    it.each(['write', 'manage'])(
+        'revalidates app-created sites with %s grants',
+        async (mode) => {
+            const owner = await makeUserWithHome();
+            const app = await server.stores.app.create(
+                {
+                    name: `publisher-${uuidv4()}`,
+                    title: 'Publisher',
+                    index_url: 'https://publisher.example.test/',
+                },
+                { ownerUserId: owner.id },
+            );
+            const root = (await server.stores.fsEntry.getEntryByPath(
+                `/${owner.username}/Documents`,
+            ))!;
+            const permission =
+                mode === 'manage'
+                    ? `manage:fs:${root.uuid}`
+                    : `fs:${root.uuid}:write`;
+            await server.services.permission.grantUserAppPermission(
+                actorFor(owner),
+                app.uid,
+                permission,
+            );
+            const sub = `app-${Math.random().toString(36).slice(2, 10)}`;
+            // Stored rows include publications made before the current authority check.
+            await server.stores.subdomain.create({
+                userId: owner.id,
+                subdomain: sub,
+                rootDirId: root.id,
+                appOwner: app.id,
+            });
+            await writeFile(
+                owner.id,
+                `${root.path}/index.html`,
+                Buffer.from('private initial'),
+                'text/html',
+            );
+            expect((await serveSite(sub)).statusCode).toBe(
+                mode === 'manage' ? 200 : 404,
+            );
+            await server.services.permission.revokeUserAppPermission(
+                actorFor(owner),
+                app.uid,
+                permission,
+            );
+            await server.services.fs.write(owner.id, {
+                fileMetadata: {
+                    path: `${root.path}/index.html`,
+                    overwrite: true,
+                    size: 14,
+                    contentType: 'text/html',
+                },
+                fileContent: Buffer.from('private future'),
+            });
+            const out = await serveSite(sub);
+            expect(out.statusCode).toBe(404);
+            expect(String(out.body)).not.toContain('private future');
+        },
+    );
+
+    it.each(['session', 'fullAccess', 'scoped'])(
+        'root changes preserve publication authority for %s',
+        async (mode) => {
+            const owner = await makeUserWithHome();
+            const userActor = makeActor({ user: owner });
+            const actor =
+                mode === 'session'
+                    ? userActor
+                    : makeActor({
+                          user: owner,
+                          accessToken: {
+                              uid: uuidv4(),
+                              issuer: userActor,
+                              fullAccess: mode === 'fullAccess',
+                          },
+                      });
+            const app = await server.stores.app.create(
+                {
+                    name: `takeover-${uuidv4()}`,
+                    title: 'Publisher',
+                    index_url: 'https://publisher.example.test/',
+                },
+                { ownerUserId: owner.id },
+            );
+            const appActor = makeActor({
+                user: owner,
+                app: { id: app.id, uid: app.uid },
+            });
+            const root = await server.services.fs.mkdir(owner.id, {
+                path: `/${owner.username}/AppData/${app.uid}`,
+                createMissingParents: true,
+            });
+            const sub = `takeover-${Math.random().toString(36).slice(2, 10)}`;
+            const site = await server.stores.subdomain.create({
+                userId: owner.id,
+                subdomain: sub,
+                rootDirId: root.id,
+                appOwner: app.id,
+            });
+            await runWithContext({ actor }, () =>
+                server.drivers.subdomains.update({
+                    uid: site.uuid,
+                    object: { root_dir: root.path },
+                }),
+            );
+            expect(
+                (await server.stores.subdomain.getByUuid(site.uuid))!.app_owner,
+            ).toBe(app.id);
+            await runWithContext({ actor }, () =>
+                server.drivers.subdomains.update({
+                    uid: site.uuid,
+                    object: {},
+                }),
+            );
+            expect(
+                (await server.stores.subdomain.getByUuid(site.uuid))!.app_owner,
+            ).toBe(app.id);
+            const newRoot = `/${owner.username}/Documents`;
+            if (mode === 'scoped') {
+                const entry =
+                    (await server.stores.fsEntry.getEntryByPath(newRoot))!;
+                await server.stores.permission.insertAccessTokenPerms(
+                    actor.accessToken!.uid,
+                    { userId: owner.id, appId: null },
+                    [{ permission: `manage:fs:${entry.uuid}` }],
+                );
+            }
+            await writeFile(
+                owner.id,
+                `${newRoot}/index.html`,
+                Buffer.from('account publication'),
+                'text/html',
+            );
+            await runWithContext({ actor }, () =>
+                server.drivers.subdomains.update({
+                    uid: site.uuid,
+                    object: { root_dir: newRoot },
+                }),
+            );
+            expect((await serveSite(sub)).statusCode).toBe(200);
+            expect(
+                (await server.stores.subdomain.getByUuid(site.uuid))!.app_owner,
+            ).toBeNull();
+            await expect(
+                runWithContext({ actor: appActor }, () =>
+                    server.drivers.subdomains.update({
+                        uid: site.uuid,
+                        object: { root_dir: root.path },
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        },
+    );
+
+    it.each([false, true])(
+        'serves own AppData without grant queries (hosted app matches creator: %s)',
+        async (hostedApp) => {
+            const owner = await makeUserWithHome();
+            const sub = `appdata-${Math.random().toString(36).slice(2, 10)}`;
+            const app = await server.stores.app.create(
+                {
+                    name: `data-${uuidv4()}`,
+                    title: 'Data',
+                    index_url: hostedApp
+                        ? `http://${sub}.site.puter.localhost/`
+                        : 'https://data.example.test/',
+                },
+                { ownerUserId: owner.id },
+            );
+            const root = await server.services.fs.mkdir(owner.id, {
+                path: `/${owner.username}/AppData/${app.uid}`,
+                createMissingParents: true,
+            });
+            await writeFile(
+                owner.id,
+                `${root.path}/index.html`,
+                Buffer.from('app data'),
+                'text/html',
+            );
+            await server.stores.subdomain.create({
+                userId: owner.id,
+                subdomain: sub,
+                rootDirId: root.id,
+                appOwner: app.id,
+            });
+            expect((await serveSite(sub)).statusCode).toBe(200);
+            const read = vi.spyOn(server.clients.db, 'read');
+            const get = vi.spyOn(server.clients.redis, 'get');
+            const acl = vi.spyOn(server.services.acl, 'check');
+            try {
+                const out = await serveSite(sub);
+                expect(out.statusCode).toBe(200);
+                expect(acl).not.toHaveBeenCalled();
+                expect(
+                    get.mock.calls.filter(
+                        ([key]) => key === `apps:id:${app.id}`,
+                    ),
+                ).toHaveLength(hostedApp ? 0 : 1);
+                expect(
+                    read.mock.calls.filter(([query]) => {
+                        const sql = String(query);
+                        return (
+                            /(?:FROM|JOIN)\s+`?permissions`?\b/i.test(sql) ||
+                            (/FROM\s+`apps`/i.test(sql) &&
+                                !sql.includes('index_url'))
+                        );
+                    }),
+                ).toHaveLength(0);
+            } finally {
+                read.mockRestore();
+                get.mockRestore();
+                acl.mockRestore();
+            }
+        },
+    );
+
     it("never consults the ACL for a site rooted in the publisher's own tree", async () => {
         const owner = await makeUserWithHome();
         const homePath = `/${owner.username}`;
@@ -1869,12 +2087,19 @@ describe('createPuterSiteMiddleware — delegated site roots', () => {
         });
 
         const aclCheck = vi.spyOn(server.services.acl, 'check');
+        const redisGet = vi.spyOn(server.clients.redis, 'get');
         try {
             const out = await serveSite(sub);
             expect(out.statusCode).toBe(200);
             expect(aclCheck).not.toHaveBeenCalled();
+            expect(
+                redisGet.mock.calls.filter(([key]) =>
+                    String(key).startsWith('apps:id:'),
+                ),
+            ).toHaveLength(0);
         } finally {
             aclCheck.mockRestore();
+            redisGet.mockRestore();
         }
     });
 });

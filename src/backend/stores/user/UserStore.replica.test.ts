@@ -76,6 +76,35 @@ describe('user row updates re-cached from a lagging replica', () => {
         };
     };
 
+    it.each([true, false])(
+        'uses current two-factor state %s while a replica lags',
+        async (enabled) => {
+            const username = `otp_${tag()}`;
+            const password = 'otp-replica-password';
+            const { user } = await establishedUser(username, password);
+            await env.server.stores.user.update(user.id, {
+                otp_enabled: !enabled,
+                otp_secret: 'TESTSECRETBASE32',
+            });
+            const before = await rawRow(user.id);
+            await env.server.stores.user.update(user.id, {
+                otp_enabled: enabled,
+            });
+            const replica = lagReplica(before);
+            let response: Response;
+            try {
+                response = await login(username, password, 'otp-replica-test');
+            } finally {
+                replica.catchUp();
+            }
+            expect(response.status).toBe(enabled ? 202 : 200);
+            expect((await response.json()).next_step).toBe(
+                enabled ? 'otp' : 'complete',
+            );
+            expect(replica.served()).toBe(0);
+        },
+    );
+
     it('rejects the old password after a reset while a replica lags', async () => {
         const username = `rs_${tag()}`;
         const oldPassword = 'old-password-1';
