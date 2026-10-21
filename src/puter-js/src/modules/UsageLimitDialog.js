@@ -1,19 +1,43 @@
 import { escapeHtml } from '../lib/html.js';
 
-/** @typedef {{ title?: string, method?: string }} UsageLimitDialogOptions */
+/**
+ * @typedef {Object} UsageLimitDialogOptions
+ * @property {string} [title] Replaces the default heading.
+ * @property {string} [method] The SDK call that was refused.
+ * @property {string} [reason] Which upgrade the refusal asks for.
+ * @property {string} [appID] The app the refused call ran as.
+ */
+
+const UPGRADE_PAGE = 'https://puter.com/dashboard/';
+
+/**
+ * The dashboard page the upgrade button opens. It carries what was refused,
+ * so the dashboard can open its upgrade flow with that context.
+ *
+ * @param {Pick<UsageLimitDialogOptions, 'reason' | 'appID' | 'method'>} [context]
+ * @returns {string}
+ */
+export const upgradeUrl = ({ reason, appID, method } = {}) => {
+    const url = new URL(UPGRADE_PAGE);
+    if ( reason ) url.searchParams.set('upgrade', reason);
+    if ( appID ) url.searchParams.set('upgrade_app', appID);
+    if ( method ) url.searchParams.set('upgrade_method', method);
+    url.hash = 'home';
+    return url.href;
+};
 
 class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
     /**
      * @param {string} message Plain-text line saying what was refused.
-     * @param {UsageLimitDialogOptions} [options] `title` replaces the default
-     *   heading; `method` names the SDK call that was refused.
+     * @param {UsageLimitDialogOptions} [options]
      */
-    constructor (message, { title = 'Low Balance', method } = {}) {
+    constructor (message, { title = 'Low Balance', method, reason, appID } = {}) {
         super();
         this.message = message || 'You have reached your usage limit for this account.';
         // Not `this.title`: on an HTMLElement that is the tooltip attribute.
         this.heading = title;
         this.method = method;
+        this.upgradeUrl = upgradeUrl({ reason, appID, method });
 
         this.attachShadow({ mode: 'open' });
 
@@ -246,7 +270,7 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
         });
 
         this.shadowRoot.querySelector('#upgrade-btn').addEventListener('click', () => {
-            window.open('https://puter.com/dashboard/#home', '_blank');
+            window.open(this.upgradeUrl, '_blank');
             this.close();
         });
 
