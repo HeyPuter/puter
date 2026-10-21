@@ -29,6 +29,7 @@ import {
     createNativeAppStatic,
     createUserSubdomainNotFound,
     createWwwRedirect,
+    subdomainLabelOf,
     type ResolvedClaim,
     type SubdomainClaim,
 } from './hostRedirects';
@@ -673,6 +674,32 @@ describe('createUserSubdomainNotFound with claimed subdomains', () => {
         claims.late = { authorize: allow, handler };
         await runClaimed(middleware, hostReq('late.puter.com', ['late']));
         expect(handler).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('subdomainLabelOf', () => {
+    it('returns the single label under the domain, ignoring case and port', () => {
+        expect(subdomainLabelOf('shop.puter.com', 'puter.com')).toBe('shop');
+        expect(subdomainLabelOf('SHOP.Puter.com:4100', 'puter.com')).toBe(
+            'shop',
+        );
+        expect(subdomainLabelOf('shop.puter.com', 'Puter.com:443')).toBe(
+            'shop',
+        );
+    });
+
+    it('returns undefined for anything but exactly one label under the domain', () => {
+        for (const host of [
+            'puter.com',
+            '.puter.com',
+            'a.shop.puter.com',
+            'shop.puter.com.example.test',
+            'shopputer.com',
+            'shop.other.com',
+        ]) {
+            expect(subdomainLabelOf(host, 'puter.com')).toBeUndefined();
+        }
+        expect(subdomainLabelOf('shop.puter.com', '')).toBeUndefined();
     });
 });
 
