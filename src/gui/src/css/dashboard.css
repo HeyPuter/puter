@@ -5431,17 +5431,24 @@ body.myapps-reordering .myapps-tile {
         margin-left: 50px;
     }
 
-    /* Adjust footer position - full width since sidebar is hidden */
+    /* Adjust footer position - full width since sidebar is hidden. It sits
+       on the bottom edge, so it grows to keep its text above the home
+       indicator; the list and the action bar move up with it. */
     .dashboard-section-files .files-footer {
         left: 0;
-        padding: 0;
+        padding: 0 0 env(safe-area-inset-bottom, 0px);
+        height: calc(30px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .dashboard-section-files .files {
+        padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
     }
 
     /* Mobile: Floating selection actions - icon-only, full width */
     .dashboard-section-files .files-selection-actions {
         left: 0;
         right: 0;
-        bottom: 38px;
+        bottom: calc(38px + env(safe-area-inset-bottom, 0px));
         transform: translateX(0) translateY(100px);
         border-radius: 0;
         justify-content: center;
@@ -5454,7 +5461,7 @@ body.myapps-reordering .myapps-tile {
 
     /* Room to scroll the last rows above the bar (38px up, ~64px tall) */
     .dashboard-section-files .files-tab.select-mode-active .files {
-        padding-bottom: 110px;
+        padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px));
     }
 
     .dashboard-section-files .selection-action-btn span {
