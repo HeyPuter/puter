@@ -40,6 +40,7 @@ import {
 } from '../../services/metering/consts.js';
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import { PuterDriver } from '../types.js';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { awaitLater } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { loadFileInput } from '../util/fileInput.js';
@@ -91,6 +92,58 @@ export const INTERNAL_ADMISSION_BYPASS = Symbol(
  * is choosing what a deploy overwrites, and that has to stay in-process.
  */
 export const INTERNAL_DEPLOY_TARGET = Symbol('workers.internalDeployTarget');
+
+/** Operator teardown key; a symbol keeps it off the `/drivers/call` surface. */
+export const INTERNAL_ADMIN_DESTROY = Symbol('workers.internalAdminDestroy');
+
+/** What the operator teardown reports back, for the caller's audit trail. */
+export interface AdminDestroyResult {
+    subdomain: string;
+    userId: number;
+    workerName: string;
+}
+
+/** The edge refused a script delete: neither success nor "no such script". */
+export class WorkerTakedownRefusedError extends Error {
+    constructor(
+        readonly status: number,
+        readonly detail: string | undefined,
+    ) {
+        super(
+            `Cloudflare refused the script delete (status ${status})${
+                detail ? `: ${detail}` : ''
+            }`,
+        );
+        this.name = 'WorkerTakedownRefusedError';
+    }
+}
+
+const CF_DELETE_TIMEOUT_MS = 15_000;
+// Cloudflare Workers API code 10007: Worker or workers.dev subdomain not found.
+const CF_SCRIPT_NOT_FOUND_CODE = 10007;
+
+// What `fetch` rejects with when the edge never answered: timeout, transport.
+const isEdgeTransportError = (err: unknown): boolean =>
+    err instanceof TypeError ||
+    (err instanceof Error &&
+        (err.name === 'TimeoutError' || err.name === 'AbortError'));
+
+const withDeadline = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(
+            () =>
+                reject(
+                    new DOMException(
+                        'The operation was aborted due to timeout',
+                        'TimeoutError',
+                    ),
+                ),
+            ms,
+        );
+    });
+    return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+};
 
 export interface InternalDeployTarget {
     /** Script name to deploy under, in place of `workerName`. */
@@ -289,6 +342,11 @@ export class WorkerDriver extends PuterDriver {
 
     #cfBaseUrl = '';
     #hotReloadSubscribed = false;
+    // Row uids this process tore down itself; its own announcement skips them.
+    #tornDown = new BoundedTtlMap<string, true>({
+        maxEntries: 1000,
+        ttlMs: 30_000,
+    });
 
     static currentPreambleVersion(): string | null {
         return preambleVersion;
@@ -568,6 +626,7 @@ export class WorkerDriver extends PuterDriver {
         return cfResult;
     }
 
+    /** Tear down the caller's worker; a refused edge delete is a 502. */
     async destroy(args: Record<string, unknown>): Promise<unknown> {
         const actor = requireContextUserActor();
         assertActorEmailVerified(actor, this.config);
@@ -595,12 +654,60 @@ export class WorkerDriver extends PuterDriver {
 
         this.#requireCfConfig();
 
-        const cfResult = await this.#cfDelete(workerName);
-        await this.stores.subdomain.deleteByUuid(row.uuid, {
-            userId: actor.user.id,
-        });
+        await this.#teardown(row, { userId: actor.user.id });
+        // Stable regardless of the edge body: puter.js needs `result` truthy.
+        return {
+            success: true,
+            errors: [],
+            messages: [],
+            result: { id: workerName },
+        };
+    }
+
+    /** Operator teardown by row uuid: no actor, no ownership check. */
+    async [INTERNAL_ADMIN_DESTROY](input: {
+        uuid: string;
+    }): Promise<AdminDestroyResult> {
+        const uuid = String(input?.uuid ?? '');
+        const row = uuid
+            ? await this.stores.subdomain.getByUuid(uuid, { primary: true })
+            : null;
+        const subdomain = String(row?.subdomain ?? '');
+        if (!row || !subdomain.startsWith(WORKER_SUBDOMAIN_PREFIX))
+            throw new HttpError(404, 'Worker not found', {
+                legacyCode: 'not_found',
+            });
+
+        this.#requireCfConfig();
+
+        await this.#teardown(row);
+        return {
+            subdomain,
+            userId: Number(row.user_id),
+            workerName: subdomain.slice(WORKER_SUBDOMAIN_PREFIX.length),
+        };
+    }
+
+    /** Script, sessions, then row: a failed step leaves the row for a retry. */
+    async #teardown(
+        row: SubdomainRow,
+        { userId }: { userId?: number } = {},
+    ): Promise<void> {
+        const subdomain = String(row.subdomain);
+        const workerName = subdomain.slice(WORKER_SUBDOMAIN_PREFIX.length);
+        await this.#takeDownScript(workerName);
         await this.services.auth.deleteWorkerSessionsByName(workerName);
-        return cfResult;
+        await this.stores.subdomain.deleteByUuid(row.uuid, { userId });
+        this.#tornDown.set(row.uuid, true);
+        try {
+            this.clients.event.emit(
+                'subdomain.delete',
+                { subdomain, uid: row.uuid },
+                {},
+            );
+        } catch {
+            // Non-critical.
+        }
     }
 
     async getFilePaths(args: Record<string, unknown>): Promise<unknown> {
@@ -858,16 +965,70 @@ export class WorkerDriver extends PuterDriver {
         return { success: false, errors, url: null };
     }
 
+    /** Edge delete: success or code 10007 resolves, anything else refuses. */
     async #cfDelete(workerName: string): Promise<Record<string, unknown>> {
         if (USE_LOCAL_WORKERD) {
-            return this.services.localworkerservice.cfDeleteLocal(workerName);
+            return withDeadline(
+                this.services.localworkerservice.cfDeleteLocal(workerName),
+                CF_DELETE_TIMEOUT_MS,
+            );
         }
         const cfg = this.#workerConfig();
         const res = await fetch(`${this.#cfBaseUrl}/scripts/${workerName}/`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${cfg.XAUTHKEY}` },
+            signal: AbortSignal.timeout(CF_DELETE_TIMEOUT_MS),
         });
-        return (await res.json()) as Record<string, unknown>;
+        let json: {
+            success?: unknown;
+            errors?: Array<{ code?: unknown; message?: unknown }>;
+        } = {};
+        try {
+            json = (await res.json()) ?? {};
+        } catch {
+            // No usable body; the status decides.
+        }
+        if (res.ok && json.success !== false) return json;
+        const errors = Array.isArray(json.errors) ? json.errors : [];
+        if (errors.some((e) => Number(e?.code) === CF_SCRIPT_NOT_FOUND_CODE))
+            return { success: true, errors: [], result: null };
+        const first = errors[0]?.message;
+        throw new WorkerTakedownRefusedError(
+            res.status,
+            typeof first === 'string' ? first : undefined,
+        );
+    }
+
+    /** Refusal is 502, timeout or transport 504; edge text is only logged. */
+    async #takeDownScript(workerName: string): Promise<void> {
+        try {
+            await this.#cfDelete(workerName);
+        } catch (err) {
+            if (err instanceof WorkerTakedownRefusedError) {
+                console.warn(
+                    `[workers] edge refused delete of ${workerName}: ${err.message}`,
+                );
+                throw new HttpError(
+                    502,
+                    'Cloudflare refused to remove the script; nothing was deleted.',
+                    {
+                        legacyCode: 'worker_takedown_failed',
+                        cause: err,
+                        fields: { status: err.status },
+                    },
+                );
+            }
+            if (!isEdgeTransportError(err)) throw err;
+            console.warn(
+                `[workers] edge delete of ${workerName} did not complete`,
+                err,
+            );
+            throw new HttpError(
+                504,
+                'The script delete did not complete; the worker is kept and a retry finishes it.',
+                { legacyCode: 'worker_takedown_timeout', cause: err },
+            );
+        }
     }
 
     // -- Helpers ------------------------------------------------------
@@ -1093,9 +1254,15 @@ export class WorkerDriver extends PuterDriver {
         // owner's account) still has a deployed script to take down.
         this.clients.event.on(
             'subdomain.delete',
-            (_key: string, data: { subdomain?: unknown }) => {
+            (_key: string, data: { subdomain?: unknown; uid?: unknown }) => {
                 const subdomain = String(data?.subdomain ?? '');
                 if (!subdomain.startsWith(WORKER_SUBDOMAIN_PREFIX)) return;
+                // Its own announcement: that row is already fully torn down.
+                const uid = String(data?.uid ?? '');
+                if (uid && this.#tornDown.has(uid)) {
+                    this.#tornDown.delete(uid);
+                    return;
+                }
                 const workerName = subdomain.slice(
                     WORKER_SUBDOMAIN_PREFIX.length,
                 );

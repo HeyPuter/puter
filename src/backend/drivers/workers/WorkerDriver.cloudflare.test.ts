@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+
 /**
  * WorkerDriver with a deploy backend configured.
  *
@@ -47,7 +48,9 @@ import { PuterServer } from '../../server.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { resolveCallableMethods } from '../meta.js';
 import {
+    INTERNAL_ADMIN_DESTROY,
     INTERNAL_ADMISSION_BYPASS,
     type WorkerDriver,
 } from './WorkerDriver.js';
@@ -60,8 +63,12 @@ let server: PuterServer;
 let target: WorkerDriver;
 let fetchSpy: MockInstance<typeof fetch>;
 
-const edgeResponse = (body: unknown) =>
-    ({ json: async () => body }) as unknown as Response;
+const edgeResponse = (body: unknown, status = 200) =>
+    ({
+        ok: status >= 200 && status < 300,
+        status,
+        json: async () => body,
+    }) as unknown as Response;
 
 beforeAll(async () => {
     server = await setupTestServer({
@@ -158,6 +165,30 @@ const deleteCalls = () =>
     fetchSpy.mock.calls.filter(
         (call) => (call[1] as RequestInit | undefined)?.method === 'DELETE',
     );
+
+const deployedToken = () => {
+    const [, init] = putCalls().at(-1)!;
+    const form = (init as RequestInit).body as FormData;
+    const metadata = JSON.parse(form.get('metadata') as string);
+    return metadata.bindings.find(
+        (b: { name: string }) => b.name === 'puter_auth',
+    ).text as string;
+};
+
+/** A fresh user with one deployed worker and the token it was deployed with. */
+const deployWorker = async (label: string) => {
+    const { user, actor } = await makeUser();
+    const path = `/${user.username}/${label}.js`;
+    const entry = await writeSource(actor, user.id, path, 'src');
+    const name = `${label}-${user.username}`;
+    await inCtx(actor, () =>
+        target.create({ appId: '', workerName: name, filePath: path }),
+    );
+    return { user, actor, entry, name, token: deployedToken() };
+};
+
+const workerSession = (userId: number, workerName: string) =>
+    server.stores.session.getWorker(userId, { appUid: null, workerName });
 
 // -- create ----------------------------------------------------------
 
@@ -596,17 +627,220 @@ describe('WorkerDriver.destroy with a configured deploy backend', () => {
             target.destroy({ workerName: name }),
         );
 
-        expect(result).toEqual({ success: true });
+        expect(result).toEqual({
+            success: true,
+            errors: [],
+            messages: [],
+            result: { id: name },
+        });
         const [url, init] = deleteCalls()[0]!;
         expect(url).toBe(`${SCRIPTS_BASE}/${name}/`);
         expect((init as RequestInit).headers).toEqual({
             Authorization: `Bearer ${AUTH_KEY}`,
+        });
+        expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
+        expect(
+            await server.stores.subdomain.getBySubdomain(
+                `workers.puter.${name}`,
+            ),
+        ).toBeFalsy();
+    });
+
+    it('reports a refused edge delete as 502 and keeps the row and the worker session', async () => {
+        const { user, actor, name, token } = await deployWorker('refused');
+
+        fetchSpy.mockResolvedValueOnce(
+            edgeResponse(
+                {
+                    success: false,
+                    errors: [{ code: 10000, message: 'Internal error' }],
+                },
+                500,
+            ),
+        );
+        await expect(
+            inCtx(actor, () => target.destroy({ workerName: name })),
+        ).rejects.toMatchObject({
+            statusCode: 502,
+            legacyCode: 'worker_takedown_failed',
+            message:
+                'Cloudflare refused to remove the script; nothing was deleted.',
+            fields: { status: 500 },
+        });
+
+        expect(
+            await server.stores.subdomain.getBySubdomain(
+                `workers.puter.${name}`,
+            ),
+        ).toBeTruthy();
+        expect(await workerSession(user.id, name)).toBeTruthy();
+        expect(
+            (await server.services.auth.authenticate(token)).actor,
+        ).toBeTruthy();
+    });
+
+    it('keeps the row when the edge answers 200 with success:false', async () => {
+        const { actor, name } = await deployWorker('softfail');
+
+        fetchSpy.mockResolvedValueOnce(
+            edgeResponse({ success: false, errors: [{ code: 10001 }] }),
+        );
+        await expect(
+            inCtx(actor, () => target.destroy({ workerName: name })),
+        ).rejects.toMatchObject({ statusCode: 502 });
+
+        expect(
+            await server.stores.subdomain.getBySubdomain(
+                `workers.puter.${name}`,
+            ),
+        ).toBeTruthy();
+    });
+
+    it('reports an edge delete that times out as 504 and keeps the row', async () => {
+        const { actor, name } = await deployWorker('slow');
+
+        fetchSpy.mockRejectedValueOnce(
+            new DOMException('The operation was aborted', 'TimeoutError'),
+        );
+        await expect(
+            inCtx(actor, () => target.destroy({ workerName: name })),
+        ).rejects.toMatchObject({
+            statusCode: 504,
+            legacyCode: 'worker_takedown_timeout',
+        });
+
+        expect(
+            await server.stores.subdomain.getBySubdomain(
+                `workers.puter.${name}`,
+            ),
+        ).toBeTruthy();
+    });
+
+    it('reports a transport failure as 504 and keeps the row', async () => {
+        const { actor, name } = await deployWorker('unreachable');
+
+        fetchSpy.mockRejectedValueOnce(new TypeError('fetch failed'));
+        await expect(
+            inCtx(actor, () => target.destroy({ workerName: name })),
+        ).rejects.toMatchObject({
+            statusCode: 504,
+            legacyCode: 'worker_takedown_timeout',
+        });
+
+        expect(
+            await server.stores.subdomain.getBySubdomain(
+                `workers.puter.${name}`,
+            ),
+        ).toBeTruthy();
+    });
+
+    it('lets any other failure before the edge answers surface as itself', async () => {
+        const { actor, name } = await deployWorker('ownerr');
+
+        fetchSpy.mockRejectedValueOnce(new Error('config unavailable'));
+        const err = (await inCtx(actor, () =>
+            target.destroy({ workerName: name }),
+        ).catch((e: unknown) => e)) as Error & { statusCode?: number };
+        expect(err.message).toBe('config unavailable');
+        expect(err.statusCode).toBeUndefined();
+
+        expect(
+            await server.stores.subdomain.getBySubdomain(
+                `workers.puter.${name}`,
+            ),
+        ).toBeTruthy();
+    });
+
+    it('tears down in order: script, then sessions, then row', async () => {
+        const { user, actor, name } = await deployWorker('order');
+        const store = server.stores.subdomain;
+        let seenAtRowDelete: { edgeDeletes: number; sessionGone: boolean } = {
+            edgeDeletes: -1,
+            sessionGone: false,
+        };
+        const deleteSpy = vi
+            .spyOn(store, 'deleteByUuid')
+            .mockImplementation(async (...args) => {
+                seenAtRowDelete = {
+                    edgeDeletes: deleteCalls().length,
+                    sessionGone: !(await workerSession(user.id, name)),
+                };
+                deleteSpy.mockRestore();
+                return store.deleteByUuid(...args);
+            });
+
+        await inCtx(actor, () => target.destroy({ workerName: name }));
+
+        expect(seenAtRowDelete).toEqual({ edgeDeletes: 1, sessionGone: true });
+    });
+
+    it('keeps the row when the sessions cannot be dropped, and a retry finishes the job', async () => {
+        const { actor, name } = await deployWorker('retry');
+        vi.spyOn(
+            server.services.auth,
+            'deleteWorkerSessionsByName',
+        ).mockRejectedValueOnce(new Error('session store unavailable'));
+
+        await expect(
+            inCtx(actor, () => target.destroy({ workerName: name })),
+        ).rejects.toThrow('session store unavailable');
+        expect(deleteCalls()).toHaveLength(1);
+        expect(
+            await server.stores.subdomain.getBySubdomain(
+                `workers.puter.${name}`,
+            ),
+        ).toBeTruthy();
+
+        const retried = await inCtx(actor, () =>
+            target.destroy({ workerName: name }),
+        );
+        expect(retried).toEqual({
+            success: true,
+            errors: [],
+            messages: [],
+            result: { id: name },
+        });
+        expect(deleteCalls()).toHaveLength(2);
+        expect(
+            await server.stores.subdomain.getBySubdomain(
+                `workers.puter.${name}`,
+            ),
+        ).toBeFalsy();
+    });
+
+    it('treats a script the edge no longer has (code 10007) as taken down', async () => {
+        const { user, actor, name } = await deployWorker('gone10007');
+
+        fetchSpy.mockResolvedValueOnce(
+            edgeResponse(
+                {
+                    success: false,
+                    errors: [
+                        {
+                            code: 10007,
+                            message: 'workers.api.error.script_not_found',
+                        },
+                    ],
+                },
+                404,
+            ),
+        );
+        const result = await inCtx(actor, () =>
+            target.destroy({ workerName: name }),
+        );
+
+        expect(result).toEqual({
+            success: true,
+            errors: [],
+            messages: [],
+            result: { id: name },
         });
         expect(
             await server.stores.subdomain.getBySubdomain(
                 `workers.puter.${name}`,
             ),
         ).toBeFalsy();
+        expect(await workerSession(user.id, name)).toBeNull();
     });
 
     it('lowercases the requested name before looking the worker up', async () => {
@@ -627,6 +861,319 @@ describe('WorkerDriver.destroy with a configured deploy backend', () => {
                 `workers.puter.${name}`,
             ),
         ).toBeFalsy();
+    });
+});
+
+// -- operator teardown ------------------------------------------------
+
+describe('WorkerDriver operator teardown (INTERNAL_ADMIN_DESTROY)', () => {
+    const rowOf = (name: string) =>
+        server.stores.subdomain.getBySubdomain(`workers.puter.${name}`, {
+            primary: true,
+        });
+
+    /** Collects every `subdomain.delete` announced while `fn` runs. */
+    const announced = async <T>(fn: () => Promise<T>) => {
+        const seen: unknown[] = [];
+        const handler = (_key: string, data: unknown) => {
+            seen.push(data);
+        };
+        server.clients.event.on('subdomain.delete', handler as never);
+        try {
+            return { result: await fn(), seen };
+        } finally {
+            server.clients.event.off('subdomain.delete', handler as never);
+        }
+    };
+
+    it('takes the script down before the row, drops the session, and announces the delete once', async () => {
+        const { user, name, token } = await deployWorker('op');
+        const row = (await rowOf(name))!;
+        const store = server.stores.subdomain;
+        let seenAtRowDelete = { edgeDeletes: -1, sessionGone: false };
+        const deleteSpy = vi
+            .spyOn(store, 'deleteByUuid')
+            .mockImplementation(async (...args) => {
+                seenAtRowDelete = {
+                    edgeDeletes: deleteCalls().length,
+                    sessionGone: !(await workerSession(user.id, name)),
+                };
+                deleteSpy.mockRestore();
+                return store.deleteByUuid(...args);
+            });
+
+        const { result, seen } = await announced(() =>
+            target[INTERNAL_ADMIN_DESTROY]({ uuid: row.uuid }),
+        );
+
+        expect(result).toEqual({
+            subdomain: `workers.puter.${name}`,
+            userId: user.id,
+            workerName: name,
+        });
+        const [url] = deleteCalls()[0]!;
+        expect(url).toBe(`${SCRIPTS_BASE}/${name}/`);
+        expect(seenAtRowDelete).toEqual({ edgeDeletes: 1, sessionGone: true });
+        expect(await rowOf(name)).toBeNull();
+        expect(await workerSession(user.id, name)).toBeNull();
+        expect(await server.services.auth.authenticate(token)).toEqual({
+            invalid: true,
+        });
+        expect(seen).toEqual([
+            { subdomain: `workers.puter.${name}`, uid: row.uuid },
+        ]);
+
+        // The driver's own listener hears this and leaves the script alone.
+        await new Promise((r) => setTimeout(r, 50));
+        expect(deleteCalls()).toHaveLength(1);
+    });
+
+    it('reports a refused edge delete as 502 and keeps the row and session', async () => {
+        const { user, name, token } = await deployWorker('oprefused');
+        const row = (await rowOf(name))!;
+
+        fetchSpy.mockResolvedValueOnce(
+            edgeResponse(
+                {
+                    success: false,
+                    errors: [{ code: 10000, message: 'edge-only detail' }],
+                },
+                500,
+            ),
+        );
+        const { seen } = await announced(async () => {
+            const err = (await target[INTERNAL_ADMIN_DESTROY]({
+                uuid: row.uuid,
+            }).catch((e: unknown) => e)) as {
+                statusCode: number;
+                legacyCode: string;
+                message: string;
+                fields: unknown;
+            };
+            expect(err).toMatchObject({
+                statusCode: 502,
+                legacyCode: 'worker_takedown_failed',
+                message:
+                    'Cloudflare refused to remove the script; nothing was deleted.',
+                fields: { status: 500 },
+            });
+            // Cloudflare's own text stays out of what the caller sees.
+            expect(JSON.stringify([err.message, err.fields])).not.toContain(
+                'edge-only detail',
+            );
+        });
+
+        expect(await rowOf(name)).toMatchObject({ uuid: row.uuid });
+        expect(await workerSession(user.id, name)).toBeTruthy();
+        expect(
+            (await server.services.auth.authenticate(token)).actor,
+        ).toBeTruthy();
+        expect(seen).toEqual([]);
+    });
+
+    it('keeps the row when the edge answers 200 with success:false', async () => {
+        const { name } = await deployWorker('opsoft');
+        const row = (await rowOf(name))!;
+
+        fetchSpy.mockResolvedValueOnce(
+            edgeResponse({ success: false, errors: [] }),
+        );
+        await expect(
+            target[INTERNAL_ADMIN_DESTROY]({ uuid: row.uuid }),
+        ).rejects.toMatchObject({ statusCode: 502 });
+
+        expect(await rowOf(name)).toMatchObject({ uuid: row.uuid });
+    });
+
+    it('treats script-not-found (code 10007) as taken down', async () => {
+        const { name } = await deployWorker('op10007');
+        const row = (await rowOf(name))!;
+
+        fetchSpy.mockResolvedValueOnce(
+            edgeResponse(
+                {
+                    success: false,
+                    errors: [
+                        {
+                            code: 10007,
+                            message: 'workers.api.error.script_not_found',
+                        },
+                    ],
+                },
+                404,
+            ),
+        );
+        await expect(
+            target[INTERNAL_ADMIN_DESTROY]({ uuid: row.uuid }),
+        ).resolves.toMatchObject({ workerName: name });
+
+        expect(await rowOf(name)).toBeNull();
+    });
+
+    it('treats a bare 404 with no usable body as a refusal and keeps the row', async () => {
+        const { name } = await deployWorker('op404');
+        const row = (await rowOf(name))!;
+
+        fetchSpy.mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            json: async () => {
+                throw new SyntaxError('not json');
+            },
+        } as unknown as Response);
+        await expect(
+            target[INTERNAL_ADMIN_DESTROY]({ uuid: row.uuid }),
+        ).rejects.toMatchObject({ statusCode: 502, fields: { status: 404 } });
+
+        expect(await rowOf(name)).toMatchObject({ uuid: row.uuid });
+    });
+
+    it('treats a 404 that could not be routed (code 7003) as a refusal and keeps the row', async () => {
+        const { name } = await deployWorker('op7003');
+        const row = (await rowOf(name))!;
+
+        fetchSpy.mockResolvedValueOnce(
+            edgeResponse(
+                {
+                    success: false,
+                    errors: [
+                        {
+                            code: 7003,
+                            message: 'Could not route to /accounts/x/workers',
+                        },
+                    ],
+                },
+                404,
+            ),
+        );
+        await expect(
+            target[INTERNAL_ADMIN_DESTROY]({ uuid: row.uuid }),
+        ).rejects.toMatchObject({
+            statusCode: 502,
+            legacyCode: 'worker_takedown_failed',
+        });
+
+        expect(await rowOf(name)).toMatchObject({ uuid: row.uuid });
+    });
+
+    it('reports a timed-out edge delete as 504 with no edge text, and keeps the row', async () => {
+        const { name } = await deployWorker('opslow');
+        const row = (await rowOf(name))!;
+
+        fetchSpy.mockRejectedValueOnce(
+            new DOMException('edge-only timeout detail', 'TimeoutError'),
+        );
+        const err = (await target[INTERNAL_ADMIN_DESTROY]({
+            uuid: row.uuid,
+        }).catch((e: unknown) => e)) as {
+            message: string;
+            fields: unknown;
+        };
+        expect(err).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'worker_takedown_timeout',
+        });
+        expect(JSON.stringify([err.message, err.fields ?? null])).not.toContain(
+            'edge-only',
+        );
+
+        expect(await rowOf(name)).toMatchObject({ uuid: row.uuid });
+    });
+
+    it('keeps the row when the sessions cannot be dropped, and a retry finishes the job', async () => {
+        const { name } = await deployWorker('opretry');
+        const row = (await rowOf(name))!;
+        vi.spyOn(
+            server.services.auth,
+            'deleteWorkerSessionsByName',
+        ).mockRejectedValueOnce(new Error('session store unavailable'));
+
+        const { seen } = await announced(async () =>
+            expect(
+                target[INTERNAL_ADMIN_DESTROY]({ uuid: row.uuid }),
+            ).rejects.toThrow('session store unavailable'),
+        );
+        expect(deleteCalls()).toHaveLength(1);
+        expect(await rowOf(name)).toMatchObject({ uuid: row.uuid });
+        expect(seen).toEqual([]);
+
+        await target[INTERNAL_ADMIN_DESTROY]({ uuid: row.uuid });
+        expect(deleteCalls()).toHaveLength(2);
+        expect(await rowOf(name)).toBeNull();
+    });
+
+    it('skips only its own announcement: a re-created worker of the same name is still taken down', async () => {
+        const { user, actor, name } = await deployWorker('opsame');
+        const first = (await rowOf(name))!;
+        await target[INTERNAL_ADMIN_DESTROY]({ uuid: first.uuid });
+        await new Promise((r) => setTimeout(r, 50));
+        expect(deleteCalls()).toHaveLength(1);
+
+        // Same name, new row: a delete announced for it is not the one above.
+        await inCtx(actor, () =>
+            target.create({
+                appId: '',
+                workerName: name,
+                filePath: `/${user.username}/opsame.js`,
+            }),
+        );
+        const second = (await rowOf(name))!;
+        expect(second.uuid).not.toBe(first.uuid);
+        await server.stores.subdomain.deleteByUuid(second.uuid);
+        server.clients.event.emit(
+            'subdomain.delete',
+            { subdomain: `workers.puter.${name}`, uid: second.uuid },
+            {},
+        );
+
+        await waitFor(
+            async () => deleteCalls().length === 2,
+            'edge delete for the re-created worker',
+        );
+    });
+
+    it('returns 404 for a row that is not a worker, and leaves it alone', async () => {
+        const { user } = await makeUser();
+        const site = await server.stores.subdomain.create({
+            userId: user.id,
+            subdomain: `site-${user.username}`,
+            rootDirId: null,
+            associatedAppId: null,
+        });
+
+        await expect(
+            target[INTERNAL_ADMIN_DESTROY]({ uuid: site.uuid }),
+        ).rejects.toMatchObject({ statusCode: 404, legacyCode: 'not_found' });
+
+        expect(deleteCalls()).toEqual([]);
+        expect(
+            await server.stores.subdomain.getByUuid(site.uuid, {
+                primary: true,
+            }),
+        ).toBeTruthy();
+    });
+
+    it('returns 404 for an unknown or missing uuid', async () => {
+        await expect(
+            target[INTERNAL_ADMIN_DESTROY]({ uuid: uuidv4() }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        await expect(
+            target[INTERNAL_ADMIN_DESTROY]({} as { uuid: string }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        expect(deleteCalls()).toEqual([]);
+    });
+
+    it('is not on the /drivers/call surface', () => {
+        const callable = resolveCallableMethods(target);
+        expect([...callable].sort()).toEqual([
+            'create',
+            'destroy',
+            'getFilePaths',
+            'getLoggingUrl',
+        ]);
+        expect(callable.has(String(INTERNAL_ADMIN_DESTROY.description))).toBe(
+            false,
+        );
     });
 });
 
@@ -1027,29 +1574,6 @@ describe('WorkerDriver hot reload', () => {
 // -- worker sessions --------------------------------------------------
 
 describe('WorkerDriver keeps a worker`s token tied to the worker', () => {
-    const deployedToken = () => {
-        const [, init] = putCalls().at(-1)!;
-        const form = (init as RequestInit).body as FormData;
-        const metadata = JSON.parse(form.get('metadata') as string);
-        return metadata.bindings.find(
-            (b: { name: string }) => b.name === 'puter_auth',
-        ).text as string;
-    };
-
-    const deployWorker = async (label: string) => {
-        const { user, actor } = await makeUser();
-        const path = `/${user.username}/${label}.js`;
-        const entry = await writeSource(actor, user.id, path, 'src');
-        const name = `${label}-${user.username}`;
-        await inCtx(actor, () =>
-            target.create({ appId: '', workerName: name, filePath: path }),
-        );
-        return { user, actor, entry, name, token: deployedToken() };
-    };
-
-    const workerSession = (userId: number, workerName: string) =>
-        server.stores.session.getWorker(userId, { appUid: null, workerName });
-
     it('binds the deployed token to the worker row, and a redeploy keeps it', async () => {
         const { user, actor, name, token } = await deployWorker('bind');
         const row = await server.stores.subdomain.getBySubdomain(
