@@ -21,6 +21,18 @@ import { showUsageLimitDialog } from '../modules/UsageLimitDialog.js';
  * }} RefusalShape
  */
 
+/**
+ * The parts of the SDK instance the prompt reads.
+ *
+ * @typedef {{
+ *   env?: string,
+ *   ui?: { requestUpgrade: Function },
+ *   authToken?: string,
+ *   appID?: string,
+ *   getAppIDFromAuthToken?: (token: unknown) => string | null,
+ * }} PromptingSdk
+ */
+
 const TITLES = {
     funds: 'Low Balance',
     subscription: 'Subscription Required',
@@ -102,8 +114,8 @@ const messageFor = (reason, error, context) => {
  * @param {unknown} error The rejection, in whatever shape it arrived.
  * @param {UpgradePromptContext} [context] Which SDK method was refused and,
  *   for a plan gate, why it needs one.
- * @param {{ env?: string, ui?: { requestUpgrade: Function } }} [puter] The SDK
- *   instance the call ran against; defaults to the global one.
+ * @param {PromptingSdk} [puter] The SDK instance the call ran against;
+ *   defaults to the global one.
  */
 export const promptIfUpgradeRequired = (error, context = {}, puter = globalThis.puter) => {
     const reason = classifyUpgradeRefusal(error);
@@ -115,6 +127,21 @@ export const promptIfUpgradeRequired = (error, context = {}, puter = globalThis.
     if ( puter?.env === 'app' ) {
         puter.ui.requestUpgrade({ reason, method, message });
     } else if ( puter?.env === 'web' || reason === 'storage' ) {
-        showUsageLimitDialog(message, { title: TITLES[reason], method });
+        showUsageLimitDialog(message, {
+            title: TITLES[reason],
+            method,
+            reason,
+            appID: appIDOf(puter),
+        });
     }
 };
+
+/**
+ * The app the refused call ran as: the one the auth token was issued to, else
+ * the one the page set.
+ *
+ * @param {PromptingSdk | undefined} puter
+ * @returns {string | undefined}
+ */
+const appIDOf = (puter) =>
+    puter?.getAppIDFromAuthToken?.(puter.authToken) || puter?.appID || undefined;

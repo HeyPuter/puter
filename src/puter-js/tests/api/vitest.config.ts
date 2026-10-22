@@ -44,6 +44,9 @@ export default defineConfig(({ mode }) => ({
         // workerd runners are slower than unit tests.
         testTimeout: 60_000,
         hookTimeout: 120_000,
+        // Node's own localStorage global is undefined without a storage file
+        // and keeps vitest from installing jsdom's in its place.
+        execArgv: ['--no-experimental-webstorage'],
         root: repoRoot,
     },
 }));
