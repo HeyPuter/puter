@@ -3815,12 +3815,20 @@ body.myapps-reordering .myapps-tile {
     top: 0;
     width: 200px;
     padding: 16px 0;
+    /* A short viewport (landscape phone, small window) scrolls the folders
+       rather than cutting the last ones off */
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
 }
 
 .dashboard-section-files .directories ul {
     list-style: none;
     padding: 0;
     margin: 0;
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
 }
 
 .dashboard-section-files .directories li {
@@ -3858,11 +3866,11 @@ body.myapps-reordering .myapps-tile {
     height: auto;
 }
 
+/* Trash sits at the column's foot (20px up, with the column's padding)
+   when there's room, and after Shared when there isn't. */
 .dashboard-section-files .directories li[data-folder="Trash"] {
-    position: fixed;
-    bottom: 0;
-    margin-bottom: 20px;
-    width: 150px;
+    margin-top: auto;
+    margin-bottom: 4px;
     height: 38px;
 }
 
