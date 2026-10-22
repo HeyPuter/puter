@@ -72,6 +72,19 @@ describe('mountDashboardOverlay', () => {
         delete document.elementFromPoint;
     });
 
+    it('closes on a backdrop click, but not on the second click of a double-click', () => {
+        const press = (detail) => {
+            const el = $('.dashboard-dialog-overlay').get(0);
+            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, detail }));
+            el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail }));
+        };
+        const a = mountDashboardOverlay({ html: card });
+        press(2);
+        expect(a.isClosed()).toBe(false);
+        press(1);
+        expect(a.isClosed()).toBe(true);
+    });
+
     it('hands focus back to the given element on close', () => {
         document.body.innerHTML = '<button class="trigger">open</button>';
         const trigger = $('.trigger').get(0);
