@@ -6558,8 +6558,10 @@ body.myapps-reordering .myapps-tile {
     transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.dashboard-settings-card .button:hover {
-    background: var(--dashboard-sidebar-background);
+@media (hover: hover) {
+    .dashboard-settings-card .button:hover {
+        background: var(--dashboard-sidebar-background);
+    }
 }
 
 .dashboard-settings-card .button:focus-visible {
