@@ -1515,6 +1515,10 @@ input.myapps-group-name:focus {
     padding: 24px;
     min-width: min(370px, calc(100vw - 32px));
     max-width: min(450px, calc(100vw - 32px));
+    /* Scrolls rather than spilling past both edges in a short viewport
+       (landscape phone, on-screen keyboard up) */
+    max-height: calc(100% - 32px);
+    overflow-y: auto;
     box-shadow: 0 8px 32px var(--dashboard-shadow-medium);
 }
 .myapps-modal h3 {
