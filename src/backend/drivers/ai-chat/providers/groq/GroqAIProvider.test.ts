@@ -213,12 +213,12 @@ describe('GroqAIProvider.complete request shape', () => {
         usage: { prompt_tokens: 1, completion_tokens: 1 },
     };
 
-    it('passes the request cancellation signal to the SDK', async () => {
+    it('passes the upstream signal to the SDK', async () => {
         const { provider } = makeProvider();
         const abort = new AbortController();
         createMock.mockResolvedValueOnce(baseCompletion);
         await withTestActor(() => {
-            Context.set('abortSignal', abort.signal);
+            Context.set('upstreamSignal', abort.signal);
             return provider.complete({
                 model: 'openai/gpt-oss-20b',
                 messages: [{ role: 'user', content: 'hi' }],

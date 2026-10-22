@@ -927,7 +927,7 @@ describe('OpenAiChatProvider.complete error mapping', () => {
 
 describe('provider request cancellation', () => {
     it.each([false, true])(
-        'passes cancellation to the SDK with stream=%s',
+        'passes the upstream signal to the SDK with stream=%s',
         async (stream) => {
             const { provider } = makeProvider();
             const abort = new AbortController();
@@ -945,7 +945,7 @@ describe('provider request cancellation', () => {
                       },
             );
             await withTestActor(() => {
-                Context.set('abortSignal', abort.signal);
+                Context.set('upstreamSignal', abort.signal);
                 return provider.complete({
                     model: 'gpt-4o-mini',
                     messages: [{ role: 'user', content: 'hi' }],

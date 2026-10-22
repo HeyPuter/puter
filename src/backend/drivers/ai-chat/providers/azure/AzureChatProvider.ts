@@ -311,7 +311,7 @@ export class AzureChatProvider implements IChatProvider {
 
         const completion = await this.#openAi.chat.completions.create(
             completionParams,
-            { signal: Context.get('abortSignal') },
+            { signal: Context.get('upstreamSignal') },
         );
 
         return OpenAiUtil.handle_completion_output({

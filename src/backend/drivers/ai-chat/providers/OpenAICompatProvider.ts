@@ -175,7 +175,7 @@ export class OpenAICompatProvider implements IChatProvider {
             }
         }
         const actor = Context.get('actor');
-        const signal = Context.get('abortSignal');
+        const signal = Context.get('upstreamSignal');
 
         let messages = args.messages;
         if (

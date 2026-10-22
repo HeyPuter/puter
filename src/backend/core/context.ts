@@ -68,6 +68,12 @@ export interface KnownContextFields {
      */
     abortSignal: AbortSignal;
     /**
+     * Aborts the chat driver's upstream request. A client disconnect doesn't
+     * fire it: the upstream bills a request it has accepted either way, so the
+     * driver lets it finish and meters what it reports.
+     */
+    upstreamSignal: AbortSignal;
+    /**
      * When true, `ChatCompletionDriver.complete` treats a request-level
      * upstream 4xx as final instead of falling back to another provider — set
      * by the Anthropic route, which needs the vendor's own error rather than a
@@ -84,6 +90,7 @@ const KNOWN_KEY_FLAGS: Record<keyof KnownContextFields, true> = {
     requestId: true,
     driverName: true,
     abortSignal: true,
+    upstreamSignal: true,
     strictUpstreamErrors: true,
 };
 const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_KEY_FLAGS));
