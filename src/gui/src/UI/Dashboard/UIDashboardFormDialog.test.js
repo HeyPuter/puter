@@ -145,6 +145,8 @@ describe('UIDashboardFormDialog', () => {
         expect($('.dashboard-form-input')).toHaveLength(0);
         expect($('.dashboard-form-done p').text()).toBe('All <good>');
         expect(document.activeElement).toBe($('.dashboard-form-done-btn').get(0));
+        const described_by = $('.dashboard-form-done-btn').attr('aria-describedby');
+        expect($(`#${described_by}`).text()).toBe('All <good>');
         $('.dashboard-form-done-btn').trigger('click');
         expect($('.dashboard-dialog-overlay').hasClass('dashboard-dialog-show')).toBe(false);
     });

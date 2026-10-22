@@ -185,11 +185,13 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
             }
         },
         finish ({ message, html }) {
-            const content = html ?? `<div class="dashboard-form-done">${FORM_ICONS.done}<p>${html_encode(message ?? '')}</p></div>`;
+            const content = html ?? `<div class="dashboard-form-done">${FORM_ICONS.done}<p id="${id}-done">${html_encode(message ?? '')}</p></div>`;
             $dialog.attr('aria-describedby', null);
             $dialog.find('.dashboard-dialog-body').html(`<div class="dashboard-dialog-content" role="status">${content}</div>`);
+            // A status region that arrives with its text isn't announced;
+            // the focused Done button reads the message out instead.
             $dialog.find('.dashboard-dialog-footer').html(
-                `<button type="button" class="dashboard-dialog-btn dashboard-dialog-btn-primary dashboard-form-done-btn">${i18n('done')}</button>`);
+                `<button type="button" class="dashboard-dialog-btn dashboard-dialog-btn-primary dashboard-form-done-btn"${html ? '' : ` aria-describedby="${id}-done"`}>${i18n('done')}</button>`);
             $dialog.find('.dashboard-form-done-btn').get(0)?.focus({ preventScroll: true });
         },
     };
