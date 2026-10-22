@@ -3882,6 +3882,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard .path-nav-buttons {
+    flex-shrink: 0;
     padding: 4px 10px 4px 0px;
     display: flex;
     justify-content: center;
@@ -3925,6 +3926,16 @@ body.myapps-reordering .myapps-tile {
     display: flex;
     align-items: center;
     margin-left: 10px;
+    /* A deep path scrolls inside its row (kept at its end by
+       revealCurrentCrumb) instead of wrapping or pushing the actions out. */
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+}
+
+.dashboard-section-files .header .path-breadcrumbs::-webkit-scrollbar {
+    display: none;
 }
 
 .dashboard-section-files .header .path-breadcrumbs:empty + .path-actions {
