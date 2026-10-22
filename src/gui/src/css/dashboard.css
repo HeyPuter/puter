@@ -8610,10 +8610,14 @@ body.dashboard-mode .notifications-close-all {
     display: none;
 }
 
+/* margin and text-shadow undo style.css's global `label` rule; its white
+   shadow ghosts the text on the dark theme. */
 .dashboard-form-label {
+    margin: 0;
     font-size: 12px;
     font-weight: 600;
     color: var(--dashboard-text-secondary);
+    text-shadow: none;
 }
 
 .dashboard-form-hint {
