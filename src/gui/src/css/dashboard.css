@@ -5272,6 +5272,35 @@ body.myapps-reordering .myapps-tile {
         display: none;
     }
 
+    /* Two-row header layout */
+    .dashboard-section-files .header .path {
+        flex-wrap: wrap;
+        height: auto;
+        padding: 8px 12px;
+    }
+
+    .dashboard-section-files .header .path-breadcrumbs {
+        order: 1;
+        width: 100%;
+        margin: 0 0 8px 0;
+        padding-bottom: 8px;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--dashboard-border);
+    }
+
+    .dashboard-section-files .header .path-nav-buttons {
+        order: 2;
+        border-right: none;
+        margin-right: 0;
+    }
+
+    .dashboard-section-files .header .path-actions {
+        order: 3;
+        margin-left: auto;
+    }
+
     /* Two-row item layout */
     .dashboard-section-files .files-tab .files.files-list-view .row {
         display: grid;
@@ -5387,34 +5416,9 @@ body.myapps-reordering .myapps-tile {
         margin-bottom: 12px;
     }
 
-    /* Two-row header layout */
-    .dashboard-section-files .header .path {
-        flex-wrap: wrap;
-        height: auto;
-        padding: 8px 12px;
-    }
-
+    /* Clear the fixed menu button beside the crumbs */
     .dashboard-section-files .header .path-breadcrumbs {
-        order: 1;
-        width: 100%;
-        margin: 0 0 8px 0;
-        padding-bottom: 8px;
         margin-left: 50px;
-        flex-wrap: nowrap;
-        white-space: nowrap;
-        overflow-x: auto;
-        border-bottom: 1px solid var(--dashboard-border);
-    }
-
-    .dashboard-section-files .header .path-nav-buttons {
-        order: 2;
-        border-right: none;
-        margin-right: 0;
-    }
-
-    .dashboard-section-files .header .path-actions {
-        order: 3;
-        margin-left: auto;
     }
 
     /* Adjust footer position - full width since sidebar is hidden */
