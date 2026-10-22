@@ -1,0 +1,144 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
+
+globalThis.$ = jQuery;
+globalThis.jQuery = jQuery;
+globalThis.i18n = (key) => key;
+globalThis.html_encode = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+window.html_encode = globalThis.html_encode;
+window.requestAnimationFrame = (fn) => setTimeout(fn, 0);
+window.matchMedia = () => ({ matches: false });
+
+const { default: UIDashboardFormDialog } = await import('./UIDashboardFormDialog.js');
+
+const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+const submit = () => $('.dashboard-form-dialog').trigger('submit');
+
+const open = (opts = {}) => UIDashboardFormDialog({
+    title: 'Change it',
+    submitLabel: 'Save',
+    fields: [
+        { name: 'name', label: 'Name', value: 'Ada <3' },
+        { name: 'secret', type: 'password', label: 'Password' },
+        { name: 'about', type: 'textarea', label: 'About', value: 'hi' },
+        { name: 'when', type: 'select', label: 'When', value: '7d', options: [{ value: '', label: 'Never' }, { value: '7d', label: 'A week' }] },
+        { name: 'code', label: 'Code', hidden: true },
+    ],
+    onSubmit: () => {},
+    ...opts,
+});
+
+afterEach(() => {
+    document.body.innerHTML = '';
+});
+
+describe('UIDashboardFormDialog', () => {
+    it('renders a dashboard dialog card with labelled fields, not a window', () => {
+        open();
+        expect($('.dashboard-dialog-overlay .dashboard-form-dialog')).toHaveLength(1);
+        expect($('.window')).toHaveLength(0);
+        expect($('.dashboard-dialog-title').text()).toBe('Change it');
+        const $name = $('.dashboard-form-input[name="name"]');
+        expect($(`label[for="${$name.attr('id')}"]`).text()).toBe('Name');
+        expect($name.val()).toBe('Ada <3');
+        expect($('.dashboard-form-field[data-field="code"]').prop('hidden')).toBe(true);
+    });
+
+    it('reads every field back by name', () => {
+        const dialog = open();
+        expect(dialog.values()).toEqual({ name: 'Ada <3', secret: '', about: 'hi', when: '7d', code: '' });
+    });
+
+    it('locks the fields and shows progress while the handler runs', async () => {
+        let release;
+        const onSubmit = vi.fn(() => new Promise((resolve) => {
+            release = resolve;
+        }));
+        open({ onSubmit });
+
+        submit();
+        expect(onSubmit).toHaveBeenCalledOnce();
+        expect($('.dashboard-form-input[name="name"]').prop('disabled')).toBe(true);
+        expect($('.dashboard-form-submit').hasClass('dashboard-form-busy')).toBe(true);
+        // A second press while busy is ignored.
+        submit();
+        expect(onSubmit).toHaveBeenCalledOnce();
+
+        release();
+        await tick();
+        expect($('.dashboard-form-input[name="name"]').prop('disabled')).toBe(false);
+        expect($('.dashboard-form-submit').hasClass('dashboard-form-busy')).toBe(false);
+    });
+
+    it('marks the named field invalid and focuses it once the fields unlock', async () => {
+        open({ onSubmit: (dialog) => dialog.setStatus('Nope', { field: 'secret' }) });
+
+        submit();
+        await tick();
+
+        expect($('.dashboard-form-status').text()).toBe('Nope');
+        expect($('.dashboard-form-status').hasClass('dashboard-form-status-error')).toBe(true);
+        const secret = $('.dashboard-form-input[name="secret"]');
+        expect(secret.attr('aria-invalid')).toBe('true');
+        expect(document.activeElement).toBe(secret.get(0));
+
+        secret.val('x').trigger('input');
+        expect(secret.attr('aria-invalid')).toBeUndefined();
+    });
+
+    it('shows a thrown error in the status line', async () => {
+        open({ onSubmit: async () => {
+            throw new Error('Server says no');
+        } });
+        submit();
+        await tick();
+        expect($('.dashboard-form-status').text()).toBe('Server says no');
+    });
+
+    it('swaps the form for a done state whose button closes it', async () => {
+        open({ onSubmit: (dialog) => dialog.finish({ message: 'All <good>' }) });
+        submit();
+        await tick();
+
+        expect($('.dashboard-form-input')).toHaveLength(0);
+        expect($('.dashboard-form-done p').text()).toBe('All <good>');
+        expect(document.activeElement).toBe($('.dashboard-form-done-btn').get(0));
+        $('.dashboard-form-done-btn').trigger('click');
+        expect($('.dashboard-dialog-overlay').hasClass('dashboard-dialog-show')).toBe(false);
+    });
+
+    it('toggles a password between hidden and shown', () => {
+        open();
+        const $input = $('.dashboard-form-input[name="secret"]');
+        const $reveal = $('.dashboard-form-reveal');
+        $reveal.trigger('click');
+        expect($input.attr('type')).toBe('text');
+        expect($reveal.attr('aria-pressed')).toBe('true');
+        expect($reveal.attr('aria-label')).toBe('hide_password');
+        $reveal.trigger('click');
+        expect($input.attr('type')).toBe('password');
+    });
+
+    it('closes on Cancel and on Escape without submitting', async () => {
+        const onSubmit = vi.fn();
+        open({ onSubmit });
+        await tick();
+        $('.dashboard-form-cancel').trigger('click');
+        expect($('.dashboard-dialog-overlay').hasClass('dashboard-dialog-show')).toBe(false);
+
+        document.body.innerHTML = '';
+        open({ onSubmit });
+        await tick();
+        $(document).trigger($.Event('keydown', { key: 'Escape' }));
+        expect($('.dashboard-dialog-overlay').hasClass('dashboard-dialog-show')).toBe(false);
+        expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it('gives the danger tone a warning icon and a red submit button', () => {
+        open({ tone: 'danger' });
+        expect($('.dashboard-dialog-icon')).toHaveLength(1);
+        expect($('.dashboard-form-submit').hasClass('dashboard-dialog-btn-danger')).toBe(true);
+    });
+});

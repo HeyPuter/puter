@@ -8338,8 +8338,13 @@ body.dashboard-mode .notifications-close-all {
     display: flex;
     align-items: flex-start;
     gap: 14px;
+    /* Shrinks and scrolls when the card is taller than the screen, so the
+       header and footer stay put. */
+    flex: 1 1 auto;
+    min-height: 0;
     padding: 20px 18px;
     overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .dashboard-dialog-icon {
@@ -8405,9 +8410,13 @@ body.dashboard-mode .notifications-close-all {
     color: var(--dashboard-text-secondary);
 }
 
-.dashboard-dialog-input {
+/* Scoped under the card so it outranks style.css's global
+   `input[type=text]` padding and `:focus` border. */
+.dashboard-dialog .dashboard-dialog-input {
+    display: block;
     width: 100%;
     height: 38px;
+    margin: 0;
     padding: 0 12px;
     border: 1px solid var(--dashboard-border);
     border-radius: 10px;
@@ -8419,7 +8428,8 @@ body.dashboard-mode .notifications-close-all {
     transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
 }
 
-.dashboard-dialog-input:focus {
+.dashboard-dialog .dashboard-dialog-input:focus {
+    padding: 0 12px;
     outline: none;
     border-color: var(--select-color);
     background: var(--dashboard-card-background);
@@ -8493,6 +8503,35 @@ body.dashboard-mode .notifications-close-all {
         height: auto;
         padding: 10px 18px;
     }
+
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .dashboard-dialog-close {
+        position: relative;
+    }
+
+    .dashboard-dialog-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+
+    /* 44px tall, and 16px text so iOS doesn't zoom in on focus. */
+    .dashboard-dialog .dashboard-dialog-input,
+    .dashboard-dialog .dashboard-dialog-input:focus {
+        height: 44px;
+        font-size: 16px;
+    }
+}
+
+/* Short screens (a phone on its side): give the card more of the height. */
+@media (max-height: 500px) {
+    .dashboard-dialog-overlay {
+        padding: 12px 24px;
+    }
 }
 
 /* Mobile: dock to the bottom as a slide-up sheet, like the other modals. */
@@ -8505,7 +8544,9 @@ body.dashboard-mode .notifications-close-all {
     .dashboard-dialog {
         width: 100%;
         max-width: none;
-        max-height: 92vh;
+        /* The overlay shrinks to what an on-screen keyboard leaves visible
+           (see dashboardOverlay.js); the sheet shrinks with it. */
+        max-height: min(92vh, calc(100% - 8px));
         border-radius: 16px 16px 0 0;
         border-bottom: none;
         transform: translateY(24px);
@@ -8520,8 +8561,30 @@ body.dashboard-mode .notifications-close-all {
         padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
     }
 
+    /* Above a keyboard the home indicator is out of the way. */
+    .dashboard-dialog-overlay-keyboard .dashboard-dialog-footer {
+        padding-bottom: 14px;
+    }
+
     .dashboard-dialog-btn {
         width: 100%;
+    }
+
+    /* A form's buttons share one row, leaving the fields as much of the
+       screen as a keyboard allows. */
+    .dashboard-form-dialog .dashboard-dialog-footer {
+        flex-direction: row;
+    }
+
+    .dashboard-form-dialog .dashboard-dialog-btn {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    /* The tone icon sits above the content so fields keep the full width. */
+    .dashboard-form-dialog .dashboard-dialog-body {
+        flex-direction: column;
+        align-items: stretch;
     }
 }
 
@@ -8529,5 +8592,269 @@ body.dashboard-mode .notifications-close-all {
     .dashboard-dialog-overlay,
     .dashboard-dialog {
         transition: none;
+    }
+}
+
+
+/* ======================================
+   Dashboard form dialog (account changes)
+   ====================================== */
+
+.dashboard-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dashboard-form-field[hidden] {
+    display: none;
+}
+
+.dashboard-form-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dashboard-text-secondary);
+}
+
+.dashboard-form-hint {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--dashboard-text-muted);
+}
+
+.dashboard-dialog .dashboard-dialog-input[aria-invalid='true'] {
+    border-color: var(--dashboard-danger-text);
+}
+
+.dashboard-dialog .dashboard-dialog-input:disabled {
+    opacity: 0.6;
+}
+
+.dashboard-dialog textarea.dashboard-dialog-input,
+.dashboard-dialog textarea.dashboard-dialog-input:focus {
+    height: auto;
+    min-height: 96px;
+    padding: 9px 12px;
+    line-height: 1.45;
+    resize: vertical;
+}
+
+.dashboard-dialog select.dashboard-dialog-input,
+.dashboard-dialog select.dashboard-dialog-input:focus {
+    -webkit-appearance: none;
+    appearance: none;
+    padding: 0 34px 0 12px;
+    /* Chevron stroke: slate-500, as on the share dialog's selects. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+    .dashboard-dialog select.dashboard-dialog-input,
+    .dashboard-dialog select.dashboard-dialog-input:focus {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    }
+}
+
+/* Password fields carry a show/hide toggle inside the box. */
+.dashboard-form-secret {
+    position: relative;
+}
+
+.dashboard-dialog .dashboard-form-secret .dashboard-dialog-input,
+.dashboard-dialog .dashboard-form-secret .dashboard-dialog-input:focus {
+    padding-right: 44px;
+}
+
+.dashboard-form-reveal {
+    position: absolute;
+    top: 50%;
+    right: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-muted);
+    cursor: pointer;
+    transform: translateY(-50%);
+    transition: background 0.15s, color 0.15s;
+}
+
+.dashboard-form-reveal svg {
+    width: 18px;
+    height: 18px;
+}
+
+@media (hover: hover) {
+    .dashboard-form-reveal:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+
+.dashboard-form-reveal:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+@media (pointer: coarse) {
+    .dashboard-dialog .dashboard-dialog-input.dashboard-token-value {
+        font-size: 16px;
+    }
+
+    .dashboard-form-reveal {
+        width: 40px;
+        height: 40px;
+        right: 2px;
+    }
+}
+
+/* Status line (aria-live). Collapses when empty rather than going
+   display:none so it stays in the a11y tree; the negative margin swallows
+   the content column's gap it would otherwise still claim. */
+.dashboard-form-status {
+    padding: 9px 12px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.dashboard-form-status:empty {
+    padding: 0;
+    border-width: 0;
+    margin-top: -14px;
+}
+
+.dashboard-form-status-error {
+    border-color: var(--dashboard-danger-border);
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
+}
+
+.dashboard-form-status-info {
+    border-color: var(--dashboard-notice-border);
+    background: var(--dashboard-notice-background);
+    color: var(--dashboard-notice-text);
+}
+
+/* Submit: a spinner while the change is in flight. */
+.dashboard-form-spinner {
+    display: none;
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    margin-right: 8px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    box-sizing: border-box;
+    animation: dashboard-form-spin 0.7s linear infinite;
+}
+
+.dashboard-form-busy .dashboard-form-spinner {
+    display: inline-block;
+}
+
+.dashboard-form-submit:disabled {
+    opacity: 0.75;
+    cursor: default;
+}
+
+@keyframes dashboard-form-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Done state */
+.dashboard-form-done {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0;
+    text-align: center;
+}
+
+.dashboard-form-done svg {
+    width: 44px;
+    height: 44px;
+    color: var(--dashboard-success-text);
+}
+
+.dashboard-form-done p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--dashboard-text-primary);
+    overflow-wrap: anywhere;
+}
+
+/* API token, shown once */
+.dashboard-token-warning {
+    padding: 10px 12px;
+    border: 1px solid var(--dashboard-warning-border);
+    border-radius: 8px;
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.dashboard-token-row {
+    display: flex;
+    gap: 8px;
+}
+
+.dashboard-dialog .dashboard-dialog-input.dashboard-token-value {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+}
+
+.dashboard-token-copy {
+    flex-shrink: 0;
+}
+
+.dashboard-token-sessions {
+    display: inline;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--dashboard-link);
+    font: inherit;
+    cursor: pointer;
+}
+
+@media (hover: hover) {
+    .dashboard-token-sessions:hover {
+        text-decoration: underline;
+    }
+}
+
+.dashboard-token-sessions:focus-visible {
+    outline: none;
+    border-radius: 4px;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+@media (max-width: 600px) {
+    .dashboard-token-row {
+        flex-direction: column;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-form-spinner {
+        animation-duration: 1.6s;
     }
 }
