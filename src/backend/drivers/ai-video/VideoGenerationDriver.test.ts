@@ -46,6 +46,7 @@ import { type Actor, SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { setupTestServer } from '../../testUtil.js';
+import { withAiCostFactorHook } from '../integrationTestUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { TOGETHER_VIDEO_GENERATION_MODELS } from './providers/together/models.js';
 import type { VideoGenerationDriver } from './VideoGenerationDriver.js';
@@ -1023,5 +1024,33 @@ describe('VideoGenerationDriver.generate size unification', () => {
         >;
         expect('width' in second).toBe(false);
         expect('height' in second).toBe(false);
+    });
+});
+
+describe('VideoGenerationDriver cost factor', () => {
+    it('holds and meters at the AI cost factor', async () => {
+        const incrementUsageSpy = vi.spyOn(
+            server.services.metering,
+            'incrementUsage',
+        );
+        const reserveSpy = vi.spyOn(server.services.metering, 'reserveCredits');
+        const metered = () =>
+            incrementUsageSpy.mock.calls.map(([, , , cost]) => cost!);
+        const generate = async (charges: number) => {
+            completeTogetherJob();
+            await withActor(() =>
+                driver.generate({ prompt: 'hi', model: DEFAULT_MODEL } as never),
+            );
+            await vi.waitFor(() => expect(metered()).toHaveLength(charges));
+        };
+        await generate(1);
+        await withAiCostFactorHook(server.clients.event, 2, () => generate(2));
+
+        const [base, factored] = metered();
+        expect(base).toBeGreaterThan(0);
+        expect(factored).toBe(Math.round(base! * 2));
+        const held = reserveSpy.mock.calls.map(([, amount]) => amount);
+        expect(held[0]).toBeGreaterThan(0);
+        expect(held).toEqual([held[0], Math.round(held[0]! * 2)]);
     });
 });
