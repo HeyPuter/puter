@@ -6709,6 +6709,14 @@ body.myapps-reordering .myapps-tile {
         padding: 0 16px;
     }
 
+    /* These sit in the content area's own 16px gutter, which Apps (padded
+       above) doesn't have; a second gutter would inset them past the other
+       tabs and the menu button. */
+    .dashboard-section-account .dashboard-tab-content,
+    .dashboard-section-security .dashboard-tab-content {
+        padding: 0;
+    }
+
     .dashboard-section-header h2 {
         font-size: 22px;
     }
