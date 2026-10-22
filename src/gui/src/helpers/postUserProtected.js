@@ -76,7 +76,9 @@ export default async function postUserProtected (route, body, { password, onReva
     };
     const revalidateFailed = () => ({ ok: false, data: {}, message: i18n('revalidate_failed', [], false) });
 
-    if ( window.user?.oidc_only && ! password ) {
+    // A temporary account has no password either, but no linked provider: the
+    // routes that admit it (deleting it) need no proof of identity at all.
+    if ( window.user?.oidc_only && ! window.user.is_temp && ! password ) {
         if ( ! await revalidate() ) return revalidateFailed();
         return settle(await post(body));
     }

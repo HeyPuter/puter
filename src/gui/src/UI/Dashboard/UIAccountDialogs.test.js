@@ -226,7 +226,8 @@ describe('create API token', () => {
 
 describe('delete account', () => {
     it('asks a temporary account to type confirm', async () => {
-        window.user = { username: 'guest', is_temp: true };
+        // What the server sends for a temporary account: no password, so `oidc_only` too.
+        window.user = { username: 'guest', is_temp: true, oidc_only: true };
         fetch.mockResolvedValueOnce(reply(200, { success: true }));
         dialogs.openDeleteAccountDialog();
 
@@ -235,6 +236,7 @@ describe('delete account', () => {
         expect(fetch).not.toHaveBeenCalled();
 
         await submitWith({ confirm: ' Confirm ' });
+        expect(openRevalidatePopup).not.toHaveBeenCalled();
         expect(bodyOf(0)).toEqual({});
         expect(window.logout).toHaveBeenCalled();
     });

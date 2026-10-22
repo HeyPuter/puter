@@ -65,6 +65,18 @@ describe('postUserProtected', () => {
         expect(window.handleReauthRequired).toHaveBeenCalled();
     });
 
+    // The server reports `oidc_only` for any passwordless account, temporary ones included.
+    it('posts straight away for a temporary account, with no sign-in popup', async () => {
+        window.user = { oidc_only: true, is_temp: true };
+        fetch.mockResolvedValueOnce(reply(200, { success: true }));
+
+        const result = await postUserProtected('delete-own-user', {});
+
+        expect(openRevalidatePopup).not.toHaveBeenCalled();
+        expect(bodyOf(0)).toEqual({});
+        expect(result).toEqual({ ok: true, data: { success: true } });
+    });
+
     it('signs a provider-only account in first and sends no password', async () => {
         window.user = { oidc_only: true, oidc_revalidate_url: 'https://puter.test/revalidate' };
         const onRevalidate = vi.fn();
