@@ -86,7 +86,7 @@ const field_html = (field, id) => {
     if ( type === 'password' ) {
         control = '<div class="dashboard-form-secret">'
             + control
-            + `<button type="button" class="dashboard-form-reveal" aria-controls="${control_id}" aria-pressed="false"`
+            + `<button type="button" class="dashboard-form-reveal" aria-controls="${control_id}"`
             + ` aria-label="${i18n('show_password')}" title="${i18n('show_password')}">${FORM_ICONS.show}</button>`
             + '</div>';
     }
@@ -205,14 +205,15 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
 
     $dialog.on('click', '.dashboard-form-cancel, .dashboard-form-done-btn', () => close());
 
-    // Keep the field focused (and a phone's keyboard up) while toggling.
+    // Keep the field focused (and a phone's keyboard up) while toggling. The
+    // label names the action, so the button carries no aria-pressed as well.
     $dialog.on('pointerdown mousedown', '.dashboard-form-reveal', (e) => e.preventDefault());
     $dialog.on('click', '.dashboard-form-reveal', function () {
         const $input = $(this).siblings('input');
         const reveal = $input.attr('type') === 'password';
         const label = i18n(reveal ? 'hide_password' : 'show_password', [], false);
         $input.attr('type', reveal ? 'text' : 'password');
-        $(this).attr({ 'aria-pressed': String(reveal), 'aria-label': label, title: label })
+        $(this).attr({ 'aria-label': label, title: label })
             .html(reveal ? FORM_ICONS.hide : FORM_ICONS.show);
     });
 

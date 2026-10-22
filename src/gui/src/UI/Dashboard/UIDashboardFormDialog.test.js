@@ -155,10 +155,12 @@ describe('UIDashboardFormDialog', () => {
         const $reveal = $('.dashboard-form-reveal');
         $reveal.trigger('click');
         expect($input.attr('type')).toBe('text');
-        expect($reveal.attr('aria-pressed')).toBe('true');
         expect($reveal.attr('aria-label')).toBe('hide_password');
+        // A label that flips with the state, so no aria-pressed on top of it.
+        expect($reveal.attr('aria-pressed')).toBeUndefined();
         $reveal.trigger('click');
         expect($input.attr('type')).toBe('password');
+        expect($reveal.attr('aria-label')).toBe('show_password');
     });
 
     it('closes on Cancel and on Escape without submitting', async () => {
