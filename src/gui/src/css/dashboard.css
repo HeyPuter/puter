@@ -3920,6 +3920,16 @@ body.myapps-reordering .myapps-tile {
     background-color: transparent;
 }
 
+/* 36px touch targets in the same 28px footprint (they're <img>s, so no
+   pseudo-element hit area) */
+@media (pointer: coarse) {
+    .dashboard .path-btn {
+        width: 36px;
+        padding: 8px;
+        margin: -4px;
+    }
+}
+
 @media (hover: hover) {
     .dashboard .path-btn:hover {
         background-color: #EEE;
