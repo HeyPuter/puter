@@ -5414,6 +5414,21 @@ body.myapps-reordering .myapps-tile {
         position: absolute;
         right: 10px;
     }
+
+    /* On touch it's a 40x23 target beside a row whose tap opens the item,
+       so a near miss opened the item instead of the menu. The two-row rows
+       are tall enough for a 44px square hit area. */
+    @media (pointer: coarse) {
+        .dashboard-section-files .files-tab .files.files-list-view .row .item-more::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 44px;
+            height: 44px;
+            transform: translate(-50%, -50%);
+        }
+    }
 }
 
 /* Mobile phone optimizations */
