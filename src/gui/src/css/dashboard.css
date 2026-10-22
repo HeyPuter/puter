@@ -5835,7 +5835,7 @@ body.myapps-reordering .myapps-tile {
 
 .dashboard .bento-recent-apps-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px 20px;
 }
 
@@ -5869,6 +5869,9 @@ body.myapps-reordering .myapps-tile {
     transition: transform 0.15s ease;
     gap: 12px;
     width: 200px;
+    /* Narrower columns (a tablet's half-width card) shrink the row, and the
+       title ellipsizes, instead of the second column spilling out of the card */
+    max-width: 100%;
 }
 
 .dashboard .bento-recent-app:focus-visible {
