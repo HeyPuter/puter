@@ -5866,12 +5866,21 @@ body.myapps-reordering .myapps-tile {
 .dashboard .bento-recent-apps-container {
     flex: 1;
     padding: 16px 24px 24px;
+    container-type: inline-size;
 }
 
 .dashboard .bento-recent-apps-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px 20px;
+}
+
+/* One column once the card is too narrow for two readable names (the
+   two-column Home on a portrait tablet) */
+@container (max-width: 340px) {
+    .dashboard .bento-recent-apps-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 /* Hide apps beyond 6 on smaller screens */
