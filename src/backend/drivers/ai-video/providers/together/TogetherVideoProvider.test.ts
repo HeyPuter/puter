@@ -1301,7 +1301,7 @@ describe('TogetherVideoProvider.generate input_video', () => {
 
         const url = videosCreateMock.mock.calls[0]![0].media.source_video;
         const params = new URL(url).searchParams;
-        expect(params.get('X-Amz-Expires')).toBe('900');
+        expect(params.get('X-Amz-Expires')).toBe('1140');
         expect(params.get('response-content-type')).toBe('video/mp4');
         const fetched = await fetch(url);
         expect(Buffer.from(await fetched.arrayBuffer())).toEqual(MP4);

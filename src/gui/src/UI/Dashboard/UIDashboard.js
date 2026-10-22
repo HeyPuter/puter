@@ -52,7 +52,6 @@ import TabApps from './TabApps.js';
 import TabUsage from './TabUsage.js';
 import TabAccount from './TabAccount.js';
 import TabSecurity from './TabSecurity.js';
-import TabTeams from './TabTeams.js';
 import teamBadgeHtml from './teamBadge.js';
 
 // Registry of built-in tabs
@@ -60,7 +59,6 @@ const builtinTabs = [
     TabHome,
     TabApps,
     TabFiles,
-    TabTeams,
     '-',
     TabUsage,
     TabAccount,
@@ -103,13 +101,14 @@ async function UIDashboard (options) {
     // Home is reached via #home. Fall back to Apps for an unknown/absent route.
     const routeTab = window.dashboard_initial_route?.tab;
     const initialTabId = isKnownTabId(routeTab) ? routeTab : 'apps';
+    const sidebarCollapsed = localStorage.getItem('dashboard-sidebar-collapsed') === '1';
 
     let h = '';
 
     h += '<div class="dashboard">';
 
         // Mobile sidebar toggle
-        h += '<button class="dashboard-sidebar-toggle" aria-label="Open menu" aria-expanded="false">';
+        h += `<button class="dashboard-sidebar-toggle" aria-label="${html_encode(i18n('open_menu', [], false))}" aria-expanded="false">`;
             h += '<span></span><span></span><span></span>';
         h += '</button>';
 
@@ -124,17 +123,17 @@ async function UIDashboard (options) {
                     h += `<div class="dashboard-sidebar-logo"><img class="dashboard-sidebar-logo-light" src="${window.icons['logo.svg']}" alt="Puter"><img class="dashboard-sidebar-logo-dark" src="${window.icons['logo-white.svg']}" alt="Puter"><span>Puter</span></div>`;
                     h += teamBadgeHtml(window.user);
                 h += '</div>';
-                h += '<button class="dashboard-sidebar-collapse-toggle">';
-                    h += `<img class="sidebar-toggle-close" src="${window.icons['sidebar-close.svg']}">`;
-                    h += `<img class="sidebar-toggle-open" src="${window.icons['sidebar-open.svg']}">`;
+                h += `<button class="dashboard-sidebar-collapse-toggle" aria-label="${html_encode(i18n(sidebarCollapsed ? 'expand_sidebar' : 'collapse_sidebar', [], false))}" aria-expanded="${sidebarCollapsed ? 'false' : 'true'}">`;
+                    h += `<img class="sidebar-toggle-close" src="${window.icons['sidebar-close.svg']}" alt="">`;
+                    h += `<img class="sidebar-toggle-open" src="${window.icons['sidebar-open.svg']}" alt="">`;
                 h += '</button>';
                 // Mobile-only close button (the collapse toggle is desktop-only)
-                h += '<button class="dashboard-sidebar-close" aria-label="Close menu">';
+                h += `<button class="dashboard-sidebar-close" aria-label="${html_encode(i18n('close_menu', [], false))}">`;
                     h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
                 h += '</button>';
             h += '</div>';
             // Navigation items container
-            h += '<div class="dashboard-sidebar-nav">';
+            h += '<div class="dashboard-sidebar-nav hide-scrollbar">';
             for ( let i = 0; i < tabs.length; i++ ) {
                 const tab = tabs[i];
                 if ( tab === '-' ) {
@@ -152,11 +151,11 @@ async function UIDashboard (options) {
 
             // User options button at bottom
             h += '<div class="dashboard-user-options">';
-                h += '<div class="dashboard-user-btn">';
+                h += '<button type="button" class="dashboard-user-btn" aria-haspopup="menu">';
                     h += `<div class="dashboard-user-avatar profile-pic" style="background-image: url(${window.user?.profile?.picture || window.icons['profile.svg']})"></div>`;
-                    h += `<span class="dashboard-user-name">${window.html_encode(window.user?.username || 'User')}</span>`;
-                    h += '<svg class="dashboard-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>';
-                h += '</div>';
+                    h += `<span class="dashboard-user-name username">${window.html_encode(window.user?.username || i18n('user', [], false))}</span>`;
+                    h += '<svg class="dashboard-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+                h += '</button>';
             h += '</div>';
         h += '</div>';
 
@@ -199,7 +198,7 @@ async function UIDashboard (options) {
     }
 
     // Restore sidebar collapsed state
-    if ( localStorage.getItem('dashboard-sidebar-collapsed') === '1' ) {
+    if ( sidebarCollapsed ) {
         $el_window.find('.dashboard-sidebar').addClass('collapsed');
     }
 
@@ -408,12 +407,11 @@ async function UIDashboard (options) {
 
     // Apply initial route from URL - activate the correct tab
     if ( window.dashboard_initial_route ) {
-        const route = window.dashboard_initial_route;
-
-        // Activate the correct tab if not home. An unknown tab id stays on
-        // the Apps default rendered above rather than being redirected.
-        if ( route.tab && route.tab !== 'home' && isKnownTabId(route.tab) ) {
-            const tabId = route.tab;
+        // Activate the tab rendered active above, if not home: an unknown
+        // tab id stays on the Apps default rather than being redirected,
+        // but Apps still needs its activation.
+        if ( initialTabId !== 'home' ) {
+            const tabId = initialTabId;
             const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tabId}"]`);
 
             // Only switch if the tab exists
@@ -564,9 +562,13 @@ async function UIDashboard (options) {
     const $scrim = $el_window.find('.dashboard-sidebar-scrim');
     const $sidebar_toggle = $el_window.find('.dashboard-sidebar-toggle');
     const setMobileSidebar = (open) => {
+        // Focus left inside a closing drawer would sit on hidden controls
+        // (and fall to <body>); the toggle that reopens it takes it instead.
+        const focusInside = ! open && $sidebar.hasClass('open') && $sidebar[0].contains(document.activeElement);
         $sidebar.toggleClass('open', open);
         $scrim.toggleClass('open', open);
         $sidebar_toggle.toggleClass('open', open).attr('aria-expanded', open ? 'true' : 'false');
+        if ( focusInside ) $sidebar_toggle[0].focus({ preventScroll: true });
     };
 
     $el_window.on('click', '.dashboard-sidebar-toggle', function () {
@@ -649,13 +651,19 @@ async function UIDashboard (options) {
     $el_window.on('click', '.dashboard-sidebar-collapse-toggle', function () {
         const $sidebar = $el_window.find('.dashboard-sidebar');
         $sidebar.toggleClass('collapsed');
-        localStorage.setItem('dashboard-sidebar-collapsed', $sidebar.hasClass('collapsed') ? '1' : '0');
+        const collapsed = $sidebar.hasClass('collapsed');
+        localStorage.setItem('dashboard-sidebar-collapsed', collapsed ? '1' : '0');
+        $(this)
+            .attr('aria-label', i18n(collapsed ? 'expand_sidebar' : 'collapse_sidebar', [], false))
+            .attr('aria-expanded', collapsed ? 'false' : 'true');
     });
 
     // Sidebar collapsed tooltips
     const $tooltip = $('<div class="dashboard-sidebar-tooltip"></div>').appendTo('body');
     $el_window.on('mouseenter', '.dashboard-sidebar-item[data-tooltip]', function () {
         if ( ! $el_window.find('.dashboard-sidebar').hasClass('collapsed') ) return;
+        // The drawer ignores the collapse and shows its labels.
+        if ( window.matchMedia('(max-width: 768px)').matches ) return;
         const rect = this.getBoundingClientRect();
         $tooltip.text($(this).attr('data-tooltip'));
         $tooltip.css({
@@ -668,10 +676,11 @@ async function UIDashboard (options) {
         $tooltip.removeClass('visible');
     });
 
-    // Close sidebar when clicking outside
+    // Close sidebar when clicking outside. A press on the scrim is left to
+    // its click handler: closing on touchstart drops the scrim's hit area
+    // before the click, which then lands on whatever sits underneath.
     $el_window.on('mousedown touchstart', function (e) {
-        if ( !$(e.target).closest('.dashboard-sidebar').length
-            && !$(e.target).closest('.dashboard-sidebar-toggle').length
+        if ( !$(e.target).closest('.dashboard-sidebar, .dashboard-sidebar-toggle, .dashboard-sidebar-scrim').length
             && $sidebar.hasClass('open') ) {
             setMobileSidebar(false);
         }
@@ -771,8 +780,8 @@ async function UIDashboard (options) {
             ...items,
             // Developer
             {
-                html: 'Developers<svg style="width: 11px; height: 11px; margin-left:2px; margin-bottom:-1px;" height="32" viewBox="0 0 32 32" width="32" xmlns="http://www.w3.org/2000/svg"><path d="m26 28h-20a2.0027 2.0027 0 0 1 -2-2v-20a2.0027 2.0027 0 0 1 2-2h10v2h-10v20h20v-10h2v10a2.0027 2.0027 0 0 1 -2 2z"/><path d="m20 2v2h6.586l-8.586 8.586 1.414 1.414 8.586-8.586v6.586h2v-10z"/><path d="m0 0h32v32h-32z" fill="none"/></svg>',
-                html_active: 'Developers<svg style="width: 11px; height: 11px; margin-left:2px; margin-bottom:-1px;" height="32" viewBox="0 0 32 32" width="32" xmlns="http://www.w3.org/2000/svg"><path d="m26 28h-20a2.0027 2.0027 0 0 1 -2-2v-20a2.0027 2.0027 0 0 1 2-2h10v2h-10v20h20v-10h2v10a2.0027 2.0027 0 0 1 -2 2z" style="fill: rgb(255, 255, 255);"/><path d="m20 2v2h6.586l-8.586 8.586 1.414 1.414 8.586-8.586v6.586h2v-10z" style="fill: rgb(255, 255, 255);"/><path d="m0 0h32v32h-32z" fill="none"/></svg>',
+                html: `${i18n('developers')}<svg style="width: 11px; height: 11px; margin-left:2px; margin-bottom:-1px;" height="32" viewBox="0 0 32 32" width="32" xmlns="http://www.w3.org/2000/svg"><path d="m26 28h-20a2.0027 2.0027 0 0 1 -2-2v-20a2.0027 2.0027 0 0 1 2-2h10v2h-10v20h20v-10h2v10a2.0027 2.0027 0 0 1 -2 2z"/><path d="m20 2v2h6.586l-8.586 8.586 1.414 1.414 8.586-8.586v6.586h2v-10z"/><path d="m0 0h32v32h-32z" fill="none"/></svg>`,
+                html_active: `${i18n('developers')}<svg style="width: 11px; height: 11px; margin-left:2px; margin-bottom:-1px;" height="32" viewBox="0 0 32 32" width="32" xmlns="http://www.w3.org/2000/svg"><path d="m26 28h-20a2.0027 2.0027 0 0 1 -2-2v-20a2.0027 2.0027 0 0 1 2-2h10v2h-10v20h20v-10h2v10a2.0027 2.0027 0 0 1 -2 2z" style="fill: rgb(255, 255, 255);"/><path d="m20 2v2h6.586l-8.586 8.586 1.414 1.414 8.586-8.586v6.586h2v-10z" style="fill: rgb(255, 255, 255);"/><path d="m0 0h32v32h-32z" fill="none"/></svg>`,
                 onClick: function () {
                     window.open('https://developer.puter.com', '_blank');
                 },

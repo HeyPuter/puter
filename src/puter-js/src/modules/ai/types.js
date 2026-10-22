@@ -263,13 +263,13 @@
  * @property {string} [model] Image model to use (provider-specific). Without one, the provider's
  * default applies: `'gpt-image-2'` (OpenAI, preferred when no provider is given),
  * `'gemini-3.1-flash-image'` (Gemini), `'@cf/black-forest-labs/flux-1-schnell'` (Cloudflare),
- * `'grok-imagine-image'` (xAI), `'black-forest-labs/flux-schnell'` (Replicate), or
- * `'seedream-5-0-lite-260128'` (BytePlus).
+ * `'grok-imagine-image'` (xAI), `'black-forest-labs/flux-schnell'` (Replicate),
+ * `'seedream-5-0-lite-260128'` (BytePlus), or `'kling-v3'` (Kling).
  * @property {string} [quality] Image quality / output size tier. Interpretation is provider- and
  * model-specific: OpenAI GPT models take `'high'` | `'medium'` | `'low'` (default `'low'`),
  * `gpt-image-2` also accepts `'auto'`, and `gpt-image-2.5-sunburst` / `gpt-image-2.5-flare` also
  * accept `'xhigh'` | `'max'` | `'auto'`; Gemini takes an output size tier `'512'` | `'1K'` | `'2K'` |
- * `'4K'` (availability varies by model).
+ * `'4K'` (availability varies by model); Kling takes `'1k'` (default) | `'2k'`, and `'4k'` on `kling-v3-omni`.
  * @property {string} [resolution] xAI output resolution: `'1k'` (default) or `'2k'`; model-specific resolution tier on Replicate.
  * On `grok-imagine-image-2.0`, `quality` independently accepts `'low'`, `'medium'`, or `'auto'`.
  * The older xAI models also accept the resolution through `quality` for compatibility.
@@ -277,12 +277,13 @@
  * Puter file path, or Blob or File. A Blob, File or data URI over 1 MiB is uploaded to a temporary
  * Puter file for the call and deleted afterwards.
  * @property {Array<string | Blob>} [input_images] Reference images, in any form `input_image` takes.
- * Model support varies. xAI accepts up to 5; Together and Cloudflare accept one.
+ * Model support varies. xAI accepts up to 5; Kling Omni and O1 up to 10; Together, Cloudflare and the
+ * other Kling models accept one.
  * @property {string} [input_image_mime_type] MIME type of the input image(s), e.g. `'image/png'`. Used
  * as a fallback when the type cannot be auto-detected (Gemini).
  * @property {string} [driver] Legacy driver ID, e.g. `'xai-image-generation'`.
  * @property {string} [provider] Provider name: `'openai'`, `'gemini'`, `'together'`, `'cloudflare'`,
- * `'xai'`, `'replicate'`, or `'byteplus'`. Full `*-image-generation` IDs also work.
+ * `'xai'`, `'replicate'`, `'byteplus'`, or `'kling'`. Full `*-image-generation` IDs also work.
  * Prefers this provider when it offers the model; otherwise a known model selects its provider.
  * Routes excluded by data policy reject with `bad_request`; Together image routes are currently excluded.
  * @property {string} [service] Ignored; retained for compatibility. Use `provider` or `driver` to select a provider.
@@ -339,7 +340,7 @@
  * @typedef {Object} Txt2VidOptions
  * @property {string} [prompt] Text description of the clip.
  * @property {string} [provider] Pin the request to one provider: `'together-video-generation'`,
- * `'byteplus-video-generation'` or `'gemini-video-generation'`. Defaults to the provider that owns
+ * `'byteplus-video-generation'`, `'gemini-video-generation'` or `'kling-video-generation'`. Defaults to the provider that owns
  * `model`, or Together AI when neither is given.
  * @property {string} [driver] Same effect as `provider`.
  * @property {string} [model] Video model id (provider-specific). Defaults to
@@ -353,7 +354,7 @@
  * @property {boolean} [test_mode] When `true`, returns a sample clip without using credits.
  * @property {string} [size] Output size as `'WIDTHxHEIGHT'` on every provider (tier-based models map
  * it to the tier of the shorter side plus an aspect ratio), or a tier such as `'720p'` for Seedance,
- * Wan 2.7 and Gemini Omni. Gemini Omni takes `'360p'`, `'720p'` (default), `'1080p'` or `'4k'`, or
+ * Wan 2.7, Kling and Gemini Omni. Gemini Omni takes `'360p'`, `'720p'` (default), `'1080p'` or `'4k'`, or
  * the exact 16:9 or 9:16 size of one of them (`'640x360'`, `'360x640'`, `'1280x720'`, …), and
  * rejects any other value.
  * @property {string} [resolution] Alias of `size`.
@@ -363,15 +364,18 @@
  * PNG, JPEG or WebP image up to 5 MiB.
  * @property {string | Blob} [last_frame] Last-frame image, same formats as `input_reference`.
  * @property {string | Blob} [inputVideo] Source video to edit, described by the prompt: a URL, Puter
- * file path, Blob or File of at most 32 MiB, or a data URI. A Blob, File or data URI over 1 MiB is
- * uploaded to a temporary Puter file for the call and deleted afterwards. Only
- * `'gemini-omni-1.1-flash'` (MP4, QuickTime or WebM, up to 10 seconds) and
- * `'togetherai:black-forest-labs/flux-3'` accept it. Can't be combined with image inputs.
+ * file path, Blob or File of at most 32 MiB (200 MiB on Kling), or a data URI. A Blob, File or data
+ * URI over 1 MiB is uploaded to a temporary Puter file for the call and deleted afterwards. Only
+ * `'gemini-omni-1.1-flash'` (MP4, QuickTime or WebM, up to 10 seconds),
+ * `'togetherai:black-forest-labs/flux-3'`, `'kling-3.0-omni'` and `'kling-o1'` (MP4 or QuickTime,
+ * 3 to 15.5 or 10 seconds, no data URI) accept it. Can't be combined with frame images.
  * @property {Array<string | Blob>} [reference_images] Subject/style reference images, same formats as
- * `input_reference`. Seedance 2.0: up to 9; Seedance 2.5: up to 30; Together: model-dependent.
+ * `input_reference`. Seedance 2.0: up to 9; Seedance 2.5: up to 30; Kling Omni and O1: up to 7 (4 with
+ * `inputVideo`); Together: model-dependent.
  * @property {string} [negative_prompt] What to keep out of the video (Together).
- * @property {boolean} [generate_audio] Generate a soundtrack on models that support audio (Seedance 2.x
- * and Together models with audio). Defaults to `true` on Seedance.
+ * @property {boolean} [generate_audio] Generate a soundtrack on models that support audio (Seedance 2.x,
+ * Kling and Together models with audio). Defaults to `true` on Seedance and `false` on Kling. On a Kling
+ * edit, `false` drops the source video's sound.
  * @property {number} [seed] Random seed (Together, Seedance 1.x).
  * @property {number} [width] Output width in pixels on Together models sized in pixels; with `height`,
  * selects the aspect ratio on Seedance and Wan 2.7. Filled in from `size` when omitted. On Gemini
@@ -395,16 +399,17 @@
  * Options for `txt2speech()`.
  *
  * @typedef {Object} Txt2SpeechOptions
- * @property {string} [text] Text to synthesize. At most 3000 characters.
+ * @property {string} [text] Text to synthesize. At most 3000 characters, or 1000 on Kling.
  * @property {string} [language] Language code. For AWS Polly defaults to `'en-US'`; for xAI a BCP-47
- * code defaulting to `'en'` (supports `'auto'`).
+ * code defaulting to `'en'` (supports `'auto'`); for Kling `'en'` or `'zh'`, defaulting to the voice's
+ * first language.
  * @property {string} [voice] Voice ID used for synthesis (provider-specific). Defaults to `'Joanna'`
  * (aws-polly), `'alloy'` (openai), `'21m00Tcm4TlvDq8ikWAM'` (elevenlabs), `'Kore'` (gemini), `'eve'`
- * (xai), `'geffen_32'` (speechify).
+ * (xai), `'geffen_32'` (speechify), `'oversea_male1'` (kling).
  * @property {string} [engine] AWS Polly synthesis engine: `'standard'` (default), `'neural'`,
  * `'long-form'`, or `'generative'`.
  * @property {string} [provider] TTS provider: `'aws-polly'` (default), `'openai'`, `'elevenlabs'`,
- * `'gemini'`, `'xai'`, or `'speechify'`. Common aliases (`'eleven'`, `'google'`, `'grok'`, `'polly'`,
+ * `'gemini'`, `'xai'`, `'speechify'`, or `'kling'`. Common aliases (`'eleven'`, `'google'`, `'grok'`, `'polly'`,
  * `'simba'`, …) resolve to these.
  * @property {string} [model] Model identifier (provider-specific).
  * @property {string} [response_format] OpenAI output format: `'mp3'` (default), `'wav'`, `'opus'`,
@@ -414,7 +419,7 @@
  * @property {string} [instructions] Natural-language guidance for voice style such as tone, speed, and
  * mood (OpenAI and Gemini). At most 3000 characters for Gemini.
  * @property {Record<string, unknown>} [voice_settings] ElevenLabs voice tuning options (e.g. stability,
- * similarity boost, speed).
+ * similarity boost, speed). Kling reads only `speed`, from 0.8 to 2.0.
  * @property {boolean} [ssml] When `true`, AWS Polly treats `text` as SSML markup.
  * @property {boolean} [test_mode] When `true`, returns a sample audio without using credits.
  */

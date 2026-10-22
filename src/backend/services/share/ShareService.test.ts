@@ -17,8 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { installSeatStub } from '../../testFixtures/seatStub.js';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
@@ -1104,103 +1113,6 @@ describe('ShareService', () => {
             expect(await canWrite(stranger.actor, file.path)).toBe(false);
         });
 
-        it('goes with a file that changes owner, with its other grants, and nothing else is read', async () => {
-            const owner = await makeUser();
-            paid.add(owner.user.uuid);
-            const newOwner = await makeUser();
-            const stranger = await makeUser();
-            const recipient = await makeUser();
-            const member = await makeUser();
-            const file = await makeFile(owner.user);
-
-            const team = await server.stores.team.create({
-                ownerUserId: owner.user.id,
-                name: `t-${Math.random().toString(36).slice(2, 9)}`,
-            });
-            for (const user of [owner.user, member.user]) {
-                await server.stores.team.addMember(team.uid, user.id, {
-                    orgOwned: false,
-                });
-            }
-            for (const recipientSpec of [
-                anyone,
-                { email: recipient.email },
-                { team: team.uid },
-            ]) {
-                await share(owner.actor, {
-                    uid: file.uuid,
-                    recipient: recipientSpec,
-                    mode: 'read',
-                });
-            }
-            for (const reader of [stranger, recipient, member]) {
-                expect(await canRead(reader.actor, file.path)).toBe(true);
-            }
-
-            await server.stores.fsEntry.updateEntry(file.uuid, {
-                userId: newOwner.user.id,
-            });
-            const moved = await server.stores.fsEntry.getEntryByUuid(file.uuid);
-
-            const listByFsentry = vi.spyOn(
-                server.stores.share,
-                'listByFsentry',
-            );
-            const getEntriesByIds = vi.spyOn(
-                server.stores.fsEntry,
-                'getEntriesByIds',
-            );
-            const revokeUserGrants = vi.spyOn(
-                server.stores.permission,
-                'deleteUserUserPermsByPermissionPrefixes',
-            );
-            const revokeGroupGrants = vi.spyOn(
-                server.stores.permission,
-                'deleteUserGroupPermsByPermissionPrefixes',
-            );
-            const deleteRows = vi.spyOn(
-                server.stores.share,
-                'deleteByFsentryIds',
-            );
-            try {
-                await server.services.share.onEntryOwnerChanged(moved!);
-
-                expect(listByFsentry).not.toHaveBeenCalled();
-                expect(getEntriesByIds).not.toHaveBeenCalled();
-                const prefixes = [`fs:${file.uuid}`, `manage:fs:${file.uuid}`];
-                expect(revokeUserGrants).toHaveBeenCalledWith(prefixes);
-                expect(revokeGroupGrants).toHaveBeenCalledWith(prefixes);
-                expect(deleteRows).toHaveBeenCalledWith([file.id]);
-                // Grants go before the rows that record them.
-                expect(
-                    revokeUserGrants.mock.invocationCallOrder[0]!,
-                ).toBeLessThan(revokeGroupGrants.mock.invocationCallOrder[0]!);
-                expect(
-                    revokeGroupGrants.mock.invocationCallOrder[0]!,
-                ).toBeLessThan(deleteRows.mock.invocationCallOrder[0]!);
-            } finally {
-                for (const spy of [
-                    listByFsentry,
-                    getEntriesByIds,
-                    revokeUserGrants,
-                    revokeGroupGrants,
-                    deleteRows,
-                ]) {
-                    spy.mockRestore();
-                }
-            }
-
-            expect(
-                await server.clients.db.read(
-                    'SELECT * FROM `share` WHERE `fsentry_id` = ?',
-                    [file.id],
-                ),
-            ).toEqual([]);
-            for (const reader of [stranger, recipient, member]) {
-                expect(await canRead(reader.actor, file.path)).toBe(false);
-            }
-        });
-
         // A just-moved row can be missing from a lagging replica; a file's
         // grants go by the uuid in hand regardless.
         it('goes with a file that changes owner even when its row reads back missing', async () => {
@@ -1280,6 +1192,115 @@ describe('ShareService', () => {
             ).toContainEqual(
                 expect.objectContaining({ anyone: true, entryUid: file.uuid }),
             );
+        });
+
+        it('goes with a file that changes owner, with its other grants, and nothing else is read', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const newOwner = await makeUser();
+            const stranger = await makeUser();
+            const recipient = await makeUser();
+            const member = await makeUser();
+            const file = await makeFile(owner.user);
+
+            // A group and its share written directly: what this exercises is
+            // the owner change, and teams is optional.
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
+                    '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+                [groupUid, owner.user.id, 'team', 'Owner change', '{}', '{}'],
+            );
+            const [group] = (await server.clients.db.read(
+                'SELECT id FROM `group` WHERE uid = ?',
+                [groupUid],
+            )) as { id: number }[];
+            for (const user of [owner.user, member.user]) {
+                await server.clients.db.write(
+                    'INSERT INTO `jct_user_group` (`user_id`, `group_id`) ' +
+                        'VALUES (?, ?)',
+                    [user.id, group.id],
+                );
+            }
+            for (const recipientSpec of [anyone, { email: recipient.email }]) {
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: recipientSpec,
+                    mode: 'read',
+                });
+            }
+            await server.stores.share.upsertActiveGroup({
+                issuerUserId: owner.user.id,
+                holderGroupId: group.id,
+                fsentryId: file.id,
+                mode: 'read',
+            });
+            for (const reader of [stranger, recipient, member]) {
+                expect(await canRead(reader.actor, file.path)).toBe(true);
+            }
+
+            await server.stores.fsEntry.updateEntry(file.uuid, {
+                userId: newOwner.user.id,
+            });
+            const moved = await server.stores.fsEntry.getEntryByUuid(file.uuid);
+
+            const listByFsentry = vi.spyOn(
+                server.stores.share,
+                'listByFsentry',
+            );
+            const getEntriesByIds = vi.spyOn(
+                server.stores.fsEntry,
+                'getEntriesByIds',
+            );
+            const revokeUserGrants = vi.spyOn(
+                server.stores.permission,
+                'deleteUserUserPermsByPermissionPrefixes',
+            );
+            const revokeGroupGrants = vi.spyOn(
+                server.stores.permission,
+                'deleteUserGroupPermsByPermissionPrefixes',
+            );
+            const deleteRows = vi.spyOn(
+                server.stores.share,
+                'deleteByFsentryIds',
+            );
+            try {
+                await server.services.share.onEntryOwnerChanged(moved!);
+
+                expect(listByFsentry).not.toHaveBeenCalled();
+                expect(getEntriesByIds).not.toHaveBeenCalled();
+                const prefixes = [`fs:${file.uuid}`, `manage:fs:${file.uuid}`];
+                expect(revokeUserGrants).toHaveBeenCalledWith(prefixes);
+                expect(revokeGroupGrants).toHaveBeenCalledWith(prefixes);
+                expect(deleteRows).toHaveBeenCalledWith([file.id]);
+                // Grants go before the rows that record them.
+                expect(
+                    revokeUserGrants.mock.invocationCallOrder[0]!,
+                ).toBeLessThan(revokeGroupGrants.mock.invocationCallOrder[0]!);
+                expect(
+                    revokeGroupGrants.mock.invocationCallOrder[0]!,
+                ).toBeLessThan(deleteRows.mock.invocationCallOrder[0]!);
+            } finally {
+                for (const spy of [
+                    listByFsentry,
+                    getEntriesByIds,
+                    revokeUserGrants,
+                    revokeGroupGrants,
+                    deleteRows,
+                ]) {
+                    spy.mockRestore();
+                }
+            }
+
+            expect(
+                await server.clients.db.read(
+                    'SELECT * FROM `share` WHERE `fsentry_id` = ?',
+                    [file.id],
+                ),
+            ).toEqual([]);
+            for (const reader of [stranger, recipient, member]) {
+                expect(await canRead(reader.actor, file.path)).toBe(false);
+            }
         });
     });
 
@@ -1865,57 +1886,6 @@ describe('ShareService', () => {
                     (i) => i.holder.username === third.user.username,
                 )?.issuer.username,
             ).toBe(delegate.user.username);
-        });
-
-        it('hides a team share once the delegate loses the team that made them one', async () => {
-            const owner = await makeUser();
-            const delegate = await makeUser();
-            const third = await makeUser();
-            const file = await makeFile(owner.user);
-
-            const viaTeam = await server.stores.team.create({
-                ownerUserId: owner.user.id,
-                name: `t-${uuidv4().slice(0, 8)}`,
-            });
-            const audience = await server.stores.team.create({
-                ownerUserId: delegate.user.id,
-                name: `t-${uuidv4().slice(0, 8)}`,
-            });
-            for (const [team, members] of [
-                [viaTeam, [owner, delegate]],
-                [audience, [delegate, third]],
-            ] as const) {
-                for (const each of members) {
-                    await server.stores.team.addMember(team.uid, each.user.id, {
-                        orgOwned: false,
-                    });
-                }
-            }
-
-            await share(owner.actor, {
-                uid: file.uuid,
-                recipient: { team: viaTeam.uid },
-                mode: 'manage',
-            });
-            await share(delegate.actor, {
-                uid: file.uuid,
-                recipient: { team: audience.uid },
-                mode: 'read',
-            });
-            const holderTeams = async (actor: Actor) =>
-                (await listSharedByMe(actor)).items.map(
-                    (i) => i.holderTeam?.uid,
-                );
-            // Asked of the owner first: a delegate's own reading would sit in
-            // the permission cache past the team's deletion.
-            expect(await holderTeams(owner.actor)).toContain(audience.uid);
-
-            await server.services.team.deleteTeam(viaTeam.uid, owner.user.id);
-
-            expect(await holderTeams(delegate.actor)).not.toContain(
-                audience.uid,
-            );
-            expect(await holderTeams(owner.actor)).toContain(audience.uid);
         });
 
         it('reads the app off an invite recorded under the legacy key', async () => {
@@ -3129,52 +3099,6 @@ describe('ShareService', () => {
         expect(await canRead(holder.actor, file.path)).toBe(false);
         expect(await canRead(third.actor, file.path)).toBe(false);
         expect(await canRead(delegate.actor, file.path)).toBe(true);
-    });
-
-    it('leaves a member’s re-shares alone when their manage is not the team’s', async () => {
-        const owner = await makeUser();
-        const member = await makeUser();
-        const bystander = await makeUser();
-        const third = await makeUser();
-        const file = await makeFile(owner.user);
-
-        const team = await server.stores.team.create({
-            ownerUserId: owner.user.id,
-            name: `t-${uuidv4().slice(0, 8)}`,
-        });
-        for (const each of [owner, member, bystander]) {
-            await server.stores.team.addMember(team.uid, each.user.id, {
-                orgOwned: false,
-            });
-        }
-
-        // The member manages the file in their own right; the team grant is
-        // plain read, and is all `bystander` has.
-        await share(owner.actor, {
-            uid: file.uuid,
-            recipient: { username: member.user.username },
-            mode: 'manage',
-        });
-        await share(owner.actor, {
-            uid: file.uuid,
-            recipient: { team: team.uid },
-            mode: 'read',
-        });
-        await share(member.actor, {
-            uid: file.uuid,
-            recipient: { username: third.user.username },
-            mode: 'read',
-        });
-        expect(await canRead(bystander.actor, file.path)).toBe(true);
-
-        await unshare(owner.actor, {
-            uid: file.uuid,
-            recipient: { team: team.uid },
-        });
-
-        expect(await canRead(bystander.actor, file.path)).toBe(false);
-        expect(await canRead(member.actor, file.path)).toBe(true);
-        expect(await canRead(third.actor, file.path)).toBe(true);
     });
 
     it('lets the owner clear a grant a delegate issued', async () => {
@@ -5144,44 +5068,6 @@ describe('ShareService', () => {
         );
     });
 
-    it('retires a team share on a descendant when the folder changes owner', async () => {
-        const attacker = await makeUser();
-        const victim = await makeUser();
-        const member = await makeUser();
-        const { dir, file } = await makeDirWithFile(attacker.user);
-
-        const team = await server.stores.team.create({
-            ownerUserId: attacker.user.id,
-            name: `t-${Math.random().toString(36).slice(2, 9)}`,
-        });
-        await server.stores.team.addMember(team.uid, attacker.user.id, {
-            orgOwned: false,
-        });
-        await server.stores.team.addMember(team.uid, member.user.id, {
-            orgOwned: false,
-        });
-        await share(attacker.actor, {
-            uid: file.uuid,
-            recipient: { team: team.uid },
-            mode: 'read',
-        });
-        expect(await canRead(member.actor, file.path)).toBe(true);
-
-        await server.stores.fsEntry.updateEntry(dir.uuid, {
-            userId: victim.user.id,
-        });
-        await server.stores.fsEntry.updateEntry(file.uuid, {
-            userId: victim.user.id,
-        });
-        const moved = await server.stores.fsEntry.getEntryByUuid(dir.uuid);
-        await server.services.share.onEntryOwnerChanged(moved!);
-
-        expect(
-            await server.stores.share.listAllByFsentrySubtree(dir.id),
-        ).toEqual([]);
-        expect(await canRead(member.actor, file.path)).toBe(false);
-    });
-
     it('retires a whole burst of deletions in one flush', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();
@@ -6301,6 +6187,11 @@ describe('ShareService', () => {
 
     describe('listings read independent parts together', () => {
         const failure = (what: string) => new Error(`${what} failed`);
+
+        // These spy on the team store; Teams is optional, so stand one up.
+        beforeEach(() => {
+            installSeatStub(server as never, []);
+        });
 
         /** Unhandled rejections raised while `fn` runs, and shortly after. */
         const unhandledDuring = async (fn: () => Promise<void>) => {

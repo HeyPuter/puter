@@ -18,6 +18,7 @@
  */
 
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
+import { isOrgSeat } from './orgSeat.js';
 import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
 
 // Whether the server reported credits — decides whether the usage surfaces
@@ -36,7 +37,7 @@ const USAGE_TABLE_INITIAL_ROWS = 10;
 
 const TabUsage = {
     id: 'usage',
-    label: 'Usage',
+    label: i18n('usage'),
     icon: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-speedometer2" viewBox="0 0 16 16"> <path d="M8 4a.5.5 0 0 1 .5.5V6a.5.5 0 0 1-1 0V4.5A.5.5 0 0 1 8 4M3.732 5.732a.5.5 0 0 1 .707 0l.915.914a.5.5 0 1 1-.708.708l-.914-.915a.5.5 0 0 1 0-.707M2 10a.5.5 0 0 1 .5-.5h1.586a.5.5 0 0 1 0 1H2.5A.5.5 0 0 1 2 10m9.5 0a.5.5 0 0 1 .5-.5h1.5a.5.5 0 0 1 0 1H12a.5.5 0 0 1-.5-.5m.754-4.246a.39.39 0 0 0-.527-.02L7.547 9.31a.91.91 0 1 0 1.302 1.258l3.434-4.297a.39.39 0 0 0-.029-.518z"/> <path fill-rule="evenodd" d="M0 10a8 8 0 1 1 15.547 2.661c-.442 1.253-1.845 1.602-2.932 1.25C11.309 13.488 9.475 13 8 13c-1.474 0-3.31.488-4.615.911-1.087.352-2.49.003-2.932-1.25A8 8 0 0 1 0 10m8-7a7 7 0 0 0-6.603 9.329c.203.575.923.876 1.68.63C4.397 12.533 6.358 12 8 12s3.604.532 4.923.96c.757.245 1.477-.056 1.68-.631A7 7 0 0 0 8 3"/> </svg>',
     html: () => {
         return `
@@ -45,7 +46,7 @@ const TabUsage = {
                     <h2>${i18n('usage')}</h2>
                     <a href="#" class="billing-plan-btn usage-plan-btn" style="display: none;"></a>
                 </div>
-                <p>Puter resources and AI usage</p>
+                <p>${i18n('usage_subtitle')}</p>
             </div>
             <div class="driver-usage">
                 <div class="driver-usage-header">
@@ -53,9 +54,7 @@ const TabUsage = {
                     <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
                         <span id="storage-used-percent"></span>
                         <span> &middot; </span>
-                        <span id="storage-used"></span>
-                        <span> used of </span>
-                        <span id="storage-capacity"></span>
+                        ${i18n('used_of', { used: '<span id="storage-used"></span>', available: '<span id="storage-capacity"></span>' }, false)}
                         <span id="storage-puter-used-w" style="display:none;">&nbsp;(<span id="storage-puter-used"></span> ${i18n('storage_puter_used')})</span>
                     </div>
                 </div>
@@ -69,9 +68,7 @@ const TabUsage = {
                         <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
                             <span class="usage-progbar-percent"></span>
                             <span> &middot; </span>
-                            <span id="total-usage"></span>
-                            <span> used of </span>
-                            <span id="total-capacity"></span>
+                            ${i18n('used_of', { used: '<span id="total-usage"></span>', available: '<span id="total-capacity"></span>' }, false)}
                         </div>
                     </div>
                     <div class="usage-progbar-wrapper">
@@ -81,7 +78,7 @@ const TabUsage = {
                         <span class="usage-addon-left"></span>
                         <span class="usage-addon-note">&middot; ${i18n('addon_credits_note')}</span>
                     </p>
-                    <h3 style="margin:15px 0 10px 0; font-size: 14px; font-weight: 500;">Usage Details</h3>
+                    <h3 style="margin:15px 0 10px 0; font-size: 14px; font-weight: 500;">${i18n('usage_details')}</h3>
                     <div class="driver-usage-details-content visible">
                     </div>
                 </div>
@@ -113,6 +110,8 @@ const TabUsage = {
             }
 
             renderUsageTable();
+            // The header was redrawn; keep keyboard focus on it.
+            $($el_window).find(`.driver-usage-details-content-table th[data-sort="${column}"] .usage-sort-btn`).trigger('focus');
         });
 
         // Click handler for "Show more" to expand the table
@@ -154,6 +153,11 @@ let planBtnRetryTimer = null;
 function setupPlanButton ($el_window, retryDelay = 250) {
     const $planBtn = $($el_window).find('.usage-plan-btn');
     clearTimeout(planBtnRetryTimer);
+    // A seat's plan is the team's; the button would only reach a refusal.
+    if ( isOrgSeat(window.user) ) {
+        $planBtn.hide();
+        return;
+    }
     // UIUpgradeAccount is only present on hosted puter.com; on a self-hosted
     // install the button has no working target, so hide it entirely rather
     // than showing a dead control. Hosted deployments can attach it *after*
@@ -174,7 +178,7 @@ function setupPlanButton ($el_window, retryDelay = 250) {
     }
     const hasSubscription = window.user?.subscription?.active;
     $planBtn
-        .text(hasSubscription ? 'Manage Plan' : 'Upgrade')
+        .text(i18n(hasSubscription ? 'manage_plan' : 'billing.upgrade', [], false))
         .toggleClass('manage', !!hasSubscription)
         .toggleClass('upgrade', !hasSubscription)
         .show();
@@ -242,11 +246,18 @@ function renderUsageTable () {
     // Build the table
     h += '<table class="driver-usage-details-content-table">';
 
+    // A button in each sortable header puts sorting in the tab order;
+    // aria-sort tells assistive tech which column orders the rows.
+    const sortableTh = (column, label) => {
+        const sorted = usageTableSortState.column === column;
+        const ariaSort = sorted ? (usageTableSortState.direction === 'asc' ? 'ascending' : 'descending') : 'none';
+        return `<th data-sort="${column}" class="sortable-th" aria-sort="${ariaSort}"><button type="button" class="usage-sort-btn">${label} ${getSortIcon(column)}</button></th>`;
+    };
     h += `<thead>
         <tr>
-            <th data-sort="resource" class="sortable-th">Resource ${getSortIcon('resource')}</th>
-            <th>Units</th>
-            <th data-sort="cost" class="sortable-th">${usageShowsCredits ? i18n('credits') : 'Cost'} ${getSortIcon('cost')}</th>
+            ${sortableTh('resource', i18n('resource'))}
+            <th>${i18n('units')}</th>
+            ${sortableTh('cost', i18n(usageShowsCredits ? 'credits' : 'cost'))}
         </tr>
     </thead>`;
 
@@ -265,14 +276,14 @@ function renderUsageTable () {
     // Add "Show more" overlay if there are hidden rows
     if ( isCollapsed ) {
         h += `<div class="usage-table-fade-overlay">
-            <button class="usage-table-show-more">Show ${hiddenRowCount} more</button>
+            <button class="usage-table-show-more">${i18n('usage_show_more', { count: hiddenRowCount })}</button>
         </div>`;
     }
 
     // Add "Show less" button when expanded and there are more rows than the initial limit
     if ( usageTableExpanded && hasMoreRows ) {
         h += `<div class="usage-table-show-less-wrapper">
-            <button class="usage-table-show-less">Show less</button>
+            <button class="usage-table-show-less">${i18n('show_less')}</button>
         </div>`;
     }
 
@@ -347,7 +358,7 @@ async function update_usage_details ($el_window) {
         // legitimately empty table.
         if ( ! usageTableRendered ) {
             $('.driver-usage-details-content').html(
-                '<p style="opacity:0.7; font-size:13px;">Usage details are unavailable right now.</p>',
+                `<p style="opacity:0.7; font-size:13px;">${i18n('usage_details_unavailable')}</p>`,
             );
         }
     });

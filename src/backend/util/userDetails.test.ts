@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { installSeatStub } from '../testFixtures/seatStub.js';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { configContainer } from '../exports.js';
@@ -230,6 +231,39 @@ describe('buildUserDetails lookups', () => {
             'last_activity_ts',
         ]);
         expect(details.taskbar_items).toEqual([]);
+    });
+});
+
+describe('the team a seat belongs to', () => {
+    it('names it for the account itself', async () => {
+        const user = await makeUser();
+        installSeatStub(server as never, [user.id], {
+            teamUid: 'team-xyz',
+            teamName: 'Acme Corp',
+        });
+        (deps().config as { teams_enabled?: boolean }).teams_enabled = true;
+
+        const details = await buildUserDetails(user, deps(), { isUser: true });
+        expect(details.team).toEqual({ uid: 'team-xyz', name: 'Acme Corp' });
+    });
+
+    it('withholds it from an app actor', async () => {
+        // Same class as the phone number: a seat's employer is not an app's
+        // business.
+        const user = await makeUser();
+        installSeatStub(server as never, [user.id], { teamName: 'Acme Corp' });
+        (deps().config as { teams_enabled?: boolean }).teams_enabled = true;
+
+        const details = await buildUserDetails(user, deps(), { isUser: false });
+        expect(details).not.toHaveProperty('team');
+    });
+
+    it('names none where teams is not installed', async () => {
+        const user = await makeUser();
+        (deps().config as { teams_enabled?: boolean }).teams_enabled = true;
+
+        const details = await buildUserDetails(user, deps(), { isUser: true });
+        expect(details).not.toHaveProperty('team');
     });
 });
 

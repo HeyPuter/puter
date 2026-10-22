@@ -630,6 +630,11 @@ window.update_auth_data = async (auth_token, user) => {
     // ----------------------------------------------------
     user.profile = {};
     puter.auth.getProfile().then((profile) => {
+        window.user.profile.displayName = profile?.displayName ?? null;
+        window.user.profile.bio = profile?.bio ?? null;
+        if ( profile?.displayName ) {
+            $('.dashboard-profile-display-name').text(profile.displayName);
+        }
         if ( profile?.picture ) {
             window.user.profile.picture = html_encode(profile.picture);
             $('.profile-pic').css('background-image', `url(${window.user.profile.picture})`);
@@ -3145,7 +3150,11 @@ function parseTar (data) {
     return files;
 }
 
-window.rename_file = async (options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false) => {
+/**
+ * @param {(fsentry: object | null) => void} [onDone] - Runs after the row is
+ *     updated: with the renamed entry, or null once a failed rename is undone.
+ */
+window.rename_file = async (options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false, onDone) => {
     puter.fs.rename({
         uid: options.uid === 'null' ? null : options.uid,
         new_name: new_name,
@@ -3160,7 +3169,7 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             {
                 window.actions_history.push({
                     operation: 'rename',
-                    data: { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url },
+                    data: { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, onDone },
                 });
             }
 
@@ -3248,6 +3257,8 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).parent('.item-container').each(function () {
                 window.sort_items(this, $(el_item).closest('.item-container').attr('data-sort_by'), $(el_item).closest('.item-container').attr('data-sort_order'));
             });
+
+            onDone?.(fsentry);
         },
         error: function (err) {
             // reset to old name
@@ -3257,6 +3268,8 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             // hide item name editor
             $(el_item_name_editor).hide();
             $(el_item_name_editor).val($(el_item).attr('data-name'));
+
+            onDone?.(null);
 
             //show error
             if ( err.message ) {
@@ -3299,8 +3312,8 @@ window.undo_last_action = async () => {
         move: () => window.undo_move(data),
         delete: () => window.undo_delete(data),
         rename: () => {
-            const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url } = data;
-            window.rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true);
+            const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, onDone } = data;
+            window.rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true, onDone);
         },
     };
 

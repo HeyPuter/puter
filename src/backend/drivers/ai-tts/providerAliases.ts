@@ -32,6 +32,7 @@ export const TTS_PROVIDERS = [
     'gemini',
     'xai',
     'speechify',
+    'kling',
 ] as const;
 
 export type TTSProviderName = (typeof TTS_PROVIDERS)[number];
@@ -50,6 +51,7 @@ export const TTS_DRIVER_ALIASES = [
     'gemini-tts',
     'xai-tts',
     'speechify-tts',
+    'kling-tts',
 ] as const;
 
 const PROVIDER_BY_ALIAS: Record<string, TTSProviderName> = {
@@ -76,6 +78,9 @@ const PROVIDER_BY_ALIAS: Record<string, TTSProviderName> = {
     simba: 'speechify',
     speechify: 'speechify',
     'speechify-tts': 'speechify',
+    kling: 'kling',
+    'kling-ai': 'kling',
+    'kling-tts': 'kling',
 };
 
 export const TTS_CATALOG: ProviderCatalog = {

@@ -31,7 +31,7 @@ Additional settings for the generation request. Available options depend on the 
 | Option | Type | Description |
 |--------|------|-------------|
 | `prompt` | `String` | Text description for the image generation |
-| `provider` | `String` | Optional provider: `'openai'`, `'gemini'`, `'cloudflare'`, `'xai'`, `'replicate'`, or `'byteplus'` (`'together'` is still recognized, but every Together route is currently excluded). Full `*-image-generation` IDs also work. This is a preference: if it does not offer the requested model, Puter selects a provider that does. Selecting a route excluded by data policy returns `bad_request` instead. Inferred from `model` when omitted; use a provider-prefixed model ID to select an exact provider. |
+| `provider` | `String` | Optional provider: `'openai'`, `'gemini'`, `'cloudflare'`, `'xai'`, `'replicate'`, `'byteplus'`, or `'kling'` (`'together'` is still recognized, but every Together route is currently excluded). Full `*-image-generation` IDs also work. This is a preference: if it does not offer the requested model, Puter selects a provider that does. Selecting a route excluded by data policy returns `bad_request` instead. Inferred from `model` when omitted; use a provider-prefixed model ID to select an exact provider. |
 | `model` | `String` | Image model ID. See the provider defaults and model discovery below. Lookups are case-insensitive; provider-prefixed IDs select that provider. |
 | `test_mode` | `Boolean` | When `true`, returns a sample image without using credits |
 | `puter_output_path` | `String` | When set, the generated image is automatically saved to this path on the Puter filesystem. Relative paths are resolved against the app's data directory (or `~/` outside an app). The caller must have write permission to the destination |
@@ -53,6 +53,7 @@ Without a model, these provider defaults apply:
 | xAI | `grok-imagine-image` |
 | Replicate | `black-forest-labs/flux-schnell` |
 | BytePlus | `seedream-5-0-lite-260128` |
+| Kling | `kling-v3` |
 
 When neither is supplied, OpenAI's `gpt-image-2` is used.
 
@@ -93,6 +94,7 @@ Raw base64 carries no MIME type of its own. When it cannot be detected from the 
 | xAI `grok-imagine-*` | Up to 5 (400 if exceeded) | URL, base64 / data-URI |
 | Cloudflare FLUX.2 | Single only (400 if more than one) | URL, base64 / data-URI. Inpainting also accepts one reference; SDXL, Schnell, and Leonardo models are text-to-image only and reject references. |
 | BytePlus | Up to 10 for Seedream 5.0 Pro; 14 for other Seedream models | URL, base64 / data-URI |
+| Kling | Up to 10 for `kling-v3-omni` and `kling-image-o1`; one for `kling-v3` and `kling-v2-1` | URL, base64 / data-URI. JPEG or PNG, up to 10 MB, at least 300 pixels per side |
 
 #### OpenAI Options
 
@@ -164,6 +166,26 @@ Use `provider: 'byteplus'` or a Seedream model ID. Available models are `dola-se
 | `input_image`, `input_images` | `String`, `Array<String>` | Reference images; up to 10 for Pro, 14 for other models. |
 
 For compatibility, a dimension pair containing fewer than 921,600 total pixels is treated as an aspect-ratio hint and mapped to the selected tier. Larger pairs are explicit sizes and must satisfy both the pixel-count and aspect-ratio constraints in [Rate Limits and Quotas](/rate-limits-and-quotas#image-generation). See the [ModelArk image API reference](https://docs.byteplus.com/en/docs/ModelArk/1541523).
+
+#### Kling Options
+
+Use `provider: 'kling'` or a Kling model ID. Each request generates one image, billed per image:
+
+| Model | Alias | Price per image | `quality` | Input images |
+|-------|-------|-----------------|-----------|--------------|
+| `kling-v3` (default) | `kling-image-3.0` | $0.028 | `1k` (default), `2k` | One |
+| `kling-v3-omni` | `kling-image-3.0-omni` | $0.028, or $0.056 at `4k` | `1k` (default), `2k`, `4k` | Up to 10 |
+| `kling-image-o1` | | $0.028 | `1k` (default), `2k` | Up to 10 |
+| `kling-v2-1` | `kling-image-2.1` | $0.014, or $0.028 with an input image | `1k` (default), `2k` | One |
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `quality` | `String` | Output resolution from the table above, case-insensitive. `low` and `medium` select `1k`, `high` and `hd` select `2k`. Any other value selects `1k` |
+| `ratio` | `Object` | Aspect ratio. The closest of 16:9, 9:16, 1:1, 4:3, 3:4, 3:2, 2:3 and 21:9 is used. Defaults to 1:1, or to a ratio Kling picks from the input images on `kling-v3-omni` and `kling-image-o1` |
+| `input_image`, `input_images` | `String`, `Array<String>` | Reference images. In the prompt, `<<<image_1>>>` refers to the first image on `kling-v3-omni` and `kling-image-o1` |
+| `negative_prompt` | `String` | What to keep out of the image, on `kling-v3` and `kling-v2-1` without an input image |
+
+Kling returns a hosted URL that stays available for 30 days. See the [Kling image API reference](https://kling.ai/document-api/api/image/3-0-omni/image-generation).
 
 #### Replicate Options
 

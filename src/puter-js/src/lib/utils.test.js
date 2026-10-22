@@ -132,6 +132,23 @@ describe('setupXhrEventHandlers', () => {
         const pending = new Promise(resolve => setTimeout(() => resolve('pending'), 100));
         expect(await Promise.race([result, pending])).toBe(xhr.response);
     });
+
+    it('resolves 206 Partial Content response for blob reads', async () => {
+        const listeners = {};
+        const xhr = {
+            responseType: 'blob',
+            status: 206,
+            response: new Blob(['part']),
+            getResponseHeader: () => 'application/octet-stream',
+            addEventListener: (type, fn) => { listeners[type] = fn; },
+        };
+        const result = new Promise((resolve, reject) => {
+            setupXhrEventHandlers(xhr, undefined, undefined, resolve, reject);
+        });
+        listeners.load.call(xhr, { target: xhr });
+        const pending = new Promise(resolve => setTimeout(() => resolve('pending'), 100));
+        expect(await Promise.race([result, pending])).toBe(xhr.response);
+    });
 });
 
 describe('legacy request idle timeout', () => {

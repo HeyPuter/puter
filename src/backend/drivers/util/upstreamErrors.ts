@@ -137,7 +137,7 @@ const MAX_UPSTREAM_MESSAGE_LENGTH = 300;
 
 /** Model-side content filters, as worded in provider failure payloads. */
 export const CONTENT_FILTER_PATTERN =
-    /\bnsfw\b|sensitive|content[\s_-]?policy|moderation|safety|\bunsafe\b|\bflagged\b|prohibited|\bE005\b/i;
+    /\bnsfw\b|sensitive|content[\s_-]?policy|moderation|safety|\bunsafe\b|\bflagged\b|prohibited|risk[\s_-]?control|\bE005\b/i;
 
 /** Provider messages that indicate the account cannot fund another request. */
 export const CREDIT_EXHAUSTION_PATTERN =

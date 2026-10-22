@@ -172,7 +172,7 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
 
             addRow($list, 'UID', html_encode(fsentry.id));
             addRow($list, i18n('type'),
-                fsentry.is_dir ? 'Directory' : (fsentry.type ? html_encode(fsentry.type) : '-'));
+                fsentry.is_dir ? i18n('directory') : (fsentry.type ? html_encode(fsentry.type) : '-'));
             addRow($list, i18n('size'),
                 (fsentry.size === null || fsentry.size === undefined) ? '-' : html_encode(window.byte_format(fsentry.size)));
             addRow($list, i18n('modified'),
@@ -192,7 +192,7 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
                 const websitesHtml = fsentry.subdomains.map(subdomain => `
                     <p class="item-props-website-entry" data-uuid="${html_encode(subdomain.uuid)}">
                         <a target="_blank" rel="noopener" href="${html_encode(subdomain.address)}">${html_encode(subdomain.address)}</a>
-                        <span class="item-props-disassociate" data-uuid="${html_encode(subdomain.uuid)}" data-subdomain="${html_encode(window.extractSubdomain(subdomain.address))}">disassociate</span>
+                        <span class="item-props-disassociate" data-uuid="${html_encode(subdomain.uuid)}" data-subdomain="${html_encode(window.extractSubdomain(subdomain.address))}">${i18n('disassociate')}</span>
                     </p>
                 `).join('');
                 addRow($list, i18n('associated_websites'), websitesHtml);

@@ -406,7 +406,11 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         $list.attr('aria-busy', 'false').html(rows);
     };
 
+    // Actions on different rows can overlap, each ending in a refresh; only
+    // the newest may render, or an older listing lands last and undoes it.
+    let refresh_seq = 0;
     const refresh = async () => {
+        const seq = ++refresh_seq;
         // A listing per item stops being reasonable past the request cap, and
         // every action would re-run it. Say so instead of firing hundreds.
         if ( total > MAX_ITEMS_PER_REQUEST ) {
@@ -420,7 +424,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         const settled = await Promise.allSettled(
             target_paths.map((target) => puter.fs.getShares(target)),
         );
-        if ( closed ) return;
+        if ( closed || seq !== refresh_seq ) return;
 
         /** @type {Map<string, Object[]>} */
         const by_path = new Map();

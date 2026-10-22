@@ -16,6 +16,9 @@ function isTouchPrimaryDevice () {
     );
 }
 
+/** Labels of the destructive file actions, in the current language. */
+const dangerLabels = () => new Set([i18n('delete'), i18n('delete_permanently')]);
+
 export default class ContextMenuModal {
     constructor (options = {}) {
         this.onClose = options.onClose || (() => {
@@ -138,7 +141,7 @@ export default class ContextMenuModal {
      */
     getVisibleItems () {
         if ( this._menuStack && this._menuStack.length > 0 ) {
-            return [{ label: '‹ Back', _isBack: true }, '-', ...this.menuItems];
+            return [{ label: `‹ ${i18n('back')}`, _isBack: true }, '-', ...this.menuItems];
         }
         return this.menuItems;
     }
@@ -162,6 +165,7 @@ export default class ContextMenuModal {
      * @returns {string} HTML string
      */
     renderMenuItems (menuItems) {
+        const danger = dangerLabels();
         return menuItems.map((item, index) => {
             // Handle separators
             if ( item === '-' || item.is_divider ) {
@@ -171,8 +175,9 @@ export default class ContextMenuModal {
             // Get label - support both formats
             const label = item.label || item.html || '';
 
-            // Check for delete/danger styling
-            const isDelete = label.toLowerCase().includes('delete');
+            // Danger styling for the delete actions, matched in the
+            // current language rather than by the English word
+            const isDelete = danger.has(label);
             const deleteClass = isDelete ? 'context-menu-item--delete' : '';
             const disabledClass = item.disabled ? 'context-menu-item--disabled' : '';
             const hasSubmenu = Array.isArray(item.items) && item.items.length > 0;

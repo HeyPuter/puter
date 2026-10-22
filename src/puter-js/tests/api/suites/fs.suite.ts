@@ -57,6 +57,20 @@ export default suite('fs', {
         t.assert.equal(await blob.text(), 'hello from the suite');
     },
 
+    'read with offset and byte_count returns partial content': async (t) => {
+        const path = `${home(t)}/fs-suite-partial.txt`;
+        await t.puter.fs.write(path, '0123456789abcdef');
+        const blob = await t.puter.fs.read(path, { offset: 4, byte_count: 6 });
+        t.assert.equal(await blob.text(), '456789');
+    },
+
+    'read with offset 0 and byte_count returns from beginning': async (t) => {
+        const path = `${home(t)}/fs-suite-offset-zero.txt`;
+        await t.puter.fs.write(path, '0123456789');
+        const blob = await t.puter.fs.read(path, { offset: 0, byte_count: 5 });
+        t.assert.equal(await blob.text(), '01234');
+    },
+
     'write round-trips binary data intact': async (t) => {
         const path = `${home(t)}/fs-suite-binary.bin`;
         const bytes = new Uint8Array(256);

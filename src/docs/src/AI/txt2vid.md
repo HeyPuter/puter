@@ -1,10 +1,10 @@
 ---
 title: puter.ai.txt2vid()
-description: Generate short video clips from text or reference images, or edit a video you supply, with Wan, Seedance, Veo, Gemini Omni and other models through Puter.js.
+description: Generate short video clips from text or reference images, or edit a video you supply, with Wan, Seedance, Veo, Kling, Gemini Omni and other models through Puter.js.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Given a prompt, generate a short video clip using AI. Puter routes the request to one of three upstream providers (Together AI, BytePlus Seedance, Google Gemini) based on the model you pick, waits for the clip to render, and resolves with a ready-to-play video. Every model can also start from an image you supply (image-to-video), and the same option names work across providers. Gemini Omni can also edit or extend a video you supply.
+Given a prompt, generate a short video clip using AI. Puter routes the request to one of four upstream providers (Together AI, BytePlus Seedance, Google Gemini, Kling) based on the model you pick, waits for the clip to render, and resolves with a ready-to-play video. Every model can also start from an image you supply (image-to-video), and the same option names work across providers. Gemini Omni, FLUX 3 and the Kling Omni models can also edit a video you supply.
 
 ## Syntax
 
@@ -34,17 +34,17 @@ Additional settings for the generation request.
 |--------|------|-------------|
 | `prompt` | `String` | Text description for the video generation |
 | `model` | `String` | Video model to use. Defaults to `'togetherai:wan-ai/wan2.7-t2v'` (Wan 2.7 text-to-video). See [Choosing a model](#choosing-a-model) |
-| `provider` | `String` | Pin the request to one provider: `'together-video-generation'`, `'byteplus-video-generation'` or `'gemini-video-generation'`. Only needed when a model id exists on more than one provider |
+| `provider` | `String` | Pin the request to one provider: `'together-video-generation'`, `'byteplus-video-generation'`, `'gemini-video-generation'` or `'kling-video-generation'`. Only needed when a model id exists on more than one provider |
 | `seconds` | `Number` | Target clip length in seconds. Each model supports a fixed set of durations; an unsupported value falls back to the model default instead of failing. Gemini Omni has no length control and rejects this option. `duration` is an alias |
 | `size` | `String` | Output size as `'WIDTHxHEIGHT'` (e.g. `'1280x720'`) on every provider. Models that work in resolution tiers take the tier of the shorter side plus the aspect ratio, and also accept the tier directly (`'720p'`). An unsupported value falls back to the model default, except on Gemini Omni, which rejects it. `resolution` is an alias |
-| `width`, `height` | `Number` | Output size in pixels on Together AI models sized in pixels; the aspect ratio on Seedance and Wan 2.7. Filled in from `size` when you leave them out |
+| `width`, `height` | `Number` | Output size in pixels on Together AI models sized in pixels; the aspect ratio on Seedance, Kling and Wan 2.7. Filled in from `size` when you leave them out |
 | `input_reference` | `String \| Blob` | Image the clip starts from (image-to-video), on every provider. See [Image inputs](#image-inputs) for the formats it takes |
 | `last_frame` | `String \| Blob` | Image the clip ends on, same formats. Requires `input_reference` on Seedance |
-| `reference_images` | `Array<String \| Blob>` | Images the model keeps consistent as subjects or style, same formats. Limits per provider are listed below; not combined with `input_reference` or `last_frame` |
-| `inputVideo` | `String \| Blob` | Video to edit, with the prompt describing the change. Only Gemini Omni and FLUX 3 accept it. See [Video input](#video-input) |
+| `reference_images` | `Array<String \| Blob>` | Images the model keeps consistent as subjects or style, same formats. Limits per provider are listed below; not combined with `input_reference` or `last_frame`, except on Kling |
+| `inputVideo` | `String \| Blob` | Video to edit, with the prompt describing the change. Only Gemini Omni, FLUX 3, Kling 3.0 Omni and Kling O1 accept it. See [Video input](#video-input) |
 | `negative_prompt` | `String` | Text describing what to avoid in the video (Together AI) |
 | `seed` | `Number` | Random seed for reproducible results (Together AI and Seedance 1.x) |
-| `generate_audio` | `Boolean` | Generate a soundtrack, on models that support audio (Seedance and Together AI models with audio) |
+| `generate_audio` | `Boolean` | Generate a soundtrack, on models that support audio (Seedance, Kling and Together AI models with audio) |
 | `test_mode` | `Boolean` | When `true`, returns a sample video without using credits |
 | `puter_output_path` | `String` | When set, the generated video is automatically saved to this path on the Puter filesystem. Relative paths are resolved against the app's data directory (or `~/` outside an app). The caller must have write permission to the destination |
 
@@ -78,10 +78,11 @@ What each provider does with image inputs:
 | Together AI | Models with a `first` keyframe | Models with a `last` keyframe | Model-dependent (Seedance 2.5: up to 30) |
 | BytePlus Seedance | Yes | Yes, with `input_reference` | Seedance 2.0: up to 9; Seedance 2.5: up to 30; cannot be combined with frames |
 | Google Gemini | Yes, one PNG, JPEG or WebP image up to 5 MiB | No | No |
+| Kling | Yes, JPEG or PNG | Yes, with `input_reference`, on the models listed in [Kling options](#kling-options) | Kling 3.0 Omni and O1: up to 7, or 4 with `inputVideo` |
 
 #### Video input
 
-Two models can change a video you supply: Gemini Omni (`gemini-omni-1.1-flash`) and FLUX 3 on Together AI (`black-forest-labs/flux-3`). Pass the video as `inputVideo` and describe the change in the prompt, such as "Make this dog a dinosaur". The result is a new clip that keeps the scene and motion of your video.
+Four models can change a video you supply: Gemini Omni (`gemini-omni-1.1-flash`), FLUX 3 on Together AI (`black-forest-labs/flux-3`), and Kling 3.0 Omni (`kling-3.0-omni`) and Kling O1 (`kling-o1`). Pass the video as `inputVideo` and describe the change in the prompt, such as "Make this dog a dinosaur". The result is a new clip that keeps the scene and motion of your video.
 
 ```js
 const video = await puter.ai.txt2vid("Make this dog a dinosaur", {
@@ -90,20 +91,20 @@ const video = await puter.ai.txt2vid("Make this dog a dinosaur", {
 });
 ```
 
-The video can be a public URL, the path of a file in the user's Puter filesystem, a `Blob` or `File`, or a `data:` URI. Puter accepts a `data:` URI of up to 1 MiB, and puter.js uploads a `Blob`, a `File` or a larger `data:` URI to a temporary file, as described in [Image inputs](#image-inputs). Puter checks the size and format of a `data:` URI or Puter file before generating. The two models differ in what they take and return:
+The video can be a public URL, the path of a file in the user's Puter filesystem, a `Blob` or `File`, or a `data:` URI. Puter accepts a `data:` URI of up to 1 MiB, and puter.js uploads a `Blob`, a `File` or a larger `data:` URI to a temporary file, as described in [Image inputs](#image-inputs). Puter checks the size and format of a `data:` URI or Puter file before generating. Kling doesn't take a `data:` URI. The models differ in what they take and return:
 
-| | Gemini Omni | FLUX 3 |
-|---|---|---|
-| Formats | MP4, QuickTime or WebM | MP4, QuickTime, WebM or Matroska |
-| Size | Up to 32 MiB | Up to 32 MiB for a Puter file. A URL is fetched by Together AI |
-| Source length | Up to 10 seconds. A longer video fails with `upstream_bad_request` and isn't charged | Any |
-| Output length | The model decides. The prompt can also ask it to continue the clip past its end | `seconds`, from 5 to 20. Defaults to 6 |
-| Output size | `size`, see [Gemini Omni options](#gemini-omni-options) | 1280x704 |
-| Price | Per token, see [Gemini Omni options](#gemini-omni-options) | $0.43 per second of output |
+| | Gemini Omni | FLUX 3 | Kling 3.0 Omni and O1 |
+|---|---|---|---|
+| Formats | MP4, QuickTime or WebM | MP4, QuickTime, WebM or Matroska | MP4 or QuickTime |
+| Size | Up to 32 MiB | Up to 32 MiB for a Puter file. A URL is fetched by Together AI | Up to 200 MiB for a Puter file. A URL is fetched by Kling |
+| Source length | Up to 10 seconds. A longer video fails with `upstream_bad_request` and isn't charged | Any | 3 to 15.5 seconds on Kling 3.0 Omni, 3 to 10 seconds on Kling O1. A video Kling can't decode fails with `upstream_bad_request` and isn't charged |
+| Output length | The model decides. The prompt can also ask it to continue the clip past its end | `seconds`, from 5 to 20. Defaults to 6 | The length of the source. `seconds` is ignored |
+| Output size | `size`, see [Gemini Omni options](#gemini-omni-options) | 1280x704 | `size`, see [Kling options](#kling-options) |
+| Price | Per token, see [Gemini Omni options](#gemini-omni-options) | $0.43 per second of output | Per second of output, see [Kling options](#kling-options) |
 
-FLUX 3 gets a Puter file as a link that works for 15 minutes, which Together AI fetches when the job starts.
+FLUX 3 and Kling get a Puter file as a link that works for 19 minutes, which the provider fetches when the job starts.
 
-Every other model rejects `inputVideo` with `bad_request`. Both models reject it together with image inputs (`input_reference`, and on FLUX 3 also `last_frame`, `reference_images` and `frame_images`).
+Every other model rejects `inputVideo` with `bad_request`. These models reject it together with frame images (`input_reference` and `last_frame`, and on FLUX 3 also `reference_images` and `frame_images`). Kling takes up to 4 `reference_images` with it.
 
 #### Together AI options
 
@@ -232,6 +233,47 @@ Gemini Omni is priced per token. Input costs $1.50 per million tokens. Video out
 </script>
 ```
 
+#### Kling options
+
+Available when using a Kling model (provider `'kling-video-generation'`). Every model also answers to `kling/<model>` and to Kling's own model name, listed as the alias. Kling models take any whole number of seconds in their range and work in resolution tiers: pass `size` as a tier, or as `'WIDTHxHEIGHT'`, which selects the tier of the shorter side and the aspect ratio. They render at 24 frames per second.
+
+| Model | Alias | Duration (s) | Resolutions | Audio | Last frame | Reference images | `inputVideo` |
+|-------|-------|--------------|-------------|-------|------------|------------------|--------------|
+| `kling-3.0-turbo` (default) | `kling-v3-turbo` | 3 to 15, default 5 | `720p`, `1080p` | Always | No | No | No |
+| `kling-3.0` | `kling-v3` | 3 to 15, default 5 | `720p`, `1080p`, `4k` | Optional | Yes | No | No |
+| `kling-3.0-omni` | `kling-v3-omni` | 3 to 15, default 5 | `720p`, `1080p`, `4k` | Optional | Yes | Up to 7 | Yes |
+| `kling-o1` | `kling-video-o1` | 3 to 10, default 5. 5 or 10 with only `input_reference` | `720p`, `1080p` | No | Yes | Up to 7 | Yes |
+| `kling-2.6` | `kling-v2-6` | 5 or 10 | `720p`, `1080p` | Optional, at `1080p` only | At `1080p`, without audio | No | No |
+| `kling-2.5-turbo` | `kling-v2-5-turbo` | 5 or 10 | `720p`, `1080p` | No | At `1080p` | No | No |
+
+The first resolution listed is the default. Prices are per second of output:
+
+| Model | 720p | 1080p | 4K |
+|-------|------|-------|----|
+| `kling-3.0-turbo` | $0.112 | $0.14 | |
+| `kling-3.0` | $0.084, $0.126 with audio | $0.112, $0.168 with audio | $0.42 |
+| `kling-3.0-omni` | $0.084, $0.112 with audio, $0.126 with `inputVideo` | $0.112, $0.14 with audio, $0.168 with `inputVideo` | $0.42 |
+| `kling-o1` | $0.084, $0.126 with `inputVideo` | $0.112, $0.168 with `inputVideo` | |
+| `kling-2.6` | $0.042 | $0.07, $0.14 with audio | |
+| `kling-2.5-turbo` | $0.042 | $0.07 | |
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `model` | `String` | Video model to use, from the table above (full id or alias) |
+| `prompt` | `String` | Up to 3,072 characters on the Kling 3.0 models, 2,500 on the others and on Kling 3.0 Turbo with `input_reference` |
+| `seconds` | `Number` | Clip length, from the table above. Any other value falls back to `5`. Ignored with `inputVideo` |
+| `size` | `String` | Resolution tier: `'720p'`, `'1080p'` or `'4k'` (case-insensitive), or `'WIDTHxHEIGHT'`. `resolution` is an alias |
+| `width`, `height` | `Number` | Optional. Only their ratio is used, to pick the aspect ratio: `16:9`, `9:16` or `1:1`. Any other ratio gives `16:9`. A clip from `input_reference` or `inputVideo` takes the image's or video's shape |
+| `generate_audio` | `Boolean` | Generate a soundtrack on models with optional audio. Defaults to `false`. With `inputVideo`, the clip keeps the source video's sound unless this is `false` |
+| `input_reference` | `String \| Blob` | Image used as the first frame, in any [image input](#image-inputs) format. JPEG or PNG, at least 300 pixels per side |
+| `last_frame` | `String \| Blob` | Image used as the last frame, same formats. Requires `input_reference` |
+| `reference_images` | `Array<String \| Blob>` | Images the model uses as subject, style or scene references, same formats. Kling O1 doesn't take them with `last_frame` |
+| `inputVideo` | `String \| Blob` | Video to edit, described by the prompt. See [Video input](#video-input) |
+
+An option the model lacks, or a combination it doesn't support, is rejected with `bad_request` before any credits are spent. Clips carry no watermark. Kling returns a hosted URL that stays available for 30 days.
+
+For more details, see the [Kling video API reference](https://kling.ai/document-api/api/video/3-0-omni/text-to-video).
+
 Any properties not set fall back to provider defaults.
 
 #### Saving to Puter filesystem
@@ -254,13 +296,14 @@ Every successful generation is charged to the user's AI credits according to the
 
 - **Seedance** is priced per second. If the balance cannot cover the requested length, Puter shortens the clip to the longest duration the model supports that the balance does cover, and rejects with `insufficient_funds` only when even the shortest clip is unaffordable. The response does not flag a shortened clip, so read `video.duration` once metadata has loaded if the exact length matters.
 - **Together AI** prices its older models per clip, so those requests are either accepted at the model's duration or rejected with `insufficient_funds`. Its per-second models (marked in the Together AI table), including the default Wan 2.7, are shortened like Seedance, and charged at the model's highest published rate per second.
+- **Kling** is priced per second, and clips are shortened like Seedance. An edit of an `inputVideo` is as long as its source, so Puter holds the price of the longest source the model accepts (16 seconds on Kling 3.0 Omni, 10 on Kling O1) and charges for the length of the clip Kling returns.
 - **Gemini Omni** is priced per token and has no length control, so it's never shortened. Before generating, Puter counts the input tokens and holds an estimate of about $3.63 plus the input. The estimate covers 173,760 video tokens and 65,536 text and thinking tokens. Puter doesn't count the tokens of an `inputVideo`, so a request with one holds another 16,000 input tokens, about $0.02, which covers a 10-second video. Puter reads the video only after the estimate is held. A balance that can't cover it fails with `insufficient_funds` before generation starts. The charge is for the tokens Google reports for the clip. It can be higher than the estimate, because Google can go past the requested output limit. When Google's reply reports token usage but fails or has no usable clip, those tokens are charged and the request still fails.
 
 Apart from that Gemini Omni case, a request that fails or times out is not charged. The request and concurrency limits that apply to every AI call are listed in [Rate limits and quotas](/rate-limits-and-quotas/).
 
 #### How long it takes
 
-Video generation is slow: expect anywhere from tens of seconds to several minutes, growing with duration and resolution. The returned promise stays pending until the clip is ready, so keep the UI responsive with a progress indicator (see the examples below). Puter waits up to ten minutes for a job; one that outlives the window fails with `upstream_timeout`.
+Video generation is slow: expect anywhere from tens of seconds to several minutes, growing with duration and resolution. The returned promise stays pending until the clip is ready, so keep the UI responsive with a progress indicator (see the examples below). Puter waits up to 14 minutes for a job; one that outlives the window fails with `upstream_timeout`.
 
 ## Return value
 
@@ -296,7 +339,7 @@ A rejection carries the error body exactly as the backend sent it, or `{ message
 | `bad_request` (without `errorCode`) | Puter rejected the request before contacting a provider: an unknown `model` (`Model not found: …`), an invalid combination of image inputs, an option Gemini Omni doesn't support, `inputVideo` on a model that can't take it, an image or video URL that could not be fetched, or a Puter file that isn't an accepted image or video format. `message` says which. Arrives as HTTP 400. |
 | `input_too_large` | An image or video input is over its size limit. The limits are 5 MiB for an image on Gemini Omni, 32 MiB for a video, 1 MiB for a video sent as a `data:` URI, and 32 MiB for the Puter file images of one request together. Arrives as HTTP 413, before any credits are spent. |
 | `access_denied` | `puter_output_path` points somewhere the caller may not write, or an image or video input names a Puter file the caller may not read. Arrives as HTTP 403, before any credits are spent. `cannot_write_to_root` (HTTP 400) is the same check for a path directly under `/`. |
-| `upstream_timeout` | The provider did not finish the clip within the ten minutes Puter waits for it, or stopped answering. Arrives as HTTP 504. The request itself was fine; retry it, ideally with a shorter clip or a faster model. |
+| `upstream_timeout` | The provider did not finish the clip within the 14 minutes Puter waits for it, or stopped answering. Arrives as HTTP 504. The request itself was fine; retry it, ideally with a shorter clip or a faster model. |
 | `errorCode: moderation_flagged` | The provider's content filter refused the prompt or removed the generated video. Arrives as HTTP 400, with `code: bad_request`. Change the prompt rather than retrying it as-is. |
 | `upstream_bad_request` | The provider rejected the request itself, for example a duration the model does not support. Arrives as HTTP 400; `message` and `upstreamCode` carry the provider's reason. |
 | `upstream_failed` | The provider accepted the request but generation failed on their side. Arrives as HTTP 502 and is safe to retry. |
