@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { Team2faLookup } from '../../core/http/middleware/gates.js';
 import Busboy from 'busboy';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
@@ -1346,7 +1347,7 @@ export class LegacyFSController extends PuterController {
         // that guard every other authenticated FS route have to run here.
         assertNotSuspended(actor!.user);
         assertVerifiedAccount(actor!.user);
-        await assertTeam2fa(actor!.user, this.stores.team);
+        await assertTeam2fa(actor!.user, this.stores.team as Team2faLookup);
 
         req.actor = assertResolvedActor(actor!);
         Context.set('actor', actor);

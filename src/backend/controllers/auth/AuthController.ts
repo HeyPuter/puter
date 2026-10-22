@@ -1940,7 +1940,7 @@ export class AuthController extends PuterController {
         // A seat's address is admin-supplied and never verified, so whoever
         // holds that inbox could take the seat over. Its recovery channel is
         // the team admin's password reset, not this one.
-        if (await this.stores.team.getOrgSeat(user.id)) {
+        if (await this.stores.team?.getOrgSeat(user.id)) {
             res.json({ message: genericMessage });
             return;
         }
@@ -2174,8 +2174,8 @@ export class AuthController extends PuterController {
         // Best effort: the password is already committed, and an audit write
         // must not skip the eviction below.
         await this.services.team
-            .recordPasswordSelfChange(user.id as number)
-            .catch((err: unknown) => {
+            ?.recordPasswordSelfChange(user.id as number)
+            ?.catch((err: unknown) => {
                 console.warn('[team] password self-change audit failed:', err);
             });
 
@@ -2230,8 +2230,8 @@ export class AuthController extends PuterController {
             temp_password_expires_at: null,
         });
         await this.services.team
-            .recordPasswordSelfChange(user.id)
-            .catch((err: unknown) => {
+            ?.recordPasswordSelfChange(user.id)
+            ?.catch((err: unknown) => {
                 console.warn('[team] password self-change audit failed:', err);
             });
 
@@ -2265,7 +2265,7 @@ export class AuthController extends PuterController {
         // A provisioned account's name belongs to the team that made it: the
         // console lists its members by username and the audit log records them
         // by username, so a self-service rename would desync both.
-        if (await this.stores.team.getOrgSeat(req.actor!.user.id!)) {
+        if (await this.stores.team?.getOrgSeat(req.actor!.user.id!)) {
             throw new HttpError(
                 403,
                 'Your team set this username. Ask a team admin to change it.',
@@ -2399,7 +2399,7 @@ export class AuthController extends PuterController {
     async handleChangeEmail(req: Request, res: Response): Promise<void> {
         // The address is where admin-issued credentials and team notices go;
         // same reasoning as the username and deletion guards above.
-        if (await this.stores.team.getOrgSeat(req.actor!.user.id!)) {
+        if (await this.stores.team?.getOrgSeat(req.actor!.user.id!)) {
             throw new HttpError(
                 403,
                 'Your team set this address. Ask a team admin to change it.',
@@ -4130,7 +4130,7 @@ export class AuthController extends PuterController {
 
         if (action === 'enable') {
             // A seat has no email by design, so this would bar it forever.
-            const seat = await this.stores.team.getOrgSeat(user.id);
+            const seat = await this.stores.team?.getOrgSeat(user.id);
             if (!user.email_confirmed && !seat) {
                 throw new HttpError(
                     403,
@@ -4204,7 +4204,7 @@ export class AuthController extends PuterController {
                 legacyCode: 'not_found',
             });
 
-        const seat = await this.stores.team.getOrgSeat(user.id);
+        const seat = await this.stores.team?.getOrgSeat(user.id);
         if (seat && Number(seat.require_2fa) === 1) {
             throw new HttpError(
                 409,
@@ -4457,7 +4457,7 @@ export class AuthController extends PuterController {
         const userId = req.actor!.user.id!;
         // The team owns the account and is billed for it; only they may close
         // it, through the console that keeps the audit trail.
-        if (await this.stores.team.getOrgSeat(userId)) {
+        if (await this.stores.team?.getOrgSeat(userId)) {
             throw new HttpError(
                 403,
                 'Your team owns this account. Ask a team admin to remove it.',
@@ -4467,7 +4467,7 @@ export class AuthController extends PuterController {
         // The other direction: deleting an owner sets `owner_user_id` NULL and
         // cascades their membership, leaving a team no one can administer —
         // not even an admin, since every team route resolves by membership.
-        if (await this.stores.team.countOwned(userId)) {
+        if (await this.stores.team?.countOwned(userId)) {
             throw new HttpError(
                 403,
                 'Delete the teams you own before closing this account.',
@@ -4476,7 +4476,7 @@ export class AuthController extends PuterController {
         }
         // A deleted team's seats are suspended, not gone, and only its owner
         // can retire them.
-        if (await this.stores.team.countOwnedTeamsWithAccounts(userId)) {
+        if (await this.stores.team?.countOwnedTeamsWithAccounts(userId)) {
             throw new HttpError(
                 403,
                 'Close the accounts your teams created before closing this one.',

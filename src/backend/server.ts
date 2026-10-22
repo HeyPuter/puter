@@ -49,6 +49,7 @@ import {
     requireReputationGate,
     requireSubscriptionGate,
     requireTeam2fa,
+    type Team2faLookup,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
@@ -1038,7 +1039,9 @@ export class PuterServer {
         if (needsAuth && !opts.allowUnconfirmed) {
             mwChain.push(requireVerifiedAccount());
             // Same opt-out: a member owing 2FA must still reach those routes.
-            mwChain.push(requireTeam2fa(this.stores?.team));
+            mwChain.push(
+                requireTeam2fa((this.stores as { team?: Team2faLookup })?.team),
+            );
         }
 
         // block access tokens by default

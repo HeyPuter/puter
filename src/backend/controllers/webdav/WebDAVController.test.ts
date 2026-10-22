@@ -1,5 +1,6 @@
 // This suite tests basic features of puter webdav. it is not a comprehensive webdav test suite unlike litmus
 // but rather it performs some common sense checks to ensure that WebDAV support isn't irrevocably broken in puter
+import { installSeatStub } from '../../testFixtures/seatStub.js';
 import type { Request, RequestHandler, Response } from 'express';
 import { Readable, Writable } from 'node:stream';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
@@ -736,9 +737,9 @@ describe('WebDAVController', () => {
                 otp_enabled: 1,
                 otp_secret: secret,
             });
-            const seat = vi
-                .spyOn(server.stores.team, 'getOrgSeat')
-                .mockResolvedValue({ require_2fa: 1 } as never);
+            // Teams is optional, so the gate's input is stood up directly.
+            installSeatStub(server as never, [id], { require2fa: true });
+            const seat = vi.spyOn(server.stores.team as never, 'getOrgSeat');
             try {
                 const code = new TOTP({
                     issuer: 'puter.com',

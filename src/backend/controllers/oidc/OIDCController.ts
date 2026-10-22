@@ -859,7 +859,7 @@ if (window.opener) {
                 byEmail !== null &&
                 !byEmail.email_confirmed &&
                 userinfo.email_verified === true &&
-                (await this.services.team.releaseUnconfirmedSeatEmail(
+                (await this.services.team?.releaseUnconfirmedSeatEmail(
                     byEmail.id,
                 ));
             if (byEmail && !releasedFromSeat) {

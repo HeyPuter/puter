@@ -19,7 +19,7 @@
 
 import type { OIDCService } from '../services/auth/OIDCService.js';
 import type { SystemKVStore } from '../stores/systemKv/SystemKVStore.js';
-import type { TeamStore } from '../stores/team/TeamStore.js';
+import type { TeamStoreContract } from '../core/teams.js';
 import type { UserRow } from '../stores/user/UserStore.js';
 import type { IConfig } from '../types.js';
 import {
@@ -39,7 +39,7 @@ export interface UserDetailsDeps {
     };
     stores: TaskbarDeps['stores'] & {
         kv: Pick<SystemKVStore, 'get'>;
-        team: Pick<TeamStore, 'getOrgSeat'>;
+        team?: Pick<TeamStoreContract, 'getOrgSeat'>;
     };
     services: { oidc: Pick<OIDCService, 'getLinkedProviderForUser'> };
 }
@@ -216,8 +216,12 @@ export async function buildUserDetails(
     const orgSeat = async () => {
         if (!isUser || config.teams_enabled !== true) return null;
         try {
-            return { seat: await stores.team.getOrgSeat(user.id) };
+            return { seat: await stores.team?.getOrgSeat(user.id) };
         } catch (error) {
+            // Teams is optional, and an extension-registry read for one that
+            // is not installed throws rather than answering undefined. That
+            // is an absence, not a fault.
+            if (/missing property/.test(String(error))) return { seat: null };
             return { error };
         }
     };
