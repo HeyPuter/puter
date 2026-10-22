@@ -260,7 +260,7 @@ export function openChangeEmailDialog (opts = {}) {
                 dialog.setStatus(result.message, needs_code ? { field: 'code' } : undefined);
                 return;
             }
-            window.user.email = new_email;
+            // The address is the account's once the emailed link is followed, not yet.
             dialog.finish({ message: t('email_change_confirmation_sent') });
         },
     });

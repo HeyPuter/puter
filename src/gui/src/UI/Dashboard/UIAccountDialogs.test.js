@@ -161,6 +161,8 @@ describe('change email', () => {
 
         expect(bodyOf(0)).toEqual({ new_email: 'new@example.com', password: 'pw', code: '000123' });
         expect($('.dashboard-form-done p').text()).toBe('email_change_confirmation_sent');
+        // Unconfirmed until the emailed link is followed.
+        expect(window.user.email).toBe('alice@example.com');
     });
 
     it('leaves the code out for an account without 2FA', async () => {
