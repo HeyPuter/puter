@@ -171,6 +171,13 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
             if ( body ) body.scrollTop = body.scrollHeight;
             if ( field ) {
                 const $field = dialog.field(field).attr('aria-invalid', 'true');
+                // The status sits below the fields; on a short screen, the
+                // field wins the space.
+                const el_row = $field.closest('.dashboard-form-field').get(0);
+                if ( body && el_row ) {
+                    const hidden_above = body.getBoundingClientRect().top - el_row.getBoundingClientRect().top;
+                    if ( hidden_above > 0 ) body.scrollTop -= hidden_above;
+                }
                 // A locked field can't take focus; the submit handler hands
                 // it over once the fields are unlocked again.
                 if ( busy ) focus_after = $field.get(0);

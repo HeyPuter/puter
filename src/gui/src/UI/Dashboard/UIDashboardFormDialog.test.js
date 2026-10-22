@@ -112,6 +112,22 @@ describe('UIDashboardFormDialog', () => {
         expect(document.activeElement).toBe($('.dashboard-form-done-btn').get(0));
     });
 
+    it('scrolls a named field back into view when the status pushed it off the top', () => {
+        const dialog = open();
+        const body = $('.dashboard-dialog-body').get(0);
+        const row = $('.dashboard-form-field[data-field="name"]').get(0);
+        Object.defineProperty(body, 'scrollHeight', { value: 500 });
+        let scroll_top = 0;
+        Object.defineProperty(body, 'scrollTop', { get: () => scroll_top, set: (v) => {
+            scroll_top = v;
+        } });
+        body.getBoundingClientRect = () => ({ top: 100 });
+        row.getBoundingClientRect = () => ({ top: 100 - 60 });
+
+        dialog.setStatus('Nope', { field: 'name' });
+        expect(scroll_top).toBe(500 - 60);
+    });
+
     it('shows a thrown error in the status line', async () => {
         open({ onSubmit: async () => {
             throw new Error('Server says no');
