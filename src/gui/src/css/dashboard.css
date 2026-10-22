@@ -5211,9 +5211,11 @@ body.myapps-reordering .myapps-tile {
     .dashboard-tab-content.myapps-tab {
         padding-bottom: max(6px, env(safe-area-inset-bottom));
         --myapps-tile-w: 72px;
-        --myapps-tile-h: 74px;
+        /* icon 52 + label margin 10 + one label line (~16); the row gap
+           gives back the 4px so the row pitch stays 104px */
+        --myapps-tile-h: 78px;
         --myapps-gap-x: 12px;
-        --myapps-gap-y: 30px;
+        --myapps-gap-y: 26px;
         --myapps-icon-size: 52px;
     }
 
