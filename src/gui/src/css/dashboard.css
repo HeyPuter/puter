@@ -4115,7 +4115,7 @@ body.myapps-reordering .myapps-tile {
 
 .dashboard-section-files .row .item-name,
 .dashboard-section-files .header .columns .item-name {
-    /* text-overflow: ellipsis; */
+    text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
     max-width: unset;
