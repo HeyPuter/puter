@@ -1919,7 +1919,7 @@ describe('cancelled upstream iterators', () => {
             const harness = makeCapturingChatStream();
             await expect(
                 withTestActor(() => {
-                    Context.set('abortSignal', abort.signal);
+                    Context.set('upstreamSignal', abort.signal);
                     return handler({
                         completion,
                         usage_calculator: usageCalculator,
@@ -1930,6 +1930,58 @@ describe('cancelled upstream iterators', () => {
                 { type: 'text', text: 'partial' },
             ]);
             expect(usageCalculator).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each([
+        [
+            'chat completions',
+            create_chat_stream_handler,
+            [
+                { choices: [{ delta: { content: 'partial' } }] },
+                {
+                    choices: [],
+                    usage: { prompt_tokens: 3, completion_tokens: 5 },
+                },
+            ],
+        ],
+        [
+            'responses',
+            create_chat_stream_handler_responses_api,
+            [
+                { type: 'response.output_text.delta', delta: 'partial' },
+                {
+                    type: 'response.completed',
+                    response: {
+                        status: 'completed',
+                        usage: { input_tokens: 3, output_tokens: 5 },
+                    },
+                },
+            ],
+        ],
+    ])(
+        'meters %s usage that arrived before the caller left',
+        async (_name, handler, chunks) => {
+            const abort = new AbortController();
+            const usageCalculator = vi.fn(() => ({ output_tokens: 5 }));
+            const completion = {
+                async *[Symbol.asyncIterator]() {
+                    yield* chunks;
+                    abort.abort();
+                },
+            };
+            const harness = makeCapturingChatStream();
+            await withTestActor(() => {
+                Context.set('abortSignal', abort.signal);
+                return handler({
+                    completion,
+                    usage_calculator: usageCalculator,
+                })({ chatStream: harness.chatStream });
+            });
+            expect(usageCalculator).toHaveBeenCalledTimes(1);
+            expect(harness.chatStream.reportedUsage).toEqual({
+                output_tokens: 5,
+            });
         },
     );
 });

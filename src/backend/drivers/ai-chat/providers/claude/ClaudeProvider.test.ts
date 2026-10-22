@@ -320,7 +320,7 @@ describe('ClaudeProvider.complete request shape', () => {
     };
 
     it.each([false, true])(
-        'passes cancellation to the SDK with stream=%s',
+        'passes the upstream signal to the SDK with stream=%s',
         async (stream) => {
             const { provider } = makeProvider();
             const abort = new AbortController();
@@ -328,7 +328,7 @@ describe('ClaudeProvider.complete request shape', () => {
                 messagesStreamMock.mockReturnValueOnce(makeStreamLike([]));
             else messagesCreateMock.mockResolvedValueOnce(baseResponse);
             await withTestActor(() => {
-                Context.set('abortSignal', abort.signal);
+                Context.set('upstreamSignal', abort.signal);
                 return provider.complete({
                     model: 'claude-sonnet-4-6',
                     messages: [{ role: 'user', content: 'hi' }],

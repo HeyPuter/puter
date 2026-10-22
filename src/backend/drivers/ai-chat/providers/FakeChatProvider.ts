@@ -101,12 +101,11 @@ export class FakeChatProvider implements IChatProvider {
                     chatStream: AIChatStream;
                 }) => {
                     await delay(500, undefined, {
-                        signal: Context.get('abortSignal'),
+                        signal: Context.get('upstreamSignal'),
                     });
                     const response = await resp;
-                    if (chatStream.aborted) return;
                     await chatStream.waitForDrain();
-                    chatStream.stream.write(
+                    chatStream.write(
                         `${JSON.stringify({
                             type: 'text',
                             text: response.message.content[0].text,

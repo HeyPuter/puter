@@ -229,19 +229,19 @@ describe('MistralAIProvider.complete request shape', () => {
         usage: { promptTokens: 1, completionTokens: 1 },
     };
 
-    it('passes the request cancellation signal to the SDK', async () => {
+    it('passes the upstream signal to the SDK', async () => {
         const { provider } = makeProvider();
         const abort = new AbortController();
         completeMock.mockResolvedValueOnce(baseCompletion);
         await withTestActor(() => {
-            Context.set('abortSignal', abort.signal);
+            Context.set('upstreamSignal', abort.signal);
             return provider.complete({
                 model: 'mistral-small-latest',
                 messages: [{ role: 'user', content: 'hi' }],
             });
         });
-        // Bounded by the SDK timeout as well, and still cancelled with the
-        // request.
+        // Bounded by the SDK timeout as well, and still aborted with the
+        // upstream signal.
         const signal: AbortSignal = completeMock.mock.calls[0][1]?.signal;
         expect(signal.aborted).toBe(false);
         abort.abort();

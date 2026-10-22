@@ -134,10 +134,10 @@ the model may already have run (see
 
 ### Stopping a stream
 
-Break out of the `for await...of` loop to stop a chat stream. When using
+Break out of the `for await...of` loop to stop reading a chat stream. When using
 `new ReadableStream(response)`, call `reader.cancel()` to stop it.
 
-You can also pass an `AbortSignal` to stop generation before output arrives:
+You can also pass an `AbortSignal` to stop waiting for output:
 
 ```js
 const controller = new AbortController();
@@ -160,7 +160,9 @@ try {
 }
 ```
 
-Output generated before the provider processes cancellation may still be billed.
+Stopping a stream stops the output your app receives. Once the request has
+reached the model, the model still finishes its response, and the whole response
+is billed.
 
 The `ReadableStream` adapter emits text chunks as UTF-8 text. Other chunk types
 (including usage, tool calls, reasoning and errors) are serialized as JSON followed

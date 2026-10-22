@@ -25,10 +25,10 @@ import { AIChatStream } from '../utils/Streaming.js';
 import { FakeChatProvider } from './FakeChatProvider.js';
 
 describe('fake chat streaming lifecycle', () => {
-    it('cancels the simulated delay before writing output', async () => {
+    it('cancels the simulated delay when the upstream signal aborts', async () => {
         await withTestActor(async () => {
             const abort = new AbortController();
-            Context.set('abortSignal', abort.signal);
+            Context.set('upstreamSignal', abort.signal);
             const result = await new FakeChatProvider().complete({
                 model: 'fake',
                 stream: true,
@@ -59,7 +59,7 @@ describe('fake chat streaming lifecycle', () => {
             .map((line) => JSON.parse(line));
         expect(events.map((event) => event.type)).toEqual(['text', 'usage']);
     });
-    it('does not write after the chat stream was aborted independently', async () => {
+    it('finishes without writing after the caller detaches', async () => {
         const result = await new FakeChatProvider().complete({
             model: 'fake',
             stream: true,
@@ -67,8 +67,9 @@ describe('fake chat streaming lifecycle', () => {
         });
         const stream = new PassThrough();
         const chatStream = new AIChatStream({ stream });
-        chatStream.abort();
+        chatStream.detach();
         await result.init_chat_stream!({ chatStream });
         expect(stream.readableLength).toBe(0);
+        expect(stream.writableEnded).toBe(true);
     });
 });

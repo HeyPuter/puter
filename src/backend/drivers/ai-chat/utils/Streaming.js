@@ -169,9 +169,9 @@ export class AIChatStream {
      */
     reportedUsage = null;
 
-    /** Set once the caller has gone away; see `abort`. */
-    aborted = false;
-    abortController = new AbortController();
+    /** Set once the caller has gone away; see `detach`. */
+    detached = false;
+    #detachController = new AbortController();
 
     /**
      * Stop/usage/context-management state for the end-of-stream `usage` line,
@@ -199,28 +199,31 @@ export class AIChatStream {
     }
 
     /**
-     * Stop accepting output after cancellation; providers cancel their requests
-     * too.
+     * Stop writing output once the caller has gone away. The provider keeps
+     * reading its upstream, so the usage the upstream reports still gets
+     * metered.
      */
-    abort() {
-        this.aborted = true;
-        this.abortController.abort();
+    detach() {
+        this.detached = true;
+        this.#detachController.abort();
+    }
+
+    /** False once nothing will read the output. */
+    #writable() {
+        return !this.detached && !this.stream.destroyed;
     }
 
     async waitForDrain() {
-        this.#assertOpen();
-        if (!this.stream.writableNeedDrain) return;
+        if (!this.#writable() || !this.stream.writableNeedDrain) return;
         await new Promise((resolve, reject) => {
+            const signal = this.#detachController.signal;
             const cleanup = () => {
-                this.stream.removeListener('drain', onDrain);
-                this.stream.removeListener('close', onAbort);
+                this.stream.removeListener('drain', onDone);
+                this.stream.removeListener('close', onDone);
                 this.stream.removeListener('error', onError);
-                this.abortController.signal.removeEventListener(
-                    'abort',
-                    onAbort,
-                );
+                signal.removeEventListener('abort', onDone);
             };
-            const onDrain = () => {
+            const onDone = () => {
                 cleanup();
                 resolve();
             };
@@ -228,28 +231,16 @@ export class AIChatStream {
                 cleanup();
                 reject(error);
             };
-            const onAbort = () => onError(new ChatStreamAbortedError());
-            this.stream.once('drain', onDrain);
-            this.stream.once('close', onAbort);
+            this.stream.once('drain', onDone);
+            this.stream.once('close', onDone);
             this.stream.once('error', onError);
-            this.abortController.signal.addEventListener('abort', onAbort, {
-                once: true,
-            });
-            if (this.stream.destroyed || this.aborted) onAbort();
-            else if (!this.stream.writableNeedDrain) onDrain();
+            signal.addEventListener('abort', onDone, { once: true });
+            if (!this.#writable() || !this.stream.writableNeedDrain) onDone();
         });
-        this.#assertOpen();
-    }
-
-    #assertOpen() {
-        if (this.aborted) throw new ChatStreamAbortedError();
     }
 
     /** @param {string} text */
     countOutput(text) {
-        // Tool-call input arrives through here and is only written when the
-        // block ends, so a long tool call has to notice the abort here too.
-        this.#assertOpen();
         if (typeof text === 'string') this.outputChars += text.length;
     }
 
@@ -279,9 +270,8 @@ export class AIChatStream {
      * @param {{ alreadyCounted?: boolean }} [opts]
      */
     writeChunk(chunk, { alreadyCounted = false } = {}) {
-        this.#assertOpen();
         if (!alreadyCounted) this.outputChars += payloadChars(chunk);
-        this.stream.write(`${JSON.stringify(chunk)}\n`);
+        if (this.#writable()) this.stream.write(`${JSON.stringify(chunk)}\n`);
     }
 
     /**
@@ -384,8 +374,7 @@ export class AIChatStream {
      */
     end(usage, extra) {
         this.reportUsage(usage);
-        // Usage still counts after an abort; only the line has no reader.
-        if (!this.aborted) {
+        if (this.#writable()) {
             const stop = this.stop;
             const finish_reason = stop?.reason
                 ? toFinishReason(stop.reason)
@@ -436,16 +425,7 @@ export class AIChatStream {
         return new AIChatMessageStream(this);
     }
     write(...args) {
-        this.#assertOpen();
-        return this.stream.write(...args);
-    }
-}
-
-/** Thrown into a provider's read loop once its caller has gone away. */
-export class ChatStreamAbortedError extends Error {
-    constructor() {
-        super('Chat stream aborted: the caller disconnected');
-        this.name = 'ChatStreamAbortedError';
+        if (this.#writable()) this.stream.write(...args);
     }
 }
 

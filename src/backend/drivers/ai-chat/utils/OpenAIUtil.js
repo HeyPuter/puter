@@ -651,8 +651,9 @@ export const create_chat_stream_handler =
             }
         }
 
-        Context.get('abortSignal')?.throwIfAborted();
         if (!finish_reason && !last_usage) {
+            // Some SDKs end an aborted stream as if it were complete.
+            Context.get('upstreamSignal')?.throwIfAborted();
             throw new Error('Stream ended before completion');
         }
 
@@ -824,8 +825,11 @@ export const create_chat_stream_handler_responses_api =
             }
         }
 
-        Context.get('abortSignal')?.throwIfAborted();
-        if (!completed) throw new Error('Stream ended before completion');
+        if (!completed) {
+            // Some SDKs end an aborted stream as if it were complete.
+            Context.get('upstreamSignal')?.throwIfAborted();
+            throw new Error('Stream ended before completion');
+        }
 
         // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
         // Missing usage is left undefined rather than fed to the calculator —

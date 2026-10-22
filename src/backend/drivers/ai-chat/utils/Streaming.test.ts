@@ -25,7 +25,6 @@ import Streaming, {
     AIChatStream,
     AIChatTextStream,
     AIChatToolUseStream,
-    ChatStreamAbortedError,
 } from './Streaming.js';
 
 // AIChatStream + friends emit newline-delimited JSON to an underlying
@@ -189,26 +188,27 @@ describe('AIChatStream stop + usage-detail reporting', () => {
     });
 });
 
-// ── Abort ──────────────────────────────────────────────────────────
+// -- Detach --
 
-describe('AIChatStream.abort', () => {
-    it('throws into the next text, reasoning or tool-call write', () => {
+describe('AIChatStream.detach', () => {
+    it('stops writing but keeps counting output', () => {
         const h = makeHarness();
         const text = h.chatStream.message().contentBlock({ type: 'text' });
         const tool = h.chatStream
             .message()
             .contentBlock({ type: 'tool_use', id: 't', name: 'f' });
-        h.chatStream.abort();
-        expect(() => text.addText('x')).toThrow(ChatStreamAbortedError);
-        expect(() => text.addReasoning('x')).toThrow(ChatStreamAbortedError);
-        expect(() => tool.addPartialJSON('{')).toThrow(ChatStreamAbortedError);
-        expect(() => h.chatStream.write('raw')).toThrow(ChatStreamAbortedError);
+        h.chatStream.detach();
+        text.addText('abc');
+        text.addReasoning('de');
+        tool.addPartialJSON('{}');
+        h.chatStream.write('raw');
+        expect(h.chatStream.outputChars).toBe(7);
         expect(h.rawChunks()).toEqual([]);
     });
 
     it('still records usage and ends the stream, writing nothing', () => {
         const h = makeHarness();
-        h.chatStream.abort();
+        h.chatStream.detach();
         h.chatStream.end({ output_tokens: 3 });
         expect(h.chatStream.reportedUsage).toEqual({ output_tokens: 3 });
         expect(h.rawChunks()).toEqual([]);
@@ -448,16 +448,25 @@ describe('AIChatStream backpressure', () => {
         sink.destroy();
     });
 
-    it.each(['abort', 'close', 'error'])('releases a drain wait on %s', async (event) => {
+    it.each(['detach', 'close'])('releases a drain wait on %s', async (event) => {
         const sink = new Writable({ highWaterMark: 1, write() {} });
         const chatStream = new AIChatStream({ stream: sink });
         chatStream.writeChunk({ type: 'text', text: 'hello' });
         const waiting = chatStream.waitForDrain();
-        const rejected = expect(waiting).rejects.toThrow(event === 'error' ? 'failed' : 'Chat stream aborted');
-        if (event === 'abort') chatStream.abort();
-        else if (event === 'error') sink.destroy(new Error('failed'));
+        if (event === 'detach') chatStream.detach();
         else sink.destroy();
-        await rejected;
+        await waiting;
+        expect(sink.listenerCount('drain')).toBe(0);
+        await chatStream.waitForDrain();
+    });
+
+    it('rejects a drain wait when the writable errors', async () => {
+        const sink = new Writable({ highWaterMark: 1, write() {} });
+        const chatStream = new AIChatStream({ stream: sink });
+        chatStream.writeChunk({ type: 'text', text: 'hello' });
+        const waiting = chatStream.waitForDrain();
+        sink.destroy(new Error('failed'));
+        await expect(waiting).rejects.toThrow('failed');
         expect(sink.listenerCount('drain')).toBe(0);
     });
 });

@@ -337,11 +337,11 @@ describe('gemini-4-argon catalog and routing', () => {
         });
     });
 
-    it('does not call Google when the request was already cancelled', async () => {
+    it('does not call Google when the upstream signal already aborted', async () => {
         const abort = new AbortController();
         abort.abort();
         const error = await withTestActor(() => {
-            Context.set('abortSignal', abort.signal);
+            Context.set('upstreamSignal', abort.signal);
             return makeProvider().complete({
                 model: 'gemini-4-argon',
                 messages: [{ role: 'user', content: 'hi' }],

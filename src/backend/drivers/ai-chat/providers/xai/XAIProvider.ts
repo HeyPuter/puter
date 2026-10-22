@@ -97,10 +97,10 @@ export class XAIProvider implements IChatProvider {
                           }
                         : {}),
                 } as ChatCompletionCreateParams,
-                { signal: Context.get('abortSignal') },
+                { signal: Context.get('upstreamSignal') },
             );
         } catch (e) {
-            if (!Context.get('abortSignal')?.aborted) {
+            if (!Context.get('upstreamSignal')?.aborted) {
                 console.log('XAI AI process_input_messages error: ', e);
             }
             throw e;

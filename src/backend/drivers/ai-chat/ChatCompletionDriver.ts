@@ -116,6 +116,7 @@ import {
     UNHEALTHY_TTL_SEC,
 } from './utils/providerHealth.js';
 import { CATALOG_TTL_MS } from './utils/cachedRemoteCatalog.js';
+import { SDK_TIMEOUT_MS } from './utils/sdkClient.js';
 import { fromFinishReason } from './utils/stopReason.js';
 import { AIChatStream } from './utils/Streaming.js';
 import {
@@ -680,6 +681,10 @@ export class ChatCompletionDriver extends PuterDriver {
             throw new HttpError(401, 'Authentication required', {
                 legacyCode: 'unauthorized',
             });
+        // The caller hanging up stops nothing that has reached an upstream: it
+        // would bill the request anyway, so it runs to its usage report.
+        const upstream = new AbortController();
+        Context.set('upstreamSignal', upstream.signal);
         // AI charges recorded in this request before the completion started.
         const priorCharges = requestAiCosts().length;
 
@@ -880,6 +885,8 @@ export class ChatCompletionDriver extends PuterDriver {
             if (!useFakeProvider) {
                 await this.#resolvePuterPaths(attemptProvider, args, actor);
             }
+            // Last point where a caller who left costs nothing.
+            abortSignal?.throwIfAborted();
             return attemptProvider.complete(
                 {
                     ...args,
@@ -1042,10 +1049,20 @@ export class ChatCompletionDriver extends PuterDriver {
             const init = res.init_chat_stream;
             const cleanup = res.finally_fn;
 
-            // Providers also receive this signal to cancel while waiting for output.
-            const abortStream = () => chatStream.abort();
-            if (abortSignal?.aborted) abortStream();
-            else abortSignal?.addEventListener('abort', abortStream);
+            // A caller who leaves stops getting output, but the upstream keeps
+            // going until it reports usage, with as long to finish as a
+            // non-streaming completion gets.
+            let detachedLimit: ReturnType<typeof setTimeout> | undefined;
+            const detachStream = () => {
+                chatStream.detach();
+                detachedLimit = setTimeout(
+                    () => upstream.abort(),
+                    SDK_TIMEOUT_MS,
+                );
+                detachedLimit.unref?.();
+            };
+            if (abortSignal?.aborted) detachStream();
+            else abortSignal?.addEventListener('abort', detachStream);
 
             // Intercept `chatStream.end(usage)` to fire complete + cost events
             // (mirrors the non-streaming branch). Clone usage so providers that
@@ -1069,9 +1086,9 @@ export class ChatCompletionDriver extends PuterDriver {
                         enrichedUsage.cost = charged();
                     }
                 }
-                // A cancelled stream isn't a completion, but whatever it
-                // metered still gets its cost row.
-                if (!chatStream.aborted) {
+                // A completion nobody received isn't announced, but it still
+                // gets its cost row.
+                if (!chatStream.detached) {
                     this.clients.event.emit(
                         'ai.prompt.complete',
                         {
@@ -1138,13 +1155,13 @@ export class ChatCompletionDriver extends PuterDriver {
             (async () => {
                 try {
                     await init({ chatStream });
-                    if (!chatStream.aborted && !passthrough.writableEnded) {
+                    if (!passthrough.writableEnded) {
                         throw new Error('Stream ended before completion');
                     }
                 } catch (e) {
-                    if (!chatStream.aborted) {
+                    if (!chatStream.detached) {
                         const attempt = toAttempt(model.id, model.provider!, e);
-                        passthrough.write(
+                        chatStream.write(
                             `${JSON.stringify({
                                 type: 'error',
                                 message: sanitizeUpstreamMessage(
@@ -1160,7 +1177,8 @@ export class ChatCompletionDriver extends PuterDriver {
                     passthrough.end();
                 } finally {
                     clearInterval(renewHold);
-                    abortSignal?.removeEventListener('abort', abortStream);
+                    clearTimeout(detachedLimit);
+                    abortSignal?.removeEventListener('abort', detachStream);
                     // Providers report usage the moment they meter it (see
                     // `AIChatStream.reportUsage`); a stream that never got
                     // there was never charged for.
