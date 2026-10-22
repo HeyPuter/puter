@@ -6256,6 +6256,12 @@ body.myapps-reordering .myapps-tile {
         min-height: 180px;
     }
 
+    /* The desktop minimum matches the square welcome card beside it; in one
+       column it only left the card half empty under a few apps. */
+    .dashboard .bento-recent {
+        min-height: 0;
+    }
+
     .dashboard .bento-welcome-inner {
         padding: 20px;
     }
