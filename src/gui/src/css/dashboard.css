@@ -3855,6 +3855,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .directory-contents {
+    container: files-list / inline-size;
     position: relative;
     width: calc(100% - 160px);
     display: flex;
@@ -5262,69 +5263,13 @@ body.myapps-reordering .myapps-tile {
     white-space: nowrap;
 }
 
-/* Mobile phone optimizations */
-/* The Shared/Trash rows on Home exist for phones, where the directories
-   sidebar below is hidden; while the sidebar is visible they'd be redundant.
-   Same breakpoint as the sidebar rule so the two never both show or both hide. */
-@media (min-width: 481px) {
-    .dashboard-section-files .files-tab .files .row.place-row {
-        display: none !important;
-    }
-}
-
-@media (max-width: 480px) {
-    .dashboard-content.files {
-        padding: 0;
-    }
-
-    /* Hide directories sidebar */
-    .dashboard-section-files .directories {
-        display: none;
-    }
-
-    /* Full width for directory contents */
-    .dashboard-section-files .directory-contents {
-        width: 100%;
-        border-left: none;
-    }
-
-    .dashboard-section-files .directory-contents .header {
-        margin-bottom: 12px;
-    }
-
-    /* Hide column headers */
+/* Narrow listings (phones, and tablets or small windows once the sidebar
+   and folder column take their share) drop the columns for two-row rows;
+   the size and modified columns would otherwise squeeze names to a few
+   characters. */
+@container files-list (max-width: 480px) {
     .dashboard-section-files .header .columns {
         display: none;
-    }
-
-    /* Two-row header layout */
-    .dashboard-section-files .header .path {
-        flex-wrap: wrap;
-        height: auto;
-        padding: 8px 12px;
-    }
-
-    .dashboard-section-files .header .path-breadcrumbs {
-        order: 1;
-        width: 100%;
-        margin: 0 0 8px 0;
-        padding-bottom: 8px;
-        margin-left: 50px;
-        flex-wrap: nowrap;
-        white-space: nowrap;
-        overflow-x: auto;
-        border-bottom: 1px solid var(--dashboard-border);
-    }
-
-    .dashboard-section-files .header .path-nav-buttons {
-        order: 2;
-        border-right: none;
-        margin-right: 0;
-    }
-
-    .dashboard-section-files .header .path-actions {
-        order: 3;
-        margin-left: auto;
     }
 
     /* Two-row item layout */
@@ -5405,10 +5350,71 @@ body.myapps-reordering .myapps-tile {
         display: none;
     }
 
-    /* Hide more button (use long-press for context menu on touch) */
+    /* More button pinned to the row's right edge */
     .dashboard-section-files .files-tab .files.files-list-view .row .item-more {
         position: absolute;
         right: 10px;
+    }
+}
+
+/* Mobile phone optimizations */
+/* The Shared/Trash rows on Home exist for phones, where the directories
+   sidebar below is hidden; while the sidebar is visible they'd be redundant.
+   Same breakpoint as the sidebar rule so the two never both show or both hide. */
+@media (min-width: 481px) {
+    .dashboard-section-files .files-tab .files .row.place-row {
+        display: none !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .dashboard-content.files {
+        padding: 0;
+    }
+
+    /* Hide directories sidebar */
+    .dashboard-section-files .directories {
+        display: none;
+    }
+
+    /* Full width for directory contents */
+    .dashboard-section-files .directory-contents {
+        width: 100%;
+        border-left: none;
+    }
+
+    .dashboard-section-files .directory-contents .header {
+        margin-bottom: 12px;
+    }
+
+    /* Two-row header layout */
+    .dashboard-section-files .header .path {
+        flex-wrap: wrap;
+        height: auto;
+        padding: 8px 12px;
+    }
+
+    .dashboard-section-files .header .path-breadcrumbs {
+        order: 1;
+        width: 100%;
+        margin: 0 0 8px 0;
+        padding-bottom: 8px;
+        margin-left: 50px;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--dashboard-border);
+    }
+
+    .dashboard-section-files .header .path-nav-buttons {
+        order: 2;
+        border-right: none;
+        margin-right: 0;
+    }
+
+    .dashboard-section-files .header .path-actions {
+        order: 3;
+        margin-left: auto;
     }
 
     /* Adjust footer position - full width since sidebar is hidden */
