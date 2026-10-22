@@ -121,7 +121,6 @@ export const puterServices = {
     // Declared after `fs` — account teardown tears the user's filesystem down
     // first.
     userAccount: UserAccountService,
-    // Leaf: team + user stores only.
     // Reaches `team` and `socket` at call time only.
     signup: SignupService,
     // AppPermissionService + SubdomainPermissionService register permission

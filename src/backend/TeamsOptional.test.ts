@@ -24,9 +24,8 @@ import type { PuterServer } from './server.ts';
 import { createTestUser, setupTestServer } from './testUtil.ts';
 
 /**
- * Teams is optional, so core has to work when neither the service nor the
- * store is registered. Both are dropped after boot here, which is the shape
- * core sees wherever the feature is not installed.
+ * Teams is optional, so core has to work when neither the service nor the store
+ * is registered, which is how this test server boots.
  */
 describe('core without a teams registration', () => {
     let server: PuterServer;
@@ -44,13 +43,9 @@ describe('core without a teams registration', () => {
 
     beforeAll(async () => {
         server = await setupTestServer({
-            teams_enabled: true,
             // Without this the allowlist check returns before asking Teams.
             teams_allowed_email_domains: ['test.local'],
         } as never);
-        // What the registry looks like where Teams is not installed.
-        delete (server.services as { team?: unknown }).team;
-        delete (server.stores as { team?: unknown }).team;
     });
 
     afterAll(async () => {
@@ -60,6 +55,12 @@ describe('core without a teams registration', () => {
     it('has no teams in the registry', () => {
         expect(server.services.team).toBeUndefined();
         expect(server.stores.team).toBeUndefined();
+    });
+
+    it('refuses to boot when the config asks for teams', async () => {
+        await expect(
+            setupTestServer({ teams_enabled: true } as never),
+        ).rejects.toThrow(/teams_enabled/);
     });
 
     it('deletes an account without asking what it was charged for', async () => {

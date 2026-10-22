@@ -210,6 +210,20 @@ export class PuterServer {
             [this.#config, this.clients, this.stores, this.services],
         );
 
+        // Core's seat rules skip silently without Teams, so asking for it with
+        // nothing registered refuses to boot rather than serve without them.
+        if (
+            this.#config.teams_enabled === true &&
+            !(
+                (this.stores as { team?: unknown }).team &&
+                (this.services as { team?: unknown }).team
+            )
+        ) {
+            throw new Error(
+                '`teams_enabled` is on, but no extension registered the team store and service',
+            );
+        }
+
         // Wire the rate-limiter to its configured backend now that clients
         // and stores exist. Memory is the default; `redis` needs a redis
         // client, `kv` needs the system KV store (DynamoDB-backed).

@@ -56,6 +56,9 @@ const MAPPINGS: CapabilityMapping[] = [
         envVars: ['PUTER_TEST_TEAMS_EXTENSION'],
         configOverrides: ([dir]) => ({
             teams_enabled: true,
+            // The shipped default is 1, and the suite creates a team per case
+            // against one shared account.
+            max_teams_per_user: 100,
             import_ts_extensions: true,
             extensions: [IN_TREE_EXTENSIONS, dir],
         }),
@@ -121,13 +124,6 @@ export const loadPuterJsTestOptions = (
         // half switched on. Off, every subscribe answers `events_disabled` and
         // the suite would only ever cover that one branch.
         events: { enabled: true },
-        // Off, `/teams` isn't registered at all and the whole suite would only
-        // ever cover the 404 branch.
-        teams_enabled: true,
-        // The shipped default is 1, and the suite creates a team per case
-        // against one shared account, so every case after the first would
-        // fail on `team_limit_reached` rather than on what it tests.
-        max_teams_per_user: 100,
     };
 
     for (const mapping of MAPPINGS) {

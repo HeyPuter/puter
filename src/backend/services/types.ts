@@ -36,7 +36,7 @@ export interface IPuterServiceInstances {}
 
 /** Extension-augmentable service registry; see `IExtensionClientInstances`. */
 export interface IExtensionServiceInstances {
-    /** Teams ships separately; absent where it is not installed. */
+    /** Teams ships separately; boot guarantees it when `teams_enabled` is on. */
     team?: TeamServiceContract;
     [key: string]: unknown;
 }

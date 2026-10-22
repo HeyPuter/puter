@@ -28,7 +28,6 @@ import {
     setupPuterTestEnv,
     type PuterTestEnv,
 } from '../../testUtil.js';
-import type { IConfig } from '../../types';
 
 /**
  * HTTP-level coverage for `/auth/revoke-own-access-token` — the route that
@@ -424,7 +423,7 @@ describe('2FA enrollment over HTTP', () => {
     let env: PuterTestEnv;
 
     beforeAll(async () => {
-        env = await setupPuterTestEnv({ teams_enabled: true } as IConfig);
+        env = await setupPuterTestEnv();
     }, 120_000);
 
     afterAll(async () => {
