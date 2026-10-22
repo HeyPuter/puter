@@ -8520,9 +8520,11 @@ body.dashboard-mode .notifications-close-all {
         transform: translate(-50%, -50%);
     }
 
-    /* 44px tall, and 16px text so iOS doesn't zoom in on focus. */
+    /* 44px tall, and 16px text so iOS doesn't zoom in on focus. The
+       .device-phone line outranks style.css's 17px phone inputs. */
     .dashboard-dialog .dashboard-dialog-input,
-    .dashboard-dialog .dashboard-dialog-input:focus {
+    .dashboard-dialog .dashboard-dialog-input:focus,
+    .device-phone .dashboard-dialog .dashboard-dialog-input {
         height: 44px;
         font-size: 16px;
     }
