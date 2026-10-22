@@ -5137,6 +5137,14 @@ html.dark-mode .usage-table-show-less:hover {
 .driver-usage-details-content-table td:first-child {
     width: 50%;
 }
+
+/* On a phone, units and cost keep every digit; the resource name is the
+   column that gives way. */
+@media (max-width: 480px) {
+    .dashboard-section-usage .driver-usage-details-content-table td:not(:first-child) {
+        max-width: none;
+    }
+}
 .version {
     font-size: 9px;
     color: #343c4f;
