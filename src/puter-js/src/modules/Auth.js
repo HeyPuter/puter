@@ -116,10 +116,6 @@ import {
  * are for apps that drive the sign-in flow themselves.
  */
 export class AuthModule extends PuterModule {
-    // Used to generate a unique message id for each message sent to the host environment
-    // we start from 1 because 0 is falsy and we want to avoid that for the message id
-    #messageID = 1;
-
     /**
      * Signs the user in, opening a popup with the appropriate authentication
      * method. Must be called from a user gesture (such as a click) — without
@@ -167,7 +163,8 @@ export class AuthModule extends PuterModule {
 
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
-            const msg_id = this.#messageID++;
+            const msg_id = signinsession;
+            const popupName = `Puter-sign-in-${signinsession}`;
             const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}`;
 
             // Guards against settling the promise more than once across the
@@ -243,7 +240,7 @@ export class AuthModule extends PuterModule {
                 if (e.origin !== puter.defaultGUIOrigin) {
                     return;
                 }
-                if (popupWindow && e.source !== popupWindow) {
+                if (!popupWindow || e.source !== popupWindow) {
                     return;
                 }
                 if (e.data?.msg !== 'puter.token') {
@@ -309,7 +306,7 @@ export class AuthModule extends PuterModule {
 
             if (hasUserActivation()) {
                 // A user gesture is active — open the popup immediately.
-                const popup = openAuthPopup(url);
+                const popup = openAuthPopup(url, popupName);
                 if (!window.crossOriginIsolated) {
                     // cannot watch in isolated mode
                     watchPopup(popup);
@@ -324,6 +321,7 @@ export class AuthModule extends PuterModule {
                     () => {},
                     {
                         popupURL: url,
+                        popupName,
                         onLaunch: (popup) => watchPopup(popup),
                         onCancel: () => {
                             if (settled) {

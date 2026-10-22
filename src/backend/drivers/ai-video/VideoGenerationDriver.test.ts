@@ -101,6 +101,7 @@ beforeAll(async () => {
             // Configured on purpose: Gemini video reads the shared `gemini`
             // block, so this one alone must not register a provider.
             'gemini-video-generation': { apiKey: 'gem-key' },
+            kling: { apiKey: 'kling-key' },
         },
     } as never);
     driver = server.drivers.aiVideo as unknown as VideoGenerationDriver;
@@ -444,6 +445,65 @@ describe('VideoGenerationDriver.generate provider routing', () => {
             withActor(() => driver.generate({ prompt: 'hi', model } as never)),
         ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
         expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it.each(['kling-3.0', 'kling-v3', 'kling:kling/kling-3.0'])(
+        'routes %s to the Kling provider from the shared kling key',
+        async (model) => {
+            const fetchSpy = vi.spyOn(globalThis, 'fetch');
+            fetchSpy.mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        code: 0,
+                        data: { id: 'kl-task', status: 'submitted' },
+                    }),
+                ),
+            );
+            fetchSpy.mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        code: 0,
+                        data: [
+                            {
+                                id: 'kl-task',
+                                status: 'succeeded',
+                                outputs: [
+                                    {
+                                        type: 'video',
+                                        url: 'https://kling/out.mp4',
+                                        duration: '5',
+                                    },
+                                ],
+                            },
+                        ],
+                    }),
+                ),
+            );
+
+            const result = await withActor(() =>
+                driver.generate({ prompt: 'hi', model } as never),
+            );
+
+            expect(result).toBe('https://kling/out.mp4');
+            expect(String(fetchSpy.mock.calls[0]![0])).toBe(
+                'https://api-singapore.klingai.com/text-to-video/kling-3.0',
+            );
+            expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it('lists the Kling models under the kling-video-generation provider', async () => {
+        const kling = (await driver.models()).filter(
+            (m) => m.provider === 'kling-video-generation',
+        );
+        expect(kling.map((m) => m.id).sort()).toEqual([
+            'kling-2.5-turbo',
+            'kling-2.6',
+            'kling-3.0',
+            'kling-3.0-omni',
+            'kling-3.0-turbo',
+            'kling-o1',
+        ]);
     });
 
     it('routes a known togetherai:minimax/video-01-director id to the Together provider', async () => {

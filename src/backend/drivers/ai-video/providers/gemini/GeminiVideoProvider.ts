@@ -72,11 +72,11 @@ const TEXT_RESERVATION_ALLOWANCE = 65_536;
 const VIDEO_INPUT_RESERVATION_ALLOWANCE = 16_000;
 export const GEMINI_OMNI_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 /** Covers the generation and reading the reply. */
-export const GEMINI_OMNI_TIMEOUT_MS = 10 * 60 * 1000;
+export const GEMINI_OMNI_TIMEOUT_MS = 14 * 60 * 1000;
 export const GEMINI_OMNI_COUNT_TOKENS_MAX_RESPONSE_BYTES = 64 * 1024;
 export const GEMINI_OMNI_COUNT_TOKENS_TIMEOUT_MS = 30_000;
 /** Outlasts the upstream deadline so the hold stands until usage is recorded. */
-export const GEMINI_OMNI_HOLD_TTL_MS = 11 * 60 * 1000;
+export const GEMINI_OMNI_HOLD_TTL_MS = 15 * 60 * 1000;
 
 type OmniResolution = '360p' | '720p' | '1080p' | '4k';
 type OmniAspectRatio = '16:9' | '9:16';
@@ -190,7 +190,8 @@ interface Interaction {
 }
 
 type CountTokensPart =
-    { text: string } | { inlineData: { mimeType: string; data: string } };
+    | { text: string }
+    | { inlineData: { mimeType: string; data: string } };
 
 interface CountTokensRequest {
     contents: { parts: CountTokensPart[] }[];

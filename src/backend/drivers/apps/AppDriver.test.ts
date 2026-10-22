@@ -21,6 +21,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
+import { extensionStore } from '../../extensions.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { decodeCursor } from '../../util/pagination.js';
@@ -192,6 +193,105 @@ describe('AppDriver.create', () => {
         ).rejects.toMatchObject({
             statusCode: 400,
             message: /system host/,
+        });
+    });
+
+    describe('with a claimed subdomain', () => {
+        const claimed = 'claimed-app-host';
+
+        beforeAll(() => {
+            extensionStore.claimedSubdomains.set(claimed, {
+                authorize: () => true,
+            });
+        });
+
+        afterAll(() => {
+            extensionStore.claimedSubdomains.delete(claimed);
+        });
+
+        it.each([
+            ['exactly', `https://${claimed}.puter.localhost/`],
+            [
+                'in uppercase',
+                `https://${claimed.toUpperCase()}.PUTER.localhost/`,
+            ],
+            ['with a port', `http://${claimed}.puter.localhost:4100/app.html`],
+        ])(
+            'rejects an index_url on it %s with 400',
+            async (_label, index_url) => {
+                const { actor } = await makeUser();
+                await expect(
+                    withActor(actor, () =>
+                        driver.create({
+                            object: {
+                                name: uniqueName('claimed-host'),
+                                title: 't',
+                                index_url,
+                            },
+                        }),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    message: /system host/,
+                });
+            },
+        );
+
+        it.each([
+            ['exactly', `https://${claimed}.puter.localhost/`],
+            [
+                'in uppercase',
+                `https://${claimed.toUpperCase()}.PUTER.localhost/`,
+            ],
+            ['with a port', `http://${claimed}.puter.localhost:4100/app.html`],
+        ])(
+            'rejects updating an index_url onto it %s with 400',
+            async (_label, index_url) => {
+                const { actor } = await makeUser();
+                const created = await withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name: uniqueName('claimed-host-upd'),
+                            title: 't',
+                            index_url: uniqueIndexUrl(),
+                        },
+                    }),
+                );
+                await expect(
+                    withActor(actor, () =>
+                        driver.update({
+                            uid: created.uid,
+                            object: { index_url },
+                        }),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    message: /system host/,
+                });
+            },
+        );
+
+        it.each([
+            [
+                'an unclaimed sibling subdomain',
+                'https://not-claimed-app-host.puter.localhost/',
+            ],
+            [
+                'a host nested under the claim',
+                `https://x.${claimed}.puter.localhost/`,
+            ],
+        ])('allows an index_url on %s', async (_label, index_url) => {
+            const { actor } = await makeUser();
+            const created = await withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('claimed-sibling'),
+                        title: 't',
+                        index_url,
+                    },
+                }),
+            );
+            expect(created.index_url).toBe(index_url);
         });
     });
 

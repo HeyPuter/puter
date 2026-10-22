@@ -65,6 +65,7 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | Input                                          | Limit            |
 | ---------------------------------------------- | ---------------- |
 | Text for `txt2speech()`                        | 3,000 characters |
+| Text for `txt2speech()`, Kling                 | 1,000 characters |
 | Gemini `instructions` for `txt2speech()`       | 3,000 characters |
 | Audio for `speech2speech()`                    | 25 MiB           |
 | Audio for `speech2txt()`, Gemini               | 10 MiB           |
@@ -78,7 +79,7 @@ The standard chat timeout is 10 minutes for a response to start, or to finish if
 
 A `gemini-4-argon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
 
-Text-to-speech calls to ElevenLabs, xAI, Speechify and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
+Text-to-speech calls to ElevenLabs, xAI, Speechify, Kling and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
 
 A Gemini text-to-speech reply is capped at 64 MiB, enough for the full audio budget. A readable Gemini text-to-speech reply is charged for the token usage it reports, even when it fails or returns no audio. A reply that times out or exceeds the cap reports no usage, so it is charged the full reservation and fails with `504 upstream_timeout` or `400 input_too_large`; split long text into shorter requests. Requests with an unreadable reply are not charged.
 
@@ -112,13 +113,14 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 | Cloudflare | Output dimensions are clamped per side: FLUX.2 256–1920; Lucid Origin 64–2500; Phoenix 64–2048; SDXL and Inpainting 256–2048. Schnell is fixed at 1024×1024. One reference image on FLUX.2 and Inpainting models. Steps: Schnell 1–8; Lucid Origin 1–40; Phoenix and FLUX.2 Dev 1–50; Klein exactly 4; SDXL and Inpainting 1–20. |
 | Replicate | At most 10 references, or the model's lower limit; FLUX 1.1 Pro accepts one. Each fetched reference is capped at 30 MB. Riverflow accepts at most two fonts. Native options follow each model's schema. For other models with width/height controls, dimensions round to multiples of 8 and clamp to the schema bounds (64–4096 per side if none are given). Predictions expire after 10 minutes and are polled every 2 seconds. Cancellation cleanup polls for up to 30 seconds, plus an in-flight request. Network timeouts: 90 seconds for creation, 30 seconds for other requests. |
 | BytePlus | Pro: 10 references; other Seedream models: 14. |
+| Kling | `kling-v3-omni` and `kling-image-o1`: 10 references; `kling-v3` and `kling-v2-1`: one. Prompt up to 2,500 characters. Each reference is a JPEG or PNG up to 10 MB. Jobs are polled every 2 seconds for up to 5 minutes, then fail with `504 upstream_timeout` and aren't charged. Each call to Kling times out after 60 seconds. |
 | BytePlus explicit output size | Pro: 921,600–4,624,220 total pixels. Lite and 4.5: 3,686,400–16,777,216. 4.0: 921,600–16,777,216. All require integer dimensions and an aspect ratio between 1:16 and 16:1. Sizes under 921,600 total pixels are treated as aspect-ratio hints, not exact sizes. |
 
 See [`txt2img()`](/AI/txt2img) for provider-specific options and supported models.
 
 ### Video generation
 
-[`puter.ai.txt2vid()`](/AI/txt2vid) waits up to 10 minutes for a clip. These limits apply to Gemini Omni (`gemini-omni-1.1-flash`) on top of the AI limits above:
+[`puter.ai.txt2vid()`](/AI/txt2vid) waits up to 14 minutes for a clip. These limits apply to Gemini Omni (`gemini-omni-1.1-flash`) on top of the AI limits above:
 
 | Limit | Value |
 |-------|-------|
@@ -128,14 +130,16 @@ See [`txt2img()`](/AI/txt2img) for provider-specific options and supported model
 | Input tokens, prompt and image or video together | 131,072 |
 | Requested output tokens | 65,536 |
 | Input token count | 30-second timeout, 64 KiB reply |
-| Generation | 10-minute timeout, reply and clip included. 64 MiB reply |
-| Reservation | Counted input tokens, plus 173,760 video tokens and 65,536 text and thinking tokens, about $3.63 plus input. A source video isn't counted and adds 16,000 input tokens, about $0.02. Held for up to 11 minutes |
+| Generation | 14-minute timeout, reply and clip included. 64 MiB reply |
+| Reservation | Counted input tokens, plus 173,760 video tokens and 65,536 text and thinking tokens, about $3.63 plus input. A source video isn't counted and adds 16,000 input tokens, about $0.02. Held for up to 15 minutes |
 
-A longer prompt, a larger image or video, or input over the token limit fails with `bad_request` (`413 input_too_large` for an image over 5 MiB, a video over 32 MiB, or a `data:` URI video over 1 MiB) before generation starts. A source video over 10 seconds fails with `400 upstream_bad_request` from Google. A reply over 64 MiB fails with `502 upstream_failed`, and a generation that runs past 10 minutes fails with `504 upstream_timeout`. Neither is charged.
+A longer prompt, a larger image or video, or input over the token limit fails with `bad_request` (`413 input_too_large` for an image over 5 MiB, a video over 32 MiB, or a `data:` URI video over 1 MiB) before generation starts. A source video over 10 seconds fails with `400 upstream_bad_request` from Google. A reply over 64 MiB fails with `502 upstream_failed`, and a generation that runs past 14 minutes fails with `504 upstream_timeout`. Neither is charged.
 
 The reservation is a conservative estimate based on verified generation usage, not a maximum charge. Google can return more output than the requested 65,536 tokens, and the charge is for the input, video, output and thinking tokens Google reports, even when that's more than the reservation. A reply that reports token usage is charged for it even when the reply failed or has no usable clip.
 
-FLUX 3 on Together AI takes a source video (`inputVideo`) of up to 32 MiB as a Puter file, or up to 1 MiB as a `data:` URI. A larger one fails with `413 input_too_large` before the job starts. A Puter file is passed to Together AI as a link that works for 15 minutes, and a URL is passed as is. Together AI fetches either one.
+Kling video models take a prompt of up to 3,072 characters (Kling 3.0 models) or 2,500 (the others, and Kling 3.0 Turbo with `input_reference`). Kling 3.0 Omni and Kling O1 take a source video (`inputVideo`) as a URL or as a Puter file of up to 200 MiB, which fails with `413 input_too_large` above that. Kling fetches either one itself. A Puter file is passed as a link that works for 19 minutes. The source must be an MP4 or QuickTime video of 3 to 15.5 seconds (10 on Kling O1). Kling rejects a source outside its limits, or one it can't decode, with `upstream_bad_request`, and the request isn't charged. An edit holds the price of a 16-second clip (10 on Kling O1). Each call to Kling times out after 60 seconds, and a job is polled every 5 seconds.
+
+FLUX 3 on Together AI takes a source video (`inputVideo`) of up to 32 MiB as a Puter file, or up to 1 MiB as a `data:` URI. A larger one fails with `413 input_too_large` before the job starts. A Puter file is passed to Together AI as a link that works for 19 minutes, and a URL is passed as is. Together AI fetches either one.
 
 ### Puter file media inputs
 
@@ -397,8 +401,8 @@ Available only where the deployment has teams turned on; elsewhere `puter.teams`
 The mutation and read budgets are per user, per app, not per team: administering several teams spends one budget.
 
 - **Seats.** A seat is a Puter account the team creates and its owner pays for. Over the seat limit, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both errors include the limit in `fields.limit`.
-- **Seat plan.** A seat on a team with no paid tier is on the `org_seat_free` plan, which gets **half** the free allowance and the free rate limits. A seat on a paid team tier gets that tier.
-- **Changing the seat limit.** The limit follows the owner's plan, so upgrading raises it immediately. Lowering it never disables anyone; a team over the new limit just can't add seats until it's back under.
+- **Seat plan.** A seat on a team with no paid tier is on the `org_seat_free` plan, which gets **half** the free allowance and the free rate limits. A seat on a paid team tier gets that tier. A seat beyond the owner's current seat limit is on `org_seat_over_cap`, which has no allowance: only purchased credit can be spent.
+- **Changing the seat limit.** The limit follows the owner's plan, so upgrading raises it immediately. Lowering it disables no one, but a team over the new limit can't add seats, and its newest seats beyond the limit lose their allowance until the team is back under or the owner upgrades. Seats count oldest first, a suspended seat included, and a change reaches seats within about a minute.
 - **Deployment config.** `max_seats_per_team_free` and `max_seats_per_team_paid` set the two seat limits; a plan registered with `teamSeatCap` uses its own instead. `max_seats_per_team` sets one flat limit that overrides all of them. `max_teams_per_user` sets the team limit. These apply to every team on the deployment.
 - **Password resets.** A reset returns a temporary password once, valid for 24 hours. Until the member sets their own password, every request except signing in fails with `password_change_required`.
 - **Required 2FA.** A team can require two-factor authentication for the accounts it created (not for members who joined with their own accounts). Until a seat sets it up, every request except signing in and setting up 2FA fails with `two_factor_required`. The owner needs 2FA to turn this on, and can clear a member's second factor if they lose their device; the reset is logged and the member is emailed.
@@ -541,7 +545,7 @@ When the holder's balance runs out, deliveries stop and persistent subscriptions
 
 ### Networking
 
-[`puter.net`](/Networking/) sockets connect through a relay that takes a single-use token. A page fetches one token when it opens its first socket and reuses the connection for later sockets; `puter.net.generateWispV1URL()` fetches a new one on every call.
+[`puter.net`](/Networking/) sockets connect through a relay that takes a token. Each token is valid for 24 hours, or until the session that created it ends. A page fetches one token when it opens its first socket and reuses the connection for later sockets; `puter.net.generateWispV1URL()` fetches a new one on every call.
 
 | Limit                     | Paid | Free | Anonymous |
 | ------------------------- | ---- | ---- | --------- |

@@ -57,6 +57,16 @@ describe('append_signed_item_params', () => {
         );
     });
 
+    it('tells the app whether the item is a folder', () => {
+        const fileParams = new URLSearchParams();
+        append_signed_item_params(fileParams, readOnlySignature, '/owner/shared.txt');
+        expect(fileParams.get('puter.item.is_dir')).toBe('false');
+
+        const folderParams = new URLSearchParams();
+        append_signed_item_params(folderParams, { ...readOnlySignature, fsentry_is_dir: true }, '/owner/docs');
+        expect(folderParams.get('puter.item.is_dir')).toBe('true');
+    });
+
     it('advertises the passed path rather than the signature path', () => {
         const params = new URLSearchParams();
         append_signed_item_params(params, readOnlySignature, '~/shared.txt');

@@ -445,9 +445,11 @@ export class PuterHomepageService extends PuterService {
         const user = actor?.user;
         if (typeof user?.id !== 'number') return false;
         try {
-            return await this.services.team.teamsAvailableTo(
-                user.id,
-                user.email ?? null,
+            return (
+                (await this.services.team?.teamsAvailableTo(
+                    user.id,
+                    user.email ?? null,
+                )) ?? false
             );
         } catch {
             return false;

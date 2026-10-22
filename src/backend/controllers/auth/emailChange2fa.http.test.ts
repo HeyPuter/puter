@@ -7,6 +7,7 @@ import {
     type PuterTestEnv,
 } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
+import { installSeatStub } from '../../testFixtures/seatStub.js';
 
 describe('account change second-factor verification', () => {
     let env: PuterTestEnv;
@@ -333,15 +334,8 @@ describe('account change second-factor verification', () => {
         });
 
         it('does not let a valid code override a team requirement for 2FA', async () => {
-            const owner = await account();
             const member = await account(true, true);
-            const team = await env.server.services.team.createTeam(owner.id, {
-                name: 'Required 2FA',
-            });
-            await env.server.stores.team.addMember(team.uid, member.id, {
-                orgOwned: true,
-            });
-            await env.server.services.team.updateTeam(team.uid, owner.id, {
+            installSeatStub(env.server as never, [member.id], {
                 require2fa: true,
             });
             const proof = env.server.services.token.sign('oidc-state', {

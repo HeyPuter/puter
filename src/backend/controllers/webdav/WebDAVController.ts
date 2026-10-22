@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { Team2faLookup } from '../../core/http/middleware/gates.js';
 import { compare as bcryptCompare } from 'bcrypt';
 import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
@@ -288,7 +289,7 @@ export class WebDAVController extends PuterController {
         // filesystem over the `dav` subdomain, bypassing the gates.
         assertNotSuspended(actor.user);
         assertVerifiedAccount(actor.user);
-        await assertTeam2fa(actor.user, this.stores.team);
+        await assertTeam2fa(actor.user, this.stores.team as Team2faLookup);
 
         // The actor was absent when the auth probe ran, so anything that reads
         // it off the request or the context — shared-path masking, egress

@@ -99,7 +99,8 @@ describe('image downloads', () => {
             statusCode: 400,
             code: 'input_too_large',
         });
-        expect(pulled).toBeLessThanOrEqual(4);
+        // Readable.fromWeb reads ahead by a few chunks before the cap trips.
+        expect(pulled).toBeLessThanOrEqual(6);
     });
     it('gives up on a slow host with a 400 rather than waiting it out', async () => {
         secureFetchMock.mockImplementationOnce(

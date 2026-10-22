@@ -705,10 +705,6 @@ async function UIDesktop (options) {
                 data-sort_order="${!options.desktop_fsentry?.sort_order ? 'asc' : options.desktop_fsentry.sort_order}"
                 data-path="${html_encode(window.desktop_path)}"
             >`;
-
-    // show AI button
-    h += '<div class="btn-show-ai"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sparkles-icon lucide-sparkles"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></svg></div>';
-
     h += '</div>';
 
     // Get window sidebar width
@@ -1296,21 +1292,6 @@ async function UIDesktop (options) {
     //-----------------------------
     window.dispatchEvent(new CustomEvent('desktop:ready'));
     globalThis.services.emit('gui:ready');
-
-    //--------------------------------------------------------
-    // Open the AI app (best-effort — the `ai` app isn't seeded
-    // in OSS, so swallow 404s / token failures silently here
-    // instead of surfacing a "Couldn't open" alert at boot).
-    //--------------------------------------------------------
-    launch_app({
-        name: 'ai',
-        silent_on_failure: true,
-        window_options: {
-            is_panel: true,
-        },
-    }).catch(err => {
-        console.debug('auto-launch of ai panel skipped:', err?.message ?? err);
-    });
 
     //--------------------------------------------------------------------------------------
     // Determine if an app was launched from URL
@@ -2607,9 +2588,5 @@ window.toggleDesktopIcons = function () {
     puter.kv.set('desktop_icons_hidden', window.desktop_icons_hidden.toString())
         .catch(err => console.warn('Could not save desktop_icons_hidden:', err));
 };
-
-$(document).on('click', '.btn-show-ai', function () {
-    $('.window[data-app="ai"]').makeWindowVisible();
-});
 
 export default UIDesktop;

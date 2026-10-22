@@ -175,6 +175,12 @@ const isNoSuchKeyError = (err: unknown): boolean => {
     return e.name === 'NoSuchKey' || e.Code === 'NoSuchKey';
 };
 
+const isInvalidRangeError = (err: unknown): boolean => {
+    if (!err || typeof err !== 'object') return false;
+    const e = err as { name?: unknown; Code?: unknown };
+    return e.name === 'InvalidRange' || e.Code === 'InvalidRange';
+};
+
 /** Also recorded as the failure reason on a session refused for it. */
 const UPLOAD_NOT_RECEIVED = 'Upload content was not received';
 const uploadNotReceivedError = (): HttpError =>
@@ -3884,6 +3890,13 @@ export class FSService extends PuterService {
                     fields: {
                         uid: entry.uuid,
                     },
+                });
+            }
+            // Range starts at or past the end of the object.
+            if (isInvalidRangeError(err)) {
+                throw new HttpError(416, 'Requested range not satisfiable', {
+                    legacyCode: 'bad_request',
+                    cause: err,
                 });
             }
             throw err;

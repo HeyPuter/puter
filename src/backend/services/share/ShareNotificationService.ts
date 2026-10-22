@@ -41,7 +41,7 @@ import {
     shareDeepLink,
     sharedViewLink,
 } from './shareDeepLink';
-import { NOTIFY_FANOUT_CAP } from '../../stores/team/TeamStore';
+import { NOTIFY_FANOUT_CAP } from '../../core/teams.js';
 import { abuseKey, cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { blocksAllShares, type ResolvedShare } from './ShareService';
 import { withRedisLock } from '../../util/redisLock.js';
@@ -370,9 +370,10 @@ export class ShareNotificationService extends PuterService {
             let members = byGroup.get(share.holderGroupId);
             if (!members) {
                 try {
-                    members = await this.stores.team.listMemberIdsByGroupId(
-                        share.holderGroupId,
-                    );
+                    members =
+                        (await this.stores.team?.listMemberIdsByGroupId(
+                            share.holderGroupId,
+                        )) ?? [];
                 } catch (err) {
                     // Silence is this path's failure mode, so say so out loud.
                     console.warn(

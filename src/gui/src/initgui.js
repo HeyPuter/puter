@@ -33,6 +33,8 @@ import UIWindowPhoneVerificationRequired from './UI/UIWindowPhoneVerificationReq
 import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequired.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import UIWindowLogin from './UI/UIWindowLogin.js';
+import UIWindowLogin2FA from './UI/UIWindowLogin2FA.js';
+import { takeOidcLoginChallenge } from './helpers/authRedirect.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
@@ -1266,6 +1268,7 @@ window.showTurnstileChallenge = function (options) {
 };
 
 window.initgui = async function (options) {
+    const oidcChallenge = takeOidcLoginChallenge();
     const url = new URL(window.location).href;
     window.url = url;
     // Route segments with a leading `/desktop` dropped, so the route checks
@@ -1383,6 +1386,20 @@ window.initgui = async function (options) {
     // federated sign-in hop that would navigate the popup away and lose the
     // action. See util/popupAuth.js.
     window.gui_action = action;
+
+    if (action === 'oidc-2fa') {
+        const result = oidcChallenge?.token && await UIWindowLogin2FA(oidcChallenge.token);
+        if (result?.redirectUrl) {
+            const target = new URL(result.redirectUrl, window.location.origin);
+            if (target.origin === window.location.origin) {
+                await window.update_auth_data(result.token, result.user);
+                window.location.replace(target.href);
+                return;
+            }
+        }
+        window.location.replace(oidcChallenge?.retryUrl || '/action/login');
+        return;
+    }
 
     //--------------------------------------------------------------------------------------
     // Determine if we are in full-page mode

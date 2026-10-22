@@ -49,6 +49,7 @@ import {
     requireReputationGate,
     requireSubscriptionGate,
     requireTeam2fa,
+    type Team2faLookup,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
@@ -120,7 +121,7 @@ import type {
 } from './types';
 
 /** Idle keep-alive timeout used when `keep_alive_timeout` is unset. */
-const DEFAULT_KEEP_ALIVE_TIMEOUT = 620_000;
+const DEFAULT_KEEP_ALIVE_TIMEOUT = 920_000;
 
 /** Route options a claimed subdomain's routes may use. */
 const CLAIMED_ROUTE_OPTIONS = new Set([
@@ -1038,7 +1039,9 @@ export class PuterServer {
         if (needsAuth && !opts.allowUnconfirmed) {
             mwChain.push(requireVerifiedAccount());
             // Same opt-out: a member owing 2FA must still reach those routes.
-            mwChain.push(requireTeam2fa(this.stores?.team));
+            mwChain.push(
+                requireTeam2fa((this.stores as { team?: Team2faLookup })?.team),
+            );
         }
 
         // block access tokens by default

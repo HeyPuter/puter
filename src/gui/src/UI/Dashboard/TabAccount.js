@@ -22,6 +22,7 @@ import UIWindowChangeEmail from '../Settings/UIWindowChangeEmail.js';
 import UIWindowChangeUsername from '../UIWindowChangeUsername.js';
 import UIWindowConfirmUserDeletion from '../Settings/UIWindowConfirmUserDeletion.js';
 import UIWindowCopyToken from '../UIWindowCopyToken.js';
+import UIWindowEditProfile from '../UIWindowEditProfile.js';
 import UIWindow from '../UIWindow.js';
 import UIProfilePictureCropModal from './UIProfilePictureCropModal.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
@@ -38,7 +39,7 @@ const TabAccount = {
         // Profile section header
         h += '<div class="dashboard-section-header">';
         h += `<h2>${ i18n('account') }</h2>`;
-        h += '<p>Manage your account settings and profile</p>';
+        h += `<p>${i18n('account_subtitle')}</p>`;
         h += '</div>';
 
         // Profile picture card
@@ -47,7 +48,7 @@ const TabAccount = {
         h += `<div class="profile-picture change-profile-picture dashboard-profile-avatar profile-pic" role="button" tabindex="0" aria-label="${i18n('change_profile_picture')}" style="background-image: url('${html_encode(window.user?.profile?.picture ?? window.icons['profile.svg'])}');">`;
         h += '</div>';
         h += '<div class="dashboard-profile-info">';
-        h += `<h3>${html_encode(window.user?.username || 'User')}</h3>`;
+        h += `<h3 class="username">${html_encode(window.user?.username || i18n('user', [], false))}</h3>`;
         h += `<p>${html_encode(window.user?.email || '')}</p>`;
         h += `<span class="dashboard-profile-hint">${i18n('profile_picture_hint')}</span>`;
         // Shown only while there is a picture to remove.
@@ -58,6 +59,20 @@ const TabAccount = {
 
         // Account settings cards
         h += '<div class="dashboard-settings-grid">';
+
+        // Display name and bio card
+        h += '<div class="dashboard-card dashboard-settings-card">';
+        h += '<div class="dashboard-settings-card-content">';
+        h += '<div class="dashboard-settings-card-icon">';
+        h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="12" r="2"/><path d="M14 10h4M14 14h4"/></svg>';
+        h += '</div>';
+        h += '<div class="dashboard-settings-card-info">';
+        h += `<strong>${i18n('profile')}</strong>`;
+        h += `<span class="dashboard-profile-display-name">${html_encode(window.user?.profile?.displayName || i18n('profile_empty', [], false))}</span>`;
+        h += '</div>';
+        h += '</div>';
+        h += `<button class="button edit-profile">${i18n('edit_profile')}</button>`;
+        h += '</div>';
 
         // Username card
         h += '<div class="dashboard-card dashboard-settings-card">';
@@ -148,7 +163,7 @@ const TabAccount = {
             h += '<div class="dashboard-danger-card-content">';
             h += '<div class="dashboard-danger-card-info">';
             h += `<strong>${i18n('delete_account')}</strong>`;
-            h += '<span>Permanently delete your account and all associated data. This action cannot be undone.</span>';
+            h += `<span>${i18n('delete_account_description')}</span>`;
             h += '</div>';
             h += '</div>';
             h += `<button class="button button-danger delete-account">${i18n('delete_account')}</button>`;
@@ -163,6 +178,22 @@ const TabAccount = {
     },
 
     init ($el_window) {
+        $el_window.find('.dashboard-section-account .edit-profile').on('click', function (e) {
+            UIWindowEditProfile({
+                window_options: {
+                    parent_uuid: $el_window.attr('data-element_uuid'),
+                    backdrop: true,
+                    close_on_backdrop_click: true,
+                    parent_center: true,
+                    stay_on_top: true,
+                    has_head: false,
+                },
+                onSave: (profile) => {
+                    $el_window.find('.dashboard-section-account .dashboard-profile-display-name')
+                        .text(profile.displayName || i18n('profile_empty', [], false));
+                },
+            });
+        });
         $el_window.find('.dashboard-section-account .change-password').on('click', function (e) {
             UIWindowChangePassword({
                 window_options: {
@@ -233,7 +264,9 @@ const TabAccount = {
             $(this).trigger('click');
         });
         $el_window.find('.dashboard-section-account .change-profile-picture').on('click', async function (e) {
-            // open dialog
+            // Other pickers (e.g. a web link's Change Icon in the Files tab)
+            // also report to this window, so only listen while ours is open.
+            $el_window.off('file_opened', onAvatarPicked).on('file_opened', onAvatarPicked);
             UIWindow({
                 path: `/${ window.user.username }/Desktop`,
                 // this is the uuid of the window to which this dialog will return
@@ -241,7 +274,7 @@ const TabAccount = {
                 allowed_file_types: ['.png', '.jpg', '.jpeg'],
                 show_maximize_button: false,
                 show_minimize_button: false,
-                title: 'Open',
+                title: i18n('window_title_open', [], false),
                 is_dir: true,
                 is_openFileDialog: true,
                 selectable_body: false,
@@ -249,25 +282,46 @@ const TabAccount = {
                 close_on_backdrop_click: true,
                 parent_center: true,
                 stay_on_top: true,
+                on_close: () => $el_window.off('file_opened', onAvatarPicked),
             });
         });
-        $el_window.on('file_opened', function (e) {
+        // Every avatar on the page (matches helpers.js session refresh); null
+        // falls back to the default.
+        function showProfilePicture (picture) {
+            const url = picture ?? window.icons['profile.svg'];
+            $('.profile-pic').css('background-image', `url(${ html_encode(url) })`);
+            $('.profile-image').css('background-image', `url(${ html_encode(url) })`);
+            $('.profile-image').toggleClass('profile-image-has-picture', !! picture);
+        }
+        function onAvatarPicked (e) {
+            $el_window.off('file_opened', onAvatarPicked);
             const selectedFile = Array.isArray(e.detail) ? e.detail[0] : e.detail;
+            if ( ! selectedFile?.path ) return;
             // Let the user frame the photo before it becomes the avatar.
             UIProfilePictureCropModal({
                 picture: puter.fs.read(selectedFile.path),
                 $container: $el_window,
                 returnFocusTo: $el_window.find('.dashboard-section-account .change-profile-picture').get(0),
-                onSave: (dataUrl) => {
-                    // update profile picture everywhere (matches helpers.js session refresh)
-                    $('.profile-pic').css('background-image', `url(${ html_encode(dataUrl) })`);
-                    $('.profile-image').css('background-image', `url(${ html_encode(dataUrl) })`);
-                    $('.profile-image').addClass('profile-image-has-picture');
-                    $el_window.find('.dashboard-profile-remove-picture').prop('hidden', false);
-                    update_profile(window.user.username, { picture: dataUrl });
+                onSave: async (dataUrl) => {
+                    const previous = window.user?.profile?.picture ?? null;
+                    const $remove = $el_window.find('.dashboard-section-account .dashboard-profile-remove-picture');
+                    const $hint = $el_window.find('.dashboard-section-account .dashboard-profile-hint');
+                    // Shown at once; Remove waits so it can't race the upload.
+                    showProfilePicture(dataUrl);
+                    $remove.prop('hidden', false).prop('disabled', true);
+                    // update_profile resolves with no profile when the request failed.
+                    const profile = await update_profile(window.user.username, { picture: dataUrl });
+                    $remove.prop('disabled', false);
+                    if ( ! profile ) {
+                        showProfilePicture(previous);
+                        $remove.prop('hidden', ! previous);
+                        $hint.text(i18n('profile_picture_save_failed', [], false));
+                        return;
+                    }
+                    $hint.text(i18n('profile_picture_hint', [], false));
                 },
             });
-        });
+        }
         $el_window.find('.dashboard-section-account .dashboard-profile-remove-picture').on('click', async function () {
             const $btn = $(this);
             const $hint = $el_window.find('.dashboard-section-account .dashboard-profile-hint');
@@ -280,11 +334,7 @@ const TabAccount = {
                 return;
             }
             $hint.text(i18n('profile_picture_hint', [], false));
-            // fall back to the default avatar everywhere the picture was shown
-            const defaultPicture = window.icons['profile.svg'];
-            $('.profile-pic').css('background-image', `url(${ html_encode(defaultPicture) })`);
-            $('.profile-image').css('background-image', `url(${ html_encode(defaultPicture) })`);
-            $('.profile-image').removeClass('profile-image-has-picture');
+            showProfilePicture(null);
             $btn.prop('hidden', true);
             $el_window.find('.dashboard-section-account .change-profile-picture').trigger('focus');
         });

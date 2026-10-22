@@ -225,3 +225,40 @@ describe('host replies (env: app)', () => {
         expect(error).toHaveBeenCalled();
     });
 });
+
+describe('launch items', () => {
+    const launchSearch = (extra = '') =>
+        '?puter.item.name=docs&puter.item.uid=uid-1&puter.item.path=%2Fu%2Fdocs'
+        + `&puter.item.read_url=${encodeURIComponent('https://api.test/file?uid=uid-1')}${extra}`;
+
+    it('marks a launched folder as a directory', () => {
+        vi.stubGlobal('location', { search: launchSearch('&puter.item.is_dir=true') });
+        const launched = vi.fn();
+        const opened = vi.fn();
+        const ui = makeUI();
+        ui.onLaunchedWithItems(launched);
+        ui.onItemsOpened(opened);
+
+        for ( const callback of [launched, opened] ) {
+            const [[item]] = callback.mock.calls[0];
+            expect(item.name).toBe('docs');
+            expect(item.isDirectory).toBe(true);
+        }
+    });
+
+    it('treats a launched item without the flag as a file', () => {
+        vi.stubGlobal('location', { search: launchSearch() });
+        const launched = vi.fn();
+        makeUI().onLaunchedWithItems(launched);
+
+        expect(launched.mock.calls[0][0][0].isDirectory).toBe(false);
+    });
+
+    it('calls back with nothing when the app was not launched with an item', () => {
+        vi.stubGlobal('location', { search: '' });
+        const launched = vi.fn();
+        makeUI().onLaunchedWithItems(launched);
+
+        expect(launched).not.toHaveBeenCalled();
+    });
+});

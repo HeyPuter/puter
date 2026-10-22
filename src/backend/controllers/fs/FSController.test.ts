@@ -1948,6 +1948,27 @@ describe('FSController.readEntry (file streaming)', () => {
         expect(captured.statusCode).toBe(206);
     });
 
+    it('returns 206 with Range honored when offset and byte_count query params are supplied', async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const body = Buffer.from('abcdefghij');
+        const target = `/${username}/Documents/ranged-query.bin`;
+        await writeFile(userId, target, body, 'application/octet-stream');
+
+        const { res, captured } = makeStreamingRes();
+        await withActor(actor, () =>
+            controller.readEntry(
+                makeReq({
+                    query: { path: target, offset: '2', byte_count: '4' },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        expect(captured.statusCode).toBe(206);
+        expect(Buffer.concat(captured.bodyChunks).toString()).toBe('cdef');
+    });
+
     it('throws 404 when the path does not exist', async () => {
         const { actor } = await makeUser();
         const username = actor.user!.username!;

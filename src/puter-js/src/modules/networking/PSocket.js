@@ -21,7 +21,6 @@ export let wispInfo = {
  * @property {Error} error Fires when the socket hits an error; a `close` follows shortly after. The
  * human-readable reason is on `error.message`.
  * @property {boolean} close Fires when the socket is closed. `true` if it closed due to an error.
- * @property {void} drain Fires when the write buffer has been flushed.
  * @property {Uint8Array} tlsdata The `PTLSSocket` spelling of `data`.
  * @property {void} tlsopen The `PTLSSocket` spelling of `open`.
  * @property {boolean} tlsclose The `PTLSSocket` spelling of `close`.

@@ -27,7 +27,10 @@ import {
     POLICY_PREFIX,
     USAGE_DETAIL_SHARD_COUNT,
     V1_CLAIM_THROUGH_MONTH,
+    isFreeSubscription,
+    subscriptionOverride,
 } from './consts.ts';
+import { subscriptionSatisfies } from './enforcement.ts';
 import type { MeteringService } from './MeteringService.ts';
 import type { UsageInput } from './types.ts';
 import { detailShardOf } from './usageDetail.ts';
@@ -297,6 +300,67 @@ describe('MeteringService', () => {
             );
             const seat = makeActor();
             expect(await target.actorHasPaidSubscription(seat)).toBe(false);
+        });
+
+        it('counts a plan registered as free as free wherever free-ness is asked', async () => {
+            target.registerPolicy({
+                id: 'registered-free',
+                monthUsageAllowance: toMicroCents(1),
+                monthlyStorageAllowance: 1024,
+                free: true,
+            });
+            target.registerSubscriptionResolver(async () => 'registered-free');
+
+            const holder = makeActor();
+            expect((await target.getActorSubscription(holder)).id).toBe(
+                'registered-free',
+            );
+            expect(await target.actorHasPaidSubscription(holder)).toBe(false);
+            expect(isFreeSubscription('registered-free')).toBe(true);
+            expect(subscriptionSatisfies('registered-free', true)).toBe(false);
+            expect(
+                subscriptionOverride(
+                    { [DEFAULT_FREE_SUBSCRIPTION]: 7 },
+                    'registered-free',
+                ),
+            ).toBe(7);
+        });
+
+        it('lets a provisional answer win, but only for the fallback window', async () => {
+            target.registerPolicy({
+                id: 'provisional-plan',
+                monthUsageAllowance: toMicroCents(1),
+                monthlyStorageAllowance: 1024,
+            });
+            target.registerPolicy({
+                id: 'later-default',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024,
+            });
+            const first = vi.fn(async () => ({
+                id: 'provisional-plan',
+                provisional: true,
+            }));
+            target.registerDefaultSubscriptionResolver(first, { priority: 10 });
+            target.registerDefaultSubscriptionResolver(
+                async () => 'later-default',
+            );
+
+            const status = await target.getActorSubscriptionStatus(actor);
+            expect(status.policy.id).toBe('provisional-plan');
+            expect(status.provisional).toBe(true);
+
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            const now = Date.now();
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                dateNow.mockReturnValue(now + fallbackMs + 1);
+                await target.getActorSubscription(actor);
+                expect(first).toHaveBeenCalledTimes(2);
+            } finally {
+                dateNow.mockRestore();
+            }
         });
 
         it('uses the first non-empty subscription resolver', async () => {
@@ -744,6 +808,129 @@ describe('MeteringService', () => {
     });
 
     // ── Addons ───────────────────────────────────────────────────────
+
+    describe('getActorSubscriptionStatus', () => {
+        it('answers a resolved plan as not provisional', async () => {
+            target.registerPolicy({
+                id: 'status-paid',
+                monthUsageAllowance: toMicroCents(5),
+                monthlyStorageAllowance: 1024,
+            });
+            target.registerSubscriptionResolver(async () => 'status-paid');
+
+            const status = await target.getActorSubscriptionStatus(actor);
+            expect(status).toMatchObject({
+                policy: { id: 'status-paid' },
+                paid: true,
+                provisional: false,
+            });
+        });
+
+        it('marks the fallback a failed resolver causes as provisional, cached or not', async () => {
+            target.registerSubscriptionResolver(async () => {
+                throw new Error('store down');
+            });
+
+            const first = await target.getActorSubscriptionStatus(actor);
+            expect(first).toMatchObject({
+                policy: { id: DEFAULT_FREE_SUBSCRIPTION },
+                paid: false,
+                provisional: true,
+            });
+            const again = await target.getActorSubscriptionStatus(actor);
+            expect(again.provisional).toBe(true);
+            // The plain read still answers with the fallback.
+            expect((await target.getActorSubscription(actor)).id).toBe(
+                DEFAULT_FREE_SUBSCRIPTION,
+            );
+        });
+
+        const pastFallbackWindow = async (run: () => Promise<void>) => {
+            const { SUBSCRIPTION_FALLBACK_CACHE_MS: fallbackMs } =
+                target.constructor as typeof MeteringService;
+            const now = Date.now();
+            const dateNow = vi.spyOn(Date, 'now');
+            try {
+                dateNow.mockReturnValue(now + fallbackMs + 1);
+                await run();
+            } finally {
+                dateNow.mockRestore();
+            }
+        };
+
+        for (const [label, defaultAnswer] of [
+            ['throws', () => Promise.reject(new Error('store down'))],
+            [
+                'answers provisionally',
+                async () => ({
+                    id: 'status-default',
+                    provisional: true,
+                }),
+            ],
+        ] as const) {
+            it(`keeps an explicit plan resolved when a default ${label}`, async () => {
+                target.registerPolicy({
+                    id: 'status-default',
+                    monthUsageAllowance: toMicroCents(1),
+                    monthlyStorageAllowance: 1024,
+                });
+                target.registerPolicy({
+                    id: 'status-explicit',
+                    monthUsageAllowance: toMicroCents(5),
+                    monthlyStorageAllowance: 1024,
+                });
+                target.registerDefaultSubscriptionResolver(
+                    defaultAnswer as never,
+                    { priority: 10 },
+                );
+                const explicit = vi.fn(async () => 'status-explicit');
+                target.registerSubscriptionResolver(explicit);
+
+                expect(
+                    await target.getActorSubscriptionStatus(actor),
+                ).toMatchObject({
+                    policy: { id: 'status-explicit' },
+                    paid: true,
+                    provisional: false,
+                });
+                await pastFallbackWindow(async () => {
+                    await target.getActorSubscription(actor);
+                });
+                expect(explicit).toHaveBeenCalledTimes(1);
+            });
+        }
+
+        it('marks a default that wins after another default threw as provisional', async () => {
+            target.registerDefaultSubscriptionResolver(
+                async () => {
+                    throw new Error('store down');
+                },
+                { priority: 10 },
+            );
+            const status = await target.getActorSubscriptionStatus(actor);
+            expect(status.provisional).toBe(true);
+        });
+
+        it('marks a provisional answer with no plan as provisional', async () => {
+            target.registerSubscriptionResolver(async () => ({
+                id: null,
+                provisional: true,
+            }));
+            const status = await target.getActorSubscriptionStatus(actor);
+            expect(status).toMatchObject({
+                policy: { id: DEFAULT_FREE_SUBSCRIPTION },
+                provisional: true,
+            });
+        });
+
+        it('marks an answer for an actor missing a keyed field as provisional', async () => {
+            const { id: _id, ...partialUser } = actor.user;
+            const status = await target.getActorSubscriptionStatus({
+                user: partialUser,
+            });
+            expect(status.provisional).toBe(true);
+        });
+    });
 
     describe('getActorAddons / updateAddonCredit', () => {
         it('returns an empty addon map for a fresh user', async () => {
@@ -2414,11 +2601,11 @@ describe('MeteringService', () => {
         });
 
         it('leaves free policies alone without reading for an override', async () => {
-            await target.setMonthAllowance(
-                actor.user.uuid!,
-                DEFAULT_FREE_SUBSCRIPTION,
-                1,
-            );
+            // Written directly: `setMonthAllowance` refuses a free plan.
+            await server.stores.kv.set({
+                key: `${POLICY_PREFIX}:actor:${actor.user.uuid}:allowance:${DEFAULT_FREE_SUBSCRIPTION}:${currentMonthString()}`,
+                value: 1,
+            });
             const getSpy = vi.spyOn(server.stores.kv, 'get');
 
             const policy = await target.getActorSubscription(actor);
@@ -2504,6 +2691,31 @@ describe('MeteringService', () => {
                         'month-paid',
                         bad,
                     ),
+                ).rejects.toThrow();
+            }
+        });
+
+        it('refuses an allowance for a plan that never takes one', async () => {
+            target.registerPolicy({
+                id: 'month-free',
+                monthUsageAllowance: toMicroCents(1),
+                monthlyStorageAllowance: 0,
+                free: true,
+            });
+            target.registerPolicy({
+                id: 'month-none',
+                monthUsageAllowance: 0,
+                monthlyStorageAllowance: 0,
+                noAllowance: true,
+            });
+            for (const id of [
+                'month-free',
+                'month-none',
+                DEFAULT_FREE_SUBSCRIPTION,
+                UNLIMITED_SUBSCRIPTION,
+            ]) {
+                await expect(
+                    target.setMonthAllowance(actor.user.uuid!, id, 1_000),
                 ).rejects.toThrow();
             }
         });
@@ -2923,6 +3135,132 @@ describe('MeteringService', () => {
             // would answer the question are never made.
             expect(addonsSpy).not.toHaveBeenCalled();
             addonsSpy.mockRestore();
+        });
+
+        describe('a plan that grants no allowance', () => {
+            const onNoAllowancePlan = () => {
+                target.registerPolicy({
+                    id: 'test-no-allowance',
+                    monthUsageAllowance: toMicroCents(1),
+                    monthlyStorageAllowance: 0,
+                    noAllowance: true,
+                });
+                target.registerSubscriptionResolver(() => 'test-no-allowance');
+            };
+
+            it('has no allowance, whatever the policy states', async () => {
+                onNoAllowancePlan();
+                const sub = await target.getActorSubscription(actor);
+                expect(sub.monthUsageAllowance).toBe(0);
+            });
+
+            it('is out of budget without purchased credit', async () => {
+                onNoAllowancePlan();
+                expect(await target.hasAnyUsageCached(actor)).toBe(false);
+                expect(await target.hasEnoughCredits(actor, 1)).toBe(false);
+            });
+
+            it('spends purchased credit, and only that', async () => {
+                onNoAllowancePlan();
+                expect(await target.hasAnyUsageCached(actor)).toBe(false);
+                await target.updateAddonCredit(actor.user.uuid!, 5_000);
+                expect(await target.hasAnyUsageCached(actor)).toBe(true);
+
+                await target.incrementUsage(actor, 'kv:read', 1, 2_000);
+                const addons = await target.getActorAddons(actor);
+                expect(addons.consumedPurchaseCredits).toBe(2_000);
+            });
+
+            const creditStates = () => {
+                const states: string[] = [];
+                const seen = (_key: string, event: { state: string }) => {
+                    states.push(event.state);
+                };
+                server.clients.event.on('metering.credit-state', seen as never);
+                return {
+                    states,
+                    stop: () =>
+                        server.clients.event.off(
+                            'metering.credit-state',
+                            seen as never,
+                        ),
+                };
+            };
+
+            it('announces nothing for an actor that never had budget', async () => {
+                onNoAllowancePlan();
+                const { states, stop } = creditStates();
+                try {
+                    expect(await target.hasAnyUsageCached(actor)).toBe(false);
+                    await target.incrementUsage(actor, 'kv:read', 1, 1_000);
+                    await new Promise((r) => setTimeout(r, 20));
+                    expect(states).toEqual([]);
+                } finally {
+                    stop();
+                }
+            });
+
+            it('announces exhaustion when an actor moves onto it from a plan with budget', async () => {
+                await target.incrementUsage(actor, 'kv:read', 1, 1);
+                const { states, stop } = creditStates();
+                try {
+                    onNoAllowancePlan();
+                    target.invalidateActorSubscription(actor.user.uuid!);
+                    await target.incrementUsage(actor, 'kv:read', 1, 1);
+                    await waitFor(() => expect(states).toEqual(['exhausted']));
+                } finally {
+                    stop();
+                }
+            });
+
+            it('announces exhaustion once when purchased credit runs out', async () => {
+                onNoAllowancePlan();
+                await target.updateAddonCredit(actor.user.uuid!, 1_000);
+                const { states, stop } = creditStates();
+                try {
+                    for (let i = 0; i < 3; i++) {
+                        await target.incrementUsage(actor, 'kv:read', 1, 1_000);
+                    }
+                    await waitFor(() =>
+                        expect(states.filter((s) => s === 'exhausted')).toEqual(
+                            ['exhausted'],
+                        ),
+                    );
+                } finally {
+                    stop();
+                }
+            });
+
+            it('leaves the whole allowance to a plan switched to later in the month', async () => {
+                onNoAllowancePlan();
+                await target.updateAddonCredit(actor.user.uuid!, 5_000);
+                await target.incrementUsage(actor, 'kv:read', 1, 3_000);
+
+                const later = {
+                    id: 'test-later-allowance',
+                    monthUsageAllowance: 10_000,
+                    monthlyStorageAllowance: 0,
+                };
+                target.registerPolicy(later);
+                internals.subscriptionResolvers.length = 0;
+                target.registerSubscriptionResolver(
+                    () => 'test-later-allowance',
+                );
+                target.invalidateActorSubscription(actor.user.uuid!);
+
+                // Credit already paid for the earlier spend.
+                expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                    10_000 + 2_000,
+                );
+                await target.incrementUsage(actor, 'kv:read', 1, 4_000);
+                expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                    6_000 + 2_000,
+                );
+                expect(
+                    (await target.getActorAddons(actor))
+                        .consumedPurchaseCredits,
+                ).toBe(3_000);
+            });
         });
 
         it('does not block when the balance cannot be read', async () => {

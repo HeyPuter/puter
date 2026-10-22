@@ -41,7 +41,7 @@ const REUSE_WITHIN_MS = 10 * 60 * 1000;
  *     token: string;
  *     expiresAt: number;
  *     renewedAt: number;
- *     origin?: string;
+ *     origin: string;
  * }>}
  */
 const tracked = new Map();
@@ -212,16 +212,8 @@ peers?.addEventListener('message', ({ data }) => {
 const postToken = (instanceId, token, origin) => {
     const iframe = window.iframe_for_app_instance?.(instanceId);
     if ( ! iframe?.contentWindow ) return false;
-    let targetOrigin = origin;
-    if ( ! targetOrigin ) {
-        try {
-            targetOrigin = new URL(iframe.src).origin;
-        } catch {
-            return false;
-        }
-    }
     try {
-        iframe.contentWindow.postMessage({ msg: 'puter.token', token }, targetOrigin);
+        iframe.contentWindow.postMessage({ msg: 'puter.token', token }, origin);
     } catch {
         return false;
     }
@@ -234,21 +226,21 @@ const postToken = (instanceId, token, origin) => {
  *
  * @param {string} instanceId
  * @param {{ origin?: string }} [from] Set when the app itself asked: where it
- *   asked from, once its message was matched to the window's frame. An app that
- *   asked is always answered; a scheduled renewal that kept the same token
- *   sends nothing.
+ *   asked from, once its message was matched to the window's frame. Only the
+ *   launch origin may request a token. A scheduled renewal that kept the same
+ *   token sends nothing.
  * @returns {Promise<boolean>} Whether the app was sent a token
  */
 export const renewGodmodeToken = async (instanceId, from = {}) => {
     const entry = tracked.get(instanceId);
     if ( ! entry ) return false;
+    if ( from.origin !== undefined && from.origin !== entry.origin ) return false;
     // The app says its token stopped working; don't launch others with it.
     if ( from.origin ) forgetGodmodeTokens(entry.appUid);
     if ( ! window.iframe_for_app_instance?.(instanceId) ) {
         tracked.delete(instanceId);
         return false;
     }
-    if ( isAttestedOrigin(from.origin) ) entry.origin = from.origin;
     if ( Date.now() - entry.renewedAt < RENEW_COOLDOWN_MS ) {
         return postToken(instanceId, entry.token, entry.origin);
     }
@@ -283,9 +275,19 @@ const renewDue = () => {
  * @param {string} token
  * @param {number} expiresAt Unix seconds
  * @param {number} [renewedAt] When the token was minted, if not just now
+ * @param {string} [launchUrl] The resolved launch URL, before the iframe exists
  */
-export const trackGodmodeToken = (instanceId, appUid, token, expiresAt, renewedAt = Date.now()) => {
-    tracked.set(instanceId, { appUid, token, expiresAt, renewedAt });
+export const trackGodmodeToken = (instanceId, appUid, token, expiresAt, renewedAt = Date.now(), launchUrl) => {
+    let parsed;
+    try {
+        parsed = new URL(launchUrl ?? window.iframe_for_app_instance?.(instanceId)?.src);
+    } catch {
+        return;
+    }
+    if ( ! isAttestedOrigin(parsed.href) ) return;
+    // Extension schemes have an authority even where URL.origin is opaque.
+    const origin = parsed.origin === 'null' ? `${parsed.protocol}//${parsed.host}` : parsed.origin;
+    tracked.set(instanceId, { appUid, token, expiresAt, renewedAt, origin });
     if ( ! checkTimer ) {
         checkTimer = setInterval(renewDue, CHECK_INTERVAL_MS);
     }

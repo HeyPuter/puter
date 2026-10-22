@@ -586,7 +586,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
 
         $(window).on('resize.dashboard-notifications', position);
         $(document).on('pointerdown.dashboard-notifications', (e) => {
-            if ( $(e.target).closest('.dashboard-notifications-panel, .dashboard-notifications-btn').length ) return;
+            // The sheet's scrim closes on click, so the tap can't fall through.
+            if ( $(e.target).closest('.dashboard-notifications-panel, .dashboard-notifications-btn, .dashboard-notifications-scrim').length ) return;
             close({ restoreFocus: false });
         });
         $(document).on('keydown.dashboard-notifications', (e) => {
@@ -631,6 +632,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             const target = previousFocus && document.contains(previousFocus) ? previousFocus : $trigger[0];
             try {
                 target.focus({ preventScroll: true });
+                // The bell is in the mobile drawer, closed under the sheet;
+                // the drawer's toggle stands in for it.
+                if ( document.activeElement !== target ) {
+                    $('.dashboard-sidebar-toggle:visible')[0]?.focus({ preventScroll: true });
+                }
             } catch { /* best effort */ }
         }
         previousFocus = null;
