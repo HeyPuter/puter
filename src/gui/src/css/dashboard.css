@@ -1836,6 +1836,9 @@ input.myapps-group-name:focus {
         max-height: 92vh;
         border-radius: 14px 14px 0 0;
         transform: translateY(16px);
+        /* Flush with the bottom edge: keep the actions above the home
+           indicator. */
+        padding-bottom: env(safe-area-inset-bottom, 0px);
     }
     .app-feedback-open .app-feedback-modal {
         transform: none;
