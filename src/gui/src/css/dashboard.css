@@ -2281,6 +2281,11 @@ p.myapps-add-error {
     .item-props-overlay.item-props-show .item-props-modal {
         transform: translateY(0);
     }
+    /* Flush with the bottom edge, like the share sheet: clear the home
+       indicator. */
+    .item-props-body {
+        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    }
     .item-props-row {
         flex-direction: column;
         gap: 3px;
