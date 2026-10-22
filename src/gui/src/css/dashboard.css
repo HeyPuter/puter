@@ -5452,6 +5452,11 @@ body.myapps-reordering .myapps-tile {
         transform: translateX(0) translateY(0);
     }
 
+    /* Room to scroll the last rows above the bar (38px up, ~64px tall) */
+    .dashboard-section-files .files-tab.select-mode-active .files {
+        padding-bottom: 110px;
+    }
+
     .dashboard-section-files .selection-action-btn span {
         display: none;
     }
