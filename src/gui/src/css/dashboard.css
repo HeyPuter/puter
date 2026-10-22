@@ -8411,7 +8411,7 @@ body.dashboard-mode .notifications-close-all {
 }
 
 /* Scoped under the card so it outranks style.css's global
-   `input[type=text]` padding and `:focus` border. */
+   `input[type=text]` padding and its 2px `:focus` border. */
 .dashboard-dialog .dashboard-dialog-input {
     display: block;
     width: 100%;
@@ -8431,6 +8431,7 @@ body.dashboard-mode .notifications-close-all {
 .dashboard-dialog .dashboard-dialog-input:focus {
     padding: 0 12px;
     outline: none;
+    border-width: 1px;
     border-color: var(--select-color);
     background: var(--dashboard-card-background);
     box-shadow: 0 0 0 3px var(--select-ring);
