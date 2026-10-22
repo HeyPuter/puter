@@ -1515,6 +1515,10 @@ input.myapps-group-name:focus {
     padding: 24px;
     min-width: min(370px, calc(100vw - 32px));
     max-width: min(450px, calc(100vw - 32px));
+    /* Scrolls rather than spilling past both edges in a short viewport
+       (landscape phone, on-screen keyboard up) */
+    max-height: calc(100% - 32px);
+    overflow-y: auto;
     box-shadow: 0 8px 32px var(--dashboard-shadow-medium);
 }
 .myapps-modal h3 {
@@ -1836,6 +1840,9 @@ input.myapps-group-name:focus {
         max-height: 92vh;
         border-radius: 14px 14px 0 0;
         transform: translateY(16px);
+        /* Flush with the bottom edge: keep the actions above the home
+           indicator. */
+        padding-bottom: env(safe-area-inset-bottom, 0px);
     }
     .app-feedback-open .app-feedback-modal {
         transform: none;
@@ -2280,6 +2287,11 @@ p.myapps-add-error {
     }
     .item-props-overlay.item-props-show .item-props-modal {
         transform: translateY(0);
+    }
+    /* Flush with the bottom edge, like the share sheet: clear the home
+       indicator. */
+    .item-props-body {
+        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
     }
     .item-props-row {
         flex-direction: column;
@@ -3803,12 +3815,20 @@ body.myapps-reordering .myapps-tile {
     top: 0;
     width: 200px;
     padding: 16px 0;
+    /* A short viewport (landscape phone, small window) scrolls the folders
+       rather than cutting the last ones off */
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
 }
 
 .dashboard-section-files .directories ul {
     list-style: none;
     padding: 0;
     margin: 0;
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
 }
 
 .dashboard-section-files .directories li {
@@ -3846,15 +3866,16 @@ body.myapps-reordering .myapps-tile {
     height: auto;
 }
 
+/* Trash sits at the column's foot (20px up, with the column's padding)
+   when there's room, and after Shared when there isn't. */
 .dashboard-section-files .directories li[data-folder="Trash"] {
-    position: fixed;
-    bottom: 0;
-    margin-bottom: 20px;
-    width: 150px;
+    margin-top: auto;
+    margin-bottom: 4px;
     height: 38px;
 }
 
 .dashboard-section-files .directory-contents {
+    container: files-list / inline-size;
     position: relative;
     width: calc(100% - 160px);
     display: flex;
@@ -3881,6 +3902,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard .path-nav-buttons {
+    flex-shrink: 0;
     padding: 4px 10px 4px 0px;
     display: flex;
     justify-content: center;
@@ -3896,6 +3918,16 @@ body.myapps-reordering .myapps-tile {
     border-radius: 5px;
     padding: 4px;
     background-color: transparent;
+}
+
+/* 36px touch targets in the same 28px footprint (they're <img>s, so no
+   pseudo-element hit area) */
+@media (pointer: coarse) {
+    .dashboard .path-btn {
+        width: 36px;
+        padding: 8px;
+        margin: -4px;
+    }
 }
 
 @media (hover: hover) {
@@ -3924,6 +3956,16 @@ body.myapps-reordering .myapps-tile {
     display: flex;
     align-items: center;
     margin-left: 10px;
+    /* A deep path scrolls inside its row (kept at its end by
+       revealCurrentCrumb) instead of wrapping or pushing the actions out. */
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+}
+
+.dashboard-section-files .header .path-breadcrumbs::-webkit-scrollbar {
+    display: none;
 }
 
 .dashboard-section-files .header .path-breadcrumbs:empty + .path-actions {
@@ -4103,7 +4145,7 @@ body.myapps-reordering .myapps-tile {
 
 .dashboard-section-files .row .item-name,
 .dashboard-section-files .header .columns .item-name {
-    /* text-overflow: ellipsis; */
+    text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
     max-width: unset;
@@ -4454,7 +4496,6 @@ body.myapps-reordering .myapps-tile {
     transform: translateX(-50%) translateY(0);
     opacity: 1;
     visibility: visible;
-    z-index: 99999999999999999;
 }
 
 .dashboard-section-files .files-selection-actions.rubberband-active {
@@ -5170,9 +5211,11 @@ body.myapps-reordering .myapps-tile {
     .dashboard-tab-content.myapps-tab {
         padding-bottom: max(6px, env(safe-area-inset-bottom));
         --myapps-tile-w: 72px;
-        --myapps-tile-h: 74px;
+        /* icon 52 + label margin 10 + one label line (~16); the row gap
+           gives back the 4px so the row pitch stays 104px */
+        --myapps-tile-h: 78px;
         --myapps-gap-x: 12px;
-        --myapps-gap-y: 30px;
+        --myapps-gap-y: 26px;
         --myapps-icon-size: 52px;
     }
 
@@ -5262,39 +5305,27 @@ body.myapps-reordering .myapps-tile {
     white-space: nowrap;
 }
 
-/* Mobile phone optimizations */
-/* The Shared/Trash rows on Home exist for phones, where the directories
-   sidebar below is hidden; while the sidebar is visible they'd be redundant.
-   Same breakpoint as the sidebar rule so the two never both show or both hide. */
-@media (min-width: 481px) {
-    .dashboard-section-files .files-tab .files .row.place-row {
-        display: none !important;
-    }
-}
-
-@media (max-width: 480px) {
-    .dashboard-content.files {
-        padding: 0;
-    }
-
-    /* Hide directories sidebar */
-    .dashboard-section-files .directories {
-        display: none;
-    }
-
-    /* Full width for directory contents */
-    .dashboard-section-files .directory-contents {
-        width: 100%;
-        border-left: none;
-    }
-
-    .dashboard-section-files .directory-contents .header {
-        margin-bottom: 12px;
-    }
-
-    /* Hide column headers */
+/* Narrow listings (phones, and tablets or small windows once the sidebar
+   and folder column take their share) drop the columns for two-row rows;
+   the size and modified columns would otherwise squeeze names to a few
+   characters. */
+@container files-list (max-width: 480px) {
     .dashboard-section-files .header .columns {
         display: none;
+    }
+
+    /* Two tiles a row: the 170px column minimum left a single 330px tile
+       per row on a 360px phone. The icon box shrinks with the tile instead
+       of overflowing it. Compact grid keeps its own smaller minimum. */
+    .dashboard-section-files .files-tab .files.files-grid-view:not(.files-grid-view-sm) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-section-files .files-tab .files.files-grid-view:not(.files-grid-view-sm) .row .item-icon {
+        width: 100%;
+        max-width: 150px;
+        height: auto;
+        aspect-ratio: 1;
     }
 
     /* Two-row header layout */
@@ -5309,7 +5340,6 @@ body.myapps-reordering .myapps-tile {
         width: 100%;
         margin: 0 0 8px 0;
         padding-bottom: 8px;
-        margin-left: 50px;
         flex-wrap: nowrap;
         white-space: nowrap;
         overflow-x: auto;
@@ -5405,23 +5435,81 @@ body.myapps-reordering .myapps-tile {
         display: none;
     }
 
-    /* Hide more button (use long-press for context menu on touch) */
+    /* More button pinned to the row's right edge */
     .dashboard-section-files .files-tab .files.files-list-view .row .item-more {
         position: absolute;
         right: 10px;
     }
 
-    /* Adjust footer position - full width since sidebar is hidden */
+    /* On touch it's a 40x23 target beside a row whose tap opens the item,
+       so a near miss opened the item instead of the menu. The two-row rows
+       are tall enough for a 44px square hit area. */
+    @media (pointer: coarse) {
+        .dashboard-section-files .files-tab .files.files-list-view .row .item-more::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 44px;
+            height: 44px;
+            transform: translate(-50%, -50%);
+        }
+    }
+}
+
+/* Mobile phone optimizations */
+/* The Shared/Trash rows on Home exist for phones, where the directories
+   sidebar below is hidden; while the sidebar is visible they'd be redundant.
+   Same breakpoint as the sidebar rule so the two never both show or both hide. */
+@media (min-width: 481px) {
+    .dashboard-section-files .files-tab .files .row.place-row {
+        display: none !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .dashboard-content.files {
+        padding: 0;
+    }
+
+    /* Hide directories sidebar */
+    .dashboard-section-files .directories {
+        display: none;
+    }
+
+    /* Full width for directory contents */
+    .dashboard-section-files .directory-contents {
+        width: 100%;
+        border-left: none;
+    }
+
+    .dashboard-section-files .directory-contents .header {
+        margin-bottom: 12px;
+    }
+
+    /* Clear the fixed menu button beside the crumbs */
+    .dashboard-section-files .header .path-breadcrumbs {
+        margin-left: 50px;
+    }
+
+    /* Adjust footer position - full width since sidebar is hidden. It sits
+       on the bottom edge, so it grows to keep its text above the home
+       indicator; the list and the action bar move up with it. */
     .dashboard-section-files .files-footer {
         left: 0;
-        padding: 0;
+        padding: 0 0 env(safe-area-inset-bottom, 0px);
+        height: calc(30px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .dashboard-section-files .files {
+        padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
     }
 
     /* Mobile: Floating selection actions - icon-only, full width */
     .dashboard-section-files .files-selection-actions {
         left: 0;
         right: 0;
-        bottom: 38px;
+        bottom: calc(38px + env(safe-area-inset-bottom, 0px));
         transform: translateX(0) translateY(100px);
         border-radius: 0;
         justify-content: center;
@@ -5430,6 +5518,11 @@ body.myapps-reordering .myapps-tile {
 
     .dashboard-section-files .files-selection-actions.visible {
         transform: translateX(0) translateY(0);
+    }
+
+    /* Room to scroll the last rows above the bar (38px up, ~64px tall) */
+    .dashboard-section-files .files-tab.select-mode-active .files {
+        padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px));
     }
 
     .dashboard-section-files .selection-action-btn span {
@@ -5501,6 +5594,12 @@ body.myapps-reordering .myapps-tile {
        stand in for the hidden sidebar. A divider under the pair separates them
        from Home's own folders; they only navigate, so select mode gives them
        no checkbox and keeps their layout. */
+    /* Item rows get position: relative from jQuery UI draggable; place rows
+       aren't draggable, and their '⋯' would anchor to the list instead. */
+    .dashboard-section-files .files-tab .files .row.place-row {
+        position: relative;
+    }
+
     .dashboard-section-files .files-tab .files.files-list-view .row.place-row[data-place="Trash"] {
         border-bottom: 1px solid var(--dashboard-border);
         border-radius: 0;
@@ -5787,12 +5886,21 @@ body.myapps-reordering .myapps-tile {
 .dashboard .bento-recent-apps-container {
     flex: 1;
     padding: 16px 24px 24px;
+    container-type: inline-size;
 }
 
 .dashboard .bento-recent-apps-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px 20px;
+}
+
+/* One column once the card is too narrow for two readable names (the
+   two-column Home on a portrait tablet) */
+@container (max-width: 340px) {
+    .dashboard .bento-recent-apps-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 /* Hide apps beyond 6 on smaller screens */
@@ -5825,6 +5933,9 @@ body.myapps-reordering .myapps-tile {
     transition: transform 0.15s ease;
     gap: 12px;
     width: 200px;
+    /* Narrower columns (a tablet's half-width card) shrink the row, and the
+       title ellipsizes, instead of the second column spilling out of the card */
+    max-width: 100%;
 }
 
 .dashboard .bento-recent-app:focus-visible {
@@ -6176,6 +6287,12 @@ body.myapps-reordering .myapps-tile {
         min-height: 180px;
     }
 
+    /* The desktop minimum matches the square welcome card beside it; in one
+       column it only left the card half empty under a few apps. */
+    .dashboard .bento-recent {
+        min-height: 0;
+    }
+
     .dashboard .bento-welcome-inner {
         padding: 20px;
     }
@@ -6503,8 +6620,10 @@ body.myapps-reordering .myapps-tile {
     transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.dashboard-settings-card .button:hover {
-    background: var(--dashboard-sidebar-background);
+@media (hover: hover) {
+    .dashboard-settings-card .button:hover {
+        background: var(--dashboard-sidebar-background);
+    }
 }
 
 .dashboard-settings-card .button:focus-visible {
@@ -6663,6 +6782,14 @@ body.myapps-reordering .myapps-tile {
 @media (max-width: 768px) {
     .dashboard-tab-content {
         padding: 0 16px;
+    }
+
+    /* These sit in the content area's own 16px gutter, which Apps (padded
+       above) doesn't have; a second gutter would inset them past the other
+       tabs and the menu button. */
+    .dashboard-section-account .dashboard-tab-content,
+    .dashboard-section-security .dashboard-tab-content {
+        padding: 0;
     }
 
     .dashboard-section-header h2 {

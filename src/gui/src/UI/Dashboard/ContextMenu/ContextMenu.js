@@ -16,6 +16,9 @@ function isTouchPrimaryDevice () {
     );
 }
 
+/** Widest the touch menu gets, so phones (90% of up to ~440px) are unaffected. */
+const MAX_TOUCH_MENU_WIDTH = 400;
+
 /** Labels of the destructive file actions, in the current language. */
 const dangerLabels = () => new Set([i18n('delete'), i18n('delete_permanently')]);
 
@@ -103,13 +106,20 @@ export default class ContextMenuModal {
      */
     positionModal (targetRect) {
         const isMobile = isTouchPrimaryDevice();
-        const modalHeight = this.modal.offsetHeight;
-        const modalWidth = this.modal.offsetWidth;
         const viewportHeight = window.innerHeight;
         const viewportWidth = window.innerWidth;
         const margin = 20; // Minimum margin from viewport edges
 
-        const width = isMobile ? viewportWidth * 0.9 : modalWidth;
+        // Touch: most of a phone's width, but a phone-sized card on a tablet
+        // rather than a strip spanning the screen. Applied before measuring
+        // the height, which depends on how the labels wrap at this width.
+        if ( isMobile ) {
+            this.modal.style.width = `${Math.min(viewportWidth * 0.9, MAX_TOUCH_MENU_WIDTH)}px`;
+        } else {
+            this.modal.style.width = 'auto';
+        }
+        const modalHeight = this.modal.offsetHeight;
+        const width = this.modal.offsetWidth;
 
         // Center over the target horizontally, clamped to the viewport. (The
         // old code hardcoded left:300px on non-touch devices — which used to
@@ -131,7 +141,6 @@ export default class ContextMenuModal {
 
         this.modal.style.top = `${top}px`;
         this.modal.style.left = `${left}px`;
-        this.modal.style.width = isMobile ? '90%' : 'auto';
     }
 
     /**

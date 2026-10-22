@@ -669,6 +669,19 @@ const TabFiles = {
         if ( this.currentPath && window.is_dashboard_mode ) {
             this.updateDashboardUrl(this.currentPath);
         }
+        // Crumbs rendered while the tab was hidden had no width to scroll.
+        this.revealCurrentCrumb();
+    },
+
+    /**
+     * Scrolls a breadcrumb trail too long for its row to its end, so the
+     * current folder stays in view rather than the root.
+     *
+     * @returns {void}
+     */
+    revealCurrentCrumb () {
+        const crumbs = this.$el_window?.find('.files-tab .path-breadcrumbs')[0];
+        if ( crumbs ) crumbs.scrollLeft = crumbs.scrollWidth;
     },
 
     /**
@@ -2376,6 +2389,7 @@ const TabFiles = {
         this.updateActionButtons(isTrashFolder);
 
         $('.path-breadcrumbs').html(this.renderPath(this.currentPath, window.user.username));
+        this.revealCurrentCrumb();
         $('.path-breadcrumbs .dirname').each(function () {
             const dirnameElement = this;
             const clickedPath = dirnameElement.getAttribute("data-path");
