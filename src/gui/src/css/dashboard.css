@@ -5314,6 +5314,20 @@ body.myapps-reordering .myapps-tile {
         display: none;
     }
 
+    /* Two tiles a row: the 170px column minimum left a single 330px tile
+       per row on a 360px phone. The icon box shrinks with the tile instead
+       of overflowing it. Compact grid keeps its own smaller minimum. */
+    .dashboard-section-files .files-tab .files.files-grid-view:not(.files-grid-view-sm) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-section-files .files-tab .files.files-grid-view:not(.files-grid-view-sm) .row .item-icon {
+        width: 100%;
+        max-width: 150px;
+        height: auto;
+        aspect-ratio: 1;
+    }
+
     /* Two-row header layout */
     .dashboard-section-files .header .path {
         flex-wrap: wrap;
