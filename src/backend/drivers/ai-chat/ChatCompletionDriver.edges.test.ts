@@ -633,6 +633,40 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
         expect(err.message).toBe('unsupported parameter: top_k');
     });
 
+    it('maps a gateway 4xx with no upstream error body to 400 upstream_provider_unavailable', async () => {
+        const err = await errorFor({
+            status: 400,
+            message: '400 bad response status code 400',
+            error: {
+                type: 'upstream_error',
+                message: 'bad response status code 400',
+                code: 400,
+            },
+        });
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_provider_unavailable',
+        });
+        expect(err.message).toBe('AI provider unavailable');
+    });
+
+    it('keeps a gateway 4xx that carries the vendor message as the caller’s upstream_bad_request', async () => {
+        const err = await errorFor({
+            status: 400,
+            message:
+                '400 bad response status code 400, message: max_tokens too large, body: {}',
+            error: {
+                type: 'upstream_error',
+                message:
+                    'bad response status code 400, message: max_tokens too large, body: {}',
+            },
+        });
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+        });
+    });
+
     it('maps a completion with no choices to a 400, not an internal 500', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'complete').mockImplementation(
             () =>
@@ -807,6 +841,26 @@ describe('ChatCompletionDriver cross-provider fallback', () => {
             .map((c) => String(c[0]))
             .find((l) => l.startsWith('[ai-chat] fallback served'));
         expect(line).toContain('first 422');
+    });
+
+    it('falls back past a gateway 4xx with no upstream error body and marks the route unhealthy', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        vi.spyOn(AzureChatProvider.prototype, 'complete').mockRejectedValue(
+            Object.assign(new Error('400 bad response status code 400'), {
+                status: 400,
+                error: { type: 'upstream_error' },
+            }),
+        );
+        vi.spyOn(OpenAiChatProvider.prototype, 'complete').mockResolvedValue({
+            message: { role: 'assistant', content: 'from the fallback' },
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        } as never);
+
+        const result = (await completeShared()) as {
+            message: { content: string };
+        };
+        expect(result.message.content).toBe('from the fallback');
+        expect(isRouteUnhealthy('azure-openai', SHARED_MODEL)).toBe(true);
     });
 
     it('surfaces the primary route-level 4xx after a non-strict fallback also fails', async () => {
