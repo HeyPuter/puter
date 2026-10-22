@@ -88,6 +88,30 @@ describe('UIDashboardFormDialog', () => {
         expect(secret.attr('aria-invalid')).toBeUndefined();
     });
 
+    it('gives focus back to the submitting control when locking it dropped focus', async () => {
+        open({ onSubmit: (dialog) => {
+            // A browser drops focus to the page when the focused control is
+            // disabled; jsdom doesn't, so move it there by hand.
+            const el_away = $('<button>').appendTo('body').get(0);
+            el_away.focus();
+            el_away.remove();
+            dialog.setStatus('Server says no');
+        } });
+        const name = $('.dashboard-form-input[name="name"]').get(0);
+        name.focus();
+        submit();
+        await tick();
+        expect(document.activeElement).toBe(name);
+    });
+
+    it('leaves focus where the handler put it inside the dialog', async () => {
+        open({ onSubmit: (dialog) => dialog.finish({ message: 'Done' }) });
+        $('.dashboard-form-input[name="name"]').get(0).focus();
+        submit();
+        await tick();
+        expect(document.activeElement).toBe($('.dashboard-form-done-btn').get(0));
+    });
+
     it('shows a thrown error in the status line', async () => {
         open({ onSubmit: async () => {
             throw new Error('Server says no');

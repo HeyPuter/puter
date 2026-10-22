@@ -214,6 +214,8 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
         if ( busy || isClosed() ) return;
         busy = true;
         dialog.setStatus('');
+        // Disabling the focused control drops focus to the page; it gets it back after.
+        const el_had_focus = document.activeElement;
         const $locked = $controls().not(':disabled');
         $locked.prop('disabled', true);
         $submit.prop('disabled', true).addClass('dashboard-form-busy').attr('aria-busy', 'true');
@@ -225,8 +227,11 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
             busy = false;
             $locked.prop('disabled', false);
             $submit.prop('disabled', false).removeClass('dashboard-form-busy').removeAttr('aria-busy');
-            focus_after?.focus({ preventScroll: true });
+            const el_dialog = $dialog.get(0);
+            const el_refocus = focus_after
+                ?? (el_dialog.contains(document.activeElement) ? null : el_had_focus);
             focus_after = null;
+            if ( ! isClosed() && el_dialog.contains(el_refocus) ) el_refocus.focus({ preventScroll: true });
         }
     });
 
