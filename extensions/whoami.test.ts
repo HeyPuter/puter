@@ -43,7 +43,6 @@ beforeAll(async () => {
             create_shortcut: true,
             payment_bypass: true,
         },
-        teams_enabled: true,
     } as never);
 });
 
@@ -89,7 +88,7 @@ describe('whoami extension — handleWhoami', () => {
             return { seat, team };
         };
 
-        it('names no team where teams is not installed', async () => {
+        it('names no team where teams is off', async () => {
             const { seat } = await seatOf('Acme Corp');
             const { res, captured } = makeRes();
 
@@ -98,7 +97,7 @@ describe('whoami extension — handleWhoami', () => {
                 () => handleWhoami(makeReq(), res),
             );
 
-            // `extension.import` resolves the registry, which has no team.
+            // Off, so the seat is never looked up.
             expect((captured.body as { team?: unknown }).team).toBeUndefined();
         });
 

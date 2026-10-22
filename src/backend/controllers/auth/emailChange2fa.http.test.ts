@@ -6,7 +6,6 @@ import {
     setupPuterTestEnv,
     type PuterTestEnv,
 } from '../../testUtil.js';
-import type { IConfig } from '../../types.js';
 import { installSeatStub } from '../../testFixtures/seatStub.js';
 
 describe('account change second-factor verification', () => {
@@ -15,7 +14,7 @@ describe('account change second-factor verification', () => {
     const links = new Map<string, string>();
 
     beforeAll(async () => {
-        env = await setupPuterTestEnv({ teams_enabled: true } as IConfig);
+        env = await setupPuterTestEnv();
         vi.spyOn(env.server.clients.email, 'send').mockImplementation(
             async (to, template, values) => {
                 if (template === 'email_verification_link')

@@ -32,7 +32,7 @@ export interface IPuterStoreInstances {}
 
 /** Extension-augmentable store registry; see `IExtensionClientInstances`. */
 export interface IExtensionStoreInstances {
-    /** Teams ships separately; absent where it is not installed. */
+    /** Teams ships separately; boot guarantees it when `teams_enabled` is on. */
     team?: TeamStoreContract;
     [key: string]: unknown;
 }
