@@ -323,8 +323,17 @@ const isAuthFailure = (a: ProviderAttempt) =>
         a.status === 403 ||
         /unauthorized|forbidden|invalid api key/i.test(a.error));
 
+/**
+ * A new-api gateway's (Infron's) wrapper for an upstream that answered without
+ * a JSON error body. It mirrors the upstream's status, so the 4xx says nothing
+ * about the caller's request; a real vendor rejection carries its own message.
+ */
+const isOpaqueGatewayFailure = (a: ProviderAttempt) =>
+    /bad response status code \d+(?:,\s*body:|$)/i.test(a.error);
+
 const isUpstream5xx = (a: ProviderAttempt) =>
     (a.status !== undefined && a.status >= 500) ||
+    isOpaqueGatewayFailure(a) ||
     /provider returned error|internal server error|service unavailable|bad gateway/i.test(
         a.error,
     );
