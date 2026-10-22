@@ -48,7 +48,11 @@ import type { MeteringService } from '../../services/metering/MeteringService.js
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { VoiceChangerDriver } from './VoiceChangerDriver.js';
-import { callerError, readStreamResult } from '../integrationTestUtil.js';
+import {
+    callerError,
+    readStreamResult,
+    withAiCostFactorHook,
+} from '../integrationTestUtil.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
 
 const { webFetchMock } = vi.hoisted(() => ({ webFetchMock: vi.fn() }));
@@ -350,6 +354,35 @@ describe('VoiceChangerDriver.convert success path', () => {
         expect((actorArg as Actor).user.id).toBe(actor.user.id);
         expect(count).toBe(expectedSeconds);
         expect(cost).toBe(perSecond * expectedSeconds);
+    });
+
+    it('holds and meters at the AI cost factor', async () => {
+        const { actor } = await makeUser();
+        const usageType = 'elevenlabs:eleven_multilingual_sts_v2:second';
+        const metered = () =>
+            incrementUsageSpy.mock.calls
+                .filter(([, type]) => type === usageType)
+                .map(([, , , cost]) => cost);
+        const convert = async (charges: number) => {
+            fetchSpy.mockResolvedValueOnce(
+                okResponse(new ArrayBuffer(8), 'audio/mpeg'),
+            );
+            await readStreamResult(
+                await withActor(actor, () =>
+                    driver.convert({
+                        audio: dataUrl(Buffer.alloc(32_000), 'audio/mpeg'),
+                    }),
+                ),
+            );
+            await vi.waitFor(() => expect(metered()).toHaveLength(charges));
+        };
+        await convert(1);
+        await withAiCostFactorHook(server.clients.event, 2, () => convert(2));
+
+        const [base, factored] = metered();
+        expect(factored).toBe(base! * 2);
+        const held = hasCreditsSpy.mock.calls.map(([, amount]) => amount);
+        expect(held).toEqual([base, base! * 2]);
     });
 
     it('meters nothing when ElevenLabs breaks off before any audio', async () => {

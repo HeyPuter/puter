@@ -45,6 +45,7 @@ import { runWithContext } from '../../core/context.js';
 import { type Actor, SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { withAiCostFactorHook } from '../integrationTestUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { CLOUDFLARE_IMAGE_GENERATION_MODELS } from './providers/cloudflare/models.js';
 import cloudflareModelSearchFixture from './providers/cloudflare/fixtures/model-search.json';
@@ -1645,3 +1646,34 @@ it.each([undefined, null, '', '  ', 42, {}])(
         });
     },
 );
+
+describe('ImageGenerationDriver cost factor', () => {
+    it('holds and meters at the AI cost factor', async () => {
+        const reserveSpy = vi.spyOn(server.services.metering, 'reserveCredits');
+        const usageSpy = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
+        const generate = async (charges: number) => {
+            openaiImagesGenerateMock.mockResolvedValueOnce({
+                data: [{ url: 'https://oai/img.png' }],
+            });
+            await withActor(() =>
+                driver.generate({ model: 'gpt-image-2', prompt: 'hi' }),
+            );
+            await vi.waitFor(() =>
+                expect(usageSpy).toHaveBeenCalledTimes(charges),
+            );
+        };
+        await generate(1);
+        await withAiCostFactorHook(server.clients.event, 2, () => generate(2));
+
+        const costs = (call: number) =>
+            usageSpy.mock.calls[call]![1].map((u) => u.costOverride!);
+        expect(costs(0).length).toBeGreaterThan(0);
+        expect(costs(1)).toEqual(costs(0).map((c) => Math.round(c * 2)));
+        const held = reserveSpy.mock.calls.map(([, amount]) => amount);
+        expect(held[0]).toBeGreaterThan(0);
+        expect(held).toEqual([held[0], Math.round(held[0]! * 2)]);
+    });
+});

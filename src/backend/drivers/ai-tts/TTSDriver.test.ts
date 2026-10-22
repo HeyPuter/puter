@@ -44,6 +44,10 @@ import { runWithContext } from '../../core/context.js';
 import { SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import {
+    readStreamResult,
+    withAiCostFactorHook,
+} from '../integrationTestUtil.js';
 import type { TTSDriver } from './TTSDriver.js';
 import pollyPriceList from './providers/awsPolly/fixtures/us-west-2.json';
 
@@ -686,5 +690,42 @@ describe('TTSDriver.synthesize error mapping', () => {
             ),
         ).rejects.toThrow('upstream blew up');
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('TTSDriver cost factor', () => {
+    it('holds and meters at the AI cost factor', async () => {
+        const incrementUsageSpy = vi.spyOn(
+            server.services.metering,
+            'incrementUsage',
+        );
+        const hasCreditsSpy = vi.spyOn(
+            server.services.metering,
+            'hasEnoughCredits',
+        );
+        const metered = () =>
+            incrementUsageSpy.mock.calls.map(([, , , cost]) => cost!);
+        const synthesize = async (charges: number) => {
+            openaiSpeechCreateMock.mockResolvedValueOnce(openaiAudioResponse());
+            await readStreamResult(
+                await withActor(() =>
+                    driver.synthesize({
+                        text: 'hello there',
+                        provider: 'openai',
+                    }),
+                ),
+            );
+            await vi.waitFor(() => expect(metered()).toHaveLength(charges));
+        };
+        await synthesize(1);
+        await withAiCostFactorHook(server.clients.event, 2, () =>
+            synthesize(2),
+        );
+
+        const [base, factored] = metered();
+        expect(base).toBeGreaterThan(0);
+        expect(factored).toBe(Math.round(base! * 2));
+        const held = hasCreditsSpy.mock.calls.map(([, amount]) => amount);
+        expect(held).toEqual([base, Math.round(base! * 2)]);
     });
 });
