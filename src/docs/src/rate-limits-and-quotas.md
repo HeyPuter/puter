@@ -414,7 +414,7 @@ Where the deployment sends push notifications, these apply to each push:
 | Pushes being sent at once         | 64                   | Per server       |
 | Time a push service has to answer | 30 seconds           | Per call         |
 
-A push over the size limit is shortened. The `text` is cut first, then the `title`, and then the icon is left out. If the `data` alone doesn't fit, the notification isn't pushed. Past the number of pushes being sent at once, a notification isn't pushed. A notification that isn't pushed is still in the user's notification list.
+A push over the size limit is shortened. The `text` is cut first, then the icon is left out, and then the `title` is cut. If the `title` would keep fewer than 8 characters, or the `data` alone doesn't fit, the notification isn't pushed. Past the number of pushes being sent at once, a notification isn't pushed. A notification that isn't pushed is still in the user's notification list.
 
 ### Teams
 

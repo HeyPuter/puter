@@ -188,10 +188,7 @@ const longestFitting = (
     return lo;
 };
 
-/**
- * Cuts the body, then drops the icon, then cuts the title. Null when `data`
- * leaves no room, or the title would keep fewer than a few characters.
- */
+/** Body, then icon, then title; null if the title keeps under a few chars. */
 export const fitPushMessage = (message: PushMessage): PushMessage | null => {
     if (fits(message)) return message;
     const titleChars = characters(message.title);
