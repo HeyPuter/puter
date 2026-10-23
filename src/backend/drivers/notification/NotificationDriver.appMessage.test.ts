@@ -25,6 +25,7 @@ import { PuterServer } from '../../server.js';
 import { findNotificationType } from '../../services/notification/notificationTypes.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
+import { peekRateLimit } from '../../core/http/middleware/rateLimit.js';
 import type { NotificationDriver } from './NotificationDriver.js';
 
 const makeUser = async (server: PuterServer): Promise<Actor> => {
@@ -154,6 +155,7 @@ describe('app.message with live delivery over the socket wire', () => {
             channel: 'replies',
             priority: 'normal',
             ttl: 3600,
+            app: { uid: app.uid, name: 'App message test' },
         });
         const row = await state.server.stores.notification.getByUid(uid, {
             userId: holder.user.id,
@@ -314,14 +316,24 @@ describe('app.message with live delivery over the socket wire', () => {
             );
         }
         // The app's worker spends the same budget as the app.
-        await expect(
-            withActor(asWorker(holder, app), () =>
-                state.driver.create(message()),
+        for (let i = 0; i < 2; i++) {
+            await expect(
+                withActor(asWorker(holder, app), () =>
+                    state.driver.create(message()),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 429,
+                legacyCode: 'too_many_requests',
+            });
+        }
+        // Refused calls left the day window at 3, not 5.
+        expect(
+            await peekRateLimit(
+                `notif:app-message:day:${holder.user.id}:${app.uid}`,
+                4,
+                24 * 60 * 60_000,
             ),
-        ).rejects.toMatchObject({
-            statusCode: 429,
-            legacyCode: 'too_many_requests',
-        });
+        ).toBe(true);
 
         await expect(
             withActor(asApp(holder, otherApp), () =>
@@ -376,7 +388,7 @@ describe('app.message with live delivery over the socket wire', () => {
 describe('app.message with the events fold-in on', () => {
     const state = bootServer({
         events: { enabled: true, notificationsFoldIn: true },
-        notificationAppMessageLimits: { perMinute: 0, perDay: 2 },
+        notificationAppMessageLimits: { perMinute: 3, perDay: 2 },
     } as Partial<IConfig>);
 
     it("emits notif.created on the app's app-user subject", async () => {
@@ -411,7 +423,7 @@ describe('app.message with the events fold-in on', () => {
         ).toBe(`notif:${app.uid}:app-user`);
     });
 
-    it('limits each app per user per day, with no minute bound configured', async () => {
+    it('limits each app per user per day, without spending the minute', async () => {
         const holder = await makeUser(state.server);
         const app = await makeApp(state.server, holder.user.id!);
         for (let i = 0; i < 2; i++) {
@@ -419,8 +431,20 @@ describe('app.message with the events fold-in on', () => {
                 state.driver.create(message()),
             );
         }
-        await expect(
-            withActor(asApp(holder, app), () => state.driver.create(message())),
-        ).rejects.toMatchObject({ statusCode: 429 });
+        for (let i = 0; i < 2; i++) {
+            await expect(
+                withActor(asApp(holder, app), () =>
+                    state.driver.create(message()),
+                ),
+            ).rejects.toMatchObject({ statusCode: 429 });
+        }
+        // Refused calls left the minute window at 2, under its limit of 3.
+        expect(
+            await peekRateLimit(
+                `notif:app-message:minute:${holder.user.id}:${app.uid}`,
+                3,
+                60_000,
+            ),
+        ).toBe(true);
     });
 });

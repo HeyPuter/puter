@@ -30,6 +30,7 @@ import {
     parseCreatedAt,
     planBurstToasts,
     reconcileWithServer,
+    senderNameFor,
     setReadAt,
     sortEntries,
     titleWithBadge,
@@ -449,5 +450,19 @@ describe('planBurstToasts', () => {
         const { shown, folded } = planBurstToasts(many(12));
         expect(shown.map((e) => e.uid)).toEqual(['n0', 'n1', 'n2']);
         expect(folded).toBe(9);
+    });
+});
+
+describe('senderNameFor', () => {
+    it('names the sending app of an app message', () => {
+        expect(senderNameFor({ type: 'app.message', title: 'Hi', app: { uid: 'app-1', name: 'Chat' } }))
+            .toBe('Chat');
+    });
+
+    it('names nobody for other types, or an app message with no name', () => {
+        expect(senderNameFor({ type: 'share.received', app: { name: 'Chat' } })).toBeNull();
+        expect(senderNameFor({ type: 'app.message', app: { uid: 'app-1' } })).toBeNull();
+        expect(senderNameFor({ type: 'app.message', app: { name: '  ' } })).toBeNull();
+        expect(senderNameFor(undefined)).toBeNull();
     });
 });

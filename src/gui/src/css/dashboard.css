@@ -8128,6 +8128,12 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     padding-right: 22px;
 }
 
+.dashboard-notification-sender {
+    font-size: 12px;
+    color: var(--dashboard-text-secondary);
+    overflow-wrap: anywhere;
+}
+
 .dashboard-notification-title {
     font-size: 13.5px;
     font-weight: 500;

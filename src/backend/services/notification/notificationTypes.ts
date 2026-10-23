@@ -109,8 +109,7 @@ export const NOTIFICATION_TYPES = [
         groupable: false,
         subject: subjectFor('developer'),
     },
-    // The one type an app may create, and only for the user it acts for. What
-    // kind of message it is goes in the value's `channel`, not a new type.
+    // The only type apps create; its kind goes in the value's `channel`.
     {
         type: 'app.message',
         audience: 'app-user',

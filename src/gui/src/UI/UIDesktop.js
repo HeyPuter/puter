@@ -45,7 +45,7 @@ import item_icon from '../helpers/itemIcon.js';
 import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
 import { applyToastMark, createNotificationFeed } from '../helpers/notificationFeed.js';
-import { notificationTarget } from './Dashboard/notificationCenter.js';
+import { notificationTarget, senderNameFor } from './Dashboard/notificationCenter.js';
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import UIWindowSearch from './UIWindowSearch.js';
@@ -257,6 +257,7 @@ async function UIDesktop (options) {
         }
 
         UINotification({
+            sender: senderNameFor(notification),
             title: notification.title,
             text: notification.text,
             icon: window.icons[notification.icon],

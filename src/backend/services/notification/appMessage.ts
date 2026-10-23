@@ -54,6 +54,31 @@ export type AppMessage = {
     sensitive?: boolean;
     priority: AppMessagePriority;
     ttl: number;
+    /** The sending app, set by the server. */
+    app?: AppMessageSender;
+};
+
+export type AppMessageSender = { uid: string; name?: string; icon?: string };
+
+/** What a message says about its app, read off the app's row. */
+export const appMessageSender = (
+    uid: string,
+    row: { name?: unknown; title?: unknown; icon?: unknown } | null | undefined,
+): AppMessageSender => {
+    const sender: AppMessageSender = { uid };
+    const name = [row?.title, row?.name].find(
+        (v): v is string => typeof v === 'string' && v.trim() !== '',
+    );
+    if (name !== undefined) sender.name = cleanText(name).trim();
+    const icon = row?.icon;
+    if (
+        typeof icon === 'string' &&
+        icon.startsWith('https://') &&
+        icon.length <= APP_MESSAGE_ICON_MAX
+    ) {
+        sender.icon = icon;
+    }
+    return sender;
 };
 
 const FIELDS = new Set([
@@ -71,7 +96,12 @@ const FIELDS = new Set([
 
 const GROUP_PATTERN = /^[A-Za-z0-9._:-]+$/u;
 const CHANNEL_PATTERN = /^[a-z0-9-]+$/u;
-const CONTROL_OR_SPACE = /[\u0000- \u007f\\]/u;
+// Anything outside printable ASCII, or a backslash, in a target.
+const TARGET_DISALLOWED = /[^\u0021-\u007e]|\\/u;
+const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/iu;
+// Direction and zero-width formatting marks, and C0/C1 controls but newline.
+const INVISIBLE = /[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/gu;
+const CONTROL_BUT_NEWLINE = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu;
 
 const invalid = (field: string, message: string): HttpError =>
     new HttpError(400, `\`${field}\` ${message}`, {
@@ -108,21 +138,51 @@ const parseIcon = (input: Record<string, unknown>): string | undefined => {
     if (parsed.protocol !== 'https:') {
         throw invalid('icon', 'must be an https URL');
     }
-    return icon;
+    if (parsed.href.length > APP_MESSAGE_ICON_MAX) {
+        throw invalid(
+            'icon',
+            `may not exceed ${APP_MESSAGE_ICON_MAX} characters`,
+        );
+    }
+    return parsed.href;
 };
 
 const parseTarget = (input: Record<string, unknown>): string | undefined => {
     const target = optionalString(input, 'target', APP_MESSAGE_TARGET_MAX);
     if (target === undefined) return undefined;
+    const path = target.split(/[?#]/u, 1)[0];
     // `//host` and `/\host` both read as another origin to a browser.
     if (
         !target.startsWith('/') ||
         target.startsWith('//') ||
-        CONTROL_OR_SPACE.test(target)
+        TARGET_DISALLOWED.test(target) ||
+        path.split('/').some((segment) => DOT_SEGMENT.test(segment))
     ) {
         throw invalid('target', "must be a path within the app, like '/a/b'");
     }
     return target;
+};
+
+/** Drops invisible formatting marks and controls; newlines survive. */
+const cleanText = (value: string): string =>
+    value
+        .replace(/\r\n?/gu, '\n')
+        .replace(INVISIBLE, '')
+        .replace(CONTROL_BUT_NEWLINE, '');
+
+/** Text with nothing visible in it is left out rather than stored. */
+const parseText = (input: Record<string, unknown>): string | undefined => {
+    const raw = input.text;
+    if (raw === undefined) return undefined;
+    if (typeof raw !== 'string') throw invalid('text', 'must be a string');
+    const text = cleanText(raw);
+    if (charLength(text) > APP_MESSAGE_TEXT_MAX) {
+        throw invalid(
+            'text',
+            `may not exceed ${APP_MESSAGE_TEXT_MAX} characters`,
+        );
+    }
+    return text.trim() === '' ? undefined : text;
 };
 
 const parsePattern = (
@@ -157,11 +217,7 @@ const parseTtl = (input: Record<string, unknown>): number => {
     return ttl;
 };
 
-/**
- * Validate an app's message and return it as stored. Throws a 400 naming the
- * first field that fails; unknown fields fail too, so the format only grows on
- * purpose. Text is stored as given and escaped where it is shown.
- */
+/** The stored form of an app's message, or a 400 naming the first bad field. */
 export const parseAppMessage = (input: Record<string, unknown>): AppMessage => {
     for (const key of Object.keys(input)) {
         if (!FIELDS.has(key)) throw invalid(key, 'is not a known field');
@@ -171,7 +227,7 @@ export const parseAppMessage = (input: Record<string, unknown>): AppMessage => {
     if (typeof rawTitle !== 'string') {
         throw invalid('title', 'is required and must be a string');
     }
-    const title = rawTitle.trim();
+    const title = cleanText(rawTitle.replace(/[\t\n\r]+/gu, ' ')).trim();
     if (title === '') throw invalid('title', 'may not be empty');
     if (charLength(title) > APP_MESSAGE_TITLE_MAX) {
         throw invalid(
@@ -186,7 +242,7 @@ export const parseAppMessage = (input: Record<string, unknown>): AppMessage => {
         ttl: parseTtl(input),
     };
 
-    const text = optionalString(input, 'text', APP_MESSAGE_TEXT_MAX);
+    const text = parseText(input);
     if (text !== undefined) message.text = text;
     const icon = parseIcon(input);
     if (icon !== undefined) message.icon = icon;

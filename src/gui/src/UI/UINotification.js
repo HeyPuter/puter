@@ -28,6 +28,9 @@ function UINotification (options) {
     h += `<img style="${options.round_icon ? 'border-radius: 50%;' : ''}" src="${html_encode(options.icon ?? window.icons['bell.svg'])}">`;
     h += '</div>';
     h += '<div class="notification-content">';
+    if ( options.sender ) {
+        h += `<div class="notification-sender">${html_encode(options.sender)}</div>`;
+    }
     h += `<div class="notification-title">${html_encode(options.title)}</div>`;
     h += `<div class="notification-text">${html_encode(options.text)}</div>`;
     h += '</div>';

@@ -23,7 +23,10 @@ import {
     type UserActor,
 } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
+import {
+    checkRateLimit,
+    peekRateLimit,
+} from '../../core/http/middleware/rateLimit.js';
 import { resolveNotifFetch } from '../../services/events/notifFetch.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
@@ -32,6 +35,7 @@ import {
 import {
     APP_MESSAGE_RATE_LIMITS,
     APP_MESSAGE_TYPE,
+    appMessageSender,
     parseAppMessage,
 } from '../../services/notification/appMessage.js';
 import {
@@ -289,10 +293,7 @@ export class NotificationDriver extends PuterDriver {
         return { success: !!ok };
     }
 
-    /**
-     * An app's message to the user it acts for. The recipient and the app are
-     * the actor's, never the caller's to name.
-     */
+    /** An app's message to its own user; the actor names recipient and app. */
     async #createAppMessage(
         actor: UserActor,
         appUid: string,
@@ -320,6 +321,11 @@ export class NotificationDriver extends PuterDriver {
             });
         }
 
+        message.app = appMessageSender(
+            appUid,
+            await this.stores.app.getByUid(appUid),
+        );
+
         return this.#write(actor, message, {
             type: APP_MESSAGE_TYPE,
             appUid,
@@ -327,27 +333,29 @@ export class NotificationDriver extends PuterDriver {
         });
     }
 
-    /** Both windows, each in its own bucket per user and app. */
+    /** Both windows are read before either is spent, so a refusal costs none. */
     async #withinAppMessageLimits(
         userId: number,
         appUid: string,
     ): Promise<boolean> {
         const configured = this.config.notificationAppMessageLimits ?? {};
-        const windows: Array<[string, number, number]> = [
+        const all: Array<[string, number, number]> = [
             [
-                'minute',
-                configured.perMinute ?? APP_MESSAGE_RATE_LIMITS.perMinute,
-                MINUTE_MS,
-            ],
-            [
-                'day',
+                `notif:app-message:day:${userId}:${appUid}`,
                 configured.perDay ?? APP_MESSAGE_RATE_LIMITS.perDay,
                 DAY_MS,
             ],
+            [
+                `notif:app-message:minute:${userId}:${appUid}`,
+                configured.perMinute ?? APP_MESSAGE_RATE_LIMITS.perMinute,
+                MINUTE_MS,
+            ],
         ];
-        for (const [name, limit, windowMs] of windows) {
-            if (limit <= 0) continue;
-            const key = `notif:app-message:${name}:${userId}:${appUid}`;
+        const windows = all.filter(([, limit]) => limit > 0);
+        for (const [key, limit, windowMs] of windows) {
+            if (!(await peekRateLimit(key, limit, windowMs))) return false;
+        }
+        for (const [key, limit, windowMs] of windows) {
             if (!(await checkRateLimit(key, limit, windowMs))) return false;
         }
         return true;

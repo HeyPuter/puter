@@ -31,6 +31,7 @@ import {
     notificationTarget,
     planBurstToasts,
     reconcileWithServer,
+    senderNameFor,
     setReadAt,
     titleWithBadge,
     toEntry,
@@ -259,6 +260,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             <time class="dashboard-notification-time" datetime="${new Date(entry.createdAt).toISOString()}"
                 title="${html_encode(formatAbsoluteTime(entry.createdAt, window.locale))}">${html_encode(formatRelativeTime(entry.createdAt, Date.now(), window.locale))}</time>`;
         const title = titleFor(notification);
+        const sender = senderNameFor(notification);
         const unread = isUnread(entry);
         // Only an entry with somewhere to go is a control; the rest is text,
         // with the check to mark it read as its one action while unread.
@@ -274,6 +276,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
                 <${mainTag} class="dashboard-notification-main${actionable ? ' is-actionable' : ''}">
                     <span class="dashboard-notification-icon dashboard-notification-icon-${glyph}">${glyphFor(notification)}<span class="dashboard-notification-unread-dot" aria-hidden="true"></span></span>
                     <span class="dashboard-notification-content">
+                        ${sender ? `<span class="dashboard-notification-sender">${html_encode(sender)}</span>` : ''}
                         <span class="dashboard-notification-title">${unread ? `<span class="dashboard-notification-sr">${i18n('notification_unread')}: </span>` : ''}${html_encode(title)}</span>
                         ${text ? `<span class="dashboard-notification-text">${html_encode(text)}</span>` : ''}
                         ${time}
@@ -468,6 +471,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const { notification } = entry;
         UINotification({
             uid: entry.uid,
+            sender: senderNameFor(notification),
             title: titleFor(notification),
             text: textFor(notification),
             icon: toastIconFor(notification),

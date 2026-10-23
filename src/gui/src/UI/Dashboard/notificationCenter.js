@@ -245,6 +245,18 @@ export const glyphKey = (notification) => (
 );
 
 /**
+ * The sending app's name for an app message, shown above its title.
+ *
+ * @param {NotificationPayload} notification
+ * @returns {string|null}
+ */
+export const senderNameFor = (notification) => {
+    if ( notification?.type !== 'app.message' ) return null;
+    const name = notification.app?.name;
+    return typeof name === 'string' && name.trim() ? name : null;
+};
+
+/**
  * @typedef {{ kind: 'shared-item', path: string } | { kind: 'shared' } | null} NotificationTarget
  */
 

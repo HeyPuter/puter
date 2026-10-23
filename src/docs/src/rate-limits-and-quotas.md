@@ -399,9 +399,11 @@ An app, its workers and the tokens it issues can send the user they act for an `
 | `data`                           | 1 KiB, measured as JSON           |                   |
 | `group`                          | 64 characters                     |                   |
 | `channel`                        | 32 characters                     |                   |
-| `ttl`                            | 1 second to 1 day; default 1 hour |                   |
+| `ttl`                            | 1 second to 1 day, default 1 hour |                   |
 
-Over the rate limit the call fails with `429 too_many_requests`. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
+`ttl` is how long a push provider keeps trying to reach an offline device, not how long the notification is kept. `sensitive`, `target`, `group` and `channel` are used by push delivery and by clients that show the notification. Every message carries the name of the app that sent it.
+
+Over the rate limit the call fails with `429 too_many_requests`, and a refused call counts against neither window. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
 
 ### Teams
 

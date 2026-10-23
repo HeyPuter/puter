@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { parseAppMessage } from './appMessage.js';
+import { appMessageSender, parseAppMessage } from './appMessage.js';
 
 /** The 400 a field failing validation raises. */
 const rejects = (input: Record<string, unknown>, field: string) =>
@@ -76,6 +76,36 @@ describe('parseAppMessage', () => {
         rejects({ title: 't', text: 5 }, 'text');
     });
 
+    it('drops invisible formatting marks and controls from title and text', () => {
+        const marks = '\u202e\u2066\u200b\u200d\ufeff\u0007\u0085';
+        expect(
+            parseAppMessage({
+                title: `Pay${marks}ment\ndue`,
+                text: `line one${marks}\r\nline two\tend`,
+            }),
+        ).toMatchObject({
+            title: 'Payment due',
+            text: 'line one\nline twoend',
+        });
+    });
+
+    it('leaves out text with nothing visible in it', () => {
+        expect(
+            parseAppMessage({ title: 't', text: ' \n\u200b ' }),
+        ).not.toHaveProperty('text');
+    });
+
+    it('rejects a title made only of invisible marks', () => {
+        rejects({ title: '\u200b\u202e\u0000' }, 'title');
+    });
+
+    it('stores the icon as a normalized URL', () => {
+        expect(
+            parseAppMessage({ title: 't', icon: 'HTTPS://Example.COM/a b.png' })
+                .icon,
+        ).toBe('https://example.com/a%20b.png');
+    });
+
     it('takes only an https icon', () => {
         rejects({ title: 't', icon: 'http://example.com/a.png' }, 'icon');
         rejects({ title: 't', icon: 'data:image/png;base64,AAAA' }, 'icon');
@@ -93,6 +123,15 @@ describe('parseAppMessage', () => {
         rejects({ title: 't', target: '//example.com/' }, 'target');
         rejects({ title: 't', target: '/\\example.com/' }, 'target');
         rejects({ title: 't', target: '/a b' }, 'target');
+        rejects({ title: 't', target: '/a/../b' }, 'target');
+        rejects({ title: 't', target: '/a/./b' }, 'target');
+        rejects({ title: 't', target: '/a/%2e%2E/b' }, 'target');
+        rejects({ title: 't', target: '/..' }, 'target');
+        rejects({ title: 't', target: '/caf\u00e9' }, 'target');
+        expect(
+            parseAppMessage({ title: 't', target: '/a/..b/c?x=../y#..' })
+                .target,
+        ).toBe('/a/..b/c?x=../y#..');
         rejects({ title: 't', target: `/${'x'.repeat(512)}` }, 'target');
     });
 
@@ -141,5 +180,36 @@ describe('parseAppMessage', () => {
 
     it('rejects a field the format does not have', () => {
         rejects({ title: 't', body: 'x' }, 'body');
+        rejects({ title: 't', app: { uid: 'a', name: 'Other' } }, 'app');
+    });
+});
+
+describe('appMessageSender', () => {
+    it('names the app by its title, else its name, and keeps an https icon', () => {
+        expect(
+            appMessageSender('app-1', {
+                name: 'chat',
+                title: 'Chat',
+                icon: 'https://example.com/i.png',
+            }),
+        ).toEqual({
+            uid: 'app-1',
+            name: 'Chat',
+            icon: 'https://example.com/i.png',
+        });
+        expect(appMessageSender('app-1', { name: 'chat', title: '' })).toEqual({
+            uid: 'app-1',
+            name: 'chat',
+        });
+    });
+
+    it('leaves out an icon that is not an https URL', () => {
+        expect(
+            appMessageSender('app-1', {
+                name: 'chat',
+                icon: 'data:image/png;base64,AAAA',
+            }),
+        ).toEqual({ uid: 'app-1', name: 'chat' });
+        expect(appMessageSender('app-1', null)).toEqual({ uid: 'app-1' });
     });
 });
