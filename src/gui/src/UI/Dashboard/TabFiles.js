@@ -2039,6 +2039,19 @@ const TabFiles = {
     },
 
     /**
+     * Where a header button's menu opens: at the pointer, or below the button
+     * when it was pressed from the keyboard, whose click has no coordinates.
+     *
+     * @param {MouseEvent} e - The button's click
+     * @returns {{ left?: number, right?: number, top: number }}
+     */
+    toolbarMenuPosition (e) {
+        if ( e.detail > 0 ) return { left: e.pageX, top: e.pageY };
+        const rect = e.currentTarget.getBoundingClientRect();
+        return { right: rect.right, top: rect.bottom + 3 };
+    },
+
+    /**
      * Displays the sort options context menu.
      *
      * @param {MouseEvent} e - The click event from the sort button
@@ -2068,7 +2081,7 @@ const TabFiles = {
 
         UIContextMenu({
             items: items,
-            position: { left: e.pageX, top: e.pageY },
+            position: this.toolbarMenuPosition(e),
         });
     },
 
@@ -4030,7 +4043,7 @@ const TabFiles = {
 
         UIContextMenu({
             items: items,
-            position: { left: e.pageX, top: e.pageY },
+            position: this.toolbarMenuPosition(e),
         });
     },
 
