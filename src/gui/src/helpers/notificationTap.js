@@ -132,6 +132,10 @@ export const elementsWithData = (elements, key, value) => (
     typeof value === 'string' ? elements.filter((el) => el?.dataset?.[key] === value) : []
 );
 
+const sendToWindow = (el_window, name, data) => (
+    globalThis.services?.get('broadcast')?.sendBroadcastToWindow(el_window, name, data)
+);
+
 const runningInstance = (appUid) => {
     const windows = elementsWithData($('.window-app').get(), 'app_uuid', appUid);
     if ( ! windows.length ) return null;
@@ -143,25 +147,49 @@ const runningInstance = (appUid) => {
             if ( minimized === '1' || minimized === 'true' ) $win.showWindow();
             else $win.focusWindow();
         },
-        send: (name, data) => globalThis.services?.get('broadcast')?.sendBroadcastToWindow(el_window, name, data),
+        el_window,
     };
 };
 
 /**
+ * @param {Object} [args] - Launch args from a link or another app
+ * @returns {Object} The same args without a `notificationClick` key
+ */
+export const withoutNotificationClick = (args) => {
+    if ( ! args || typeof args !== 'object' || ! Object.hasOwn(args, NOTIFICATION_CLICK) ) return args;
+    const { [NOTIFICATION_CLICK]: _dropped, ...rest } = args;
+    return rest;
+};
+
+/**
  * @param {{ appUid: string, click: NotificationClick }} route
- * @param {{ getApp: Function, launch: Function, running?: Function }} deps
+ * @param {{ getApp: Function, launch: Function, running?: Function, send?: Function }} deps
  * @returns {Promise<'broadcast'|'launched'|'missing'>}
  */
-export const openAppForTap = async ({ appUid, click }, { getApp, launch, running = runningInstance }) => {
+export const openAppForTap = async ({ appUid, click }, {
+    getApp,
+    launch,
+    running = runningInstance,
+    send = sendToWindow,
+}) => {
     const instance = running(appUid);
     if ( instance ) {
         instance.reveal();
-        instance.send(NOTIFICATION_CLICK, click);
+        send(instance.el_window, NOTIFICATION_CLICK, click);
         return 'broadcast';
     }
     const app = await getApp(appUid, { icon_size: 64 });
     if ( ! app?.name ) return 'missing';
-    await launch({ name: app.name, app_obj: app, args: { [NOTIFICATION_CLICK]: click } });
+    let sent = false;
+    await launch({
+        name: app.name,
+        app_obj: app,
+        on_ready: (process) => {
+            if ( sent ) return;
+            sent = true;
+            send(process.references?.el_win, NOTIFICATION_CLICK, click);
+        },
+    });
     return 'launched';
 };
 

@@ -26,6 +26,7 @@ import {
     pushTapFromParams,
     storedTapItem,
     tapRoute,
+    withoutNotificationClick,
 } from './notificationTap.js';
 
 const UID = '0b6a2c1e-6f1d-4a57-9c1e-3d2f8a9b7c10';
@@ -143,27 +144,40 @@ describe('openAppForTap', () => {
     const click = { uid: 'n1', target: '/rooms/7', data: { room: 7 } };
 
     it('brings a running instance forward and broadcasts notificationClick to it', async () => {
-        const instance = { reveal: vi.fn(), send: vi.fn() };
+        const instance = { reveal: vi.fn(), el_window: { id: 'win' } };
         const launch = vi.fn();
+        const send = vi.fn();
         const outcome = await openAppForTap({ appUid: 'app-1', click }, {
             running: () => instance,
             getApp: vi.fn(),
             launch,
+            send,
         });
         expect(outcome).toBe('broadcast');
         expect(instance.reveal).toHaveBeenCalledOnce();
-        expect(instance.send).toHaveBeenCalledWith('notificationClick', click);
+        expect(send).toHaveBeenCalledWith(instance.el_window, 'notificationClick', click);
         expect(launch).not.toHaveBeenCalled();
     });
 
-    it('launches the app with the tap as puter.args.notificationClick', async () => {
+    it('launches without args and broadcasts the tap once the app is ready', async () => {
         const app = { uid: 'app-1', name: 'chat' };
         const getApp = vi.fn(async () => app);
-        const launch = vi.fn(async () => {});
-        const outcome = await openAppForTap({ appUid: 'app-1', click }, { running: () => null, getApp, launch });
+        const send = vi.fn();
+        let options;
+        const launch = vi.fn(async (opts) => {
+            options = opts;
+        });
+        const outcome = await openAppForTap({ appUid: 'app-1', click }, { running: () => null, getApp, launch, send });
         expect(outcome).toBe('launched');
         expect(getApp).toHaveBeenCalledWith('app-1', { icon_size: 64 });
-        expect(launch).toHaveBeenCalledWith({ name: 'chat', app_obj: app, args: { notificationClick: click } });
+        expect(options).toMatchObject({ name: 'chat', app_obj: app });
+        expect(options).not.toHaveProperty('args');
+        expect(send).not.toHaveBeenCalled();
+
+        const el_win = { id: 'new-win' };
+        options.on_ready({ references: { el_win } });
+        options.on_ready({ references: { el_win } });
+        expect(send.mock.calls).toEqual([[el_win, 'notificationClick', click]]);
     });
 
     it('does nothing for an app that no longer exists', async () => {
@@ -172,9 +186,23 @@ describe('openAppForTap', () => {
             running: () => null,
             getApp: async () => null,
             launch,
+            send: vi.fn(),
         });
         expect(outcome).toBe('missing');
         expect(launch).not.toHaveBeenCalled();
+    });
+});
+
+describe('withoutNotificationClick', () => {
+    it('drops a notificationClick key from launch args and keeps the rest', () => {
+        expect(withoutNotificationClick({ notificationClick: { uid: 'n1' }, path: '/a' })).toEqual({ path: '/a' });
+    });
+
+    it('returns args without the key, and empty args, unchanged', () => {
+        const args = { path: '/a' };
+        expect(withoutNotificationClick(args)).toBe(args);
+        expect(withoutNotificationClick(undefined)).toBeUndefined();
+        expect(withoutNotificationClick(null)).toBeNull();
     });
 });
 
