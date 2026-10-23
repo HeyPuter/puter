@@ -7,12 +7,12 @@ export const SUBJECT = 'notif:app-user';
 const PAGE_SIZE = 200;
 // Retention bounds a read; this only ends a cursor that never runs out.
 const MAX_PAGES = 100_000;
-// Reads restart at the last cursor, so only the newest uids can come again.
+// A read restarts at the last cursor: only its last page and later can repeat.
 const REMEMBERED = 5000;
 
-const remember = (set, uid) => {
+const remember = (set, uid, keep) => {
     set.add(uid);
-    if (set.size > REMEMBERED) set.delete(set.values().next().value);
+    if (set.size > keep) set.delete(set.values().next().value);
 };
 
 const toSeconds = (ms) => Math.floor(ms / 1000);
@@ -62,6 +62,10 @@ export class NotificationFeed {
     /** @type {{ off: () => Promise<void> } | null} */
     #subscription = null;
     #stopped = false;
+    #liveSinceRead = 0;
+    /** @type {Error | null} */
+    #startError = null;
+    #starting = false;
     /** @type {(() => unknown) | null} */
     #stopWatchingAuth = null;
 
@@ -76,6 +80,16 @@ export class NotificationFeed {
 
     /** @returns {Promise<void>} */
     async start() {
+        this.#starting = true;
+        try {
+            await this.#open();
+        } finally {
+            this.#starting = false;
+        }
+    }
+
+    // A stop while starting rejects `start()` instead of calling `onError`.
+    async #open() {
         try {
             this.#subscription = await this.#puter.events.onLocal(
                 SUBJECT,
@@ -85,6 +99,7 @@ export class NotificationFeed {
         } catch (error) {
             throw unavailable(error);
         }
+        if (this.#startError) throw this.#startError;
 
         const token = this.#puter.authToken;
         this.#stopWatchingAuth =
@@ -102,8 +117,9 @@ export class NotificationFeed {
             await this.#read(this.#catchUp ? 'fetched' : 'baseline');
         } catch (error) {
             await this.off();
-            throw unavailable(error);
+            throw this.#startError ?? unavailable(error);
         }
+        if (this.#startError) throw this.#startError;
     }
 
     /** @returns {Promise<void>} */
@@ -170,6 +186,7 @@ export class NotificationFeed {
                         ),
                     );
                 }
+                this.#liveSinceRead = 0;
                 ok = true;
             } finally {
                 this.#reading = null;
@@ -192,7 +209,7 @@ export class NotificationFeed {
         if (!notification) return;
         const { uid } = notification;
         if (source === 'baseline') {
-            remember(this.#baseline, uid);
+            remember(this.#baseline, uid, REMEMBERED);
             return;
         }
         if (this.#seen.has(uid)) return;
@@ -204,7 +221,12 @@ export class NotificationFeed {
             )
                 return;
         }
-        remember(this.#seen, uid);
+        if (source === 'live') this.#liveSinceRead++;
+        remember(
+            this.#seen,
+            uid,
+            Math.max(REMEMBERED, PAGE_SIZE + this.#liveSinceRead),
+        );
         try {
             const result = this.#handler(notification);
             if (result instanceof Promise) result.catch(report);
@@ -217,6 +239,10 @@ export class NotificationFeed {
     #halt(error) {
         if (this.#stopped) return;
         void this.off();
+        if (this.#starting) {
+            this.#startError = error;
+            return;
+        }
         this.#fail(error);
     }
 

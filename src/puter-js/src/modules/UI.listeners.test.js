@@ -232,6 +232,7 @@ describe('host replies (env: app)', () => {
             origin: 'https://puter.com',
             data: { ...click, data: { uid: 'n-2' } },
         });
+        await new Promise((resolve) => setTimeout(resolve, 0));
 
         expect(first.mock.calls).toEqual([
             [{ uid: 'n-1', target: '/a', data: null }],
@@ -253,6 +254,7 @@ describe('host replies (env: app)', () => {
             data: { msg: 'broadcast', name: 'notificationClick', data: { uid: 'n-1' } },
         });
 
+        await new Promise((resolve) => setTimeout(resolve, 0));
         expect(onClick).not.toHaveBeenCalled();
     });
 

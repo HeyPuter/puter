@@ -62,11 +62,17 @@ export class NotificationsModule extends EventListener {
         const result = super.on(eventName, handler);
         if (result && eventName === 'click' && !this.#listening) {
             this.#listening = true;
-            // `puter.ui` replays its last broadcast to this one subscription.
+            let replaying = true;
+            // `puter.ui` replays its last broadcast here, before `on()` returns.
             this.puter.ui?.on?.(CLICK_BROADCAST, (data) => {
                 const click = toClick(data);
-                if (click) this.emit('click', click);
+                if (!click) return;
+                const first = replaying ? handler : null;
+                queueMicrotask(() =>
+                    first ? first(click) : this.emit('click', click),
+                );
             });
+            replaying = false;
         }
         return result;
     }

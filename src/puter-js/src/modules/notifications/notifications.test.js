@@ -211,7 +211,7 @@ describe('notify', () => {
 });
 
 describe("on('click')", () => {
-    it('delivers the desktop broadcast as { uid, target, data }', () => {
+    it('delivers the desktop broadcast as { uid, target, data }', async () => {
         const notifications = makeModule();
         const clicks = [];
         notifications.on('click', (click) => clicks.push(click));
@@ -223,6 +223,7 @@ describe("on('click')", () => {
             extra: 'dropped',
         });
         notifications.puter.ui.broadcast('notificationClick', { uid: 'n-2' });
+        await flush();
 
         expect(clicks).toEqual([
             { uid: 'n-1', target: '/a', data: { id: 1 } },
@@ -252,7 +253,7 @@ describe("on('click')", () => {
         expect(clicks).toEqual([]);
     });
 
-    it('delivers a click that came before the first handler, once', () => {
+    it('delivers a click that came before the first handler, once', async () => {
         const notifications = makeModule();
         notifications.puter.ui.broadcast('notificationClick', {
             uid: 'n-9',
@@ -264,10 +265,23 @@ describe("on('click')", () => {
 
         notifications.on('click', (click) => first.push(click));
         notifications.on('click', (click) => second.push(click));
+        await flush();
 
         expect(first).toEqual([{ uid: 'n-9', target: '/x', data: [1] }]);
         expect(second).toEqual([]);
         expect(notifications.puter.ui.on).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs a replayed click after on() returns', async () => {
+        const notifications = makeModule();
+        notifications.puter.ui.broadcast('notificationClick', { uid: 'n-9' });
+        const order = [];
+
+        notifications.on('click', () => order.push('handler'));
+        order.push('returned');
+        await flush();
+
+        expect(order).toEqual(['returned', 'handler']);
     });
 
     it('does not listen to the desktop before a click handler is added', () => {
@@ -553,6 +567,44 @@ describe('onNotification', () => {
         expect(onError.mock.calls[0][0].code).toBe('auth_changed');
         expect(events.state.offs).toBe(1);
         expect(seen).toEqual([]);
+    });
+
+    it('rejects without onError when the token changes while starting', async () => {
+        let release;
+        const gate = new Promise((resolve) => {
+            release = resolve;
+        });
+        const events = makeEvents();
+        events.fetch = vi.fn(async () => {
+            await gate;
+            throw new PuterJSError('down', 'events_failed');
+        });
+        const notifications = makeModule({ events });
+        const onError = vi.fn();
+
+        const started = notifications.onNotification(() => {}, { onError });
+        await flush();
+        notifications.puter.setAuthToken('token-2');
+        release();
+        const error = await rejects(() => started);
+
+        expect(error.code).toBe('auth_changed');
+        expect(onError).not.toHaveBeenCalled();
+        expect(events.state.offs).toBe(1);
+    });
+
+    it('remembers every live uid since the last read', async () => {
+        const events = makeEvents();
+        const notifications = makeModule({ events });
+        const seen = [];
+        await notifications.onNotification((n) => seen.push(n.uid));
+
+        for (let i = 0; i < 5300; i++) events.state.push(event(`n-${i}`));
+        events.fetch = vi.fn(async () => ({ items: [event('n-0')] }));
+        events.state.push({ op: 'gap', reason: 'reconnect' });
+        await flush();
+
+        expect(seen).toHaveLength(5300);
     });
 
     it('stops watching the token after off()', async () => {
