@@ -3819,12 +3819,6 @@ body.myapps-reordering .myapps-tile {
     body.myapps-reordering .myapps-tile.myapps-tile-merge-armed .myapps-tile-icon {
         transition: none;
     }
-
-    .dashboard-sidebar,
-    .dashboard-sidebar-scrim,
-    .dashboard-sidebar-toggle {
-        transition: none;
-    }
 }
 
 /* Dashboard files */
@@ -5339,6 +5333,16 @@ body.myapps-reordering .myapps-tile {
 
     .myapps-group-page {
         row-gap: 18px;
+    }
+}
+
+/* After the drawer rules above, which it has to override. */
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-sidebar,
+    .dashboard-sidebar.open,
+    .dashboard-sidebar-scrim,
+    .dashboard-sidebar-toggle {
+        transition: none;
     }
 }
 
