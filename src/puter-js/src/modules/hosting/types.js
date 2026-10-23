@@ -19,8 +19,8 @@
  * @property {string} name Record name (host).
  * @property {string} value Record value.
  * @property {'routing' | 'ownership' | 'certificate'} purpose What the record is for.
- * @property {boolean} required `true` for the record traffic needs; the others only
- * speed verification up.
+ * @property {boolean} required `true` for records the user has to set (routing and
+ * ownership); certificate records only speed issuance up.
  */
 
 /**
