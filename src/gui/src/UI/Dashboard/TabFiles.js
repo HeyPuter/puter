@@ -295,7 +295,12 @@ const TabFiles = {
         // Preference reads are best-effort (the tab renders with the defaults
         // rather than not at all) and independent of each other, so they go
         // out together: awaited one by one they cost four round-trips before
-        // the first listing could even start.
+        // the first listing could even start. A back/forward navigation can
+        // render a folder while they are out, so the defaults go in first.
+        this.currentView = 'list';
+        this.sortColumn = 'name';
+        this.sortDirection = 'asc';
+        this.columnWidths = { name: null, size: 100, modified: 120 };
         const [savedView, savedSortColumn, savedSortDirection, savedWidths] = await Promise.all([
             puter.kv.get('view_mode').catch(() => null),
             puter.kv.get('sort_column').catch(() => null),
@@ -311,11 +316,6 @@ const TabFiles = {
 
         // Column widths state (for resizing). A corrupt saved value falls back
         // to the defaults instead of taking the whole tab down with it.
-        this.columnWidths = {
-            name: null, // auto/flex
-            size: 100,
-            modified: 120,
-        };
         try {
             const parsedWidths = savedWidths ? JSON.parse(savedWidths) : null;
             if ( parsedWidths && typeof parsedWidths === 'object' ) {
@@ -726,7 +726,7 @@ const TabFiles = {
             // while open: Enter/Space must reach its buttons, arrows its
             // selects, and typing must not retarget row selection — nor may
             // Enter/Delete open or trash the rows behind the overlay.
-            if ( $('.share-modal-overlay, .item-props-overlay, .dashboard-notifications-panel.open').length > 0 ) return;
+            if ( $('.share-modal-overlay, .item-props-overlay, .dashboard-notifications-panel.open, .context-menu-modal-backdrop').length > 0 ) return;
 
             const focused_el = document.activeElement;
 
@@ -2481,7 +2481,7 @@ const TabFiles = {
 
             $(dirnameElement).on('contextmenu taphold', async (e) => {
                 // Dismiss taphold on non-touch devices
-                if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet ) {
+                if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet && !isTouchPrimaryDevice() ) {
                     return;
                 }
                 e.preventDefault();
@@ -4718,7 +4718,7 @@ const TabFiles = {
             selectionContainerClass: 'selection-area-container',
             selectionAreaClass: 'hidden-selection-area',
             container: `#${containerId}`,
-            selectables: [`#${containerId} .row`],
+            selectables: [`#${containerId} .row.item`],
             startareas: [`#${containerId}`],
             boundaries: [`#${containerId}`],
             behaviour: {
