@@ -289,7 +289,7 @@ Available when using a MiniMax model (provider `'minimax-video-generation'`). Th
 | `minimax-hailuo-2.3-fast` | 6 or 10 | `768p`, `1080p` (6 seconds only) | No | No | No |
 | `minimax-hailuo-02` | 6 or 10 | `768p`, `1080p` (6 seconds only), `512p` (with `input_reference` only) | No | Yes | No |
 
-The first resolution listed is the default. "Images in total" counts `input_reference`, `last_frame` and `reference_images` together.
+The first resolution listed is the default. "Images in total" counts `input_reference`, `last_frame` and `reference_images` together. Hailuo 2.3 Fast requires an `input_reference` image. Hailuo 02 supports `512p` with a first frame alone. First and last frames together require `768p` or `1080p`.
 
 | Model | Price |
 |-------|-------|
@@ -308,8 +308,8 @@ The first resolution listed is the default. "Images in total" counts `input_refe
 | `seconds` | `Number` | Clip length, from the table above. Any other value falls back to the default. On the Hailuo models, 10 seconds at `1080p` falls back to 6 |
 | `size` | `String` | Resolution tier from the table above (case-insensitive), or `'WIDTHxHEIGHT'`. `resolution` is an alias |
 | `width`, `height` | `Number` | Optional. Only their ratio is used, to pick the aspect ratio of an H3 clip made from text or `reference_images`: `21:9`, `16:9`, `4:3`, `1:1`, `3:4` or `9:16`. Any other ratio gives `16:9`. A clip from `input_reference` or `last_frame` takes the image's shape. The Hailuo models ignore them |
-| `input_reference` | `String \| Blob` | Image used as the first frame, in any [image input](#image-inputs) format. JPEG, PNG or WebP, at least 256 pixels per side on the H3 models and more than 300 pixels on the short side on the Hailuo models |
-| `last_frame` | `String \| Blob` | Image used as the last frame, same formats. Requires `input_reference` on Hailuo 02. The H3 models also take it alone |
+| `input_reference` | `String \| Blob` | Image used as the first frame, in any [image input](#image-inputs) format. Required on Hailuo 2.3 Fast. JPEG, PNG or WebP, at least 256 pixels per side on the H3 models and more than 300 pixels on the short side on the Hailuo models |
+| `last_frame` | `String \| Blob` | Image used as the last frame, same formats. Requires `input_reference` and `768p` or `1080p` on Hailuo 02. The H3 models also take it alone |
 | `reference_images` | `Array<String \| Blob>` | Images the model uses as subject, style or scene references, same formats, on the H3 models. Cannot be combined with `input_reference` or `last_frame` |
 
 An option the model lacks, or a combination it doesn't support, is rejected with `bad_request` before any credits are spent. MiniMax returns a hosted URL that is temporary, so pass `puter_output_path` to keep a clip. A Hailuo link works for one hour.

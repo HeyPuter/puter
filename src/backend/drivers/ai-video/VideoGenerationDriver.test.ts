@@ -1001,6 +1001,49 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
 // ── Size unification ───────────────────────────────────────────────
 
 describe('VideoGenerationDriver.generate size unification', () => {
+    it.each(['912x512', '512x912'])(
+        'selects and bills Hailuo 02 at 512p for %s',
+        async (size) => {
+            const fetchSpy = vi.spyOn(globalThis, 'fetch');
+            const incrementUsageSpy = vi.spyOn(
+                server.services.metering,
+                'incrementUsage',
+            );
+            fetchSpy.mockResolvedValueOnce(
+                new Response(JSON.stringify({ task_id: 'mm-task' })),
+            );
+            fetchSpy.mockResolvedValueOnce(
+                new Response(JSON.stringify({
+                    status: 'Success',
+                    file_id: 'file-1',
+                })),
+            );
+            fetchSpy.mockResolvedValueOnce(
+                new Response(JSON.stringify({
+                    file: { download_url: 'https://minimax/out.mp4' },
+                })),
+            );
+
+            await withActor(() => driver.generate({
+                prompt: 'a ball rolls',
+                model: 'minimax-hailuo-02',
+                size,
+                input_reference: 'https://example.com/first.png',
+            } as never));
+
+            const body = JSON.parse(
+                fetchSpy.mock.calls[0]![1]!.body as string,
+            );
+            expect(body.resolution).toBe('512P');
+            expect(incrementUsageSpy).toHaveBeenCalledWith(
+                SYSTEM_ACTOR,
+                'minimax-video-generation:minimax-hailuo-02:per-video:512p:6',
+                1,
+                10 * 1_000_000,
+            );
+        },
+    );
+
     it('maps a WIDTHxHEIGHT size onto a tier plus aspect ratio for tier-based models', async () => {
         completeTogetherJob();
 

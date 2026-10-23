@@ -35,6 +35,7 @@ export interface MiniMaxVideoSpec {
     maxImages: number;
     /** Whether `reference_images` are taken (H3 reference-to-video). */
     references: boolean;
+    firstFrameRequired?: boolean;
     lastFrame: boolean;
     /** Resolutions MiniMax renders only from a first frame. */
     imageOnlyResolutions?: string[];
@@ -217,6 +218,7 @@ export const MINIMAX_VIDEO_SPECS: Record<string, MiniMaxVideoSpec> = {
         api: 'v1',
         maxImages: 1,
         references: false,
+        firstFrameRequired: true,
         lastFrame: false,
         maxPromptChars: 2000,
     },

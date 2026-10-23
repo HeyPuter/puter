@@ -529,6 +529,9 @@ export class MiniMaxVideoProvider extends VideoProvider {
         },
     ) {
         const { firstFrame, endFrame, references } = inputs;
+        if (spec.firstFrameRequired && !firstFrame) {
+            throw badRequest(`${model.id} requires an input_reference image`);
+        }
         if (endFrame && !spec.lastFrame) {
             throw badRequest(`${model.id} does not support last_frame`);
         }
@@ -556,9 +559,12 @@ export class MiniMaxVideoProvider extends VideoProvider {
                 `${model.id} takes at most ${spec.maxImages} image(s), frames and references together`,
             );
         }
-        if (spec.imageOnlyResolutions?.includes(resolutionKey) && !firstFrame) {
+        if (
+            spec.imageOnlyResolutions?.includes(resolutionKey) &&
+            (!firstFrame || endFrame)
+        ) {
             throw badRequest(
-                `${model.id} renders ${resolutionKey} only from an input_reference image`,
+                `${model.id} renders ${resolutionKey} only from an input_reference image without last_frame`,
             );
         }
     }

@@ -384,19 +384,21 @@ describe('MiniMaxVideoProvider.generate Hailuo request shape', () => {
             model: 'minimax-hailuo-2.3-fast',
             seconds: 10,
             size: '1080p',
+            input_reference: 'https://example.com/first.png',
         });
         expect(sentBody()).toMatchObject({
             model: 'MiniMax-Hailuo-2.3-Fast',
             duration: 6,
             resolution: '1080P',
+            first_frame_image: 'https://example.com/first.png',
         });
     });
 
-    it('sends frames as first_frame_image and last_frame_image', async () => {
+    it.each(['768p', '1080p'])('sends first and last frames at %s', async (size) => {
         mockHailuoFlow(hailuoTask('Success'));
         await generate({
             model: 'minimax-hailuo-02',
-            size: '512p',
+            size,
             input_reference: 'DDDD',
             last_frame: 'https://example.com/last.png',
         });
@@ -404,7 +406,7 @@ describe('MiniMaxVideoProvider.generate Hailuo request shape', () => {
             model: 'MiniMax-Hailuo-02',
             prompt: 'a ball rolls',
             duration: 6,
-            resolution: '512P',
+            resolution: size.toUpperCase(),
             first_frame_image: 'data:image/png;base64,DDDD',
             last_frame_image: 'https://example.com/last.png',
         });
@@ -477,6 +479,19 @@ describe('MiniMaxVideoProvider.generate rejects invalid input before calling Min
             { model: 'minimax-hailuo-02', size: '512p' },
         ],
         [
+            'a missing first frame on Hailuo 2.3 Fast',
+            { model: 'minimax-hailuo-2.3-fast' },
+        ],
+        [
+            '512p with first and last frames on Hailuo 02',
+            {
+                model: 'minimax-hailuo-02',
+                size: '512p',
+                input_reference: 'https://example.com/first.png',
+                last_frame: 'https://example.com/last.png',
+            },
+        ],
+        [
             'a non-string image',
             { model: 'minimax-h3', input_reference: 42 as never },
         ],
@@ -485,11 +500,17 @@ describe('MiniMaxVideoProvider.generate rejects invalid input before calling Min
             { model: 'minimax-h3', reference_images: 'x' as never },
         ],
     ])('rejects %s', async (_label, params) => {
+        fetchSpy.mockRejectedValue(new Error('Unexpected MiniMax request'));
+        const reserveCreditsSpy = vi.spyOn(
+            server.services.metering,
+            'reserveCredits',
+        );
         await expect(generate(params)).rejects.toMatchObject({
             statusCode: 400,
             legacyCode: 'bad_request',
         });
         expect(fetchSpy).not.toHaveBeenCalled();
+        expect(reserveCreditsSpy).not.toHaveBeenCalled();
     });
 
     it('accepts a 7000-character prompt on H3', async () => {

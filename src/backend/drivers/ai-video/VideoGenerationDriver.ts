@@ -66,14 +66,15 @@ const parsePixelSize = (
 };
 
 /** Resolution tier of the shorter side, e.g. 1920x1080 and 1080x1920 → 1080p. */
-const tierForPixels = ({
-    width,
-    height,
-}: {
-    width: number;
-    height: number;
-}) => {
+const tierForPixels = (
+    { width, height }: { width: number; height: number },
+    dimensions: readonly string[],
+) => {
     const shortSide = Math.min(width, height);
+    const exactTier = dimensions.find(
+        (tier) => tier.toLowerCase() === `${shortSide}p`,
+    );
+    if (exactTier) return exactTier;
     if (shortSide <= 480) return '480p';
     if (shortSide <= 720) return '720p';
     if (shortSide <= 1080) return '1080p';
@@ -297,7 +298,7 @@ export class VideoGenerationDriver extends PuterDriver {
             const catalogIsTiers = model.dimensions.every(isResolutionTier);
             const wanted =
                 catalogIsTiers && requestedPixels
-                    ? tierForPixels(requestedPixels)
+                    ? tierForPixels(requestedPixels, model.dimensions)
                     : requestedResolution;
 
             // Case-insensitive so '4K' matches a catalog entry spelled '4k';
