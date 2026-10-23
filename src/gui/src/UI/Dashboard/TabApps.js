@@ -397,6 +397,27 @@ function buildPagerHtml (items, layout, instant) {
     return h;
 }
 
+// The tab's modals are aria-modal: Tab cycles inside the card rather than
+// walking off into the search box and tiles behind the scrim.
+function trapModalTab ($overlay) {
+    $overlay.on('keydown', function (e) {
+        if ( e.key !== 'Tab' ) return;
+        const focusables = $overlay.find('button, textarea').toArray()
+            .filter(el => ! el.disabled && el.offsetParent !== null);
+        if ( focusables.length === 0 ) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const idx = focusables.indexOf(document.activeElement);
+        if ( e.shiftKey && idx <= 0 ) {
+            e.preventDefault();
+            last.focus();
+        } else if ( ! e.shiftKey && (idx === -1 || idx === focusables.length - 1) ) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
+}
+
 function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
     const displayName = (appTitle || appName || '').trim();
     const $overlay = $(`
@@ -416,6 +437,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
     // tile when the user backs out (on confirm the tile is leaving).
     $el_window.append($overlay);
     $overlay.find('.myapps-modal-cancel')[0].focus({ preventScroll: true });
+    trapModalTab($overlay);
 
     const close = ({ restoreFocus = true } = {}) => {
         $overlay.remove();
@@ -482,8 +504,16 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
                     firstRects.set(tileIdentity(el), el.getBoundingClientRect());
                 }
             }
+            const slot = $el_window.find('.myapps-page .myapps-tile').toArray()
+                .findIndex(el => el.dataset.appName === appName);
             self._apps.splice(idx, 1);
             self.renderApps($el_window, { preservePage: true, instant: true });
+            // The confirm button left with the modal; keep a keyboard user on
+            // the grid, at the slot the app vacated.
+            if ( slot !== -1 && (! document.activeElement || document.activeElement === document.body) ) {
+                const tiles = $el_window.find('.myapps-page .myapps-tile').toArray();
+                tiles[Math.min(slot, tiles.length - 1)]?.focus({ preventScroll: true });
+            }
             // FLIP the survivors from their old boxes into the new layout.
             const moved = [];
             for ( const el of $el_window.find('.myapps-tile').toArray() ) {
@@ -652,9 +682,12 @@ function showAddAppModal ({ $el_window }) {
     const $overlay = $(h);
     $el_window.append($overlay);
 
+    trapModalTab($overlay);
+
     const close = () => {
         $overlay.remove();
         $(document).off('keydown.add-app-modal');
+        $el_window.find('.myapps-add-tile')[0]?.focus({ preventScroll: true });
     };
 
     const currentPane = () => $overlay.find('.myapps-add-pane:not([hidden])').attr('data-pane');
