@@ -4553,15 +4553,20 @@ const TabFiles = {
                 const wrapWithDashboardRename = (originalOnClick) => {
                     return async () => {
                         $('.context-menu').remove();
-                        _this._creatingItem++;
 
                         // Temporarily intercept create_file to capture the upload promise
                         let uploadPromise = null;
                         const origCreateFile = window.create_file;
                         window.create_file = (options) => {
+                            // Counted from here, not from the click: Web Link
+                            // waits on a prompt first, and other items added
+                            // to the folder meanwhile must still show up.
+                            _this._creatingItem++;
                             const content = options.content ? [options.content] : [];
                             uploadPromise = puter.fs.upload(new File(content, options.name), options.dirname);
-                            return uploadPromise;
+                            // A failure is reported once, below, not again by
+                            // a caller that awaits this.
+                            return uploadPromise.catch(() => undefined);
                         };
 
                         try {
@@ -4598,10 +4603,10 @@ const TabFiles = {
                                 }
                             }
                         } catch ( err ) {
-                            // File creation failed silently
+                            UIAlert(err?.message ?? String(err));
                         } finally {
                             window.create_file = origCreateFile;
-                            _this._creatingItem--;
+                            if ( uploadPromise ) _this._creatingItem--;
                         }
                     };
                 };
