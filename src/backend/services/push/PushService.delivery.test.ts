@@ -810,10 +810,12 @@ describe('PushService with three app pushes a minute', () => {
 
     it('pushes three app messages and skips the fourth', async () => {
         const { user, app } = await appPushReady(state.server);
-        for (let i = 0; i < 4; i++) {
+        for (let i = 1; i <= 3; i++) {
             await appMessage(state.server, user.id, app.uid);
-            await settle();
+            await vi.waitFor(() => expect(provider.calls).toHaveLength(i));
         }
+        await appMessage(state.server, user.id, app.uid);
+        await settle();
         expect(provider.calls).toHaveLength(3);
     });
 });
@@ -827,10 +829,12 @@ describe('PushService app push limit over time', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         vi.useFakeTimers({ toFake: ['Date'] });
         try {
-            for (let i = 0; i < 3; i++) {
-                await appMessage(state.server, user.id, app.uid);
-                await settle();
-            }
+            await appMessage(state.server, user.id, app.uid);
+            await vi.waitFor(() => expect(provider.calls).toHaveLength(1));
+            await appMessage(state.server, user.id, app.uid);
+            await vi.waitFor(() => expect(limitWarnings(warn)).toHaveLength(1));
+            await appMessage(state.server, user.id, app.uid);
+            await settle();
             expect(provider.calls).toHaveLength(1);
             expect(limitWarnings(warn)).toHaveLength(1);
             expect(limitWarnings(warn)[0][1]).toEqual({ skipped: 1 });
