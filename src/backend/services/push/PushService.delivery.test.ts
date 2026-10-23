@@ -104,7 +104,21 @@ const makeApp = async (
     );
 };
 
-const registerDevice = (
+/** One live session per user, so devices count as active. */
+const sessions = new WeakMap<PuterServer, Map<number, string>>();
+const sessionOf = async (server: PuterServer, userId: number) => {
+    const mine = sessions.get(server) ?? new Map<number, string>();
+    sessions.set(server, mine);
+    let uid = mine.get(userId);
+    if (!uid) {
+        uid = ((await server.stores.session.create(userId)) as { uuid: string })
+            .uuid;
+        mine.set(userId, uid);
+    }
+    return uid;
+};
+
+const registerDevice = async (
     server: PuterServer,
     userId: number,
     token: string,
@@ -112,7 +126,7 @@ const registerDevice = (
 ) =>
     server.stores.pushDevice.register({
         userId,
-        sessionUid: `sess-${uuidv4()}`,
+        sessionUid: await sessionOf(server, userId),
         platform: opts.platform ?? 'web',
         token,
         appUid: opts.appUid ?? null,

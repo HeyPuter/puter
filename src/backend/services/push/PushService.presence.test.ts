@@ -100,7 +100,11 @@ const makePerson = async (): Promise<Person> => {
     );
     await env.server.stores.pushDevice.register({
         userId: user.id,
-        sessionUid: `sess-${uuidv4()}`,
+        sessionUid: (
+            (await env.server.stores.session.create(user.id)) as {
+                uuid: string;
+            }
+        ).uuid,
         platform: 'web',
         token: `tok-${uuidv4()}`,
     });

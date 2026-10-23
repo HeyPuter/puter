@@ -181,7 +181,7 @@ export class PushService extends PuterService {
             return;
         }
 
-        await this.#send(devices, message);
+        await this.#send(userId, devices, message);
     }
 
     /** The name the server stamped on the message, else the app row's. */
@@ -211,6 +211,7 @@ export class PushService extends PuterService {
 
     /** One call per platform batch; each device's result is recorded once. */
     async #send(
+        userId: number,
         devices: PushDeliveryTarget[],
         message: PushMessage,
     ): Promise<void> {
@@ -285,8 +286,8 @@ export class PushService extends PuterService {
             });
         }
         await Promise.all([
-            this.stores.pushDevice.touch(delivered),
-            this.stores.pushDevice.recordFailure(failed),
+            this.stores.pushDevice.touch(userId, delivered),
+            this.stores.pushDevice.recordFailure(userId, failed),
             this.stores.pushDevice.removeByTokenHashes(unregistered),
         ]);
     }
