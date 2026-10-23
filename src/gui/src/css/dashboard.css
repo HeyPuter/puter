@@ -2255,12 +2255,31 @@ p.myapps-add-error {
 }
 .item-props-disassociate {
     margin-left: 8px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    font: inherit;
     font-size: 12px;
     color: var(--dashboard-danger-text);
     cursor: pointer;
 }
 .item-props-disassociate:hover {
     text-decoration: underline;
+}
+.item-props-disassociate:disabled {
+    opacity: 0.5;
+    cursor: default;
+    text-decoration: none;
+}
+.item-props-modal:focus {
+    outline: none;
+}
+.item-props-close:focus-visible,
+.item-props-tab:focus-visible,
+.item-props-disassociate:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
 }
 
 /* Versions */
@@ -2318,6 +2337,13 @@ p.myapps-add-error {
     }
     .item-props-label {
         flex-basis: auto;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .item-props-overlay,
+    .item-props-modal {
+        transition: none;
     }
 }
 

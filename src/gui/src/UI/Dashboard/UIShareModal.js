@@ -32,6 +32,7 @@ import {
 import { share_outcome } from '../../helpers/shareOutcome.js';
 import { aggregateOwners, aggregateShares, linkShareState, missingPathsFor } from './shareAggregate.js';
 import shareRecipientPicker from '../../helpers/shareRecipientPicker.js';
+import { isOverlayOnTop } from './dashboardOverlay.js';
 import { teams_for_sharing } from '../../helpers/shareTeams.js';
 import { share_link_for } from '../../helpers/sharePaths.js';
 import { is_plan_gate_error, open_upgrade_flow } from '../../helpers/planGate.js';
@@ -487,7 +488,8 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         if ( e.target === $overlay[0] && backdrop_pressed ) close();
     });
     $(document).on('keydown.share-modal', function (e) {
-        if ( e.key !== 'Escape' ) return;
+        // A gate or upgrade window opened over the modal takes its own Escape.
+        if ( e.key !== 'Escape' || ! isOverlayOnTop($overlay[0]) ) return;
         // An open revoke confirmation swallows the first Escape.
         const $confirm = $list.find('.share-modal-row-confirm');
         if ( $confirm.length ) {
@@ -574,17 +576,22 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         }
     };
 
-    /** Open the selection to anyone with the link at `mode`, or close it with null. */
-    const set_link_access = async (mode) => {
+    /**
+     * Open the selection to anyone with the link at `mode`, or close it with
+     * null. Focus goes back to `el_control`, the select the user changed.
+     */
+    const set_link_access = async (mode, el_control) => {
         $link_access.prop('disabled', true);
         $link_mode.prop('disabled', true);
         try {
             if ( mode ) {
                 const created = await grant_access({ anyone: true }, mode, target_paths);
                 if ( ! is_multi ) single_uid ??= created?.[0]?.entryUid ?? null;
+                link_state = { access: 'anyone', mode };
                 show_success(i18n(`share_link_on_${mode === 'write' ? 'write' : 'read'}${is_multi ? '_items' : ''}`));
             } else {
                 await revoke_access({ anyone: true }, target_paths);
+                link_state = { access: 'restricted', mode: null };
                 show_success(i18n(is_multi ? 'share_link_off_items' : 'share_link_off'));
             }
         } catch (err) {
@@ -599,20 +606,25 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             $link_access.prop('disabled', false);
             $link_mode.prop('disabled', false);
         }
-        // The listings are the truth either way, and they put the control back.
+        // The listings are the truth either way, and they put the control
+        // back; a selection too large to list keeps what was just applied.
         invalidate_shared_roots();
         await refresh();
-        focus_dialog();
+        render_link_access();
+        if ( el_control && $(el_control).is(':visible') ) el_control.focus({ preventScroll: true });
+        else focus_dialog();
     };
 
     $overlay.on('change', '.share-modal-link-access', function () {
         const value = $(this).val();
         if ( value === 'mixed' ) return;
-        set_link_access(value === 'anyone' ? ($link_mode.val() || 'read') : null);
+        // Opening up starts at view. The mode control is hidden unless every
+        // item is already open, so its value may be left over from before.
+        set_link_access(value === 'anyone' ? 'read' : null, this);
     });
     $overlay.on('change', '.share-modal-link-mode', function () {
         const mode = $(this).val();
-        if ( mode ) set_link_access(mode);
+        if ( mode ) set_link_access(mode, this);
     });
     $overlay.on('click', '.share-modal-copy-link', async function () {
         if ( ! single_uid ) return;

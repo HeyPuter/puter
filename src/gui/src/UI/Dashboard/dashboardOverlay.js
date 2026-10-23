@@ -23,6 +23,21 @@
 let overlay_seq = 0;
 
 /**
+ * Whether a keypress belongs to this overlay rather than to a window or
+ * modal opened over it. Not all of those take focus, so what is painted
+ * over the overlay's center counts too.
+ *
+ * @param {HTMLElement} el_overlay
+ * @returns {boolean}
+ */
+export function isOverlayOnTop (el_overlay) {
+    const el_active = document.activeElement;
+    if ( el_active && el_active !== document.body && ! el_overlay.contains(el_active) ) return false;
+    const el_top = document.elementFromPoint?.(window.innerWidth / 2, window.innerHeight / 2);
+    return ! (el_top && ! el_overlay.contains(el_top));
+}
+
+/**
  * Mounts `.dashboard-dialog-overlay` around the given card and wires the
  * reveal transition, dismissal (Escape, `.dashboard-dialog-close`, a press
  * and release on the backdrop), a Tab focus trap, room for an on-screen
@@ -104,14 +119,9 @@ export default function mountDashboardOverlay ({ html, $container, returnFocusTo
     });
 
     $(document).on(`keydown${ns}`, function (e) {
-        if ( e.key !== 'Escape' ) return;
         // Escape belongs to whatever is on top: a window or modal opened over
-        // this overlay closes itself, not the overlay underneath it. Not all
-        // of them take focus, so check what is painted over the overlay too.
-        const el_active = document.activeElement;
-        if ( el_active && el_active !== document.body && ! el_overlay.contains(el_active) ) return;
-        const el_top = document.elementFromPoint?.(window.innerWidth / 2, window.innerHeight / 2);
-        if ( el_top && ! el_overlay.contains(el_top) ) return;
+        // this overlay closes itself, not the overlay underneath it.
+        if ( e.key !== 'Escape' || ! isOverlayOnTop(el_overlay) ) return;
         dismiss();
     });
 
