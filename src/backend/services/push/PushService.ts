@@ -17,11 +17,41 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type {
-    PushDevice,
-    PushDeviceRegistration,
+import type { EventMap } from '../../clients/event/types.js';
+import {
+    hashPushToken,
+    type PushDeliveryTarget,
+    type PushDevice,
+    type PushDeviceRegistration,
 } from '../../stores/push/PushDeviceStore.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import { APP_MESSAGE_TYPE } from '../notification/appMessage.js';
 import { PuterService } from '../types.js';
+import { hasPushConsent } from './pushConsent.js';
+import { buildPushMessage, fitPushMessage } from './pushMessage.js';
+import { isUserConnected } from './pushPresence.js';
+import type {
+    PushMessage,
+    PushPlatform,
+    PushProvider,
+    PushResult,
+} from './types.js';
+
+/** Most tokens one provider call takes. */
+export const PUSH_BATCH_SIZE = 100;
+/** Most devices one notification goes to. */
+const MAX_DEVICES_PER_PUSH = 1000;
+/** Provider calls one notification has open at once. */
+const BATCH_CONCURRENCY = 4;
+/** Notifications this node delivers at once; past it, a push is skipped. */
+const MAX_IN_FLIGHT = 64;
+/** A provider call still open after this counts as failed. */
+const SEND_TIMEOUT_MS = 30_000;
+
+/** User metadata key for pushes of Puter's own notifications; absent is on. */
+export const PUTER_PUSH_PREFERENCE_KEY = 'pushPuter';
+
+type WrittenNotification = EventMap['notif.written'];
 
 const DEFAULT_DEVICE_RETENTION_DAYS = 60;
 const STALE_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
@@ -31,13 +61,32 @@ const STALE_BATCH_SIZE = 500;
 const STALE_MAX_BATCHES = 50;
 const MAX_DEVICES_PER_USER = 20;
 
-/** Keeps push devices in step with their sessions; runs even with push off. */
+/** Pushes new notifications to devices; device cleanup runs with push off. */
 export class PushService extends PuterService {
     #staleSweep: ReturnType<typeof setInterval> | null = null;
+    readonly #providers = new Map<PushPlatform, PushProvider>();
+    #inFlight = 0;
     #stopping = false;
 
     override onServerStart(): void {
         this.#armStaleSweep();
+
+        this.clients.event.on('notif.written', (_key, data) => {
+            if (this.config.push?.enabled !== true) return;
+            if (this.#providers.size === 0) return;
+            if (this.#inFlight >= MAX_IN_FLIGHT) {
+                console.warn('[push] too many pushes in flight, skipped one');
+                return;
+            }
+            this.#inFlight++;
+            void this.#deliver(data)
+                .catch((err: unknown) => {
+                    console.warn('[push] delivery failed', err);
+                })
+                .finally(() => {
+                    this.#inFlight--;
+                });
+        });
 
         this.clients.event.on(
             'outer.auth.sessions.revoked',
@@ -79,6 +128,166 @@ export class PushService extends PuterService {
         return device;
     }
 
+    // -- Extension hooks ----------------------------------------------
+
+    /** The latest provider registered for a platform carries its pushes. */
+    registerProvider(provider: PushProvider): void {
+        for (const platform of provider.platforms) {
+            this.#providers.set(platform, provider);
+        }
+    }
+
+    // -- Delivery -----------------------------------------------------
+
+    /** Only `app.message` is an app's; every other type goes to Puter devices. */
+    async #deliver(written: WrittenNotification): Promise<void> {
+        const { userId, uid, type, value } = written;
+        const fromApp = type === APP_MESSAGE_TYPE;
+        const appUid = fromApp ? (written.appUid ?? null) : null;
+        if (fromApp && !appUid) return;
+
+        const devices = (
+            await this.stores.pushDevice.listForDelivery(userId, appUid, {
+                limit: MAX_DEVICES_PER_PUSH,
+            })
+        ).filter((device) => this.#providers.has(device.platform));
+        if (devices.length === 0) return;
+
+        if (!(await this.#allowed(userId, appUid))) return;
+
+        const presence = {
+            socket: this.services.socket,
+            eventForward: this.services.eventForward,
+        };
+        if (await isUserConnected(presence, userId, null)) return;
+        if (appUid && (await isUserConnected(presence, userId, appUid))) return;
+
+        const appName = appUid ? await this.#appName(appUid, value) : null;
+        if (appUid && !appName) return;
+        const built = buildPushMessage(
+            { uid, type, value },
+            appName ? { name: appName } : null,
+        );
+        if (!built) return;
+        const message = fitPushMessage(built);
+        if (!message) {
+            console.warn('[push] message over the size budget, not sent', {
+                uid,
+                type,
+            });
+            return;
+        }
+
+        await this.#send(devices, message);
+    }
+
+    /** The name the server stamped on the message, else the app row's. */
+    async #appName(
+        appUid: string,
+        value: Record<string, unknown>,
+    ): Promise<string | null> {
+        const stamped = (value.app as { name?: unknown } | undefined)?.name;
+        if (typeof stamped === 'string' && stamped) return stamped;
+        const app = await this.stores.app.getByUid(appUid);
+        return typeof app?.name === 'string' && app.name ? app.name : null;
+    }
+
+    /** The user's consent for the app, or their Puter preference without one. */
+    async #allowed(userId: number, appUid: string | null): Promise<boolean> {
+        if (appUid) {
+            return hasPushConsent(
+                { stores: this.stores, services: this.services },
+                userId,
+                appUid,
+            );
+        }
+        const user = await this.stores.user.getById(userId);
+        if (!user) return false;
+        return user.metadata?.[PUTER_PUSH_PREFERENCE_KEY] !== false;
+    }
+
+    /** One call per platform batch; each device's result is recorded once. */
+    async #send(
+        devices: PushDeliveryTarget[],
+        message: PushMessage,
+    ): Promise<void> {
+        const byPlatform = new Map<PushPlatform, PushDeliveryTarget[]>();
+        for (const device of devices) {
+            const list = byPlatform.get(device.platform) ?? [];
+            list.push(device);
+            byPlatform.set(device.platform, list);
+        }
+        const batches: Array<{
+            platform: PushPlatform;
+            devices: PushDeliveryTarget[];
+        }> = [];
+        for (const [platform, list] of byPlatform) {
+            for (let i = 0; i < list.length; i += PUSH_BATCH_SIZE) {
+                batches.push({
+                    platform,
+                    devices: list.slice(i, i + PUSH_BATCH_SIZE),
+                });
+            }
+        }
+
+        const settled = await runWithConcurrencyLimitSettled(
+            batches,
+            BATCH_CONCURRENCY,
+            (batch) =>
+                withTimeout(
+                    this.#providers.get(batch.platform)!.send({
+                        platform: batch.platform,
+                        tokens: batch.devices.map((device) => device.token),
+                        message,
+                    }),
+                ),
+        );
+
+        const delivered: string[] = [];
+        const failed: string[] = [];
+        const unregistered: string[] = [];
+        const reasons = new Set<string>();
+        settled.forEach((outcome, index) => {
+            let results: Array<PushResult | undefined> = [];
+            if (outcome.status === 'rejected') {
+                reasons.add(errorName(outcome.reason));
+            } else if (Array.isArray(outcome.value)) {
+                results = outcome.value;
+            }
+            batches[index].devices.forEach((device, i) => {
+                const result = results[i];
+                if (result?.status === 'delivered') {
+                    delivered.push(device.uid);
+                } else if (result?.status === 'unregistered') {
+                    unregistered.push(hashPushToken(device.token));
+                } else {
+                    failed.push(device.uid);
+                    if (result?.status === 'failed' && result.reason) {
+                        reasons.add(
+                            String(result.reason)
+                                .split(device.token)
+                                .join('<token>')
+                                .slice(0, 120),
+                        );
+                    }
+                }
+            });
+        });
+
+        if (failed.length > 0) {
+            console.warn('[push] not delivered to some devices', {
+                uid: message.uid,
+                devices: failed.length,
+                reasons: [...reasons].slice(0, 5),
+            });
+        }
+        await Promise.all([
+            this.stores.pushDevice.touch(delivered),
+            this.stores.pushDevice.recordFailure(failed),
+            this.stores.pushDevice.removeByTokenHashes(unregistered),
+        ]);
+    }
+
     /** Every node sweeps; an overlap costs only empty indexed batches. */
     async sweepStaleDevices(): Promise<number> {
         const days = this.#retentionDays();
@@ -117,3 +326,19 @@ export class PushService extends PuterService {
         this.#staleSweep = sweep;
     }
 }
+
+const withTimeout = <T>(promise: Promise<T>): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(
+            () => reject(new Error('push provider timed out')),
+            SEND_TIMEOUT_MS,
+        );
+        timer.unref?.();
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+};
+
+/** Only the error's name: a provider's message may carry tokens. */
+const errorName = (err: unknown): string =>
+    err instanceof Error ? err.name || 'Error' : 'error';

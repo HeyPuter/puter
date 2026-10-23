@@ -429,6 +429,10 @@ export const UNPUBLISHED_INTERNAL_EVENTS = [
         event: 'kv.flushed',
         reason: 'No subject addresses "the whole namespace went": the grammar anchors on a key or a prefix, and fanning a flush out per key would report keys a truncated enumeration never saw.',
     },
+    {
+        event: 'notif.written',
+        reason: 'The node-local trigger for pushes to devices; the notification itself publishes through `notif.created`.',
+    },
 ] as const satisfies readonly UnpublishedInternalEvent[];
 
 // Every `fs.*`/`kv.*`/`notif.*` bus key needs a decision. A new key that is in
