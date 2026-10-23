@@ -26,6 +26,7 @@ import FSItem from './modules/FSItem.js';
 import { Hosting } from './modules/hosting/index.js';
 import { KV } from './modules/kv/index.js';
 import { netAPI } from './modules/networking/index.js';
+import { Notifications } from './modules/notifications/index.js';
 import { OS } from './modules/os/index.js';
 import { Perms } from './modules/perms/index.js';
 import PuterDialog from './modules/PuterDialog.js';
@@ -181,6 +182,8 @@ export class Puter {
     email;
     /** @type {InstanceType<typeof Events>} */
     events;
+    /** @type {InstanceType<typeof Notifications>} */
+    notifications;
     /** @type {InstanceType<typeof Perms>} */
     perms;
     /** @type {InstanceType<typeof Teams>} */
@@ -323,6 +326,10 @@ export class Puter {
         this.email = this.registerModule('email', Email);
         this.events = this.registerModule('events', Events);
         this.perms = this.registerModule('perms', Perms);
+        this.notifications = this.registerModule(
+            'notifications',
+            Notifications,
+        );
         this.teams = this.registerModule('teams', Teams);
         this.drivers = this.registerModule('drivers', Drivers);
         this.debug = this.registerModule('debug', Debug);

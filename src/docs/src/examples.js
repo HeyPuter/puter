@@ -709,6 +709,17 @@ const examples = [
         ],
     },
     {
+        title: 'Notifications',
+        children: [
+            {
+                title: 'Send a Notification',
+                description: 'Ask to send pushes, listen for your app\'s notifications and send one with the Puter.js Notifications API. Run it in the playground.',
+                slug: 'notifications-notify',
+                source: '/playground/examples/notifications-notify.html',
+            },
+        ],
+    },
+    {
         title: 'Networking',
         children: [
             {

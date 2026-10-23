@@ -123,7 +123,8 @@ export const loadPuterJsTestOptions = (
         // `puter.events` is a socket surface, so the suite needs the server
         // half switched on. Off, every subscribe answers `events_disabled` and
         // the suite would only ever cover that one branch.
-        events: { enabled: true },
+        events: { enabled: true, notificationsFoldIn: true },
+        push: { enabled: true },
     };
 
     for (const mapping of MAPPINGS) {

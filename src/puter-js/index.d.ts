@@ -200,6 +200,20 @@ export type {
 export type { Networking, SocketEvent } from './types/modules/networking/types.js';
 export type { PSocket, PTLSSocket } from './types/modules/networking/PSocket.js';
 
+// -- puter.notifications --
+export type {
+    AppNotification,
+    NotificationClick,
+    NotificationHandler,
+    NotificationInput,
+    NotificationListener,
+    NotificationSender,
+    OnNotificationOptions,
+    PushDevice,
+    PushDeviceRegistration,
+    PushPlatform,
+} from './types/modules/notifications/types.js';
+
 // -- puter.os --
 
 // -- puter.peer --

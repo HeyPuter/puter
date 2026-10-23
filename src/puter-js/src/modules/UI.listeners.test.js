@@ -194,6 +194,24 @@ describe('host replies (env: app)', () => {
         expect(onLocale).toHaveBeenCalledWith({ language: 'fr' });
     });
 
+    it('emits a notificationClick broadcast from the desktop', async () => {
+        const ui = makeUI();
+        const onClick = vi.fn();
+        ui.on('notificationClick', onClick);
+
+        await deliver({
+            source: parentWindow,
+            origin: 'https://puter.com',
+            data: {
+                msg: 'broadcast',
+                name: 'notificationClick',
+                data: { uid: 'n-1', target: '/a', data: { id: 1 } },
+            },
+        });
+
+        expect(onClick).toHaveBeenCalledWith({ uid: 'n-1', target: '/a', data: { id: 1 } });
+    });
+
     it('reports an error reply instead of rejecting the listener', async () => {
         const error = vi.spyOn(console, 'error').mockImplementation(() => {});
         makeUI();
