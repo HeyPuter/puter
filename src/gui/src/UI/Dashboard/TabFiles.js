@@ -431,7 +431,7 @@ const TabFiles = {
                     }
                     else {
                         // Move
-                        await window.move_items(itemsToMove, targetPath);
+                        await _this.moveDraggedRows(itemsToMove, targetPath);
                     }
                 },
 
@@ -1688,6 +1688,20 @@ const TabFiles = {
     },
 
     /**
+     * Moves dragged rows into a folder, leaving out the ones the user can't
+     * move (see restructurableRows), which the server would refuse with an
+     * alert apiece.
+     *
+     * @param {HTMLElement[]} rows
+     * @param {string} targetPath
+     * @returns {Promise<void>}
+     */
+    async moveDraggedRows (rows, targetPath) {
+        const movable = await this.restructurableRows(rows);
+        if ( movable.length > 0 ) await window.move_items(movable, targetPath);
+    },
+
+    /**
      * Whether every selected row may be shared with someone else. A selection
      * mixing your own items with someone else's read-only ones can't be, and
      * offering the action would only produce a failure per item.
@@ -2637,7 +2651,7 @@ const TabFiles = {
                             await window.create_shortcut(itemName, isDir, targetPath, null, shortcutTo, shortcutToPath);
                         }
                     } else {
-                        await window.move_items(itemsToMove, targetPath);
+                        await _this.moveDraggedRows(itemsToMove, targetPath);
                     }
                 },
 
@@ -3521,7 +3535,7 @@ const TabFiles = {
                                 }
                             }
                             else {
-                                window.move_items(itemsToMove, _this.currentPath);
+                                _this.moveDraggedRows(itemsToMove, _this.currentPath);
                             }
                         } else {
                             // Dropped outside file list → cancel, navigate back
@@ -3597,7 +3611,7 @@ const TabFiles = {
                         }
                     }
                     else {
-                        await window.move_items(itemsToMove, targetPath);
+                        await _this.moveDraggedRows(itemsToMove, targetPath);
                     }
                 },
 
