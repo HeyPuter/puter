@@ -782,3 +782,270 @@ describe('MoonshotProvider.checkModeration', () => {
         );
     });
 });
+
+describe('Kimi K3.1 Pro', () => {
+    const models = ['kimi-k3.1-pro', 'kimi-k3.1-pro-highspeed'];
+    const usage = {
+        prompt_tokens: 100,
+        completion_tokens: 10,
+        prompt_tokens_details: { cached_tokens: 20, cache_write_tokens: 50 },
+    };
+    const response = () => ({
+        choices: [
+            {
+                message: {
+                    role: 'assistant',
+                    content: 'answer',
+                    reasoning_content: 'reasoning',
+                },
+                finish_reason: 'stop',
+            },
+        ],
+        usage: structuredClone(usage),
+    });
+    const mockResponse = (data: unknown, oneHour = '10') => {
+        createMock.mockReturnValueOnce({
+            withResponse: async () => ({
+                data,
+                response: new Response(null, {
+                    headers: { 'Msh-Usage-Cache-Write-Tokens-1h': oneHour },
+                }),
+            }),
+        });
+    };
+
+    it.each(models)(
+        'maps %s caps and reasoning without sampling parameters',
+        async (model) => {
+            const { provider } = makeProvider();
+            mockResponse(response());
+            await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                    max_tokens: 512,
+                    reasoning_effort: 'high',
+                    temperature: 0.2,
+                    top_p: 0.1,
+                }),
+            );
+            expect(createMock.mock.calls[0]![0]).toMatchObject({
+                model,
+                max_completion_tokens: 512,
+                reasoning_effort: 'high',
+            });
+            expect(createMock.mock.calls[0]![0]).not.toHaveProperty(
+                'max_tokens',
+            );
+            expect(createMock.mock.calls[0]![0]).not.toHaveProperty(
+                'temperature',
+            );
+            expect(createMock.mock.calls[0]![0]).not.toHaveProperty('top_p');
+        },
+    );
+
+    it('uses the official default output cap and preserves the default thinking mode', async () => {
+        const { provider } = makeProvider();
+        mockResponse(response());
+        await withTestActor(() =>
+            provider.complete({
+                model: models[0]!,
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+        expect(createMock.mock.calls[0]![0].max_completion_tokens).toBe(131072);
+        expect(createMock.mock.calls[0]![0]).not.toHaveProperty('thinking');
+        expect(createMock.mock.calls[0]![0]).not.toHaveProperty(
+            'reasoning_effort',
+        );
+    });
+
+    it.each(['low', 'max'] as const)(
+        'forwards %s reasoning effort',
+        async (effort) => {
+            const { provider } = makeProvider();
+            mockResponse(response(), '0');
+            await withTestActor(() =>
+                provider.complete({
+                    model: models[0]!,
+                    messages: [{ role: 'user', content: 'hi' }],
+                    reasoning_effort: effort,
+                }),
+            );
+            expect(createMock.mock.calls[0]![0].reasoning_effort).toBe(effort);
+        },
+    );
+
+    it('keeps K3 on its existing request and billing path', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(response());
+        await withTestActor(() =>
+            provider.complete({
+                model: 'kimi-k3',
+                messages: [{ role: 'user', content: 'hi' }],
+                max_tokens: 512,
+            }),
+        );
+        expect(createMock.mock.calls[0]![0]).toMatchObject({
+            model: 'kimi-k3',
+            max_tokens: 512,
+        });
+        expect(createMock.mock.calls[0]![0]).not.toHaveProperty(
+            'max_completion_tokens',
+        );
+        expect(recordSpy.mock.calls[0]![0]).toEqual({
+            prompt_tokens: 80,
+            completion_tokens: 10,
+            cached_tokens: 20,
+        });
+    });
+
+    it('rejects unsupported reasoning effort before inference', async () => {
+        const { provider } = makeProvider();
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: models[0]!,
+                    messages: [{ role: 'user', content: 'hi' }],
+                    reasoning_effort: 'medium',
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
+    });
+
+    it.each(models)(
+        'meters disjoint cache reads, writes and uncached input for %s',
+        async (model) => {
+            const { provider } = makeProvider();
+            mockResponse(response());
+            const result = await withTestActor(() =>
+                provider.complete({
+                    model,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+            const inputRate = model.endsWith('highspeed') ? 400 : 200;
+            expect(recordSpy).toHaveBeenCalledWith(
+                {
+                    prompt_tokens: 30,
+                    completion_tokens: 10,
+                    cached_tokens: 20,
+                    cache_write_tokens: 40,
+                    cache_write_1h_tokens: 10,
+                },
+                expect.anything(),
+                `moonshotai:${model}`,
+                {
+                    prompt_tokens: 30 * inputRate,
+                    completion_tokens: 10 * inputRate * 5,
+                    cached_tokens: 20 * 20,
+                    cache_write_tokens: 40 * inputRate,
+                    cache_write_1h_tokens: 10 * inputRate * 2,
+                },
+            );
+            expect(result).toMatchObject({
+                usageDetails: {
+                    inputTokens: 30,
+                    outputTokens: 10,
+                    cacheReadTokens: 20,
+                    cacheWrite5mTokens: 40,
+                    cacheWrite1hTokens: 10,
+                },
+            });
+        },
+    );
+
+    it('preserves assistant reasoning, text and tool-call order on replay', async () => {
+        const { provider } = makeProvider();
+        const toolCalls = ['a', 'b'].map((id) => ({
+            id,
+            type: 'function',
+            function: { name: 'lookup', arguments: '{}' },
+        }));
+        const first = response();
+        Object.assign(first.choices[0]!.message, { tool_calls: toolCalls });
+        mockResponse(first);
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: models[0]!,
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+        mockResponse(response());
+        await withTestActor(() =>
+            provider.complete({
+                model: models[0]!,
+                messages: [(result as { message: unknown }).message],
+            }),
+        );
+        expect(createMock.mock.calls[1]![0].messages[0]).toEqual({
+            role: 'assistant',
+            content: 'answer',
+            reasoning_content: 'reasoning',
+            tool_calls: toolCalls,
+        });
+        mockResponse(response());
+        await withTestActor(() =>
+            provider.complete({
+                model: models[0]!,
+                messages: [
+                    {
+                        role: 'assistant',
+                        reasoning: 'reasoning',
+                        content: [
+                            { type: 'text', text: 'answer' },
+                            ...['a', 'b'].map((id) => ({
+                                type: 'tool_use',
+                                id,
+                                name: 'lookup',
+                                input: {},
+                            })),
+                        ],
+                    },
+                ],
+            }),
+        );
+        expect(createMock.mock.calls[2]![0].messages[0]).toEqual({
+            role: 'assistant',
+            reasoning_content: 'reasoning',
+            content: [{ type: 'text', text: 'answer' }],
+            tool_calls: toolCalls,
+        });
+    });
+
+    it('meters streamed cache writes from final usage and response headers', async () => {
+        const { provider } = makeProvider();
+        mockResponse(
+            asAsyncIterable([
+                { choices: [{ delta: { reasoning_content: 'reasoning' } }] },
+                { choices: [{ delta: { content: 'answer' } }] },
+                { choices: [], usage: structuredClone(usage) },
+            ]),
+        );
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: models[0]!,
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+            }),
+        );
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+        expect(createMock.mock.calls[0]![0].stream_options).toEqual({
+            include_usage: true,
+        });
+        expect(recordSpy).toHaveBeenCalledTimes(1);
+        expect(recordSpy.mock.calls[0]![0]).toEqual({
+            prompt_tokens: 30,
+            completion_tokens: 10,
+            cached_tokens: 20,
+            cache_write_tokens: 40,
+            cache_write_1h_tokens: 10,
+        });
+    });
+});

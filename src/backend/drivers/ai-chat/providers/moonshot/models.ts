@@ -20,6 +20,52 @@
 import type { IChatModel } from '../../types.js';
 
 export const MOONSHOT_MODELS: IChatModel[] = [
+    {
+        puterId: 'moonshotai:moonshotai/kimi-k3.1-pro',
+        id: 'kimi-k3.1-pro',
+        name: 'Kimi K3.1 Pro',
+        aliases: ['moonshotai/kimi-k3.1-pro', 'moonshot/kimi-k3.1-pro'],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 200,
+            completion_tokens: 1000,
+            cached_tokens: 20,
+            cache_write_tokens: 200,
+            cache_write_1h_tokens: 400,
+        },
+        context: 1_048_576,
+        max_tokens: 1_048_576,
+        tool_call: true,
+    },
+    {
+        puterId: 'moonshotai:moonshotai/kimi-k3.1-pro-highspeed',
+        id: 'kimi-k3.1-pro-highspeed',
+        name: 'Kimi K3.1 Pro Highspeed',
+        aliases: [
+            'moonshotai/kimi-k3.1-pro-highspeed',
+            'moonshot/kimi-k3.1-pro-highspeed',
+        ],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 400,
+            completion_tokens: 2000,
+            cached_tokens: 20,
+            cache_write_tokens: 400,
+            cache_write_1h_tokens: 800,
+        },
+        context: 1_048_576,
+        max_tokens: 1_048_576,
+        tool_call: true,
+    },
+
     // -- Flagship ----------------------------------------------------
     {
         puterId: 'moonshotai:moonshotai/kimi-k3',

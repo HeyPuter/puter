@@ -190,14 +190,22 @@ const hoistToolUseBlocks = (
  * make changes in-place.
  *
  * @param {Message[]} messages - Array of normalized messages
- * @param {{ preserveToolCallOrder?: boolean; keepExtraContent?: boolean }} [opts]
+ * @param {{
+ *     preserveToolCallOrder?: boolean;
+ *     keepExtraContent?: boolean;
+ *     keepAssistantContent?: boolean;
+ * }} [opts]
  *   `preserveToolCallOrder` keeps a turn's tool calls in the order the model made
  *   them. `keepExtraContent` keeps each tool call's `extra_content`.
  * @returns {Message[]} - Array of messages in OpenAI format
  */
 export const process_input_messages = async (
     messages,
-    { preserveToolCallOrder = false, keepExtraContent = false } = {},
+    {
+        preserveToolCallOrder = false,
+        keepExtraContent = false,
+        keepAssistantContent = false,
+    } = {},
 ) => {
     for (const msg of messages) {
         if (!msg.content) continue;
@@ -220,7 +228,12 @@ export const process_input_messages = async (
                 extraContent: keepExtraContent,
             })
         )
-            msg.content = null;
+            msg.content =
+                keepAssistantContent &&
+                msg.role === 'assistant' &&
+                content.length
+                    ? content
+                    : null;
 
         // coerce tool results
         // (we assume multiple tool results were already split into separate messages)

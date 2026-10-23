@@ -194,7 +194,9 @@ export class OpenAICompatProvider implements IChatProvider {
             await OpenAIUtil.process_input_messages(messages, {
                 preserveToolCallOrder: this.preservesToolCallOrder(model),
                 keepExtraContent: this.keepsToolCallExtraContent(model),
+                keepAssistantContent: this.preservesAssistantContent(model),
             }),
+            model,
         );
 
         const tools = args.tools
@@ -235,9 +237,10 @@ export class OpenAICompatProvider implements IChatProvider {
         let pricingTime = attemptPricingTime ?? new Date();
         let completion;
         try {
-            completion = await options.client.chat.completions.create(
-                params as never,
-                { signal },
+            completion = await this.createCompletion(
+                options.client,
+                params,
+                signal,
             );
         } catch (e) {
             const retryParams =
@@ -249,9 +252,10 @@ export class OpenAICompatProvider implements IChatProvider {
                     : undefined;
             if (!retryParams) throw e;
             pricingTime = attemptPricingTime ?? new Date();
-            completion = await options.client.chat.completions.create(
-                retryParams as never,
-                { signal },
+            completion = await this.createCompletion(
+                options.client,
+                retryParams,
+                signal,
             );
         }
 
@@ -324,8 +328,23 @@ export class OpenAICompatProvider implements IChatProvider {
         return false;
     }
 
+    protected preservesAssistantContent(_model: IChatModel): boolean {
+        return false;
+    }
+
+    protected createCompletion(
+        client: ChatCompletionsClient,
+        params: Record<string, unknown>,
+        signal?: AbortSignal,
+    ): Promise<unknown> {
+        return client.chat.completions.create(params as never, { signal });
+    }
+
     /** Last pass over the messages, after `process_input_messages`. */
-    protected prepareMessages(messages: PuterMessage[]): PuterMessage[] {
+    protected prepareMessages(
+        messages: PuterMessage[],
+        _model: IChatModel,
+    ): PuterMessage[] {
         return messages;
     }
 
