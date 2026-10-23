@@ -6978,6 +6978,17 @@ body.myapps-reordering .myapps-tile {
     opacity: 1;
 }
 
+/* The dialog takes focus only to hand it to its items. */
+.context-menu-modal-dialog:focus {
+    outline: none;
+}
+
+/* Inset, so the dialog's rounded clip doesn't cut the ring off. */
+.context-menu-modal-dialog .context-menu-item:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -2px;
+}
+
 /* Reduced motion: these still fade, but don't scale or slide into place. */
 @media (prefers-reduced-motion: reduce) {
     .context-menu-modal-dialog {

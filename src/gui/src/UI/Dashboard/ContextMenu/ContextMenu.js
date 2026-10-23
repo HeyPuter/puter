@@ -49,11 +49,13 @@ export default class ContextMenuModal {
         this.modal = null;
         this.menuItems = null;
         this.ignoreInteractions = false;
+        this.previousFocus = null;
 
         // Event handler references for cleanup
         this.backdropClickHandler = null;
         this.escapeKeyHandler = null;
         this.itemClickHandler = null;
+        this.arrowKeyHandler = null;
     }
 
     /**
@@ -79,6 +81,11 @@ export default class ContextMenuModal {
         // Create modal dialog
         this.modal = document.createElement('div');
         this.modal.className = 'context-menu-modal-dialog';
+        this.modal.setAttribute('role', 'menu');
+        this.modal.tabIndex = -1;
+        if ( options.title ) {
+            this.modal.setAttribute('aria-label', options.title);
+        }
 
         // Build modal content
         let titleHtml = '';
@@ -106,6 +113,11 @@ export default class ContextMenuModal {
 
         // Setup event listeners
         this.setupEventListeners();
+
+        // Move focus into the menu, so assistive tech announces it and the
+        // keyboard reaches its items rather than the page behind it.
+        this.previousFocus = document.activeElement;
+        this.modal.focus({ preventScroll: true });
 
         // Ignore interactions briefly to prevent accidental selection on touch devices
         this.ignoreInteractions = true;
@@ -183,6 +195,8 @@ export default class ContextMenuModal {
         if ( container ) {
             container.innerHTML = this.renderMenuItems(this.getVisibleItems());
         }
+        // The row that had focus was just replaced.
+        this.modal.focus({ preventScroll: true });
         this.positionModal(this._targetRect);
     }
 
@@ -197,7 +211,7 @@ export default class ContextMenuModal {
         return menuItems.map((item, index) => {
             // Handle separators
             if ( item === '-' || item.is_divider ) {
-                return '<div class="context-menu-separator"></div>';
+                return '<div class="context-menu-separator" role="separator"></div>';
             }
 
             // Get label - support both formats
@@ -228,7 +242,7 @@ export default class ContextMenuModal {
                 : '';
 
             return `
-                <button class="context-menu-item ${deleteClass} ${disabledClass}" data-index="${index}"${item.disabled ? ' disabled' : ''}>
+                <button class="context-menu-item ${deleteClass} ${disabledClass}" role="menuitem" data-index="${index}"${hasSubmenu ? ' aria-haspopup="menu"' : ''}${item.disabled ? ' disabled' : ''}>
                     <div class="context-menu-item-icon">
                         ${iconHtml}
                     </div>
@@ -308,6 +322,22 @@ export default class ContextMenuModal {
             }
         };
         document.addEventListener('keydown', this.escapeKeyHandler);
+
+        // Arrow keys move between the enabled items, as in any menu.
+        this.arrowKeyHandler = (e) => {
+            const items = [...this.modal.querySelectorAll('.context-menu-item:not(:disabled)')];
+            if ( items.length === 0 ) return;
+            const current = items.indexOf(document.activeElement);
+            let next;
+            if ( e.key === 'ArrowDown' ) next = (current + 1) % items.length;
+            else if ( e.key === 'ArrowUp' ) next = current <= 0 ? items.length - 1 : current - 1;
+            else if ( e.key === 'Home' ) next = 0;
+            else if ( e.key === 'End' ) next = items.length - 1;
+            else return;
+            e.preventDefault();
+            items[next].focus();
+        };
+        this.modal.addEventListener('keydown', this.arrowKeyHandler);
     }
 
     /**
@@ -326,6 +356,17 @@ export default class ContextMenuModal {
         if ( this.escapeKeyHandler ) {
             document.removeEventListener('keydown', this.escapeKeyHandler);
         }
+        if ( this.arrowKeyHandler && this.modal ) {
+            this.modal.removeEventListener('keydown', this.arrowKeyHandler);
+        }
+
+        // Hand focus back to where it was, unless something else took it.
+        const el_active = document.activeElement;
+        if ( this.previousFocus && document.contains(this.previousFocus)
+            && (this.modal?.contains(el_active) || el_active === document.body) ) {
+            this.previousFocus.focus({ preventScroll: true });
+        }
+        this.previousFocus = null;
 
         // Trigger closing animation
         this.backdrop.classList.remove('show');

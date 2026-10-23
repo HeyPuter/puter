@@ -58,3 +58,55 @@ describe('ContextMenuModal width', () => {
         expect(openMenu().style.width).toBe('auto');
     });
 });
+
+describe('ContextMenuModal accessibility', () => {
+    const items = [
+        { label: 'Open', action: () => {} },
+        '-',
+        { label: 'Locked', disabled: true, action: () => {} },
+        { label: 'New', items: [{ label: 'Folder', action: () => {} }] },
+    ];
+    const press = (el, key) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+
+    it('is a menu of menuitems and separators', () => {
+        setTouchViewport(390);
+        const menu = new ContextMenuModal();
+        menu.show(items, { left: 0, top: 0, width: 10, height: 10 }, { title: 'a.txt' });
+        const dialog = document.querySelector('.context-menu-modal-dialog');
+        expect(dialog.getAttribute('role')).toBe('menu');
+        expect(dialog.getAttribute('aria-label')).toBe('a.txt');
+        expect([...dialog.querySelectorAll('.context-menu-item')].map(b => b.getAttribute('role')))
+            .toEqual(['menuitem', 'menuitem', 'menuitem']);
+        expect(dialog.querySelector('.context-menu-separator').getAttribute('role')).toBe('separator');
+        expect(dialog.querySelectorAll('[aria-haspopup="menu"]')).toHaveLength(1);
+    });
+
+    it('takes focus on open and gives it back on close', () => {
+        setTouchViewport(390);
+        const opener = document.createElement('button');
+        document.body.appendChild(opener);
+        opener.focus();
+        const menu = new ContextMenuModal();
+        menu.show(items, { left: 0, top: 0, width: 10, height: 10 });
+        const dialog = document.querySelector('.context-menu-modal-dialog');
+        expect(document.activeElement).toBe(dialog);
+        menu.close();
+        expect(document.activeElement).toBe(opener);
+    });
+
+    it('moves between enabled items with the arrow keys, skipping disabled ones', () => {
+        setTouchViewport(390);
+        const menu = new ContextMenuModal();
+        menu.show(items, { left: 0, top: 0, width: 10, height: 10 });
+        const dialog = document.querySelector('.context-menu-modal-dialog');
+        const label = () => document.activeElement.querySelector('.context-menu-item-label')?.textContent;
+        press(dialog, 'ArrowDown');
+        expect(label()).toBe('Open');
+        press(document.activeElement, 'ArrowDown');
+        expect(label()).toBe('New');
+        press(document.activeElement, 'ArrowDown');
+        expect(label()).toBe('Open');
+        press(document.activeElement, 'ArrowUp');
+        expect(label()).toBe('New');
+    });
+});
