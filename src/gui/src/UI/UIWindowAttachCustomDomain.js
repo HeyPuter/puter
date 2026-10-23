@@ -26,6 +26,8 @@ const ERROR_KEYS = {
     custom_domain_limit_reached: 'custom_domain_error_limit',
     custom_domain_rejected: 'custom_domain_error_rejected',
     site_not_found: 'custom_domain_error_site',
+    custom_domain_not_found: 'custom_domain_error_not_found',
+    custom_domains_not_enabled: 'custom_domain_not_enabled',
     custom_domains_permission_required: 'custom_domain_error_generic',
 };
 
@@ -157,13 +159,16 @@ async function UIWindowAttachCustomDomain (options) {
             $overlay.find('.app-feedback-error').hide();
             $overlay.find(`.custom-domain-pane[data-pane="${pane}"]`).show();
         };
+        // Plain strings into `.text()`: i18n's HTML encoding would show up
+        // literally.
+        const text = (key) => i18n(key, [], false);
         const showUnavailable = (key) => {
-            $overlay.find('.app-feedback-unavailable-message').text(i18n(key));
+            $overlay.find('.app-feedback-unavailable-message').text(text(key));
             showPane('unavailable');
         };
-        const showError = (pane, key) => {
+        const showError = (pane, message) => {
             $overlay.find(`.custom-domain-pane[data-pane="${pane}"] .app-feedback-error`)
-                .text(i18n(key)).show();
+                .text(message).show();
         };
         const setBusy = (value) => {
             busy = value;
@@ -188,10 +193,17 @@ async function UIWindowAttachCustomDomain (options) {
             }
             return { status: res.status, ok: res.ok, data };
         };
-        const errorKeyFor = (res) => {
-            if ( res.status === 402 ) return 'custom_domain_error_plan';
-            if ( res.status === 429 ) return 'custom_domain_error_rate_limited';
-            return ERROR_KEYS[res.data?.code] ?? 'custom_domain_error_generic';
+        // A known code gets our wording; anything else shows what the server
+        // said, which beats a generic message when something is misconfigured.
+        const errorFor = (res) => {
+            if ( res.status === 402 ) return text('custom_domain_error_plan');
+            if ( res.status === 429 ) return text('custom_domain_error_rate_limited');
+            const key = ERROR_KEYS[res.data?.code];
+            if ( key ) return text(key);
+            if ( typeof res.data?.message === 'string' && res.data.message ) {
+                return res.data.message;
+            }
+            return `${text('custom_domain_error_generic')} (HTTP ${res.status})`;
         };
 
         // Escape, the backdrop and the close buttons all dismiss, except
@@ -244,26 +256,26 @@ async function UIWindowAttachCustomDomain (options) {
             // Moving takes the domain off another site, so say so first.
             if ( ! $row.hasClass('custom-domain-confirming') ) {
                 $overlay.find('.custom-domain-confirming').removeClass('custom-domain-confirming')
-                    .find('.custom-domain-use').text(i18n('custom_domain_use'));
+                    .find('.custom-domain-use').text(text('custom_domain_use'));
                 $row.addClass('custom-domain-confirming');
                 $row.find('.custom-domain-row-meta').text(i18n('custom_domain_move_confirm', [
                     `${item.site}.${window.hosting_domain}`,
                     site_host,
                 ], false));
-                $row.find('.custom-domain-use').text(i18n('custom_domain_move'));
+                $row.find('.custom-domain-use').text(text('custom_domain_move'));
                 return;
             }
             setBusy(true);
             try {
                 const res = await api('PATCH', `/${encodeURIComponent(item.uuid)}`, { site: subdomain });
                 if ( ! res.ok ) {
-                    showError('list', errorKeyFor(res));
+                    showError('list', errorFor(res));
                     return;
                 }
                 finish(res.data);
             } catch ( e ) {
                 console.error('custom-domain: move failed', e);
-                showError('list', 'custom_domain_error_generic');
+                showError('list', text('custom_domain_error_generic'));
             } finally {
                 setBusy(false);
             }
@@ -293,7 +305,7 @@ async function UIWindowAttachCustomDomain (options) {
             try {
                 const res = await api('POST', '', { site: subdomain, hostname });
                 if ( ! res.ok ) {
-                    showError('add', errorKeyFor(res));
+                    showError('add', errorFor(res));
                     return;
                 }
                 chosen = res.data;
@@ -301,7 +313,7 @@ async function UIWindowAttachCustomDomain (options) {
                 showPane('records');
             } catch ( err ) {
                 console.error('custom-domain: add failed', err);
-                showError('add', 'custom_domain_error_generic');
+                showError('add', text('custom_domain_error_generic'));
             } finally {
                 setBusy(false);
             }
@@ -350,7 +362,7 @@ async function UIWindowAttachCustomDomain (options) {
             try {
                 const res = await api('GET', `/${encodeURIComponent(chosen.uuid)}`);
                 if ( ! res.ok ) {
-                    showError('records', errorKeyFor(res));
+                    showError('records', errorFor(res));
                     return;
                 }
                 // A domain that is no longer pending comes back with only its
@@ -359,7 +371,7 @@ async function UIWindowAttachCustomDomain (options) {
                 renderRecords(chosen);
             } catch ( e ) {
                 console.error('custom-domain: status check failed', e);
-                showError('records', 'custom_domain_error_generic');
+                showError('records', text('custom_domain_error_generic'));
             } finally {
                 setBusy(false);
             }

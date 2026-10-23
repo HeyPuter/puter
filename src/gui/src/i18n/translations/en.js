@@ -165,6 +165,7 @@ const en = {
         custom_domain_error_generic: 'Something went wrong. Please try again.',
         custom_domain_error_invalid: 'Enter a domain name like www.example.com.',
         custom_domain_error_limit: 'Your account has reached the maximum number of custom domains.',
+        custom_domain_error_not_found: 'This domain isn\'t on your account anymore. It may have been removed.',
         custom_domain_error_plan: 'Custom domains need a paid plan.',
         custom_domain_error_rate_limited: 'Too many attempts. Please wait a minute and try again.',
         custom_domain_error_rejected: 'That domain can\'t be added. Check the name and try again.',

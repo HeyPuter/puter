@@ -42,8 +42,8 @@ The DNS records to set at the domain's DNS provider. Each record is an object wi
 - `type` (String): `CNAME` or `TXT`.
 - `name` (String): the record's name.
 - `value` (String): the record's value.
-- `purpose` (String): `routing` for the record that sends traffic to the website, or `ownership` and `certificate` for records that speed up verification.
-- `required` (Boolean): `true` for the `routing` record. The other records are optional.
+- `purpose` (String): `routing` for the record that sends traffic to the website, `ownership` for the record that proves the user owns the domain, or `certificate` for a record that speeds up issuing the HTTPS certificate.
+- `required` (Boolean): `true` for the `routing` and `ownership` records, which the user has to set. A `certificate` record is optional.
 
 #### `createdAt` (Number)
 
