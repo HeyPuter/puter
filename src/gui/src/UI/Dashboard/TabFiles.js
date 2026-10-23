@@ -2946,6 +2946,8 @@ const TabFiles = {
             // Taps are handled by onclick (opens item) and taphold (context menu),
             // so pointerdown never accidentally selects while the user is scrolling.
             if ( e.pointerType === 'touch' ) return;
+            // Select mode toggles rows in onclick, whatever the pointer.
+            if ( _this.selectModeActive ) return;
 
             shift_clicked = false;
 
@@ -3014,14 +3016,11 @@ const TabFiles = {
                 // it must not collapse an existing multi-selection.
             }
 
-            // In select mode on mobile, treat taps like Ctrl+click (toggle selection)
-            const isMobileSelectMode = (window.isMobile.phone || window.isMobile.tablet) && _this.selectModeActive;
-
             // If clicking on .item-name, .item-icon, or .item-badges, select immediately so item drag works.
             // On touch devices, these elements have pointer-events:none via CSS so this path
             // won't be reached — touches land on .row instead, deferring selection to onclick.
             const isDragHandle = e.target.closest('.item-name, .item-icon, .item-badges');
-            if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode && isDragHandle ) {
+            if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && isDragHandle ) {
                 applySelection([el_item]);
                 itemWasSelectedOnMousedown = true;
                 return;
@@ -3029,7 +3028,7 @@ const TabFiles = {
 
             // If item is NOT selected and no modifier keys: defer selection to click handler.
             // This allows rubberband selection to start when dragging from unselected items.
-            if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode ) {
+            if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') ) {
                 window.active_element = el_item;
                 window.active_item_container = el_item.closest('.files');
                 return;
@@ -3045,14 +3044,14 @@ const TabFiles = {
                 return;
             }
 
-            if ( !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode ) {
+            if ( !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
                     r.classList.remove('selected');
                 });
             }
 
             if ( ! e.shiftKey ) {
-                if ( ((e.ctrlKey || e.metaKey) || isMobileSelectMode) && el_item.classList.contains('selected') ) {
+                if ( (e.ctrlKey || e.metaKey) && el_item.classList.contains('selected') ) {
                     el_item.classList.remove('selected');
                 } else {
                     el_item.classList.add('selected');
@@ -3096,17 +3095,18 @@ const TabFiles = {
                 return;
             }
 
+            // In select mode, a tap or click toggles selection instead of opening
+            if ( _this.selectModeActive ) {
+                el_item.classList.toggle('selected');
+                window.latest_selected_item = el_item;
+                _this.updateFooterStats();
+                return;
+            }
+
             // On touch/mobile: tap opens the item directly, no selection step needed.
             // Selection (and context menu) is handled via taphold.
             // Use lastPointerType as primary signal (works even if isMobile misdetects).
             if ( lastPointerType === 'touch' || window.isMobile.phone || window.isMobile.tablet ) {
-                // In select mode, tap toggles selection instead of opening
-                if ( _this.selectModeActive ) {
-                    el_item.classList.toggle('selected');
-                    window.latest_selected_item = el_item;
-                    _this.updateFooterStats();
-                    return;
-                }
                 if ( isPending() ) return;
                 if ( isFolder === "1" ) {
                     _this.pushNavHistory(file.path);
@@ -3929,11 +3929,9 @@ const TabFiles = {
             $footer.find('.files-footer-separator').css('display', 'none');
         }
 
-        // The floating action bar only appears in mobile select mode;
-        // desktop multi-selection relies on the context menu instead.
-        const isMobileSelectMode = (window.isMobile.phone || window.isMobile.tablet) && this.selectModeActive;
-
-        if ( isMobileSelectMode && selectedCount >= 1 ) {
+        // The floating action bar only appears in select mode (narrow
+        // screens); elsewhere multi-selection relies on the context menu.
+        if ( this.selectModeActive && selectedCount >= 1 ) {
             $selectionActions.addClass('visible');
             this.updateSelectionActionsState(selectedRows);
         } else {
