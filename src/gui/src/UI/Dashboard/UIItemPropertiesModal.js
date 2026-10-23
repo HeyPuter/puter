@@ -289,7 +289,9 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
             if ( closed ) return;
             $list.html(`<div class="item-props-empty">${i18n('error_unknown_cause')}</div>`);
         },
-    });
+    })
+        // The error callback renders the failure; the promise rejects with it too.
+        .catch(() => {});
 
     return { close };
 }
