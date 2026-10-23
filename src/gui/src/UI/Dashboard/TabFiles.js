@@ -2029,6 +2029,7 @@ const TabFiles = {
         const newModified = file.modified || 0;
         const sortColumn = this.sortColumn;
         const sortDirection = this.sortDirection;
+        let inserted = false;
 
         $existingRows.each(function () {
             const $existing = $(this);
@@ -2037,6 +2038,7 @@ const TabFiles = {
             // Folders always come before files
             if ( newIsDir && !existingIsDir ) {
                 $newRow.insertBefore($existing);
+                inserted = true;
                 return false;
             }
             if ( !newIsDir && existingIsDir ) {
@@ -2063,11 +2065,14 @@ const TabFiles = {
 
             if ( comparison < 0 ) {
                 $newRow.insertBefore($existing);
+                inserted = true;
                 return false;
             }
         });
 
-        // If not inserted, it belongs at the end (already there from append)
+        // It belongs at the end. A just-appended row already is, but a renamed
+        // one is still wherever its old name sorted.
+        if ( ! inserted ) $newRow.insertAfter($existingRows.last());
     },
 
     /**
@@ -2523,7 +2528,19 @@ const TabFiles = {
         // fetch; swap them for the fresh listing now that it's here. The
         // clear and the appends below run without an intervening task, so
         // the browser paints the old and new listing back to back.
+        // An open rename editor is carried across so the typing survives.
+        let openEditor = null;
         if ( isSameDirRefresh ) {
+            const editor = $files.find('.item-name-editor-active:visible')[0];
+            if ( editor ) {
+                openEditor = {
+                    uid: $(editor).closest('.row').attr('data-uid'),
+                    value: editor.value,
+                    start: editor.selectionStart,
+                    end: editor.selectionEnd,
+                    direction: editor.selectionDirection,
+                };
+            }
             clearListing();
         }
 
@@ -2570,6 +2587,24 @@ const TabFiles = {
 
         this.hideSpinner();
         this.renderingDirectory = false;
+        if ( openEditor ) this.reopenNameEditor(openEditor);
+    },
+
+    /**
+     * Reopens a rename editor that a same-directory refresh tore down, with
+     * the text and caret the user left in it.
+     *
+     * @param {{ uid: string, value: string, start: number, end: number, direction: string }} state
+     * @returns {Promise<void>}
+     */
+    async reopenNameEditor ({ uid, value, start, end, direction }) {
+        const row = Array.from(this.$el_window.find('.files-tab .files .row')).find(r => r.getAttribute('data-uid') === uid);
+        if ( ! row ) return;
+        await window.activate_item_name_editor(row);
+        const editor = row.querySelector('.item-name-editor');
+        if ( ! editor || ! $(editor).hasClass('item-name-editor-active') ) return;
+        editor.value = value;
+        editor.setSelectionRange(start, end, direction);
     },
 
     /**
