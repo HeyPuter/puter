@@ -30,25 +30,28 @@ export interface PushConsentDeps {
         app: {
             getByUid: (
                 uid: string,
-            ) => Promise<{ id?: number | null } | null | undefined>;
+            ) => Promise<
+                { id?: number | null; uid?: string | null } | null | undefined
+            >;
         };
     };
     services: { permission: Pick<PermissionService, 'check'> };
 }
 
-/** Read on every send; Puter's own notifications have no app and skip it. */
+/** Read on every send for notifications an app itself sends, not Puter's. */
 export const hasPushConsent = async (
     deps: PushConsentDeps,
     userId: number,
     appUid: string,
 ): Promise<boolean> => {
     try {
-        const user = await deps.stores.user.getById(userId);
-        if (!user?.id) return false;
-        const app = await deps.stores.app.getByUid(appUid);
-        if (!app?.id) return false;
-        // As the app for that user: only their grant to it can answer yes.
-        const actor = makeActor({ user, app: { uid: appUid, id: app.id } });
+        const [user, app] = await Promise.all([
+            deps.stores.user.getById(userId),
+            deps.stores.app.getByUid(appUid),
+        ]);
+        if (!user?.id || !app?.id || !app.uid) return false;
+        // As the app for that user, keyed by the row's uid that revokes bump.
+        const actor = makeActor({ user, app: { uid: app.uid, id: app.id } });
         return await deps.services.permission.check(
             actor,
             NOTIFICATIONS_PUSH_PERMISSION,

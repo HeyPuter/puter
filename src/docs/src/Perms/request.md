@@ -81,7 +81,7 @@ Your app's notifications always show inside Puter. To also have them sent to the
 const granted = await puter.perms.request('notifications:push');
 ```
 
-The grant is per app and per user, and is checked every time a notification is sent. Without it, or once the user revokes it, your notifications still show inside Puter but none go out as pushes. Use [`puter.perms.check('notifications:push')`](/Perms/check/) to see whether it's in place without prompting.
+The grant is per app and per user, and is checked every time a notification is sent. Without it, or once the user revokes it, your notifications still show inside Puter but none go out as pushes.
 
 ## Creating a path on request
 

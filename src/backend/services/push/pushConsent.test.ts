@@ -18,7 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -153,6 +153,27 @@ describe('hasPushConsent', () => {
                 EVENTS_BACKGROUND_PERMISSION,
             ),
         ).toBe(false);
+    });
+
+    it('builds the actor from the stored app uid', async () => {
+        const check = vi.fn(async () => true);
+        const stub = {
+            stores: {
+                user: {
+                    getById: async () => ({ id: 1, uuid: 'u', username: 'u' }),
+                },
+                app: {
+                    getByUid: async () => ({ id: 7, uid: 'app-canonical' }),
+                },
+            },
+            services: { permission: { check } },
+        } as unknown as PushConsentDeps;
+
+        expect(await hasPushConsent(stub, 1, 'APP-CANONICAL')).toBe(true);
+        expect(check).toHaveBeenCalledWith(
+            expect.objectContaining({ app: { uid: 'app-canonical', id: 7 } }),
+            NOTIFICATIONS_PUSH_PERMISSION,
+        );
     });
 
     it('is false for a user or an app that does not exist', async () => {
