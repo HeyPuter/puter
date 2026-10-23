@@ -47,6 +47,13 @@ import {
     serializeAppGroups,
 } from './appGroups.js';
 
+/**
+ * What a failed kv read resolves to. It must not pass for null ("never
+ * saved"): the grid would drop the user's folders and order, and the next
+ * save would write that loss back.
+ */
+const KV_READ_FAILED = Symbol('kv read failed');
+
 /** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
 const APP_NAMES_NO_UNINSTALL = new Set([
     'dev-center',
@@ -842,6 +849,13 @@ const TabApps = {
     _savedOrderNames: null,
     _orderSavedAtSeq: 0,
     _groupsSavedAtSeq: 0,
+    // Whether a read of the stored order / folders has ever succeeded. Until
+    // one has, saves stay in memory: writing would replace the stored value
+    // with one built without it.
+    _orderLoaded: false,
+    _groupsLoaded: false,
+    // The last uninstalled-apps list a read returned, for loads whose read fails.
+    _lastRemovedApps: null,
     _launchingApps: new Set(),
     // A deep-link install mid-arrival ({ name, $el_window }) — its tile is
     // parked invisible until the intro's arrival beat (see
@@ -2156,6 +2170,7 @@ const TabApps = {
     saveGroups () {
         const groups = serializeAppGroups(this._groups);
         this._groups = groups;
+        if ( ! this._groupsLoaded ) return;
         // Loads already in flight fetched kv before this save; mark the
         // boundary so their stale snapshot can't replay over it (see
         // _resolveGroups).
@@ -2977,12 +2992,25 @@ const TabApps = {
         if ( pending.loadSeq < (this._appliedSeq || 0) ) return;
         this._appliedSeq = pending.loadSeq;
 
-        const orderedNames = this._resolveOrderNames(pending.loadSeq, pending.orderedNames);
-        this._savedOrderNames = orderedNames;
-        this._groups = this._resolveGroups(pending.loadSeq, pending.groups);
-        this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
+        const orderedNames = this._applyLoadedLayout(pending.loadSeq, pending.orderedNames, pending.groups);
         this._apps = reconcileAppOrder(pending.merged, orderedNames);
         this.renderApps(pending.$el_window, { preservePage: true, instant: true });
+    },
+
+    // Adopt a load's saved order and folders, returning the order to
+    // reconcile against. A half whose kv read failed keeps what this session
+    // already has.
+    _applyLoadedLayout (loadSeq, fetchedOrderNames, fetchedGroups) {
+        if ( fetchedOrderNames !== KV_READ_FAILED ) {
+            this._savedOrderNames = this._resolveOrderNames(loadSeq, fetchedOrderNames);
+            this._orderLoaded = true;
+        }
+        if ( fetchedGroups !== KV_READ_FAILED ) {
+            this._groups = this._resolveGroups(loadSeq, fetchedGroups);
+            this._groupsLoaded = true;
+        }
+        this._hasCustomOrder = Array.isArray(this._savedOrderNames) && this._savedOrderNames.length > 0;
+        return this._savedOrderNames;
     },
 
     // The folders half of _resolveOrderNames, for the same reason: a fetch
@@ -3056,6 +3084,7 @@ const TabApps = {
         // reconcileAppOrder ignores them.
         const names = mergeSavedOrder(serializeAppOrder(this._apps), this._savedOrderNames);
         this._savedOrderNames = names;
+        if ( ! this._orderLoaded ) return;
         // Loads already in flight fetched kv before this save; mark the
         // boundary so their stale snapshot can't replay over it (see
         // _resolveOrderNames).
@@ -3157,9 +3186,9 @@ const TabApps = {
                     console.error('Failed to fetch launch apps:', err);
                     return null;
                 }),
-                puter.kv.get(APPS_ORDER_KV_KEY).catch(() => null),
-                puter.kv.get(REMOVED_APPS_KV_KEY).catch(() => null),
-                puter.kv.get(APP_GROUPS_KV_KEY).catch(() => null),
+                puter.kv.get(APPS_ORDER_KV_KEY).catch(() => KV_READ_FAILED),
+                puter.kv.get(REMOVED_APPS_KV_KEY).catch(() => KV_READ_FAILED),
+                puter.kv.get(APP_GROUPS_KV_KEY).catch(() => KV_READ_FAILED),
             ]);
 
             const installedApps = installedResult.apps;
@@ -3175,7 +3204,8 @@ const TabApps = {
             // overlaid with this session's not-yet-persisted mutations: an
             // uninstall races its own kv write, and a failed uninstall's
             // rollback races the removal of that write.
-            const removedNames = parseRemovedApps(removedAppsRaw);
+            if ( removedAppsRaw !== KV_READ_FAILED ) this._lastRemovedApps = parseRemovedApps(removedAppsRaw);
+            const removedNames = new Set(this._lastRemovedApps ?? []);
             if ( this._removedLocal ) {
                 for ( const [name, isRemoved] of this._removedLocal ) {
                     if ( isRemoved ) removedNames.add(name);
@@ -3254,7 +3284,9 @@ const TabApps = {
             // in their default order; stale names are ignored.
             let orderedNames = null;
             try {
-                if ( savedOrderRaw ) {
+                if ( savedOrderRaw === KV_READ_FAILED ) {
+                    orderedNames = KV_READ_FAILED;
+                } else if ( savedOrderRaw ) {
                     orderedNames = typeof savedOrderRaw === 'string'
                         ? JSON.parse(savedOrderRaw)
                         : savedOrderRaw;
@@ -3262,7 +3294,7 @@ const TabApps = {
             } catch ( _e ) {
                 orderedNames = null;
             }
-            const groups = parseAppGroups(groupsRaw);
+            const groups = groupsRaw === KV_READ_FAILED ? KV_READ_FAILED : parseAppGroups(groupsRaw);
 
             // Skip only if a strictly newer load already applied its result.
             if ( loadSeq < (this._appliedSeq || 0) ) return;
@@ -3280,11 +3312,7 @@ const TabApps = {
             // A drag may have started AND committed while this load was in
             // flight; _resolveOrderNames keeps its saved reorder from being
             // replayed over by this load's pre-save kv snapshot.
-            const effectiveOrder = this._resolveOrderNames(loadSeq, orderedNames);
-            this._savedOrderNames = effectiveOrder;
-            this._groups = this._resolveGroups(loadSeq, groups);
-
-            this._hasCustomOrder = Array.isArray(effectiveOrder) && effectiveOrder.length > 0;
+            const effectiveOrder = this._applyLoadedLayout(loadSeq, orderedNames, groups);
 
             // A refresh of a grid already on screen keeps the user's page and
             // skips the first load's fade-in.
