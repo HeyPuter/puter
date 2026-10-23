@@ -61,6 +61,7 @@ const makeModule = (over = {}) => {
         authToken: 'token-1',
         APIOrigin: 'https://api.test',
         args: {},
+        getAppIDFromAuthToken: vi.fn((token) => (token ? 'app-1' : null)),
         authListeners: new Set(),
         onAuthStateChanged(listener) {
             this.authListeners.add(listener);
@@ -716,6 +717,39 @@ describe('onNotification', () => {
             makeModule({ events }).onNotification(() => {}),
         );
         expect(error.code).toBe('forbidden');
+    });
+
+    it('rejects app_required without an app token', async () => {
+        const events = makeEvents();
+        const notifications = makeModule({
+            events,
+            getAppIDFromAuthToken: vi.fn(() => null),
+        });
+
+        const error = await rejects(() =>
+            notifications.onNotification(() => {}),
+        );
+        expect(error).toBeInstanceOf(PuterJSError);
+        expect(error.code).toBe('app_required');
+        expect(notifications.puter.getAppIDFromAuthToken).toHaveBeenCalledWith(
+            'token-1',
+        );
+        expect(events.onLocal).not.toHaveBeenCalled();
+    });
+
+    it('signs a website visitor in before checking for an app', async () => {
+        const notifications = makeModule({ env: 'web', authToken: null });
+        notifications.puter.ui.authenticateWithPuter = vi.fn(async () => {
+            notifications.puter.authToken = 'app-token';
+        });
+
+        const listener = await notifications.onNotification(() => {});
+        await listener.off();
+
+        expect(notifications.puter.ui.authenticateWithPuter).toHaveBeenCalled();
+        expect(notifications.puter.getAppIDFromAuthToken).toHaveBeenCalledWith(
+            'app-token',
+        );
     });
 
     it('rejects a handler that is not a function', async () => {

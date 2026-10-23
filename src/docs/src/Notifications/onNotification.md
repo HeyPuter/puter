@@ -6,7 +6,7 @@ platforms: [websites, apps]
 
 Calls `handler` for each of your app's notifications while the app is open. It first hands over the notifications your app already has, oldest first, then each new one as it's sent. If the connection drops, the ones sent meanwhile are read back when it returns. Each notification reaches a listener once, however it arrived.
 
-It only receives notifications your app sent, never the user's other notifications.
+It only receives notifications your app sent, never the user's other notifications. It needs to run as an app (an app on Puter, or a website using Puter.js); with an account session and no app, such as the Puter desktop itself or Node.js with an account token, it rejects with `app_required`.
 
 It runs on [Events](/Events/), so the server needs events turned on. Where they're off, it rejects with `events_disabled`.
 
@@ -52,6 +52,7 @@ It rejects with an error carrying `message` and `code`:
 | --- | --- |
 | `invalid_handler` | `handler` isn't a function. |
 | `invalid_argument` | `since` isn't a number. |
+| `app_required` | The call isn't made as an app. |
 | `events_disabled` | This server doesn't have events turned on. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 

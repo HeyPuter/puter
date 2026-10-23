@@ -195,6 +195,13 @@ export default suite('notifications', {
         t.assert.ok(error instanceof Error, 'a PuterJSError');
     },
 
+    'onNotification from an account session is refused': async (t) => {
+        const error = await t.assert.rejects(() =>
+            t.puter.notifications.onNotification(() => {}),
+        );
+        t.assert.equal(codeOf(error), 'app_required');
+    },
+
     'notify passes a bad field back as bad_request': async (t) => {
         const appUid = await makeApp(t);
         await asApp(t, appUid, async () => {
