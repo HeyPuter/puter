@@ -631,6 +631,12 @@ const TabFiles = {
             this.updateOpenFileDots();
         });
 
+        // Select mode's Select and Done buttons only show up to 480px (see
+        // dashboard.css); widened past that, it could no longer be left.
+        window.matchMedia('(max-width: 480px)').addEventListener('change', (e) => {
+            if ( ! e.matches ) this.exitSelectMode();
+        });
+
         // A new username (also a temporary account saved under one) moves the
         // home folder. Paths held here still name the old one, and the rows,
         // crumbs and their handlers were drawn with them.
