@@ -53,6 +53,7 @@ const loadWorker = ({ windows = [] } = {}) => {
         console,
         Map,
         Promise,
+        Date: { now: () => globalThis.Date.now() },
         setTimeout: (...args) => globalThis.setTimeout(...args),
         clearTimeout: (...args) => globalThis.clearTimeout(...args),
         self: scope,
@@ -252,17 +253,32 @@ describe('service worker notificationclick', () => {
         expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
     });
 
-    it('opens Puter when the window does not acknowledge the tap in time', async () => {
+    it('opens Puter when the window does not acknowledge within 600 ms of the click', async () => {
         vi.useFakeTimers();
         const win = windowClient(`${ORIGIN}/`);
         const worker = loadWorker({ windows: [win] });
         const done = worker.fire('notificationclick', tapped(CLICK));
-        await vi.advanceTimersByTimeAsync(1499);
+        await vi.advanceTimersByTimeAsync(599);
         expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(1);
         await done;
         expect(win.postMessage).toHaveBeenCalled();
         expect(worker.scope.clients.openWindow).toHaveBeenCalledWith(`${ORIGIN}/?puter.notification=n1`);
+    });
+
+    it('counts the window lookup against the same 600 ms', async () => {
+        vi.useFakeTimers();
+        const win = windowClient(`${ORIGIN}/`);
+        const worker = loadWorker();
+        worker.scope.clients.matchAll.mockImplementation(() => new Promise((resolve) => {
+            setTimeout(() => resolve([win]), 400);
+        }));
+        const done = worker.fire('notificationclick', tapped(CLICK));
+        await vi.advanceTimersByTimeAsync(599);
+        expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        await done;
+        expect(worker.scope.clients.openWindow).toHaveBeenCalledOnce();
     });
 
     it('opens Puter on this origin when no window of its own is open', async () => {

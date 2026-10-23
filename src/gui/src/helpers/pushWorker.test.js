@@ -211,6 +211,7 @@ describe('startPushWorker', () => {
 
         const source = { postMessage: vi.fn() };
         nav.listeners.message({ data: { type: 'other', notification: { uid: 'x' } }, source });
+        nav.listeners.message({ data: { type: 'puter-notification-click', id: 'click-0', notification: { uid: '' } }, source });
         nav.listeners.message({
             data: { type: 'puter-notification-click', id: 'click-1', notification: { uid: 'n1', target: { app: 'a' } } },
             source,

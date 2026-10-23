@@ -25,7 +25,8 @@ const SHOW_MESSAGE = 'puter-show-notification';
 const CLICK_MESSAGE = 'puter-notification-click';
 const CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
 const CLICK_PARAM = 'puter.notification';
-const CLICK_ACK_TIMEOUT_MS = 1500;
+// Browsers allow openWindow only shortly after the click.
+const CLICK_ACK_BUDGET_MS = 600;
 const GUI_PATHS = /^\/(?:$|desktop(?:\/|$)|dashboard(?:\/|$)|app\/|settings(?:\/|$)|@)/;
 
 const nonEmptyString = (value) => (
@@ -156,19 +157,15 @@ function waitForClickAck (id, timeoutMs) {
     });
 }
 
-async function routeClick (scope, click, timeoutMs = CLICK_ACK_TIMEOUT_MS) {
+async function routeClick (scope, click, startedAt = Date.now(), budgetMs = CLICK_ACK_BUDGET_MS) {
     const origin = scope.location.origin;
     const windowClients = await scope.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const client = pickWindow(windowClients, origin);
     if ( client ) {
-        try {
-            await client.focus();
-        } catch ( _e ) {
-            // focus is best effort; the message still routes the tap
-        }
         const id = `click-${++nextClickId}`;
-        const acked = waitForClickAck(id, timeoutMs);
+        const acked = waitForClickAck(id, Math.max(0, startedAt + budgetMs - Date.now()));
         client.postMessage({ type: CLICK_MESSAGE, id, notification: click });
+        client.focus().catch(() => {});
         if ( await acked ) return;
     }
     await scope.clients.openWindow(clickUrl(click, origin));
@@ -210,6 +207,7 @@ self.addEventListener('message', (event) => {
 });
 
 self.addEventListener('notificationclick', (event) => {
+    const startedAt = Date.now();
     event.notification.close();
-    event.waitUntil(routeClick(self, clickFromData(event.notification.data)));
+    event.waitUntil(routeClick(self, clickFromData(event.notification.data), startedAt));
 });

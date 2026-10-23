@@ -212,6 +212,7 @@ const launch_app = async (options) => {
                 name: fallbackAppName,
                 args: fallbackArgs,
                 app_obj: undefined,
+                on_ready: undefined,
                 privateLaunchRequestedAppName: requestedAppName,
                 privateLaunchRedirectDepth: privateLaunchRedirectDepth + 1,
             });

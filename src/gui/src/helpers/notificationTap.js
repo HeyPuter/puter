@@ -185,9 +185,10 @@ export const openAppForTap = async ({ appUid, click }, {
         name: app.name,
         app_obj: app,
         on_ready: (process) => {
-            if ( sent ) return;
+            const el_win = process?.references?.el_win;
+            if ( sent || el_win?.dataset?.app_uuid !== appUid ) return;
             sent = true;
-            send(process.references?.el_win, NOTIFICATION_CLICK, click);
+            send(el_win, NOTIFICATION_CLICK, click);
         },
     });
     return 'launched';

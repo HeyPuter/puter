@@ -174,10 +174,26 @@ describe('openAppForTap', () => {
         expect(options).not.toHaveProperty('args');
         expect(send).not.toHaveBeenCalled();
 
-        const el_win = { id: 'new-win' };
+        const el_win = { dataset: { app_uuid: 'app-1' } };
         options.on_ready({ references: { el_win } });
         options.on_ready({ references: { el_win } });
         expect(send.mock.calls).toEqual([[el_win, 'notificationClick', click]]);
+    });
+
+    it('sends nothing to a different app that became ready in its place', async () => {
+        const send = vi.fn();
+        let options;
+        await openAppForTap({ appUid: 'app-1', click }, {
+            running: () => null,
+            getApp: async () => ({ uid: 'app-1', name: 'chat' }),
+            launch: async (opts) => {
+                options = opts;
+            },
+            send,
+        });
+        options.on_ready({ references: { el_win: { dataset: { app_uuid: 'fallback-app' } } } });
+        options.on_ready({ references: {} });
+        expect(send).not.toHaveBeenCalled();
     });
 
     it('does nothing for an app that no longer exists', async () => {

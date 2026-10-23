@@ -20,7 +20,14 @@
 // The page's side of `/sw.js`: registration, routed taps, hidden-tab banners.
 
 import { httpsIconFor, isShareNotification } from '../UI/Dashboard/notificationCenter.js';
-import { APP_MESSAGE_TYPE, dispatchPushTap, dispatchStoredTap, pushTapFromParams, PUSH_TAP_PARAM } from './notificationTap.js';
+import {
+    APP_MESSAGE_TYPE,
+    dispatchPushTap,
+    dispatchStoredTap,
+    normalizePushTap,
+    pushTapFromParams,
+    PUSH_TAP_PARAM,
+} from './notificationTap.js';
 import { clear_query_param } from './parseSharedPath.js';
 
 export const WORKER_URL = '/sw.js';
@@ -164,7 +171,7 @@ export const startPushWorker = async ({
         return;
     }
     nav.serviceWorker.addEventListener('message', (event) => {
-        if ( event.data?.type !== WORKER_CLICK_MESSAGE ) return;
+        if ( event.data?.type !== WORKER_CLICK_MESSAGE || ! normalizePushTap(event.data.notification) ) return;
         event.source?.postMessage?.({ type: WORKER_CLICK_ACK_MESSAGE, id: event.data.id });
         dispatchPushTap(event.data.notification);
     });
