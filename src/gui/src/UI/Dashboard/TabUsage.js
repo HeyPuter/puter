@@ -97,6 +97,15 @@ const TabUsage = {
 
         refreshUsageDetails($el_window);
 
+        // An upgrade, a plan change, or a return from the billing portal (see
+        // TabHome) changes the allowance and the button shown here. Hidden,
+        // the tab refreshes on its next activation instead.
+        window.addEventListener('puter:subscription:changed', () => {
+            if ( ! $($el_window).find('.dashboard-section-usage').hasClass('active') ) return;
+            setupPlanButton($el_window);
+            refreshUsageDetails($el_window);
+        });
+
         // Click handler for sortable table headers
         $($el_window).on('click', '.driver-usage-details-content-table th[data-sort]', function () {
             const column = $(this).data('sort');
