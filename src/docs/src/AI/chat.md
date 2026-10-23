@@ -51,7 +51,7 @@ Select `kimi-k3.1-pro` or `kimi-k3.1-pro-highspeed` with `provider: 'moonshotai'
 
 The context window is 1,048,576 tokens. Use `max_tokens` to set an output cap up to 1,048,576 tokens, subject to the remaining context window and available credits. Preserve the complete returned assistant message, including its `reasoning` and tool calls, when continuing a conversation.
 
-Usage separates uncached input, cached reads, cache writes by TTL, and output. Cache writes are billed once when a prefix is stored. The upstream cache uses a five-minute TTL by default. For current rates, see the [AI models list](https://developer.puter.com/ai/models/).
+Usage separates uncached input, cached reads, cache writes by TTL, and output. Cache writes are billed once when a prefix is stored. The upstream cache uses a five-minute TTL by default. Requests reserve credits at the one-hour cache-write rate because an existing prefix can retain that TTL. Actual charges use the returned usage. If writes are reported without a usable TTL breakdown, the request fails rather than estimating their charge. For current rates, see the [AI models list](https://developer.puter.com/ai/models/).
 
 #### `testMode` (Boolean) (Optional)
 

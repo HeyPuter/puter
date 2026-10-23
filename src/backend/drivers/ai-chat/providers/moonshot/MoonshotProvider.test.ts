@@ -46,6 +46,8 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { ChatCompletionDriver } from '../../ChatCompletionDriver.js';
+import { clearUnhealthyRoutes } from '../../utils/providerHealth.js';
 import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
@@ -93,10 +95,23 @@ vi.mock('../../utils/inlineImages.js', () => ({
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
+let driver: ChatCompletionDriver;
 let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
 
 beforeAll(async () => {
     server = await setupTestServer();
+    driver = new ChatCompletionDriver(
+        {
+            providers: {
+                moonshot: { apiKey: 'test-key' },
+                ollama: { enabled: false },
+            },
+        } as never,
+        server.clients,
+        server.stores,
+        server.services,
+    );
+    await driver.onServerStart();
 });
 
 afterAll(async () => {
@@ -140,6 +155,7 @@ const makeCapturingChatStream = () => {
 };
 
 beforeEach(() => {
+    clearUnhealthyRoutes();
     createMock.mockReset();
     openAICtor.mockReset();
     inlineHttpImageUrlsMock.mockReset();
@@ -390,7 +406,10 @@ describe('MoonshotProvider image inlining', () => {
         await withTestActor(() =>
             provider.complete({
                 model: 'kimi-k3', // kimi-k3 declares image input modality
-                messages: messages as unknown as { role: string; content: unknown }[],
+                messages: messages as unknown as {
+                    role: string;
+                    content: unknown;
+                }[],
             }),
         );
 
@@ -803,13 +822,20 @@ describe('Kimi K3.1 Pro', () => {
         ],
         usage: structuredClone(usage),
     });
-    const mockResponse = (data: unknown, oneHour = '10') => {
+    const mockResponse = (
+        data: unknown,
+        oneHour: string | null = '10',
+        fiveMinute: string | null = null,
+    ) => {
+        const headers = new Headers();
+        if (oneHour !== null)
+            headers.set('Msh-Usage-Cache-Write-Tokens-1h', oneHour);
+        if (fiveMinute !== null)
+            headers.set('Msh-Usage-Cache-Write-Tokens-5m', fiveMinute);
         createMock.mockReturnValueOnce({
             withResponse: async () => ({
                 data,
-                response: new Response(null, {
-                    headers: { 'Msh-Usage-Cache-Write-Tokens-1h': oneHour },
-                }),
+                response: new Response(null, { headers }),
             }),
         });
     };
@@ -1044,6 +1070,264 @@ describe('Kimi K3.1 Pro', () => {
             prompt_tokens: 30,
             completion_tokens: 10,
             cached_tokens: 20,
+            cache_write_tokens: 40,
+            cache_write_1h_tokens: 10,
+        });
+    });
+    it.each(models)(
+        'reserves the highest write rate before sending %s',
+        async (model) => {
+            const inputRate = model.endsWith('highspeed') ? 800 : 400;
+            const outputRate = model.endsWith('highspeed') ? 2000 : 1000;
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: 2_000_000_000, held: 0 });
+            const reserve = vi.spyOn(
+                server.services.metering,
+                'reserveCredits',
+            );
+            mockResponse(
+                {
+                    choices: [
+                        {
+                            message: { role: 'assistant', content: 'ok' },
+                            finish_reason: 'stop',
+                        },
+                    ],
+                    usage: {
+                        prompt_tokens: 1_000_000,
+                        completion_tokens: 10,
+                        prompt_tokens_details: {
+                            cached_tokens: 100_000,
+                            cache_write_tokens: 900_000,
+                        },
+                    },
+                },
+                '900000',
+            );
+            await withTestActor(() =>
+                driver.complete({
+                    model,
+                    provider: 'moonshotai',
+                    messages: [
+                        { role: 'user', content: 'x'.repeat(8_000_000) },
+                    ],
+                    max_tokens: 10,
+                }),
+            );
+            expect(reserve).toHaveBeenCalledTimes(1);
+            expect(reserve.mock.calls[0]![1]).toBeGreaterThanOrEqual(
+                1_000_000 * inputRate + 10 * outputRate,
+            );
+            expect(reserve.mock.calls[0]![1]).toBeLessThan(
+                1_000_001 * inputRate + 10 * outputRate,
+            );
+            expect(recordSpy.mock.calls[0]![0]).toMatchObject({
+                cached_tokens: 100_000,
+                cache_write_1h_tokens: 900_000,
+                prompt_tokens: 0,
+            });
+        },
+    );
+
+    it.each(['kimi-k3', 'kimi-k2.6'])(
+        'keeps the existing driver reservation rate for %s',
+        async (model) => {
+            const entry = MOONSHOT_MODELS.find(
+                (candidate) => candidate.id === model,
+            )!;
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({ balance: 2_000_000_000, held: 0 });
+            const reserve = vi.spyOn(
+                server.services.metering,
+                'reserveCredits',
+            );
+            createMock.mockResolvedValueOnce(response());
+            await withTestActor(() =>
+                driver.complete({
+                    model,
+                    provider: 'moonshotai',
+                    messages: [{ role: 'user', content: 'x'.repeat(8000) }],
+                    max_tokens: 10,
+                }),
+            );
+            expect(reserve.mock.calls[0]![1]).toBe(
+                1000 * Number(entry.costs.prompt_tokens) +
+                    10 * Number(entry.costs.completion_tokens),
+            );
+        },
+    );
+
+    it.each(models)(
+        'rejects an underfunded inherited-cache request for %s before inference',
+        async (model) => {
+            vi.spyOn(
+                server.services.metering,
+                'getUsageHeadroom',
+            ).mockResolvedValue({
+                balance: model.endsWith('highspeed')
+                    ? 600_000_000
+                    : 300_000_000,
+                held: 0,
+            });
+            await expect(
+                withTestActor(() =>
+                    driver.complete({
+                        model,
+                        provider: 'moonshotai',
+                        messages: [
+                            { role: 'user', content: 'x'.repeat(8_000_000) },
+                        ],
+                        max_tokens: 10,
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 402 });
+            expect(createMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each([null, ''])(
+        'round-trips tool-only assistant content %s through the driver',
+        async (content) => {
+            const toolCalls = [
+                {
+                    id: 'call_paris',
+                    type: 'function',
+                    function: {
+                        name: 'weather',
+                        arguments: '{"city":"Paris"}',
+                    },
+                },
+            ];
+            mockResponse(
+                {
+                    choices: [
+                        {
+                            message: {
+                                role: 'assistant',
+                                content,
+                                reasoning_content: 'Check weather',
+                                tool_calls: toolCalls,
+                            },
+                            finish_reason: 'tool_calls',
+                        },
+                    ],
+                    usage: { prompt_tokens: 1, completion_tokens: 1 },
+                },
+                null,
+            );
+            const first = await withTestActor(() =>
+                driver.complete({
+                    model: models[0]!,
+                    provider: 'moonshotai',
+                    messages: [{ role: 'user', content: 'weather?' }],
+                }),
+            );
+            mockResponse(response());
+            await withTestActor(() =>
+                driver.complete({
+                    model: models[0]!,
+                    provider: 'moonshotai',
+                    messages: [
+                        (first as { message: unknown }).message,
+                        {
+                            role: 'tool',
+                            tool_call_id: 'call_paris',
+                            content: 'sunny',
+                        },
+                    ],
+                }),
+            );
+            const assistant = createMock.mock.calls[1]![0].messages.find(
+                (message: { role: string }) => message.role === 'assistant',
+            );
+            expect(assistant).toMatchObject({
+                role: 'assistant',
+                content: null,
+                reasoning_content: 'Check weather',
+                tool_calls: toolCalls,
+            });
+            expect(
+                JSON.parse(assistant.tool_calls[0].function.arguments),
+            ).toEqual({ city: 'Paris' });
+        },
+    );
+
+    it.each([{ city: 'Paris' }, 'Paris'])(
+        'keeps native tool_use input %j through the driver',
+        async (input) => {
+            mockResponse(response());
+            await withTestActor(() =>
+                driver.complete({
+                    model: models[0]!,
+                    provider: 'moonshotai',
+                    messages: [
+                        {
+                            role: 'assistant',
+                            reasoning_content: 'Check weather',
+                            content: [
+                                {
+                                    type: 'tool_use',
+                                    id: 'call_paris',
+                                    name: 'weather',
+                                    input,
+                                },
+                            ],
+                        },
+                        {
+                            role: 'tool',
+                            tool_call_id: 'call_paris',
+                            content: 'sunny',
+                        },
+                    ],
+                }),
+            );
+            const assistant = createMock.mock.calls[0]![0].messages.find(
+                (message: { role: string }) => message.role === 'assistant',
+            );
+            expect(assistant.reasoning_content).toBe('Check weather');
+            expect(
+                JSON.parse(assistant.tool_calls[0].function.arguments),
+            ).toEqual(input);
+        },
+    );
+
+    it.each([
+        [null, null],
+        ['bad', null],
+        ['51', null],
+        ['-1', null],
+        ['10', '41'],
+    ] as const)(
+        'rejects unverifiable TTL counters %s/%s without guessing a charge',
+        async (oneHour, fiveMinute) => {
+            const { provider } = makeProvider();
+            mockResponse(response(), oneHour, fiveMinute);
+            await expect(
+                withTestActor(() =>
+                    provider.complete({
+                        model: models[0]!,
+                        messages: [{ role: 'user', content: 'hi' }],
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 502 });
+            expect(recordSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it('derives one-hour writes from the five-minute header and total writes', async () => {
+        const { provider } = makeProvider();
+        mockResponse(response(), null, '40');
+        await withTestActor(() =>
+            provider.complete({
+                model: models[0]!,
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+        expect(recordSpy.mock.calls[0]![0]).toMatchObject({
             cache_write_tokens: 40,
             cache_write_1h_tokens: 10,
         });

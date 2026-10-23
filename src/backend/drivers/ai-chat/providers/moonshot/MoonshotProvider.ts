@@ -59,6 +59,11 @@ export class MoonshotProvider extends OpenAICompatProvider {
         });
     }
 
+    requestPricing(_args: ICompleteArguments, model: IChatModel) {
+        // Appended prefixes can inherit a one-hour cache entry's write rate.
+        return isK31(model.id) ? { inputKey: 'cache_write_1h_tokens' } : {};
+    }
+
     protected override preservesToolCallOrder(model: IChatModel) {
         return isK31(model.id);
     }
@@ -124,8 +129,11 @@ export class MoonshotProvider extends OpenAICompatProvider {
         const { data, response } = await (client as OpenAI).chat.completions
             .create(params as never, { signal })
             .withResponse();
-        const oneHourWrites = Number(
-            response.headers.get('Msh-Usage-Cache-Write-Tokens-1h') ?? 0,
+        const fiveMinuteWrites = response.headers.get(
+            'Msh-Usage-Cache-Write-Tokens-5m',
+        );
+        const oneHourWrites = response.headers.get(
+            'Msh-Usage-Cache-Write-Tokens-1h',
         );
         const addWriteUsage = (
             completion: ChatCompletion | ChatCompletionChunk,
@@ -133,6 +141,7 @@ export class MoonshotProvider extends OpenAICompatProvider {
             if (completion.usage) {
                 Object.assign(completion.usage, {
                     moonshotCacheWrite1hTokens: oneHourWrites,
+                    moonshotCacheWrite5mTokens: fiveMinuteWrites,
                 });
             }
             return completion;
@@ -148,7 +157,8 @@ export class MoonshotProvider extends OpenAICompatProvider {
     protected override meteredUsage(source: UsageSource, model: IChatModel) {
         if (!isK31(model.id)) return super.meteredUsage(source, model);
         const usage = source.usage as typeof source.usage & {
-            moonshotCacheWrite1hTokens?: number;
+            moonshotCacheWrite1hTokens?: string | null;
+            moonshotCacheWrite5mTokens?: string | null;
             prompt_tokens_details?: {
                 cached_tokens?: number;
                 cache_write_tokens?: number;
@@ -156,7 +166,34 @@ export class MoonshotProvider extends OpenAICompatProvider {
         };
         const cached = usage.prompt_tokens_details?.cached_tokens ?? 0;
         const written = usage.prompt_tokens_details?.cache_write_tokens ?? 0;
-        const oneHour = usage.moonshotCacheWrite1hTokens ?? 0;
+        const fiveMinuteHeader = usage.moonshotCacheWrite5mTokens;
+        const oneHourHeader = usage.moonshotCacheWrite1hTokens;
+        const oneHour =
+            oneHourHeader != null
+                ? Number(oneHourHeader)
+                : fiveMinuteHeader != null
+                  ? written - Number(fiveMinuteHeader)
+                  : 0;
+        if (
+            (written > 0 &&
+                oneHourHeader == null &&
+                fiveMinuteHeader == null) ||
+            !Number.isSafeInteger(oneHour) ||
+            oneHour < 0 ||
+            oneHour > written ||
+            (fiveMinuteHeader != null &&
+                Number(fiveMinuteHeader) !== written - oneHour) ||
+            fiveMinuteHeader === '' ||
+            oneHourHeader === ''
+        ) {
+            throw new HttpError(
+                502,
+                'Moonshot cache-write TTL usage is unavailable or inconsistent',
+                {
+                    legacyCode: 'bad_response',
+                },
+            );
+        }
         return {
             usage: {
                 prompt_tokens: usage.prompt_tokens - cached - written,
