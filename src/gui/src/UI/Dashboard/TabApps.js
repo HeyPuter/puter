@@ -722,7 +722,7 @@ function showAddAppModal ({ $el_window }) {
                 launched = outcome?.launchResult?.launched !== false;
             }).catch(err => {
                 console.error(`Failed to launch ${appName}:`, err);
-                UIAlert(i18n('something_went_wrong'));
+                UIAlert(i18n('something_went_wrong', [], false));
             }).finally(() => {
                 TabApps.settleDeepLinkLaunch(appName, tile, launched);
             });
