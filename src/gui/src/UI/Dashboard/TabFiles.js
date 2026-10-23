@@ -2853,7 +2853,7 @@ const TabFiles = {
                     style="background-color: #ffffff; padding: 2px; ${is_shortcut !== 0 ? 'display:block;' : ''}"
                     src="${html_encode(window.icons['shortcut.svg'])}" 
                     data-item-id="${item_id}"
-                    title="Shortcut"
+                    title="${i18n('item_shortcut')}"
                 >
                 <img  class="item-badge item-is-worker long-hover"
                     style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}"
