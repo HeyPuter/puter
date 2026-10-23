@@ -4677,8 +4677,8 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .files-tab .files .row.selected .item-checkbox .checkbox-icon {
-    background: var(--primary-color, #3b82f6);
-    border-color: var(--primary-color, #3b82f6);
+    background: var(--select-color);
+    border-color: var(--select-color);
 }
 
 .dashboard-section-files .files-tab .files .row.selected .item-checkbox .checkbox-icon::after {
@@ -5622,7 +5622,7 @@ body.myapps-reordering .myapps-tile {
     }
 
     .dashboard-section-files .header .path-action-btn.select-mode-btn.active {
-        background: var(--primary-color, #3b82f6);
+        background: var(--select-color);
         color: white;
         border-radius: 6px;
     }
@@ -5654,7 +5654,7 @@ body.myapps-reordering .myapps-tile {
     /* Mobile: Show Done button in floating action bar during select mode */
     .dashboard-section-files .files-tab.select-mode-active .files-selection-actions .done-btn {
         display: flex;
-        background: var(--primary-color, #3b82f6);
+        background: var(--select-color);
         color: white;
         padding: 5px;
         margin-left: 8px;
