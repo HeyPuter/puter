@@ -5257,37 +5257,6 @@ html.dark-mode .usage-table-show-less:hover {
     text-align: center;
 }
 
-.account-deletion-confirmation-prompt {
-    text-align: center;
-    font-size: 16px;
-    padding: 20px;
-    font-weight: 400;
-    margin: -10px 10px 20px 10px;
-    -webkit-font-smoothing: antialiased;
-    color: #5f626d;
-}
-
-.account-deletion-confirmation-icon {
-    width: 70px;
-    margin: 20px auto 20px;
-    display: block;
-    margin-bottom: 20px;
-}
-
-.proceed-with-user-deletion {
-    margin-bottom: 20px;
-}
-
-.confirm-temporary-user-deletion {
-    width: 100%;
-    margin-bottom: 20px;
-}
-
-.confirm-user-deletion-password {
-    width: 100%;
-    margin-bottom: 20px;
-}
-
 /* ==========================================================================
    Session manager — responsive modal (not a UIWindow)
    ========================================================================== */

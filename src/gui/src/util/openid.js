@@ -53,6 +53,10 @@ export const openRevalidatePopup = async (revalidateUrl) => {
     }
     let doneCalled = false;
     const popup = window.open(url, 'puter-revalidate', POPUP_FEATURES);
+    // A blocked popup never closes, so waiting for it would never end.
+    if ( ! popup ) {
+        throw new Error('Popup blocked');
+    }
     const onMessage = ev => {
         if ( (ev.origin !== window.gui_origin) && (ev.origin !== window.location.origin) ) return;
         if ( !ev.data || ev.data.type !== 'puter-revalidate-done' ) return;

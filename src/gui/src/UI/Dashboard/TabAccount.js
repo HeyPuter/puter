@@ -17,13 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindowChangePassword from '../UIWindowChangePassword.js';
-import UIWindowChangeEmail from '../Settings/UIWindowChangeEmail.js';
-import UIWindowChangeUsername from '../UIWindowChangeUsername.js';
-import UIWindowConfirmUserDeletion from '../Settings/UIWindowConfirmUserDeletion.js';
-import UIWindowCopyToken from '../UIWindowCopyToken.js';
-import UIWindowEditProfile from '../UIWindowEditProfile.js';
 import UIWindow from '../UIWindow.js';
+import {
+    openChangeEmailDialog,
+    openChangePasswordDialog,
+    openChangeUsernameDialog,
+    openCreateTokenDialog,
+    openDeleteAccountDialog,
+    openEditProfileDialog,
+} from './UIAccountDialogs.js';
 import UIProfilePictureCropModal from './UIProfilePictureCropModal.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
 
@@ -178,85 +180,31 @@ const TabAccount = {
     },
 
     init ($el_window) {
-        $el_window.find('.dashboard-section-account .edit-profile').on('click', function (e) {
-            UIWindowEditProfile({
-                window_options: {
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    backdrop: true,
-                    close_on_backdrop_click: true,
-                    parent_center: true,
-                    stay_on_top: true,
-                    has_head: false,
-                },
+        // Each dialog mounts over the dashboard and hands focus back to its button.
+        const dialogOptions = (button) => ({ $container: $el_window, returnFocusTo: button });
+        $el_window.find('.dashboard-section-account .edit-profile').on('click', function () {
+            openEditProfileDialog({
+                ...dialogOptions(this),
                 onSave: (profile) => {
                     $el_window.find('.dashboard-section-account .dashboard-profile-display-name')
                         .text(profile.displayName || i18n('profile_empty', [], false));
                 },
             });
         });
-        $el_window.find('.dashboard-section-account .change-password').on('click', function (e) {
-            UIWindowChangePassword({
-                window_options: {
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    backdrop: true,
-                    close_on_backdrop_click: true,
-                    parent_center: true,
-                    stay_on_top: true,
-                    has_head: false,
-                },
-            });
+        $el_window.find('.dashboard-section-account .change-password').on('click', function () {
+            openChangePasswordDialog(dialogOptions(this));
         });
-        $el_window.find('.dashboard-section-account .change-username').on('click', function (e) {
-            UIWindowChangeUsername({
-                window_options: {
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    backdrop: true,
-                    close_on_backdrop_click: true,
-                    parent_center: true,
-                    stay_on_top: true,
-                    has_head: false,
-                },
-            });
+        $el_window.find('.dashboard-section-account .change-username').on('click', function () {
+            openChangeUsernameDialog(dialogOptions(this));
         });
-        $el_window.find('.dashboard-section-account .change-email').on('click', function (e) {
-            UIWindowChangeEmail({
-                window_options: {
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    backdrop: true,
-                    close_on_backdrop_click: true,
-                    parent_center: true,
-                    stay_on_top: true,
-                    has_head: false,
-                },
-            });
+        $el_window.find('.dashboard-section-account .change-email').on('click', function () {
+            openChangeEmailDialog(dialogOptions(this));
         });
-        $el_window.find('.dashboard-section-account .copy-auth-token').on('click', function (e) {
-            UIWindowCopyToken({
-                show_close_button: true,
-                show_header: true,
-                window_options: {
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    backdrop: true,
-                    close_on_backdrop_click: true,
-                    parent_center: true,
-                    stay_on_top: true,
-                    has_head: false,
-                    is_draggable: false,
-                    draggable_body: false,
-                },
-            });
+        $el_window.find('.dashboard-section-account .copy-auth-token').on('click', function () {
+            openCreateTokenDialog({ ...dialogOptions(this), $sessionsParent: $el_window });
         });
-        $el_window.find('.dashboard-section-account .delete-account').on('click', function (e) {
-            UIWindowConfirmUserDeletion({
-                window_options: {
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    backdrop: true,
-                    close_on_backdrop_click: true,
-                    parent_center: true,
-                    stay_on_top: true,
-                    has_head: false,
-                },
-            });
+        $el_window.find('.dashboard-section-account .delete-account').on('click', function () {
+            openDeleteAccountDialog(dialogOptions(this));
         });
         $el_window.find('.dashboard-section-account .change-profile-picture').on('keydown', function (e) {
             if ( e.key !== 'Enter' && e.key !== ' ' ) return;
