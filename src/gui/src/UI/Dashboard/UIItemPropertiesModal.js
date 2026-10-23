@@ -271,9 +271,10 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
                     const $entry = $link.closest('.item-props-website-entry');
                     const $row = $entry.closest('.item-props-row');
                     $entry.remove();
+                    // The focused button just left the DOM; keep focus in the dialog.
+                    el_modal.focus({ preventScroll: true });
                     if ( $row.find('.item-props-website-entry').length > 0 ) return;
                     $row.remove();
-                    el_modal.focus({ preventScroll: true });
                     // The item serves no website any more: drop its badge from every row.
                     $('.item').filter(function () {
                         return $(this).attr('data-uid') === item_uid;
