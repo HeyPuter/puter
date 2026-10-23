@@ -33,7 +33,7 @@
  * endpoint.
  */
 
-import { Writable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 import {
     afterAll,
     afterEach,
@@ -47,13 +47,20 @@ import {
 } from 'vitest';
 
 import { ChatCompletionDriver } from '../../ChatCompletionDriver.js';
-import { clearUnhealthyRoutes } from '../../utils/providerHealth.js';
+import {
+    clearUnhealthyRoutes,
+    isRouteUnhealthy,
+} from '../../utils/providerHealth.js';
 import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
-import { withTestActor } from '../../../integrationTestUtil.js';
+import {
+    readStreamResult,
+    withTestActor,
+} from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
+import { FakeChatProvider } from '../FakeChatProvider.js';
 import { MOONSHOT_MODELS } from './models.js';
 import { MoonshotProvider } from './MoonshotProvider.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
@@ -1315,6 +1322,107 @@ describe('Kimi K3.1 Pro', () => {
                 ),
             ).rejects.toMatchObject({ statusCode: 502 });
             expect(recordSpy).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each([
+        [false, null, null, false],
+        [false, '10', '41', false],
+        [true, null, null, false],
+        [true, '10', '41', false],
+        [false, null, null, true],
+        [false, '10', '41', true],
+    ] as const)(
+        'terminates accounting failures (stream=%s, TTL=%s/%s, fallback=%s) without retry or estimated charge',
+        async (stream, oneHour, fiveMinute, startWithFake) => {
+            const model = MOONSHOT_MODELS.find((m) => m.id === models[0])!;
+            // A real alternative route ensures a retry would be observable.
+            vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValue([
+                model,
+            ]);
+            const fallback = vi.spyOn(FakeChatProvider.prototype, 'complete');
+            if (startWithFake)
+                fallback.mockRejectedValueOnce(new Error('Connection failed'));
+            const d = new ChatCompletionDriver(
+                {
+                    providers: {
+                        moonshot: { apiKey: 'test-key' },
+                        ollama: { enabled: false },
+                    },
+                } as never,
+                server.clients,
+                server.stores,
+                server.services,
+            );
+            await d.onServerStart();
+            const actor = {
+                user: {
+                    uuid: `kimi-accounting-${Math.random()}`,
+                    username: 'kimi-accounting',
+                    email: 'kimi@test.com',
+                },
+            } as never;
+            const take = vi.spyOn(server.stores.creditHold, 'take');
+            const release = vi.spyOn(server.stores.creditHold, 'release');
+            mockResponse(
+                stream
+                    ? asAsyncIterable([
+                          { choices: [{ delta: { content: 'answer' } }] },
+                          { choices: [], usage: structuredClone(usage) },
+                      ])
+                    : response(),
+                oneHour,
+                fiveMinute,
+            );
+            const completion = withTestActor(
+                () =>
+                    d.complete({
+                        model: models[0]!,
+                        provider: startWithFake ? 'fake-chat' : 'moonshot',
+                        messages: [{ role: 'user', content: 'hi' }],
+                        max_tokens: 10,
+                        stream,
+                    }),
+                actor,
+            );
+            if (stream) {
+                const result = (await completion) as unknown as {
+                    stream: Readable;
+                };
+                const events = (await readStreamResult(result))
+                    .toString()
+                    .trim()
+                    .split('\n')
+                    .map((line) => JSON.parse(line));
+                expect(events).toContainEqual(
+                    expect.objectContaining({
+                        type: 'error',
+                        code: 'completion_accounting_failed',
+                        status: 502,
+                        message: expect.stringContaining(
+                            'No charge was recorded',
+                        ),
+                    }),
+                );
+            } else {
+                await expect(completion).rejects.toMatchObject({
+                    statusCode: 502,
+                    legacyCode: 'completion_accounting_failed',
+                    message: expect.stringContaining('No charge was recorded'),
+                });
+            }
+            await vi.waitFor(() =>
+                expect(release).toHaveBeenCalledTimes(startWithFake ? 2 : 1),
+            );
+            expect(take).toHaveBeenCalledTimes(startWithFake ? 2 : 1);
+            expect(take.mock.calls[0]![1]).toBeGreaterThan(0);
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(0);
+            expect(createMock).toHaveBeenCalledTimes(1);
+            expect(fallback).toHaveBeenCalledTimes(startWithFake ? 1 : 0);
+            expect(recordSpy).not.toHaveBeenCalled();
+            expect(isRouteUnhealthy('moonshot', models[0]!)).toBe(false);
         },
     );
 

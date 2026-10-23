@@ -36,6 +36,7 @@ import {
     requestAiCosts,
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
+import { CompletionAccountingError } from './utils/meterChatUsage.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import {
     isCreditExhaustion as isUpstreamCreditExhaustion,
@@ -909,9 +910,13 @@ export class ChatCompletionDriver extends PuterDriver {
             // mark the route unhealthy and walk the fallback chain.
             abortSignal?.throwIfAborted();
 
-            // A withheld completion was still a completion — charged, final,
-            // not a route failure worth another (billed) attempt elsewhere.
-            if (isModerationRefusal(e)) throw e;
+            // Completed inference is terminal even when moderation withholds it
+            // or accounting fails. Retrying would buy another completion.
+            if (
+                e instanceof CompletionAccountingError ||
+                isModerationRefusal(e)
+            )
+                throw e;
             // Our own request validation (policy rejection, bad tool shape)
             // is never a route problem — no other provider would accept it
             // either, so there is nothing a fallback would fix. An empty
@@ -978,7 +983,11 @@ export class ChatCompletionDriver extends PuterDriver {
                     await hold.release();
                     hold = NO_CREDIT_HOLD;
                     abortSignal?.throwIfAborted();
-                    if (isModerationRefusal(fbErr)) throw fbErr;
+                    if (
+                        fbErr instanceof CompletionAccountingError ||
+                        isModerationRefusal(fbErr)
+                    )
+                        throw fbErr;
                     const attempt = recordFailure(fallback, fbErr);
                     // A fallback's own 4xx is a translation gap between
                     // vendors, not the caller's fault — stop climbing the
@@ -1153,12 +1162,14 @@ export class ChatCompletionDriver extends PuterDriver {
             // Fire-and-forget — the stream writes happen async while the
             // response is being piped to the client.
             (async () => {
+                let accountingFailed = false;
                 try {
                     await init({ chatStream });
                     if (!passthrough.writableEnded) {
                         throw new Error('Stream ended before completion');
                     }
                 } catch (e) {
+                    accountingFailed = e instanceof CompletionAccountingError;
                     if (!chatStream.detached) {
                         const attempt = toAttempt(model.id, model.provider!, e);
                         chatStream.write(
@@ -1167,10 +1178,14 @@ export class ChatCompletionDriver extends PuterDriver {
                                 message: sanitizeUpstreamMessage(
                                     e instanceof Error ? e.message : String(e),
                                 ),
-                                ...(attempt.upstreamType
-                                    ? { code: attempt.upstreamType }
-                                    : {}),
-                                status: streamErrorStatus(attempt),
+                                ...(accountingFailed
+                                    ? { code: 'completion_accounting_failed' }
+                                    : attempt.upstreamType
+                                      ? { code: attempt.upstreamType }
+                                      : {}),
+                                status: accountingFailed
+                                    ? 502
+                                    : streamErrorStatus(attempt),
                             })}\n`,
                         );
                     }
@@ -1181,9 +1196,14 @@ export class ChatCompletionDriver extends PuterDriver {
                     abortSignal?.removeEventListener('abort', detachStream);
                     // Providers report usage the moment they meter it (see
                     // `AIChatStream.reportUsage`); a stream that never got
-                    // there was never charged for.
+                    // there was never charged for. Explicit accounting failures must
+                    // stay uncharged; only interrupted work uses the estimate.
                     try {
-                        if (!blocked && !chatStream.reportedUsage) {
+                        if (
+                            !blocked &&
+                            !accountingFailed &&
+                            !chatStream.reportedUsage
+                        ) {
                             this.#meterUnreportedStream({
                                 actor,
                                 chatStream,

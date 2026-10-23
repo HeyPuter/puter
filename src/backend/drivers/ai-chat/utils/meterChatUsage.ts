@@ -17,10 +17,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { HttpError } from '../../../core/http/HttpError.js';
 import type { Actor } from '../../../core/actor.js';
 import type { MeteringService } from '../../../services/metering/MeteringService.js';
 import type { IChatModel } from '../types.js';
 import { buildCostsOverride } from './pricing.js';
+
+/**
+ * Upstream inference finished, but no reliable charge can be recorded.
+ * Terminal: retrying would buy another completion, and estimating would hide
+ * the accounting failure. Only raise this before recording any charge.
+ */
+export class CompletionAccountingError extends HttpError {
+    constructor() {
+        super(
+            502,
+            'The completion finished, but its usage could not be verified. No charge was recorded.',
+            {
+                legacyCode: 'completion_accounting_failed',
+            },
+        );
+    }
+}
 
 /** Microcents per US dollar. */
 const MICROCENTS_PER_USD = 100_000_000;

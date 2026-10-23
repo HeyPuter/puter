@@ -29,6 +29,7 @@ import type {
     ICompleteArguments,
     PuterMessage,
 } from '../../types.js';
+import { CompletionAccountingError } from '../../utils/meterChatUsage.js';
 import { openAICompatParams } from '../../utils/openaiParams.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
@@ -186,13 +187,7 @@ export class MoonshotProvider extends OpenAICompatProvider {
             fiveMinuteHeader === '' ||
             oneHourHeader === ''
         ) {
-            throw new HttpError(
-                502,
-                'Moonshot cache-write TTL usage is unavailable or inconsistent',
-                {
-                    legacyCode: 'bad_response',
-                },
-            );
+            throw new CompletionAccountingError();
         }
         return {
             usage: {
