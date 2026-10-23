@@ -62,6 +62,9 @@
 
     --dashboard-link: #5271ff;
     --dashboard-link-hover: #3d5bd9;
+    /* Primary button fills, under white text: 4.5:1 or better in both themes. */
+    --dashboard-button-primary: #4a67f5;
+    --dashboard-button-primary-hover: #3d5bd9;
 
     --dashboard-warning-icon: #ffbb00;
     --dashboard-warning-background: #fef3c7;
@@ -183,6 +186,9 @@ body {
 
         --dashboard-link: #6b8cff;
         --dashboard-link-hover: #8aa4ff;
+        /* Hover darkens here too: the lighter link-hover fails under white text. */
+        --dashboard-button-primary: #4a67f5;
+        --dashboard-button-primary-hover: #3d5bd9;
 
         --dashboard-warning-icon: #fbbf24;
         --dashboard-warning-background: #422006;
@@ -2751,9 +2757,9 @@ select.share-modal-link-access {
     margin-top: 10px;
     padding: 0 16px;
     height: 38px;
-    border: 1px solid var(--dashboard-link);
+    border: 1px solid var(--dashboard-button-primary);
     border-radius: 10px;
-    background: var(--dashboard-link);
+    background: var(--dashboard-button-primary);
     font-size: 13.5px;
     font-weight: 600;
     font-family: inherit;
@@ -2763,8 +2769,8 @@ select.share-modal-link-access {
 }
 @media (hover: hover) {
     .share-modal-submit:hover:not(:disabled) {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
+        background: var(--dashboard-button-primary-hover);
+        border-color: var(--dashboard-button-primary-hover);
     }
 }
 .share-modal-submit:focus-visible {
@@ -2779,8 +2785,8 @@ select.share-modal-link-access {
 }
 /* In flight it is disabled too, but should read as working, not empty */
 .share-modal-submit.share-modal-btn-busy:disabled {
-    background: var(--dashboard-link);
-    border-color: var(--dashboard-link);
+    background: var(--dashboard-button-primary);
+    border-color: var(--dashboard-button-primary);
     color: #fff;
     opacity: 0.75;
 }
@@ -3454,8 +3460,8 @@ select.share-modal-row-mode:focus {
     color: var(--dashboard-text-primary);
 }
 .profile-crop-save {
-    border: 1px solid var(--dashboard-link);
-    background: var(--dashboard-link);
+    border: 1px solid var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
     color: #fff;
 }
 @media (hover: hover) {
@@ -3463,8 +3469,8 @@ select.share-modal-row-mode:focus {
         background: var(--dashboard-sidebar-background);
     }
     .profile-crop-save:hover:not(:disabled) {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
+        background: var(--dashboard-button-primary-hover);
+        border-color: var(--dashboard-button-primary-hover);
     }
 }
 .profile-crop-btn-quiet:focus-visible,
@@ -8599,8 +8605,8 @@ body.dashboard-mode .notifications-close-all {
 }
 
 .dashboard-dialog-btn-primary {
-    border-color: var(--dashboard-link);
-    background: var(--dashboard-link);
+    border-color: var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
     color: #fff;
 }
 
@@ -8616,8 +8622,8 @@ body.dashboard-mode .notifications-close-all {
     }
 
     .dashboard-dialog-btn-primary:hover {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
+        background: var(--dashboard-button-primary-hover);
+        border-color: var(--dashboard-button-primary-hover);
     }
 
     .dashboard-dialog-btn-danger:hover {
