@@ -20,6 +20,7 @@
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { isOrgSeat } from './orgSeat.js';
 import { addonCreditsRemaining, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 
 // Whether the server reported credits — decides whether the usage surfaces
 // render credits or fall back to dollars.
@@ -302,7 +303,7 @@ function renderUsageTable () {
 }
 
 async function update_usage_details ($el_window) {
-    const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(monthlyUsageOrThrow).then(res => {
+    const monthlyUsagePromise = getMonthlyUsage().then(monthlyUsageOrThrow).then(res => {
         const budget = usageBudget(res.usage, res.allowanceInfo);
         const addonLeft = addonCreditsRemaining(res.allowanceInfo);
         // The server reports credits (already scaled) or raw amounts (no
@@ -372,7 +373,7 @@ async function update_usage_details ($el_window) {
         }
     });
 
-    const spacePromise = puter.fs.space().then(res => {
+    const spacePromise = getStorageSpace().then(res => {
         // Guard capacity 0 — otherwise 0/0 renders literally as "NaN%".
         let usage_percentage = res.capacity ? (res.used / res.capacity * 100).toFixed(0) : '0';
         usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;

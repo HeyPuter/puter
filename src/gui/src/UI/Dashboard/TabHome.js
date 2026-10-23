@@ -20,6 +20,7 @@
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { addonCreditsRemaining, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
@@ -613,7 +614,7 @@ const TabHome = {
 
         // Load storage data
         try {
-            const res = await puter.fs.space();
+            const res = await getStorageSpace();
             // Guard capacity 0 — 0/0 would render literally as "NaN%".
             let usage_percentage = res.capacity
                 ? ((res.used / res.capacity) * 100).toFixed(0)
@@ -644,7 +645,7 @@ const TabHome = {
 
         // Load monthly usage data
         try {
-            const res = monthlyUsageOrThrow(await puter.auth.getMonthlyUsage());
+            const res = monthlyUsageOrThrow(await getMonthlyUsage());
             const budget = usageBudget(res.usage, res.allowanceInfo);
             const addonLeft = addonCreditsRemaining(res.allowanceInfo);
             // The server reports credits (already scaled) or raw amounts
