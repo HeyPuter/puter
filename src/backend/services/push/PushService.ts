@@ -17,6 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type {
+    PushDevice,
+    PushDeviceRegistration,
+} from '../../stores/push/PushDeviceStore.js';
 import { PuterService } from '../types.js';
 
 const DEFAULT_DEVICE_RETENTION_DAYS = 60;
@@ -25,6 +29,7 @@ const STALE_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 const STALE_BATCH_SIZE = 500;
 /** Batches one sweep takes, so a large backlog drains over several passes. */
 const STALE_MAX_BATCHES = 50;
+const MAX_DEVICES_PER_USER = 20;
 
 /** Keeps push devices in step with their sessions; runs even with push off. */
 export class PushService extends PuterService {
@@ -60,6 +65,18 @@ export class PushService extends PuterService {
         this.#stopping = true;
         if (this.#staleSweep) clearInterval(this.#staleSweep);
         this.#staleSweep = null;
+    }
+
+    /** A new device past 20 per user removes the least recently seen. */
+    async registerDevice(
+        registration: PushDeviceRegistration,
+    ): Promise<PushDevice> {
+        const device = await this.stores.pushDevice.register(registration);
+        await this.stores.pushDevice.removeOldestBeyond(
+            registration.userId,
+            MAX_DEVICES_PER_USER,
+        );
+        return device;
     }
 
     /** Every node sweeps; an overlap costs only empty indexed batches. */
