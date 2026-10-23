@@ -167,7 +167,9 @@ body {
         --dashboard-text: #d4d4d4;
         --dashboard-border: #3d3d3d;
         --dashboard-background: #1e1e1e;
-        --dashboard-hover: #2a2a2a;
+        /* As far off the dark cards and sidebar as light mode's hover is
+           off white; #2a2a2a barely differed from them. */
+        --dashboard-hover: #333333;
         --dashboard-icon: #888;
         --dashboard-sidebar-background: #252525;
 
