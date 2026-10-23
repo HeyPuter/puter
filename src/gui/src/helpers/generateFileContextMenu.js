@@ -280,7 +280,8 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Cut
     // -------------------------------------------
-    if ( $(el_item).attr('data-immutable') === '0' ) {
+    // Trashed items leave the Trash through Restore; moved any other way, they'd keep their uid as their name.
+    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed ) {
         menu_items.push({
             html: i18n('cut'),
             onClick: function () {
@@ -327,7 +328,7 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Separator
     // -------------------------------------------
-    if ( $(el_item).attr('data-immutable') === '0' && !is_trash ) {
+    if ( $(el_item).attr('data-immutable') === '0' && !is_trash && !is_trashed ) {
         menu_items.push('-');
     }
 

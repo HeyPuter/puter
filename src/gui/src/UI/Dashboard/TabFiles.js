@@ -894,17 +894,23 @@ const TabFiles = {
                 if ( $selectedRows.length > 0 ) {
                     e.preventDefault();
                     e.stopPropagation();
-                    window.clipboard = [];
-                    window.clipboard_op = 'copy';
-                    $selectedRows.each(function () {
-                        if ( $(this).attr('data-path') !== window.trash_path ) {
+                    // Neither the Trash nor what's in it: a copy of a trashed
+                    // item would be named after its uid, its raw name.
+                    const rows = $selectedRows.toArray().filter((row) => {
+                        const rowPath = $(row).attr('data-path') || '';
+                        return rowPath !== window.trash_path && ! rowPath.startsWith(`${window.trash_path}/`);
+                    });
+                    if ( rows.length > 0 ) {
+                        window.clipboard = [];
+                        window.clipboard_op = 'copy';
+                        for ( const row of rows ) {
                             window.clipboard.push({
-                                path: $(this).attr('data-path'),
-                                uid: $(this).attr('data-uid'),
-                                metadata: $(this).attr('data-metadata'),
+                                path: $(row).attr('data-path'),
+                                uid: $(row).attr('data-uid'),
+                                metadata: $(row).attr('data-metadata'),
                             });
                         }
-                    });
+                    }
                 }
                 return false;
             }
