@@ -8333,8 +8333,9 @@ body.dashboard-mode .notifications-close-all {
 }
 
 @media (prefers-color-scheme: dark) {
+    /* The invert turns the white disc and dark cross into a dark disc
+       with a white cross. */
     body.dashboard-mode .notification-close {
-        background: var(--dashboard-card-background);
         filter: invert(1) drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
     }
 }
