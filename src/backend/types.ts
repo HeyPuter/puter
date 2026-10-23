@@ -981,6 +981,14 @@ interface IConfigOptional {
         perDay?: number;
     };
 
+    /** Push notifications to registered devices. */
+    push?: {
+        /** Absent means off. Device cleanup runs either way. */
+        enabled?: boolean;
+        /** Days a device may go unseen before removal. Default 60; 0 keeps it. */
+        deviceRetentionDays?: number;
+    };
+
     // -- Storage / S3 ------------------------------------------------
 
     /** S3 storage config (local fauxqs or remote). */
