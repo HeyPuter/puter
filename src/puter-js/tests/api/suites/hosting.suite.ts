@@ -272,4 +272,16 @@ export default suite('hosting', {
             'get of a deleted subdomain should reject',
         );
     },
+
+    // The dialog needs a page to open: servers and workers can't show one.
+    'attach rejects where no dialog can be shown': {
+        platforms: ['node', 'workerd'],
+        fn: async (t) => {
+            const error = (await t.assert.rejects(
+                () => t.puter.hosting.attach('hosting-suite-attach'),
+                'attach without a UI should reject',
+            )) as { code?: string };
+            t.assert.equal(error.code, 'not_available');
+        },
+    },
 });
