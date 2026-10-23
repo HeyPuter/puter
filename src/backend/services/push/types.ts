@@ -23,7 +23,7 @@ export type { PushPlatform };
 
 /** Where a tap leads, read by Puter's own client. No app means the desktop. */
 export interface PushTarget {
-    /** App name. */
+    /** App uid. */
     app?: string;
     path?: string;
 }

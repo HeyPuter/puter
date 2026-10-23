@@ -234,7 +234,7 @@ describe('PushService delivery', () => {
             title: 'New reply',
             body: 'see you at 5',
             group: 'room-7',
-            target: { app: app.name },
+            target: { app: app.uid },
         });
     });
 
@@ -262,7 +262,7 @@ describe('PushService delivery', () => {
         expect(message).toMatchObject({
             title: 'stamped-name',
             body: 'New notification from stamped-name',
-            target: { app: 'stamped-name' },
+            target: { app: app.uid },
             ttl: 90,
             sensitive: true,
         });

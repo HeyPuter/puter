@@ -25,7 +25,7 @@ import {
 } from './pushMessage.js';
 import type { PushMessage } from './types.js';
 
-const app = { name: 'chat-app' };
+const app = { uid: 'app-uid-1', name: 'Chat' };
 const bytes = (message: PushMessage): number =>
     Buffer.byteLength(JSON.stringify(message), 'utf8');
 
@@ -123,7 +123,7 @@ describe('buildPushMessage', () => {
             body: 'see you at 5',
             icon: 'https://chat.example/icon.png',
             group: 'room-7',
-            target: { app: 'chat-app', path: '/rooms/7' },
+            target: { app: 'app-uid-1', path: '/rooms/7' },
             data: { room: 7 },
             ttl: 120,
             priority: 'normal',
@@ -136,7 +136,7 @@ describe('buildPushMessage', () => {
             app,
         );
         expect(message?.group).toBe('n5');
-        expect(message?.target).toEqual({ app: 'chat-app' });
+        expect(message?.target).toEqual({ app: 'app-uid-1' });
     });
 
     it('replaces a sensitive app message with a generic one', () => {
@@ -158,10 +158,10 @@ describe('buildPushMessage', () => {
         );
         expect(message).toEqual({
             uid: 'n6',
-            title: 'chat-app',
-            body: 'New notification from chat-app',
+            title: 'Chat',
+            body: 'New notification from Chat',
             group: 'n6',
-            target: { app: 'chat-app' },
+            target: { app: 'app-uid-1' },
             ttl: 60,
             priority: 'normal',
             sensitive: true,

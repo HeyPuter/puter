@@ -85,7 +85,7 @@ const storedTitle = (source: PushSource): PushMessage | null => {
 
 const appMessage = (
     source: PushSource,
-    app: { name: string },
+    app: { uid: string; name: string },
 ): PushMessage | null => {
     const value = source.value;
     const title = str(value.title);
@@ -105,11 +105,11 @@ const appMessage = (
             ...base,
             title: app.name,
             body: `New notification from ${app.name}`,
-            target: { app: app.name },
+            target: { app: app.uid },
             sensitive: true,
         };
     }
-    const target: PushTarget = { app: app.name };
+    const target: PushTarget = { app: app.uid };
     const path = str(value.target);
     if (path) target.path = path;
     const body = str(value.text);
@@ -127,7 +127,7 @@ const appMessage = (
 /** Null for a type with no push wording, or a value missing its title. */
 export const buildPushMessage = (
     source: PushSource,
-    app: { name: string } | null,
+    app: { uid: string; name: string } | null,
 ): PushMessage | null => {
     switch (source.type) {
         case 'share.received':

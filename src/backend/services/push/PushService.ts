@@ -25,7 +25,10 @@ import {
     type PushDeviceRegistration,
 } from '../../stores/push/PushDeviceStore.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
-import { APP_MESSAGE_TYPE } from '../notification/appMessage.js';
+import {
+    APP_MESSAGE_TYPE,
+    appMessageSender,
+} from '../notification/appMessage.js';
 import { PuterService } from '../types.js';
 import { hasPushConsent } from './pushConsent.js';
 import { buildPushMessage, fitPushMessage } from './pushMessage.js';
@@ -166,7 +169,7 @@ export class PushService extends PuterService {
         if (appUid && !appName) return;
         const built = buildPushMessage(
             { uid, type, value },
-            appName ? { name: appName } : null,
+            appUid && appName ? { uid: appUid, name: appName } : null,
         );
         if (!built) return;
         const message = fitPushMessage(built);
@@ -188,8 +191,8 @@ export class PushService extends PuterService {
     ): Promise<string | null> {
         const stamped = (value.app as { name?: unknown } | undefined)?.name;
         if (typeof stamped === 'string' && stamped) return stamped;
-        const app = await this.stores.app.getByUid(appUid);
-        return typeof app?.name === 'string' && app.name ? app.name : null;
+        const row = await this.stores.app.getByUid(appUid);
+        return row ? (appMessageSender(appUid, row).name ?? null) : null;
     }
 
     /** The user's consent for the app, or their Puter preference without one. */
