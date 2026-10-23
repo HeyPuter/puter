@@ -122,12 +122,27 @@ describe('buildPushMessage', () => {
             title: 'New reply',
             body: 'see you at 5',
             icon: 'https://chat.example/icon.png',
-            group: 'room-7',
+            group: 'app-uid-1:room-7',
             target: { app: 'app-uid-1', path: '/rooms/7' },
             data: { room: 7 },
             ttl: 120,
             priority: 'normal',
         });
+    });
+
+    it('scopes an app’s group to the app', () => {
+        const build = (appUid: string, group: string) =>
+            buildPushMessage(
+                {
+                    uid: 'n9',
+                    type: 'app.message',
+                    value: { title: 't', group },
+                },
+                { uid: appUid, name: 'A' },
+            )?.group;
+        expect(build('app-a', 'room')).not.toBe(build('app-b', 'room'));
+        // A group naming another notification's uid does not match its tag.
+        expect(build('app-a', 'n1')).not.toBe('n1');
     });
 
     it('groups an app message by its uid without a group', () => {

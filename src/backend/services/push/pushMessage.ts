@@ -91,9 +91,11 @@ const appMessage = (
     const title = str(value.title);
     if (!title) return null;
     const ttl = Number(value.ttl);
+    const group = str(value.group);
     const base = {
         uid: source.uid,
-        group: str(value.group) ?? source.uid,
+        // Scoped to the app, so it can only ever replace its own pushes.
+        group: group ? `${app.uid}:${group}` : source.uid,
         ttl:
             Number.isInteger(ttl) && ttl > 0
                 ? ttl

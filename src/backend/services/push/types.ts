@@ -50,7 +50,19 @@ export type PushResult =
     | { status: 'delivered' }
     /** The provider says the token no longer names a device. */
     | { status: 'unregistered' }
-    | { status: 'failed'; reason?: string };
+    | { status: 'failed'; code?: PushFailureCode };
+
+/** Why a push failed. Only these are logged; providers map their own errors. */
+export const PUSH_FAILURE_CODES = [
+    'invalid_token',
+    'rate_limited',
+    'payload_too_large',
+    'provider_error',
+    'timeout',
+    'unknown',
+] as const;
+
+export type PushFailureCode = (typeof PUSH_FAILURE_CODES)[number];
 
 export interface PushBatch {
     platform: PushPlatform;

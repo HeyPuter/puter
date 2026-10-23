@@ -33,11 +33,13 @@ import { PuterService } from '../types.js';
 import { hasPushConsent } from './pushConsent.js';
 import { buildPushMessage, fitPushMessage } from './pushMessage.js';
 import { isUserConnected } from './pushPresence.js';
-import type {
-    PushMessage,
-    PushPlatform,
-    PushProvider,
-    PushResult,
+import {
+    PUSH_FAILURE_CODES,
+    type PushFailureCode,
+    type PushMessage,
+    type PushPlatform,
+    type PushProvider,
+    type PushResult,
 } from './types.js';
 
 /** Most tokens one provider call takes. */
@@ -250,11 +252,15 @@ export class PushService extends PuterService {
         const delivered: string[] = [];
         const failed: string[] = [];
         const unregistered: string[] = [];
-        const reasons = new Set<string>();
+        const codes: Partial<Record<PushFailureCode, number>> = {};
         settled.forEach((outcome, index) => {
             let results: Array<PushResult | undefined> = [];
+            let batchCode: PushFailureCode = 'unknown';
             if (outcome.status === 'rejected') {
-                reasons.add(errorName(outcome.reason));
+                batchCode =
+                    outcome.reason instanceof PushTimeoutError
+                        ? 'timeout'
+                        : 'provider_error';
             } else if (Array.isArray(outcome.value)) {
                 results = outcome.value;
             }
@@ -266,14 +272,8 @@ export class PushService extends PuterService {
                     unregistered.push(hashPushToken(device.token));
                 } else {
                     failed.push(device.uid);
-                    if (result?.status === 'failed' && result.reason) {
-                        reasons.add(
-                            String(result.reason)
-                                .split(device.token)
-                                .join('<token>')
-                                .slice(0, 120),
-                        );
-                    }
+                    const code = failureCode(result, batchCode);
+                    codes[code] = (codes[code] ?? 0) + 1;
                 }
             });
         });
@@ -281,8 +281,9 @@ export class PushService extends PuterService {
         if (failed.length > 0) {
             console.warn('[push] not delivered to some devices', {
                 uid: message.uid,
+                status: 'failed',
                 devices: failed.length,
-                reasons: [...reasons].slice(0, 5),
+                codes,
             });
         }
         await Promise.all([
@@ -331,18 +332,26 @@ export class PushService extends PuterService {
     }
 }
 
+class PushTimeoutError extends Error {}
+
+/** A provider's own code when it is a known one, never its text. */
+const failureCode = (
+    result: PushResult | undefined,
+    fallback: PushFailureCode,
+): PushFailureCode => {
+    if (result?.status !== 'failed') return fallback;
+    const code = result.code;
+    return code && PUSH_FAILURE_CODES.includes(code) ? code : 'unknown';
+};
+
 const withTimeout = <T>(promise: Promise<T>): Promise<T> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_resolve, reject) => {
         timer = setTimeout(
-            () => reject(new Error('push provider timed out')),
+            () => reject(new PushTimeoutError('push provider timed out')),
             SEND_TIMEOUT_MS,
         );
         timer.unref?.();
     });
     return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 };
-
-/** Only the error's name: a provider's message may carry tokens. */
-const errorName = (err: unknown): string =>
-    err instanceof Error ? err.name || 'Error' : 'error';

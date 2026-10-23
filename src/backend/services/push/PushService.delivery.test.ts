@@ -53,7 +53,12 @@ class FakeProvider implements PushProvider {
         return batch.tokens.map((token) => {
             if (token.includes('gone')) return { status: 'unregistered' };
             if (token.includes('bad')) {
-                return { status: 'failed', reason: `rejected ${token}` };
+                // A provider's own text never reaches the log, only the code.
+                return {
+                    status: 'failed',
+                    code: 'invalid_token',
+                    reason: `rejected https://push.example.test/${token}`,
+                } as PushResult;
             }
             return { status: 'delivered' };
         });
@@ -247,7 +252,7 @@ describe('PushService delivery', () => {
             uid,
             title: 'New reply',
             body: 'see you at 5',
-            group: 'room-7',
+            group: `${app.uid}:room-7`,
             target: { app: app.uid },
         });
     });
@@ -429,7 +434,8 @@ describe('PushService delivery', () => {
 
         const logged = JSON.stringify(warn.mock.calls);
         warn.mockRestore();
-        expect(logged).toContain('<token>');
+        expect(logged).toContain('invalid_token');
+        expect(logged).not.toContain('push.example.test');
         expect(logged).not.toMatch(/bad-[0-9a-f]{8}-/);
     });
 
