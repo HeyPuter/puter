@@ -46,12 +46,15 @@
 
     --dashboard-text-primary: #1e293b;
     --dashboard-text-secondary: #666;
-    --dashboard-text-tertiary: #888;
+    --dashboard-text-tertiary: #707070;
     --dashboard-text-heading: #333;
     --dashboard-text-card-title: #1a1a1a;
     --dashboard-text-username: #414b62;
     --dashboard-text-hint: #64748b;
-    --dashboard-text-muted: #94a3b8;
+    /* Muted and tertiary text still clear 4.5:1 on the cards and sidebar;
+       disabled controls keep the fainter grey. */
+    --dashboard-text-muted: #5f6b7d;
+    --dashboard-text-disabled: #94a3b8;
 
     --dashboard-card-background: #ffffff;
     --dashboard-content-background: #fcfcfd;
@@ -170,12 +173,13 @@ body {
 
         --dashboard-text-primary: #e2e8f0;
         --dashboard-text-secondary: #a1a1aa;
-        --dashboard-text-tertiary: #71717a;
+        --dashboard-text-tertiary: #94949c;
         --dashboard-text-heading: #f4f4f5;
         --dashboard-text-card-title: #fafafa;
         --dashboard-text-username: #c4cad6;
         --dashboard-text-hint: #94a3b8;
-        --dashboard-text-muted: #64748b;
+        --dashboard-text-muted: #8b95a5;
+        --dashboard-text-disabled: #64748b;
 
         --dashboard-card-background: #262626;
         --dashboard-content-background: #1e1e1e;
@@ -2782,7 +2786,7 @@ select.share-modal-link-access {
 .share-modal-submit:disabled {
     background: var(--dashboard-input-background);
     border-color: var(--dashboard-border);
-    color: var(--dashboard-text-muted);
+    color: var(--dashboard-text-disabled);
     cursor: default;
 }
 /* In flight it is disabled too, but should read as working, not empty */
@@ -3483,7 +3487,7 @@ select.share-modal-row-mode:focus {
 .profile-crop-save:disabled {
     background: var(--dashboard-input-background);
     border-color: var(--dashboard-border);
-    color: var(--dashboard-text-muted);
+    color: var(--dashboard-text-disabled);
     cursor: default;
 }
 
@@ -6751,7 +6755,7 @@ body.myapps-reordering .myapps-tile {
 .dashboard-settings-card .button:disabled {
     background: var(--dashboard-card-background) !important;
     border-color: var(--dashboard-border) !important;
-    color: var(--dashboard-text-muted) !important;
+    color: var(--dashboard-text-disabled) !important;
     text-shadow: none !important;
 }
 
