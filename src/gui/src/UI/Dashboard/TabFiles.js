@@ -680,8 +680,12 @@ const TabFiles = {
         if ( this.currentPath && window.is_dashboard_mode ) {
             this.updateDashboardUrl(this.currentPath);
         }
-        // Crumbs rendered while the tab was hidden had no width to scroll.
+        // Crumbs rendered while the tab was hidden had no width to scroll,
+        // and grid tiles had none to fit their names to.
         this.revealCurrentCrumb();
+        if ( this.isGridView?.() ) {
+            this.fitItemNames(this.$el_window.find('.files-tab .files .row:not(.header) .item-name'));
+        }
     },
 
     /**
@@ -1712,6 +1716,22 @@ const TabFiles = {
 
         this.applyColumnWidths();
 
+        // Widths depend on the room the listing has: re-fit when the window or
+        // sidebar changes it (at most once a frame), not only on navigation.
+        const filesEl = this.$el_window.find('.files-tab .files')[0];
+        if ( filesEl && typeof ResizeObserver !== 'undefined' ) {
+            let lastWidth = filesEl.clientWidth;
+            let frame = null;
+            new ResizeObserver(() => {
+                if ( filesEl.clientWidth === lastWidth || ! filesEl.clientWidth ) return;
+                lastWidth = filesEl.clientWidth;
+                frame ??= requestAnimationFrame(() => {
+                    frame = null;
+                    _this.applyColumnWidths();
+                });
+            }).observe(filesEl);
+        }
+
         $columns.find('.col-resize-handle').on('mousedown', function (e) {
             e.preventDefault();
             e.stopPropagation();
@@ -1733,6 +1753,9 @@ const TabFiles = {
 
             const startWidth = $targetColumn.outerWidth();
 
+            // Relayout at most once a frame: each pass restyles every row and
+            // re-truncates every name.
+            let frame = null;
             $(document).on('mousemove.colresize', function (moveEvent) {
                 const diff = moveEvent.pageX - startX;
                 let newWidth = Math.max(60, startWidth + diff); // Minimum width of 60px
@@ -1742,12 +1765,20 @@ const TabFiles = {
                     newWidth = Math.max(100, newWidth);
                 }
 
-                _this.columnWidths[column] = newWidth;
-                _this.applyColumnWidths();
+                _this.columnWidths[column] = Math.min(newWidth, _this.maxColumnWidth(column));
+                frame ??= requestAnimationFrame(() => {
+                    frame = null;
+                    _this.applyColumnWidths();
+                });
             });
 
             $(document).on('mouseup.colresize', function () {
                 $(document).off('mousemove.colresize mouseup.colresize');
+                if ( frame !== null ) {
+                    cancelAnimationFrame(frame);
+                    frame = null;
+                    _this.applyColumnWidths();
+                }
                 puter.kv.set('column_widths', JSON.stringify(_this.columnWidths))
                     .catch(err => console.warn('Could not save column_widths:', err));
             });
@@ -1791,7 +1822,7 @@ const TabFiles = {
             }
 
             // Apply the new width
-            _this.columnWidths[column] = Math.ceil(maxWidth);
+            _this.columnWidths[column] = Math.min(Math.ceil(maxWidth), _this.maxColumnWidth(column));
             _this.applyColumnWidths();
             puter.kv.set('column_widths', JSON.stringify(_this.columnWidths))
                 .catch(err => console.warn('Could not save column_widths:', err));
@@ -1810,28 +1841,21 @@ const TabFiles = {
         const $container = $filesTab.find('.files');
         const containerWidth = $container.width();
 
-        // Fixed widths: icon(24) + spacers(4*3) + more(20) = 56px, plus some margin
-        const fixedWidth = 56 + 20;
-
         let nameWidth = this.columnWidths.name;
         let sizeWidth = this.columnWidths.size || 100;
         let modifiedWidth = this.columnWidths.modified || 120;
 
-        // Check if total width exceeds container width
+        // Columns that don't fit lay out at the defaults, but the saved
+        // widths stay so they come back once the listing is wide enough.
         if ( containerWidth > 0 && nameWidth ) {
-            const totalWidth = fixedWidth + nameWidth + sizeWidth + modifiedWidth;
+            const totalWidth = COLUMN_FIXED_WIDTH + nameWidth + sizeWidth + modifiedWidth;
             if ( totalWidth > containerWidth ) {
-                // Reset to defaults - columns don't fit
-                this.columnWidths = {
-                    name: null,
-                    size: 100,
-                    modified: 120,
-                };
                 nameWidth = null;
                 sizeWidth = 100;
                 modifiedWidth = 120;
             }
         }
+        this.appliedNameWidth = nameWidth;
 
         const nameCol = nameWidth ? `${nameWidth}px` : 'auto';
         const gridTemplate = `24px ${nameCol} 4px ${sizeWidth}px 4px ${modifiedWidth}px 4px 20px`;
@@ -1843,6 +1867,25 @@ const TabFiles = {
     },
 
     /**
+     * The widest a list column can be set to without the columns overflowing
+     * the listing, given the other columns' current widths.
+     *
+     * @param {'name'|'size'|'modified'} column
+     * @returns {number}
+     */
+    maxColumnWidth (column) {
+        const containerWidth = this.$el_window.find('.files-tab .files').width();
+        if ( ! containerWidth ) return Infinity;
+        const widths = {
+            name: this.columnWidths.name || 100,
+            size: this.columnWidths.size || 100,
+            modified: this.columnWidths.modified || 120,
+        };
+        const others = Object.keys(widths).filter(c => c !== column).reduce((sum, c) => sum + widths[c], 0);
+        return containerWidth - COLUMN_FIXED_WIDTH - others;
+    },
+
+    /**
      * Writes each row's name into its `.item-name`, middle-truncated to fit
      * the name column (list view with a set width) or the tile (grid view).
      *
@@ -1850,10 +1893,14 @@ const TabFiles = {
      * @returns {void}
      */
     fitItemNames ($names) {
-        const nameWidth = this.columnWidths.name;
+        const nameWidth = this.appliedNameWidth !== undefined ? this.appliedNameWidth : this.columnWidths.name;
         const isList = this.currentView === 'list';
         if ( ! isList && ! this.isGridView() ) return;
         const names = $names.toArray();
+        if ( ! names.length ) return;
+        // Measure in the font the names render in (the compact grid's is smaller).
+        const style = getComputedStyle(names[0]);
+        const font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
         // Grid tiles size the room: read every width before writing any
         // text, or each write forces a layout for the next read.
         const widths = isList ? null : names.map(el => $(el).width() || 156);
@@ -1861,10 +1908,10 @@ const TabFiles = {
             const fullName = el.closest('.row')?.getAttribute('data-name');
             if ( ! fullName ) return;
             if ( ! isList ) {
-                el.textContent = truncateFilenameToWidth(fullName, widths[i]);
+                el.textContent = truncateFilenameToWidth(fullName, widths[i], font);
             } else if ( nameWidth ) {
                 // 8px padding on each side
-                el.textContent = truncateFilenameToWidth(fullName, nameWidth - 16);
+                el.textContent = truncateFilenameToWidth(fullName, nameWidth - 16, font);
             } else {
                 // Auto-width column: the full name, clipped by CSS
                 el.textContent = fullName;
@@ -5211,6 +5258,10 @@ const TabFiles = {
 
 // Canvas context for measuring text width (reused for performance)
 let measureContext = null;
+let measureFont = null;
+
+/** List columns other than name/size/modified: icon(24) + spacers(4*3) + more(20), plus margin. */
+const COLUMN_FIXED_WIDTH = 56 + 20;
 
 /**
  * Measures the pixel width of text using a canvas context.
@@ -5224,7 +5275,11 @@ function measureTextWidth (text, font = '500 13px system-ui, -apple-system, sans
         const canvas = document.createElement('canvas');
         measureContext = canvas.getContext('2d');
     }
-    measureContext.font = font;
+    // Assigning font re-parses it; truncation measures many times per name.
+    if ( measureFont !== font ) {
+        measureContext.font = font;
+        measureFont = font;
+    }
     return measureContext.measureText(text).width;
 }
 
