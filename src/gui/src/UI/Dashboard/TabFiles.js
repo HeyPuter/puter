@@ -3750,7 +3750,7 @@ const TabFiles = {
      */
     askNameConflict (name, multiple) {
         return UIAlert({
-            message: `<strong>${window.html_encode(name)}</strong> already exists.`,
+            message: i18n('item_already_exists', [name], false),
             buttons: [
                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                 ... multiple ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
@@ -3798,7 +3798,6 @@ const TabFiles = {
             return [];
         }
 
-        const { html_encode } = window;
         const multiple_items = window.clipboard.length > 1;
         const moved_item_paths = [];
         // Set once the user picks "Replace all" on a conflict; later items
@@ -3847,7 +3846,8 @@ const TabFiles = {
                     } else {
                         console.error('Failed to move item:', err);
                         const item_name = String(item.path || source).split('/').pop();
-                        UIAlert(`<p>${i18n('moving_file', [`<strong>${html_encode(item_name)}</strong>`], false)}</p>${html_encode(err.message ?? '')}`);
+                        // UIAlert encodes the message itself, apart from <p>, <strong> and <br>.
+                        UIAlert(`<p>${i18n('moving_file', [`<strong>${item_name}</strong>`], false)}</p>${err.message ?? ''}`);
                     }
                 }
             } while ( retry );

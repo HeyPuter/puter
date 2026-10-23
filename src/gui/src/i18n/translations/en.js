@@ -912,6 +912,7 @@ const en = {
         'item_shared_with_you': 'A user has shared this item with you.',
         'item_shared_by_you': 'You have shared this item with at least one other user.',
         'item_shortcut': 'Shortcut',
+        'item_already_exists': '%strong% already exists.',
         'item_associated_websites': 'Associated website',
         'item_associated_websites_plural': 'Associated websites',
         'no_suitable_apps_found': 'No suitable apps found',
