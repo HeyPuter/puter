@@ -987,6 +987,8 @@ interface IConfigOptional {
         enabled?: boolean;
         /** Days a device may go unseen before removal. Default 60; 0 keeps it. */
         deviceRetentionDays?: number;
+        /** Pushes a minute per user per app. Default 1; 0 or less is no limit. */
+        appPushesPerMinute?: number;
     };
 
     // -- Storage / S3 ------------------------------------------------

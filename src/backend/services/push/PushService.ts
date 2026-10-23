@@ -18,6 +18,7 @@
  */
 
 import type { EventMap } from '../../clients/event/types.js';
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
     hashPushToken,
     type PushDeliveryTarget,
@@ -50,10 +51,12 @@ const MAX_DEVICES_PER_PUSH = 1000;
 const BATCH_CONCURRENCY = 4;
 /** Notifications this node delivers at once; past it, a push is skipped. */
 const MAX_IN_FLIGHT = 64;
-/** At most one warning per window about pushes skipped at the cap. */
+/** At most one warning per window for each reason pushes are skipped. */
 const SKIP_WARN_INTERVAL_MS = 60_000;
 /** A provider call still open after this counts as failed. */
 const SEND_TIMEOUT_MS = 30_000;
+const DEFAULT_APP_PUSHES_PER_MINUTE = 1;
+const MINUTE_MS = 60_000;
 
 /** User metadata key for pushes of Puter's own notifications; absent is on. */
 export const PUTER_PUSH_PREFERENCE_KEY = 'pushPuter';
@@ -73,8 +76,12 @@ export class PushService extends PuterService {
     #staleSweep: ReturnType<typeof setInterval> | null = null;
     readonly #providers = new Map<PushPlatform, PushProvider>();
     #inFlight = 0;
-    #skipped = 0;
-    #lastSkipWarn = 0;
+    readonly #capSkips = new SkipLog(
+        '[push] at the in-flight cap, pushes skipped',
+    );
+    readonly #limitSkips = new SkipLog(
+        '[push] over the app push limit, pushes skipped',
+    );
     #stopping = false;
 
     override onServerStart(): void {
@@ -159,7 +166,7 @@ export class PushService extends PuterService {
         if (devices.length === 0 || this.#stopping) return;
 
         if (this.#inFlight >= MAX_IN_FLIGHT) {
-            this.#noteSkipped();
+            this.#capSkips.note();
             return;
         }
         this.#inFlight++;
@@ -201,19 +208,28 @@ export class PushService extends PuterService {
             });
             return;
         }
+        if (appUid && !(await this.#withinAppPushLimit(userId, appUid))) {
+            this.#limitSkips.note();
+            return;
+        }
 
         await this.#send(userId, devices, message);
     }
 
-    #noteSkipped(): void {
-        this.#skipped++;
-        const now = Date.now();
-        if (now - this.#lastSkipWarn < SKIP_WARN_INTERVAL_MS) return;
-        console.warn('[push] at the in-flight cap, pushes skipped', {
-            skipped: this.#skipped,
-        });
-        this.#skipped = 0;
-        this.#lastSkipWarn = now;
+    /** Spends one push from the app's budget for this user; fails open. */
+    async #withinAppPushLimit(
+        userId: number,
+        appUid: string,
+    ): Promise<boolean> {
+        const perMinute =
+            this.config.push?.appPushesPerMinute ??
+            DEFAULT_APP_PUSHES_PER_MINUTE;
+        if (!(perMinute > 0)) return true;
+        return checkRateLimit(
+            `push:app:${userId}:${appUid}`,
+            perMinute,
+            MINUTE_MS,
+        );
     }
 
     /** The name the server stamped on the message, else the app row's. */
@@ -363,6 +379,22 @@ export class PushService extends PuterService {
 }
 
 class PushTimeoutError extends Error {}
+
+/** Counts skipped pushes; warns with the count at most once a window. */
+class SkipLog {
+    #skipped = 0;
+    #lastWarn = 0;
+    constructor(readonly message: string) {}
+
+    note(): void {
+        this.#skipped++;
+        const now = Date.now();
+        if (now - this.#lastWarn < SKIP_WARN_INTERVAL_MS) return;
+        console.warn(this.message, { skipped: this.#skipped });
+        this.#skipped = 0;
+        this.#lastWarn = now;
+    }
+}
 
 /** A provider's own code when it is a known one, never its text. */
 const failureCode = (

@@ -643,3 +643,214 @@ describe('PushService with the notification fold-in on', () => {
         state.server.clients.event.off?.('notif.created', created);
     });
 });
+
+/** A user who granted push to a fresh app and has one device for it. */
+const appPushReady = async (server: PuterServer, user?: TestUser) => {
+    const owner = user ?? (await makeUser(server));
+    const app = await makeApp(server, owner);
+    await grantPush(server, owner, app.uid);
+    const token = `tok-${uuidv4()}`;
+    await registerDevice(server, owner.id, token, { appUid: app.uid });
+    return { user: owner, app, token };
+};
+
+const appMessage = (server: PuterServer, userId: number, appUid: string) =>
+    server.services.notification.notify(
+        [userId],
+        { title: 'New reply' },
+        { type: 'app.message', appUid },
+    );
+
+const limitWarnings = (warn: { mock: { calls: unknown[][] } }) =>
+    warn.mock.calls.filter((call) =>
+        String(call[0]).includes('app push limit'),
+    );
+
+describe('PushService app push limit', () => {
+    const provider = new FakeProvider();
+    const state = bootWith({ push: { enabled: true } }, provider);
+    const server = () => state.server;
+
+    beforeEach(() => {
+        provider.calls.length = 0;
+    });
+
+    it('pushes one app message a minute and still stores the next', async () => {
+        const { user, app } = await appPushReady(server());
+
+        await appMessage(server(), user.id, app.uid);
+        await vi.waitFor(() => expect(provider.calls).toHaveLength(1));
+        const second = await appMessage(server(), user.id, app.uid);
+        await settle();
+
+        expect(provider.calls).toHaveLength(1);
+        const stored = await server().stores.notification.getByUid(second!, {
+            userId: user.id,
+        });
+        expect(stored).toBeTruthy();
+    });
+
+    it('counts a message that would replace an earlier push', async () => {
+        const { user, app } = await appPushReady(server());
+        const inGroup = () =>
+            server().services.notification.notify(
+                [user.id],
+                { title: 'New reply', group: 'room-7' },
+                { type: 'app.message', appUid: app.uid },
+            );
+
+        await inGroup();
+        await vi.waitFor(() => expect(provider.calls).toHaveLength(1));
+        await inGroup();
+        await settle();
+
+        expect(provider.calls).toHaveLength(1);
+        expect(provider.calls[0].message.group).toBe(`${app.uid}:room-7`);
+    });
+
+    it('counts each user and each app on its own', async () => {
+        const first = await appPushReady(server());
+        const otherUser = await makeUser(server());
+        await grantPush(server(), otherUser, first.app.uid);
+        await registerDevice(server(), otherUser.id, `tok-${uuidv4()}`, {
+            appUid: first.app.uid,
+        });
+        const otherApp = await appPushReady(server(), first.user);
+
+        await appMessage(server(), first.user.id, first.app.uid);
+        await appMessage(server(), otherUser.id, first.app.uid);
+        await appMessage(server(), first.user.id, otherApp.app.uid);
+
+        await vi.waitFor(() => expect(provider.calls).toHaveLength(3));
+        await settle();
+        expect(provider.calls).toHaveLength(3);
+    });
+
+    it('does not count Puter’s own notifications', async () => {
+        const { user, app } = await appPushReady(server());
+        await registerDevice(server(), user.id, `tok-${uuidv4()}`);
+
+        await appMessage(server(), user.id, app.uid);
+        await shareReceived(server(), user.id);
+        await shareReceived(server(), user.id);
+
+        await vi.waitFor(() => expect(provider.calls).toHaveLength(3));
+        await settle();
+        expect(provider.calls).toHaveLength(3);
+    });
+
+    it('spends nothing on a message with no devices', async () => {
+        const user = await makeUser(server());
+        const app = await makeApp(server(), user);
+        await grantPush(server(), user, app.uid);
+
+        await appMessage(server(), user.id, app.uid);
+        await settle();
+        await registerDevice(server(), user.id, `tok-${uuidv4()}`, {
+            appUid: app.uid,
+        });
+        await appMessage(server(), user.id, app.uid);
+
+        await vi.waitFor(() => expect(provider.calls).toHaveLength(1));
+    });
+
+    it('spends nothing on a message without consent', async () => {
+        const user = await makeUser(server());
+        const app = await makeApp(server(), user);
+        await registerDevice(server(), user.id, `tok-${uuidv4()}`, {
+            appUid: app.uid,
+        });
+
+        await appMessage(server(), user.id, app.uid);
+        await settle();
+        expect(provider.calls).toHaveLength(0);
+        await grantPush(server(), user, app.uid);
+        await appMessage(server(), user.id, app.uid);
+
+        await vi.waitFor(() => expect(provider.calls).toHaveLength(1));
+    });
+
+    it('spends nothing while the user is connected', async () => {
+        const { user, app } = await appPushReady(server());
+        const has = vi
+            .spyOn(server().services.socket, 'has')
+            .mockReturnValue(true);
+        await appMessage(server(), user.id, app.uid);
+        await settle();
+        has.mockRestore();
+        expect(provider.calls).toHaveLength(0);
+
+        await appMessage(server(), user.id, app.uid);
+        await vi.waitFor(() => expect(provider.calls).toHaveLength(1));
+    });
+});
+
+describe('PushService with no app push limit', () => {
+    const provider = new FakeProvider();
+    const state = bootWith(
+        { push: { enabled: true, appPushesPerMinute: 0 } },
+        provider,
+    );
+
+    it('pushes every app message', async () => {
+        const { user, app } = await appPushReady(state.server);
+        for (let i = 0; i < 4; i++) {
+            await appMessage(state.server, user.id, app.uid);
+        }
+        await vi.waitFor(() => expect(provider.calls).toHaveLength(4));
+    });
+});
+
+describe('PushService with three app pushes a minute', () => {
+    const provider = new FakeProvider();
+    const state = bootWith(
+        { push: { enabled: true, appPushesPerMinute: 3 } },
+        provider,
+    );
+
+    it('pushes three app messages and skips the fourth', async () => {
+        const { user, app } = await appPushReady(state.server);
+        for (let i = 0; i < 4; i++) {
+            await appMessage(state.server, user.id, app.uid);
+            await settle();
+        }
+        expect(provider.calls).toHaveLength(3);
+    });
+});
+
+describe('PushService app push limit over time', () => {
+    const provider = new FakeProvider();
+    const state = bootWith({ push: { enabled: true } }, provider);
+
+    it('pushes again once the minute has passed, and warns once a minute', async () => {
+        const { user, app, token } = await appPushReady(state.server);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            for (let i = 0; i < 3; i++) {
+                await appMessage(state.server, user.id, app.uid);
+                await settle();
+            }
+            expect(provider.calls).toHaveLength(1);
+            expect(limitWarnings(warn)).toHaveLength(1);
+            expect(limitWarnings(warn)[0][1]).toEqual({ skipped: 1 });
+
+            vi.setSystemTime(Date.now() + 61_000);
+            await appMessage(state.server, user.id, app.uid);
+            await vi.waitFor(() => expect(provider.calls).toHaveLength(2));
+            await appMessage(state.server, user.id, app.uid);
+            await settle();
+            expect(provider.calls).toHaveLength(2);
+
+            const warnings = limitWarnings(warn);
+            expect(warnings).toHaveLength(2);
+            expect(warnings[1][1]).toEqual({ skipped: 2 });
+            const logged = JSON.stringify(warnings);
+            expect(logged).not.toContain(token);
+            expect(logged).not.toContain(app.uid);
+        } finally {
+            vi.useRealTimers();
+            warn.mockRestore();
+        }
+    });
+});
