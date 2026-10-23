@@ -441,6 +441,7 @@ describe('PuterServer host header validation — permissive modes', () => {
                 allow_no_host_header: false,
                 custom_domains_enabled: true,
                 allow_nipio_domains: true,
+                static_hosting_domain: 'site.puter.localhost',
             } as unknown as IConfig,
             { listen: true },
         );
@@ -450,11 +451,13 @@ describe('PuterServer host header validation — permissive modes', () => {
         await server?.shutdown();
     });
 
-    it('lets an unknown host through when custom domains are enabled', async () => {
+    it('hands an unknown host to site hosting when custom domains are enabled', async () => {
         const res = await rawRequest(port, '/', {
             host: 'my-own-domain.example',
         });
-        expect(res.status).not.toBe(400);
+        // No site claims it, so it 404s instead of reaching the GUI.
+        expect(res.status).toBe(404);
+        expect(res.body).toBe('Site not found');
     });
 
     it('accepts nip.io hosts when they are opted in', async () => {

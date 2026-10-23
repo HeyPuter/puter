@@ -1030,6 +1030,133 @@ describe('createPuterSiteMiddleware — site.access.check', () => {
     });
 });
 
+describe('createPuterSiteMiddleware — hosts outside the configured domains', () => {
+    const claims = new Map<string, string>();
+    const resolveHost = (
+        _key: string,
+        data: { host: string; result: { subdomain: string | null } },
+    ) => {
+        const sub = claims.get(data.host);
+        if (sub) data.result.subdomain = sub;
+    };
+
+    beforeAll(() => {
+        server.clients.event.on('site.resolveHost', resolveHost as never);
+    });
+
+    afterAll(() => {
+        server.clients.event.off('site.resolveHost', resolveHost as never);
+    });
+
+    const customReq = (hostname: string, path = '/index.html') => {
+        const req = makeReq({ hostname, path });
+        (req as Request & { is_custom_domain?: boolean }).is_custom_domain =
+            true;
+        return req;
+    };
+
+    const makeSite = async (opts: { suspended?: boolean } = {}) => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `cust-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/index.html`,
+            Buffer.from('<html>custom</html>'),
+            'text/html',
+        );
+        if (opts.suspended) {
+            await server.stores.user.update(owner.id, { suspended: 1 });
+        }
+        const host = `${sub}.example.test`;
+        claims.set(host, sub);
+        return { owner, sub, host };
+    };
+
+    it('serves the claimed site on its host', async () => {
+        const { host } = await makeSite();
+        const { out, next } = await runMiddleware(
+            buildMiddleware(),
+            customReq(host),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(next).not.toHaveBeenCalled();
+        expect(out.statusCode).toBe(200);
+        expect(String(out.body)).toBe('<html>custom</html>');
+    });
+
+    it('404s an unclaimed host instead of falling through to the API/GUI', async () => {
+        const { out, next } = await runMiddleware(
+            buildMiddleware(),
+            customReq('nobody-claims-this.example.test'),
+        );
+        expect(next).not.toHaveBeenCalled();
+        expect(out.statusCode).toBe(404);
+        expect(out.body).toBe('Site not found');
+    });
+
+    it('404s when a listener throws', async () => {
+        const host = 'throws.example.test';
+        const boom = (_key: string, data: { host: string }) => {
+            if (data.host === host) throw new Error('boom');
+        };
+        server.clients.event.on('site.resolveHost', boom as never);
+        try {
+            const { out, next } = await runMiddleware(
+                buildMiddleware(),
+                customReq(host),
+            );
+            expect(next).not.toHaveBeenCalled();
+            expect(out.statusCode).toBe(404);
+        } finally {
+            server.clients.event.off('site.resolveHost', boom as never);
+        }
+    });
+
+    it('404s a claimed site whose owner is suspended', async () => {
+        const { host } = await makeSite({ suspended: true });
+        const { out } = await runMiddleware(buildMiddleware(), customReq(host));
+        expect(out.statusCode).toBe(404);
+        expect(out.body).toBe('Subdomain not found');
+    });
+
+    it('404s a private app rather than serving it ungated', async () => {
+        const { owner, sub, host } = await makeSite();
+        await server.clients.db.write(
+            'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`, `is_private`) VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                `app-${uuidv4()}`,
+                sub,
+                sub,
+                `http://${sub}.site.puter.localhost/`,
+                owner.id,
+                1,
+            ],
+        );
+        const { out } = await runMiddleware(buildMiddleware(), customReq(host));
+        expect(out.statusCode).toBe(404);
+        expect(out.body).toBe('Site not found');
+        expect(out.redirected).toBeUndefined();
+        expect(out.cookies).toEqual({});
+    });
+
+    it('passes the host through untouched when custom domains are not flagged', async () => {
+        const { host } = await makeSite();
+        const { out, next } = await runMiddleware(
+            buildMiddleware(),
+            makeReq({ hostname: host }),
+        );
+        expect(next).toHaveBeenCalledTimes(1);
+        expect(out.statusCode).toBeUndefined();
+    });
+});
+
 describe('createPuterSiteMiddleware — .puter_site_config', () => {
     const setupSiteWithConfig = async (config: unknown) => {
         const owner = await makeUserWithHome();
@@ -1254,12 +1381,7 @@ describe('createPuterSiteMiddleware — .puter_site_config', () => {
             errors: { '404': { file: '/index.html', status: 200 } },
         });
         const body = Buffer.from('real-page');
-        await writeFile(
-            owner.id,
-            `${homePath}/page.html`,
-            body,
-            'text/html',
-        );
+        await writeFile(owner.id, `${homePath}/page.html`, body, 'text/html');
 
         const mw = buildMiddleware();
         const { res, out } = makeRes();
@@ -1373,9 +1495,9 @@ describe('createPuterSiteMiddleware — .puter_site_config', () => {
 
         // SPA fallback still fires → cache served the deleted config.
         expect(second.out.statusCode).toBe(200);
-        expect(
-            (second.out.body as Buffer | undefined)?.equals(body),
-        ).toBe(true);
+        expect((second.out.body as Buffer | undefined)?.equals(body)).toBe(
+            true,
+        );
     });
 
     it('ignores `errors` entries with status codes outside 4xx/5xx', async () => {

@@ -128,6 +128,18 @@ describe('createWwwRedirect', () => {
         expect(next).toHaveBeenCalledTimes(1);
     });
 
+    it('leaves www. alone on a host outside our domains', () => {
+        const req = makeReq({
+            subdomains: ['com', 'example', 'www'],
+            host: 'www.example.com',
+        });
+        (req as Request & { is_custom_domain?: boolean }).is_custom_domain =
+            true;
+        const { out, next } = run(createWwwRedirect(config), req);
+        expect(out.redirectArgs).toBeUndefined();
+        expect(next).toHaveBeenCalledTimes(1);
+    });
+
     it("passes through when config.domain isn't configured (no target to redirect to)", () => {
         const { out, next } = run(
             createWwwRedirect({} as IConfig),
@@ -878,6 +890,18 @@ describe('createNativeAppStatic', () => {
     const config = { native_apps_root: '' } as unknown as IConfig;
     const withRoot = () =>
         createNativeAppStatic({ native_apps_root: root } as unknown as IConfig);
+
+    it('leaves a native app name alone on a host outside our domains', async () => {
+        const req = staticReq({
+            subdomains: ['com', 'example', 'editor'],
+            path: '/index.html',
+        });
+        (req as Request & { is_custom_domain?: boolean }).is_custom_domain =
+            true;
+        const { out, next } = await runStatic(withRoot(), req);
+        expect(out.sent).toBeUndefined();
+        expect(next).toHaveBeenCalledTimes(1);
+    });
 
     it('is a no-op when native_apps_root is unset', async () => {
         const { out, next } = await runStatic(
