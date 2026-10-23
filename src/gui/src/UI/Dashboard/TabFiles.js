@@ -189,8 +189,8 @@ const TabFiles = {
                 // Never write over an open editor — a just-created row has one
                 // focused already, and mkdir's own item.added lands here right
                 // after, which would wipe out whatever the user has typed.
-                // Visibility, not the -active class: the class outlives a
-                // cancelled edit, `.hide()` does not.
+                // Visibility, not the -active class, which comes off as soon
+                // as a rename is sent.
                 const $editor = $row.find('.item-name-editor');
                 if ( ! $editor.is(':visible') ) {
                     $editor.val(displayName);
@@ -632,7 +632,7 @@ const TabFiles = {
 
             // The refresh rebuilds the list, which would destroy an open
             // rename editor along with whatever the user has typed.
-            if ( $filesTab.find('.item-name-editor-active').length > 0 ) return;
+            if ( $filesTab.find('.item-name-editor-active:visible').length > 0 ) return;
             // So would an open menu: its actions are bound to the old rows.
             if ( $('.context-menu, .context-menu-modal-backdrop').length > 0 ) return;
 
@@ -3188,7 +3188,7 @@ const TabFiles = {
                 $(el_item_name).show();
                 _this.fitItemNames($(el_item_name));
                 $(el_item_name_editor).val($(el_item).attr('data-name'));
-                $(el_item_name_editor).hide();
+                $(el_item_name_editor).hide().removeClass('item-name-editor-active');
                 return;
             }
             // deactivate item name editable
@@ -3245,7 +3245,7 @@ const TabFiles = {
                 e.stopPropagation();
                 e.preventDefault();
                 rename_cancelled = true;
-                $(el_item_name_editor).hide();
+                $(el_item_name_editor).hide().removeClass('item-name-editor-active');
                 $(el_item_name_editor).val($(el_item).attr('data-name'));
                 $(el_item_name).show();
             }
