@@ -101,8 +101,7 @@ const aiMetering = () =>
 
 const makeProvider = (region?: string) =>
     new AWSPollyTTSProvider(aiMetering(), {
-        access_key: 'AKIA-TEST',
-        secret_key: 'secret',
+        credentials: { accessKeyId: 'AKIA-TEST', secretAccessKey: 'secret' },
         region,
     });
 

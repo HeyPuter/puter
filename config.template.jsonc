@@ -215,7 +215,9 @@
         // "bootstrapTables": true,
         "path": "",
         // Credentials. NOTE: snake_case here, unlike `s3.s3Config` below.
-        // For dynamodb-local, any non-empty values work.
+        // For dynamodb-local, any non-empty values work. On AWS,
+        // `"useCredentialChain": true` uses the default credential chain
+        // instead of keys.
         "aws": {
             "access_key": "",
             "secret_key": "",
@@ -493,6 +495,8 @@
             "defaultVoiceId": "",
             "speechToSpeechModelId": ""
         },
+        // Both AWS providers also take `"useCredentialChain": true` in place
+        // of keys, like `dynamo.aws`.
         "aws-polly": {
             "access_key": "",
             "secret_key": "",

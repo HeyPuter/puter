@@ -501,6 +501,19 @@ describe('DDBClient — credentialled configuration', () => {
         ).toThrow('requires both `access_key` and `secret_key`');
     });
 
+    it('accepts the credential chain in place of keys', async () => {
+        const client = new DDBClient({
+            port: 0,
+            extensions: [],
+            dynamo: {
+                aws: { useCredentialChain: true, region: 'us-west-2' },
+                endpoint: 'http://127.0.0.1:1',
+            },
+        } as unknown as IConfig);
+
+        await expect(client.recreateClient()).resolves.toBeUndefined();
+    });
+
     it('skips table creation on a managed deployment', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const client = new DDBClient({

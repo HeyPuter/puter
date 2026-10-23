@@ -19,6 +19,7 @@
 
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { awsCredentialsFrom } from '../../util/awsCredentials.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import {
@@ -241,15 +242,13 @@ export class TTSDriver extends PuterDriver {
         const polly = providers['aws-polly'];
         const pollyAws = (polly?.aws ?? polly) as
             Record<string, unknown> | undefined;
-        const pollyAccessKey = pollyAws?.access_key as string | undefined;
-        const pollySecretKey = pollyAws?.secret_key as string | undefined;
-        if (pollyAccessKey && pollySecretKey) {
+        const pollyCredentials = awsCredentialsFrom(pollyAws);
+        if (pollyCredentials) {
             register(
                 'aws-polly',
                 () =>
                     new AWSPollyTTSProvider(m, {
-                        access_key: pollyAccessKey,
-                        secret_key: pollySecretKey,
+                        credentials: pollyCredentials,
                         region: (pollyAws?.region ?? polly?.region) as
                             string | undefined,
                     }),

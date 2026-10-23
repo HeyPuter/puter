@@ -27,6 +27,7 @@ import {
 } from '@aws-sdk/client-polly';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { Context } from '../../../../core/context.js';
+import type { AwsCredentials } from '../../../../util/awsCredentials.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { DriverStreamResult } from '../../../meta.js';
 import { SAMPLE_AUDIO_URL } from '../../../util/testMode.js';
@@ -83,8 +84,7 @@ export class AWSPollyTTSProvider implements ITTSProvider {
     constructor(
         private readonly meteringService: AiMeteringService,
         private readonly config: {
-            access_key: string;
-            secret_key: string;
+            credentials: AwsCredentials;
             region?: string;
         },
     ) {
@@ -115,10 +115,7 @@ export class AWSPollyTTSProvider implements ITTSProvider {
         }
 
         this.clients[resolvedRegion] = new PollyClient({
-            credentials: {
-                accessKeyId: cfg.access_key,
-                secretAccessKey: cfg.secret_key,
-            },
+            credentials: cfg.credentials,
             region: resolvedRegion,
         });
 
