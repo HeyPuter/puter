@@ -3624,9 +3624,13 @@ const TabFiles = {
                     $(el_item).removeClass('native-drop-target');
                 },
 
-                drop: async function (_dragsterEvent, event) {
+                drop: async function (dragsterEvent, event) {
                     const e = event.originalEvent;
                     $(el_item).removeClass('native-drop-target');
+                    // Stop this notification, not the native drop: the window's
+                    // handler would cancel that, and the listing's dragster has
+                    // to see it to reset its enter state (it skips folder rows).
+                    dragsterEvent.stopPropagation();
 
                     if ( ! e.dataTransfer?.types?.includes('Files') ) {
                         return;
@@ -3645,9 +3649,7 @@ const TabFiles = {
                         TabFiles.uploadFiles(e.dataTransfer.items, targetPath);
                     }
 
-                    e.stopPropagation();
                     e.preventDefault();
-                    return false;
                 },
             });
         }
