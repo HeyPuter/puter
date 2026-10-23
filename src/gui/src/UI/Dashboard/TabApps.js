@@ -371,10 +371,12 @@ function buildPagerHtml (items, layout, instant) {
     }
     h += '</div>';
 
-    h += `<button class="myapps-pager-arrow myapps-pager-arrow-prev" aria-label="${i18n('previous_page')}">`;
+    // Mouse-only, like their hover reveal: the dots page by keyboard, and an
+    // arrow that is invisible until hovered must not be a Tab stop.
+    h += `<button class="myapps-pager-arrow myapps-pager-arrow-prev" tabindex="-1" aria-label="${i18n('previous_page')}">`;
     h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>';
     h += '</button>';
-    h += `<button class="myapps-pager-arrow myapps-pager-arrow-next" aria-label="${i18n('next_page')}">`;
+    h += `<button class="myapps-pager-arrow myapps-pager-arrow-next" tabindex="-1" aria-label="${i18n('next_page')}">`;
     h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
     h += '</button>';
 
