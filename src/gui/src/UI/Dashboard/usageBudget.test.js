@@ -1,3 +1,22 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
 
@@ -80,6 +99,11 @@ describe('usageBudget', () => {
         expect(budget.used).toBe(900_000_000);
         expect(budget.percent).toBe(100);
         expect(budget.barPercent).toBe(100);
+    });
+
+    it('reads 99% rather than 100% while some allowance is left', () => {
+        expect(usageBudget({ total: 996 }, info(1000)).percent).toBe(99);
+        expect(usageBudget({ total: 1000 }, info(1000)).percent).toBe(100);
     });
 
     it('answers zero for an account with no budget at all', () => {

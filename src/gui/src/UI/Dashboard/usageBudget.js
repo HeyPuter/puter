@@ -55,7 +55,8 @@ export const usageBudget = (usage, allowanceInfo) => {
     return {
         used,
         capacity,
-        percent: Math.round(share),
+        // 100% reads as spent: an allowance with anything left shows 99%.
+        percent: share < 100 ? Math.min(99, Math.round(share)) : Math.round(share),
         barPercent: Math.max(0, Math.min(100, share)),
     };
 };

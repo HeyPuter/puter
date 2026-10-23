@@ -313,7 +313,8 @@ export function openCreateTokenDialog ({ $sessionsParent, ...opts } = {}) {
             h += `<button type="button" class="dashboard-dialog-btn dashboard-dialog-btn-quiet dashboard-token-copy">${i18n('copy')}</button>`;
             h += '</div>';
             h += `<p class="dashboard-form-hint">${i18n('token_manage_hint')} <button type="button" class="dashboard-token-sessions">${i18n('ui_manage_sessions')}</button>.</p>`;
-            dialog.finish({ html: h });
+            // The token is shown only once; only Done, ✕ or Escape put it away.
+            dialog.finish({ html: h, keepOnBackdrop: true });
         },
     });
 
@@ -321,14 +322,25 @@ export function openCreateTokenDialog ({ $sessionsParent, ...opts } = {}) {
     dialog.$dialog.on('click', '.dashboard-token-copy', function () {
         const $btn = $(this);
         const $value = dialog.$dialog.find('.dashboard-token-value');
-        navigator.clipboard.writeText(String($value.val())).then(() => {
+        const copied = () => {
             $btn.text(t('token_copied'));
             clearTimeout(copied_timer);
             copied_timer = setTimeout(() => $btn.text(t('copy')), TOKEN_COPIED_RESET_MS);
-        }, () => {
-            // No clipboard access: select it so the user can copy it by hand.
+        };
+        // No clipboard access (an insecure origin has no navigator.clipboard
+        // at all): select it, try the legacy copy, and leave it selected so
+        // the user can copy it by hand.
+        const by_hand = () => {
             $value.get(0)?.select();
-        });
+            try {
+                if ( document.execCommand('copy') ) copied();
+            } catch { /* stays selected */ }
+        };
+        if ( navigator.clipboard?.writeText ) {
+            navigator.clipboard.writeText(String($value.val())).then(copied, by_hand);
+        } else {
+            by_hand();
+        }
     });
     dialog.$dialog.on('focus', '.dashboard-token-value', function () {
         this.select();

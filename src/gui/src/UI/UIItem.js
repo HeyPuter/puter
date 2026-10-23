@@ -1880,11 +1880,6 @@ window.activate_item_name_editor = async function (el_item) {
     $(el_item_name_editor).focus();
     $(el_item_name_editor).addClass('item-name-editor-active');
 
-    // html-decode the content of the item name editor, this is necessary because the item name is html-encoded when displayed
-    // but the item name editor is not html-encoded. If we remove this line, the item name editor will display the html-encoded
-    // version of the item name after a successful name edit.
-    $(el_item_name_editor).val(html_decode($(el_item_name_editor).val()));
-
     // select all text before extension
     const item_name = $(el_item).attr('data-name');
     const is_dir = parseInt($(el_item).attr('data-is_dir'));

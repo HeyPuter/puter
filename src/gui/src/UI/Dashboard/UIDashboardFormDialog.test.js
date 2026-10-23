@@ -1,4 +1,22 @@
 // @vitest-environment jsdom
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
@@ -44,6 +62,35 @@ describe('UIDashboardFormDialog', () => {
         expect($(`label[for="${$name.attr('id')}"]`).text()).toBe('Name');
         expect($name.val()).toBe('Ada <3');
         expect($('.dashboard-form-field[data-field="code"]').prop('hidden')).toBe(true);
+    });
+
+    it('ignores Escape and backdrop clicks while the handler runs, but not the close button', async () => {
+        let release;
+        const dialog = open({ onSubmit: () => new Promise((resolve) => {
+            release = resolve;
+        }) });
+        const $overlay = $('.dashboard-dialog-overlay');
+        submit();
+        $(document).trigger($.Event('keydown', { key: 'Escape' }));
+        $overlay.trigger($.Event('mousedown', { target: $overlay[0] }));
+        $overlay.trigger($.Event('click', { target: $overlay[0] }));
+        expect($('.dashboard-dialog-overlay')).toHaveLength(1);
+
+        $('.dashboard-dialog-close').trigger('click');
+        release();
+        await tick();
+        expect(dialog.$dialog.closest('.dashboard-dialog-overlay').hasClass('dashboard-dialog-show')).toBe(false);
+    });
+
+    it('keeps content shown once up through a backdrop click, not through Escape', () => {
+        const dialog = open();
+        dialog.finish({ html: '<p>token</p>', keepOnBackdrop: true });
+        const $overlay = $('.dashboard-dialog-overlay');
+        $overlay.trigger($.Event('mousedown', { target: $overlay[0] }));
+        $overlay.trigger($.Event('click', { target: $overlay[0] }));
+        expect($overlay.find('p').text()).toBe('token');
+        $(document).trigger($.Event('keydown', { key: 'Escape' }));
+        expect($overlay.hasClass('dashboard-dialog-show')).toBe(false);
     });
 
     it('reads every field back by name', () => {

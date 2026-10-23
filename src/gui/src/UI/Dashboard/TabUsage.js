@@ -371,12 +371,15 @@ async function update_usage_details ($el_window) {
         let general_used = res.used;
 
         let host_usage_percentage = 0;
+        $('#storage-puter-used-w').toggle(!! res.host_used);
         if ( res.host_used ) {
             $('#storage-puter-used').html(window.byte_format(res.used));
-            $('#storage-puter-used-w').show();
 
             general_used = res.host_used;
-            host_usage_percentage = ((res.host_used - res.used) / res.capacity * 100).toFixed(0);
+            // The host segment sits beside Puter's own, so together they
+            // can't run past a full bar.
+            const host_share = res.capacity ? (res.host_used - res.used) / res.capacity * 100 : 0;
+            host_usage_percentage = Math.max(0, Math.min(100 - Number(usage_percentage), host_share)).toFixed(0);
         }
 
         $('#storage-used').html(window.byte_format(general_used));

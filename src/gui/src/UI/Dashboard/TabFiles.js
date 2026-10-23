@@ -174,9 +174,18 @@ const TabFiles = {
                 const meta = file.metadata ? JSON.parse(file.metadata) : null;
                 if ( meta && meta.original_name ) displayName = meta.original_name;
             } catch { /* keep raw name */ }
+            // The row's handlers act on the entry renderItem bound them to;
+            // keep it current so a remote rename or move doesn't leave them
+            // opening, copying or sharing the old path.
+            const fsentry = $row.data('fsentry');
+            if ( fsentry ) {
+                for ( const key of ['name', 'path', 'type', 'size', 'modified', 'metadata'] ) {
+                    if ( file[key] !== undefined ) fsentry[key] = file[key];
+                }
+            }
             if ( displayName ) {
                 $row.attr('data-name', displayName);
-                $row.find('.item-name').text(displayName);
+                _this.fitItemNames($row.find('.item-name'));
                 // Never write over an open editor — a just-created row has one
                 // focused already, and mkdir's own item.added lands here right
                 // after, which would wipe out whatever the user has typed.
@@ -286,7 +295,12 @@ const TabFiles = {
         // Preference reads are best-effort (the tab renders with the defaults
         // rather than not at all) and independent of each other, so they go
         // out together: awaited one by one they cost four round-trips before
-        // the first listing could even start.
+        // the first listing could even start. A back/forward navigation can
+        // render a folder while they are out, so the defaults go in first.
+        this.currentView = 'list';
+        this.sortColumn = 'name';
+        this.sortDirection = 'asc';
+        this.columnWidths = { name: null, size: 100, modified: 120 };
         const [savedView, savedSortColumn, savedSortDirection, savedWidths] = await Promise.all([
             puter.kv.get('view_mode').catch(() => null),
             puter.kv.get('sort_column').catch(() => null),
@@ -302,11 +316,6 @@ const TabFiles = {
 
         // Column widths state (for resizing). A corrupt saved value falls back
         // to the defaults instead of taking the whole tab down with it.
-        this.columnWidths = {
-            name: null, // auto/flex
-            size: 100,
-            modified: 120,
-        };
         try {
             const parsedWidths = savedWidths ? JSON.parse(savedWidths) : null;
             if ( parsedWidths && typeof parsedWidths === 'object' ) {
@@ -376,14 +385,16 @@ const TabFiles = {
                         return;
                     }
 
-                    ui.helper.data('dropped', true);
-
                     // Get target folder path from the element itself. Using the
                     // element's own data-path covers folders (Public, Home) that
                     // aren't keyed in window.user.directories.
                     const targetPath = folderElement.getAttribute('data-path');
 
-                    if ( ! targetPath ) return;
+                    // The Shared view is a query rather than a folder;
+                    // dwelling on it still opens it, to drop into a folder inside.
+                    if ( ! targetPath || targetPath === window.shared_path ) return;
+
+                    ui.helper.data('dropped', true);
 
                     // Collect all items to move
                     const itemsToMove = [ui.draggable[0]];
@@ -490,8 +501,8 @@ const TabFiles = {
 
                     const folderPath = folderElement.getAttribute('data-path');
 
-                    // Don't allow drop on trash
-                    if ( folderPath === window.trash_path ) {
+                    // Don't allow drop on trash or the Shared view
+                    if ( folderPath === window.trash_path || folderPath === window.shared_path ) {
                         return;
                     }
 
@@ -512,8 +523,8 @@ const TabFiles = {
 
                     const folderPath = folderElement.getAttribute('data-path');
 
-                    // Block uploads to trash
-                    if ( folderPath === window.trash_path ) {
+                    // Block uploads to trash and the Shared view
+                    if ( folderPath === window.trash_path || folderPath === window.shared_path ) {
                         return;
                     }
 
@@ -669,8 +680,12 @@ const TabFiles = {
         if ( this.currentPath && window.is_dashboard_mode ) {
             this.updateDashboardUrl(this.currentPath);
         }
-        // Crumbs rendered while the tab was hidden had no width to scroll.
+        // Crumbs rendered while the tab was hidden had no width to scroll,
+        // and grid tiles had none to fit their names to.
         this.revealCurrentCrumb();
+        if ( this.isGridView?.() ) {
+            this.fitItemNames(this.$el_window.find('.files-tab .files .row:not(.header) .item-name'));
+        }
     },
 
     /**
@@ -711,7 +726,7 @@ const TabFiles = {
             // while open: Enter/Space must reach its buttons, arrows its
             // selects, and typing must not retarget row selection — nor may
             // Enter/Delete open or trash the rows behind the overlay.
-            if ( $('.share-modal-overlay, .item-props-overlay, .dashboard-notifications-panel.open').length > 0 ) return;
+            if ( $('.share-modal-overlay, .item-props-overlay, .dashboard-notifications-panel.open, .context-menu-modal-backdrop').length > 0 ) return;
 
             const focused_el = document.activeElement;
 
@@ -899,8 +914,11 @@ const TabFiles = {
                     e.preventDefault();
                     e.stopPropagation();
                     // Cutting is a move: rows that can't be moved (see the
-                    // Delete key above) would only fail on paste.
-                    const rows = await _this.restructurableRows($selectedRows.toArray());
+                    // Delete key above) would only fail on paste. Trashed
+                    // items leave the Trash through Restore, which puts their
+                    // original name back; a plain move would not.
+                    const rows = (await _this.restructurableRows($selectedRows.toArray()))
+                        .filter(row => ! ($(row).attr('data-path') || '').startsWith(`${window.trash_path}/`));
                     if ( rows.length > 0 ) {
                         window.clipboard = [];
                         window.clipboard_op = 'move';
@@ -920,8 +938,12 @@ const TabFiles = {
                 if ( window.clipboard.length > 0 && _this.currentPath ) {
                     e.preventDefault();
                     e.stopPropagation();
-                    // Don't allow paste in Trash unless it's a move operation
-                    if ( _this.currentPath.startsWith(window.trash_path) && window.clipboard_op !== 'move' ) {
+                    // Same rule as the Paste menu item: a move into the Trash
+                    // would skip the metadata Restore needs (Delete trashes),
+                    // and the Shared view is a query, not a folder.
+                    if ( _this.currentPath === window.trash_path
+                        || _this.currentPath.startsWith(`${window.trash_path}/`)
+                        || _this.currentPath === window.shared_path ) {
                         return false;
                     }
                     // After the paste completes, refresh and highlight the
@@ -1122,7 +1144,10 @@ const TabFiles = {
         // Check if it's an image file
         const extension = fileName.split('.').pop().toLowerCase();
         const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
-        if ( ! imageExtensions.includes(extension) ) {
+        if ( ! imageExtensions.includes(extension) || $row.attr('data-is_dir') === '1' ) {
+            // Moving the selection onto a non-image must not leave the
+            // previous image up under the wrong selection.
+            if ( this.previewOpen ) this.closeImagePreview();
             return;
         }
 
@@ -1164,8 +1189,13 @@ const TabFiles = {
         // Close on click outside the popover. Remove any prior handler first so
         // repeated calls (image arrow-navigation) don't stack duplicate handlers.
         const _this = this;
+        // A plain click on a row is left to the row's own handler, which
+        // switches the preview to it.
         $(document).off('click.imagepreview').on('click.imagepreview', (e) => {
-            if ( ! $(e.target).closest('.image-preview-popover').length ) {
+            if ( $(e.target).closest('.image-preview-popover').length ) return;
+            const plainRowClick = ! (e.ctrlKey || e.metaKey || e.shiftKey)
+                && $(e.target).closest('.files-tab .files .row:not(.header)').length;
+            if ( ! plainRowClick ) {
                 _this.closeImagePreview();
             }
         });
@@ -1590,6 +1620,8 @@ const TabFiles = {
             $actions.find('.download-btn').hide();
             $actions.find('.cut-btn').hide();
             $actions.find('.copy-btn').hide();
+            // A non-Trash selection may have hidden it pending its lookup.
+            $actions.find('.delete-btn').show();
             // Change delete label to "Delete Permanently"
             $actions.find('.delete-btn span').text(i18n('delete_permanently') || 'Delete Permanently');
         } else {
@@ -1684,6 +1716,22 @@ const TabFiles = {
 
         this.applyColumnWidths();
 
+        // Widths depend on the room the listing has: re-fit when the window or
+        // sidebar changes it (at most once a frame), not only on navigation.
+        const filesEl = this.$el_window.find('.files-tab .files')[0];
+        if ( filesEl && typeof ResizeObserver !== 'undefined' ) {
+            let lastWidth = filesEl.clientWidth;
+            let frame = null;
+            new ResizeObserver(() => {
+                if ( filesEl.clientWidth === lastWidth || ! filesEl.clientWidth ) return;
+                lastWidth = filesEl.clientWidth;
+                frame ??= requestAnimationFrame(() => {
+                    frame = null;
+                    _this.applyColumnWidths();
+                });
+            }).observe(filesEl);
+        }
+
         $columns.find('.col-resize-handle').on('mousedown', function (e) {
             e.preventDefault();
             e.stopPropagation();
@@ -1704,7 +1752,11 @@ const TabFiles = {
             }
 
             const startWidth = $targetColumn.outerWidth();
+            _this.adoptAppliedColumnWidths();
 
+            // Relayout at most once a frame: each pass restyles every row and
+            // re-truncates every name.
+            let frame = null;
             $(document).on('mousemove.colresize', function (moveEvent) {
                 const diff = moveEvent.pageX - startX;
                 let newWidth = Math.max(60, startWidth + diff); // Minimum width of 60px
@@ -1714,12 +1766,20 @@ const TabFiles = {
                     newWidth = Math.max(100, newWidth);
                 }
 
-                _this.columnWidths[column] = newWidth;
-                _this.applyColumnWidths();
+                _this.columnWidths[column] = _this.clampColumnWidth(column, newWidth);
+                frame ??= requestAnimationFrame(() => {
+                    frame = null;
+                    _this.applyColumnWidths();
+                });
             });
 
             $(document).on('mouseup.colresize', function () {
                 $(document).off('mousemove.colresize mouseup.colresize');
+                if ( frame !== null ) {
+                    cancelAnimationFrame(frame);
+                    frame = null;
+                    _this.applyColumnWidths();
+                }
                 puter.kv.set('column_widths', JSON.stringify(_this.columnWidths))
                     .catch(err => console.warn('Could not save column_widths:', err));
             });
@@ -1733,6 +1793,7 @@ const TabFiles = {
             const column = $(this).attr('data-resize');
             const $filesTab = _this.$el_window.find('.files-tab');
             const padding = 16; // 8px padding on each side
+            _this.adoptAppliedColumnWidths();
             let maxWidth = 60; // Minimum width
 
             if ( column === 'name' ) {
@@ -1763,7 +1824,7 @@ const TabFiles = {
             }
 
             // Apply the new width
-            _this.columnWidths[column] = Math.ceil(maxWidth);
+            _this.columnWidths[column] = _this.clampColumnWidth(column, Math.ceil(maxWidth));
             _this.applyColumnWidths();
             puter.kv.set('column_widths', JSON.stringify(_this.columnWidths))
                 .catch(err => console.warn('Could not save column_widths:', err));
@@ -1782,28 +1843,21 @@ const TabFiles = {
         const $container = $filesTab.find('.files');
         const containerWidth = $container.width();
 
-        // Fixed widths: icon(24) + spacers(4*3) + more(20) = 56px, plus some margin
-        const fixedWidth = 56 + 20;
-
         let nameWidth = this.columnWidths.name;
         let sizeWidth = this.columnWidths.size || 100;
         let modifiedWidth = this.columnWidths.modified || 120;
 
-        // Check if total width exceeds container width
+        // Columns that don't fit lay out at the defaults, but the saved
+        // widths stay so they come back once the listing is wide enough.
         if ( containerWidth > 0 && nameWidth ) {
-            const totalWidth = fixedWidth + nameWidth + sizeWidth + modifiedWidth;
+            const totalWidth = COLUMN_FIXED_WIDTH + nameWidth + sizeWidth + modifiedWidth;
             if ( totalWidth > containerWidth ) {
-                // Reset to defaults - columns don't fit
-                this.columnWidths = {
-                    name: null,
-                    size: 100,
-                    modified: 120,
-                };
                 nameWidth = null;
                 sizeWidth = 100;
                 modifiedWidth = 120;
             }
         }
+        this.appliedColumnWidths = { name: nameWidth, size: sizeWidth, modified: modifiedWidth };
 
         const nameCol = nameWidth ? `${nameWidth}px` : 'auto';
         const gridTemplate = `24px ${nameCol} 4px ${sizeWidth}px 4px ${modifiedWidth}px 4px 20px`;
@@ -1815,6 +1869,38 @@ const TabFiles = {
     },
 
     /**
+     * A resize starts from the widths on screen. Saved widths too wide for
+     * the listing lay out at the defaults (see applyColumnWidths), and
+     * resizing from those would fight the layout the user is looking at.
+     *
+     * @returns {void}
+     */
+    adoptAppliedColumnWidths () {
+        if ( this.appliedColumnWidths ) this.columnWidths = { ...this.appliedColumnWidths };
+    },
+
+    /**
+     * `width` held between the column's minimum and the widest it can be
+     * without the columns overflowing the listing, given the other columns.
+     *
+     * @param {'name'|'size'|'modified'} column
+     * @param {number} width
+     * @returns {number}
+     */
+    clampColumnWidth (column, width) {
+        const min = column === 'name' ? 100 : 60;
+        const containerWidth = this.$el_window.find('.files-tab .files').width();
+        if ( ! containerWidth ) return Math.max(min, width);
+        const widths = {
+            name: this.columnWidths.name || 100,
+            size: this.columnWidths.size || 100,
+            modified: this.columnWidths.modified || 120,
+        };
+        const others = Object.keys(widths).filter(c => c !== column).reduce((sum, c) => sum + widths[c], 0);
+        return Math.max(min, Math.min(width, containerWidth - COLUMN_FIXED_WIDTH - others));
+    },
+
+    /**
      * Writes each row's name into its `.item-name`, middle-truncated to fit
      * the name column (list view with a set width) or the tile (grid view).
      *
@@ -1822,10 +1908,14 @@ const TabFiles = {
      * @returns {void}
      */
     fitItemNames ($names) {
-        const nameWidth = this.columnWidths.name;
+        const nameWidth = this.appliedColumnWidths ? this.appliedColumnWidths.name : this.columnWidths.name;
         const isList = this.currentView === 'list';
         if ( ! isList && ! this.isGridView() ) return;
         const names = $names.toArray();
+        if ( ! names.length ) return;
+        // Measure in the font the names render in (the compact grid's is smaller).
+        const style = getComputedStyle(names[0]);
+        const font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
         // Grid tiles size the room: read every width before writing any
         // text, or each write forces a layout for the next read.
         const widths = isList ? null : names.map(el => $(el).width() || 156);
@@ -1833,10 +1923,10 @@ const TabFiles = {
             const fullName = el.closest('.row')?.getAttribute('data-name');
             if ( ! fullName ) return;
             if ( ! isList ) {
-                el.textContent = truncateFilenameToWidth(fullName, widths[i]);
+                el.textContent = truncateFilenameToWidth(fullName, widths[i], font);
             } else if ( nameWidth ) {
                 // 8px padding on each side
-                el.textContent = truncateFilenameToWidth(fullName, nameWidth - 16);
+                el.textContent = truncateFilenameToWidth(fullName, nameWidth - 16, font);
             } else {
                 // Auto-width column: the full name, clipped by CSS
                 el.textContent = fullName;
@@ -2001,6 +2091,7 @@ const TabFiles = {
         const newModified = file.modified || 0;
         const sortColumn = this.sortColumn;
         const sortDirection = this.sortDirection;
+        let inserted = false;
 
         $existingRows.each(function () {
             const $existing = $(this);
@@ -2009,6 +2100,7 @@ const TabFiles = {
             // Folders always come before files
             if ( newIsDir && !existingIsDir ) {
                 $newRow.insertBefore($existing);
+                inserted = true;
                 return false;
             }
             if ( !newIsDir && existingIsDir ) {
@@ -2035,11 +2127,14 @@ const TabFiles = {
 
             if ( comparison < 0 ) {
                 $newRow.insertBefore($existing);
+                inserted = true;
                 return false;
             }
         });
 
-        // If not inserted, it belongs at the end (already there from append)
+        // It belongs at the end. A just-appended row already is, but a renamed
+        // one is still wherever its old name sorted.
+        if ( ! inserted ) $newRow.insertAfter($existingRows.last());
     },
 
     /**
@@ -2401,7 +2496,7 @@ const TabFiles = {
 
             $(dirnameElement).on('contextmenu taphold', async (e) => {
                 // Dismiss taphold on non-touch devices
-                if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet ) {
+                if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet && !isTouchPrimaryDevice() ) {
                     return;
                 }
                 e.preventDefault();
@@ -2434,8 +2529,10 @@ const TabFiles = {
                         return;
                     }
 
-                    // Don't drop on current directory
-                    if ( targetPath === _this.currentPath ) {
+                    // Don't drop on current directory, or on the Shared view,
+                    // which is a query rather than a folder (dwelling on it
+                    // still opens it, to drop into a folder inside).
+                    if ( targetPath === _this.currentPath || targetPath === window.shared_path ) {
                         return;
                     }
 
@@ -2493,7 +2590,19 @@ const TabFiles = {
         // fetch; swap them for the fresh listing now that it's here. The
         // clear and the appends below run without an intervening task, so
         // the browser paints the old and new listing back to back.
+        // An open rename editor is carried across so the typing survives.
+        let openEditor = null;
         if ( isSameDirRefresh ) {
+            const editor = $files.find('.item-name-editor-active:visible')[0];
+            if ( editor ) {
+                openEditor = {
+                    uid: $(editor).closest('.row').attr('data-uid'),
+                    value: editor.value,
+                    start: editor.selectionStart,
+                    end: editor.selectionEnd,
+                    direction: editor.selectionDirection,
+                };
+            }
             clearListing();
         }
 
@@ -2540,6 +2649,24 @@ const TabFiles = {
 
         this.hideSpinner();
         this.renderingDirectory = false;
+        if ( openEditor ) this.reopenNameEditor(openEditor);
+    },
+
+    /**
+     * Reopens a rename editor that a same-directory refresh tore down, with
+     * the text and caret the user left in it.
+     *
+     * @param {{ uid: string, value: string, start: number, end: number, direction: string }} state
+     * @returns {Promise<void>}
+     */
+    async reopenNameEditor ({ uid, value, start, end, direction }) {
+        const row = Array.from(this.$el_window.find('.files-tab .files .row')).find(r => r.getAttribute('data-uid') === uid);
+        if ( ! row ) return;
+        await window.activate_item_name_editor(row);
+        const editor = row.querySelector('.item-name-editor');
+        if ( ! editor || ! $(editor).hasClass('item-name-editor-active') ) return;
+        editor.value = value;
+        editor.setSelectionRange(start, end, direction);
     },
 
     /**
@@ -2686,6 +2813,7 @@ const TabFiles = {
         row.setAttribute("data-modified", file.modified);
         row.setAttribute("data-associated_app_name", file.associated_app?.name ?? '');
         row.setAttribute("data-path", file.path);
+        $(row).data('fsentry', file);
         row.innerHTML = `
             <div class="item-checkbox"><span class="checkbox-icon"></span></div>
             <div class="item-icon">
@@ -3004,6 +3132,9 @@ const TabFiles = {
                 return;
             }
             if ( isPending() ) return;
+            // The preview floats above app windows; opening the item ends it,
+            // as Enter does.
+            if ( _this.previewOpen ) _this.closeImagePreview();
             if ( isFolder === "1" ) {
                 _this.pushNavHistory(file.path);
                 _this.renderDirectory(file.path);
@@ -3107,7 +3238,7 @@ const TabFiles = {
                 e.preventDefault();
                 rename_cancelled = true;
                 $(el_item_name_editor).hide();
-                $(el_item_name_editor).val(file.name);
+                $(el_item_name_editor).val($(el_item).attr('data-name'));
                 $(el_item_name).show();
             }
         });
@@ -3149,7 +3280,7 @@ const TabFiles = {
             // selection, not just the row the long-press landed on.
             const menuTitle = isMultiSelection
                 ? i18n('items_count_other', { count: selectedRows.length }, false)
-                : file.name;
+                : $(el_item).attr('data-name');
 
             // The touch sheet is for touch interactions and touch-first
             // devices. A mouse right-click gets the desktop menu at the
@@ -4131,7 +4262,7 @@ const TabFiles = {
             modal.show(items, targetRect, {
                 title: isMultiSelection
                     ? i18n('items_count_other', { count: selectedRows.length }, false)
-                    : file.name,
+                    : $(rowElement).attr('data-name'),
             });
         } else {
             // The '⋯' click doesn't select the row, so without this class the
@@ -4267,7 +4398,7 @@ const TabFiles = {
         const mayRestructure = (await _this.restructurableRows(selectedRows)).length === selectedRows.length;
 
         // Cut
-        if ( mayRestructure ) {
+        if ( mayRestructure && ! anyTrashed ) {
             items.push({
                 html: `${i18n('cut')}`,
                 onClick: function () {
@@ -4605,7 +4736,7 @@ const TabFiles = {
             selectionContainerClass: 'selection-area-container',
             selectionAreaClass: 'hidden-selection-area',
             container: `#${containerId}`,
-            selectables: [`#${containerId} .row`],
+            selectables: [`#${containerId} .row.item`],
             startareas: [`#${containerId}`],
             boundaries: [`#${containerId}`],
             behaviour: {
@@ -4665,11 +4796,11 @@ const TabFiles = {
             return true;
         });
 
-        selection.on('start', ({ store, event }) => {
+        selection.on('start', ({ event }) => {
             if ( !event.ctrlKey && !event.metaKey ) {
-                for ( const el of store.stored ) {
-                    el.classList.remove('selected');
-                }
+                // store.stored only knows earlier marquee picks; rows picked
+                // by click, Ctrl+A or the arrow keys must be dropped too.
+                filesContainer.querySelectorAll('.row.selected').forEach(el => el.classList.remove('selected'));
                 selection.clearSelection();
             }
 
@@ -5145,6 +5276,10 @@ const TabFiles = {
 
 // Canvas context for measuring text width (reused for performance)
 let measureContext = null;
+let measureFont = null;
+
+/** List columns other than name/size/modified: icon(24) + spacers(4*3) + more(20), plus margin. */
+const COLUMN_FIXED_WIDTH = 56 + 20;
 
 /**
  * Measures the pixel width of text using a canvas context.
@@ -5158,7 +5293,11 @@ function measureTextWidth (text, font = '500 13px system-ui, -apple-system, sans
         const canvas = document.createElement('canvas');
         measureContext = canvas.getContext('2d');
     }
-    measureContext.font = font;
+    // Assigning font re-parses it; truncation measures many times per name.
+    if ( measureFont !== font ) {
+        measureContext.font = font;
+        measureFont = font;
+    }
     return measureContext.measureText(text).width;
 }
 

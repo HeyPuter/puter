@@ -1,3 +1,22 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 /* ======================================
    Dashboard
    ====================================== */
@@ -1082,6 +1101,12 @@ input.myapps-search:disabled {
     height: 16px;
 }
 
+/* An arrow with no page to go to leaves the accessibility tree once faded. */
+.myapps-pager-arrow.myapps-pager-arrow-hidden {
+    visibility: hidden;
+    transition: opacity 0.15s ease, background 0.15s ease, visibility 0s 0.15s;
+}
+
 .myapps-pager-arrow-prev {
     left: 0;
 }
@@ -1165,6 +1190,13 @@ input.myapps-search:disabled {
 
 .myapps-tile:focus-visible .myapps-tile-icon {
     transform: scale(1.08);
+}
+
+/* The enlargement alone is easy to miss; a ring says which tile has focus. */
+.myapps-tile:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: 2px;
+    border-radius: 14px;
 }
 
 /* Uninstall: the tile shrinks away in place, then the surviving tiles
@@ -2236,12 +2268,31 @@ p.myapps-add-error {
 }
 .item-props-disassociate {
     margin-left: 8px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    font: inherit;
     font-size: 12px;
     color: var(--dashboard-danger-text);
     cursor: pointer;
 }
 .item-props-disassociate:hover {
     text-decoration: underline;
+}
+.item-props-disassociate:disabled {
+    opacity: 0.5;
+    cursor: default;
+    text-decoration: none;
+}
+.item-props-modal:focus {
+    outline: none;
+}
+.item-props-close:focus-visible,
+.item-props-tab:focus-visible,
+.item-props-disassociate:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
 }
 
 /* Versions */
@@ -2299,6 +2350,13 @@ p.myapps-add-error {
     }
     .item-props-label {
         flex-basis: auto;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .item-props-overlay,
+    .item-props-modal {
+        transition: none;
     }
 }
 
@@ -4036,6 +4094,22 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* Dark mode keeps the toolbar's light hover chip (see .path-btn), so what sits
+   on it goes dark; at rest the action icons match the inverted nav arrows. */
+@media (prefers-color-scheme: dark) {
+    .dashboard-section-files .header .path-action-btn {
+        color: #a3a3a3;
+    }
+    @media (hover: hover) {
+        .dashboard-section-files .header .path-action-btn:hover {
+            color: #5c5c5c;
+        }
+        .dashboard-section-files .header .path .dirname:hover {
+            color: #3f3f46;
+        }
+    }
+}
+
 .dashboard-section-files .header .path .dirname.drop-target {
     color: var(--dashboard-text);
     background-color: rgba(59, 130, 246, 0.15);
@@ -4222,6 +4296,14 @@ body.myapps-reordering .myapps-tile {
 
 .dashboard-section-files .row .item-more svg {
     pointer-events: none;
+}
+
+/* Without hover there is no reveal, so touch screens show it at rest as
+   quietly as the row's other metadata. */
+@media (hover: none) {
+    .dashboard-section-files .row .item-more {
+        color: var(--dashboard-text-tertiary);
+    }
 }
 
 @media (hover: hover) {
@@ -4632,7 +4714,7 @@ body.myapps-reordering .myapps-tile {
     height: 7px;
     right: 2px;
     bottom: 2px;
-    box-shadow: 0 0 0 1px white;
+    box-shadow: 0 0 0 1px var(--dashboard-background);
 }
 
 .dashboard-section-files .files-tab .files.files-list-view .row .item-icon img {
@@ -5803,6 +5885,12 @@ body.myapps-reordering .myapps-tile {
     color: inherit;
 }
 
+/* Inset: the card's rounded overflow clip would cut an outer ring. */
+.dashboard .bento-card-fancy-header:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: -2px;
+}
+
 .dashboard .bento-recent > .bento-card-fancy-header {
     background-color: var(--dashboard-bento-apps-header-bg);
 }
@@ -6487,6 +6575,8 @@ body.myapps-reordering .myapps-tile {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    /* Lets a long username or email wrap inside the card, not run past it. */
+    min-width: 0;
 }
 
 .dashboard-profile-info h3 {
@@ -6494,12 +6584,14 @@ body.myapps-reordering .myapps-tile {
     font-size: 22px;
     font-weight: 700;
     color: var(--dashboard-text-primary);
+    overflow-wrap: anywhere;
 }
 
 .dashboard-profile-info p {
     margin: 0;
     font-size: 14px;
     color: var(--dashboard-text-hint);
+    overflow-wrap: anywhere;
 }
 
 .dashboard-profile-hint {
@@ -6778,6 +6870,12 @@ body.myapps-reordering .myapps-tile {
     line-height: 1.5;
 }
 
+/* The same focus ring as the settings cards' buttons; the base style.css
+   rule drops the outline. */
+.dashboard-danger-card .button:focus-visible {
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
 /* Responsive styles for Account tab */
 @media (max-width: 768px) {
     .dashboard-tab-content {
@@ -6878,6 +6976,19 @@ body.myapps-reordering .myapps-tile {
 .context-menu-modal-backdrop.show .context-menu-modal-dialog {
     transform: scale(1);
     opacity: 1;
+}
+
+/* Reduced motion: these still fade, but don't scale or slide into place. */
+@media (prefers-reduced-motion: reduce) {
+    .context-menu-modal-dialog {
+        transition: opacity 200ms ease-in-out;
+    }
+    .dashboard-section-files .files-selection-actions {
+        transition: opacity 0.25s ease, visibility 0.25s ease;
+    }
+    .app-feedback-modal {
+        transition: none;
+    }
 }
 
 /* Title shown at top of context menu (e.g. filename) */

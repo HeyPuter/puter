@@ -142,7 +142,7 @@ async function UIDashboard (options) {
                 }
                 const isActive = tab.id === initialTabId ? ' active' : '';
                 const tabHref = `#${tab.id}`;
-                h += `<a class="dashboard-sidebar-item allow-native-ctxmenu${isActive}" href="${tabHref}" data-section="${tab.id}" data-tooltip="${html_encode(tab.label)}">`;
+                h += `<a class="dashboard-sidebar-item allow-native-ctxmenu${isActive}" href="${tabHref}" data-section="${tab.id}" data-tooltip="${html_encode(tab.label)}"${isActive ? ' aria-current="page"' : ''}>`;
                     h += tab.icon;
                     h += tab.label;
                 h += '</a>';
@@ -151,9 +151,10 @@ async function UIDashboard (options) {
 
             // User options button at bottom
             h += '<div class="dashboard-user-options">';
-                h += '<button type="button" class="dashboard-user-btn" aria-haspopup="menu">';
+                // Named by the username even while the collapsed sidebar hides it.
+                h += '<button type="button" class="dashboard-user-btn" aria-haspopup="menu" aria-labelledby="dashboard-user-name">';
                     h += `<div class="dashboard-user-avatar profile-pic" style="background-image: url(${window.user?.profile?.picture || window.icons['profile.svg']})"></div>`;
-                    h += `<span class="dashboard-user-name username">${window.html_encode(window.user?.username || i18n('user', [], false))}</span>`;
+                    h += `<span class="dashboard-user-name username" id="dashboard-user-name">${window.html_encode(window.user?.username || i18n('user', [], false))}</span>`;
                     h += '<svg class="dashboard-user-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
                 h += '</button>';
             h += '</div>';
@@ -192,9 +193,16 @@ async function UIDashboard (options) {
 
     const $el_window = $(el_window);
 
-    // Remove `?ref=...` from the URL, keeping the path and tab hash (mirrors UIDesktop)
+    // The active tab, shown by the class and announced by aria-current.
+    const setActiveSidebarItem = ($item) => {
+        $el_window.find('.dashboard-sidebar-item').removeClass('active').removeAttr('aria-current');
+        $item.addClass('active').attr('aria-current', 'page');
+    };
+
+    // Remove `?ref=...` from the URL, keeping the path and tab hash (mirrors
+    // UIDesktop). Replaced, not pushed, so Back leaves the dashboard.
     if ( window.url_query_params?.has('ref') ) {
-        window.history.pushState(null, document.title, window.location.pathname + window.location.hash);
+        window.history.replaceState(null, document.title, window.location.pathname + window.location.hash);
     }
 
     // Restore sidebar collapsed state
@@ -369,13 +377,19 @@ async function UIDashboard (options) {
         const $el = $(`.item[data-uid='${item.uid}']`);
         if ( $el.length === 0 ) return;
 
+        // Files-tab rows go through the shared updater, which also refits
+        // the name and keeps the entry their handlers use current.
+        const $fileRows = $el.filter('.files-tab .item');
+        if ( $fileRows.length ) window.UIDashboardFileItemUpdate?.($fileRows, item);
+        const $others = $el.not($fileRows);
+
         // Update data attributes (raw values — .attr() stores literally)
-        $el.attr('data-name', item.name);
-        $el.attr('data-path', item.path);
+        $others.attr('data-name', item.name);
+        $others.attr('data-path', item.path);
 
         // Update displayed name
-        $el.find('.item-name').text(item.name);
-        $el.find('.item-name-editor').val(item.name);
+        $others.find('.item-name').text(item.name);
+        $others.find('.item-name-editor').val(item.name);
     });
 
     window.socket.on('item.updated', async (item) => {
@@ -416,8 +430,7 @@ async function UIDashboard (options) {
 
             // Only switch if the tab exists
             if ( $targetTab.length > 0 ) {
-                $el_window.find('.dashboard-sidebar-item').removeClass('active');
-                $targetTab.addClass('active');
+                setActiveSidebarItem($targetTab);
                 $el_window.find('.dashboard-section').removeClass('active');
                 $el_window.find(`.dashboard-section[data-section="${tabId}"]`).addClass('active');
 
@@ -473,14 +486,12 @@ async function UIDashboard (options) {
         const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tab}"]`);
         if ( tab === 'home' ) {
             // Home tab
-            $el_window.find('.dashboard-sidebar-item').removeClass('active');
-            $el_window.find('.dashboard-sidebar-item').first().addClass('active');
+            setActiveSidebarItem($el_window.find('.dashboard-sidebar-item').first());
             $el_window.find('.dashboard-section').removeClass('active');
             $el_window.find('.dashboard-section').first().addClass('active');
             document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
         } else if ( $targetTab.length > 0 ) {
-            $el_window.find('.dashboard-sidebar-item').removeClass('active');
-            $targetTab.addClass('active');
+            setActiveSidebarItem($targetTab);
             $el_window.find('.dashboard-section').removeClass('active');
             $el_window.find(`.dashboard-section[data-section="${tab}"]`).addClass('active');
             document.querySelector('.dashboard-content').setAttribute('class', 'dashboard-content');
@@ -514,14 +525,15 @@ async function UIDashboard (options) {
     // Sidebar item click handler — only tab items ([data-section]); plain links
     // like the "Open Desktop" button navigate natively
     $el_window.on('click', '.dashboard-sidebar-item[data-section]', function (e) {
+        // A modified click opens the tab's link in a new browser tab, natively.
+        if ( e.metaKey || e.ctrlKey || e.shiftKey ) return;
         e.preventDefault();
         const $this = $(this);
         const section = $this.attr('data-section');
         notifications.close({ restoreFocus: false });
 
         // Update active sidebar item
-        $el_window.find('.dashboard-sidebar-item').removeClass('active');
-        $this.addClass('active');
+        setActiveSidebarItem($this);
 
         // Update active content section
         $el_window.find('.dashboard-section').removeClass('active');

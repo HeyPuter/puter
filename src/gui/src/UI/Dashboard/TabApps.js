@@ -1,3 +1,22 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
 import launch_app from '../../helpers/launchApp.js';
@@ -33,25 +52,6 @@ const APP_NAMES_NO_UNINSTALL = new Set([
     'dev-center',
     'app-center',
 ]);
-
-/*
- * Copyright (C) 2024-present Puter Technologies Inc.
- *
- * This file is part of Puter.
- *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
 
 // -- Add-an-app tile --
 /** Puter's app marketplace — the add-an-app tile's route to installing one. */
@@ -371,10 +371,12 @@ function buildPagerHtml (items, layout, instant) {
     }
     h += '</div>';
 
-    h += `<button class="myapps-pager-arrow myapps-pager-arrow-prev" aria-label="${i18n('previous_page')}">`;
+    // Mouse-only, like their hover reveal: the dots page by keyboard, and an
+    // arrow that is invisible until hovered must not be a Tab stop.
+    h += `<button class="myapps-pager-arrow myapps-pager-arrow-prev" tabindex="-1" aria-label="${i18n('previous_page')}">`;
     h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>';
     h += '</button>';
-    h += `<button class="myapps-pager-arrow myapps-pager-arrow-next" aria-label="${i18n('next_page')}">`;
+    h += `<button class="myapps-pager-arrow myapps-pager-arrow-next" tabindex="-1" aria-label="${i18n('next_page')}">`;
     h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
     h += '</button>';
 
@@ -773,6 +775,12 @@ function showAddAppModal ({ $el_window }) {
     showPane('options');
 }
 
+/** An app id minted from a uuid (`app-<uuid>`), as website shortcuts are named. */
+const GENERATED_APP_ID = /^app-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** Longest the grid waits on page one's icons before showing anyway. */
+const ICON_REVEAL_DEADLINE_MS = 1500;
+
 function revealWhenLoaded ($container) {
     const $pager = $container.find('.myapps-pager-loading');
     if ( $pager.length === 0 ) return;
@@ -787,11 +795,15 @@ function revealWhenLoaded ($container) {
 
     let loaded = 0;
     const total = imgs.length;
+    const reveal = () => $pager.removeClass('myapps-pager-loading');
+    // One icon host that never answers must not keep the whole grid hidden.
+    const deadline = setTimeout(reveal, ICON_REVEAL_DEADLINE_MS);
 
     function onDone () {
         loaded++;
         if ( loaded >= total ) {
-            $pager.removeClass('myapps-pager-loading');
+            clearTimeout(deadline);
+            reveal();
         }
     }
 
@@ -1071,7 +1083,7 @@ const TabApps = {
                             html: i18n('app_group_rename'),
                             // Renaming happens in the folder's own header —
                             // one place to edit the name, seen in context.
-                            onClick: () => self._openGroup($el_window, groupId, tile, { editName: true }),
+                            onClick: () => self._openGroup($el_window, groupId, tile, { rename: true }),
                         },
                         '-',
                         {
@@ -1218,6 +1230,9 @@ const TabApps = {
             if ( $('.window').not($el_window[0]).filter(':visible').length ) return;
             // An open context menu owns arrows and Enter (keyboard.js).
             if ( $('.context-menu').length ) return;
+            // So does a dialog over the grid: the notifications panel, an
+            // account dialog, or the touch action sheet.
+            if ( $('.dashboard-notifications-panel.open, .dashboard-dialog-overlay, .context-menu-modal-backdrop').length ) return;
 
             const $panelGrid = $el_window.find('.myapps-group-panel-grid');
             const pageTiles = ($panelGrid.length
@@ -1354,14 +1369,15 @@ const TabApps = {
         if ( query ) {
             // Match the same values the tiles expose as data-app-name,
             // data-app-title (the displayed title, e.g. the hostname for
-            // website shortcuts), and data-app-uid.
+            // website shortcuts), and data-app-uid. Generated ids match only
+            // whole: as substrings, "app" or a hex letter would hit them all.
+            const matches = (value) => (GENERATED_APP_ID.test(value) ? value === query : value.includes(query));
             list = list.filter(app => {
                 const title = resolveTileDisplay(app).title.toLowerCase();
                 const rawTitle = (app.title || '').toLowerCase();
                 const name = (app.name || '').toLowerCase();
                 const uid = String(app.uid || app.uuid || '').toLowerCase();
-                return title.includes(query) || rawTitle.includes(query)
-                    || name.includes(query) || uid.includes(query);
+                return matches(title) || matches(rawTitle) || matches(name) || uid === query;
             });
         }
 
@@ -1636,7 +1652,7 @@ const TabApps = {
     // this grid, moves with the dashboard window, and closes on Escape, on a
     // click outside, or on the tile that opened it.
 
-    _openGroup ($el_window, groupId, fromTile, { editName = false } = {}) {
+    _openGroup ($el_window, groupId, fromTile, { editName = false, rename = false } = {}) {
         const group = findGroupById(this._groups, groupId);
         if ( ! group ) return;
         // Clicking the open folder's own tile again closes it, like iOS.
@@ -1677,10 +1693,11 @@ const TabApps = {
         this._bindGroupPanel($el_window, $overlay);
         this._animateGroupPanelOpen($el_window, fromTile);
 
-        if ( editName && ! isTouchPrimaryDevice() ) {
+        if ( rename || (editName && ! isTouchPrimaryDevice()) ) {
             // Naming is the first thing a new folder wants; on touch the same
             // gesture would throw an on-screen keyboard over the folder the
-            // user just made, so there they tap the name when ready.
+            // user just made, so there they tap the name when ready. An
+            // explicit Rename asked for the keyboard, though.
             const input = $overlay.find('.myapps-group-name')[0];
             input.focus();
             input.select();
@@ -1874,6 +1891,9 @@ const TabApps = {
         const $name = $overlay.find('.myapps-group-name');
         // Never overwrite a name being typed.
         if ( ! $name.is(':focus') ) $name.val(groupLabel(group));
+        // Named and counted like its tile: current name, apps actually shown.
+        $overlay.find('.myapps-group-panel')
+            .attr('aria-label', i18n('app_group_tile_aria', [groupLabel(group), apps.length], false));
         const $grid = $overlay.find('.myapps-group-panel-grid');
         // Only as wide as it needs to be, within the cap the stylesheet sets
         // for the viewport — a folder of three in a four-wide card would sit
@@ -2815,6 +2835,11 @@ const TabApps = {
             }
         }
 
+        // The drag moved the folder's tile nodes; a cancelled or no-op drop
+        // leaves the state, and so the cached panel markup, unchanged, which
+        // would skip the rebuild and keep the dragged-to order on screen.
+        if ( d.panelGrid ) d.panelGrid.__myappsPanelHtml = null;
+
         // Rebuild so pages rebalance to exactly perPage; skip the load fade.
         this.renderApps(d.$el_window, { preservePage: true, instant: true });
 
@@ -3261,8 +3286,11 @@ const TabApps = {
 
             this._hasCustomOrder = Array.isArray(effectiveOrder) && effectiveOrder.length > 0;
 
+            // A refresh of a grid already on screen keeps the user's page and
+            // skips the first load's fade-in.
+            const refreshing = Array.isArray(this._apps) && $container.find('.myapps-page').length > 0;
             this._apps = reconcileAppOrder(merged, effectiveOrder);
-            this.renderApps($el_window);
+            this.renderApps($el_window, refreshing ? { preservePage: true, instant: true } : undefined);
         } catch (e) {
             console.error('Failed to load installed apps:', e);
             // Only show the failure placeholder when nothing has loaded yet; a

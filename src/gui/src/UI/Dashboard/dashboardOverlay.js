@@ -23,6 +23,21 @@
 let overlay_seq = 0;
 
 /**
+ * Whether a keypress belongs to this overlay rather than to a window or
+ * modal opened over it. Not all of those take focus, so what is painted
+ * over the overlay's center counts too.
+ *
+ * @param {HTMLElement} el_overlay
+ * @returns {boolean}
+ */
+export function isOverlayOnTop (el_overlay) {
+    const el_active = document.activeElement;
+    if ( el_active && el_active !== document.body && ! el_overlay.contains(el_active) ) return false;
+    const el_top = document.elementFromPoint?.(window.innerWidth / 2, window.innerHeight / 2);
+    return ! (el_top && ! el_overlay.contains(el_top));
+}
+
+/**
  * Mounts `.dashboard-dialog-overlay` around the given card and wires the
  * reveal transition, dismissal (Escape, `.dashboard-dialog-close`, a press
  * and release on the backdrop), a Tab focus trap, room for an on-screen
@@ -35,9 +50,11 @@ let overlay_seq = 0;
  *   back to whatever had it when the overlay opened.
  * @param {() => void} [opts.onDismiss] Runs when the user dismisses the
  *   overlay, after it has closed. Not called for `close()`.
+ * @param {(via: 'escape'|'close'|'backdrop') => boolean} [opts.canDismiss]
+ *   Consulted before each dismissal; returning false keeps the overlay up.
  * @returns {{ $overlay: jQuery, $dialog: jQuery, close: () => void, isClosed: () => boolean }}
  */
-export default function mountDashboardOverlay ({ html, $container, returnFocusTo, onDismiss }) {
+export default function mountDashboardOverlay ({ html, $container, returnFocusTo, onDismiss, canDismiss }) {
     const $root = $container && $container.length ? $container : $('body');
     const ns = `.dashboard-overlay-${++overlay_seq}`;
     const el_previous_focus = document.activeElement;
@@ -81,13 +98,13 @@ export default function mountDashboardOverlay ({ html, $container, returnFocusTo
             el_focus_target?.focus({ preventScroll: true });
         } catch { /* focus restoration is best-effort */ }
     };
-    const dismiss = () => {
-        if ( closed ) return;
+    const dismiss = (via) => {
+        if ( closed || canDismiss?.(via) === false ) return;
         close();
         onDismiss?.();
     };
 
-    $overlay.on('click', '.dashboard-dialog-close', dismiss);
+    $overlay.on('click', '.dashboard-dialog-close', () => dismiss('close'));
 
     // Backdrop close goes by where the press started, so a drag that
     // starts in the card and ends outside does not dismiss it. The second
@@ -100,19 +117,14 @@ export default function mountDashboardOverlay ({ html, $container, returnFocusTo
         window.mouseover_window = undefined;
     });
     $overlay.on('click', function (e) {
-        if ( e.target === el_overlay && backdrop_pressed ) dismiss();
+        if ( e.target === el_overlay && backdrop_pressed ) dismiss('backdrop');
     });
 
     $(document).on(`keydown${ns}`, function (e) {
-        if ( e.key !== 'Escape' ) return;
         // Escape belongs to whatever is on top: a window or modal opened over
-        // this overlay closes itself, not the overlay underneath it. Not all
-        // of them take focus, so check what is painted over the overlay too.
-        const el_active = document.activeElement;
-        if ( el_active && el_active !== document.body && ! el_overlay.contains(el_active) ) return;
-        const el_top = document.elementFromPoint?.(window.innerWidth / 2, window.innerHeight / 2);
-        if ( el_top && ! el_overlay.contains(el_top) ) return;
-        dismiss();
+        // this overlay closes itself, not the overlay underneath it.
+        if ( e.key !== 'Escape' || ! isOverlayOnTop(el_overlay) ) return;
+        dismiss('escape');
     });
 
     // Keep Tab cycling inside the card while it's up.
