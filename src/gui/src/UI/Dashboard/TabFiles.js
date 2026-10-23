@@ -1752,6 +1752,7 @@ const TabFiles = {
             }
 
             const startWidth = $targetColumn.outerWidth();
+            _this.adoptAppliedColumnWidths();
 
             // Relayout at most once a frame: each pass restyles every row and
             // re-truncates every name.
@@ -1765,7 +1766,7 @@ const TabFiles = {
                     newWidth = Math.max(100, newWidth);
                 }
 
-                _this.columnWidths[column] = Math.min(newWidth, _this.maxColumnWidth(column));
+                _this.columnWidths[column] = _this.clampColumnWidth(column, newWidth);
                 frame ??= requestAnimationFrame(() => {
                     frame = null;
                     _this.applyColumnWidths();
@@ -1792,6 +1793,7 @@ const TabFiles = {
             const column = $(this).attr('data-resize');
             const $filesTab = _this.$el_window.find('.files-tab');
             const padding = 16; // 8px padding on each side
+            _this.adoptAppliedColumnWidths();
             let maxWidth = 60; // Minimum width
 
             if ( column === 'name' ) {
@@ -1822,7 +1824,7 @@ const TabFiles = {
             }
 
             // Apply the new width
-            _this.columnWidths[column] = Math.min(Math.ceil(maxWidth), _this.maxColumnWidth(column));
+            _this.columnWidths[column] = _this.clampColumnWidth(column, Math.ceil(maxWidth));
             _this.applyColumnWidths();
             puter.kv.set('column_widths', JSON.stringify(_this.columnWidths))
                 .catch(err => console.warn('Could not save column_widths:', err));
@@ -1855,7 +1857,7 @@ const TabFiles = {
                 modifiedWidth = 120;
             }
         }
-        this.appliedNameWidth = nameWidth;
+        this.appliedColumnWidths = { name: nameWidth, size: sizeWidth, modified: modifiedWidth };
 
         const nameCol = nameWidth ? `${nameWidth}px` : 'auto';
         const gridTemplate = `24px ${nameCol} 4px ${sizeWidth}px 4px ${modifiedWidth}px 4px 20px`;
@@ -1867,22 +1869,35 @@ const TabFiles = {
     },
 
     /**
-     * The widest a list column can be set to without the columns overflowing
-     * the listing, given the other columns' current widths.
+     * A resize starts from the widths on screen. Saved widths too wide for
+     * the listing lay out at the defaults (see applyColumnWidths), and
+     * resizing from those would fight the layout the user is looking at.
+     *
+     * @returns {void}
+     */
+    adoptAppliedColumnWidths () {
+        if ( this.appliedColumnWidths ) this.columnWidths = { ...this.appliedColumnWidths };
+    },
+
+    /**
+     * `width` held between the column's minimum and the widest it can be
+     * without the columns overflowing the listing, given the other columns.
      *
      * @param {'name'|'size'|'modified'} column
+     * @param {number} width
      * @returns {number}
      */
-    maxColumnWidth (column) {
+    clampColumnWidth (column, width) {
+        const min = column === 'name' ? 100 : 60;
         const containerWidth = this.$el_window.find('.files-tab .files').width();
-        if ( ! containerWidth ) return Infinity;
+        if ( ! containerWidth ) return Math.max(min, width);
         const widths = {
             name: this.columnWidths.name || 100,
             size: this.columnWidths.size || 100,
             modified: this.columnWidths.modified || 120,
         };
         const others = Object.keys(widths).filter(c => c !== column).reduce((sum, c) => sum + widths[c], 0);
-        return containerWidth - COLUMN_FIXED_WIDTH - others;
+        return Math.max(min, Math.min(width, containerWidth - COLUMN_FIXED_WIDTH - others));
     },
 
     /**
@@ -1893,7 +1908,7 @@ const TabFiles = {
      * @returns {void}
      */
     fitItemNames ($names) {
-        const nameWidth = this.appliedNameWidth !== undefined ? this.appliedNameWidth : this.columnWidths.name;
+        const nameWidth = this.appliedColumnWidths ? this.appliedColumnWidths.name : this.columnWidths.name;
         const isList = this.currentView === 'list';
         if ( ! isList && ! this.isGridView() ) return;
         const names = $names.toArray();
@@ -3117,6 +3132,9 @@ const TabFiles = {
                 return;
             }
             if ( isPending() ) return;
+            // The preview floats above app windows; opening the item ends it,
+            // as Enter does.
+            if ( _this.previewOpen ) _this.closeImagePreview();
             if ( isFolder === "1" ) {
                 _this.pushNavHistory(file.path);
                 _this.renderDirectory(file.path);
