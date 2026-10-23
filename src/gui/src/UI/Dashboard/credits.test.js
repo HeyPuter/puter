@@ -73,4 +73,11 @@ describe('formatDollarsFromMicrocents', () => {
         expect(formatDollarsFromMicrocents(37_000_000)).toBe('$0.37');
         expect(formatDollarsFromMicrocents(undefined)).toBe('$0.00');
     });
+
+    it('never renders a nonzero sub-cent amount as $0.00', () => {
+        expect(formatDollarsFromMicrocents(40_000)).toBe('<$0.01');
+        expect(formatDollarsFromMicrocents(-40_000)).toBe('-<$0.01');
+        expect(formatDollarsFromMicrocents(0)).toBe('$0.00');
+        expect(formatDollarsFromMicrocents(600_000)).toBe('$0.01');
+    });
 });

@@ -63,6 +63,17 @@ describe('mountDashboardOverlay', () => {
         expect(onDismiss).toHaveBeenCalledTimes(2);
     });
 
+    it('stays up when canDismiss says no, and tells it which way was tried', () => {
+        const canDismiss = vi.fn(() => false);
+        const a = mountDashboardOverlay({ html: card, canDismiss });
+        escape();
+        $('.dashboard-dialog-close').trigger('click');
+        a.$overlay.trigger($.Event('mousedown', { target: a.$overlay[0] }));
+        a.$overlay.trigger($.Event('click', { target: a.$overlay[0] }));
+        expect(canDismiss.mock.calls.map(([via]) => via)).toEqual(['escape', 'close', 'backdrop']);
+        expect(a.isClosed()).toBe(false);
+    });
+
     // A window opened from the overlay (the session manager, say) owns its own Escape.
     it('leaves Escape alone while focus is somewhere outside it', () => {
         document.body.innerHTML = '<input class="elsewhere">';

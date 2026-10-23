@@ -241,6 +241,9 @@ const TabAccount = {
             $('.profile-image').css('background-image', `url(${ html_encode(url) })`);
             $('.profile-image').toggleClass('profile-image-has-picture', !! picture);
         }
+        // A save started after another one owns the avatar and the hint; the
+        // earlier one's answer must not put its picture (or a failure) back.
+        let avatar_save_seq = 0;
         function onAvatarPicked (e) {
             $el_window.off('file_opened', onAvatarPicked);
             const selectedFile = Array.isArray(e.detail) ? e.detail[0] : e.detail;
@@ -251,6 +254,7 @@ const TabAccount = {
                 $container: $el_window,
                 returnFocusTo: $el_window.find('.dashboard-section-account .change-profile-picture').get(0),
                 onSave: async (dataUrl) => {
+                    const seq = ++avatar_save_seq;
                     const previous = window.user?.profile?.picture ?? null;
                     const $remove = $el_window.find('.dashboard-section-account .dashboard-profile-remove-picture');
                     const $hint = $el_window.find('.dashboard-section-account .dashboard-profile-hint');
@@ -259,6 +263,7 @@ const TabAccount = {
                     $remove.prop('hidden', false).prop('disabled', true);
                     // update_profile resolves with no profile when the request failed.
                     const profile = await update_profile(window.user.username, { picture: dataUrl });
+                    if ( seq !== avatar_save_seq ) return;
                     $remove.prop('disabled', false);
                     if ( ! profile ) {
                         showProfilePicture(previous);

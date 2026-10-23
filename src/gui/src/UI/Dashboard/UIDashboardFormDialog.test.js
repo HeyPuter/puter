@@ -64,6 +64,35 @@ describe('UIDashboardFormDialog', () => {
         expect($('.dashboard-form-field[data-field="code"]').prop('hidden')).toBe(true);
     });
 
+    it('ignores Escape and backdrop clicks while the handler runs, but not the close button', async () => {
+        let release;
+        const dialog = open({ onSubmit: () => new Promise((resolve) => {
+            release = resolve;
+        }) });
+        const $overlay = $('.dashboard-dialog-overlay');
+        submit();
+        $(document).trigger($.Event('keydown', { key: 'Escape' }));
+        $overlay.trigger($.Event('mousedown', { target: $overlay[0] }));
+        $overlay.trigger($.Event('click', { target: $overlay[0] }));
+        expect($('.dashboard-dialog-overlay')).toHaveLength(1);
+
+        $('.dashboard-dialog-close').trigger('click');
+        release();
+        await tick();
+        expect(dialog.$dialog.closest('.dashboard-dialog-overlay').hasClass('dashboard-dialog-show')).toBe(false);
+    });
+
+    it('keeps content shown once up through a backdrop click, not through Escape', () => {
+        const dialog = open();
+        dialog.finish({ html: '<p>token</p>', keepOnBackdrop: true });
+        const $overlay = $('.dashboard-dialog-overlay');
+        $overlay.trigger($.Event('mousedown', { target: $overlay[0] }));
+        $overlay.trigger($.Event('click', { target: $overlay[0] }));
+        expect($overlay.find('p').text()).toBe('token');
+        $(document).trigger($.Event('keydown', { key: 'Escape' }));
+        expect($overlay.hasClass('dashboard-dialog-show')).toBe(false);
+    });
+
     it('reads every field back by name', () => {
         const dialog = open();
         expect(dialog.values()).toEqual({ name: 'Ada <3', secret: '', about: 'hi', when: '7d', code: '' });

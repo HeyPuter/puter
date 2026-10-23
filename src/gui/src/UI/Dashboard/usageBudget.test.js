@@ -101,6 +101,11 @@ describe('usageBudget', () => {
         expect(budget.barPercent).toBe(100);
     });
 
+    it('reads 99% rather than 100% while some allowance is left', () => {
+        expect(usageBudget({ total: 996 }, info(1000)).percent).toBe(99);
+        expect(usageBudget({ total: 1000 }, info(1000)).percent).toBe(100);
+    });
+
     it('answers zero for an account with no budget at all', () => {
         const budget = usageBudget({ total: 0 }, info(0));
         expect(budget).toMatchObject({ capacity: 0, used: 0, percent: 0 });

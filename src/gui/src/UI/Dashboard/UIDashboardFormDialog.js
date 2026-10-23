@@ -56,9 +56,10 @@ const FORM_ICONS = {
  * @property {(name: string, show: boolean) => void} showField
  * @property {(text: string, opts?: { kind?: 'error'|'info', field?: string }) => void} setStatus
  *   Plain text; an empty string clears it. Naming a field marks it invalid and focuses it.
- * @property {(opts: { message?: string, html?: string }) => void} finish Swaps the
- *   form for a done state (a plain-text `message`, or the caller's encoded
- *   `html`) with a single Done button.
+ * @property {(opts: { message?: string, html?: string, keepOnBackdrop?: boolean }) => void} finish
+ *   Swaps the form for a done state (a plain-text `message`, or the caller's
+ *   encoded `html`) with a single Done button. `keepOnBackdrop` stops a stray
+ *   click outside the card from closing it, for content shown only once.
  */
 
 const attrs_html = (attrs) => Object.entries(attrs ?? {})
@@ -138,12 +139,20 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
     h += '</button>';
     h += '</div></form>';
 
-    const { $dialog, close, isClosed } = mountDashboardOverlay({ html: h, $container, returnFocusTo });
+    let busy = false;
+    let keep_on_backdrop = false;
+    // While the handler runs, the dialog is where its outcome will show, so
+    // only the explicit ✕ closes it then; a stray click or Escape does not.
+    const { $dialog, close, isClosed } = mountDashboardOverlay({
+        html: h,
+        $container,
+        returnFocusTo,
+        canDismiss: (via) => via === 'close' || ! (busy || (keep_on_backdrop && via === 'backdrop')),
+    });
     const $status = $dialog.find('.dashboard-form-status');
     const $submit = $dialog.find('.dashboard-form-submit');
     const $controls = () => $dialog.find('.dashboard-form-input');
 
-    let busy = false;
     /** @type {HTMLElement | null} */
     let focus_after = null;
 
@@ -184,7 +193,8 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
                 else $field.get(0)?.focus({ preventScroll: true });
             }
         },
-        finish ({ message, html }) {
+        finish ({ message, html, keepOnBackdrop = false }) {
+            keep_on_backdrop = keepOnBackdrop;
             const content = html ?? `<div class="dashboard-form-done">${FORM_ICONS.done}<p id="${id}-done">${html_encode(message ?? '')}</p></div>`;
             $dialog.attr('aria-describedby', null);
             $dialog.find('.dashboard-dialog-body').html(`<div class="dashboard-dialog-content" role="status">${content}</div>`);
