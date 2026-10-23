@@ -98,7 +98,8 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
     // error - unauthorized
     if ( response.status === 401 ) {
         const spec = response._puterReq;
-        const reauth = await resolveReauth(resp, {
+        // A replay's 401 is final: one sign-in per call.
+        const reauth = spec?._replayed ? null : await resolveReauth(resp, {
             interactive: spec?.interactiveReauth !== false,
             sentToken: spec?._sentAuthToken,
         });
