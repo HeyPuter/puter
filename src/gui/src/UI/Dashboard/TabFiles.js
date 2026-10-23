@@ -3030,13 +3030,14 @@ const TabFiles = {
             // Taps are handled by onclick (opens item) and taphold (context menu),
             // so pointerdown never accidentally selects while the user is scrolling.
             if ( e.pointerType === 'touch' ) return;
-            // Select mode toggles rows in onclick, whatever the pointer.
-            if ( _this.selectModeActive ) return;
 
             shift_clicked = false;
 
             // Track whether item was already selected before this mousedown
             itemWasSelectedOnMousedown = el_item.classList.contains('selected');
+
+            // Select mode toggles rows in onclick, whatever the pointer.
+            if ( _this.selectModeActive ) return;
 
             if ( e.which === 3 && el_item.classList.contains('selected') &&
                 el_item.parentElement.querySelectorAll('.row.selected').length > 1 ) {
