@@ -1533,7 +1533,9 @@ window.delete_item = async function (el_item, descendants_only = false) {
             $(`.item[data-shortcut_to_path="${html_encode($(el_item).attr('data-path'))}" i]`).attr('data-shortcut_to_path', '');
         });
     } catch ( err ) {
-        UIAlert(err.responseText);
+        // Nothing was deleted: bring back what was faded out above.
+        $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).stop(true).fadeIn(150);
+        UIAlert(err?.message ?? err?.responseText ?? String(err));
     }
 };
 
