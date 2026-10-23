@@ -939,12 +939,7 @@ const TabFiles = {
                 if ( window.clipboard.length > 0 && _this.currentPath ) {
                     e.preventDefault();
                     e.stopPropagation();
-                    // Same rule as the Paste menu item: a move into the Trash
-                    // would skip the metadata Restore needs (Delete trashes),
-                    // and the Shared view is a query, not a folder.
-                    if ( _this.currentPath === window.trash_path
-                        || _this.currentPath.startsWith(`${window.trash_path}/`)
-                        || _this.currentPath === window.shared_path ) {
+                    if ( ! _this.acceptsNewItems(_this.currentPath) ) {
                         return false;
                     }
                     // After the paste completes, refresh and highlight the
@@ -1366,8 +1361,7 @@ const TabFiles = {
 
         // New folder button
         document.querySelector('.new-folder-btn').onclick = () => {
-            // The Shared view is a query, not a directory.
-            if ( _this.currentPath === window.shared_path ) return;
+            if ( ! _this.acceptsNewItems(_this.currentPath) ) return;
             _this.createFolderInstant(_this.currentPath);
         };
 
@@ -1383,7 +1377,7 @@ const TabFiles = {
             const destination = _this.uploadTargetPath ?? _this.currentPath;
             _this.uploadTargetPath = null;
             if ( files.length === 0 ) return;
-            if ( destination === window.shared_path ) return;
+            if ( ! _this.acceptsNewItems(destination) ) return;
 
             let upload_progress_window;
             let opid;
@@ -1959,19 +1953,34 @@ const TabFiles = {
     },
 
     /**
+     * Whether items can be created, uploaded or pasted into a folder. Not the
+     * Trash or a folder inside it (Restore needs metadata only Delete writes),
+     * not the Shared view (a query, not a directory), and not `/`.
+     *
+     * @param {string} folderPath
+     * @returns {boolean}
+     */
+    acceptsNewItems (folderPath) {
+        return !! folderPath
+            && folderPath !== '/'
+            && folderPath !== window.trash_path
+            && ! folderPath.startsWith(`${window.trash_path}/`)
+            && folderPath !== window.shared_path;
+    },
+
+    /**
      * Updates header action buttons based on current folder context.
      *
      * Shows/hides new folder, upload, and empty trash buttons as appropriate.
-     * Neither Trash nor the Shared view (a query, not a directory) can have
-     * anything created or uploaded into it, so those two buttons stay out
-     * there rather than opening a picker whose files would be dropped.
+     * They stay out where nothing can be created, rather than opening a
+     * picker whose files would be dropped.
      *
      * @param {boolean} isTrashFolder - Whether the current folder is the Trash
      * @returns {void}
      */
     updateActionButtons (isTrashFolder) {
         const $pathActions = this.$el_window.find('.path-actions');
-        const canCreate = ! isTrashFolder && this.currentPath !== window.shared_path;
+        const canCreate = this.acceptsNewItems(this.currentPath);
         $pathActions.find('.new-folder-btn, .upload-btn').toggle(canCreate);
 
         if ( isTrashFolder ) {
@@ -4487,11 +4496,12 @@ const TabFiles = {
         // The Shared view is a query, not a directory — nothing can be
         // created, pasted or uploaded "into" it.
         const isSharedView = targetPath === window.shared_path;
+        const canCreate = this.acceptsNewItems(targetPath);
         const items = [];
 
         // New submenu (folder, text document, etc.) - not available in Trash
         // We create a custom "New" submenu to handle folder creation with refresh and rename activation
-        if ( ! isTrashFolder && ! isSharedView ) {
+        if ( canCreate ) {
             const newMenuItems = new_context_menu_item(targetPath, null);
 
             // Override the "New Folder" onClick to refresh and activate rename
@@ -4582,7 +4592,7 @@ const TabFiles = {
         }
 
         // Paste - only if clipboard has items and not in Trash
-        if ( !isTrashFolder && !isSharedView && window.clipboard && window.clipboard.length > 0 ) {
+        if ( canCreate && window.clipboard && window.clipboard.length > 0 ) {
             items.push({
                 html: i18n('paste'),
                 onClick: async function () {
@@ -4616,13 +4626,13 @@ const TabFiles = {
             });
         }
 
-        // Add separator if we added paste or undo
-        if ( items.length > 2 || (isTrashFolder && items.length > 0) ) {
+        // Add separator if we added paste or undo (after New and its separator)
+        if ( items.length > (canCreate ? 2 : 0) ) {
             items.push('-');
         }
 
         // Upload Here - not available in Trash
-        if ( ! isTrashFolder && ! isSharedView ) {
+        if ( canCreate ) {
             items.push({
                 html: i18n('upload'),
                 onClick: function () {
@@ -4922,8 +4932,8 @@ const TabFiles = {
                     return;
                 }
 
-                // Don't show drop zone if we're in trash
-                if ( _this.currentPath === window.trash_path ) {
+                // No drop zone where nothing can be uploaded
+                if ( ! _this.acceptsNewItems(_this.currentPath) ) {
                     return;
                 }
 
@@ -4955,10 +4965,7 @@ const TabFiles = {
                     return;
                 }
 
-                // Block uploads to trash, and to the Shared view — a query,
-                // not a directory.
-                if ( _this.currentPath === window.trash_path ||
-                    _this.currentPath === window.shared_path ) {
+                if ( ! _this.acceptsNewItems(_this.currentPath) ) {
                     return;
                 }
 
