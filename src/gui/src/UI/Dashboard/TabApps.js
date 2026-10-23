@@ -3365,9 +3365,10 @@ const TabApps = {
     // what installs it (the launch grants the permission installedApps
     // reports), so the grid says so NOW rather than on some later refresh —
     // without this the user's first Back found no tile to minimize into and
-    // a grid without the app they were just using. The app joins _apps at
-    // the tail (where reconcileAppOrder appends new apps) with a tile drawn
-    // from the landing's own app-info prefetch, so only a confirmed-real
+    // a grid without the app they were just using. The app joins _apps
+    // where reconcileAppOrder puts it — its saved slot when uninstall left
+    // one, else the tail — with a tile drawn from the landing's own
+    // app-info prefetch, so only a confirmed-real
     // app ever materializes, with its real icon. `mark` parks the tile
     // invisible (.myapps-tile-installing) for the intro's arrival beat to
     // reveal; unmarked (no-intro paths) it simply appears. The
@@ -3409,7 +3410,7 @@ const TabApps = {
         // A previously uninstalled app is being re-installed by this
         // landing; the removed record must not go on filtering it.
         this._setAppRemoved(appName, false);
-        this._apps.push(app);
+        this._apps = reconcileAppOrder([...this._apps, app], this._savedOrderNames);
         if ( mark ) this._arriving = { name: appName, $el_window };
         // instant only when the pager is already on screen: this re-render
         // must not blink a revealed grid back through the load fade, nor
