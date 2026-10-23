@@ -124,16 +124,20 @@ const TabUsage = {
             $($el_window).find(`.driver-usage-details-content-table th[data-sort="${column}"] .usage-sort-btn`).trigger('focus');
         });
 
-        // Click handler for "Show more" to expand the table
+        // Click handler for "Show more" to expand the table. The redrawn
+        // table has no clicked button; focus moves to the one replacing it
+        // (here and below), not to the top of the page.
         $($el_window).on('click', '.usage-table-show-more', function () {
             usageTableExpanded = true;
             renderUsageTable();
+            $($el_window).find('.usage-table-show-less').trigger('focus');
         });
 
         // Click handler for "Show less" to collapse the table
         $($el_window).on('click', '.usage-table-show-less', function () {
             usageTableExpanded = false;
             renderUsageTable();
+            $($el_window).find('.usage-table-show-more').trigger('focus');
         });
     },
     // Refresh whenever the tab is (re)activated — otherwise the usage numbers
