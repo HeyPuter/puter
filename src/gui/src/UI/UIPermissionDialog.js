@@ -769,6 +769,10 @@ async function get_permission_description (permission, options = {}) {
         return { html: i18n('perm_events_background'), icon: 'zap' };
     }
 
+    if ( parts[0] === 'custom-domains' && parts[1] === 'manage' && parts.length === 2 ) {
+        return { html: i18n('perm_custom_domains_manage'), icon: 'globe' };
+    }
+
     if ( parts[0] === 'app-root-dir' ) {
         // Format: app-root-dir:<app_uid>:<read|write>
         if ( parts[2] === 'read' ) {

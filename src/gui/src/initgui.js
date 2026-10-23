@@ -24,6 +24,7 @@ import UIComponentWindow from './UI/UIComponentWindow.js';
 import UIDesktop from './UI/UIDesktop.js';
 import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
+import UIWindowAttachCustomDomain from './UI/UIWindowAttachCustomDomain.js';
 import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
@@ -890,6 +891,60 @@ const postAuthActions = async (action) => {
         }
 
         // The popup exists only to host this dialog; close it once answered.
+        if ( window.embedded_in_popup ) {
+            window.close();
+            window.open('', '_self').close();
+        }
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Action: attach-custom-domain — puter.hosting.attach() on a website. Hosts the custom
+    // domain dialog for `subdomain` and posts the chosen domain back to the opener.
+    // -------------------------------------------------------------------------------------
+    if ( action === 'attach-custom-domain' ) {
+        const msg_id = window.url_query_params.get('msg_id');
+        const subdomain = window.url_query_params.get('subdomain');
+        // Browser-attested only: the domain goes to this origin and nowhere
+        // else, and the dialog names it to the user as the requester.
+        const origin = window.openerOrigin;
+        let target_origin = null;
+        try {
+            target_origin = origin ? new URL(origin).origin : null;
+        } catch (e) {
+            console.error('attach-custom-domain: unusable origin', origin);
+        }
+
+        let domain = null;
+        try {
+            if ( ! target_origin ) {
+                throw new Error('no opener origin; not prompting');
+            }
+            if ( ! subdomain ) {
+                throw new Error('no subdomain');
+            }
+            domain = await UIWindowAttachCustomDomain({
+                subdomain,
+                requester: target_origin,
+            });
+        } catch (e) {
+            console.error('attach-custom-domain action failed', e);
+        }
+
+        // Without an attested origin there is no safe place to send a domain;
+        // the requester then sees the popup close and resolves null.
+        if ( target_origin ) {
+            const messageTarget = window.embedded_in_popup ? window.opener : window.parent;
+            try {
+                messageTarget?.postMessage({
+                    msg: 'customDomainAttached',
+                    domain,
+                    original_msg_id: msg_id,
+                }, target_origin);
+            } catch (e) {
+                console.error('attach-custom-domain: could not answer the requester', e);
+            }
+        }
+
         if ( window.embedded_in_popup ) {
             window.close();
             window.open('', '_self').close();

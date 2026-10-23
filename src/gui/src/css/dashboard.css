@@ -1881,6 +1881,136 @@ input.myapps-group-name:focus {
     }
 }
 
+/* Custom domain modal (puter.hosting.attach), on the app feedback shell. */
+.custom-domain-modal {
+    width: min(520px, 100%);
+}
+.custom-domain-intro,
+.custom-domain-requester {
+    margin: 0 0 12px;
+    font-size: 14px;
+    line-height: 1.45;
+    word-break: break-word;
+}
+.custom-domain-requester {
+    margin-top: -6px;
+    font-size: 12px;
+    color: var(--afb-muted);
+}
+.custom-domain-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--afb-border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+.custom-domain-list:empty {
+    display: none;
+}
+.custom-domain-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+}
+.custom-domain-row + .custom-domain-row {
+    border-top: 1px solid var(--afb-border);
+}
+.custom-domain-row-main {
+    flex: 1;
+    min-width: 0;
+}
+.custom-domain-row-host {
+    font-size: 14px;
+    font-weight: 600;
+    word-break: break-all;
+}
+.custom-domain-row-meta {
+    font-size: 12px;
+    color: var(--afb-muted);
+    margin-top: 2px;
+}
+.custom-domain-confirming .custom-domain-row-meta {
+    color: var(--afb-fg);
+}
+.custom-domain-row .app-feedback-btn {
+    flex: none;
+    padding: 6px 14px;
+}
+.custom-domain-empty {
+    margin: 4px 0 0;
+    font-size: 14px;
+    color: var(--afb-muted);
+}
+.custom-domain-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 6px;
+}
+.custom-domain-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 14px;
+    color: var(--afb-fg);
+    background: var(--afb-field-bg);
+    border: 1px solid var(--afb-field-border);
+    border-radius: 8px;
+}
+.custom-domain-input:focus {
+    outline: none;
+    border-color: #088ef0;
+    box-shadow: 0 0 0 3px rgba(8, 142, 240, 0.18);
+}
+.custom-domain-status {
+    margin: 0 0 8px;
+    font-size: 14px;
+    line-height: 1.45;
+    word-break: break-word;
+}
+.custom-domain-status-detail {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--afb-muted);
+}
+.custom-domain-records {
+    width: 100%;
+    margin-top: 10px;
+    border-collapse: collapse;
+    font-size: 12px;
+    table-layout: fixed;
+}
+.custom-domain-records th {
+    text-align: left;
+    font-weight: 500;
+    color: var(--afb-muted);
+    padding: 0 6px 6px 0;
+}
+.custom-domain-records th:first-child {
+    width: 86px;
+}
+.custom-domain-records td {
+    padding: 6px 6px 6px 0;
+    border-top: 1px solid var(--afb-border);
+    vertical-align: top;
+}
+.custom-domain-copy {
+    display: block;
+    word-break: break-all;
+    cursor: copy;
+    border-radius: 4px;
+}
+@media (hover: hover) {
+    .custom-domain-copy:hover {
+        background: var(--afb-hover);
+    }
+}
+
 /* Add-an-app chooser (see showAddAppModal): the three ways to get an app, as
    rows in the same modal shell. min-width gives the two-line rows room without
    overflowing a narrow phone; the shell's own max-width caps the other end. */
