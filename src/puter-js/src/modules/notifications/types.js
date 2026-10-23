@@ -66,10 +66,11 @@
  *   back, not live ones, are delivered only if created in or after this
  *   second.
  * @property {(error: Error & { code?: string }) => void} [onError] Called when
- *   the listener stops on its own: the connection could not be restored, or
- *   reading what was missed after a reconnect failed. Nothing is delivered
- *   after it. Also called, without stopping, with `catch_up_truncated` if a
- *   read had to stop early. Without it, errors are reported on the console.
+ *   the listener stops on its own: the connection could not be restored,
+ *   reading what was missed after a reconnect failed, or the token changed
+ *   (`auth_changed`). Nothing is delivered after it. Also called, without
+ *   stopping, with `catch_up_truncated` if a read had to stop early. Without
+ *   it, errors are reported on the console.
  */
 
 /**

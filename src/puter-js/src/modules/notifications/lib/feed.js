@@ -62,6 +62,8 @@ export class NotificationFeed {
     /** @type {{ off: () => Promise<void> } | null} */
     #subscription = null;
     #stopped = false;
+    /** @type {(() => unknown) | null} */
+    #stopWatchingAuth = null;
 
     constructor(puter, handler, options) {
         this.#puter = puter;
@@ -84,6 +86,18 @@ export class NotificationFeed {
             throw unavailable(error);
         }
 
+        const token = this.#puter.authToken;
+        this.#stopWatchingAuth =
+            this.#puter.onAuthStateChanged?.(() => {
+                if (this.#puter.authToken === token) return;
+                this.#halt(
+                    new PuterJSError(
+                        'The signed-in account or app changed',
+                        'auth_changed',
+                    ),
+                );
+            }) ?? null;
+
         try {
             await this.#read(this.#catchUp ? 'fetched' : 'baseline');
         } catch (error) {
@@ -97,6 +111,8 @@ export class NotificationFeed {
         this.#stopped = true;
         this.#queued = [];
         this.#gapPending = false;
+        this.#stopWatchingAuth?.();
+        this.#stopWatchingAuth = null;
         const subscription = this.#subscription;
         this.#subscription = null;
         await subscription?.off();

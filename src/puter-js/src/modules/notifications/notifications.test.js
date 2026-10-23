@@ -61,6 +61,15 @@ const makeModule = (over = {}) => {
         authToken: 'token-1',
         APIOrigin: 'https://api.test',
         args: {},
+        authListeners: new Set(),
+        onAuthStateChanged(listener) {
+            this.authListeners.add(listener);
+            return () => this.authListeners.delete(listener);
+        },
+        setAuthToken(token) {
+            this.authToken = token;
+            for (const listener of this.authListeners) listener();
+        },
         ui: makeUI(),
         events: makeEvents(),
         perms: {
@@ -522,6 +531,41 @@ describe('onNotification', () => {
             );
         },
     );
+
+    it('stops with auth_changed when the token changes', async () => {
+        const events = makeEvents();
+        const notifications = makeModule({ events });
+        const seen = [];
+        const onError = vi.fn();
+
+        await notifications.onNotification((n) => seen.push(n.uid), {
+            onError,
+        });
+        notifications.puter.setAuthToken('token-1');
+        expect(onError).not.toHaveBeenCalled();
+
+        notifications.puter.setAuthToken('token-2');
+        events.state.push(event('n-1'));
+
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(onError.mock.calls[0][0]).toBeInstanceOf(PuterJSError);
+        expect(onError.mock.calls[0][0].code).toBe('auth_changed');
+        expect(events.state.offs).toBe(1);
+        expect(seen).toEqual([]);
+    });
+
+    it('stops watching the token after off()', async () => {
+        const notifications = makeModule();
+        const onError = vi.fn();
+        const listener = await notifications.onNotification(() => {}, {
+            onError,
+        });
+        await listener.off();
+
+        notifications.puter.setAuthToken('token-2');
+        expect(onError).not.toHaveBeenCalled();
+        expect(notifications.puter.authListeners.size).toBe(0);
+    });
 
     it('stops before onError when reading after a gap fails', async () => {
         const events = makeEvents();
