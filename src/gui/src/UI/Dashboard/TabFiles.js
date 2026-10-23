@@ -1614,7 +1614,7 @@ const TabFiles = {
 
         if ( anyTrashed ) {
             // Show restore, hide download and copy for trashed items
-            $actions.find('.restore-btn').show();
+            $actions.find('.restore-btn').toggle(this.allRestorable(selectedRows));
             $actions.find('.download-btn').hide();
             $actions.find('.cut-btn').hide();
             $actions.find('.copy-btn').hide();
@@ -3706,6 +3706,17 @@ const TabFiles = {
     },
 
     /**
+     * Whether every row can be restored: only a direct child of Trash
+     * carries the metadata Restore needs, not what's inside a trashed folder.
+     *
+     * @param {Iterable<HTMLElement>} rows
+     * @returns {boolean}
+     */
+    allRestorable (rows) {
+        return Array.from(rows).every(row => path.dirname($(row).attr('data-path') || '') === window.trash_path);
+    },
+
+    /**
      * Restores Trash rows to where they were deleted from, then drops the
      * restored ones from the listing. Skipped or failed rows stay put.
      *
@@ -4401,7 +4412,7 @@ const TabFiles = {
             return path?.startsWith(`${window.trash_path}/`);
         });
 
-        if ( anyTrashed ) {
+        if ( anyTrashed && _this.allRestorable(selectedRows) ) {
             items.push({
                 html: i18n('restore'),
                 onClick: async function () {
@@ -4470,7 +4481,7 @@ const TabFiles = {
 
         // Delete
         if ( anyTrashed ) {
-            items.push('-');
+            if ( items.length > 0 && items[items.length - 1] !== '-' ) items.push('-');
             items.push({
                 html: i18n('delete_permanently'),
                 onClick: async function () {
