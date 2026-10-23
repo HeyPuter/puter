@@ -145,6 +145,18 @@ describe('buildPushMessage', () => {
         expect(build('app-a', 'n1')).not.toBe('n1');
     });
 
+    it('passes the channel through', () => {
+        const message = buildPushMessage(
+            {
+                uid: 'n8',
+                type: 'app.message',
+                value: { title: 't', channel: 'chat' },
+            },
+            app,
+        );
+        expect(message?.channel).toBe('chat');
+    });
+
     it('groups an app message by its uid without a group', () => {
         const message = buildPushMessage(
             { uid: 'n5', type: 'app.message', value: { title: 'hi' } },
@@ -230,13 +242,16 @@ describe('fitPushMessage', () => {
         ).toBe(true);
     });
 
-    it('shortens the title once the body is gone, then drops the icon', () => {
+    it('drops the icon before it cuts the title', () => {
+        const icon = 'https://x.example/icon.png';
         const titled = fitPushMessage({
             ...base,
             title: 't'.repeat(5000),
             body: 'b'.repeat(100),
+            icon,
         });
         expect(titled!.body).toBeUndefined();
+        expect(titled!.icon).toBeUndefined();
         expect(bytes(titled!)).toBeLessThanOrEqual(PUSH_MESSAGE_MAX_BYTES);
 
         const iconless = fitPushMessage({
@@ -247,6 +262,24 @@ describe('fitPushMessage', () => {
         expect(iconless).not.toBeNull();
         expect(iconless!.icon).toBeUndefined();
         expect(iconless!.title).toBe('title');
+    });
+
+    it('cuts on grapheme boundaries', () => {
+        const family = '👨‍👩‍👧';
+        const fitted = fitPushMessage({ ...base, body: family.repeat(1000) });
+        const kept = fitted!.body!.slice(0, -1);
+        expect(kept.length % family.length).toBe(0);
+        expect(kept.split(family).every((part) => part === '')).toBe(true);
+    });
+
+    it('sends no push when the title would keep only a few characters', () => {
+        expect(
+            fitPushMessage({
+                ...base,
+                title: 'a long title that has to be cut',
+                data: { blob: 'd'.repeat(3713) },
+            }),
+        ).toBeNull();
     });
 
     it('never cuts data: too much of it and there is no push', () => {

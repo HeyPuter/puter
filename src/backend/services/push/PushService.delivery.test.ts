@@ -399,7 +399,30 @@ describe('PushService delivery', () => {
             uid,
             group: provider.calls[0].message.group,
             title: 'alice and bob shared 2 items with you',
+            replace: true,
         });
+        expect(provider.calls[0].message.replace).toBeUndefined();
+    });
+
+    it('pushes to every recipient with devices in a large notify', async () => {
+        const users = await Promise.all(
+            Array.from({ length: 100 }, () => makeUser(server())),
+        );
+        const withDevices = [users[3], users[50], users[97]];
+        for (const user of withDevices) {
+            await registerDevice(server(), user.id, `many-${user.id}`);
+        }
+
+        await server().services.notification.notify(
+            users.map((user) => user.id),
+            { title: 'A subscription ended' },
+            { type: 'app.events.ended' },
+        );
+
+        await vi.waitFor(() => expect(provider.calls).toHaveLength(3));
+        expect(tokensOf(provider.calls)).toEqual(
+            withDevices.map((user) => `many-${user.id}`).sort(),
+        );
     });
 
     it('removes unregistered devices, counts failures once, and bumps the rest', async () => {
@@ -478,6 +501,60 @@ describe('PushService delivery', () => {
         const user = await makeUser(server());
         await registerDevice(server(), user.id, 'tok-ios', { platform: 'ios' });
         await shareReceived(server(), user.id);
+        await settle();
+        expect(provider.calls).toHaveLength(0);
+    });
+});
+
+describe('PushService at the in-flight cap', () => {
+    const pending: Array<() => void> = [];
+    const provider: PushProvider = {
+        platforms: ['web'],
+        send: (batch) =>
+            new Promise((resolve) => {
+                pending.push(() =>
+                    resolve(batch.tokens.map(() => ({ status: 'delivered' }))),
+                );
+            }),
+    };
+    const state = bootWith({ push: { enabled: true } }, provider as never);
+
+    it('warns once with a count while pushes are skipped', async () => {
+        const users = await Promise.all(
+            Array.from({ length: 70 }, () => makeUser(state.server)),
+        );
+        for (const user of users) {
+            await registerDevice(state.server, user.id, `cap-${user.id}`);
+        }
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            for (const user of users) {
+                await shareReceived(state.server, user.id);
+            }
+            await vi.waitFor(() => expect(pending).toHaveLength(64));
+            await settle();
+            const capWarnings = warn.mock.calls.filter((call) =>
+                String(call[0]).includes('in-flight cap'),
+            );
+            expect(capWarnings).toHaveLength(1);
+            expect(capWarnings[0][1]).toEqual({ skipped: 1 });
+            expect(pending).toHaveLength(64);
+        } finally {
+            warn.mockRestore();
+            for (const release of pending) release();
+        }
+    });
+});
+
+describe('PushService while shutting down', () => {
+    const provider = new FakeProvider();
+    const state = bootWith({ push: { enabled: true } }, provider);
+
+    it('sends nothing once shutdown has started', async () => {
+        const user = await makeUser(state.server);
+        await registerDevice(state.server, user.id, `tok-${uuidv4()}`);
+        state.server.services.push.onServerPrepareShutdown();
+        await shareReceived(state.server, user.id);
         await settle();
         expect(provider.calls).toHaveLength(0);
     });

@@ -195,9 +195,16 @@ describe('PushService presence', () => {
     it('does not push while the desktop is connected', async () => {
         const person = await makePerson();
         await connect(person.token);
+        const listed = vi.spyOn(
+            env.server.stores.pushDevice,
+            'listForDelivery',
+        );
 
         expect(await pushesAfter(() => puterNotification(person))).toBe(0);
         expect(await pushesAfter(() => appMessage(person))).toBe(0);
+        // This node's sockets are checked before anything is read.
+        expect(listed).not.toHaveBeenCalled();
+        listed.mockRestore();
     });
 
     it('does not push an app’s message while that app is connected', async () => {

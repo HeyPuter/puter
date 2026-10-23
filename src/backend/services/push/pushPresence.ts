@@ -31,13 +31,20 @@ export interface PushPresenceDeps {
     >;
 }
 
+/** This node's sockets only; no I/O. */
+export const isConnectedHere = (
+    socket: PushPresenceDeps['socket'],
+    userId: number,
+    appUid: string | null,
+): boolean => socket.has(forwardTarget(userId, appUid));
+
 /** Other nodes and regions count only where presence is kept (peers set). */
 export const isUserConnected = async (
     deps: PushPresenceDeps,
     userId: number,
     appUid: string | null,
 ): Promise<boolean> => {
-    if (deps.socket.has(forwardTarget(userId, appUid))) return true;
+    if (isConnectedHere(deps.socket, userId, appUid)) return true;
     if (!deps.eventForward.active) return false;
     try {
         if (await deps.eventForward.heldInRegion(userId, appUid)) return true;

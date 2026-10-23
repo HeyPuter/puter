@@ -32,7 +32,7 @@ import {
 import { PuterService } from '../types.js';
 import { hasPushConsent } from './pushConsent.js';
 import { buildPushMessage, fitPushMessage } from './pushMessage.js';
-import { isUserConnected } from './pushPresence.js';
+import { isConnectedHere, isUserConnected } from './pushPresence.js';
 import {
     PUSH_FAILURE_CODES,
     type PushFailureCode,
@@ -50,6 +50,8 @@ const MAX_DEVICES_PER_PUSH = 1000;
 const BATCH_CONCURRENCY = 4;
 /** Notifications this node delivers at once; past it, a push is skipped. */
 const MAX_IN_FLIGHT = 64;
+/** At most one warning per window about pushes skipped at the cap. */
+const SKIP_WARN_INTERVAL_MS = 60_000;
 /** A provider call still open after this counts as failed. */
 const SEND_TIMEOUT_MS = 30_000;
 
@@ -71,26 +73,20 @@ export class PushService extends PuterService {
     #staleSweep: ReturnType<typeof setInterval> | null = null;
     readonly #providers = new Map<PushPlatform, PushProvider>();
     #inFlight = 0;
+    #skipped = 0;
+    #lastSkipWarn = 0;
     #stopping = false;
 
     override onServerStart(): void {
         this.#armStaleSweep();
 
         this.clients.event.on('notif.written', (_key, data) => {
+            if (this.#stopping) return;
             if (this.config.push?.enabled !== true) return;
             if (this.#providers.size === 0) return;
-            if (this.#inFlight >= MAX_IN_FLIGHT) {
-                console.warn('[push] too many pushes in flight, skipped one');
-                return;
-            }
-            this.#inFlight++;
-            void this.#deliver(data)
-                .catch((err: unknown) => {
-                    console.warn('[push] delivery failed', err);
-                })
-                .finally(() => {
-                    this.#inFlight--;
-                });
+            void this.#deliver(data).catch((err: unknown) => {
+                console.warn('[push] delivery failed', err);
+            });
         });
 
         this.clients.event.on(
@@ -146,10 +142,14 @@ export class PushService extends PuterService {
 
     /** Only `app.message` is an app's; every other type goes to Puter devices. */
     async #deliver(written: WrittenNotification): Promise<void> {
-        const { userId, uid, type, value } = written;
+        const { userId, type } = written;
         const fromApp = type === APP_MESSAGE_TYPE;
         const appUid = fromApp ? (written.appUid ?? null) : null;
         if (fromApp && !appUid) return;
+
+        const socket = this.services.socket;
+        if (isConnectedHere(socket, userId, null)) return;
+        if (appUid && isConnectedHere(socket, userId, appUid)) return;
 
         const devices = (
             await this.stores.pushDevice.listForDelivery(userId, appUid, {
@@ -158,6 +158,24 @@ export class PushService extends PuterService {
         ).filter((device) => this.#providers.has(device.platform));
         if (devices.length === 0) return;
 
+        if (this.#inFlight >= MAX_IN_FLIGHT) {
+            this.#noteSkipped();
+            return;
+        }
+        this.#inFlight++;
+        try {
+            await this.#deliverTo(written, appUid, devices);
+        } finally {
+            this.#inFlight--;
+        }
+    }
+
+    async #deliverTo(
+        written: WrittenNotification,
+        appUid: string | null,
+        devices: PushDeliveryTarget[],
+    ): Promise<void> {
+        const { userId, uid, type, value } = written;
         if (!(await this.#allowed(userId, appUid))) return;
 
         const presence = {
@@ -174,6 +192,7 @@ export class PushService extends PuterService {
             appUid && appName ? { uid: appUid, name: appName } : null,
         );
         if (!built) return;
+        if (written.updated) built.replace = true;
         const message = fitPushMessage(built);
         if (!message) {
             console.warn('[push] message over the size budget, not sent', {
@@ -184,6 +203,17 @@ export class PushService extends PuterService {
         }
 
         await this.#send(userId, devices, message);
+    }
+
+    #noteSkipped(): void {
+        this.#skipped++;
+        const now = Date.now();
+        if (now - this.#lastSkipWarn < SKIP_WARN_INTERVAL_MS) return;
+        console.warn('[push] at the in-flight cap, pushes skipped', {
+            skipped: this.#skipped,
+        });
+        this.#skipped = 0;
+        this.#lastSkipWarn = now;
     }
 
     /** The name the server stamped on the message, else the app row's. */

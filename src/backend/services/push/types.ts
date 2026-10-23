@@ -44,6 +44,10 @@ export interface PushMessage {
     priority: 'normal';
     /** Content was withheld; the provider should not add any of its own. */
     sensitive?: boolean;
+    /** The app's own kind of message, as it named it. */
+    channel?: string;
+    /** Rewrites an earlier push in place; a provider should not alert again. */
+    replace?: true;
 }
 
 export type PushResult =

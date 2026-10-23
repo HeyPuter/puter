@@ -101,6 +101,7 @@ const appMessage = (
                 ? ttl
                 : APP_MESSAGE_TTL_DEFAULT_SECONDS,
         priority: 'normal' as const,
+        ...(str(value.channel) ? { channel: str(value.channel) } : {}),
     };
     if (value.sensitive === true) {
         return {
@@ -151,7 +152,20 @@ const fits = (message: PushMessage): boolean =>
     Buffer.byteLength(JSON.stringify(message), 'utf8') <=
     PUSH_MESSAGE_MAX_BYTES;
 
-/** Whole characters, so a surrogate pair is never split. */
+const segmenter =
+    typeof Intl.Segmenter === 'function'
+        ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+        : null;
+
+/** Graphemes where the runtime has them, else code points. */
+const characters = (text: string): string[] =>
+    segmenter
+        ? Array.from(segmenter.segment(text), (part) => part.segment)
+        : Array.from(text);
+
+/** Characters a shortened title keeps, at least. */
+const MIN_TITLE_CHARS = 8;
+
 const cut = (chars: string[], n: number): string => {
     if (n >= chars.length) return chars.join('');
     return n <= 0 ? '' : `${chars.slice(0, n - 1).join('')}…`;
@@ -174,31 +188,37 @@ const longestFitting = (
     return lo;
 };
 
-/** Cuts body, then title, then icon; null when `data` alone leaves no room. */
+/**
+ * Cuts the body, then drops the icon, then cuts the title. Null when `data`
+ * leaves no room, or the title would keep fewer than a few characters.
+ */
 export const fitPushMessage = (message: PushMessage): PushMessage | null => {
     if (fits(message)) return message;
-    const titleChars = Array.from(message.title);
-    const bodyChars = Array.from(message.body ?? '');
+    const titleChars = characters(message.title);
+    const bodyChars = characters(message.body ?? '');
     const { body: _body, icon, ...rest } = message;
-    for (const withIcon of icon === undefined ? [false] : [true, false]) {
-        const build = (titleLen: number, bodyLen: number): PushMessage => {
-            const text = cut(bodyChars, bodyLen);
-            return {
-                ...rest,
-                title: cut(titleChars, titleLen),
-                ...(text ? { body: text } : {}),
-                ...(withIcon ? { icon } : {}),
-            };
+    const build = (
+        titleLen: number,
+        bodyLen: number,
+        withIcon: boolean,
+    ): PushMessage => {
+        const text = cut(bodyChars, bodyLen);
+        return {
+            ...rest,
+            title: cut(titleChars, titleLen),
+            ...(text ? { body: text } : {}),
+            ...(withIcon && icon !== undefined ? { icon } : {}),
         };
+    };
+    for (const withIcon of icon === undefined ? [false] : [true, false]) {
         const bodyLen = longestFitting(bodyChars.length, (n) =>
-            build(titleChars.length, n),
+            build(titleChars.length, n, withIcon),
         );
-        if (bodyLen >= 0) return build(titleChars.length, bodyLen);
-        // A title cut to nothing is no push; keep at least one character.
-        const titleLen = longestFitting(titleChars.length, (n) =>
-            build(Math.max(1, n), 0),
-        );
-        if (titleLen >= 0) return build(Math.max(1, titleLen), 0);
+        if (bodyLen >= 0) return build(titleChars.length, bodyLen, withIcon);
     }
-    return null;
+    const titleLen = longestFitting(titleChars.length, (n) =>
+        build(n, 0, false),
+    );
+    if (titleLen < Math.min(MIN_TITLE_CHARS, titleChars.length)) return null;
+    return build(titleLen, 0, false);
 };
