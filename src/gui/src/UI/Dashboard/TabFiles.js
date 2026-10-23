@@ -5343,7 +5343,7 @@ const TabFiles = {
             ? `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`
             : '';
         for ( let k = 1; k < dirs.length; k++ ) {
-            str += `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
+            str += `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(dirpaths[k])}">${dirpaths[k] === window.trash_path ? i18n('trash') : html_encode(dirs[k])}</span>`;
         }
         return str;
     },
