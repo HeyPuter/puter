@@ -369,13 +369,19 @@ async function UIDashboard (options) {
         const $el = $(`.item[data-uid='${item.uid}']`);
         if ( $el.length === 0 ) return;
 
+        // Files-tab rows go through the shared updater, which also refits
+        // the name and keeps the entry their handlers use current.
+        const $fileRows = $el.filter('.files-tab .item');
+        if ( $fileRows.length ) window.UIDashboardFileItemUpdate?.($fileRows, item);
+        const $others = $el.not($fileRows);
+
         // Update data attributes (raw values — .attr() stores literally)
-        $el.attr('data-name', item.name);
-        $el.attr('data-path', item.path);
+        $others.attr('data-name', item.name);
+        $others.attr('data-path', item.path);
 
         // Update displayed name
-        $el.find('.item-name').text(item.name);
-        $el.find('.item-name-editor').val(item.name);
+        $others.find('.item-name').text(item.name);
+        $others.find('.item-name-editor').val(item.name);
     });
 
     window.socket.on('item.updated', async (item) => {

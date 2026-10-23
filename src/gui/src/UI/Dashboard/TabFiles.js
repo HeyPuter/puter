@@ -174,9 +174,18 @@ const TabFiles = {
                 const meta = file.metadata ? JSON.parse(file.metadata) : null;
                 if ( meta && meta.original_name ) displayName = meta.original_name;
             } catch { /* keep raw name */ }
+            // The row's handlers act on the entry renderItem bound them to;
+            // keep it current so a remote rename or move doesn't leave them
+            // opening, copying or sharing the old path.
+            const fsentry = $row.data('fsentry');
+            if ( fsentry ) {
+                for ( const key of ['name', 'path', 'type', 'size', 'modified', 'metadata'] ) {
+                    if ( file[key] !== undefined ) fsentry[key] = file[key];
+                }
+            }
             if ( displayName ) {
                 $row.attr('data-name', displayName);
-                $row.find('.item-name').text(displayName);
+                _this.fitItemNames($row.find('.item-name'));
                 // Never write over an open editor — a just-created row has one
                 // focused already, and mkdir's own item.added lands here right
                 // after, which would wipe out whatever the user has typed.
@@ -2686,6 +2695,7 @@ const TabFiles = {
         row.setAttribute("data-modified", file.modified);
         row.setAttribute("data-associated_app_name", file.associated_app?.name ?? '');
         row.setAttribute("data-path", file.path);
+        $(row).data('fsentry', file);
         row.innerHTML = `
             <div class="item-checkbox"><span class="checkbox-icon"></span></div>
             <div class="item-icon">
@@ -3107,7 +3117,7 @@ const TabFiles = {
                 e.preventDefault();
                 rename_cancelled = true;
                 $(el_item_name_editor).hide();
-                $(el_item_name_editor).val(file.name);
+                $(el_item_name_editor).val($(el_item).attr('data-name'));
                 $(el_item_name).show();
             }
         });
@@ -3149,7 +3159,7 @@ const TabFiles = {
             // selection, not just the row the long-press landed on.
             const menuTitle = isMultiSelection
                 ? i18n('items_count_other', { count: selectedRows.length }, false)
-                : file.name;
+                : $(el_item).attr('data-name');
 
             // The touch sheet is for touch interactions and touch-first
             // devices. A mouse right-click gets the desktop menu at the
@@ -4131,7 +4141,7 @@ const TabFiles = {
             modal.show(items, targetRect, {
                 title: isMultiSelection
                     ? i18n('items_count_other', { count: selectedRows.length }, false)
-                    : file.name,
+                    : $(rowElement).attr('data-name'),
             });
         } else {
             // The '⋯' click doesn't select the row, so without this class the
