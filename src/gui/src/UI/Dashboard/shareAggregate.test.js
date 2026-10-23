@@ -20,8 +20,9 @@
 import { describe, expect, it } from 'vitest';
 import { aggregateOwners, aggregateShares, linkShareState, missingPathsFor } from './shareAggregate.js';
 
-// The helper labels an inherited link share through i18n.
-globalThis.i18n = (key) => key;
+// The helper labels some rows through i18n. Row names are plain text that the
+// dialog encodes, so an HTML-encoded label would show its entities.
+globalThis.i18n = (key, _args, encode = true) => (encode ? `encoded:${key}` : key);
 
 const grant = (holder, mode, extra = {}) => ({ holder, mode, ...extra });
 

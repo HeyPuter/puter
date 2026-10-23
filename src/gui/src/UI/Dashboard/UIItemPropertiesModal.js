@@ -23,6 +23,10 @@ import { isOverlayOnTop } from './dashboardOverlay.js';
 
 const { html_encode } = window;
 
+// Gives each open dialog its own document keydown namespace, so closing one
+// doesn't unbind another's Escape.
+let modal_seq = 0;
+
 const closeIcon = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 
 /**
@@ -59,6 +63,7 @@ function addRow ($list, labelHtml, valueHtml) {
 export default function UIItemPropertiesModal ({ name, path: item_path, uid, $container }) {
     const $root = $container && $container.length ? $container : $('body');
     const el_previous_focus = document.activeElement;
+    const keydown_ns = `keydown.item-props-${++modal_seq}`;
 
     const $overlay = $(`
         <div class="item-props-overlay">
@@ -104,7 +109,7 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
         if ( closed ) return;
         closed = true;
         $overlay.removeClass('item-props-show');
-        $(document).off('keydown.item-props');
+        $(document).off(keydown_ns);
         setTimeout(() => $overlay.remove(), 200);
         if ( el_previous_focus && document.body.contains(el_previous_focus) ) {
             el_previous_focus.focus({ preventScroll: true });
@@ -113,10 +118,16 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
 
     // -- Dismissal wiring --
     $overlay.on('click', '.item-props-close', close);
-    $overlay.on('click', function (e) {
-        if ( e.target === $overlay[0] ) close();
+    // Backdrop close goes by where the press started: a text selection dragged
+    // out of the card registers its click on the overlay.
+    let backdrop_pressed = false;
+    $overlay.on('mousedown', function (e) {
+        backdrop_pressed = e.target === $overlay[0];
     });
-    $(document).on('keydown.item-props', function (e) {
+    $overlay.on('click', function (e) {
+        if ( e.target === $overlay[0] && backdrop_pressed ) close();
+    });
+    $(document).on(keydown_ns, function (e) {
         if ( e.key === 'Escape' && isOverlayOnTop($overlay[0]) ) close();
     });
 
@@ -260,9 +271,10 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
                     const $entry = $link.closest('.item-props-website-entry');
                     const $row = $entry.closest('.item-props-row');
                     $entry.remove();
+                    // The focused button just left the DOM; keep focus in the dialog.
+                    el_modal.focus({ preventScroll: true });
                     if ( $row.find('.item-props-website-entry').length > 0 ) return;
                     $row.remove();
-                    el_modal.focus({ preventScroll: true });
                     // The item serves no website any more: drop its badge from every row.
                     $('.item').filter(function () {
                         return $(this).attr('data-uid') === item_uid;
@@ -277,7 +289,9 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
             if ( closed ) return;
             $list.html(`<div class="item-props-empty">${i18n('error_unknown_cause')}</div>`);
         },
-    });
+    })
+        // The error callback renders the failure; the promise rejects with it too.
+        .catch(() => {});
 
     return { close };
 }

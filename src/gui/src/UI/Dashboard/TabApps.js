@@ -47,6 +47,13 @@ import {
     serializeAppGroups,
 } from './appGroups.js';
 
+/**
+ * What a failed kv read resolves to. It must not pass for null ("never
+ * saved"): the grid would drop the user's folders and order, and the next
+ * save would write that loss back.
+ */
+const KV_READ_FAILED = Symbol('kv read failed');
+
 /** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
 const APP_NAMES_NO_UNINSTALL = new Set([
     'dev-center',
@@ -390,6 +397,27 @@ function buildPagerHtml (items, layout, instant) {
     return h;
 }
 
+// The tab's modals are aria-modal: Tab cycles inside the card rather than
+// walking off into the search box and tiles behind the scrim.
+function trapModalTab ($overlay) {
+    $overlay.on('keydown', function (e) {
+        if ( e.key !== 'Tab' ) return;
+        const focusables = $overlay.find('button, textarea').toArray()
+            .filter(el => ! el.disabled && el.offsetParent !== null);
+        if ( focusables.length === 0 ) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const idx = focusables.indexOf(document.activeElement);
+        if ( e.shiftKey && idx <= 0 ) {
+            e.preventDefault();
+            last.focus();
+        } else if ( ! e.shiftKey && (idx === -1 || idx === focusables.length - 1) ) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
+}
+
 function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
     const displayName = (appTitle || appName || '').trim();
     const $overlay = $(`
@@ -409,6 +437,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
     // tile when the user backs out (on confirm the tile is leaving).
     $el_window.append($overlay);
     $overlay.find('.myapps-modal-cancel')[0].focus({ preventScroll: true });
+    trapModalTab($overlay);
 
     const close = ({ restoreFocus = true } = {}) => {
         $overlay.remove();
@@ -475,8 +504,16 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
                     firstRects.set(tileIdentity(el), el.getBoundingClientRect());
                 }
             }
+            const slot = $el_window.find('.myapps-page .myapps-tile').toArray()
+                .findIndex(el => el.dataset.appName === appName);
             self._apps.splice(idx, 1);
             self.renderApps($el_window, { preservePage: true, instant: true });
+            // The confirm button left with the modal; keep a keyboard user on
+            // the grid, at the slot the app vacated.
+            if ( slot !== -1 && (! document.activeElement || document.activeElement === document.body) ) {
+                const tiles = $el_window.find('.myapps-page .myapps-tile').toArray();
+                tiles[Math.min(slot, tiles.length - 1)]?.focus({ preventScroll: true });
+            }
             // FLIP the survivors from their old boxes into the new layout.
             const moved = [];
             for ( const el of $el_window.find('.myapps-tile').toArray() ) {
@@ -645,9 +682,12 @@ function showAddAppModal ({ $el_window }) {
     const $overlay = $(h);
     $el_window.append($overlay);
 
+    trapModalTab($overlay);
+
     const close = () => {
         $overlay.remove();
         $(document).off('keydown.add-app-modal');
+        $el_window.find('.myapps-add-tile')[0]?.focus({ preventScroll: true });
     };
 
     const currentPane = () => $overlay.find('.myapps-add-pane:not([hidden])').attr('data-pane');
@@ -705,16 +745,19 @@ function showAddAppModal ({ $el_window }) {
                 // No intro — still launch.
             }
             const app_obj = await app_info_promise;
+            let launched = false;
             launch_app({
                 name: appName,
                 maximized: true,
                 ...(app_obj ? { app_obj } : {}),
                 window_options: { morph_from_dashboard_tile: true },
+            }).then(outcome => {
+                launched = outcome?.launchResult?.launched !== false;
             }).catch(err => {
                 console.error(`Failed to launch ${appName}:`, err);
-                UIAlert(i18n('something_went_wrong'));
+                UIAlert(i18n('something_went_wrong', [], false));
             }).finally(() => {
-                TabApps.settleDeepLinkLaunch(appName, tile);
+                TabApps.settleDeepLinkLaunch(appName, tile, launched);
             });
         })();
     };
@@ -842,6 +885,13 @@ const TabApps = {
     _savedOrderNames: null,
     _orderSavedAtSeq: 0,
     _groupsSavedAtSeq: 0,
+    // Whether a read of the stored order / folders has ever succeeded. Until
+    // one has, saves stay in memory: writing would replace the stored value
+    // with one built without it.
+    _orderLoaded: false,
+    _groupsLoaded: false,
+    // The last uninstalled-apps list a read returned, for loads whose read fails.
+    _lastRemovedApps: null,
     _launchingApps: new Set(),
     // A deep-link install mid-arrival ({ name, $el_window }) — its tile is
     // parked invisible until the intro's arrival beat (see
@@ -850,6 +900,7 @@ const TabApps = {
     // their tiles (the mirror of _removedLocal).
     _arriving: null,
     _pendingInstalls: null,
+    _splicedLaunches: null,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -1031,6 +1082,7 @@ const TabApps = {
                 })
                     .catch((err) => {
                         console.error(`Failed to launch ${appName}:`, err);
+                        UIAlert(i18n('something_went_wrong', [], false));
                     })
                     .finally(() => {
                         self._launchingApps.delete(appName);
@@ -2156,6 +2208,7 @@ const TabApps = {
     saveGroups () {
         const groups = serializeAppGroups(this._groups);
         this._groups = groups;
+        if ( ! this._groupsLoaded ) return;
         // Loads already in flight fetched kv before this save; mark the
         // boundary so their stale snapshot can't replay over it (see
         // _resolveGroups).
@@ -2977,12 +3030,25 @@ const TabApps = {
         if ( pending.loadSeq < (this._appliedSeq || 0) ) return;
         this._appliedSeq = pending.loadSeq;
 
-        const orderedNames = this._resolveOrderNames(pending.loadSeq, pending.orderedNames);
-        this._savedOrderNames = orderedNames;
-        this._groups = this._resolveGroups(pending.loadSeq, pending.groups);
-        this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
+        const orderedNames = this._applyLoadedLayout(pending.loadSeq, pending.orderedNames, pending.groups);
         this._apps = reconcileAppOrder(pending.merged, orderedNames);
         this.renderApps(pending.$el_window, { preservePage: true, instant: true });
+    },
+
+    // Adopt a load's saved order and folders, returning the order to
+    // reconcile against. A half whose kv read failed keeps what this session
+    // already has.
+    _applyLoadedLayout (loadSeq, fetchedOrderNames, fetchedGroups) {
+        if ( fetchedOrderNames !== KV_READ_FAILED ) {
+            this._savedOrderNames = this._resolveOrderNames(loadSeq, fetchedOrderNames);
+            this._orderLoaded = true;
+        }
+        if ( fetchedGroups !== KV_READ_FAILED ) {
+            this._groups = this._resolveGroups(loadSeq, fetchedGroups);
+            this._groupsLoaded = true;
+        }
+        this._hasCustomOrder = Array.isArray(this._savedOrderNames) && this._savedOrderNames.length > 0;
+        return this._savedOrderNames;
     },
 
     // The folders half of _resolveOrderNames, for the same reason: a fetch
@@ -3056,6 +3122,7 @@ const TabApps = {
         // reconcileAppOrder ignores them.
         const names = mergeSavedOrder(serializeAppOrder(this._apps), this._savedOrderNames);
         this._savedOrderNames = names;
+        if ( ! this._orderLoaded ) return;
         // Loads already in flight fetched kv before this save; mark the
         // boundary so their stale snapshot can't replay over it (see
         // _resolveOrderNames).
@@ -3157,9 +3224,9 @@ const TabApps = {
                     console.error('Failed to fetch launch apps:', err);
                     return null;
                 }),
-                puter.kv.get(APPS_ORDER_KV_KEY).catch(() => null),
-                puter.kv.get(REMOVED_APPS_KV_KEY).catch(() => null),
-                puter.kv.get(APP_GROUPS_KV_KEY).catch(() => null),
+                puter.kv.get(APPS_ORDER_KV_KEY).catch(() => KV_READ_FAILED),
+                puter.kv.get(REMOVED_APPS_KV_KEY).catch(() => KV_READ_FAILED),
+                puter.kv.get(APP_GROUPS_KV_KEY).catch(() => KV_READ_FAILED),
             ]);
 
             const installedApps = installedResult.apps;
@@ -3175,7 +3242,8 @@ const TabApps = {
             // overlaid with this session's not-yet-persisted mutations: an
             // uninstall races its own kv write, and a failed uninstall's
             // rollback races the removal of that write.
-            const removedNames = parseRemovedApps(removedAppsRaw);
+            if ( removedAppsRaw !== KV_READ_FAILED ) this._lastRemovedApps = parseRemovedApps(removedAppsRaw);
+            const removedNames = new Set(this._lastRemovedApps ?? []);
             if ( this._removedLocal ) {
                 for ( const [name, isRemoved] of this._removedLocal ) {
                     if ( isRemoved ) removedNames.add(name);
@@ -3254,7 +3322,9 @@ const TabApps = {
             // in their default order; stale names are ignored.
             let orderedNames = null;
             try {
-                if ( savedOrderRaw ) {
+                if ( savedOrderRaw === KV_READ_FAILED ) {
+                    orderedNames = KV_READ_FAILED;
+                } else if ( savedOrderRaw ) {
                     orderedNames = typeof savedOrderRaw === 'string'
                         ? JSON.parse(savedOrderRaw)
                         : savedOrderRaw;
@@ -3262,7 +3332,7 @@ const TabApps = {
             } catch ( _e ) {
                 orderedNames = null;
             }
-            const groups = parseAppGroups(groupsRaw);
+            const groups = groupsRaw === KV_READ_FAILED ? KV_READ_FAILED : parseAppGroups(groupsRaw);
 
             // Skip only if a strictly newer load already applied its result.
             if ( loadSeq < (this._appliedSeq || 0) ) return;
@@ -3280,11 +3350,7 @@ const TabApps = {
             // A drag may have started AND committed while this load was in
             // flight; _resolveOrderNames keeps its saved reorder from being
             // replayed over by this load's pre-save kv snapshot.
-            const effectiveOrder = this._resolveOrderNames(loadSeq, orderedNames);
-            this._savedOrderNames = effectiveOrder;
-            this._groups = this._resolveGroups(loadSeq, groups);
-
-            this._hasCustomOrder = Array.isArray(effectiveOrder) && effectiveOrder.length > 0;
+            const effectiveOrder = this._applyLoadedLayout(loadSeq, orderedNames, groups);
 
             // A refresh of a grid already on screen keeps the user's page and
             // skips the first load's fade-in.
@@ -3333,9 +3399,10 @@ const TabApps = {
     // what installs it (the launch grants the permission installedApps
     // reports), so the grid says so NOW rather than on some later refresh —
     // without this the user's first Back found no tile to minimize into and
-    // a grid without the app they were just using. The app joins _apps at
-    // the tail (where reconcileAppOrder appends new apps) with a tile drawn
-    // from the landing's own app-info prefetch, so only a confirmed-real
+    // a grid without the app they were just using. The app joins _apps
+    // where reconcileAppOrder puts it — its saved slot when uninstall left
+    // one, else the tail — with a tile drawn from the landing's own
+    // app-info prefetch, so only a confirmed-real
     // app ever materializes, with its real icon. `mark` parks the tile
     // invisible (.myapps-tile-installing) for the intro's arrival beat to
     // reveal; unmarked (no-intro paths) it simply appears. The
@@ -3367,10 +3434,17 @@ const TabApps = {
         };
         if ( ! this._pendingInstalls ) this._pendingInstalls = new Map();
         this._pendingInstalls.set(appName, app);
+        // What settleDeepLinkLaunch needs to take the tile back out if the
+        // launch fails: nothing was installed then.
+        if ( ! this._splicedLaunches ) this._splicedLaunches = new Map();
+        this._splicedLaunches.set(appName, {
+            $el_window,
+            wasRemoved: this._removedLocal?.get(appName) ?? this._lastRemovedApps?.has(appName) ?? false,
+        });
         // A previously uninstalled app is being re-installed by this
         // landing; the removed record must not go on filtering it.
         this._setAppRemoved(appName, false);
-        this._apps.push(app);
+        this._apps = reconcileAppOrder([...this._apps, app], this._savedOrderNames);
         if ( mark ) this._arriving = { name: appName, $el_window };
         // instant only when the pager is already on screen: this re-render
         // must not blink a revealed grid back through the load fade, nor
@@ -3672,7 +3746,7 @@ const TabApps = {
     // mirroring the tile click handler's finally (including its
     // settle_dashboard_tile_launch, which un-marks the tile if the window's
     // morph never claimed it).
-    settleDeepLinkLaunch (appName, tile) {
+    settleDeepLinkLaunch (appName, tile, launched = true) {
         this._launchingApps.delete(appName);
         settle_dashboard_tile_launch(tile);
         // Whatever path the intro took out (interruption, hidden tab, the
@@ -3685,6 +3759,19 @@ const TabApps = {
         if ( this._deepLinkFolder ) {
             this._closeGroup(this._deepLinkFolder);
             this._deepLinkFolder = null;
+        }
+        // Only a launch installs the app (it grants the permission), so a
+        // failed one leaves nothing for the tile _spliceDeepLinkApp drew to
+        // stand for.
+        const spliced = this._splicedLaunches?.get(appName);
+        this._splicedLaunches?.delete(appName);
+        if ( spliced && ! launched && this._pendingInstalls?.has(appName) ) {
+            this._pendingInstalls.delete(appName);
+            if ( spliced.wasRemoved ) this._setAppRemoved(appName, true);
+            if ( Array.isArray(this._apps) ) {
+                this._apps = this._apps.filter(a => a.name !== appName);
+                this.renderApps(spliced.$el_window, { preservePage: true, instant: true });
+            }
         }
     },
 };

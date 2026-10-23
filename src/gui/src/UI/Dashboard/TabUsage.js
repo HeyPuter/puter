@@ -19,7 +19,8 @@
 
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { isOrgSeat } from './orgSeat.js';
-import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 
 // Whether the server reported credits — decides whether the usage surfaces
 // render credits or fall back to dollars.
@@ -97,6 +98,15 @@ const TabUsage = {
 
         refreshUsageDetails($el_window);
 
+        // An upgrade, a plan change, or a return from the billing portal (see
+        // TabHome) changes the allowance and the button shown here. Hidden,
+        // the tab refreshes on its next activation instead.
+        window.addEventListener('puter:subscription:changed', () => {
+            if ( ! $($el_window).find('.dashboard-section-usage').hasClass('active') ) return;
+            setupPlanButton($el_window);
+            refreshUsageDetails($el_window);
+        });
+
         // Click handler for sortable table headers
         $($el_window).on('click', '.driver-usage-details-content-table th[data-sort]', function () {
             const column = $(this).data('sort');
@@ -114,16 +124,20 @@ const TabUsage = {
             $($el_window).find(`.driver-usage-details-content-table th[data-sort="${column}"] .usage-sort-btn`).trigger('focus');
         });
 
-        // Click handler for "Show more" to expand the table
+        // Click handler for "Show more" to expand the table. The redrawn
+        // table has no clicked button; focus moves to the one replacing it
+        // (here and below), not to the top of the page.
         $($el_window).on('click', '.usage-table-show-more', function () {
             usageTableExpanded = true;
             renderUsageTable();
+            $($el_window).find('.usage-table-show-less').trigger('focus');
         });
 
         // Click handler for "Show less" to collapse the table
         $($el_window).on('click', '.usage-table-show-less', function () {
             usageTableExpanded = false;
             renderUsageTable();
+            $($el_window).find('.usage-table-show-more').trigger('focus');
         });
     },
     // Refresh whenever the tab is (re)activated — otherwise the usage numbers
@@ -293,7 +307,7 @@ function renderUsageTable () {
 }
 
 async function update_usage_details ($el_window) {
-    const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(res => {
+    const monthlyUsagePromise = getMonthlyUsage().then(monthlyUsageOrThrow).then(res => {
         const budget = usageBudget(res.usage, res.allowanceInfo);
         const addonLeft = addonCreditsRemaining(res.allowanceInfo);
         // The server reports credits (already scaled) or raw amounts (no
@@ -363,7 +377,7 @@ async function update_usage_details ($el_window) {
         }
     });
 
-    const spacePromise = puter.fs.space().then(res => {
+    const spacePromise = getStorageSpace().then(res => {
         // Guard capacity 0 — otherwise 0/0 renders literally as "NaN%".
         let usage_percentage = res.capacity ? (res.used / res.capacity * 100).toFixed(0) : '0';
         usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;

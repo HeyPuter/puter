@@ -19,7 +19,8 @@
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
-import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
@@ -486,14 +487,19 @@ const TabHome = {
      */
     async _renderPlanCard($el_window) {
         let subscription = null;
+        // A self-hosted install has no billing routes; its users have the
+        // plan every account starts on, with nothing to upgrade to (no
+        // upgrade dialog either, which only hosted Puter loads).
+        let noBilling = false;
         try {
             const resp = await fetch(
                 `${window.api_origin}/marketplace/subscriptions/current`,
                 { headers: { Authorization: `Bearer ${puter.authToken}` } },
             );
+            noBilling = resp.status === 404;
             // A refusal is not a free plan: a seat owing a password change 403s.
-            if (!resp.ok) return;
-            const data = await resp.json();
+            if (!resp.ok && !noBilling) return;
+            const data = noBilling ? null : await resp.json();
             subscription = data?.subscription ?? null;
         } catch (e) {
             console.error('Failed to load plan data:', e);
@@ -594,6 +600,11 @@ const TabHome = {
                 $el_window.find('.bento-plan-upgrade').hide();
             }
 
+            if (noBilling && typeof window.UIUpgradeAccount !== 'function') {
+                $badge.text('').removeClass('free');
+                $el_window.find('.bento-plan-upgrade').hide();
+            }
+
             $el_window
                 .find('.bento-plan-upgrade')
                 .off('click.billing')
@@ -613,7 +624,7 @@ const TabHome = {
 
         // Load storage data
         try {
-            const res = await puter.fs.space();
+            const res = await getStorageSpace();
             // Guard capacity 0 — 0/0 would render literally as "NaN%".
             let usage_percentage = res.capacity
                 ? ((res.used / res.capacity) * 100).toFixed(0)
@@ -644,7 +655,7 @@ const TabHome = {
 
         // Load monthly usage data
         try {
-            const res = await puter.auth.getMonthlyUsage();
+            const res = monthlyUsageOrThrow(await getMonthlyUsage());
             const budget = usageBudget(res.usage, res.allowanceInfo);
             const addonLeft = addonCreditsRemaining(res.allowanceInfo);
             // The server reports credits (already scaled) or raw amounts

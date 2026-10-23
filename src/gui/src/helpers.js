@@ -1288,7 +1288,7 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                         // pops up on top of the dialog while it waits.
                         clearTimeout(progwin_timeout);
                         const alert_resp = await UIAlert({
-                            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                            message: i18n('item_already_exists', [err.entry_name], false),
                             buttons: [
                                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                                 ... (window.clipboard.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
@@ -1427,7 +1427,7 @@ window.copy_items = function (el_items, dest_path) {
                         // pops up on top of the dialog while it waits.
                         clearTimeout(progwin_timeout);
                         const alert_resp = await UIAlert({
-                            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                            message: i18n('item_already_exists', [err.entry_name], false),
                             buttons: [
                                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                                 ... (el_items.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
@@ -1533,7 +1533,9 @@ window.delete_item = async function (el_item, descendants_only = false) {
             $(`.item[data-shortcut_to_path="${html_encode($(el_item).attr('data-path'))}" i]`).attr('data-shortcut_to_path', '');
         });
     } catch ( err ) {
-        UIAlert(err.responseText);
+        // Nothing was deleted: bring back what was faded out above.
+        $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).stop(true).fadeIn(150);
+        UIAlert(err?.message ?? err?.responseText ?? String(err));
     }
 };
 
@@ -2025,7 +2027,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     // pops up on top of the dialog while it waits.
                     clearTimeout(progwin_timeout);
                     const alert_resp = await UIAlert({
-                        message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                        message: i18n('item_already_exists', [err.entry_name], false),
                         buttons: [
                             { label: i18n('replace'), type: 'primary', value: 'replace' },
                             ... (el_items.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
@@ -3657,7 +3659,7 @@ window.handle_same_name_exists = async ({
             return false;
         }
         const alert_resp = await UIAlert({
-            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+            message: i18n('item_already_exists', [err.entry_name], false),
             buttons: [
                 {
                     label: i18n('replace'),

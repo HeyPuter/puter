@@ -78,8 +78,8 @@ const avatar_html = (name) => {
     return `<span class="share-modal-avatar" style="--share-avatar-hue: ${avatarHue(name)}" aria-hidden="true">${html_encode(avatarInitial(name))}</span>`;
 };
 
-// Distinguishes one open dialog's item list from another's, since the
-// disclosure button points at it by id.
+// Distinguishes one open dialog from another: the disclosure button points at
+// its item list by id, and each dialog's document keydown has its own namespace.
 let modal_seq = 0;
 
 /** "1 item" / "4 items", HTML-safe. */
@@ -135,7 +135,8 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     const is_multi = total > 1;
     // Nothing to share: an empty selection is a caller's mistake, not a dialog.
     if ( total === 0 ) return { close: () => {} };
-    const items_list_id = `share-modal-items-${++modal_seq}`;
+    const modal_id = ++modal_seq;
+    const items_list_id = `share-modal-items-${modal_id}`;
 
     // The header names the one item, or the size of the pile with the names
     // folded into an expandable list below it.
@@ -242,7 +243,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         if ( closed ) return;
         closed = true;
         $overlay.removeClass('share-modal-show');
-        $(document).off('keydown.share-modal');
+        $(document).off(`keydown.share-modal-${modal_id}`);
         // The recipient field listens on the document to know when a click
         // landed outside its suggestions; that has to come off with the dialog.
         picker.destroy();
@@ -487,7 +488,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     $overlay.on('click', function (e) {
         if ( e.target === $overlay[0] && backdrop_pressed ) close();
     });
-    $(document).on('keydown.share-modal', function (e) {
+    $(document).on(`keydown.share-modal-${modal_id}`, function (e) {
         // A gate or upgrade window opened over the modal takes its own Escape.
         if ( e.key !== 'Escape' || ! isOverlayOnTop($overlay[0]) ) return;
         // An open revoke confirmation swallows the first Escape.

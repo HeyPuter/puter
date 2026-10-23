@@ -189,8 +189,8 @@ const TabFiles = {
                 // Never write over an open editor — a just-created row has one
                 // focused already, and mkdir's own item.added lands here right
                 // after, which would wipe out whatever the user has typed.
-                // Visibility, not the -active class: the class outlives a
-                // cancelled edit, `.hide()` does not.
+                // Visibility, not the -active class, which comes off as soon
+                // as a rename is sent.
                 const $editor = $row.find('.item-name-editor');
                 if ( ! $editor.is(':visible') ) {
                     $editor.val(displayName);
@@ -265,8 +265,8 @@ const TabFiles = {
             // Insert at correct sorted position
             _this.insertAtSortedPosition($newRow, file);
 
-            // Apply column widths to match existing rows
-            _this.applyColumnWidths();
+            // Lay it out like the rows already there
+            _this.applyColumnWidthsToRow($newRow);
 
             // Highlight animation to indicate newly added item
             $newRow.addClass('item-newly-added');
@@ -282,7 +282,10 @@ const TabFiles = {
         this._creatingItem = 0;
         this.activeMenuFileUid = null;
         this.currentPath = null;
-        this.currentPath = null;
+        // Set by a folder menu's Upload; null uploads into the folder on screen.
+        this.uploadTargetPath = null;
+        // Trash item path → the name it had before it was trashed (renderItem).
+        this.trashedNames = new Map();
         this.folderDwellTimer = null;
         this.folderDwellTarget = null;
         this.springLoadedActive = false;
@@ -378,6 +381,11 @@ const TabFiles = {
                     clearTimeout(_this.folderDwellTimer);
                     _this.folderDwellTimer = null;
                     _this.folderDwellTarget = null;
+                    // A drop fires no `out`, so undo `over`'s highlight here.
+                    $(folderElement).removeClass('dwell-opening');
+                    if ( folderElement.getAttribute('data-path') !== _this.currentPath ) {
+                        $(folderElement).removeClass('active');
+                    }
 
                     // Block if ctrl and trashed
                     const draggedPath = $(ui.draggable).attr('data-path');
@@ -425,7 +433,7 @@ const TabFiles = {
                     }
                     else {
                         // Move
-                        await window.move_items(itemsToMove, targetPath);
+                        await _this.moveDraggedRows(itemsToMove, targetPath);
                     }
                 },
 
@@ -623,6 +631,33 @@ const TabFiles = {
             this.updateOpenFileDots();
         });
 
+        // Select mode's Select and Done buttons only show up to 480px (see
+        // dashboard.css); widened past that, it could no longer be left.
+        window.matchMedia('(max-width: 480px)').addEventListener('change', (e) => {
+            if ( ! e.matches ) this.exitSelectMode();
+        });
+
+        // A new username (also a temporary account saved under one) moves the
+        // home folder. Paths held here still name the old one, and the rows,
+        // crumbs and their handlers were drawn with them.
+        window.addEventListener('username-changed', ({ detail }) => {
+            const oldHome = `/${detail.oldUsername}`;
+            const newHome = `/${detail.newUsername}`;
+            const rebase = (p) => (typeof p === 'string' && (p === oldHome || p.startsWith(`${oldHome}/`)))
+                ? newHome + p.slice(oldHome.length)
+                : p;
+            const history = window.dashboard_nav_history;
+            for ( let i = 0; i < history.length; i++ ) history[i] = rebase(history[i]);
+            window.clipboard = (window.clipboard ?? []).map(item => (typeof item === 'string'
+                ? rebase(item)
+                : { ...item, path: rebase(item.path) }));
+            this.uploadTargetPath = rebase(this.uploadTargetPath);
+            if ( this.currentPath ) {
+                this.currentPath = rebase(this.currentPath);
+                this.renderDirectory(this.currentPath);
+            }
+        });
+
         // Refresh current directory when the user returns to this browser tab
         document.addEventListener('visibilitychange', async () => {
             if ( document.visibilityState !== 'visible' || !this.currentPath ) return;
@@ -631,7 +666,7 @@ const TabFiles = {
 
             // The refresh rebuilds the list, which would destroy an open
             // rename editor along with whatever the user has typed.
-            if ( $filesTab.find('.item-name-editor-active').length > 0 ) return;
+            if ( $filesTab.find('.item-name-editor-active:visible').length > 0 ) return;
             // So would an open menu: its actions are bound to the old rows.
             if ( $('.context-menu, .context-menu-modal-backdrop').length > 0 ) return;
 
@@ -893,17 +928,23 @@ const TabFiles = {
                 if ( $selectedRows.length > 0 ) {
                     e.preventDefault();
                     e.stopPropagation();
-                    window.clipboard = [];
-                    window.clipboard_op = 'copy';
-                    $selectedRows.each(function () {
-                        if ( $(this).attr('data-path') !== window.trash_path ) {
+                    // Neither the Trash nor what's in it: a copy of a trashed
+                    // item would be named after its uid, its raw name.
+                    const rows = $selectedRows.toArray().filter((row) => {
+                        const rowPath = $(row).attr('data-path') || '';
+                        return rowPath !== window.trash_path && ! rowPath.startsWith(`${window.trash_path}/`);
+                    });
+                    if ( rows.length > 0 ) {
+                        window.clipboard = [];
+                        window.clipboard_op = 'copy';
+                        for ( const row of rows ) {
                             window.clipboard.push({
-                                path: $(this).attr('data-path'),
-                                uid: $(this).attr('data-uid'),
-                                metadata: $(this).attr('data-metadata'),
+                                path: $(row).attr('data-path'),
+                                uid: $(row).attr('data-uid'),
+                                metadata: $(row).attr('data-metadata'),
                             });
                         }
-                    });
+                    }
                 }
                 return false;
             }
@@ -938,27 +979,10 @@ const TabFiles = {
                 if ( window.clipboard.length > 0 && _this.currentPath ) {
                     e.preventDefault();
                     e.stopPropagation();
-                    // Same rule as the Paste menu item: a move into the Trash
-                    // would skip the metadata Restore needs (Delete trashes),
-                    // and the Shared view is a query, not a folder.
-                    if ( _this.currentPath === window.trash_path
-                        || _this.currentPath.startsWith(`${window.trash_path}/`)
-                        || _this.currentPath === window.shared_path ) {
+                    if ( ! _this.acceptsNewItems(_this.currentPath) ) {
                         return false;
                     }
-                    // After the paste completes, refresh and highlight the
-                    // newly created rows — same treatment as uploads.
-                    if ( window.clipboard_op === 'copy' ) {
-                        window.copy_clipboard_items(_this.currentPath, null).then(async pastedPaths => {
-                            await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
-                            _this.selectUploadedRows(pastedPaths ?? []);
-                        });
-                    } else {
-                        _this.moveClipboardItems(_this.currentPath).then(async pastedPaths => {
-                            await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
-                            _this.selectUploadedRows(pastedPaths ?? []);
-                        });
-                    }
+                    _this.pasteClipboardInto(_this.currentPath);
                 }
                 return false;
             }
@@ -1365,8 +1389,7 @@ const TabFiles = {
 
         // New folder button
         document.querySelector('.new-folder-btn').onclick = () => {
-            // The Shared view is a query, not a directory.
-            if ( _this.currentPath === window.shared_path ) return;
+            if ( ! _this.acceptsNewItems(_this.currentPath) ) return;
             _this.createFolderInstant(_this.currentPath);
         };
 
@@ -1378,13 +1401,16 @@ const TabFiles = {
             // was cancelled, or was blocked could not be retried.
             const files = Array.from(e.target.files || []);
             fileInput.value = '';
+            // A folder's menu picks for that folder, which needn't be the one on screen.
+            const destination = _this.uploadTargetPath ?? _this.currentPath;
+            _this.uploadTargetPath = null;
             if ( files.length === 0 ) return;
-            if ( _this.currentPath === window.shared_path ) return;
+            if ( ! _this.acceptsNewItems(destination) ) return;
 
             let upload_progress_window;
             let opid;
 
-            puter.fs.upload(files, _this.currentPath, {
+            puter.fs.upload(files, destination, {
                 generateThumbnails: true,
                 thumbnailGenerator: createUploadThumbnailGenerator(),
                 init: async (operation_id, xhr) => {
@@ -1455,8 +1481,9 @@ const TabFiles = {
                                 ? ` (${item.message})`
                                 : '';
                             return `- ${failedPath}${failedMessage}`;
-                        }).join('\n');
-                        UIAlert(`${i18n('upload_some_failed', [], false)}\n${failedSummary}`);
+                        }).join('<br>');
+                        // UIAlert encodes the message itself, apart from <p>, <strong> and <br>.
+                        UIAlert(`${i18n('upload_some_failed', [], false)}<br>${failedSummary}`);
                     }
                     upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                     // remove from active_uploads
@@ -1475,6 +1502,7 @@ const TabFiles = {
         // Upload button
         document.querySelector('.upload-btn').onclick = async () => {
             if ( ! this.currentPath ) return;
+            this.uploadTargetPath = null;
             fileInput.click();
         };
 
@@ -1616,7 +1644,7 @@ const TabFiles = {
 
         if ( anyTrashed ) {
             // Show restore, hide download and copy for trashed items
-            $actions.find('.restore-btn').show();
+            $actions.find('.restore-btn').toggle(this.allRestorable(selectedRows));
             $actions.find('.download-btn').hide();
             $actions.find('.cut-btn').hide();
             $actions.find('.copy-btn').hide();
@@ -1665,6 +1693,20 @@ const TabFiles = {
         const list = Array.from(rows);
         const answers = await Promise.all(list.map((row) => can_restructure($(row).attr('data-path'))));
         return list.filter((_row, i) => answers[i]);
+    },
+
+    /**
+     * Moves dragged rows into a folder, leaving out the ones the user can't
+     * move (see restructurableRows), which the server would refuse with an
+     * alert apiece.
+     *
+     * @param {HTMLElement[]} rows
+     * @param {string} targetPath
+     * @returns {Promise<void>}
+     */
+    async moveDraggedRows (rows, targetPath) {
+        const movable = await this.restructurableRows(rows);
+        if ( movable.length > 0 ) await window.move_items(movable, targetPath);
     },
 
     /**
@@ -1861,11 +1903,31 @@ const TabFiles = {
 
         const nameCol = nameWidth ? `${nameWidth}px` : 'auto';
         const gridTemplate = `24px ${nameCol} 4px ${sizeWidth}px 4px ${modifiedWidth}px 4px 20px`;
+        this.columnGridTemplate = gridTemplate;
 
         $filesTab.find('.header .columns').css('grid-template-columns', gridTemplate);
         $filesTab.find('.files.files-list-view .row').css('grid-template-columns', gridTemplate);
 
         this.fitItemNames($filesTab.find('.files .row:not(.header) .item-name'));
+    },
+
+    /**
+     * Lays out one added row like the rest of the listing. Restyling every
+     * row instead (applyColumnWidths) makes a burst of adds, such as a move
+     * into the folder, quadratic in the folder's size.
+     *
+     * @param {jQuery} $row
+     * @returns {void}
+     */
+    applyColumnWidthsToRow ($row) {
+        if ( ! this.columnGridTemplate ) {
+            this.applyColumnWidths();
+            return;
+        }
+        if ( $row.closest('.files').hasClass('files-list-view') ) {
+            $row.css('grid-template-columns', this.columnGridTemplate);
+        }
+        this.fitItemNames($row.find('.item-name'));
     },
 
     /**
@@ -1954,19 +2016,34 @@ const TabFiles = {
     },
 
     /**
+     * Whether items can be created, uploaded or pasted into a folder. Not the
+     * Trash or a folder inside it (Restore needs metadata only Delete writes),
+     * not the Shared view (a query, not a directory), and not `/`.
+     *
+     * @param {string} folderPath
+     * @returns {boolean}
+     */
+    acceptsNewItems (folderPath) {
+        return !! folderPath
+            && folderPath !== '/'
+            && folderPath !== window.trash_path
+            && ! folderPath.startsWith(`${window.trash_path}/`)
+            && folderPath !== window.shared_path;
+    },
+
+    /**
      * Updates header action buttons based on current folder context.
      *
      * Shows/hides new folder, upload, and empty trash buttons as appropriate.
-     * Neither Trash nor the Shared view (a query, not a directory) can have
-     * anything created or uploaded into it, so those two buttons stay out
-     * there rather than opening a picker whose files would be dropped.
+     * They stay out where nothing can be created, rather than opening a
+     * picker whose files would be dropped.
      *
      * @param {boolean} isTrashFolder - Whether the current folder is the Trash
      * @returns {void}
      */
     updateActionButtons (isTrashFolder) {
         const $pathActions = this.$el_window.find('.path-actions');
-        const canCreate = ! isTrashFolder && this.currentPath !== window.shared_path;
+        const canCreate = this.acceptsNewItems(this.currentPath);
         $pathActions.find('.new-folder-btn, .upload-btn').toggle(canCreate);
 
         if ( isTrashFolder ) {
@@ -1981,6 +2058,19 @@ const TabFiles = {
         } else {
             $pathActions.find('.empty-trash-btn').hide();
         }
+    },
+
+    /**
+     * Where a header button's menu opens: at the pointer, or below the button
+     * when it was pressed from the keyboard, whose click has no coordinates.
+     *
+     * @param {MouseEvent} e - The button's click
+     * @returns {{ left?: number, right?: number, top: number }}
+     */
+    toolbarMenuPosition (e) {
+        if ( e.detail > 0 ) return { left: e.pageX, top: e.pageY };
+        const rect = e.currentTarget.getBoundingClientRect();
+        return { right: rect.right, top: rect.bottom + 3 };
     },
 
     /**
@@ -2013,7 +2103,7 @@ const TabFiles = {
 
         UIContextMenu({
             items: items,
-            position: { left: e.pageX, top: e.pageY },
+            position: this.toolbarMenuPosition(e),
         });
     },
 
@@ -2503,10 +2593,19 @@ const TabFiles = {
                 e.stopPropagation();
                 $(dirnameElement).addClass('context-menu-active');
                 const items = _this.generateFolderContextMenu(clickedPath);
-                const menu = UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
-                menu.onClose = () => {
-                    $(dirnameElement).removeClass('context-menu-active');
-                };
+                // Touch gets the sheet the sidebar folders use: a long-press
+                // has no pointer position to open a menu at.
+                if ( window.isMobile.phone || window.isMobile.tablet || isTouchPrimaryDevice() ) {
+                    const modal = new ContextMenuModal({
+                        onClose: () => $(dirnameElement).removeClass('context-menu-active'),
+                    });
+                    modal.show(items, dirnameElement.getBoundingClientRect());
+                } else {
+                    const menu = UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+                    menu.onClose = () => {
+                        $(dirnameElement).removeClass('context-menu-active');
+                    };
+                }
             });
 
             // Make breadcrumb items droppable for file/folder moves
@@ -2519,7 +2618,8 @@ const TabFiles = {
                     clearTimeout(_this.folderDwellTimer);
                     _this.folderDwellTimer = null;
                     _this.folderDwellTarget = null;
-                    $(dirnameElement).removeClass('dwell-opening');
+                    // A drop fires no `out`, so undo `over`'s highlight here.
+                    $(dirnameElement).removeClass('dwell-opening drop-target');
 
                     const targetPath = $(this).attr('data-path');
                     const draggedPath = $(ui.draggable).attr('data-path');
@@ -2559,7 +2659,7 @@ const TabFiles = {
                             await window.create_shortcut(itemName, isDir, targetPath, null, shortcutTo, shortcutToPath);
                         }
                     } else {
-                        await window.move_items(itemsToMove, targetPath);
+                        await _this.moveDraggedRows(itemsToMove, targetPath);
                     }
                 },
 
@@ -2770,6 +2870,11 @@ const TabFiles = {
         const item_id = window.global_element_id++;
         const metadata = parse_item_metadata(file.metadata);
         const displayName = metadata.original_name || file.name;
+        // A trashed item's raw name is its uid; the breadcrumbs of a trashed
+        // folder opened from here show the name it had instead.
+        if ( metadata.original_name && path.dirname(file.path) === window.trash_path ) {
+            this.trashedNames.set(file.path, metadata.original_name);
+        }
         let website_url = window.determine_website_url(file.path);
         // Normalize is_shortcut to 0/1. Directory listings return it as a number,
         // but the puter.fs.upload() result used to render newly-created items omits
@@ -2838,7 +2943,7 @@ const TabFiles = {
                     style="background-color: #ffffff; padding: 2px; ${is_shortcut !== 0 ? 'display:block;' : ''}"
                     src="${html_encode(window.icons['shortcut.svg'])}" 
                     data-item-id="${item_id}"
-                    title="Shortcut"
+                    title="${i18n('item_shortcut')}"
                 >
                 <img  class="item-badge item-is-worker long-hover"
                     style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}"
@@ -2937,6 +3042,9 @@ const TabFiles = {
             // Track whether item was already selected before this mousedown
             itemWasSelectedOnMousedown = el_item.classList.contains('selected');
 
+            // Select mode toggles rows in onclick, whatever the pointer.
+            if ( _this.selectModeActive ) return;
+
             if ( e.which === 3 && el_item.classList.contains('selected') &&
                 el_item.parentElement.querySelectorAll('.row.selected').length > 1 ) {
                 return;
@@ -2999,14 +3107,11 @@ const TabFiles = {
                 // it must not collapse an existing multi-selection.
             }
 
-            // In select mode on mobile, treat taps like Ctrl+click (toggle selection)
-            const isMobileSelectMode = (window.isMobile.phone || window.isMobile.tablet) && _this.selectModeActive;
-
             // If clicking on .item-name, .item-icon, or .item-badges, select immediately so item drag works.
             // On touch devices, these elements have pointer-events:none via CSS so this path
             // won't be reached — touches land on .row instead, deferring selection to onclick.
             const isDragHandle = e.target.closest('.item-name, .item-icon, .item-badges');
-            if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode && isDragHandle ) {
+            if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && isDragHandle ) {
                 applySelection([el_item]);
                 itemWasSelectedOnMousedown = true;
                 return;
@@ -3014,7 +3119,7 @@ const TabFiles = {
 
             // If item is NOT selected and no modifier keys: defer selection to click handler.
             // This allows rubberband selection to start when dragging from unselected items.
-            if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode ) {
+            if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') ) {
                 window.active_element = el_item;
                 window.active_item_container = el_item.closest('.files');
                 return;
@@ -3030,14 +3135,14 @@ const TabFiles = {
                 return;
             }
 
-            if ( !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode ) {
+            if ( !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
                     r.classList.remove('selected');
                 });
             }
 
             if ( ! e.shiftKey ) {
-                if ( ((e.ctrlKey || e.metaKey) || isMobileSelectMode) && el_item.classList.contains('selected') ) {
+                if ( (e.ctrlKey || e.metaKey) && el_item.classList.contains('selected') ) {
                     el_item.classList.remove('selected');
                 } else {
                     el_item.classList.add('selected');
@@ -3081,17 +3186,18 @@ const TabFiles = {
                 return;
             }
 
+            // In select mode, a tap or click toggles selection instead of opening
+            if ( _this.selectModeActive ) {
+                el_item.classList.toggle('selected');
+                window.latest_selected_item = el_item;
+                _this.updateFooterStats();
+                return;
+            }
+
             // On touch/mobile: tap opens the item directly, no selection step needed.
             // Selection (and context menu) is handled via taphold.
             // Use lastPointerType as primary signal (works even if isMobile misdetects).
             if ( lastPointerType === 'touch' || window.isMobile.phone || window.isMobile.tablet ) {
-                // In select mode, tap toggles selection instead of opening
-                if ( _this.selectModeActive ) {
-                    el_item.classList.toggle('selected');
-                    window.latest_selected_item = el_item;
-                    _this.updateFooterStats();
-                    return;
-                }
                 if ( isPending() ) return;
                 if ( isFolder === "1" ) {
                     _this.pushNavHistory(file.path);
@@ -3142,6 +3248,7 @@ const TabFiles = {
                 open_item({ item: el_item });
             }
             el_item.classList.remove('selected');
+            _this.updateFooterStats();
         };
 
         // --------------------------------------------------------
@@ -3180,7 +3287,7 @@ const TabFiles = {
                 $(el_item_name).show();
                 _this.fitItemNames($(el_item_name));
                 $(el_item_name_editor).val($(el_item).attr('data-name'));
-                $(el_item_name_editor).hide();
+                $(el_item_name_editor).hide().removeClass('item-name-editor-active');
                 return;
             }
             // deactivate item name editable
@@ -3237,7 +3344,7 @@ const TabFiles = {
                 e.stopPropagation();
                 e.preventDefault();
                 rename_cancelled = true;
-                $(el_item_name_editor).hide();
+                $(el_item_name_editor).hide().removeClass('item-name-editor-active');
                 $(el_item_name_editor).val($(el_item).attr('data-name'));
                 $(el_item_name).show();
             }
@@ -3443,7 +3550,7 @@ const TabFiles = {
                                 }
                             }
                             else {
-                                window.move_items(itemsToMove, _this.currentPath);
+                                _this.moveDraggedRows(itemsToMove, _this.currentPath);
                             }
                         } else {
                             // Dropped outside file list → cancel, navigate back
@@ -3476,6 +3583,8 @@ const TabFiles = {
                     clearTimeout(_this.folderDwellTimer);
                     _this.folderDwellTimer = null;
                     _this.folderDwellTarget = null;
+                    // A drop fires no `out`, so undo `over`'s highlight here.
+                    $(el_item).removeClass('selected dwell-opening');
 
                     // A row drawn ahead of its mkdir has a predicted path, not
                     // a real one. Moving into it would either fail or — because
@@ -3517,7 +3626,7 @@ const TabFiles = {
                         }
                     }
                     else {
-                        await window.move_items(itemsToMove, targetPath);
+                        await _this.moveDraggedRows(itemsToMove, targetPath);
                     }
                 },
 
@@ -3608,9 +3717,13 @@ const TabFiles = {
                     $(el_item).removeClass('native-drop-target');
                 },
 
-                drop: async function (_dragsterEvent, event) {
+                drop: async function (dragsterEvent, event) {
                     const e = event.originalEvent;
                     $(el_item).removeClass('native-drop-target');
+                    // Stop this notification, not the native drop: the window's
+                    // handler would cancel that, and the listing's dragster has
+                    // to see it to reset its enter state (it skips folder rows).
+                    dragsterEvent.stopPropagation();
 
                     if ( ! e.dataTransfer?.types?.includes('Files') ) {
                         return;
@@ -3629,9 +3742,7 @@ const TabFiles = {
                         TabFiles.uploadFiles(e.dataTransfer.items, targetPath);
                     }
 
-                    e.stopPropagation();
                     e.preventDefault();
-                    return false;
                 },
             });
         }
@@ -3688,6 +3799,17 @@ const TabFiles = {
     },
 
     /**
+     * Whether every row can be restored: only a direct child of Trash
+     * carries the metadata Restore needs, not what's inside a trashed folder.
+     *
+     * @param {Iterable<HTMLElement>} rows
+     * @returns {boolean}
+     */
+    allRestorable (rows) {
+        return Array.from(rows).every(row => path.dirname($(row).attr('data-path') || '') === window.trash_path);
+    },
+
+    /**
      * Restores Trash rows to where they were deleted from, then drops the
      * restored ones from the listing. Skipped or failed rows stay put.
      *
@@ -3721,7 +3843,7 @@ const TabFiles = {
      */
     askNameConflict (name, multiple) {
         return UIAlert({
-            message: `<strong>${window.html_encode(name)}</strong> already exists.`,
+            message: i18n('item_already_exists', [name], false),
             buttons: [
                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                 ... multiple ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
@@ -3729,6 +3851,27 @@ const TabFiles = {
                 ... multiple ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
             ],
         });
+    },
+
+    /**
+     * Pastes the clipboard (copy or cut) into a folder.
+     *
+     * @param {string} destPath - The destination folder path
+     * @returns {Promise<void>}
+     */
+    async pasteClipboardInto (destPath) {
+        let pastedPaths;
+        if ( window.clipboard_op === 'copy' ) {
+            pastedPaths = await window.copy_clipboard_items(destPath, null);
+        } else if ( window.clipboard_op === 'move' ) {
+            pastedPaths = await this.moveClipboardItems(destPath);
+        } else {
+            return;
+        }
+        // Moved-away source rows disappear and pasted rows show up, then get
+        // highlighted like uploads (a no-op when destPath isn't on screen).
+        await this.renderDirectory(this.currentPath, { consistency: 'strong' });
+        this.selectUploadedRows(pastedPaths ?? []);
     },
 
     /**
@@ -3748,7 +3891,6 @@ const TabFiles = {
             return [];
         }
 
-        const { html_encode } = window;
         const multiple_items = window.clipboard.length > 1;
         const moved_item_paths = [];
         // Set once the user picks "Replace all" on a conflict; later items
@@ -3797,7 +3939,8 @@ const TabFiles = {
                     } else {
                         console.error('Failed to move item:', err);
                         const item_name = String(item.path || source).split('/').pop();
-                        UIAlert(`<p>${i18n('moving_file', [`<strong>${html_encode(item_name)}</strong>`], false)}</p>${html_encode(err.message ?? '')}`);
+                        // UIAlert encodes the message itself, apart from <p>, <strong> and <br>.
+                        UIAlert(`<p>${i18n('moving_file', [`<strong>${item_name}</strong>`], false)}</p>${err.message ?? ''}`);
                     }
                 }
             } while ( retry );
@@ -3878,11 +4021,9 @@ const TabFiles = {
             $footer.find('.files-footer-separator').css('display', 'none');
         }
 
-        // The floating action bar only appears in mobile select mode;
-        // desktop multi-selection relies on the context menu instead.
-        const isMobileSelectMode = (window.isMobile.phone || window.isMobile.tablet) && this.selectModeActive;
-
-        if ( isMobileSelectMode && selectedCount >= 1 ) {
+        // The floating action bar only appears in select mode (narrow
+        // screens); elsewhere multi-selection relies on the context menu.
+        if ( this.selectModeActive && selectedCount >= 1 ) {
             $selectionActions.addClass('visible');
             this.updateSelectionActionsState(selectedRows);
         } else {
@@ -3940,7 +4081,7 @@ const TabFiles = {
 
         UIContextMenu({
             items: items,
-            position: { left: e.pageX, top: e.pageY },
+            position: this.toolbarMenuPosition(e),
         });
     },
 
@@ -4310,6 +4451,7 @@ const TabFiles = {
             onRestore: async (el) => {
                 await _this.restoreRows([el]);
             },
+            onPasteInto: (destPath) => _this.pasteClipboardInto(destPath),
             onOpen: (el, fsentry) => {
                 // Custom open handler for Dashboard (avoids window_nav_history issues)
                 if ( fsentry.is_dir ) {
@@ -4361,7 +4503,7 @@ const TabFiles = {
             return path?.startsWith(`${window.trash_path}/`);
         });
 
-        if ( anyTrashed ) {
+        if ( anyTrashed && _this.allRestorable(selectedRows) ) {
             items.push({
                 html: i18n('restore'),
                 onClick: async function () {
@@ -4430,7 +4572,7 @@ const TabFiles = {
 
         // Delete
         if ( anyTrashed ) {
-            items.push('-');
+            if ( items.length > 0 && items[items.length - 1] !== '-' ) items.push('-');
             items.push({
                 html: i18n('delete_permanently'),
                 onClick: async function () {
@@ -4482,11 +4624,12 @@ const TabFiles = {
         // The Shared view is a query, not a directory — nothing can be
         // created, pasted or uploaded "into" it.
         const isSharedView = targetPath === window.shared_path;
+        const canCreate = this.acceptsNewItems(targetPath);
         const items = [];
 
         // New submenu (folder, text document, etc.) - not available in Trash
         // We create a custom "New" submenu to handle folder creation with refresh and rename activation
-        if ( ! isTrashFolder && ! isSharedView ) {
+        if ( canCreate ) {
             const newMenuItems = new_context_menu_item(targetPath, null);
 
             // Override the "New Folder" onClick to refresh and activate rename
@@ -4502,15 +4645,20 @@ const TabFiles = {
                 const wrapWithDashboardRename = (originalOnClick) => {
                     return async () => {
                         $('.context-menu').remove();
-                        _this._creatingItem++;
 
                         // Temporarily intercept create_file to capture the upload promise
                         let uploadPromise = null;
                         const origCreateFile = window.create_file;
                         window.create_file = (options) => {
+                            // Counted from here, not from the click: Web Link
+                            // waits on a prompt first, and other items added
+                            // to the folder meanwhile must still show up.
+                            _this._creatingItem++;
                             const content = options.content ? [options.content] : [];
                             uploadPromise = puter.fs.upload(new File(content, options.name), options.dirname);
-                            return uploadPromise;
+                            // A failure is reported once, below, not again by
+                            // a caller that awaits this.
+                            return uploadPromise.catch(() => undefined);
                         };
 
                         try {
@@ -4547,10 +4695,10 @@ const TabFiles = {
                                 }
                             }
                         } catch ( err ) {
-                            // File creation failed silently
+                            UIAlert(err?.message ?? String(err));
                         } finally {
                             window.create_file = origCreateFile;
-                            _this._creatingItem--;
+                            if ( uploadPromise ) _this._creatingItem--;
                         }
                     };
                 };
@@ -4577,27 +4725,10 @@ const TabFiles = {
         }
 
         // Paste - only if clipboard has items and not in Trash
-        if ( !isTrashFolder && !isSharedView && window.clipboard && window.clipboard.length > 0 ) {
+        if ( canCreate && window.clipboard && window.clipboard.length > 0 ) {
             items.push({
                 html: i18n('paste'),
-                onClick: async function () {
-                    // After the paste completes, refresh and highlight the
-                    // newly created rows — same treatment as uploads. A paste
-                    // into a folder that isn't rendered matches no rows and
-                    // the highlight is a no-op.
-                    let pastedPaths = [];
-                    if ( window.clipboard_op === 'copy' ) {
-                        pastedPaths = await window.copy_clipboard_items(targetPath, null) ?? [];
-                    } else if ( window.clipboard_op === 'move' ) {
-                        pastedPaths = await _this.moveClipboardItems(targetPath) ?? [];
-                    } else {
-                        return;
-                    }
-                    // Refresh so moved-away source rows disappear and any
-                    // items pasted into the current folder show up.
-                    await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
-                    _this.selectUploadedRows(pastedPaths);
-                },
+                onClick: () => _this.pasteClipboardInto(targetPath),
             });
         }
 
@@ -4611,18 +4742,19 @@ const TabFiles = {
             });
         }
 
-        // Add separator if we added paste or undo
-        if ( items.length > 2 || (isTrashFolder && items.length > 0) ) {
+        // Add separator if we added paste or undo (after New and its separator)
+        if ( items.length > (canCreate ? 2 : 0) ) {
             items.push('-');
         }
 
         // Upload Here - not available in Trash
-        if ( ! isTrashFolder && ! isSharedView ) {
+        if ( canCreate ) {
             items.push({
                 html: i18n('upload'),
                 onClick: function () {
                     const fileInput = document.querySelector('#upload-file-dialog');
                     if ( fileInput ) {
+                        _this.uploadTargetPath = targetPath;
                         fileInput.click();
                     }
                 },
@@ -4916,8 +5048,8 @@ const TabFiles = {
                     return;
                 }
 
-                // Don't show drop zone if we're in trash
-                if ( _this.currentPath === window.trash_path ) {
+                // No drop zone where nothing can be uploaded
+                if ( ! _this.acceptsNewItems(_this.currentPath) ) {
                     return;
                 }
 
@@ -4949,10 +5081,7 @@ const TabFiles = {
                     return;
                 }
 
-                // Block uploads to trash, and to the Shared view — a query,
-                // not a directory.
-                if ( _this.currentPath === window.trash_path ||
-                    _this.currentPath === window.shared_path ) {
+                if ( ! _this.acceptsNewItems(_this.currentPath) ) {
                     return;
                 }
 
@@ -5228,7 +5357,7 @@ const TabFiles = {
             ? `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`
             : '';
         for ( let k = 1; k < dirs.length; k++ ) {
-            str += `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
+            str += `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(dirpaths[k])}">${dirpaths[k] === window.trash_path ? i18n('trash') : html_encode(this.trashedNames.get(dirpaths[k]) ?? dirs[k])}</span>`;
         }
         return str;
     },

@@ -46,12 +46,15 @@
 
     --dashboard-text-primary: #1e293b;
     --dashboard-text-secondary: #666;
-    --dashboard-text-tertiary: #888;
+    --dashboard-text-tertiary: #707070;
     --dashboard-text-heading: #333;
     --dashboard-text-card-title: #1a1a1a;
     --dashboard-text-username: #414b62;
     --dashboard-text-hint: #64748b;
-    --dashboard-text-muted: #94a3b8;
+    /* Muted and tertiary text still clear 4.5:1 on the cards and sidebar;
+       disabled controls keep the fainter grey. */
+    --dashboard-text-muted: #5f6b7d;
+    --dashboard-text-disabled: #94a3b8;
 
     --dashboard-card-background: #ffffff;
     --dashboard-content-background: #fcfcfd;
@@ -62,6 +65,9 @@
 
     --dashboard-link: #5271ff;
     --dashboard-link-hover: #3d5bd9;
+    /* Primary button fills, under white text: 4.5:1 or better in both themes. */
+    --dashboard-button-primary: #4a67f5;
+    --dashboard-button-primary-hover: #3d5bd9;
 
     --dashboard-warning-icon: #ffbb00;
     --dashboard-warning-background: #fef3c7;
@@ -161,18 +167,21 @@ body {
         --dashboard-text: #d4d4d4;
         --dashboard-border: #3d3d3d;
         --dashboard-background: #1e1e1e;
-        --dashboard-hover: #2a2a2a;
+        /* As far off the dark cards and sidebar as light mode's hover is
+           off white; #2a2a2a barely differed from them. */
+        --dashboard-hover: #333333;
         --dashboard-icon: #888;
         --dashboard-sidebar-background: #252525;
 
         --dashboard-text-primary: #e2e8f0;
         --dashboard-text-secondary: #a1a1aa;
-        --dashboard-text-tertiary: #71717a;
+        --dashboard-text-tertiary: #94949c;
         --dashboard-text-heading: #f4f4f5;
         --dashboard-text-card-title: #fafafa;
         --dashboard-text-username: #c4cad6;
         --dashboard-text-hint: #94a3b8;
-        --dashboard-text-muted: #64748b;
+        --dashboard-text-muted: #8b95a5;
+        --dashboard-text-disabled: #64748b;
 
         --dashboard-card-background: #262626;
         --dashboard-content-background: #1e1e1e;
@@ -183,6 +192,9 @@ body {
 
         --dashboard-link: #6b8cff;
         --dashboard-link-hover: #8aa4ff;
+        /* Hover darkens here too: the lighter link-hover fails under white text. */
+        --dashboard-button-primary: #4a67f5;
+        --dashboard-button-primary-hover: #3d5bd9;
 
         --dashboard-warning-icon: #fbbf24;
         --dashboard-warning-background: #422006;
@@ -362,9 +374,11 @@ body {
     display: none;
 }
 
-.dashboard-sidebar-collapse-toggle:hover {
-    background: var(--dashboard-hover);
-    color: var(--dashboard-text);
+@media (hover: hover) {
+    .dashboard-sidebar-collapse-toggle:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text);
+    }
 }
 
 /* Collapsed sidebar state. Desktop only: below the drawer breakpoint the
@@ -438,7 +452,9 @@ body {
     color: var(--dashboard-text);
     white-space: nowrap;
     pointer-events: none;
-    z-index: 1000;
+    /* On body, so above the dashboard window, whose z-index climbs with
+       every click (focusWindow); same band as the notification toasts. */
+    z-index: 999999999;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     opacity: 0;
     transition: opacity 0.15s ease;
@@ -2749,9 +2765,9 @@ select.share-modal-link-access {
     margin-top: 10px;
     padding: 0 16px;
     height: 38px;
-    border: 1px solid var(--dashboard-link);
+    border: 1px solid var(--dashboard-button-primary);
     border-radius: 10px;
-    background: var(--dashboard-link);
+    background: var(--dashboard-button-primary);
     font-size: 13.5px;
     font-weight: 600;
     font-family: inherit;
@@ -2761,8 +2777,8 @@ select.share-modal-link-access {
 }
 @media (hover: hover) {
     .share-modal-submit:hover:not(:disabled) {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
+        background: var(--dashboard-button-primary-hover);
+        border-color: var(--dashboard-button-primary-hover);
     }
 }
 .share-modal-submit:focus-visible {
@@ -2772,13 +2788,13 @@ select.share-modal-link-access {
 .share-modal-submit:disabled {
     background: var(--dashboard-input-background);
     border-color: var(--dashboard-border);
-    color: var(--dashboard-text-muted);
+    color: var(--dashboard-text-disabled);
     cursor: default;
 }
 /* In flight it is disabled too, but should read as working, not empty */
 .share-modal-submit.share-modal-btn-busy:disabled {
-    background: var(--dashboard-link);
-    border-color: var(--dashboard-link);
+    background: var(--dashboard-button-primary);
+    border-color: var(--dashboard-button-primary);
     color: #fff;
     opacity: 0.75;
 }
@@ -3119,6 +3135,8 @@ select.share-modal-row-mode:focus {
     }
     /* Chevron: slate-400, lighter than the light theme's stroke */
     select.share-modal-mode,
+    select.share-modal-link-access,
+    select.share-modal-link-mode,
     select.share-modal-row-mode {
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
     }
@@ -3450,8 +3468,8 @@ select.share-modal-row-mode:focus {
     color: var(--dashboard-text-primary);
 }
 .profile-crop-save {
-    border: 1px solid var(--dashboard-link);
-    background: var(--dashboard-link);
+    border: 1px solid var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
     color: #fff;
 }
 @media (hover: hover) {
@@ -3459,8 +3477,8 @@ select.share-modal-row-mode:focus {
         background: var(--dashboard-sidebar-background);
     }
     .profile-crop-save:hover:not(:disabled) {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
+        background: var(--dashboard-button-primary-hover);
+        border-color: var(--dashboard-button-primary-hover);
     }
 }
 .profile-crop-btn-quiet:focus-visible,
@@ -3471,7 +3489,7 @@ select.share-modal-row-mode:focus {
 .profile-crop-save:disabled {
     background: var(--dashboard-input-background);
     border-color: var(--dashboard-border);
-    color: var(--dashboard-text-muted);
+    color: var(--dashboard-text-disabled);
     cursor: default;
 }
 
@@ -3817,12 +3835,6 @@ body.myapps-reordering .myapps-tile {
     body.myapps-reordering .myapps-tile-merge-pending::before,
     body.myapps-reordering .myapps-tile-merge-armed::before,
     body.myapps-reordering .myapps-tile.myapps-tile-merge-armed .myapps-tile-icon {
-        transition: none;
-    }
-
-    .dashboard-sidebar,
-    .dashboard-sidebar-scrim,
-    .dashboard-sidebar-toggle {
         transition: none;
     }
 }
@@ -4677,8 +4689,8 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .files-tab .files .row.selected .item-checkbox .checkbox-icon {
-    background: var(--primary-color, #3b82f6);
-    border-color: var(--primary-color, #3b82f6);
+    background: var(--select-color);
+    border-color: var(--select-color);
 }
 
 .dashboard-section-files .files-tab .files .row.selected .item-checkbox .checkbox-icon::after {
@@ -5342,6 +5354,16 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* After the drawer rules above, which it has to override. */
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-sidebar,
+    .dashboard-sidebar.open,
+    .dashboard-sidebar-scrim,
+    .dashboard-sidebar-toggle {
+        transition: none;
+    }
+}
+
 /* Three columns rather than four once four (4x72 + 3x12 + the card's padding)
    no longer fits a phone's width. */
 @media (max-width: 400px) {
@@ -5622,7 +5644,7 @@ body.myapps-reordering .myapps-tile {
     }
 
     .dashboard-section-files .header .path-action-btn.select-mode-btn.active {
-        background: var(--primary-color, #3b82f6);
+        background: var(--select-color);
         color: white;
         border-radius: 6px;
     }
@@ -5654,7 +5676,7 @@ body.myapps-reordering .myapps-tile {
     /* Mobile: Show Done button in floating action bar during select mode */
     .dashboard-section-files .files-tab.select-mode-active .files-selection-actions .done-btn {
         display: flex;
-        background: var(--primary-color, #3b82f6);
+        background: var(--select-color);
         color: white;
         padding: 5px;
         margin-left: 8px;
@@ -6735,7 +6757,7 @@ body.myapps-reordering .myapps-tile {
 .dashboard-settings-card .button:disabled {
     background: var(--dashboard-card-background) !important;
     border-color: var(--dashboard-border) !important;
-    color: var(--dashboard-text-muted) !important;
+    color: var(--dashboard-text-disabled) !important;
     text-shadow: none !important;
 }
 
@@ -6978,6 +7000,17 @@ body.myapps-reordering .myapps-tile {
     opacity: 1;
 }
 
+/* The dialog takes focus only to hand it to its items. */
+.context-menu-modal-dialog:focus {
+    outline: none;
+}
+
+/* Inset, so the dialog's rounded clip doesn't cut the ring off. */
+.context-menu-modal-dialog .context-menu-item:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -2px;
+}
+
 /* Reduced motion: these still fade, but don't scale or slide into place. */
 @media (prefers-reduced-motion: reduce) {
     .context-menu-modal-dialog {
@@ -7139,7 +7172,9 @@ body.myapps-reordering .myapps-tile {
     width: 100%;
     height: 100%;
     /* background-color: var(--dashboard-background); */
-    z-index: 2147483647;
+    /* Above the rows only: below the footer (10) and selection bar (15), and
+       never over the mobile drawer, its scrim or the dashboard's modals. */
+    z-index: 9;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -8316,8 +8351,9 @@ body.dashboard-mode .notifications-close-all {
 }
 
 @media (prefers-color-scheme: dark) {
+    /* The invert turns the white disc and dark cross into a dark disc
+       with a white cross. */
     body.dashboard-mode .notification-close {
-        background: var(--dashboard-card-background);
         filter: invert(1) drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
     }
 }
@@ -8577,8 +8613,8 @@ body.dashboard-mode .notifications-close-all {
 }
 
 .dashboard-dialog-btn-primary {
-    border-color: var(--dashboard-link);
-    background: var(--dashboard-link);
+    border-color: var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
     color: #fff;
 }
 
@@ -8594,8 +8630,8 @@ body.dashboard-mode .notifications-close-all {
     }
 
     .dashboard-dialog-btn-primary:hover {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
+        background: var(--dashboard-button-primary-hover);
+        border-color: var(--dashboard-button-primary-hover);
     }
 
     .dashboard-dialog-btn-danger:hover {
@@ -8824,10 +8860,6 @@ body.dashboard-mode .notifications-close-all {
 }
 
 @media (pointer: coarse) {
-    .dashboard-dialog .dashboard-dialog-input.dashboard-token-value {
-        font-size: 16px;
-    }
-
     .dashboard-form-reveal {
         width: 40px;
         height: 40px;
@@ -8937,6 +8969,13 @@ body.dashboard-mode .notifications-close-all {
     min-width: 0;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 13px;
+}
+
+/* 16px, like the other dialog inputs on touch, so iOS doesn't zoom on focus. */
+@media (pointer: coarse) {
+    .dashboard-dialog .dashboard-dialog-input.dashboard-token-value {
+        font-size: 16px;
+    }
 }
 
 .dashboard-token-copy {
