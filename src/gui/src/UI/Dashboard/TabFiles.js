@@ -284,6 +284,8 @@ const TabFiles = {
         this.currentPath = null;
         // Set by a folder menu's Upload; null uploads into the folder on screen.
         this.uploadTargetPath = null;
+        // Trash item path → the name it had before it was trashed (renderItem).
+        this.trashedNames = new Map();
         this.folderDwellTimer = null;
         this.folderDwellTarget = null;
         this.springLoadedActive = false;
@@ -2862,6 +2864,11 @@ const TabFiles = {
         const item_id = window.global_element_id++;
         const metadata = parse_item_metadata(file.metadata);
         const displayName = metadata.original_name || file.name;
+        // A trashed item's raw name is its uid; the breadcrumbs of a trashed
+        // folder opened from here show the name it had instead.
+        if ( metadata.original_name && path.dirname(file.path) === window.trash_path ) {
+            this.trashedNames.set(file.path, metadata.original_name);
+        }
         let website_url = window.determine_website_url(file.path);
         // Normalize is_shortcut to 0/1. Directory listings return it as a number,
         // but the puter.fs.upload() result used to render newly-created items omits
@@ -5343,7 +5350,7 @@ const TabFiles = {
             ? `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`
             : '';
         for ( let k = 1; k < dirs.length; k++ ) {
-            str += `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(dirpaths[k])}">${dirpaths[k] === window.trash_path ? i18n('trash') : html_encode(dirs[k])}</span>`;
+            str += `${path_seperator_html}<span class="dirname" tabindex="0" role="link" data-path="${html_encode(dirpaths[k])}">${dirpaths[k] === window.trash_path ? i18n('trash') : html_encode(this.trashedNames.get(dirpaths[k]) ?? dirs[k])}</span>`;
         }
         return str;
     },
