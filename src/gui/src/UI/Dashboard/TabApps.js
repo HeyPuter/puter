@@ -1049,6 +1049,7 @@ const TabApps = {
                 })
                     .catch((err) => {
                         console.error(`Failed to launch ${appName}:`, err);
+                        UIAlert(i18n('something_went_wrong', [], false));
                     })
                     .finally(() => {
                         self._launchingApps.delete(appName);
