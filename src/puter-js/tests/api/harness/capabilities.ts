@@ -122,8 +122,10 @@ export const loadPuterJsTestOptions = (
         unlimitedMetering: true,
         // `puter.events` is a socket surface, so the suite needs the server
         // half switched on. Off, every subscribe answers `events_disabled` and
-        // the suite would only ever cover that one branch.
+        // the suite would only ever cover that one branch. The fold-in routes
+        // notifications through events, which `onNotification` reads.
         events: { enabled: true, notificationsFoldIn: true },
+        // `puter.notifications` device routes answer `push_disabled` without it.
         push: { enabled: true },
     };
 

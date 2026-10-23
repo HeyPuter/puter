@@ -1,10 +1,10 @@
 ---
 title: Notifications
-description: Send notifications from your app to its user, as pushes too when the app is closed, and react when they're clicked.
+description: Send notifications from your app to its user, as pushes too when neither Puter nor the app is open, and react when they're clicked.
 platforms: [websites, apps]
 ---
 
-The Notifications API lets your app notify the user it runs for: a new message, a finished export, a reminder. Each notification shows in the user's Puter notifications panel. When your app is closed, it can also reach the user's phone or browser as a push notification.
+The Notifications API lets your app notify the user it runs for: a new message, a finished export, a reminder. Each notification shows in the user's Puter notifications panel. When the user has neither Puter nor your app open, it can also reach the user's phone or browser as a push notification.
 
 ```js
 await puter.notifications.notify({
@@ -20,7 +20,7 @@ A notification always shows in the user's Puter notifications panel. While your 
 
 It also goes out as a push notification when all of these are true:
 
-- Your app is closed (Puter itself may be closed too).
+- The user has neither Puter nor your app open.
 - The user allowed your app to send pushes. Ask with [`requestPermission()`](/Notifications/requestPermission/).
 - The user has turned on push notifications on at least one device.
 
