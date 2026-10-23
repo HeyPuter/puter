@@ -43,9 +43,9 @@ const APP_LANDING_LIMIT = {
 };
 
 /**
- * App descriptions can run long; search snippets and social cards want a
- * short blurb. Collapses whitespace, then cuts at a word boundary with an
- * ellipsis so the result never exceeds `APP_META_DESCRIPTION_MAX`.
+ * App descriptions can run long; search snippets and social cards want a short
+ * blurb. Collapses whitespace, then cuts at a word boundary with an ellipsis so
+ * the result never exceeds `APP_META_DESCRIPTION_MAX`.
  */
 export function appMetaDescription(text: string): string {
     const clean = text.replace(/\s+/g, ' ').trim();
@@ -196,6 +196,20 @@ export class HomepageController extends PuterController {
                 ],
             };
             return sendShell(req, res, {}, launch);
+        });
+
+        // -- /sw.js - the service worker, scoped to the whole origin --
+
+        router.get('/sw.js', { subdomain: '' }, async (_req, res) => {
+            const source = await homepage.serviceWorkerSource();
+            if (source === null) {
+                res.status(404).send('Not found');
+                return;
+            }
+            res.set('Content-Type', 'text/javascript; charset=utf-8');
+            res.set('Cache-Control', 'no-cache');
+            res.set('Service-Worker-Allowed', '/');
+            res.send(source);
         });
 
         // -- Fallback static mount -----------------------------------

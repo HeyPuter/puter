@@ -125,6 +125,8 @@ const SESSION_GATE = `
  *   GUI init script.
  * - `setGuiParam(key, value)` — injects a value into the client-side `gui()`
  *   call.
+ * - `registerServiceWorkerScript(path)` — loads a same-origin script into the
+ *   service worker at `/sw.js` (see `src/gui/src/sw.js` for its contract).
  * - Listening for `puter.gui.addons` — mutate the event object's `bodyContent` /
  *   `headContent` / `prependHeadContent` strings to splice arbitrary markup
  *   into the shell.
@@ -132,6 +134,8 @@ const SESSION_GATE = `
 export class PuterHomepageService extends PuterService {
     #manifest: Manifest | null = null;
     #serviceScripts: string[] = [];
+    #workerScripts: string[] = [];
+    #workerSource: string | null = null;
     #guiParams: Record<string, unknown> = {};
 
     override async onServerStart(): Promise<void> {
@@ -161,6 +165,48 @@ export class PuterHomepageService extends PuterService {
 
     setGuiParam(key: string, val: unknown): void {
         this.#guiParams[key] = val;
+    }
+
+    /** `scriptPath` is a same-origin absolute path, like `/ext/push/worker.js`. */
+    registerServiceWorkerScript(scriptPath: string): void {
+        if (
+            typeof scriptPath !== 'string' ||
+            !scriptPath.startsWith('/') ||
+            scriptPath.startsWith('//') ||
+            /[\\\s]/.test(scriptPath)
+        ) {
+            throw new Error(
+                `service worker script must be a path: ${scriptPath}`,
+            );
+        }
+        if (!this.#workerScripts.includes(scriptPath))
+            this.#workerScripts.push(scriptPath);
+    }
+
+    /**
+     * The service worker served at `/sw.js`: the GUI's `sw.js` behind a prelude
+     * that imports the registered scripts. Null without a GUI build.
+     */
+    async serviceWorkerSource(): Promise<string | null> {
+        const root = this.config.gui_assets_root;
+        if (!root) return null;
+        const env = this.config.env ?? 'prod';
+        let source = env === 'dev' ? null : this.#workerSource;
+        if (source === null) {
+            try {
+                source = await readFile(
+                    path.join(root, env === 'dev' ? 'src' : 'dist', 'sw.js'),
+                    'utf8',
+                );
+            } catch {
+                return null;
+            }
+            if (env !== 'dev') this.#workerSource = source;
+        }
+        if (this.#workerScripts.length === 0) return source;
+        const urls = this.#workerScripts.map((p) => JSON.stringify(p));
+        const prelude = `try { importScripts(${urls.join(', ')}); } catch (e) { console.error('service worker script failed to load', e); }\n`;
+        return prelude + source;
     }
 
     /**
@@ -249,6 +295,8 @@ export class PuterHomepageService extends PuterService {
             // and so whether the GUI may take them from `puter.events`
             // instead of the socket wire.
             eventsNotifications: notificationsFoldInEnabled(this.config),
+            // Whether the GUI registers the service worker at `/sw.js`.
+            pushEnabled: this.config.push?.enabled === true,
             ...meta,
             launch_options: launchOptions,
         };

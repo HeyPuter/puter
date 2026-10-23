@@ -23,6 +23,7 @@ import {
     formatAbsoluteTime,
     formatRelativeTime,
     glyphKey,
+    httpsIconFor,
     isShareNotification,
     isUnread,
     mergeEntries,
@@ -91,6 +92,11 @@ describe('toEntry', () => {
             readAt: null,
             receivedAt: NOW,
         });
+    });
+
+    it('keeps the app a row names, from a driver row or a feed item', () => {
+        expect(toEntry({ uid: 'a', value: {}, app_uid: 'app-1' }, NOW).appUid).toBe('app-1');
+        expect(toEntry({ uid: 'a', value: {} }, NOW)).not.toHaveProperty('appUid');
     });
 
     it('reads when a row was acknowledged, in epoch seconds', () => {
@@ -464,5 +470,22 @@ describe('senderNameFor', () => {
         expect(senderNameFor({ type: 'app.message', app: { uid: 'app-1' } })).toBeNull();
         expect(senderNameFor({ type: 'app.message', app: { name: '  ' } })).toBeNull();
         expect(senderNameFor(undefined)).toBeNull();
+    });
+});
+
+describe('httpsIconFor', () => {
+    it("takes the notification's https icon, else its app's", () => {
+        expect(httpsIconFor({ icon: 'https://example.com/a.png' })).toBe('https://example.com/a.png');
+        expect(httpsIconFor({ icon: 'bell.svg', app: { icon: 'https://example.com/app.png' } }))
+            .toBe('https://example.com/app.png');
+    });
+
+    it('is nothing for an icon name, another scheme, or no icon', () => {
+        expect(httpsIconFor({ icon: 'shared.svg' })).toBeNull();
+        expect(httpsIconFor({ icon: 'http://example.com/a.png' })).toBeNull();
+        expect(httpsIconFor({ icon: 'data:image/png;base64,AAAA' })).toBeNull();
+        expect(httpsIconFor({ icon: 'ftp://example.com/a.png' })).toBeNull();
+        expect(httpsIconFor({})).toBeNull();
+        expect(httpsIconFor(undefined)).toBeNull();
     });
 });
