@@ -1452,8 +1452,9 @@ const TabFiles = {
                                 ? ` (${item.message})`
                                 : '';
                             return `- ${failedPath}${failedMessage}`;
-                        }).join('\n');
-                        UIAlert(`${i18n('upload_some_failed', [], false)}\n${failedSummary}`);
+                        }).join('<br>');
+                        // UIAlert encodes the message itself, apart from <p>, <strong> and <br>.
+                        UIAlert(`${i18n('upload_some_failed', [], false)}<br>${failedSummary}`);
                     }
                     upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                     // remove from active_uploads
