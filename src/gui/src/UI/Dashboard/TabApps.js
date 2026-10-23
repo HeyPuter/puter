@@ -712,16 +712,19 @@ function showAddAppModal ({ $el_window }) {
                 // No intro — still launch.
             }
             const app_obj = await app_info_promise;
+            let launched = false;
             launch_app({
                 name: appName,
                 maximized: true,
                 ...(app_obj ? { app_obj } : {}),
                 window_options: { morph_from_dashboard_tile: true },
+            }).then(outcome => {
+                launched = outcome?.launchResult?.launched !== false;
             }).catch(err => {
                 console.error(`Failed to launch ${appName}:`, err);
                 UIAlert(i18n('something_went_wrong'));
             }).finally(() => {
-                TabApps.settleDeepLinkLaunch(appName, tile);
+                TabApps.settleDeepLinkLaunch(appName, tile, launched);
             });
         })();
     };
@@ -864,6 +867,7 @@ const TabApps = {
     // their tiles (the mirror of _removedLocal).
     _arriving: null,
     _pendingInstalls: null,
+    _splicedLaunches: null,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -3395,6 +3399,13 @@ const TabApps = {
         };
         if ( ! this._pendingInstalls ) this._pendingInstalls = new Map();
         this._pendingInstalls.set(appName, app);
+        // What settleDeepLinkLaunch needs to take the tile back out if the
+        // launch fails: nothing was installed then.
+        if ( ! this._splicedLaunches ) this._splicedLaunches = new Map();
+        this._splicedLaunches.set(appName, {
+            $el_window,
+            wasRemoved: this._removedLocal?.get(appName) ?? this._lastRemovedApps?.has(appName) ?? false,
+        });
         // A previously uninstalled app is being re-installed by this
         // landing; the removed record must not go on filtering it.
         this._setAppRemoved(appName, false);
@@ -3700,7 +3711,7 @@ const TabApps = {
     // mirroring the tile click handler's finally (including its
     // settle_dashboard_tile_launch, which un-marks the tile if the window's
     // morph never claimed it).
-    settleDeepLinkLaunch (appName, tile) {
+    settleDeepLinkLaunch (appName, tile, launched = true) {
         this._launchingApps.delete(appName);
         settle_dashboard_tile_launch(tile);
         // Whatever path the intro took out (interruption, hidden tab, the
@@ -3713,6 +3724,19 @@ const TabApps = {
         if ( this._deepLinkFolder ) {
             this._closeGroup(this._deepLinkFolder);
             this._deepLinkFolder = null;
+        }
+        // Only a launch installs the app (it grants the permission), so a
+        // failed one leaves nothing for the tile _spliceDeepLinkApp drew to
+        // stand for.
+        const spliced = this._splicedLaunches?.get(appName);
+        this._splicedLaunches?.delete(appName);
+        if ( spliced && ! launched && this._pendingInstalls?.has(appName) ) {
+            this._pendingInstalls.delete(appName);
+            if ( spliced.wasRemoved ) this._setAppRemoved(appName, true);
+            if ( Array.isArray(this._apps) ) {
+                this._apps = this._apps.filter(a => a.name !== appName);
+                this.renderApps(spliced.$el_window, { preservePage: true, instant: true });
+            }
         }
     },
 };

@@ -327,6 +327,7 @@ const postAuthActions = async (action) => {
                     // No dashboard window — no intro; still launch.
                 }
                 const app_obj = await app_info_promise;
+                let launched = false;
                 launch_app({
                     name: app_name,
                     maximized: true,
@@ -340,10 +341,12 @@ const postAuthActions = async (action) => {
                         },
                     } : {}),
                     window_options: { morph_from_dashboard_tile: true },
+                }).then((outcome) => {
+                    launched = outcome?.launchResult?.launched !== false;
                 }).catch((err) => {
                     console.error(`Failed to launch ${app_name} from URL:`, err);
                 }).finally(() => {
-                    TabApps.settleDeepLinkLaunch(app_name, tile);
+                    TabApps.settleDeepLinkLaunch(app_name, tile, launched);
                 });
             })();
         }
