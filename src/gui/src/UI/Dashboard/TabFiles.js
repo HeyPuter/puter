@@ -3234,6 +3234,7 @@ const TabFiles = {
                 open_item({ item: el_item });
             }
             el_item.classList.remove('selected');
+            _this.updateFooterStats();
         };
 
         // --------------------------------------------------------
