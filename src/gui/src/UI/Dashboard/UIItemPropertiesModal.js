@@ -118,8 +118,14 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
 
     // -- Dismissal wiring --
     $overlay.on('click', '.item-props-close', close);
+    // Backdrop close goes by where the press started: a text selection dragged
+    // out of the card registers its click on the overlay.
+    let backdrop_pressed = false;
+    $overlay.on('mousedown', function (e) {
+        backdrop_pressed = e.target === $overlay[0];
+    });
     $overlay.on('click', function (e) {
-        if ( e.target === $overlay[0] ) close();
+        if ( e.target === $overlay[0] && backdrop_pressed ) close();
     });
     $(document).on(keydown_ns, function (e) {
         if ( e.key === 'Escape' && isOverlayOnTop($overlay[0]) ) close();
