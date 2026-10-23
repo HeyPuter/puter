@@ -560,6 +560,30 @@ describe('PushService while shutting down', () => {
     });
 });
 
+describe('PushService when shutdown starts mid-delivery', () => {
+    const provider = new FakeProvider();
+    const state = bootWith({ push: { enabled: true } }, provider);
+
+    it('sends nothing once its devices are read', async () => {
+        const user = await makeUser(state.server);
+        await registerDevice(state.server, user.id, `tok-${uuidv4()}`);
+        const store = state.server.stores.pushDevice;
+        const original = store.listForDelivery.bind(store);
+        const listed = vi
+            .spyOn(store, 'listForDelivery')
+            .mockImplementation(async (...args) => {
+                const devices = await original(...args);
+                state.server.services.push.onServerPrepareShutdown();
+                return devices;
+            });
+        await shareReceived(state.server, user.id);
+        await vi.waitFor(() => expect(listed).toHaveBeenCalled());
+        await settle();
+        listed.mockRestore();
+        expect(provider.calls).toHaveLength(0);
+    });
+});
+
 describe('PushService with push off', () => {
     const provider = new FakeProvider();
     const state = bootWith({}, provider);

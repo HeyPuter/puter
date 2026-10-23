@@ -156,7 +156,7 @@ export class PushService extends PuterService {
                 limit: MAX_DEVICES_PER_PUSH,
             })
         ).filter((device) => this.#providers.has(device.platform));
-        if (devices.length === 0) return;
+        if (devices.length === 0 || this.#stopping) return;
 
         if (this.#inFlight >= MAX_IN_FLIGHT) {
             this.#noteSkipped();

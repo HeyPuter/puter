@@ -216,6 +216,10 @@ export const fitPushMessage = (message: PushMessage): PushMessage | null => {
     const titleLen = longestFitting(titleChars.length, (n) =>
         build(n, 0, false),
     );
-    if (titleLen < Math.min(MIN_TITLE_CHARS, titleChars.length)) return null;
+    if (titleLen < 0) return null;
+    // A cut title is `titleLen - 1` characters and the ellipsis.
+    if (titleLen < titleChars.length && titleLen - 1 < MIN_TITLE_CHARS) {
+        return null;
+    }
     return build(titleLen, 0, false);
 };

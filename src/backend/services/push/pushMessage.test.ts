@@ -272,6 +272,23 @@ describe('fitPushMessage', () => {
         expect(kept.split(family).every((part) => part === '')).toBe(true);
     });
 
+    it('keeps at least eight title characters before the ellipsis', () => {
+        const title = 'a long title that has to be cut';
+        const kept = fitPushMessage({
+            ...base,
+            title,
+            data: { blob: 'd'.repeat(3707) },
+        });
+        expect(kept!.title).toBe(`${title.slice(0, 8)}…`);
+        expect(
+            fitPushMessage({
+                ...base,
+                title,
+                data: { blob: 'd'.repeat(3708) },
+            }),
+        ).toBeNull();
+    });
+
     it('sends no push when the title would keep only a few characters', () => {
         expect(
             fitPushMessage({
