@@ -43,6 +43,10 @@ import { once } from 'node:events';
 import { Agent as httpsAgent } from 'node:https';
 import { HttpError } from '../../core/http';
 import type { IConfig, IDynamoConfig } from '../../types';
+import {
+    awsCredentialsFrom,
+    type AwsCredentials,
+} from '../../util/awsCredentials.js';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { Span } from '../../util/span.js';
@@ -688,17 +692,15 @@ export class DDBClient extends PuterClient {
     }
 
     #bindAwsClient() {
-        const accessKeyId = this.#ddbConfig.aws?.access_key;
-        const secretAccessKey = this.#ddbConfig.aws?.secret_key;
-
-        if (!accessKeyId || !secretAccessKey) {
+        const credentials = awsCredentialsFrom(this.#ddbConfig.aws);
+        if (!credentials) {
             throw new Error(
-                'DynamoDB aws config requires both `access_key` and `secret_key`',
+                'DynamoDB aws config requires both `access_key` and `secret_key`, or `useCredentialChain`',
             );
         }
 
         this.#bindClient({
-            credentials: { accessKeyId, secretAccessKey },
+            credentials,
             region: this.#ddbConfig.aws?.region || 'us-west-2',
             endpoint: this.#ddbConfig.endpoint,
         });
@@ -720,7 +722,7 @@ export class DDBClient extends PuterClient {
         region,
         endpoint,
     }: {
-        credentials: { accessKeyId: string; secretAccessKey: string };
+        credentials: AwsCredentials;
         region: string;
         endpoint?: string;
     }) {

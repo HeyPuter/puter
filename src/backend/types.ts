@@ -23,6 +23,8 @@ export interface IAWSCredentials {
     access_key?: string;
     secret_key?: string;
     region?: string;
+    /** Use the default AWS credential chain instead of the keys. */
+    useCredentialChain?: boolean;
 }
 
 export interface IDynamoConfig {

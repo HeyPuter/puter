@@ -27,6 +27,10 @@ import { Mistral } from '@mistralai/mistralai';
 import { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import {
+    awsCredentialsFrom,
+    type AwsCredentials,
+} from '../../util/awsCredentials.js';
 import { mimeFromName } from '../../util/fileSigning.js';
 import {
     assertActorHasCredits,
@@ -293,11 +297,7 @@ export class OCRDriver extends PuterDriver {
 
     // Textract state — one client per region.
     #textractClients: Record<string, TextractClient> = {};
-    #awsConfig: {
-        accessKeyId?: string;
-        secretAccessKey?: string;
-        region?: string;
-    } | null = null;
+    #awsConfig: { credentials: AwsCredentials; region: string } | null = null;
     /** DetectDocumentText rates per region, from AWS's public price list. */
     #textractRates = textractRates(OCR_COSTS[TEXTRACT_PAGE_USAGE_TYPE]);
 
@@ -314,16 +314,14 @@ export class OCRDriver extends PuterDriver {
             Record<string, unknown> | undefined;
         const textractAws = (textract?.aws ?? textract) as
             Record<string, unknown> | undefined;
-        const textractAccessKey = textractAws?.access_key as string | undefined;
-        const textractSecretKey = textractAws?.secret_key as string | undefined;
+        const textractCredentials = awsCredentialsFrom(textractAws);
         const textractRegion =
             (textractAws?.region as string | undefined) ??
             (textract?.region as string | undefined) ??
             DEFAULT_TEXTRACT_REGION;
-        if (textractAccessKey && textractSecretKey) {
+        if (textractCredentials) {
             this.#awsConfig = {
-                accessKeyId: textractAccessKey,
-                secretAccessKey: textractSecretKey,
+                credentials: textractCredentials,
                 region: textractRegion,
             };
             // Warm the configured region so the cost report has its rate.
@@ -460,10 +458,7 @@ export class OCRDriver extends PuterDriver {
         const cached = this.#textractClients[region];
         if (cached) return cached;
         const client = new TextractClient({
-            credentials: {
-                accessKeyId: this.#awsConfig!.accessKeyId!,
-                secretAccessKey: this.#awsConfig!.secretAccessKey!,
-            },
+            credentials: this.#awsConfig!.credentials,
             region,
         });
         this.#textractClients[region] = client;
