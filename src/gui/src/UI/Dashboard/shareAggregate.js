@@ -88,7 +88,7 @@ const identify = (share, bucket) => {
     // it can only be changed there.
     if ( share.anyone ) {
         if ( bucket !== 'inherited' ) return null;
-        return { key: 'anyone', name: i18n('share_row_anyone'), teamUid: null };
+        return { key: 'anyone', name: i18n('share_row_anyone', [], false), teamUid: null };
     }
     const team = share.holderTeam;
     if ( team?.uid ) {
@@ -101,7 +101,7 @@ const identify = (share, bucket) => {
     if ( name === '' && bucket === 'pending' ) {
         return {
             key: `invite:${share.uid}`,
-            name: i18n('share_invited_someone'),
+            name: i18n('share_invited_someone', [], false),
             teamUid: null,
             anonymous: true,
         };
