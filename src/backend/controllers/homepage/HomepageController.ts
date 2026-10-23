@@ -43,9 +43,9 @@ const APP_LANDING_LIMIT = {
 };
 
 /**
- * App descriptions can run long; search snippets and social cards want a short
- * blurb. Collapses whitespace, then cuts at a word boundary with an ellipsis so
- * the result never exceeds `APP_META_DESCRIPTION_MAX`.
+ * App descriptions can run long; search snippets and social cards want a
+ * short blurb. Collapses whitespace, then cuts at a word boundary with an
+ * ellipsis so the result never exceeds `APP_META_DESCRIPTION_MAX`.
  */
 export function appMetaDescription(text: string): string {
     const clean = text.replace(/\s+/g, ' ').trim();
