@@ -446,7 +446,9 @@ body {
     color: var(--dashboard-text);
     white-space: nowrap;
     pointer-events: none;
-    z-index: 1000;
+    /* On body, so above the dashboard window, whose z-index climbs with
+       every click (focusWindow); same band as the notification toasts. */
+    z-index: 999999999;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     opacity: 0;
     transition: opacity 0.15s ease;
