@@ -162,7 +162,7 @@ const generate_file_context_menu = async function (options) {
                 if ( window.user.is_temp &&
                     !await UIWindowSaveAccount({
                         send_confirmation_code: true,
-                        message: 'Please create an account to proceed.',
+                        message: i18n('save_account_to_publish'),
                         window_options: {
                             backdrop: true,
                             close_on_backdrop_click: false,
