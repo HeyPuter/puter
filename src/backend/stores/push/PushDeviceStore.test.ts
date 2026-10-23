@@ -19,11 +19,13 @@
 
 // Real database: PUTER_TEST_DB_ENGINE=postgres covers the postgres migration.
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
 import {
     hashPushToken,
+    PUSH_DEVICE_LABEL_MAX_LENGTH,
+    PUSH_DEVICE_USER_AGENT_MAX_LENGTH,
     type PushDeviceRegistration,
 } from './PushDeviceStore.js';
 
@@ -40,11 +42,21 @@ describe('PushDeviceStore', () => {
 
     const store = () => server.stores.pushDevice;
 
+    const sessionOf = new Map<number, string>();
+
+    const newSession = async (userId: number): Promise<string> => {
+        const row = (await server.stores.session.create(userId)) as {
+            uuid: string;
+        };
+        return row.uuid;
+    };
+
     const makeUser = async () => {
         const username = `pd${Math.random().toString(36).slice(2, 9)}`;
         await createTestUser(server, { username, password: 'pw-test-1234' });
         const user = await server.stores.user.getByUsername(username);
         if (!user) throw new Error('test user missing');
+        sessionOf.set(user.id, await newSession(user.id));
         return user;
     };
 
@@ -57,7 +69,7 @@ describe('PushDeviceStore', () => {
     ) =>
         store().register({
             userId,
-            sessionUid: 'session-a',
+            sessionUid: sessionOf.get(userId) ?? 'no-session',
             platform: 'web',
             token: freshToken(),
             ...overrides,
@@ -89,7 +101,7 @@ describe('PushDeviceStore', () => {
 
             expect(device).toMatchObject({
                 userId: user.id,
-                sessionUid: 'session-a',
+                sessionUid: sessionOf.get(user.id),
                 platform: 'web',
                 appUid: null,
                 userAgent: 'Firefox',
@@ -131,10 +143,17 @@ describe('PushDeviceStore', () => {
                 token,
                 appUid: 'app-one',
             });
+            await server.clients.db.write(
+                'UPDATE `push_device` SET `created_at` = 1000 WHERE `uid` = ?',
+                [original.uid],
+            );
 
             const moved = await register(next.id, { token, appUid: null });
 
-            expect(moved.uid).toBe(original.uid);
+            expect(moved.uid).not.toBe(original.uid);
+            expect(moved.createdAt).toBeGreaterThan(1000);
+            expect(moved.sessionUid).toBe(sessionOf.get(next.id));
+            expect(await store().getByUid(original.uid)).toBeNull();
             expect(moved.userId).toBe(next.id);
             expect(moved.appUid).toBeNull();
             expect(await store().listByUser(previous.id)).toEqual([]);
@@ -143,7 +162,8 @@ describe('PushDeviceStore', () => {
             ).toEqual([]);
             expect(
                 (await store().listByUser(next.id)).map((d) => d.uid),
-            ).toEqual([original.uid]);
+            ).toEqual([moved.uid]);
+            expect(await countByToken(token)).toBe(1);
         });
 
         it('keeps one row when the same token registers twice at once', async () => {
@@ -163,8 +183,61 @@ describe('PushDeviceStore', () => {
                 userAgent: 'u'.repeat(2000),
                 label: 'l'.repeat(200),
             });
-            expect(device.userAgent).toHaveLength(512);
-            expect(device.label).toHaveLength(64);
+            expect(device.userAgent).toHaveLength(
+                PUSH_DEVICE_USER_AGENT_MAX_LENGTH,
+            );
+            expect(device.label).toHaveLength(PUSH_DEVICE_LABEL_MAX_LENGTH);
+        });
+
+        // `otherId` takes `token` before each of the next `times` read-backs.
+        const interleave = (otherId: number, token: string, times: number) => {
+            const db = server.clients.db;
+            const pread = db.pread.bind(db);
+            let remaining = times;
+            let busy = false;
+            return vi.spyOn(db, 'pread').mockImplementation(async (q, p) => {
+                if (!busy && remaining > 0 && q.includes('`token_hash` = ?')) {
+                    remaining--;
+                    busy = true;
+                    try {
+                        await register(otherId, { token });
+                    } finally {
+                        busy = false;
+                    }
+                }
+                return pread(q, p);
+            });
+        };
+
+        it('retries once when another user takes the token mid-register', async () => {
+            const user = await makeUser();
+            const other = await makeUser();
+            const token = freshToken();
+            const spy = interleave(other.id, token, 1);
+            try {
+                const device = await register(user.id, { token });
+                expect(device.userId).toBe(user.id);
+            } finally {
+                spy.mockRestore();
+            }
+            expect(await store().listByUser(other.id)).toEqual([]);
+            expect(await countByToken(token)).toBe(1);
+        });
+
+        it('throws a conflict when another user keeps taking the token', async () => {
+            const user = await makeUser();
+            const other = await makeUser();
+            const token = freshToken();
+            const spy = interleave(other.id, token, 2);
+            try {
+                await expect(
+                    register(user.id, { token }),
+                ).rejects.toMatchObject({ statusCode: 409 });
+            } finally {
+                spy.mockRestore();
+            }
+            const [owned] = await store().listByUser(other.id);
+            expect(owned?.userId).toBe(other.id);
         });
     });
 
@@ -203,6 +276,45 @@ describe('PushDeviceStore', () => {
             expect(await store().listForDelivery(user.id, 'app-one')).toEqual(
                 [],
             );
+        });
+
+        it('skips devices whose session was revoked or has expired', async () => {
+            const user = await makeUser();
+            const active = await register(user.id);
+            const revokedSession = await newSession(user.id);
+            const expiredSession = await newSession(user.id);
+            const revoked = await register(user.id, {
+                sessionUid: revokedSession,
+            });
+            const expired = await register(user.id, {
+                sessionUid: expiredSession,
+            });
+            const unknown = await register(user.id, {
+                sessionUid: 'no-such-session',
+            });
+            const sessionless = await register(user.id);
+            await server.clients.db.write(
+                'UPDATE `push_device` SET `session_uid` = NULL WHERE `uid` = ?',
+                [sessionless.uid],
+            );
+            await server.stores.session.revokeCascade(revokedSession);
+            await server.clients.db.write(
+                'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
+                [Math.floor(Date.now() / 1000) - 60, expiredSession],
+            );
+
+            const uids = (await store().listForDelivery(user.id, null)).map(
+                (t) => t.uid,
+            );
+            expect(uids.sort()).toEqual([active.uid, sessionless.uid].sort());
+            expect(uids).not.toContain(revoked.uid);
+            expect(uids).not.toContain(expired.uid);
+            expect(uids).not.toContain(unknown.uid);
+            const revokedRows = await server.clients.db.read(
+                'SELECT `revoked_at` FROM `sessions` WHERE `uuid` = ?',
+                [revokedSession],
+            );
+            expect(revokedRows[0]?.revoked_at).not.toBeNull();
         });
 
         it('respects the limit, newest first', async () => {
@@ -269,12 +381,29 @@ describe('PushDeviceStore', () => {
             const device = await register(user.id);
             await setLastSeen(device.uid, 1000);
 
-            await store().recordFailure([device.uid, device.uid]);
-            await store().touch([device.uid]);
+            await store().recordFailure(user.id, [device.uid, device.uid]);
+            await store().touch(user.id, [device.uid]);
 
             const row = await store().getByUid(device.uid);
             expect(row?.failureCount).toBe(4);
             expect(row?.lastSeenAt).toBeGreaterThanOrEqual(device.lastSeenAt);
+        });
+
+        it('touches and counts failures only on the named owner’s rows', async () => {
+            const previous = await makeUser();
+            const next = await makeUser();
+            const token = freshToken();
+            const old = await register(previous.id, { token });
+            const moved = await register(next.id, { token });
+            const earlier = moved.lastSeenAt - 100;
+            await setLastSeen(moved.uid, earlier);
+
+            await store().recordFailure(previous.id, [old.uid, moved.uid]);
+            await store().touch(previous.id, [old.uid, moved.uid]);
+
+            const row = await store().getByUid(moved.uid);
+            expect(row?.failureCount).toBe(3);
+            expect(row?.lastSeenAt).toBe(earlier);
         });
 
         it('removes devices unseen since a cutoff, in batches', async () => {

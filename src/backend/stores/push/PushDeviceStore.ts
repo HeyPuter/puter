@@ -19,6 +19,7 @@
 
 import { createHash } from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
+import { HttpError } from '../../core/http/HttpError.js';
 import { PuterStore } from '../types';
 
 export type PushPlatform = 'web' | 'ios' | 'android';
@@ -53,13 +54,38 @@ export interface PushDeviceRegistration {
     label?: string | null;
 }
 
-const USER_AGENT_MAX_LENGTH = 512;
-const LABEL_MAX_LENGTH = 64;
+export const PUSH_DEVICE_USER_AGENT_MAX_LENGTH = 512;
+export const PUSH_DEVICE_LABEL_MAX_LENGTH = 64;
 const MAX_LIMIT = 1000;
 
-const DEVICE_COLUMNS =
-    '`uid`, `user_id`, `session_uid`, `platform`, `app_uid`, `user_agent`, ' +
-    '`label`, `created_at`, `last_seen_at`, `failure_count`';
+const COLUMN_NAMES = [
+    'uid',
+    'user_id',
+    'session_uid',
+    'platform',
+    'app_uid',
+    'user_agent',
+    'label',
+    'created_at',
+    'last_seen_at',
+    'failure_count',
+];
+const DEVICE_COLUMNS = COLUMN_NAMES.map((c) => `\`${c}\``).join(', ');
+const PREFIXED_DEVICE_COLUMNS = COLUMN_NAMES.map((c) => `d.\`${c}\``).join(
+    ', ',
+);
+
+/** Columns a repeat registration overwrites, in bind order. */
+const REFRESHED_COLUMNS = [
+    'user_id',
+    'session_uid',
+    'platform',
+    'app_uid',
+    'user_agent',
+    'label',
+    'last_seen_at',
+    'failure_count',
+];
 
 /** How a provider address is looked up; the address itself is never a key. */
 export const hashPushToken = (token: string): string =>
@@ -121,7 +147,7 @@ export class PushDeviceStore extends PuterStore {
     ): Promise<PushDevice[]> {
         const n = safeLimit(limit, 100);
         if (n === 0) return [];
-        const rows = await this.clients.db.read(
+        const rows = await this.clients.db.pread(
             `SELECT ${DEVICE_COLUMNS} FROM \`push_device\` WHERE \`user_id\` = ? ` +
                 'ORDER BY `id` DESC LIMIT ?',
             [userId, n],
@@ -129,7 +155,7 @@ export class PushDeviceStore extends PuterStore {
         return rows.map(toDevice);
     }
 
-    /** Devices Puter registered, plus those `appUid` registered when given. */
+    /** Puter's and `appUid`'s devices whose session, if any, is active. */
     async listForDelivery(
         userId: number,
         appUid: string | null,
@@ -137,12 +163,20 @@ export class PushDeviceStore extends PuterStore {
     ): Promise<PushDeliveryTarget[]> {
         const n = safeLimit(limit, 100);
         if (n === 0) return [];
-        const appClause = appUid ? ' OR `app_uid` = ?' : '';
+        const appClause = appUid ? ' OR d.`app_uid` = ?' : '';
+        const params: unknown[] = [userId];
+        if (appUid) params.push(appUid);
+        params.push(nowSeconds(), n);
         const rows = await this.clients.db.read(
-            `SELECT ${DEVICE_COLUMNS}, \`token\` FROM \`push_device\` ` +
-                `WHERE \`user_id\` = ? AND (\`app_uid\` IS NULL${appClause}) ` +
-                'ORDER BY `id` DESC LIMIT ?',
-            appUid ? [userId, appUid, n] : [userId, n],
+            `SELECT ${PREFIXED_DEVICE_COLUMNS}, d.\`token\` ` +
+                'FROM `push_device` d LEFT JOIN `sessions` s ' +
+                'ON s.`uuid` = d.`session_uid` AND s.`user_id` = d.`user_id` ' +
+                `WHERE d.\`user_id\` = ? AND (d.\`app_uid\` IS NULL${appClause}) ` +
+                'AND (d.`session_uid` IS NULL OR (s.`uuid` IS NOT NULL ' +
+                'AND s.`revoked_at` IS NULL ' +
+                'AND (s.`expires_at` IS NULL OR s.`expires_at` > ?))) ' +
+                'ORDER BY d.`id` DESC LIMIT ?',
+            params,
         );
         return rows.map((row) => ({
             ...toDevice(row),
@@ -152,8 +186,18 @@ export class PushDeviceStore extends PuterStore {
 
     // -- Writes -------------------------------------------------------
 
-    /** Insert, or move an existing token to this owner and reset failures. */
-    async register({
+    /** A token changing owner gets a new uid; 409 if it keeps changing. */
+    async register(registration: PushDeviceRegistration): Promise<PushDevice> {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const device = await this.#upsert(registration);
+            if (device.userId === registration.userId) return device;
+        }
+        throw new HttpError(409, 'This device is registered to another user', {
+            legacyCode: 'push_device_conflict',
+        });
+    }
+
+    async #upsert({
         userId,
         sessionUid,
         platform,
@@ -165,36 +209,44 @@ export class PushDeviceStore extends PuterStore {
         const db = this.clients.db;
         const tokenHash = hashPushToken(token);
         const now = nowSeconds();
-        const updated = [
+        const uid = uuidv4();
+        const refreshed = [
             userId,
             sessionUid,
             platform,
             appUid || null,
-            bounded(userAgent, USER_AGENT_MAX_LENGTH),
-            bounded(label, LABEL_MAX_LENGTH),
+            bounded(userAgent, PUSH_DEVICE_USER_AGENT_MAX_LENGTH),
+            bounded(label, PUSH_DEVICE_LABEL_MAX_LENGTH),
             now,
             0,
         ];
-        const upsert = db.upsertClause(
-            ['token_hash'],
-            [
-                'user_id',
-                'session_uid',
-                'platform',
-                'app_uid',
-                'user_agent',
-                'label',
-                'last_seen_at',
-                'failure_count',
-            ],
-        );
+        // Before `user_id`: mysql assigns left to right.
+        const sets = [
+            '`uid` = CASE WHEN `push_device`.`user_id` = ? THEN `push_device`.`uid` ELSE ? END',
+            '`created_at` = CASE WHEN `push_device`.`user_id` = ? ' +
+                'THEN `push_device`.`created_at` ELSE ? END',
+            ...REFRESHED_COLUMNS.map((c) => `\`${c}\` = ?`),
+        ].join(', ');
+        const conflict = db.case({
+            mysql: `ON DUPLICATE KEY UPDATE ${sets}`,
+            otherwise: `ON CONFLICT(\`token_hash\`) DO UPDATE SET ${sets}`,
+        });
         await db.write(
             'INSERT INTO `push_device` (`uid`, `token`, `token_hash`, ' +
-                '`created_at`, `user_id`, `session_uid`, `platform`, ' +
-                '`app_uid`, `user_agent`, `label`, `last_seen_at`, ' +
-                '`failure_count`) ' +
-                `VALUES (?, ?, ?, ?, ${placeholders(updated)}) ${upsert}`,
-            [uuidv4(), token, tokenHash, now, ...updated, ...updated],
+                `\`created_at\`, ${REFRESHED_COLUMNS.map((c) => `\`${c}\``).join(', ')}) ` +
+                `VALUES (?, ?, ?, ?, ${placeholders(refreshed)}) ${conflict}`,
+            [
+                uid,
+                token,
+                tokenHash,
+                now,
+                ...refreshed,
+                userId,
+                uid,
+                userId,
+                now,
+                ...refreshed,
+            ],
         );
         const rows = await db.pread(
             `SELECT ${DEVICE_COLUMNS} FROM \`push_device\` WHERE \`token_hash\` = ? LIMIT 1`,
@@ -238,23 +290,23 @@ export class PushDeviceStore extends PuterStore {
         return result.affectedRows;
     }
 
-    async touch(uids: string[]): Promise<void> {
+    async touch(userId: number, uids: string[]): Promise<void> {
         const list = unique(uids);
         if (list.length === 0) return;
         await this.clients.db.write(
-            'UPDATE `push_device` SET `last_seen_at` = ? ' +
-                `WHERE \`uid\` IN (${placeholders(list)})`,
-            [nowSeconds(), ...list],
+            'UPDATE `push_device` SET `last_seen_at` = ? WHERE `user_id` = ? ' +
+                `AND \`uid\` IN (${placeholders(list)})`,
+            [nowSeconds(), userId, ...list],
         );
     }
 
-    async recordFailure(uids: string[]): Promise<void> {
+    async recordFailure(userId: number, uids: string[]): Promise<void> {
         const list = unique(uids);
         if (list.length === 0) return;
         await this.clients.db.write(
             'UPDATE `push_device` SET `failure_count` = `failure_count` + 1 ' +
-                `WHERE \`uid\` IN (${placeholders(list)})`,
-            list,
+                `WHERE \`user_id\` = ? AND \`uid\` IN (${placeholders(list)})`,
+            [userId, ...list],
         );
     }
 

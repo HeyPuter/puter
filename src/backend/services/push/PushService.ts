@@ -29,6 +29,7 @@ const STALE_MAX_BATCHES = 50;
 /** Keeps push devices in step with their sessions; runs even with push off. */
 export class PushService extends PuterService {
     #staleSweep: ReturnType<typeof setInterval> | null = null;
+    #stopping = false;
 
     override onServerStart(): void {
         this.#armStaleSweep();
@@ -56,6 +57,7 @@ export class PushService extends PuterService {
     }
 
     override onServerPrepareShutdown(): void {
+        this.#stopping = true;
         if (this.#staleSweep) clearInterval(this.#staleSweep);
         this.#staleSweep = null;
     }
@@ -68,6 +70,7 @@ export class PushService extends PuterService {
 
         let removed = 0;
         for (let pass = 0; pass < STALE_MAX_BATCHES; pass++) {
+            if (this.#stopping) break;
             const batch = await this.stores.pushDevice.removeUnseenSince(
                 cutoff,
                 { limit: STALE_BATCH_SIZE },

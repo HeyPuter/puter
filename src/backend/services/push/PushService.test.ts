@@ -146,4 +146,16 @@ describe('PushService device cleanup', () => {
         expect(await devices().getByUid(stale.uid)).toBeNull();
         expect(await devices().getByUid(recent.uid)).not.toBeNull();
     });
+
+    // Last: it starts the service's shutdown.
+    it('stops sweeping once shutdown has started', async () => {
+        const user = await makeUser();
+        const stale = await register(user.id, 'sess-shutdown');
+        await setLastSeen(stale.uid, 1000);
+
+        server.services.push.onServerPrepareShutdown();
+
+        expect(await server.services.push.sweepStaleDevices()).toBe(0);
+        expect(await devices().getByUid(stale.uid)).not.toBeNull();
+    });
 });
