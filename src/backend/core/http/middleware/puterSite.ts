@@ -61,12 +61,12 @@ import {
  * - Private-app gate via `app.privateAccess.check` — marketplace extension
  *   decides; default is denied + redirect to `app-center`
  * - Range / ETag / Last-Modified passthrough via `fsEntry.readContent`
+ * - Hosts outside the configured domains (`custom_domains_enabled`) map to a site
+ *   via `site.resolveHost`; unclaimed ones 404. Public sites only.
  *
  * Deferred (not yet implemented):
  *
  * - `.at` username-based sites (UUIDv5-keyed `/user/Public`).
- * - Custom domains (subdomains table `domain` column) — requires host validation
- *   to allow arbitrary hostnames first.
  *
  * Site config:
  *
@@ -228,29 +228,60 @@ export const createPuterSiteMiddleware = (
         if (!host) return next();
 
         const matched = matchHostingDomain(host);
-        if (!matched) return next();
+        // A host outside every configured domain. Listeners may map it to a
+        // site; an unclaimed one is answered here rather than falling through
+        // to the API/GUI routers.
+        const isCustomHost = !matched && Boolean(req.is_custom_domain);
+        if (!matched && !isCustomHost) return next();
 
-        // Bare hosting domain (e.g. `puter.site`) → redirect to the main site.
-        if (host === matched) {
-            if (domain) {
-                res.redirect(302, `${req.protocol}://${domain}`);
+        let subdomain: string;
+        if (isCustomHost) {
+            const resolveEvent = {
+                host,
+                result: { subdomain: null as string | null },
+            };
+            try {
+                await layers.clients.event.emitAndWait(
+                    'site.resolveHost',
+                    resolveEvent,
+                    {},
+                );
+            } catch {
+                resolveEvent.result.subdomain = null;
+            }
+            const claimed = resolveEvent.result.subdomain;
+            if (typeof claimed !== 'string' || !claimed) {
+                res.status(404).type('text/plain').send('Site not found');
                 return;
             }
-            res.status(404).type('text/plain').send('Subdomain not found');
-            return;
-        }
-
-        // `host` is `<prefix>.<matched>`; subdomain is the left-most label.
-        const prefix = host.slice(0, host.length - matched.length - 1);
-        const subdomain = prefix.split('.')[0] || '';
-
-        if (!subdomain || subdomain === 'www') {
-            if (domain) {
-                res.redirect(302, `${req.protocol}://${domain}`);
+            subdomain = claimed;
+        } else {
+            const hostingDomain = matched as string;
+            // Bare hosting domain (e.g. `puter.site`) → redirect to the main site.
+            if (host === hostingDomain) {
+                if (domain) {
+                    res.redirect(302, `${req.protocol}://${domain}`);
+                    return;
+                }
+                res.status(404).type('text/plain').send('Subdomain not found');
                 return;
             }
-            res.status(404).type('text/plain').send('Subdomain not found');
-            return;
+
+            // `host` is `<prefix>.<matched>`; subdomain is the left-most label.
+            const prefix = host.slice(
+                0,
+                host.length - hostingDomain.length - 1,
+            );
+            subdomain = prefix.split('.')[0] || '';
+
+            if (!subdomain || subdomain === 'www') {
+                if (domain) {
+                    res.redirect(302, `${req.protocol}://${domain}`);
+                    return;
+                }
+                res.status(404).type('text/plain').send('Subdomain not found');
+                return;
+            }
         }
 
         const site = (await layers.stores.subdomain.getBySubdomain(
@@ -286,6 +317,11 @@ export const createPuterSiteMiddleware = (
                 site: { user_id: site.user_id },
                 appStore: layers.stores.app,
                 config: hostingCfg,
+                // App index URLs name the hosting-domain address, not the
+                // custom host the visitor used.
+                host: isCustomHost
+                    ? `${subdomain}.${hostingDomains[0]}`
+                    : undefined,
             }),
         );
         const rootLookup =
@@ -300,7 +336,14 @@ export const createPuterSiteMiddleware = (
         const isPrivateApp = Boolean(associatedApp?.is_private);
         const privateApp = isPrivateApp ? associatedApp : null;
 
-        if (isPrivateApp) {
+        if (isCustomHost) {
+            // The private-app gate and its cookies are bound to the private
+            // hosting domain, so these hosts serve public sites only.
+            if (isPrivateApp) {
+                res.status(404).type('text/plain').send('Site not found');
+                return;
+            }
+        } else if (isPrivateApp) {
             // Private apps must run on the private hosting domain. If a
             // visitor arrives via the public domain (puter.site), redirect
             // them to the equivalent private-host URL so the cookie scope
@@ -448,7 +491,7 @@ export const createPuterSiteMiddleware = (
                 res.redirect(302, cleanPath);
                 return;
             }
-        } else if (privateHostingDomains.has(matched)) {
+        } else if (privateHostingDomains.has(matched as string)) {
             // Non-private content landed on the private hosting domain —
             // mirror of the private redirect above. Covers two cases:
             //   - a paid app that just flipped to free (is_private 1→0)

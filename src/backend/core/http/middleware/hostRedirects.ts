@@ -207,6 +207,8 @@ const dispatchClaimed = async (
 export const createWwwRedirect = (config: IConfig): RequestHandler => {
     const domain = (config.domain ?? '').toLowerCase();
     return (req, res, next) => {
+        // `www.` on a host outside our domains belongs to that host's site.
+        if (req.is_custom_domain) return next();
         const active = req.subdomains?.[req.subdomains.length - 1] ?? '';
         if (active !== 'www') return next();
         if (!domain) return next();
@@ -305,6 +307,7 @@ export const createNativeAppStatic = (config: IConfig): RequestHandler => {
         return (_req, _res, next) => next();
     }
     return async (req, res, next) => {
+        if (req.is_custom_domain) return next();
         const active = (
             req.subdomains?.[req.subdomains.length - 1] ?? ''
         ).toLowerCase();

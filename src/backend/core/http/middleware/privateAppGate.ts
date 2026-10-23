@@ -196,10 +196,12 @@ export async function resolveOwnedAppForHostedSite(opts: {
     appStore: Pick<AppStore, 'listOwnedByIndexUrlCandidates'>;
     config: PrivateHostingConfig;
     requirePrivate?: boolean;
+    /** Match against this hosting-domain host instead of the request's. */
+    host?: string;
 }): Promise<AppLike | null> {
     if (!opts.site?.user_id) return null;
 
-    const host = normalizeHost(opts.req.hostname);
+    const host = normalizeHost(opts.host ?? opts.req.hostname);
     if (!host) return null;
 
     const hostedSubdomain = subdomainFromHost(host, [
@@ -215,7 +217,7 @@ export async function resolveOwnedAppForHostedSite(opts: {
     const hostCandidates = new Set<string>();
     hostCandidates.add(host);
     const headerHost =
-        typeof opts.req.headers?.host === 'string'
+        !opts.host && typeof opts.req.headers?.host === 'string'
             ? opts.req.headers.host.trim().toLowerCase()
             : '';
     if (headerHost) hostCandidates.add(headerHost);
