@@ -605,6 +605,7 @@ function UIContextMenu (options) {
     const fade_remove = (item) => {
         const parent_data_id = $(item).closest('.context-menu').attr('data-parent-id');
         const $stack = $(`#context-menu-${menu_id}, .context-menu[data-element-id="${parent_data_id}"]`);
+        $stack.addClass('context-menu-closing');
         // Animate visible menus out. fadeOut's callback does not fire on
         // already-hidden elements (e.g. a parent sheet hidden when its submenu
         // opened), so force-remove the whole stack after the animation.
@@ -638,6 +639,11 @@ function UIContextMenu (options) {
     // An item is clicked. Bound on the menu, not delegated from document, so
     // the handler (and the items its closure holds) goes when the menu does.
     $(contextMenu).on('click', 'li:not(.context-menu-item-disabled)', function (e) {
+        // A double-click's second click lands while the menu fades out; the
+        // item has run already (opening a dialog twice, say).
+        if ( $(contextMenu).hasClass('context-menu-closing') ) {
+            return false;
+        }
 
         // onClick
         if ( options.items[$(this).attr('data-action')].onClick && typeof options.items[$(this).attr('data-action')].onClick === 'function' ) {
