@@ -167,7 +167,7 @@ export class PushDeviceStore extends PuterStore {
         const params: unknown[] = [userId];
         if (appUid) params.push(appUid);
         params.push(nowSeconds(), n);
-        const rows = await this.clients.db.read(
+        const rows = await this.clients.db.pread(
             `SELECT ${PREFIXED_DEVICE_COLUMNS}, d.\`token\` ` +
                 'FROM `push_device` d LEFT JOIN `sessions` s ' +
                 'ON s.`uuid` = d.`session_uid` AND s.`user_id` = d.`user_id` ' +

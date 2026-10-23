@@ -242,6 +242,18 @@ describe('PushDeviceStore', () => {
     });
 
     describe('listForDelivery', () => {
+        it('reads from the primary, so a device registered just now counts', async () => {
+            const user = await makeUser();
+            await register(user.id);
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            try {
+                await store().listForDelivery(user.id, null);
+                expect(pread).toHaveBeenCalledTimes(1);
+            } finally {
+                pread.mockRestore();
+            }
+        });
+
         it('sends a Puter push only to Puter devices', async () => {
             const user = await makeUser();
             const puter = await register(user.id);
