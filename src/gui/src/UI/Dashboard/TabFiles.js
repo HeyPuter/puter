@@ -379,6 +379,11 @@ const TabFiles = {
                     clearTimeout(_this.folderDwellTimer);
                     _this.folderDwellTimer = null;
                     _this.folderDwellTarget = null;
+                    // A drop fires no `out`, so undo `over`'s highlight here.
+                    $(folderElement).removeClass('dwell-opening');
+                    if ( folderElement.getAttribute('data-path') !== _this.currentPath ) {
+                        $(folderElement).removeClass('active');
+                    }
 
                     // Block if ctrl and trashed
                     const draggedPath = $(ui.draggable).attr('data-path');
@@ -2527,7 +2532,8 @@ const TabFiles = {
                     clearTimeout(_this.folderDwellTimer);
                     _this.folderDwellTimer = null;
                     _this.folderDwellTarget = null;
-                    $(dirnameElement).removeClass('dwell-opening');
+                    // A drop fires no `out`, so undo `over`'s highlight here.
+                    $(dirnameElement).removeClass('dwell-opening drop-target');
 
                     const targetPath = $(this).attr('data-path');
                     const draggedPath = $(ui.draggable).attr('data-path');
@@ -3484,6 +3490,8 @@ const TabFiles = {
                     clearTimeout(_this.folderDwellTimer);
                     _this.folderDwellTimer = null;
                     _this.folderDwellTarget = null;
+                    // A drop fires no `out`, so undo `over`'s highlight here.
+                    $(el_item).removeClass('selected dwell-opening');
 
                     // A row drawn ahead of its mkdir has a predicted path, not
                     // a real one. Moving into it would either fail or — because
