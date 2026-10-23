@@ -139,6 +139,8 @@ The reservation is a conservative estimate based on verified generation usage, n
 
 Kling video models take a prompt of up to 3,072 characters (Kling 3.0 models) or 2,500 (the others, and Kling 3.0 Turbo with `input_reference`). Kling 3.0 Omni and Kling O1 take a source video (`inputVideo`) as a URL or as a Puter file of up to 200 MiB, which fails with `413 input_too_large` above that. Kling fetches either one itself. A Puter file is passed as a link that works for 19 minutes. The source must be an MP4 or QuickTime video of 3 to 15.5 seconds (10 on Kling O1). Kling rejects a source outside its limits, or one it can't decode, with `upstream_bad_request`, and the request isn't charged. An edit holds the price of a 16-second clip (10 on Kling O1). Each call to Kling times out after 60 seconds, and a job is polled every 5 seconds.
 
+MiniMax video models take a prompt of up to 7,000 characters (H3 models) or 2,000 (Hailuo models), and up to 5 images as frames and references together (2 on H3 Max and Hailuo 02, 1 on Hailuo 2.3 and 2.3 Fast). MiniMax fetches an image URL itself, and a Puter file is sent inline. Each call to MiniMax times out after 60 seconds, and a job is polled every 5 seconds.
+
 FLUX 3 on Together AI takes a source video (`inputVideo`) of up to 32 MiB as a Puter file, or up to 1 MiB as a `data:` URI. A larger one fails with `413 input_too_large` before the job starts. A Puter file is passed to Together AI as a link that works for 19 minutes, and a URL is passed as is. Together AI fetches either one.
 
 ### Puter file media inputs

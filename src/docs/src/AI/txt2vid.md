@@ -1,10 +1,10 @@
 ---
 title: puter.ai.txt2vid()
-description: Generate short video clips from text or reference images, or edit a video you supply, with Wan, Seedance, Veo, Kling, Gemini Omni and other models through Puter.js.
+description: Generate short video clips from text or reference images, or edit a video you supply, with Wan, Seedance, Veo, Kling, MiniMax H3, Gemini Omni and other models through Puter.js.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Given a prompt, generate a short video clip using AI. Puter routes the request to one of four upstream providers (Together AI, BytePlus Seedance, Google Gemini, Kling) based on the model you pick, waits for the clip to render, and resolves with a ready-to-play video. Every model can also start from an image you supply (image-to-video), and the same option names work across providers. Gemini Omni, FLUX 3 and the Kling Omni models can also edit a video you supply.
+Given a prompt, generate a short video clip using AI. Puter routes the request to one of five upstream providers (Together AI, BytePlus Seedance, Google Gemini, Kling, MiniMax) based on the model you pick, waits for the clip to render, and resolves with a ready-to-play video. Every model can also start from an image you supply (image-to-video), and the same option names work across providers. Gemini Omni, FLUX 3 and the Kling Omni models can also edit a video you supply.
 
 ## Syntax
 
@@ -34,12 +34,12 @@ Additional settings for the generation request.
 |--------|------|-------------|
 | `prompt` | `String` | Text description for the video generation |
 | `model` | `String` | Video model to use. Defaults to `'togetherai:wan-ai/wan2.7-t2v'` (Wan 2.7 text-to-video). See [Choosing a model](#choosing-a-model) |
-| `provider` | `String` | Pin the request to one provider: `'together-video-generation'`, `'byteplus-video-generation'`, `'gemini-video-generation'` or `'kling-video-generation'`. Only needed when a model id exists on more than one provider |
+| `provider` | `String` | Pin the request to one provider: `'together-video-generation'`, `'byteplus-video-generation'`, `'gemini-video-generation'`, `'kling-video-generation'` or `'minimax-video-generation'`. Only needed when a model id exists on more than one provider |
 | `seconds` | `Number` | Target clip length in seconds. Each model supports a fixed set of durations; an unsupported value falls back to the model default instead of failing. Gemini Omni has no length control and rejects this option. `duration` is an alias |
 | `size` | `String` | Output size as `'WIDTHxHEIGHT'` (e.g. `'1280x720'`) on every provider. Models that work in resolution tiers take the tier of the shorter side plus the aspect ratio, and also accept the tier directly (`'720p'`). An unsupported value falls back to the model default, except on Gemini Omni, which rejects it. `resolution` is an alias |
-| `width`, `height` | `Number` | Output size in pixels on Together AI models sized in pixels; the aspect ratio on Seedance, Kling and Wan 2.7. Filled in from `size` when you leave them out |
+| `width`, `height` | `Number` | Output size in pixels on Together AI models sized in pixels; the aspect ratio on Seedance, Kling, MiniMax H3 and Wan 2.7. Filled in from `size` when you leave them out |
 | `input_reference` | `String \| Blob` | Image the clip starts from (image-to-video), on every provider. See [Image inputs](#image-inputs) for the formats it takes |
-| `last_frame` | `String \| Blob` | Image the clip ends on, same formats. Requires `input_reference` on Seedance |
+| `last_frame` | `String \| Blob` | Image the clip ends on, same formats. Requires `input_reference` on Seedance, Kling and Hailuo 02; the MiniMax H3 models also take it alone |
 | `reference_images` | `Array<String \| Blob>` | Images the model keeps consistent as subjects or style, same formats. Limits per provider are listed below; not combined with `input_reference` or `last_frame`, except on Kling |
 | `inputVideo` | `String \| Blob` | Video to edit, with the prompt describing the change. Only Gemini Omni, FLUX 3, Kling 3.0 Omni and Kling O1 accept it. See [Video input](#video-input) |
 | `negative_prompt` | `String` | Text describing what to avoid in the video (Together AI) |
@@ -79,6 +79,7 @@ What each provider does with image inputs:
 | BytePlus Seedance | Yes | Yes, with `input_reference` | Seedance 2.0: up to 9; Seedance 2.5: up to 30; cannot be combined with frames |
 | Google Gemini | Yes, one PNG, JPEG or WebP image up to 5 MiB | No | No |
 | Kling | Yes, JPEG or PNG | Yes, with `input_reference`, on the models listed in [Kling options](#kling-options) | Kling 3.0 Omni and O1: up to 7, or 4 with `inputVideo` |
+| MiniMax | Yes, JPEG, PNG or WebP | Yes, on the H3 models, and with `input_reference` on Hailuo 02 | H3 models: up to 5 images in total with the frames, 2 on H3 Max; cannot be combined with frames |
 
 #### Video input
 
@@ -274,6 +275,47 @@ An option the model lacks, or a combination it doesn't support, is rejected with
 
 For more details, see the [Kling video API reference](https://kling.ai/document-api/api/video/3-0-omni/text-to-video).
 
+#### MiniMax options
+
+Available when using a MiniMax model (provider `'minimax-video-generation'`). The ids are MiniMax's own model names in lower case, and every model also answers to `minimax/<model>`. The H3 models take any whole number of seconds in their range and are priced per second. The Hailuo models render a 6 or 10 second clip for a flat price. All of them work in resolution tiers: pass `size` as a tier, or as `'WIDTHxHEIGHT'`, which selects the tier of the shorter side and the aspect ratio. Pass `'2k'` by name. They render at 24 frames per second.
+
+| Model | Duration (s) | Resolutions | Audio | Last frame | Reference images |
+|-------|--------------|-------------|-------|------------|------------------|
+| `minimax-h3` (default) | 4 to 15, default 5 | `768p`, `2k` | Always | Yes | Up to 5 images in total |
+| `minimax-h3-highspeed` | 4 to 15, default 5 | `768p` | Always | Yes | Up to 5 images in total |
+| `minimax-h3-lite` | 4 to 15, default 5 | `768p`, `480p` | Always | Yes | Up to 5 images in total |
+| `minimax-h3-max` | 5 to 15, default 5 | `768p`, `480p` | Always | Yes | Up to 2 images in total |
+| `minimax-hailuo-2.3` | 6 or 10 | `768p`, `1080p` (6 seconds only) | No | No | No |
+| `minimax-hailuo-2.3-fast` | 6 or 10 | `768p`, `1080p` (6 seconds only) | No | No | No |
+| `minimax-hailuo-02` | 6 or 10 | `768p`, `1080p` (6 seconds only), `512p` (with `input_reference` only) | No | Yes | No |
+
+The first resolution listed is the default. "Images in total" counts `input_reference`, `last_frame` and `reference_images` together.
+
+| Model | Price |
+|-------|-------|
+| `minimax-h3` | $0.08 per second at `768p`, $0.13 at `2k` |
+| `minimax-h3-highspeed` | $0.06 per second |
+| `minimax-h3-lite` | $0.04 per second at `768p`, $0.025 at `480p` |
+| `minimax-h3-max` | $0.08 per second at `768p`, $0.05 at `480p` |
+| `minimax-hailuo-2.3` | $0.28 for 6 seconds at `768p`, $0.56 for 10 seconds at `768p`, $0.49 for 6 seconds at `1080p` |
+| `minimax-hailuo-2.3-fast` | $0.19 for 6 seconds at `768p`, $0.32 for 10 seconds at `768p`, $0.33 for 6 seconds at `1080p` |
+| `minimax-hailuo-02` | As Hailuo 2.3, plus $0.10 for 6 seconds and $0.15 for 10 seconds at `512p` |
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `model` | `String` | Video model to use, from the table above |
+| `prompt` | `String` | Up to 7,000 characters on the H3 models, 2,000 on the Hailuo models |
+| `seconds` | `Number` | Clip length, from the table above. Any other value falls back to the default. On the Hailuo models, 10 seconds at `1080p` falls back to 6 |
+| `size` | `String` | Resolution tier from the table above (case-insensitive), or `'WIDTHxHEIGHT'`. `resolution` is an alias |
+| `width`, `height` | `Number` | Optional. Only their ratio is used, to pick the aspect ratio of an H3 clip made from text or `reference_images`: `21:9`, `16:9`, `4:3`, `1:1`, `3:4` or `9:16`. Any other ratio gives `16:9`. A clip from `input_reference` or `last_frame` takes the image's shape. The Hailuo models ignore them |
+| `input_reference` | `String \| Blob` | Image used as the first frame, in any [image input](#image-inputs) format. JPEG, PNG or WebP, at least 256 pixels per side on the H3 models and more than 300 pixels on the short side on the Hailuo models |
+| `last_frame` | `String \| Blob` | Image used as the last frame, same formats. Requires `input_reference` on Hailuo 02. The H3 models also take it alone |
+| `reference_images` | `Array<String \| Blob>` | Images the model uses as subject, style or scene references, same formats, on the H3 models. Cannot be combined with `input_reference` or `last_frame` |
+
+An option the model lacks, or a combination it doesn't support, is rejected with `bad_request` before any credits are spent. MiniMax returns a hosted URL that is temporary, so pass `puter_output_path` to keep a clip. A Hailuo link works for one hour.
+
+For more details, see the [MiniMax video API reference](https://platform.minimax.io/docs/api-reference/video-generation-v2-create).
+
 Any properties not set fall back to provider defaults.
 
 #### Saving to Puter filesystem
@@ -297,6 +339,7 @@ Every successful generation is charged to the user's AI credits according to the
 - **Seedance** is priced per second. If the balance cannot cover the requested length, Puter shortens the clip to the longest duration the model supports that the balance does cover, and rejects with `insufficient_funds` only when even the shortest clip is unaffordable. The response does not flag a shortened clip, so read `video.duration` once metadata has loaded if the exact length matters.
 - **Together AI** prices its older models per clip, so those requests are either accepted at the model's duration or rejected with `insufficient_funds`. Its per-second models (marked in the Together AI table), including the default Wan 2.7, are shortened like Seedance, and charged at the model's highest published rate per second.
 - **Kling** is priced per second, and clips are shortened like Seedance. An edit of an `inputVideo` is as long as its source, so Puter holds the price of the longest source the model accepts (16 seconds on Kling 3.0 Omni, 10 on Kling O1) and charges for the length of the clip Kling returns.
+- **MiniMax** H3 models are priced per second, and clips are shortened like Seedance. The charge is for the seconds of output MiniMax reports. The Hailuo models are priced per clip, so those requests are either accepted at the clip's price or rejected with `insufficient_funds`.
 - **Gemini Omni** is priced per token and has no length control, so it's never shortened. Before generating, Puter counts the input tokens and holds an estimate of about $3.63 plus the input. The estimate covers 173,760 video tokens and 65,536 text and thinking tokens. Puter doesn't count the tokens of an `inputVideo`, so a request with one holds another 16,000 input tokens, about $0.02, which covers a 10-second video. Puter reads the video only after the estimate is held. A balance that can't cover it fails with `insufficient_funds` before generation starts. The charge is for the tokens Google reports for the clip. It can be higher than the estimate, because Google can go past the requested output limit. When Google's reply reports token usage but fails or has no usable clip, those tokens are charged and the request still fails.
 
 Apart from that Gemini Omni case, a request that fails or times out is not charged. The request and concurrency limits that apply to every AI call are listed in [Rate limits and quotas](/rate-limits-and-quotas/).
@@ -309,7 +352,7 @@ Video generation is slow: expect anywhere from tens of seconds to several minute
 
 A `Promise` that resolves to an `HTMLVideoElement` (in browsers) that you can append to the DOM straight away:
 
-- `src` is the clip's URL: an `https:` URL on the provider's storage (Together AI or Seedance), or a `data:video/mp4;base64,…` URI holding the whole clip (Gemini Omni). Provider URLs are temporary; keep a copy with `puter_output_path` if you need the clip later.
+- `src` is the clip's URL: an `https:` URL on the provider's storage (Together AI, Seedance, Kling or MiniMax), or a `data:video/mp4;base64,…` URI holding the whole clip (Gemini Omni). Provider URLs are temporary; keep a copy with `puter_output_path` if you need the clip later.
 - `controls` is enabled and `preload` is `"metadata"`.
 - The `data-source` attribute carries the same URL, and `data-mime-type` the MIME type when it is known (for example `video/mp4`).
 - `String(video)` returns the URL, so the element can be dropped into a template or passed to `fetch()`.
@@ -329,7 +372,7 @@ A rejection carries the error body exactly as the backend sent it, or `{ message
 | `message` | Human-readable reason. `error` carries the same text for older clients. |
 | `code` | Stable error code; see the table below. |
 | `errorCode` | A more specific code alongside a general `code`. Today the only value is `moderation_flagged`. |
-| `provider` | Which upstream handled the request: `together`, `byteplus` or `gemini`. Present on errors raised while a job was running. |
+| `provider` | Which upstream handled the request: `together`, `byteplus`, `gemini`, `kling` or `minimax`. Present on errors raised while a job was running. |
 | `upstreamCode` | The provider's own error code, when it gave one. |
 | `upstreamStatus` | The HTTP status the provider returned, when it rejected the request before a job started. |
 
