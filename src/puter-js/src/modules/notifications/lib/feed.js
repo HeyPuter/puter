@@ -5,7 +5,17 @@ import { toNotification } from './shapes.js';
 export const SUBJECT = 'notif:app-user';
 
 const PAGE_SIZE = 200;
-const MAX_PAGES = 50;
+// Retention bounds a read; this only ends a cursor that never runs out.
+const MAX_PAGES = 100_000;
+// Reads restart at the last cursor, so only the newest uids can come again.
+const REMEMBERED = 5000;
+
+const remember = (set, uid) => {
+    set.add(uid);
+    if (set.size > REMEMBERED) set.delete(set.values().next().value);
+};
+
+const toSeconds = (ms) => Math.floor(ms / 1000);
 
 // Both codes mean notifications are not routed through events on this server.
 export const unavailable = (error) => {
@@ -46,6 +56,7 @@ export class NotificationFeed {
     #cursor;
     /** @type {Promise<void> | null} */
     #reading = null;
+    #gapPending = false;
     /** @type {unknown[]} */
     #queued = [];
     /** @type {{ off: () => Promise<void> } | null} */
@@ -67,20 +78,14 @@ export class NotificationFeed {
             this.#subscription = await this.#puter.events.onLocal(
                 SUBJECT,
                 ({ event }) => this.#receive(event),
-                {
-                    onError: (error) => {
-                        this.#stopped = true;
-                        this.#fail(error);
-                    },
-                },
+                { onError: (error) => this.#halt(error) },
             );
         } catch (error) {
             throw unavailable(error);
         }
 
         try {
-            // Without catch-up the first read only marks what is already there.
-            await this.#read(this.#catchUp);
+            await this.#read(this.#catchUp ? 'fetched' : 'baseline');
         } catch (error) {
             await this.off();
             throw unavailable(error);
@@ -91,6 +96,7 @@ export class NotificationFeed {
     async off() {
         this.#stopped = true;
         this.#queued = [];
+        this.#gapPending = false;
         const subscription = this.#subscription;
         this.#subscription = null;
         await subscription?.off();
@@ -99,9 +105,7 @@ export class NotificationFeed {
     #receive(event) {
         if (this.#stopped) return;
         if (event?.op === 'gap') {
-            this.#read(true).catch((error) => {
-                if (!this.#stopped) this.#fail(PuterJSError.from(error));
-            });
+            this.#readAfterGap();
             return;
         }
         if (this.#reading) {
@@ -111,11 +115,22 @@ export class NotificationFeed {
         this.#deliver(event, 'live');
     }
 
+    #readAfterGap() {
+        if (this.#reading) {
+            this.#gapPending = true;
+            return;
+        }
+        this.#read('fetched').catch((error) =>
+            this.#halt(PuterJSError.from(error)),
+        );
+    }
+
     // Live events wait in `#queued` meanwhile, so delivery stays oldest first.
-    #read(deliver) {
-        if (this.#reading) return this.#reading;
-        this.#reading = (async () => {
+    #read(source) {
+        const run = async () => {
+            let ok = false;
             try {
+                let ended = false;
                 for (let page = 0; page < MAX_PAGES && !this.#stopped; page++) {
                     const result = await this.#puter.events.fetch({
                         subject: SUBJECT,
@@ -123,17 +138,35 @@ export class NotificationFeed {
                         ...(this.#cursor ? { cursor: this.#cursor } : {}),
                     });
                     for (const event of result.items) {
-                        this.#deliver(event, deliver ? 'fetched' : 'baseline');
+                        this.#deliver(event, source);
                     }
-                    if (!result.cursor) break;
+                    if (!result.cursor) {
+                        ended = true;
+                        break;
+                    }
                     this.#cursor = result.cursor;
                 }
+                if (!ended && !this.#stopped) {
+                    this.#fail(
+                        new PuterJSError(
+                            'Stopped reading missed notifications after too many pages',
+                            'catch_up_truncated',
+                        ),
+                    );
+                }
+                ok = true;
             } finally {
                 this.#reading = null;
-                for (const event of this.#queued.splice(0))
-                    this.#deliver(event, 'live');
+                if (ok && this.#gapPending && !this.#stopped) {
+                    this.#gapPending = false;
+                    this.#readAfterGap();
+                } else {
+                    for (const event of this.#queued.splice(0))
+                        this.#deliver(event, 'live');
+                }
             }
-        })();
+        };
+        this.#reading = run();
         return this.#reading;
     }
 
@@ -143,17 +176,19 @@ export class NotificationFeed {
         if (!notification) return;
         const { uid } = notification;
         if (source === 'baseline') {
-            this.#baseline.add(uid);
+            remember(this.#baseline, uid);
             return;
         }
-        if (
-            this.#seen.has(uid) ||
-            (source === 'fetched' && this.#baseline.has(uid))
-        )
-            return;
-        this.#seen.add(uid);
-        if (this.#since !== undefined && notification.createdAt <= this.#since)
-            return;
+        if (this.#seen.has(uid)) return;
+        if (source === 'fetched') {
+            if (this.#baseline.has(uid)) return;
+            if (
+                this.#since !== undefined &&
+                toSeconds(notification.createdAt) < toSeconds(this.#since)
+            )
+                return;
+        }
+        remember(this.#seen, uid);
         try {
             const result = this.#handler(notification);
             if (result instanceof Promise) result.catch(report);
@@ -162,11 +197,18 @@ export class NotificationFeed {
         }
     }
 
+    // Stops the listener first, so nothing is delivered after `onError`.
+    #halt(error) {
+        if (this.#stopped) return;
+        void this.off();
+        this.#fail(error);
+    }
+
     #fail(error) {
         if (this.#onError) {
             this.#onError(error);
             return;
         }
-        console.error('[puter.notifications] listener stopped', error);
+        console.error('[puter.notifications] listener error', error);
     }
 }

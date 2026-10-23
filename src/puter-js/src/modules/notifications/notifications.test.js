@@ -445,13 +445,15 @@ describe('onNotification', () => {
         expect(seen).toEqual(['n-2', 'n-3']);
     });
 
-    it('with since, delivers only newer notifications', async () => {
+    it('with since, filters fetched rows to the second, inclusive', async () => {
         const events = makeEvents({
             pages: [
                 {
                     items: [
-                        event('n-1', {}, { ts: 100 }),
-                        event('n-2', {}, { ts: 200 }),
+                        event('n-1', {}, { ts: 4_999 }),
+                        event('n-2', {}, { ts: 5_000 }),
+                        event('n-3', {}, { ts: 5_400 }),
+                        event('n-4', {}, { ts: 9_000 }),
                     ],
                 },
             ],
@@ -460,9 +462,106 @@ describe('onNotification', () => {
         const seen = [];
 
         await notifications.onNotification((n) => seen.push(n.uid), {
-            since: 100,
+            since: 5_700,
         });
-        expect(seen).toEqual(['n-2']);
+        expect(seen).toEqual(['n-2', 'n-3', 'n-4']);
+    });
+
+    it('never filters live notifications by since', async () => {
+        const events = makeEvents();
+        const notifications = makeModule({ events });
+        const seen = [];
+
+        await notifications.onNotification((n) => seen.push(n.uid), {
+            since: 10_000,
+        });
+        events.state.push(event('n-1', {}, { ts: 1_000 }));
+        expect(seen).toEqual(['n-1']);
+    });
+
+    it.each([
+        ['catching up', {}],
+        ['marking what is there', { catchUp: false }],
+    ])(
+        'reads again after a gap that came while %s',
+        async (_label, options) => {
+            let release;
+            const gate = new Promise((resolve) => {
+                release = resolve;
+            });
+            const events = makeEvents();
+            const pages = [
+                async () => {
+                    await gate;
+                    return { items: [event('n-1')] };
+                },
+                async () => ({ items: [event('n-1'), event('n-2')] }),
+            ];
+            events.fetch = vi.fn(async () =>
+                (pages.shift() ?? (async () => ({ items: [] })))(),
+            );
+            const notifications = makeModule({ events });
+            const seen = [];
+
+            const started = notifications.onNotification(
+                (n) => seen.push(n.uid),
+                options,
+            );
+            await flush();
+            events.state.push({ op: 'gap', reason: 'reconnect' });
+            events.state.push(event('n-3'));
+            release();
+            await started;
+            await flush();
+
+            expect(events.fetch).toHaveBeenCalledTimes(2);
+            expect(seen).toEqual(
+                options.catchUp === false
+                    ? ['n-2', 'n-3']
+                    : ['n-1', 'n-2', 'n-3'],
+            );
+        },
+    );
+
+    it('stops before onError when reading after a gap fails', async () => {
+        const events = makeEvents();
+        let calls = 0;
+        events.fetch = vi.fn(async () => {
+            calls++;
+            if (calls === 1) return { items: [] };
+            throw new PuterJSError('down', 'events_failed');
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+        const onError = vi.fn(() => {
+            events.state.push(event('n-1'));
+        });
+
+        await notifications.onNotification((n) => seen.push(n.uid), {
+            onError,
+        });
+        events.state.push({ op: 'gap', reason: 'reconnect' });
+        await flush();
+        events.state.push(event('n-2'));
+
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(onError.mock.calls[0][0].code).toBe('events_failed');
+        expect(events.state.offs).toBe(1);
+        expect(seen).toEqual([]);
+    });
+
+    it('pages until the cursor runs out', async () => {
+        const pages = Array.from({ length: 120 }, (_, i) => ({
+            items: [event(`n-${i}`)],
+            ...(i < 119 ? { cursor: `c-${i}` } : {}),
+        }));
+        const events = makeEvents({ pages });
+        const notifications = makeModule({ events });
+        const seen = [];
+
+        await notifications.onNotification((n) => seen.push(n.uid));
+        expect(seen).toHaveLength(120);
+        expect(seen.at(-1)).toBe('n-119');
     });
 
     it('skips other notification types and gaps', async () => {

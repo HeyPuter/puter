@@ -37,8 +37,8 @@ A handler that throws is logged to the console; the listener keeps going.
 #### `options` (Object) (optional)
 
 - `catchUp` (Boolean): Hand over the notifications your app already has before the new ones. Defaults to `true`. With `false`, only notifications sent from now on are delivered.
-- `since` (Number): With `catchUp`, only hand over notifications sent after this time, in milliseconds since the epoch. Pass the `createdAt` of the last one you handled.
-- `onError` (Function): Called with `{ message, code }` if the listener stops after it started, because the connection couldn't be restored, or reading what was missed failed. Without it, the error is logged to the console.
+- `since` (Number): Milliseconds since the epoch. Notifications read back (when catching up, or after a reconnect) are handed over only if they were sent in or after this second. Pass the `createdAt` of the last one you handled; that one can come again, so skip it by `uid`. Live notifications are always handed over.
+- `onError` (Function): Called with `{ message, code }` when the listener stops on its own: the connection couldn't be restored, or reading what was missed after a reconnect failed. The listener is already stopped by then, and nothing more is handed over; call `onNotification()` again to resume. It's also called, without stopping, with `code: 'catch_up_truncated'` if reading back had to stop early. Without it, errors are logged to the console.
 
 ## Return value
 

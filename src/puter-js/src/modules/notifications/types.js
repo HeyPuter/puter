@@ -62,12 +62,14 @@
  * @typedef {Object} OnNotificationOptions
  * @property {boolean} [catchUp] Also deliver the notifications the app already
  *   has, oldest first, before live ones. Default `true`.
- * @property {number} [since] With `catchUp`, only deliver notifications created
- *   after this time, in milliseconds since the epoch.
- * @property {(error: Error & { code?: string }) => void} [onError] Called if
- *   the listener stops after it started: the connection could not be restored,
- *   or catching up after a reconnect failed. Without it, the error is reported
- *   on the console.
+ * @property {number} [since] Milliseconds since the epoch. Notifications read
+ *   back, not live ones, are delivered only if created in or after this
+ *   second.
+ * @property {(error: Error & { code?: string }) => void} [onError] Called when
+ *   the listener stops on its own: the connection could not be restored, or
+ *   reading what was missed after a reconnect failed. Nothing is delivered
+ *   after it. Also called, without stopping, with `catch_up_truncated` if a
+ *   read had to stop early. Without it, errors are reported on the console.
  */
 
 /**
