@@ -2571,10 +2571,19 @@ const TabFiles = {
                 e.stopPropagation();
                 $(dirnameElement).addClass('context-menu-active');
                 const items = _this.generateFolderContextMenu(clickedPath);
-                const menu = UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
-                menu.onClose = () => {
-                    $(dirnameElement).removeClass('context-menu-active');
-                };
+                // Touch gets the sheet the sidebar folders use: a long-press
+                // has no pointer position to open a menu at.
+                if ( window.isMobile.phone || window.isMobile.tablet || isTouchPrimaryDevice() ) {
+                    const modal = new ContextMenuModal({
+                        onClose: () => $(dirnameElement).removeClass('context-menu-active'),
+                    });
+                    modal.show(items, dirnameElement.getBoundingClientRect());
+                } else {
+                    const menu = UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+                    menu.onClose = () => {
+                        $(dirnameElement).removeClass('context-menu-active');
+                    };
+                }
             });
 
             // Make breadcrumb items droppable for file/folder moves
