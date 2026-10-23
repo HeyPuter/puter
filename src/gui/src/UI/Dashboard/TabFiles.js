@@ -629,6 +629,27 @@ const TabFiles = {
             this.updateOpenFileDots();
         });
 
+        // A new username (also a temporary account saved under one) moves the
+        // home folder. Paths held here still name the old one, and the rows,
+        // crumbs and their handlers were drawn with them.
+        window.addEventListener('username-changed', ({ detail }) => {
+            const oldHome = `/${detail.oldUsername}`;
+            const newHome = `/${detail.newUsername}`;
+            const rebase = (p) => (typeof p === 'string' && (p === oldHome || p.startsWith(`${oldHome}/`)))
+                ? newHome + p.slice(oldHome.length)
+                : p;
+            const history = window.dashboard_nav_history;
+            for ( let i = 0; i < history.length; i++ ) history[i] = rebase(history[i]);
+            window.clipboard = (window.clipboard ?? []).map(item => (typeof item === 'string'
+                ? rebase(item)
+                : { ...item, path: rebase(item.path) }));
+            this.uploadTargetPath = rebase(this.uploadTargetPath);
+            if ( this.currentPath ) {
+                this.currentPath = rebase(this.currentPath);
+                this.renderDirectory(this.currentPath);
+            }
+        });
+
         // Refresh current directory when the user returns to this browser tab
         document.addEventListener('visibilitychange', async () => {
             if ( document.visibilityState !== 'visible' || !this.currentPath ) return;
