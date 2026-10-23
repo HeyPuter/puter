@@ -635,8 +635,9 @@ function UIContextMenu (options) {
         });
     }
 
-    // An item is clicked
-    $(document).on('click', `#context-menu-${menu_id} > li:not(.context-menu-item-disabled)`, function (e) {
+    // An item is clicked. Bound on the menu, not delegated from document, so
+    // the handler (and the items its closure holds) goes when the menu does.
+    $(contextMenu).on('click', 'li:not(.context-menu-item-disabled)', function (e) {
 
         // onClick
         if ( options.items[$(this).attr('data-action')].onClick && typeof options.items[$(this).attr('data-action')].onClick === 'function' ) {
