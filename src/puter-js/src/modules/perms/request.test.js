@@ -218,6 +218,15 @@ describe('perms request(resource, details)', () => {
         });
     });
 
+    it('asks for push consent as a bare permission string', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        expect(await request.call(mod, 'notifications:push')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permission: 'notifications:push',
+        });
+    });
+
     // A resource is looked up on an own property, so a permission string that
     // shares a name with an `Object.prototype` member is still that string.
     it('reads a permission string that collides with an Object member', async () => {

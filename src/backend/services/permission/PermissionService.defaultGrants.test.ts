@@ -143,6 +143,8 @@ describe('check on default grants', () => {
         'events:background',
         'events:background:extra',
         'events',
+        'notifications:push',
+        'notifications',
         'driver:puter-kvstore',
         'driver:puter-kvstore:get',
         'driver:puter-chat-completion:complete',

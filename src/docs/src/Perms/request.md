@@ -67,10 +67,21 @@ The array form resolves to an array of those values, in the order asked.
 - File system: `fs:{path}:{read|write}`
 - Apps: `apps-of-user:{uuid}:{read|write}`
 - Subdomains: `subdomains-of-user:{uuid}:{read|write}`
+- Push notifications: `notifications:push` (see below)
 
 Some permission strings are not supported and are denied silently.
 
 A lone string that names no resource is treated as a permission string, so `puter.perms.request('fs:/user/Documents:read')` keeps working.
+
+## Push notifications
+
+Your app's notifications always show inside Puter. To also have them sent to the user's devices as push notifications, even while your app is closed, the user has to grant your app **`notifications:push`**:
+
+```js
+const granted = await puter.perms.request('notifications:push');
+```
+
+The grant is per app and per user, and is checked every time a notification is sent. Without it, or once the user revokes it, your notifications still show inside Puter but none go out as pushes. Use [`puter.perms.check('notifications:push')`](/Perms/check/) to see whether it's in place without prompting.
 
 ## Creating a path on request
 
