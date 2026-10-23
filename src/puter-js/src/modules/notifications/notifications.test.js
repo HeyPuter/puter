@@ -16,12 +16,19 @@ const jsonResponse = (body, status = 200) => ({
     json: async () => body,
 });
 
-/** A `puter.ui` stand-in that records broadcast listeners. */
+/** Like `puter.ui`: a new listener is handed the last broadcast first. */
 const makeUI = () => {
     const listeners = new Map();
+    const last = new Map();
     return {
-        on: vi.fn((name, handler) => listeners.set(name, handler)),
-        broadcast: (name, data) => listeners.get(name)?.(data),
+        on: vi.fn((name, handler) => {
+            listeners.set(name, [...(listeners.get(name) ?? []), handler]);
+            if (last.has(name)) handler(last.get(name));
+        }),
+        broadcast: (name, data) => {
+            for (const handler of listeners.get(name) ?? []) handler(data);
+            last.set(name, data);
+        },
     };
 };
 
@@ -235,42 +242,32 @@ describe("on('click')", () => {
         expect(clicks).toEqual([]);
     });
 
-    it('delivers the launch click once, to the first handler attached', async () => {
-        const notifications = makeModule({
-            args: {
-                notificationClick: { uid: 'n-9', target: '/x', data: [1] },
-            },
+    it('delivers a click that came before the first handler, once', () => {
+        const notifications = makeModule();
+        notifications.puter.ui.broadcast('notificationClick', {
+            uid: 'n-9',
+            target: '/x',
+            data: [1],
         });
         const first = [];
         const second = [];
 
         notifications.on('click', (click) => first.push(click));
         notifications.on('click', (click) => second.push(click));
-        await flush();
-        notifications.on('click', () => first.push('late'));
-        await flush();
 
         expect(first).toEqual([{ uid: 'n-9', target: '/x', data: [1] }]);
-        // Attached before the queued delivery ran, so it saw the same one.
-        expect(second).toEqual([{ uid: 'n-9', target: '/x', data: [1] }]);
+        expect(second).toEqual([]);
+        expect(notifications.puter.ui.on).toHaveBeenCalledTimes(1);
     });
 
-    it('holds the launch click until a handler is attached', async () => {
+    it('does not listen to the desktop before a click handler is added', () => {
+        const notifications = makeModule();
+        expect(notifications.puter.ui.on).not.toHaveBeenCalled();
+    });
+
+    it('ignores launch arguments', async () => {
         const notifications = makeModule({
             args: { notificationClick: { uid: 'n-9' } },
-        });
-        await flush();
-
-        const clicks = [];
-        notifications.on('click', (click) => clicks.push(click));
-        expect(clicks).toEqual([]);
-        await flush();
-        expect(clicks).toEqual([{ uid: 'n-9', target: null, data: null }]);
-    });
-
-    it('has nothing to deliver without a launch click', async () => {
-        const notifications = makeModule({
-            args: { notificationClick: 'nope' },
         });
         const clicks = [];
         notifications.on('click', (click) => clicks.push(click));

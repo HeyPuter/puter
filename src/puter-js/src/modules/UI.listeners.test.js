@@ -212,6 +212,50 @@ describe('host replies (env: app)', () => {
         expect(onClick).toHaveBeenCalledWith({ uid: 'n-1', target: '/a', data: { id: 1 } });
     });
 
+    it('hands a click broadcast to the first notifications click handler once', async () => {
+        const { NotificationsModule } = await import('./notifications/index.js');
+        const ui = makeUI();
+        const notifications = new NotificationsModule({ ...makePuter(), ui });
+        const click = {
+            msg: 'broadcast',
+            name: 'notificationClick',
+            data: { uid: 'n-1', target: '/a', data: null },
+        };
+        await deliver({ source: parentWindow, origin: 'https://puter.com', data: click });
+
+        const first = vi.fn();
+        const second = vi.fn();
+        notifications.on('click', first);
+        notifications.on('click', second);
+        await deliver({
+            source: parentWindow,
+            origin: 'https://puter.com',
+            data: { ...click, data: { uid: 'n-2' } },
+        });
+
+        expect(first.mock.calls).toEqual([
+            [{ uid: 'n-1', target: '/a', data: null }],
+            [{ uid: 'n-2', target: null, data: null }],
+        ]);
+        expect(second.mock.calls).toEqual([[{ uid: 'n-2', target: null, data: null }]]);
+    });
+
+    it('drops a notificationClick broadcast from another source', async () => {
+        const { NotificationsModule } = await import('./notifications/index.js');
+        const ui = makeUI();
+        const notifications = new NotificationsModule({ ...makePuter(), ui });
+        const onClick = vi.fn();
+        notifications.on('click', onClick);
+
+        await deliver({
+            source: {},
+            origin: 'https://example.com',
+            data: { msg: 'broadcast', name: 'notificationClick', data: { uid: 'n-1' } },
+        });
+
+        expect(onClick).not.toHaveBeenCalled();
+    });
+
     it('reports an error reply instead of rejecting the listener', async () => {
         const error = vi.spyOn(console, 'error').mockImplementation(() => {});
         makeUI();

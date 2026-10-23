@@ -6,7 +6,7 @@ platforms: [websites, apps]
 
 Calls `handler` when the user clicks one of your app's notifications, in the Puter notifications panel or on a push notification. Use it to open the screen the notification is about.
 
-If your app was open, the click is delivered right away. If the click launched your app, it's delivered once, to the first `click` handler you add, so add it early during startup.
+Only the Puter desktop delivers clicks. If your app is open with a `click` handler, the click is delivered right away. A click that arrives before your first `click` handler is added (for example, the one that launched your app) is delivered to that first handler, once; handlers added after it don't receive it. Add your handler early during startup.
 
 Remove a handler with `puter.notifications.off('click', handler)`.
 

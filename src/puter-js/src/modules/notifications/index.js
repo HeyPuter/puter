@@ -25,8 +25,7 @@ export class NotificationsModule extends EventListener {
     listDevices = listDevices;
     removeDevice = removeDevice;
 
-    /** @type {import('./types.js').NotificationClick | null} */
-    #launchClick;
+    #listening = false;
 
     /** @param {import('../../index.js').Puter} puter */
     constructor(puter) {
@@ -48,19 +47,11 @@ export class NotificationsModule extends EventListener {
         ]) {
             methods[name] = methods[name].bind(this);
         }
-
-        this.#launchClick = toClick(puter.args?.notificationClick);
-
-        puter.ui?.on?.(CLICK_BROADCAST, (data) => {
-            const click = toClick(data);
-            if (click) this.emit('click', click);
-        });
     }
 
     /**
-     * Listens for clicks on this app's notifications, in the notifications
-     * panel or on a push. A click that launched the app is delivered to the
-     * first handler attached.
+     * Listens for clicks on this app's notifications. A click that came in
+     * before the first handler was added is delivered to that handler.
      *
      * @param {'click'} eventName
      * @param {(click: import('./types.js').NotificationClick) => void} handler
@@ -69,10 +60,13 @@ export class NotificationsModule extends EventListener {
      */
     on(eventName, handler) {
         const result = super.on(eventName, handler);
-        if (result && eventName === 'click' && this.#launchClick) {
-            const click = this.#launchClick;
-            this.#launchClick = null;
-            queueMicrotask(() => this.emit('click', click));
+        if (result && eventName === 'click' && !this.#listening) {
+            this.#listening = true;
+            // `puter.ui` replays its last broadcast to this one subscription.
+            this.puter.ui?.on?.(CLICK_BROADCAST, (data) => {
+                const click = toClick(data);
+                if (click) this.emit('click', click);
+            });
         }
         return result;
     }

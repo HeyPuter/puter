@@ -87,7 +87,7 @@ See [`notify()`](/Notifications/notify/) for every field, and [Rate Limits and Q
 <body>
     <script src="https://js.puter.com/v2/"></script>
     <script>
-        // Also runs once at startup when a click launched the app.
+        // Also gets the click that launched the app.
         puter.notifications.on('click', ({ uid, target, data }) => {
             puter.print(`clicked ${uid}: open ${target}<br>`);
         });
