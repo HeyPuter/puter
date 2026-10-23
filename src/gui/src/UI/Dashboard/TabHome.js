@@ -367,7 +367,7 @@ const TabHome = {
             if (targetLink && targetLink !== '') {
                 window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if (appName) {
-                window.open(`/app/${appName}`, '_blank', 'noopener,noreferrer');
+                window.open(`/app/${encodeURIComponent(appName)}`, '_blank', 'noopener,noreferrer');
             }
         });
 
@@ -415,8 +415,11 @@ const TabHome = {
         // Always refetch: gating on an empty list froze "Recently used" for the
         // whole session (apps launched after load never appeared). loadUsageData
         // refreshes on the same activate/focus triggers, so this stays in step.
+        // Only the newest request may write: an older one answering last
+        // would put a stale list back.
+        const seq = (this._recentAppsSeq = (this._recentAppsSeq ?? 0) + 1);
         try {
-            window.launch_apps = await $.ajax({
+            const launchApps = await $.ajax({
                 url: `${window.api_origin}/get-launch-apps?icon_size=64`,
                 type: 'GET',
                 async: true,
@@ -425,9 +428,12 @@ const TabHome = {
                     Authorization: `Bearer ${window.auth_token}`,
                 },
             });
+            if (seq !== this._recentAppsSeq) return;
+            window.launch_apps = launchApps;
         } catch (e) {
             console.error('Failed to load launch apps:', e);
         }
+        if (seq !== this._recentAppsSeq) return;
         $el_window
             .find('.bento-recent-apps-container')
             .html(buildRecentAppsHTML());
