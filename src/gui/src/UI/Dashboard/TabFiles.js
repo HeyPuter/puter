@@ -282,7 +282,8 @@ const TabFiles = {
         this._creatingItem = 0;
         this.activeMenuFileUid = null;
         this.currentPath = null;
-        this.currentPath = null;
+        // Set by a folder menu's Upload; null uploads into the folder on screen.
+        this.uploadTargetPath = null;
         this.folderDwellTimer = null;
         this.folderDwellTarget = null;
         this.springLoadedActive = false;
@@ -1378,13 +1379,16 @@ const TabFiles = {
             // was cancelled, or was blocked could not be retried.
             const files = Array.from(e.target.files || []);
             fileInput.value = '';
+            // A folder's menu picks for that folder, which needn't be the one on screen.
+            const destination = _this.uploadTargetPath ?? _this.currentPath;
+            _this.uploadTargetPath = null;
             if ( files.length === 0 ) return;
-            if ( _this.currentPath === window.shared_path ) return;
+            if ( destination === window.shared_path ) return;
 
             let upload_progress_window;
             let opid;
 
-            puter.fs.upload(files, _this.currentPath, {
+            puter.fs.upload(files, destination, {
                 generateThumbnails: true,
                 thumbnailGenerator: createUploadThumbnailGenerator(),
                 init: async (operation_id, xhr) => {
@@ -1475,6 +1479,7 @@ const TabFiles = {
         // Upload button
         document.querySelector('.upload-btn').onclick = async () => {
             if ( ! this.currentPath ) return;
+            this.uploadTargetPath = null;
             fileInput.click();
         };
 
@@ -4623,6 +4628,7 @@ const TabFiles = {
                 onClick: function () {
                     const fileInput = document.querySelector('#upload-file-dialog');
                     if ( fileInput ) {
+                        _this.uploadTargetPath = targetPath;
                         fileInput.click();
                     }
                 },
