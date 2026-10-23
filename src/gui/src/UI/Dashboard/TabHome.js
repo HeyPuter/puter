@@ -487,14 +487,19 @@ const TabHome = {
      */
     async _renderPlanCard($el_window) {
         let subscription = null;
+        // A self-hosted install has no billing routes; its users have the
+        // plan every account starts on, with nothing to upgrade to (no
+        // upgrade dialog either, which only hosted Puter loads).
+        let noBilling = false;
         try {
             const resp = await fetch(
                 `${window.api_origin}/marketplace/subscriptions/current`,
                 { headers: { Authorization: `Bearer ${puter.authToken}` } },
             );
+            noBilling = resp.status === 404;
             // A refusal is not a free plan: a seat owing a password change 403s.
-            if (!resp.ok) return;
-            const data = await resp.json();
+            if (!resp.ok && !noBilling) return;
+            const data = noBilling ? null : await resp.json();
             subscription = data?.subscription ?? null;
         } catch (e) {
             console.error('Failed to load plan data:', e);
@@ -592,6 +597,11 @@ const TabHome = {
 
             // A seat's plan is the team's; the link only reaches a refusal.
             if (seat) {
+                $el_window.find('.bento-plan-upgrade').hide();
+            }
+
+            if (noBilling && typeof window.UIUpgradeAccount !== 'function') {
+                $badge.text('').removeClass('free');
                 $el_window.find('.bento-plan-upgrade').hide();
             }
 
