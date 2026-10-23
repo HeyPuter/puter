@@ -47,6 +47,7 @@ import { is_default_app } from './defaultApp.js';
  * @param {Function} options.onOpen - Optional custom open handler (used by Dashboard)
  * @param {Function} options.onShowProperties - Optional custom properties handler (used by Dashboard); receives {name, path, uid, element}
  * @param {Function} options.onShare - Optional custom share handler (used by Dashboard); receives {name, path, uid, element}
+ * @param {Function} options.onPasteInto - Optional custom paste handler (used by Dashboard); receives the folder's path
  * @returns {Promise<Array>} Array of context menu items
  */
 const generate_file_context_menu = async function (options) {
@@ -310,7 +311,10 @@ const generate_file_context_menu = async function (options) {
             html: i18n('paste_into_folder'),
             disabled: window.clipboard.length > 0 ? false : true,
             onClick: function () {
-                if ( window.clipboard_op === 'copy' ) {
+                if ( options.onPasteInto ) {
+                    options.onPasteInto($(el_item).attr('data-path'));
+                }
+                else if ( window.clipboard_op === 'copy' ) {
                     window.copy_clipboard_items($(el_item).attr('data-path'), null);
                 }
                 else if ( window.clipboard_op === 'move' ) {

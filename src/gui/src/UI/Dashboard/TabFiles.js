@@ -942,19 +942,7 @@ const TabFiles = {
                     if ( ! _this.acceptsNewItems(_this.currentPath) ) {
                         return false;
                     }
-                    // After the paste completes, refresh and highlight the
-                    // newly created rows — same treatment as uploads.
-                    if ( window.clipboard_op === 'copy' ) {
-                        window.copy_clipboard_items(_this.currentPath, null).then(async pastedPaths => {
-                            await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
-                            _this.selectUploadedRows(pastedPaths ?? []);
-                        });
-                    } else {
-                        _this.moveClipboardItems(_this.currentPath).then(async pastedPaths => {
-                            await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
-                            _this.selectUploadedRows(pastedPaths ?? []);
-                        });
-                    }
+                    _this.pasteClipboardInto(_this.currentPath);
                 }
                 return false;
             }
@@ -3746,6 +3734,27 @@ const TabFiles = {
     },
 
     /**
+     * Pastes the clipboard (copy or cut) into a folder.
+     *
+     * @param {string} destPath - The destination folder path
+     * @returns {Promise<void>}
+     */
+    async pasteClipboardInto (destPath) {
+        let pastedPaths;
+        if ( window.clipboard_op === 'copy' ) {
+            pastedPaths = await window.copy_clipboard_items(destPath, null);
+        } else if ( window.clipboard_op === 'move' ) {
+            pastedPaths = await this.moveClipboardItems(destPath);
+        } else {
+            return;
+        }
+        // Moved-away source rows disappear and pasted rows show up, then get
+        // highlighted like uploads (a no-op when destPath isn't on screen).
+        await this.renderDirectory(this.currentPath, { consistency: 'strong' });
+        this.selectUploadedRows(pastedPaths ?? []);
+    },
+
+    /**
      * Moves clipboard items to the specified destination path.
      *
      * This is a Dashboard-specific implementation that calls puter.fs.move()
@@ -4324,6 +4333,7 @@ const TabFiles = {
             onRestore: async (el) => {
                 await _this.restoreRows([el]);
             },
+            onPasteInto: (destPath) => _this.pasteClipboardInto(destPath),
             onOpen: (el, fsentry) => {
                 // Custom open handler for Dashboard (avoids window_nav_history issues)
                 if ( fsentry.is_dir ) {
@@ -4595,24 +4605,7 @@ const TabFiles = {
         if ( canCreate && window.clipboard && window.clipboard.length > 0 ) {
             items.push({
                 html: i18n('paste'),
-                onClick: async function () {
-                    // After the paste completes, refresh and highlight the
-                    // newly created rows — same treatment as uploads. A paste
-                    // into a folder that isn't rendered matches no rows and
-                    // the highlight is a no-op.
-                    let pastedPaths = [];
-                    if ( window.clipboard_op === 'copy' ) {
-                        pastedPaths = await window.copy_clipboard_items(targetPath, null) ?? [];
-                    } else if ( window.clipboard_op === 'move' ) {
-                        pastedPaths = await _this.moveClipboardItems(targetPath) ?? [];
-                    } else {
-                        return;
-                    }
-                    // Refresh so moved-away source rows disappear and any
-                    // items pasted into the current folder show up.
-                    await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
-                    _this.selectUploadedRows(pastedPaths);
-                },
+                onClick: () => _this.pasteClipboardInto(targetPath),
             });
         }
 
