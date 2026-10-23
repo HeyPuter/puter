@@ -385,14 +385,16 @@ const TabFiles = {
                         return;
                     }
 
-                    ui.helper.data('dropped', true);
-
                     // Get target folder path from the element itself. Using the
                     // element's own data-path covers folders (Public, Home) that
                     // aren't keyed in window.user.directories.
                     const targetPath = folderElement.getAttribute('data-path');
 
-                    if ( ! targetPath ) return;
+                    // The Shared view is a query rather than a folder;
+                    // dwelling on it still opens it, to drop into a folder inside.
+                    if ( ! targetPath || targetPath === window.shared_path ) return;
+
+                    ui.helper.data('dropped', true);
 
                     // Collect all items to move
                     const itemsToMove = [ui.draggable[0]];
@@ -499,8 +501,8 @@ const TabFiles = {
 
                     const folderPath = folderElement.getAttribute('data-path');
 
-                    // Don't allow drop on trash
-                    if ( folderPath === window.trash_path ) {
+                    // Don't allow drop on trash or the Shared view
+                    if ( folderPath === window.trash_path || folderPath === window.shared_path ) {
                         return;
                     }
 
@@ -521,8 +523,8 @@ const TabFiles = {
 
                     const folderPath = folderElement.getAttribute('data-path');
 
-                    // Block uploads to trash
-                    if ( folderPath === window.trash_path ) {
+                    // Block uploads to trash and the Shared view
+                    if ( folderPath === window.trash_path || folderPath === window.shared_path ) {
                         return;
                     }
 
@@ -908,8 +910,11 @@ const TabFiles = {
                     e.preventDefault();
                     e.stopPropagation();
                     // Cutting is a move: rows that can't be moved (see the
-                    // Delete key above) would only fail on paste.
-                    const rows = await _this.restructurableRows($selectedRows.toArray());
+                    // Delete key above) would only fail on paste. Trashed
+                    // items leave the Trash through Restore, which puts their
+                    // original name back; a plain move would not.
+                    const rows = (await _this.restructurableRows($selectedRows.toArray()))
+                        .filter(row => ! ($(row).attr('data-path') || '').startsWith(`${window.trash_path}/`));
                     if ( rows.length > 0 ) {
                         window.clipboard = [];
                         window.clipboard_op = 'move';
@@ -929,8 +934,12 @@ const TabFiles = {
                 if ( window.clipboard.length > 0 && _this.currentPath ) {
                     e.preventDefault();
                     e.stopPropagation();
-                    // Don't allow paste in Trash unless it's a move operation
-                    if ( _this.currentPath.startsWith(window.trash_path) && window.clipboard_op !== 'move' ) {
+                    // Same rule as the Paste menu item: a move into the Trash
+                    // would skip the metadata Restore needs (Delete trashes),
+                    // and the Shared view is a query, not a folder.
+                    if ( _this.currentPath === window.trash_path
+                        || _this.currentPath.startsWith(`${window.trash_path}/`)
+                        || _this.currentPath === window.shared_path ) {
                         return false;
                     }
                     // After the paste completes, refresh and highlight the
@@ -1131,7 +1140,10 @@ const TabFiles = {
         // Check if it's an image file
         const extension = fileName.split('.').pop().toLowerCase();
         const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
-        if ( ! imageExtensions.includes(extension) ) {
+        if ( ! imageExtensions.includes(extension) || $row.attr('data-is_dir') === '1' ) {
+            // Moving the selection onto a non-image must not leave the
+            // previous image up under the wrong selection.
+            if ( this.previewOpen ) this.closeImagePreview();
             return;
         }
 
@@ -1173,8 +1185,13 @@ const TabFiles = {
         // Close on click outside the popover. Remove any prior handler first so
         // repeated calls (image arrow-navigation) don't stack duplicate handlers.
         const _this = this;
+        // A plain click on a row is left to the row's own handler, which
+        // switches the preview to it.
         $(document).off('click.imagepreview').on('click.imagepreview', (e) => {
-            if ( ! $(e.target).closest('.image-preview-popover').length ) {
+            if ( $(e.target).closest('.image-preview-popover').length ) return;
+            const plainRowClick = ! (e.ctrlKey || e.metaKey || e.shiftKey)
+                && $(e.target).closest('.files-tab .files .row:not(.header)').length;
+            if ( ! plainRowClick ) {
                 _this.closeImagePreview();
             }
         });
@@ -1599,6 +1616,8 @@ const TabFiles = {
             $actions.find('.download-btn').hide();
             $actions.find('.cut-btn').hide();
             $actions.find('.copy-btn').hide();
+            // A non-Trash selection may have hidden it pending its lookup.
+            $actions.find('.delete-btn').show();
             // Change delete label to "Delete Permanently"
             $actions.find('.delete-btn span').text(i18n('delete_permanently') || 'Delete Permanently');
         } else {
@@ -2443,8 +2462,10 @@ const TabFiles = {
                         return;
                     }
 
-                    // Don't drop on current directory
-                    if ( targetPath === _this.currentPath ) {
+                    // Don't drop on current directory, or on the Shared view,
+                    // which is a query rather than a folder (dwelling on it
+                    // still opens it, to drop into a folder inside).
+                    if ( targetPath === _this.currentPath || targetPath === window.shared_path ) {
                         return;
                     }
 
@@ -4277,7 +4298,7 @@ const TabFiles = {
         const mayRestructure = (await _this.restructurableRows(selectedRows)).length === selectedRows.length;
 
         // Cut
-        if ( mayRestructure ) {
+        if ( mayRestructure && ! anyTrashed ) {
             items.push({
                 html: `${i18n('cut')}`,
                 onClick: function () {
@@ -4675,11 +4696,11 @@ const TabFiles = {
             return true;
         });
 
-        selection.on('start', ({ store, event }) => {
+        selection.on('start', ({ event }) => {
             if ( !event.ctrlKey && !event.metaKey ) {
-                for ( const el of store.stored ) {
-                    el.classList.remove('selected');
-                }
+                // store.stored only knows earlier marquee picks; rows picked
+                // by click, Ctrl+A or the arrow keys must be dropped too.
+                filesContainer.querySelectorAll('.row.selected').forEach(el => el.classList.remove('selected'));
                 selection.clearSelection();
             }
 
