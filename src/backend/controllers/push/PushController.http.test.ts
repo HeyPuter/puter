@@ -363,6 +363,49 @@ describe('push device routes over HTTP', () => {
         ]);
     });
 
+    it('answers 409 when another user keeps taking the token mid-register', async () => {
+        const user = await freshUser(env);
+        const other = await freshUser(env);
+        const otherRow = await env.server.stores.user.getByUsername(
+            other.username,
+        );
+        const db = env.server.clients.db;
+        const pread = db.pread.bind(db);
+        let busy = false;
+        // The other user takes the token before each read-back.
+        const spy = vi.spyOn(db, 'pread').mockImplementation(async (q, p) => {
+            if (!busy && q.includes('`token_hash` = ?')) {
+                busy = true;
+                try {
+                    await env.server.stores.pushDevice.register({
+                        userId: otherRow!.id,
+                        sessionUid: 'other-session',
+                        platform: 'web',
+                        token: 'contested-token',
+                    });
+                } finally {
+                    busy = false;
+                }
+            }
+            return pread(q, p);
+        });
+        let res: Response;
+        try {
+            res = await call(env, 'POST', '/push/devices', user.token, {
+                platform: 'web',
+                token: 'contested-token',
+            });
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(res.status).toBe(409);
+        expect(await res.json()).toMatchObject({
+            code: 'push_device_conflict',
+        });
+        expect(await list(user.token)).toHaveLength(0);
+    });
+
     it('drops a device when the session that registered it signs out', async () => {
         const user = await freshUser(env);
         const row = await env.server.stores.user.getByUsername(user.username);

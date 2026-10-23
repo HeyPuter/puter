@@ -22,9 +22,11 @@ import type { Actor } from '../../core/actor.js';
 import { Controller, Delete, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { bodyRecord } from '../../core/http/requestBody.js';
-import type {
-    PushDevice,
-    PushPlatform,
+import {
+    PUSH_DEVICE_LABEL_MAX_LENGTH,
+    PUSH_DEVICE_USER_AGENT_MAX_LENGTH,
+    type PushDevice,
+    type PushPlatform,
 } from '../../stores/push/PushDeviceStore.js';
 import { PuterController } from '../types.js';
 
@@ -34,8 +36,6 @@ const PLATFORMS: ReadonlySet<string> = new Set<PushPlatform>([
     'android',
 ]);
 const TOKEN_MAX_LENGTH = 4096;
-const LABEL_MAX_LENGTH = 64;
-const USER_AGENT_MAX_LENGTH = 256;
 const LIST_LIMIT = 50;
 const WHITESPACE_OR_CONTROL = /[\s\p{Cc}]/u;
 
@@ -108,15 +108,15 @@ export class PushController extends PuterController {
         if (label !== undefined && label !== null && typeof label !== 'string')
             throw badRequest('`label` must be a string');
         const trimmedLabel = typeof label === 'string' ? label.trim() : '';
-        if (trimmedLabel.length > LABEL_MAX_LENGTH) {
+        if (trimmedLabel.length > PUSH_DEVICE_LABEL_MAX_LENGTH) {
             throw badRequest(
-                `\`label\` must be at most ${LABEL_MAX_LENGTH} characters`,
+                `\`label\` must be at most ${PUSH_DEVICE_LABEL_MAX_LENGTH} characters`,
             );
         }
 
         const userAgent = req
             .get('user-agent')
-            ?.slice(0, USER_AGENT_MAX_LENGTH);
+            ?.slice(0, PUSH_DEVICE_USER_AGENT_MAX_LENGTH);
         const device = await this.services.push.registerDevice({
             userId,
             sessionUid,
