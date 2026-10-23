@@ -7150,7 +7150,9 @@ body.myapps-reordering .myapps-tile {
     width: 100%;
     height: 100%;
     /* background-color: var(--dashboard-background); */
-    z-index: 2147483647;
+    /* Above the rows only: below the footer (10) and selection bar (15), and
+       never over the mobile drawer, its scrim or the dashboard's modals. */
+    z-index: 9;
     display: flex;
     justify-content: center;
     align-items: center;
