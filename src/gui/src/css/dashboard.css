@@ -362,9 +362,11 @@ body {
     display: none;
 }
 
-.dashboard-sidebar-collapse-toggle:hover {
-    background: var(--dashboard-hover);
-    color: var(--dashboard-text);
+@media (hover: hover) {
+    .dashboard-sidebar-collapse-toggle:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text);
+    }
 }
 
 /* Collapsed sidebar state. Desktop only: below the drawer breakpoint the
