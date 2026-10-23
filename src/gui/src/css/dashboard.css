@@ -8842,10 +8842,6 @@ body.dashboard-mode .notifications-close-all {
 }
 
 @media (pointer: coarse) {
-    .dashboard-dialog .dashboard-dialog-input.dashboard-token-value {
-        font-size: 16px;
-    }
-
     .dashboard-form-reveal {
         width: 40px;
         height: 40px;
@@ -8955,6 +8951,13 @@ body.dashboard-mode .notifications-close-all {
     min-width: 0;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 13px;
+}
+
+/* 16px, like the other dialog inputs on touch, so iOS doesn't zoom on focus. */
+@media (pointer: coarse) {
+    .dashboard-dialog .dashboard-dialog-input.dashboard-token-value {
+        font-size: 16px;
+    }
 }
 
 .dashboard-token-copy {
