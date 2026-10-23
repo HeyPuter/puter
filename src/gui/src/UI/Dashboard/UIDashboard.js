@@ -228,6 +228,18 @@ async function UIDashboard (options) {
         }
     }
 
+    // Saving a temporary account promotes this session's user in place: the
+    // save prompt goes, and the tabs that leave out cards for a temporary
+    // user (password, email) render again.
+    window.addEventListener('account-saved', () => {
+        $el_window.find('.bento-save-account-warning').remove();
+        for ( const tab of tabs ) {
+            if ( tab.id !== 'account' && tab.id !== 'security' ) continue;
+            $el_window.find(`.dashboard-section-${tab.id}`).html(tab.html());
+            tab.init?.($el_window);
+        }
+    });
+
     // Dispatch 'dashboard-ready' event for extensions
     window.dispatchEvent(new CustomEvent('dashboard-ready', { detail: { window: $el_window } }));
 
