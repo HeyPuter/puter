@@ -222,7 +222,7 @@ describe('NotificationDriver.create', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('rejects an app-actor with 403', async () => {
+    it('rejects an app creating anything but an app message with 403', async () => {
         const { actor } = await makeUser();
         const appActor = makeActor({
             user: actor.user,
@@ -237,7 +237,7 @@ describe('NotificationDriver.create', () => {
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
-    it('rejects a token an app issued with 403', async () => {
+    it('rejects a token an app issued creating another type with 403', async () => {
         const { actor } = await makeUser();
         const issued = asIssuedToken(
             actor,

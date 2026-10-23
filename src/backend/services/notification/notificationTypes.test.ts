@@ -73,6 +73,11 @@ describe('NOTIFICATION_TYPES', () => {
             'notif:app-1:app-user',
         );
 
+        const message = findNotificationType('app.message')!;
+        expect(
+            message.subject({ userUuid: 'user-uuid', appUid: 'app-1' }),
+        ).toBe('notif:app-1:app-user');
+
         // A worker bound to no app has no app to name.
         const worker = findNotificationType('app.worker.deployed')!;
         expect(worker.subject({ userUuid: 'user-uuid', appUid: null })).toBe(
@@ -120,6 +125,15 @@ describe('resolveNotificationWrite', () => {
         expect(() =>
             resolveNotificationWrite('app.events.suspended', ''),
         ).toThrow('requires an app uid');
+    });
+
+    it('requires an app uid for an app message', () => {
+        expect(resolveNotificationWrite('app.message', 'app-1')).toMatchObject(
+            { audience: 'app-user', appScoped: true, groupable: false },
+        );
+        expect(() => resolveNotificationWrite('app.message', null)).toThrow(
+            'requires an app uid',
+        );
     });
 
     it('lets a subscription an account made end without naming an app', () => {

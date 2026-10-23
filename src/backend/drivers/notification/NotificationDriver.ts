@@ -23,11 +23,17 @@ import {
     type UserActor,
 } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { resolveNotifFetch } from '../../services/events/notifFetch.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
 } from '../../services/metering/consts.js';
+import {
+    APP_MESSAGE_RATE_LIMITS,
+    APP_MESSAGE_TYPE,
+    parseAppMessage,
+} from '../../services/notification/appMessage.js';
 import {
     APP_READABLE_AUDIENCES,
     canViewNotification,
@@ -45,6 +51,8 @@ import type { DriverRateLimitConfig } from '../meta.js';
 import { CRUD_CONCURRENT } from '../util/crudLimits.js';
 
 const MAX_SELECT_LIMIT = 200;
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
 
 /** The mailbox slice a call named, in the terms the query takes it. */
 interface MailboxScope {
@@ -52,6 +60,12 @@ interface MailboxScope {
     /** `null` is the rows naming no app; `undefined` is any app. */
     appUid: string | null | undefined;
 }
+
+const typeNotAllowed = (message: string): HttpError =>
+    new HttpError(403, message, {
+        legacyCode: 'forbidden',
+        code: 'notification_type_not_allowed',
+    });
 
 /** Whether a row belongs to the slice, as the same SQL scope selected it. */
 const inScope = (
@@ -82,7 +96,9 @@ const inScope = (
  *   owns the app. `account` rows never reach an actor holding an app, and no
  *   grant changes that. A slice an actor may not see comes back empty rather
  *   than refused — the mailbox is not an oracle.
- * - `create` stays holder-only.
+ * - The holder creates any registered type but `app.message`, silently. An actor
+ *   holding an app creates `app.message` only, for its own user, and it is
+ *   delivered live.
  *
  * `read` and `select` also take an optional `subject` naming one slice
  * (`notif:<appUid>:<audience>`); the two-segment form expands from the actor's
@@ -125,7 +141,7 @@ export class NotificationDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
-        const actor = this.#requireUserActor();
+        const actor = this.#requireActor();
 
         const value = (object.value ?? {}) as Record<string, unknown>;
         const type = value.type;
@@ -143,6 +159,18 @@ export class NotificationDriver extends PuterDriver {
                 `\`value\` may not exceed ${NOTIFICATION_VALUE_MAX_BYTES} bytes`,
                 { legacyCode: 'notification_value_too_large' },
             );
+        }
+
+        if (actor.effectiveApp) {
+            return this.#createAppMessage(
+                actor,
+                actor.effectiveApp.uid,
+                object,
+                value,
+            );
+        }
+        if (type === APP_MESSAGE_TYPE) {
+            throw typeNotAllowed(`Only apps can create ${APP_MESSAGE_TYPE}`);
         }
 
         const appUid = (object.appUid ?? null) as string | null;
@@ -165,23 +193,11 @@ export class NotificationDriver extends PuterDriver {
         // Silent: a driver `create` has never pushed to the live socket, only
         // ever written the row — moving through the registry does not change
         // that.
-        const uid = await this.services.notification.notify(
-            [actor.user.id],
-            value,
-            { type: registeredType, appUid, silent: true },
-        );
-        if (!uid) {
-            throw new HttpError(500, 'Notification could not be created', {
-                legacyCode: 'internal_error',
-            });
-        }
-        // `notify` hands back only the uid; the primary has the rest.
-        return this.#toClient(
-            await this.stores.notification.getByUid(uid, {
-                userId: actor.user.id,
-                primary: true,
-            }),
-        );
+        return this.#write(actor, value, {
+            type: registeredType,
+            appUid,
+            silent: true,
+        });
     }
 
     async read(args: Record<string, unknown>): Promise<unknown> {
@@ -273,6 +289,98 @@ export class NotificationDriver extends PuterDriver {
         return { success: !!ok };
     }
 
+    /**
+     * An app's message to the user it acts for. The recipient and the app are
+     * the actor's, never the caller's to name.
+     */
+    async #createAppMessage(
+        actor: UserActor,
+        appUid: string,
+        object: Record<string, unknown>,
+        value: Record<string, unknown>,
+    ): Promise<unknown> {
+        const { type, ...fields } = value;
+        if (type !== APP_MESSAGE_TYPE) {
+            throw typeNotAllowed(`Apps can create only ${APP_MESSAGE_TYPE}`);
+        }
+        for (const key of Object.keys(object)) {
+            if (key !== 'value') {
+                throw new HttpError(
+                    400,
+                    `\`${key}\` is set by the server for app notifications`,
+                    { legacyCode: 'bad_request', fields: { field: key } },
+                );
+            }
+        }
+        const message = parseAppMessage(fields);
+
+        if (!(await this.#withinAppMessageLimits(actor.user.id, appUid))) {
+            throw new HttpError(429, 'Too many notifications from this app.', {
+                legacyCode: 'too_many_requests',
+            });
+        }
+
+        return this.#write(actor, message, {
+            type: APP_MESSAGE_TYPE,
+            appUid,
+            silent: false,
+        });
+    }
+
+    /** Both windows, each in its own bucket per user and app. */
+    async #withinAppMessageLimits(
+        userId: number,
+        appUid: string,
+    ): Promise<boolean> {
+        const configured = this.config.notificationAppMessageLimits ?? {};
+        const windows: Array<[string, number, number]> = [
+            [
+                'minute',
+                configured.perMinute ?? APP_MESSAGE_RATE_LIMITS.perMinute,
+                MINUTE_MS,
+            ],
+            [
+                'day',
+                configured.perDay ?? APP_MESSAGE_RATE_LIMITS.perDay,
+                DAY_MS,
+            ],
+        ];
+        for (const [name, limit, windowMs] of windows) {
+            if (limit <= 0) continue;
+            const key = `notif:app-message:${name}:${userId}:${appUid}`;
+            if (!(await checkRateLimit(key, limit, windowMs))) return false;
+        }
+        return true;
+    }
+
+    async #write(
+        actor: UserActor,
+        value: Record<string, unknown>,
+        opts: {
+            type: NotificationTypeName;
+            appUid: string | null;
+            silent: boolean;
+        },
+    ): Promise<unknown> {
+        const uid = await this.services.notification.notify(
+            [actor.user.id],
+            value,
+            opts,
+        );
+        if (!uid) {
+            throw new HttpError(500, 'Notification could not be created', {
+                legacyCode: 'internal_error',
+            });
+        }
+        // `notify` hands back only the uid; the primary has the rest.
+        return this.#toClient(
+            await this.stores.notification.getByUid(uid, {
+                userId: actor.user.id,
+                primary: true,
+            }),
+        );
+    }
+
     // -- Permissions -------------------------------------------------
 
     #requireActor(): UserActor {
@@ -285,16 +393,6 @@ export class NotificationDriver extends PuterDriver {
         // would hand an app the account-wide mailbox.
         assertResolvedActor(actor);
         return actor as UserActor;
-    }
-
-    /** Writing a notification stays the holder's, per the token table. */
-    #requireUserActor(): UserActor {
-        const actor = this.#requireActor();
-        if (actor.effectiveApp)
-            throw new HttpError(403, 'App actors cannot create notifications', {
-                legacyCode: 'forbidden',
-            });
-        return actor;
     }
 
     /**
