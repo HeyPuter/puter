@@ -265,8 +265,8 @@ const TabFiles = {
             // Insert at correct sorted position
             _this.insertAtSortedPosition($newRow, file);
 
-            // Apply column widths to match existing rows
-            _this.applyColumnWidths();
+            // Lay it out like the rows already there
+            _this.applyColumnWidthsToRow($newRow);
 
             // Highlight animation to indicate newly added item
             $newRow.addClass('item-newly-added');
@@ -1881,11 +1881,31 @@ const TabFiles = {
 
         const nameCol = nameWidth ? `${nameWidth}px` : 'auto';
         const gridTemplate = `24px ${nameCol} 4px ${sizeWidth}px 4px ${modifiedWidth}px 4px 20px`;
+        this.columnGridTemplate = gridTemplate;
 
         $filesTab.find('.header .columns').css('grid-template-columns', gridTemplate);
         $filesTab.find('.files.files-list-view .row').css('grid-template-columns', gridTemplate);
 
         this.fitItemNames($filesTab.find('.files .row:not(.header) .item-name'));
+    },
+
+    /**
+     * Lays out one added row like the rest of the listing. Restyling every
+     * row instead (applyColumnWidths) makes a burst of adds, such as a move
+     * into the folder, quadratic in the folder's size.
+     *
+     * @param {jQuery} $row
+     * @returns {void}
+     */
+    applyColumnWidthsToRow ($row) {
+        if ( ! this.columnGridTemplate ) {
+            this.applyColumnWidths();
+            return;
+        }
+        if ( $row.closest('.files').hasClass('files-list-view') ) {
+            $row.css('grid-template-columns', this.columnGridTemplate);
+        }
+        this.fitItemNames($row.find('.item-name'));
     },
 
     /**
