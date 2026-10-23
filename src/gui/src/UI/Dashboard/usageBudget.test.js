@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
 
 const info = (allowance, addons = {}) => ({
     monthUsageAllowance: allowance,
@@ -145,5 +145,19 @@ describe('addonCreditsRemaining', () => {
             purchasedCredits: 1_000,
             consumedPurchaseCredits: NaN,
         }))).toBe(1_000);
+    });
+});
+
+describe('monthlyUsageOrThrow', () => {
+    it('passes a usage report through', () => {
+        const res = { usage: { total: 0 }, allowanceInfo: null };
+        expect(monthlyUsageOrThrow(res)).toBe(res);
+    });
+
+    it('throws on an error body instead of reading it as zero usage', () => {
+        expect(() => monthlyUsageOrThrow({ message: 'boom' })).toThrow('boom');
+        expect(() => monthlyUsageOrThrow({ usage: null })).toThrow();
+        expect(() => monthlyUsageOrThrow(null)).toThrow();
+        expect(() => monthlyUsageOrThrow(undefined)).toThrow();
     });
 });

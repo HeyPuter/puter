@@ -19,7 +19,7 @@
 
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { isOrgSeat } from './orgSeat.js';
-import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
 
 // Whether the server reported credits — decides whether the usage surfaces
 // render credits or fall back to dollars.
@@ -293,7 +293,7 @@ function renderUsageTable () {
 }
 
 async function update_usage_details ($el_window) {
-    const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(res => {
+    const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(monthlyUsageOrThrow).then(res => {
         const budget = usageBudget(res.usage, res.allowanceInfo);
         const addonLeft = addonCreditsRemaining(res.allowanceInfo);
         // The server reports credits (already scaled) or raw amounts (no

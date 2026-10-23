@@ -19,7 +19,7 @@
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
-import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
@@ -644,7 +644,7 @@ const TabHome = {
 
         // Load monthly usage data
         try {
-            const res = await puter.auth.getMonthlyUsage();
+            const res = monthlyUsageOrThrow(await puter.auth.getMonthlyUsage());
             const budget = usageBudget(res.usage, res.allowanceInfo);
             const addonLeft = addonCreditsRemaining(res.allowanceInfo);
             // The server reports credits (already scaled) or raw amounts
