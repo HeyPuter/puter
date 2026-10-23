@@ -414,15 +414,17 @@ const generate_file_context_menu = async function (options) {
                     buttons: [
                         {
                             label: i18n('delete'),
+                            value: 'delete',
                             type: 'primary',
                         },
                         {
                             label: i18n('cancel'),
+                            value: 'cancel',
                         },
                     ],
                 });
 
-                if ( (alert_resp) === 'Delete' ) {
+                if ( alert_resp === 'delete' ) {
                     await window.delete_item(el_item);
                     await window.refresh_trash_state();
                 }
