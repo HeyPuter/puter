@@ -45,8 +45,14 @@ import item_icon from '../helpers/itemIcon.js';
 import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
 import { applyToastMark, createNotificationFeed } from '../helpers/notificationFeed.js';
-import { markNotificationAcknowledged } from '../helpers/notificationApi.js';
-import { handleNotificationTap, openAppForTap, setPushTapHandler } from '../helpers/notificationTap.js';
+import { getNotification, markNotificationAcknowledged } from '../helpers/notificationApi.js';
+import {
+    elementsWithData,
+    handleNotificationTap,
+    openAppForTap,
+    setPushTapHandler,
+    storedTapItem,
+} from '../helpers/notificationTap.js';
 import { showLocalBanner, startPushWorker } from '../helpers/pushWorker.js';
 import { get_app_by_uid } from '../helpers/getAppByUid.js';
 import { httpsIconFor, notificationTarget, senderNameFor } from './Dashboard/notificationCenter.js';
@@ -244,22 +250,26 @@ async function UIDesktop (options) {
         };
     };
 
-    /**
-     * A tap on a notification, from a toast or routed by the service worker.
-     * The desktop has no notification list, so other types only clear.
-     */
+    // The desktop has no notification list, so other types only clear.
     const tap_notification = (tap) => handleNotificationTap(tap, {
         share: (notification) => share_notification_click(notification)?.(),
         openApp: (route) => openAppForTap(route, { getApp: get_app_by_uid, launch: launch_app }),
     });
 
-    setPushTapHandler((push) => {
-        $(`.notification[data-uid="${html_encode(push.uid)}"]`).remove();
+    const toasts_for = (uid) => $(elementsWithData($('.notification').get(), 'uid', uid));
+
+    setPushTapHandler(async (push) => {
+        let tap = { uid: push.uid, push };
+        if ( push.stored ) {
+            tap = await storedTapItem(push.uid, getNotification);
+            if ( ! tap ) return;
+        }
+        toasts_for(push.uid).remove();
         update_tab_notif_count_badge();
         void markNotificationAcknowledged(push.uid).catch((err) => {
             console.warn('Could not acknowledge notification:', err);
         });
-        return tap_notification({ uid: push.uid, push });
+        return tap_notification(tap);
     });
     startPushWorker();
 
@@ -273,7 +283,7 @@ async function UIDesktop (options) {
         // A notification can be re-sent under its own uid when what it says has
         // grown — several people sharing with you is one notification that
         // counts them. Refresh the one on screen rather than stacking a copy.
-        const $showing = $(`.notification[data-uid="${html_encode(uid)}"]`);
+        const $showing = toasts_for(uid);
         if ( $showing.length ) {
             $showing.find('.notification-title').text(notification.title);
             $showing.find('.notification-text').text(notification.text ?? '');
@@ -348,7 +358,7 @@ async function UIDesktop (options) {
     // it can't double-render — and the events surface carries only postings,
     // which leaves this the one thing that still dismisses across tabs.
     window.socket.on('notif.ack', ({ uid }) => {
-        $(`.notification[data-uid="${uid}"]`).remove();
+        toasts_for(uid).remove();
         update_tab_notif_count_badge();
     });
 

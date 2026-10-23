@@ -17,46 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * Puter's service worker, served at `/sw.js` with scope `/`. It shows every
- * push as a notification and routes a tap to a Puter window on this origin.
- * No app code runs here; an app hears about a notification when it is tapped.
- *
- * Push payload: the push's data is JSON with the message under a top-level
- * `puter` key, as an object or as that object serialized to a string:
- *
- *     { "puter": { "uid", "title", "body"?, "icon"?, "group"?,
- *                  "target"?: { "app"?: <app uid>, "path"? }, "data"? } }
- *
- * Every push shows a notification, and one that can't be read shows a generic
- * one, because browsers penalize a push that shows nothing. `icon` is used
- * only when it is https or on this origin.
- *
- * Provider scripts: `/sw.js` loads the same-origin scripts extensions register
- * with `PuterHomepageService.registerServiceWorkerScript(path)` through
- * `importScripts`, before the listeners below are added. Puter's push listener
- * shows the notification, so a provider script only delivers the payload.
- *
- * Pages talk to the worker with `postMessage`:
- *
- * - `{ type: 'puter-show-notification', puter: <message> }` from a page shows
- *   that message the way a push would.
- * - `{ type: 'puter-notification-click', notification: { uid, target, data } }`
- *   goes to the Puter window a tap focused. With none open, the tap opens `/`
- *   with the same object as JSON in the `puter.notification` query parameter.
- */
+// Shows each push as a notification and routes taps to a Puter window.
 
 const DEFAULT_TITLE = 'New notification';
 const DEFAULT_ICON = '/favicons/android-icon-192x192.png';
 const SHOW_MESSAGE = 'puter-show-notification';
 const CLICK_MESSAGE = 'puter-notification-click';
+const CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
 const CLICK_PARAM = 'puter.notification';
+const CLICK_ACK_TIMEOUT_MS = 1500;
+const GUI_PATHS = /^\/(?:$|desktop(?:\/|$)|dashboard(?:\/|$)|app\/|settings(?:\/|$)|@)/;
 
 const nonEmptyString = (value) => (
     typeof value === 'string' && value.trim() !== '' ? value : undefined
 );
 
-/** The icon URL to show: https or this origin, else Puter's own. */
 function notificationIcon (icon, origin) {
     const fallback = new URL(DEFAULT_ICON, origin).href;
     if ( ! nonEmptyString(icon) ) return fallback;
@@ -64,12 +39,11 @@ function notificationIcon (icon, origin) {
         const url = new URL(icon, origin);
         if ( url.protocol === 'https:' || url.origin === origin ) return url.href;
     } catch ( _e ) {
-        // unparseable: Puter's own icon
+        // not a URL: Puter's own icon
     }
     return fallback;
 }
 
-/** `{ app?, path? }` with string fields only, or undefined when empty. */
 function pushTarget (target) {
     if ( ! target || typeof target !== 'object' ) return undefined;
     const app = nonEmptyString(target.app);
@@ -78,7 +52,6 @@ function pushTarget (target) {
     return { ...(app ? { app } : {}), ...(path ? { path } : {}) };
 }
 
-/** A message in the payload contract, read field by field with defaults. */
 function normalizeMessage (message, origin) {
     const source = message && typeof message === 'object' ? message : {};
     const uid = nonEmptyString(source.uid);
@@ -101,7 +74,6 @@ function normalizeMessage (message, origin) {
     };
 }
 
-/** The message a push carries under `puter`, or null when it can't be read. */
 function readPushPayload (pushData) {
     let payload;
     try {
@@ -120,7 +92,6 @@ function readPushPayload (pushData) {
     return message && typeof message === 'object' ? message : null;
 }
 
-/** Shows `message`, and the generic notification if that fails. */
 function showMessage (registration, message, origin) {
     const { title, options } = normalizeMessage(message, origin);
     return registration.showNotification(title, options).catch(() => (
@@ -130,7 +101,6 @@ function showMessage (registration, message, origin) {
     ));
 }
 
-/** What a tap hands to Puter: `{ uid, target, data }` from the notification. */
 function clickFromData (data) {
     const source = data && typeof data === 'object' ? data : {};
     return {
@@ -140,33 +110,53 @@ function clickFromData (data) {
     };
 }
 
-/** The page a tap opens when no Puter window is open: always this origin. */
 function clickUrl (click, origin) {
     const url = new URL('/', origin);
-    if ( click && click.uid ) url.searchParams.set(CLICK_PARAM, JSON.stringify(click));
+    if ( click && click.uid ) url.searchParams.set(CLICK_PARAM, click.uid);
     return url.href;
 }
 
-const isSameOrigin = (url, origin) => {
+const sameOriginUrl = (url, origin) => {
     try {
-        return new URL(url).origin === origin;
+        const parsed = new URL(url);
+        return parsed.origin === origin ? parsed : null;
     } catch ( _e ) {
-        return false;
+        return null;
     }
 };
 
-/** The top-level window on this origin a tap should go to, if any. */
+function isGuiWindow (client, origin) {
+    if ( client.frameType === 'nested' ) return false;
+    const url = sameOriginUrl(client.url, origin);
+    return !! url && GUI_PATHS.test(url.pathname) && ! url.searchParams.has('embedded_in_popup');
+}
+
 function pickWindow (windowClients, origin) {
-    const candidates = windowClients.filter((client) => (
-        isSameOrigin(client.url, origin) && client.frameType !== 'nested'
-    ));
+    const candidates = windowClients.filter((client) => isGuiWindow(client, origin));
     return candidates.find((client) => client.focused)
         ?? candidates.find((client) => client.visibilityState === 'visible')
         ?? candidates[0]
         ?? null;
 }
 
-async function routeClick (scope, click) {
+const pendingClickAcks = new Map();
+let nextClickId = 0;
+
+function waitForClickAck (id, timeoutMs) {
+    return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+            pendingClickAcks.delete(id);
+            resolve(false);
+        }, timeoutMs);
+        pendingClickAcks.set(id, () => {
+            clearTimeout(timer);
+            pendingClickAcks.delete(id);
+            resolve(true);
+        });
+    });
+}
+
+async function routeClick (scope, click, timeoutMs = CLICK_ACK_TIMEOUT_MS) {
     const origin = scope.location.origin;
     const windowClients = await scope.clients.matchAll({ type: 'window', includeUncontrolled: true });
     const client = pickWindow(windowClients, origin);
@@ -176,10 +166,25 @@ async function routeClick (scope, click) {
         } catch ( _e ) {
             // focus is best effort; the message still routes the tap
         }
-        client.postMessage({ type: CLICK_MESSAGE, notification: click });
-        return;
+        const id = `click-${++nextClickId}`;
+        const acked = waitForClickAck(id, timeoutMs);
+        client.postMessage({ type: CLICK_MESSAGE, id, notification: click });
+        if ( await acked ) return;
     }
     await scope.clients.openWindow(clickUrl(click, origin));
+}
+
+async function hasVisibleWindow (scope) {
+    const origin = scope.location.origin;
+    const windowClients = await scope.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    return windowClients.some((client) => (
+        sameOriginUrl(client.url, origin) && client.visibilityState === 'visible'
+    ));
+}
+
+async function showPageMessage (scope, message) {
+    if ( await hasVisibleWindow(scope) ) return;
+    await showMessage(scope.registration, message, scope.location.origin);
 }
 
 self.addEventListener('install', () => {
@@ -196,9 +201,12 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('message', (event) => {
     const message = event.data;
-    if ( !message || message.type !== SHOW_MESSAGE ) return;
-    if ( !event.source || !isSameOrigin(event.source.url, self.location.origin) ) return;
-    event.waitUntil(showMessage(self.registration, message.puter, self.location.origin));
+    if ( !message || !event.source || !sameOriginUrl(event.source.url, self.location.origin) ) return;
+    if ( message.type === CLICK_ACK_MESSAGE ) {
+        pendingClickAcks.get(message.id)?.();
+    } else if ( message.type === SHOW_MESSAGE ) {
+        event.waitUntil(showPageMessage(self, message.puter));
+    }
 });
 
 self.addEventListener('notificationclick', (event) => {

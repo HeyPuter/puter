@@ -19,13 +19,16 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-    appClickBroadcast,
+    elementsWithData,
     handleNotificationTap,
     normalizePushTap,
     openAppForTap,
     pushTapFromParams,
+    storedTapItem,
     tapRoute,
 } from './notificationTap.js';
+
+const UID = '0b6a2c1e-6f1d-4a57-9c1e-3d2f8a9b7c10';
 
 const appMessage = (over = {}) => ({
     type: 'app.message',
@@ -49,11 +52,19 @@ describe('tapRoute', () => {
         });
     });
 
-    it("falls back to the row's app uid when the message names none", () => {
-        const route = tapRoute({ uid: 'n1', notification: appMessage({ app: undefined }), appUid: 'app-2' });
-        expect(route.kind).toBe('app');
-        expect(route.appUid).toBe('app-2');
+    it("opens the row's app when the row and the value name different apps", () => {
+        expect(tapRoute({ uid: 'n1', notification: appMessage(), appUid: 'app-row' }).appUid).toBe('app-row');
+    });
+
+    it("uses the value's app only when the row names none", () => {
+        expect(tapRoute({ uid: 'n1', notification: appMessage(), appUid: '' }).appUid).toBe('app-1');
+        expect(tapRoute({ uid: 'n1', notification: appMessage({ app: { uid: '' } }) })).toEqual({ kind: 'panel' });
         expect(tapRoute({ uid: 'n1', notification: appMessage({ app: undefined }) })).toEqual({ kind: 'panel' });
+    });
+
+    it('passes the target to the app only when it is a string', () => {
+        const route = tapRoute({ uid: 'n1', notification: appMessage({ target: { path: '/x' } }) });
+        expect(route.click.target).toBeUndefined();
     });
 
     it('sends shares to the share handling and anything else to the list', () => {
@@ -74,20 +85,57 @@ describe('tapRoute', () => {
     });
 });
 
-describe('normalizePushTap and pushTapFromParams', () => {
+describe('normalizePushTap', () => {
     it('keeps the expected fields and drops the rest', () => {
         expect(normalizePushTap({ uid: 'n1', target: { app: 'a', path: 7, x: 1 }, data: null, extra: 1 }))
             .toEqual({ uid: 'n1', target: { app: 'a' }, data: null });
         expect(normalizePushTap({ uid: '' })).toBeNull();
+        expect(normalizePushTap({ uid: 'x'.repeat(65) })).toBeNull();
         expect(normalizePushTap('n1')).toBeNull();
     });
+});
 
-    it('reads the tap a page was opened for, and nothing from a bad value', () => {
-        const tap = { uid: 'n1', target: { app: 'app-1' } };
-        expect(pushTapFromParams(new URLSearchParams({ 'puter.notification': JSON.stringify(tap) }))).toEqual(tap);
-        expect(pushTapFromParams(new URLSearchParams({ 'puter.notification': '{nope' }))).toBeNull();
+describe('pushTapFromParams', () => {
+    const params = (value) => new URLSearchParams({ 'puter.notification': value });
+
+    it('reads a notification uid, and nothing else, from the URL', () => {
+        expect(pushTapFromParams(params(UID))).toEqual({ uid: UID, stored: true });
+    });
+
+    it('takes nothing that is not a notification uid', () => {
+        expect(pushTapFromParams(params(JSON.stringify({ uid: UID, target: { app: 'a' } })))).toBeNull();
+        expect(pushTapFromParams(params('n1'))).toBeNull();
+        expect(pushTapFromParams(params(`${UID}${'0'.repeat(40)}`))).toBeNull();
         expect(pushTapFromParams(new URLSearchParams())).toBeNull();
         expect(pushTapFromParams(undefined)).toBeNull();
+    });
+});
+
+describe('storedTapItem', () => {
+    it("acts on the user's own row: its value, and the app the row names", async () => {
+        const row = { uid: UID, value: appMessage(), app_uid: 'app-row' };
+        expect(await storedTapItem(UID, async () => row))
+            .toEqual({ uid: UID, notification: appMessage(), appUid: 'app-row' });
+    });
+
+    it('is nothing when the row is not found or names another uid', async () => {
+        expect(await storedTapItem(UID, async () => null)).toBeNull();
+        expect(await storedTapItem(UID, async () => ({ uid: 'other', value: {} }))).toBeNull();
+    });
+});
+
+describe('elementsWithData', () => {
+    const el = (uid) => ({ dataset: { uid } });
+
+    it('matches values a selector could not hold, without throwing', () => {
+        const odd = 'a"b\\c\nd]';
+        const elements = [el('plain'), el(odd), {}];
+        expect(elementsWithData(elements, 'uid', odd)).toEqual([elements[1]]);
+        expect(elementsWithData(elements, 'uid', 'plain')).toEqual([elements[0]]);
+    });
+
+    it('matches nothing for a missing value', () => {
+        expect(elementsWithData([{ dataset: {} }], 'uid', undefined)).toEqual([]);
     });
 });
 
@@ -95,7 +143,7 @@ describe('openAppForTap', () => {
     const click = { uid: 'n1', target: '/rooms/7', data: { room: 7 } };
 
     it('brings a running instance forward and broadcasts notificationClick to it', async () => {
-        const instance = { reveal: vi.fn(), post: vi.fn() };
+        const instance = { reveal: vi.fn(), send: vi.fn() };
         const launch = vi.fn();
         const outcome = await openAppForTap({ appUid: 'app-1', click }, {
             running: () => instance,
@@ -104,7 +152,7 @@ describe('openAppForTap', () => {
         });
         expect(outcome).toBe('broadcast');
         expect(instance.reveal).toHaveBeenCalledOnce();
-        expect(instance.post).toHaveBeenCalledWith({ msg: 'broadcast', name: 'notificationClick', data: click });
+        expect(instance.send).toHaveBeenCalledWith('notificationClick', click);
         expect(launch).not.toHaveBeenCalled();
     });
 
@@ -127,10 +175,6 @@ describe('openAppForTap', () => {
         });
         expect(outcome).toBe('missing');
         expect(launch).not.toHaveBeenCalled();
-    });
-
-    it('builds the broadcast in the shape the SDK reads', () => {
-        expect(appClickBroadcast(click)).toEqual({ msg: 'broadcast', name: 'notificationClick', data: click });
     });
 });
 
@@ -165,13 +209,14 @@ describe('handleNotificationTap', () => {
 
 describe('push tap dispatch', () => {
     it('holds taps until a handler is set, then hands them over in order', async () => {
-        const { dispatchPushTap, setPushTapHandler } = await import('./notificationTap.js');
+        const { dispatchPushTap, dispatchStoredTap, setPushTapHandler } = await import('./notificationTap.js');
         dispatchPushTap({ uid: 'n1' });
         dispatchPushTap({ uid: '' });
-        dispatchPushTap({ uid: 'n2', target: { app: 'app-1' } });
+        dispatchStoredTap({ uid: UID, stored: true });
+        dispatchStoredTap({ uid: UID });
         const handler = vi.fn();
         setPushTapHandler(handler);
-        expect(handler.mock.calls).toEqual([[{ uid: 'n1' }], [{ uid: 'n2', target: { app: 'app-1' } }]]);
+        expect(handler.mock.calls).toEqual([[{ uid: 'n1' }], [{ uid: UID, stored: true }]]);
         dispatchPushTap({ uid: 'n3' });
         expect(handler).toHaveBeenLastCalledWith({ uid: 'n3' });
     });

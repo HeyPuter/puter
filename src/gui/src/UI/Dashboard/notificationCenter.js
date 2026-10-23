@@ -260,11 +260,8 @@ export const senderNameFor = (notification) => {
 };
 
 /**
- * The notification's own image, or its app's, when it is an https URL;
- * anything else shows the default glyph.
- *
  * @param {NotificationPayload} notification
- * @returns {string|null}
+ * @returns {string|null} Its own or its app's icon, when that is an https URL
  */
 export const httpsIconFor = (notification) => {
     for ( const candidate of [notification?.icon, notification?.app?.icon] ) {

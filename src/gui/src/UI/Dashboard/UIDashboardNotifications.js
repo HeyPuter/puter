@@ -19,9 +19,15 @@
 
 import UINotification from '../UINotification.js';
 import { reveal_dashboard } from '../UIWindow.js';
-import { listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
+import { getNotification, listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
 import { applyToastMark, createNotificationFeed } from '../../helpers/notificationFeed.js';
-import { handleNotificationTap, openAppForTap, setPushTapHandler, tapRoute } from '../../helpers/notificationTap.js';
+import {
+    handleNotificationTap,
+    openAppForTap,
+    setPushTapHandler,
+    storedTapItem,
+    tapRoute,
+} from '../../helpers/notificationTap.js';
 import { showLocalBanner, startPushWorker } from '../../helpers/pushWorker.js';
 import { get_app_by_uid } from '../../helpers/getAppByUid.js';
 import launch_app from '../../helpers/launchApp.js';
@@ -486,7 +492,6 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         void handleNotificationTap({ uid: entry.uid, notification: entry.notification, appUid: entry.appUid }, tapSurface);
     };
 
-    /** A tap the service worker routed here; the list knows more than the push did. */
     const actOnPush = async (push) => {
         await reveal_dashboard();
         if ( ! loaded ) await refresh();
@@ -495,10 +500,15 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             actOn(entry);
             return;
         }
+        const tap = push.stored ? await storedTapItem(push.uid, getNotification) : { uid: push.uid, push };
+        if ( ! tap ) {
+            open();
+            return;
+        }
         void acknowledge(push.uid).catch((err) => {
             console.warn('Could not acknowledge notification:', err);
         });
-        await handleNotificationTap({ uid: push.uid, push }, tapSurface);
+        await handleNotificationTap(tap, tapSurface);
     };
 
     // -- Toasts -------------------------------------------------------------

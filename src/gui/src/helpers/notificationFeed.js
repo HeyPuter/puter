@@ -35,11 +35,7 @@ import {
     markNotificationShown,
 } from './notificationApi.js';
 
-/**
- * Every slice of their own mailbox a user session can name. A session's
- * `notif:<audience>` covers that audience's rows whichever app they name, so
- * `notif:app-user` carries app messages too.
- */
+/** A session's own mailbox slices; each covers its audience's rows for every app. */
 export const NOTIFICATION_SUBJECTS = Object.freeze([
     'notif:account',
     'notif:developer',

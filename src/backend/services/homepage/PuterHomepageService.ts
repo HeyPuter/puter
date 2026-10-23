@@ -183,10 +183,7 @@ export class PuterHomepageService extends PuterService {
             this.#workerScripts.push(scriptPath);
     }
 
-    /**
-     * The service worker served at `/sw.js`: the GUI's `sw.js` behind a prelude
-     * that imports the registered scripts. Null without a GUI build.
-     */
+    /** `/sw.js`: the GUI's `sw.js` after one import per registered script. */
     async serviceWorkerSource(): Promise<string | null> {
         const root = this.config.gui_assets_root;
         if (!root) return null;
@@ -203,9 +200,12 @@ export class PuterHomepageService extends PuterService {
             }
             if (env !== 'dev') this.#workerSource = source;
         }
-        if (this.#workerScripts.length === 0) return source;
-        const urls = this.#workerScripts.map((p) => JSON.stringify(p));
-        const prelude = `try { importScripts(${urls.join(', ')}); } catch (e) { console.error('service worker script failed to load', e); }\n`;
+        const prelude = this.#workerScripts
+            .map(
+                (p) =>
+                    `try { importScripts(${JSON.stringify(p)}); } catch (e) { console.error('service worker script failed to load', e); }\n`,
+            )
+            .join('');
         return prelude + source;
     }
 

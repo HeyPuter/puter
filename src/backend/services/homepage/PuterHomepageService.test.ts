@@ -661,19 +661,29 @@ describe('PuterHomepageService service worker', () => {
         ).toBe('// src worker\n');
     });
 
-    it('imports registered scripts ahead of the worker, once each', async () => {
+    it('imports each registered script on its own, once, ahead of the worker', async () => {
         const root = await makeGuiRoot();
         const service = makeService({ gui_assets_root: root });
         service.registerServiceWorkerScript('/ext/a.js');
         service.registerServiceWorkerScript('/ext/b.js?v=2');
         service.registerServiceWorkerScript('/ext/a.js');
         const source = (await service.serviceWorkerSource()) ?? '';
-        const [prelude, ...rest] = source.split('\n');
-        expect(prelude).toContain(
-            'importScripts("/ext/a.js", "/ext/b.js?v=2")',
+        const lines = source.split('\n');
+        expect(lines[0]).toMatch(/^try \{ importScripts\("\/ext\/a\.js"\); \}/);
+        expect(lines[1]).toMatch(
+            /^try \{ importScripts\("\/ext\/b\.js\?v=2"\); \}/,
         );
-        expect(prelude).toMatch(/^try \{/);
-        expect(rest.join('\n')).toBe('// dist worker\n');
+        expect(lines.slice(2).join('\n')).toBe('// dist worker\n');
+
+        // A first script that fails to load leaves the second one loading.
+        const loaded: string[] = [];
+        const importScripts = (url: string) => {
+            if (url === '/ext/a.js') throw new Error('network');
+            loaded.push(url);
+        };
+        const quiet = { error: () => {} };
+        new Function('importScripts', 'console', source)(importScripts, quiet);
+        expect(loaded).toEqual(['/ext/b.js?v=2']);
     });
 
     it('takes only same-origin absolute paths as worker scripts', () => {

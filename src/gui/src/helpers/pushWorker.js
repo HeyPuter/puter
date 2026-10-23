@@ -17,19 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * The GUI's side of the service worker at `/sw.js` (its contract is in
- * `src/sw.js`): registering it where the deployment has push, taking the taps
- * it routes here, and showing a browser notification for what arrives over
- * the socket while this tab is hidden. Notification permission is never
- * asked for here.
- */
+// The page's side of `/sw.js`: registration, routed taps, hidden-tab banners.
 
 import { httpsIconFor, isShareNotification } from '../UI/Dashboard/notificationCenter.js';
-import { APP_MESSAGE_TYPE, dispatchPushTap, pushTapFromParams, PUSH_TAP_PARAM } from './notificationTap.js';
+import { APP_MESSAGE_TYPE, dispatchPushTap, dispatchStoredTap, pushTapFromParams, PUSH_TAP_PARAM } from './notificationTap.js';
+import { clear_query_param } from './parseSharedPath.js';
 
 export const WORKER_URL = '/sw.js';
 export const WORKER_CLICK_MESSAGE = 'puter-notification-click';
+export const WORKER_CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
 export const WORKER_SHOW_MESSAGE = 'puter-show-notification';
 
 /**
@@ -43,10 +39,6 @@ export const pushWorkerEnabled = (params, nav) => (
 );
 
 /**
- * Whether a notification that just arrived over the socket also gets a browser
- * notification: only live ones, while the tab is hidden, with permission
- * already granted.
- *
  * @param {{ replay?: boolean, acknowledged?: boolean, notification?: Object,
  *     visibilityState?: string, permission?: string }} input
  * @returns {boolean}
@@ -64,17 +56,15 @@ export const shouldShowLocalBanner = ({ replay = false, acknowledged = false, no
 const nonEmpty = (value) => (typeof value === 'string' && value.trim() !== '' ? value : undefined);
 
 /**
- * A notification in the push payload shape the worker shows.
- *
  * @param {string} uid
  * @param {Object} notification
- * @param {string|null} [appUid] - The app the row is about, when it names one
- * @returns {Object}
+ * @param {string|null} [appUid] - The app the row names; wins over the value's
+ * @returns {Object} The push payload shape `sw.js` shows
  */
 export const pushMessageFor = (uid, notification, appUid = null) => {
     const message = { uid, group: nonEmpty(notification.group) ?? uid };
     if ( notification.type === APP_MESSAGE_TYPE ) {
-        const app = nonEmpty(notification.app?.uid) ?? nonEmpty(appUid);
+        const app = nonEmpty(appUid) ?? nonEmpty(notification.app?.uid);
         if ( notification.sensitive === true ) {
             return { ...message, title: nonEmpty(notification.app?.name), ...(app ? { target: { app } } : {}) };
         }
@@ -96,20 +86,18 @@ export const pushMessageFor = (uid, notification, appUid = null) => {
 };
 
 /**
- * Show a browser notification for a live arrival when
- * {@link shouldShowLocalBanner} says so. The worker renders it, so a tap on
- * it is routed the same way a push's is.
- *
  * @param {{ uid: string, notification: Object, appUid?: string|null }} item
  * @param {{ replay?: boolean, acknowledged?: boolean }} [meta]
- * @param {{ doc?: Document, nav?: Navigator, NotificationApi?: { permission: string } }} [env]
+ * @param {{ params?: Object, doc?: Document, nav?: Navigator, NotificationApi?: { permission: string } }} [env]
  * @returns {Promise<boolean>} Whether one was handed to the worker
  */
 export const showLocalBanner = async ({ uid, notification, appUid = null }, { replay = false, acknowledged = false } = {}, {
+    params = globalThis.gui_params,
     doc = globalThis.document,
     nav = globalThis.navigator,
     NotificationApi = globalThis.Notification,
 } = {}) => {
+    if ( ! pushWorkerEnabled(params, nav) ) return false;
     if ( ! shouldShowLocalBanner({
         replay,
         acknowledged,
@@ -118,7 +106,7 @@ export const showLocalBanner = async ({ uid, notification, appUid = null }, { re
         permission: NotificationApi?.permission,
     }) ) return false;
     try {
-        const registration = await nav?.serviceWorker?.getRegistration?.('/');
+        const registration = await nav.serviceWorker.getRegistration?.('/');
         const worker = registration?.active;
         if ( ! worker ) return false;
         worker.postMessage({ type: WORKER_SHOW_MESSAGE, puter: pushMessageFor(uid, notification, appUid) });
@@ -129,45 +117,60 @@ export const showLocalBanner = async ({ uid, notification, appUid = null }, { re
     }
 };
 
-/** The page's URL without the tap parameter it was opened with. */
-export const withoutTapParam = (href) => {
-    const url = new URL(href);
-    url.searchParams.delete(PUSH_TAP_PARAM);
-    return url.pathname + url.search + url.hash;
+const isPuterWorker = (registration) => [registration?.active, registration?.waiting, registration?.installing]
+    .some((worker) => {
+        try {
+            return !! worker && new URL(worker.scriptURL).pathname === WORKER_URL;
+        } catch {
+            return false;
+        }
+    });
+
+/** @param {Navigator} nav */
+const unregisterPuterWorker = async (nav) => {
+    try {
+        const registrations = await nav?.serviceWorker?.getRegistrations?.();
+        await Promise.all((registrations ?? []).filter(isPuterWorker).map((r) => r.unregister()));
+    } catch ( err ) {
+        console.warn('Could not unregister the service worker:', err);
+    }
 };
 
 let started = false;
 
 /**
- * Register the worker where push is on, listen for the taps it routes, and
- * hand over the tap this page was opened for. Runs once per page.
- *
- * @param {{ params?: Object, nav?: Navigator, query?: URLSearchParams, loc?: Location,
- *     history?: History, framed?: boolean }} [env]
+ * @param {{ params?: Object, nav?: Navigator, query?: URLSearchParams,
+ *     clearParam?: (name: string) => void, framed?: boolean }} [env]
+ * @returns {Promise<void>}
  */
-export const startPushWorker = ({
+export const startPushWorker = async ({
     params = globalThis.gui_params,
     nav = globalThis.navigator,
     query = globalThis.url_query_params,
-    loc = globalThis.location,
-    history = globalThis.history,
+    clearParam = clear_query_param,
     framed = globalThis.top !== globalThis.self,
 } = {}) => {
     if ( started || framed ) return;
     started = true;
 
-    const opened = pushTapFromParams(query);
-    if ( opened ) {
-        history?.replaceState?.(history.state, '', withoutTapParam(loc.href));
-        dispatchPushTap(opened);
+    if ( query?.has?.(PUSH_TAP_PARAM) ) {
+        const opened = pushTapFromParams(query);
+        clearParam(PUSH_TAP_PARAM);
+        if ( opened ) dispatchStoredTap(opened);
     }
 
-    if ( ! pushWorkerEnabled(params, nav) ) return;
+    if ( ! pushWorkerEnabled(params, nav) ) {
+        await unregisterPuterWorker(nav);
+        return;
+    }
     nav.serviceWorker.addEventListener('message', (event) => {
         if ( event.data?.type !== WORKER_CLICK_MESSAGE ) return;
+        event.source?.postMessage?.({ type: WORKER_CLICK_ACK_MESSAGE, id: event.data.id });
         dispatchPushTap(event.data.notification);
     });
-    nav.serviceWorker.register(WORKER_URL, { scope: '/' }).catch((err) => {
+    try {
+        await nav.serviceWorker.register(WORKER_URL, { scope: '/' });
+    } catch ( err ) {
         console.warn('Could not register the service worker:', err);
-    });
+    }
 };

@@ -20,7 +20,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // The worker is a classic script; run it as one, against a stand-in scope.
 const SOURCE = readFileSync(fileURLToPath(new URL('./sw.js', import.meta.url)), 'utf8');
@@ -47,7 +47,16 @@ const loadWorker = ({ windows = [] } = {}) => {
             openWindow: vi.fn(async () => null),
         },
     };
-    const context = vm.createContext({ URL, JSON, console, self: scope });
+    const context = vm.createContext({
+        URL,
+        JSON,
+        console,
+        Map,
+        Promise,
+        setTimeout: (...args) => globalThis.setTimeout(...args),
+        clearTimeout: (...args) => globalThis.clearTimeout(...args),
+        self: scope,
+    });
     vm.runInContext(SOURCE, context);
 
     /** Run one event through its listener and wait for what it extended. */
@@ -120,23 +129,26 @@ describe('service worker helpers', () => {
         expect(context.normalizeMessage({ uid: 'n2', title: ' ' }, ORIGIN).options.tag).toBe('n2');
     });
 
-    it('opens only this origin, carrying the tap as one parameter', () => {
+    it('opens only this origin, carrying just the notification uid', () => {
         const click = { uid: 'n1', target: { app: 'app-1', path: '//elsewhere.example/x' }, data: 1 };
         const url = new URL(context.clickUrl(click, ORIGIN));
         expect(url.origin).toBe(ORIGIN);
         expect(url.pathname).toBe('/');
-        expect(JSON.parse(url.searchParams.get('puter.notification'))).toEqual(click);
+        expect([...url.searchParams]).toEqual([['puter.notification', 'n1']]);
         expect(context.clickUrl({ uid: undefined }, ORIGIN)).toBe(`${ORIGIN}/`);
     });
 
-    it('picks a top-level window on this origin, focused first', () => {
+    it('picks a top-level GUI window on this origin, focused first', () => {
         const other = windowClient('https://elsewhere.example/', { focused: true });
         const nested = windowClient(`${ORIGIN}/builtin/editor`, { frameType: 'nested', focused: true });
+        const popup = windowClient(`${ORIGIN}/?embedded_in_popup=true`, { focused: true });
+        const action = windowClient(`${ORIGIN}/action/login`, { focused: true });
         const background = windowClient(`${ORIGIN}/`);
         const focused = windowClient(`${ORIGIN}/desktop`, { focused: true });
-        expect(context.pickWindow([other, nested, background, focused], ORIGIN)).toBe(focused);
-        expect(context.pickWindow([other, nested, background], ORIGIN)).toBe(background);
-        expect(context.pickWindow([other, nested], ORIGIN)).toBeNull();
+        expect(context.pickWindow([other, nested, popup, action, background, focused], ORIGIN)).toBe(focused);
+        expect(context.pickWindow([other, nested, popup, action, background], ORIGIN)).toBe(background);
+        expect(context.pickWindow([other, nested, popup, action], ORIGIN)).toBeNull();
+        expect(context.pickWindow([windowClient(`${ORIGIN}/app/editor`)], ORIGIN)).not.toBeNull();
     });
 });
 
@@ -170,6 +182,23 @@ describe('service worker push', () => {
         expect(worker.shown).toEqual([{ title: 'New notification', options: { icon: DEFAULT_ICON } }]);
     });
 
+    it('shows a page\'s message only while no Puter window is visible', async () => {
+        const visible = loadWorker({ windows: [windowClient(`${ORIGIN}/desktop`, { visibilityState: 'visible' })] });
+        await visible.fire('message', {
+            data: { type: 'puter-show-notification', puter: { uid: 'n1', title: 'Hi' } },
+            source: { url: `${ORIGIN}/` },
+        });
+        expect(visible.shown).toEqual([]);
+        expect(visible.scope.clients.matchAll).toHaveBeenCalledWith({ type: 'window', includeUncontrolled: true });
+
+        const otherOrigin = loadWorker({ windows: [windowClient('https://elsewhere.example/', { visibilityState: 'visible' })] });
+        await otherOrigin.fire('message', {
+            data: { type: 'puter-show-notification', puter: { uid: 'n1', title: 'Hi' } },
+            source: { url: `${ORIGIN}/` },
+        });
+        expect(otherOrigin.shown.map((n) => n.title)).toEqual(['Hi']);
+    });
+
     it('shows a page\'s message from this origin and ignores other messages', async () => {
         const worker = loadWorker();
         await worker.fire('message', {
@@ -188,19 +217,52 @@ describe('service worker push', () => {
 
 describe('service worker notificationclick', () => {
     const tapped = (data) => ({ notification: { data, close: vi.fn() } });
+    const CLICK = { uid: 'n1', target: { app: 'app-1', path: '/rooms/7' }, data: { room: 7 } };
 
-    it('focuses an open Puter window and posts it the tap', async () => {
-        const win = windowClient(`${ORIGIN}/`);
-        const worker = loadWorker({ windows: [win] });
-        const event = tapped({ uid: 'n1', target: { app: 'app-1', path: '/rooms/7' }, data: { room: 7 } });
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    /** A window whose page answers the worker's tap message. */
+    const answeringWindow = (worker, url) => {
+        const win = windowClient(url);
+        win.postMessage.mockImplementation((message) => {
+            worker.listeners.message({
+                data: { type: 'puter-notification-click-ack', id: message.id },
+                source: { url },
+                waitUntil: () => {},
+            });
+        });
+        return win;
+    };
+
+    it('focuses an open Puter window and posts it the tap, which it acknowledges', async () => {
+        const worker = loadWorker();
+        const win = answeringWindow(worker, `${ORIGIN}/`);
+        worker.scope.clients.matchAll.mockResolvedValue([win]);
+        const event = tapped(CLICK);
         await worker.fire('notificationclick', event);
         expect(event.notification.close).toHaveBeenCalled();
         expect(win.focus).toHaveBeenCalled();
         expect(win.postMessage).toHaveBeenCalledWith({
             type: 'puter-notification-click',
-            notification: { uid: 'n1', target: { app: 'app-1', path: '/rooms/7' }, data: { room: 7 } },
+            id: expect.any(String),
+            notification: CLICK,
         });
         expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
+    });
+
+    it('opens Puter when the window does not acknowledge the tap in time', async () => {
+        vi.useFakeTimers();
+        const win = windowClient(`${ORIGIN}/`);
+        const worker = loadWorker({ windows: [win] });
+        const done = worker.fire('notificationclick', tapped(CLICK));
+        await vi.advanceTimersByTimeAsync(1499);
+        expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        await done;
+        expect(win.postMessage).toHaveBeenCalled();
+        expect(worker.scope.clients.openWindow).toHaveBeenCalledWith(`${ORIGIN}/?puter.notification=n1`);
     });
 
     it('opens Puter on this origin when no window of its own is open', async () => {
@@ -208,8 +270,7 @@ describe('service worker notificationclick', () => {
         await worker.fire('notificationclick', tapped({ uid: 'n1', target: { path: '/alice/Shared/a.txt' } }));
         const [url] = worker.scope.clients.openWindow.mock.calls[0];
         expect(new URL(url).origin).toBe(ORIGIN);
-        expect(JSON.parse(new URL(url).searchParams.get('puter.notification')))
-            .toEqual({ uid: 'n1', target: { path: '/alice/Shared/a.txt' } });
+        expect(new URL(url).searchParams.get('puter.notification')).toBe('n1');
     });
 
     it('opens the desktop for a notification that carries nothing', async () => {

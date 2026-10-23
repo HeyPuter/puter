@@ -23,7 +23,6 @@ import {
     pushWorkerEnabled,
     shouldShowLocalBanner,
     showLocalBanner,
-    withoutTapParam,
 } from './pushWorker.js';
 
 afterEach(() => {
@@ -103,16 +102,31 @@ describe('pushMessageFor', () => {
         });
     });
 
-    it("uses the row's app uid when the message names none", () => {
+    it("uses the row's app uid over the one the message names", () => {
         expect(pushMessageFor('n1', { type: 'app.message', title: 't' }, 'app-9').target).toEqual({ app: 'app-9' });
+        expect(pushMessageFor('n1', { type: 'app.message', title: 't', app: { uid: 'app-b' } }, 'app-a').target)
+            .toEqual({ app: 'app-a' });
+        expect(pushMessageFor('n1', { type: 'app.message', title: 't', app: { uid: 'app-b' } }, '').target)
+            .toEqual({ app: 'app-b' });
     });
 });
 
 describe('showLocalBanner', () => {
-    const env = ({ visibilityState = 'hidden', permission = 'granted', active = { postMessage: vi.fn() } } = {}) => ({
+    const env = ({
+        visibilityState = 'hidden',
+        permission = 'granted',
+        active = { postMessage: vi.fn() },
+        pushEnabled = true,
+    } = {}) => ({
+        params: { pushEnabled },
         doc: { visibilityState },
         NotificationApi: { permission },
-        nav: { serviceWorker: { getRegistration: vi.fn(async () => (active ? { active } : undefined)) } },
+        nav: {
+            serviceWorker: {
+                register: vi.fn(),
+                getRegistration: vi.fn(async () => (active ? { active } : undefined)),
+            },
+        },
         active,
     });
 
@@ -138,6 +152,12 @@ describe('showLocalBanner', () => {
 
         expect(await showLocalBanner({ uid: 'n1', notification: share }, {}, env({ active: null }))).toBe(false);
     });
+
+    it('hands nothing over where push is off for the deployment', async () => {
+        const off = env({ pushEnabled: false });
+        expect(await showLocalBanner({ uid: 'n1', notification: share }, {}, off)).toBe(false);
+        expect(off.nav.serviceWorker.getRegistration).not.toHaveBeenCalled();
+    });
 });
 
 describe('pushWorkerEnabled', () => {
@@ -151,12 +171,15 @@ describe('pushWorkerEnabled', () => {
 });
 
 describe('startPushWorker', () => {
-    const makeNav = () => {
+    const UID = '0b6a2c1e-6f1d-4a57-9c1e-3d2f8a9b7c10';
+
+    const makeNav = (registrations = []) => {
         const listeners = {};
         return {
             listeners,
             serviceWorker: {
                 register: vi.fn(async () => ({})),
+                getRegistrations: vi.fn(async () => registrations),
                 addEventListener: vi.fn((type, fn) => {
                     listeners[type] = fn;
                 }),
@@ -170,52 +193,73 @@ describe('startPushWorker', () => {
         return { ...worker, ...tap };
     };
 
-    it('registers /sw.js at the root scope and routes its taps', async () => {
-        const { startPushWorker, setPushTapHandler } = await load();
+    const start = (mod, over) => mod.startPushWorker({
+        params: { pushEnabled: true },
+        query: new URLSearchParams(),
+        clearParam: vi.fn(),
+        framed: false,
+        ...over,
+    });
+
+    it('registers /sw.js at the root scope, acks its taps and routes them', async () => {
+        const mod = await load();
         const handler = vi.fn();
-        setPushTapHandler(handler);
+        mod.setPushTapHandler(handler);
         const nav = makeNav();
-        startPushWorker({ params: { pushEnabled: true }, nav, query: new URLSearchParams(), framed: false });
+        await start(mod, { nav });
         expect(nav.serviceWorker.register).toHaveBeenCalledWith('/sw.js', { scope: '/' });
 
-        nav.listeners.message({ data: { type: 'other', notification: { uid: 'x' } } });
-        nav.listeners.message({ data: { type: 'puter-notification-click', notification: { uid: 'n1', target: { app: 'a' } } } });
+        const source = { postMessage: vi.fn() };
+        nav.listeners.message({ data: { type: 'other', notification: { uid: 'x' } }, source });
+        nav.listeners.message({
+            data: { type: 'puter-notification-click', id: 'click-1', notification: { uid: 'n1', target: { app: 'a' } } },
+            source,
+        });
+        expect(source.postMessage.mock.calls).toEqual([[{ type: 'puter-notification-click-ack', id: 'click-1' }]]);
         expect(handler.mock.calls).toEqual([[{ uid: 'n1', target: { app: 'a' } }]]);
     });
 
-    it('registers nothing where push is off, or inside a frame', async () => {
-        const off = await load();
+    it('registers nothing inside a frame', async () => {
         const nav = makeNav();
-        off.startPushWorker({ params: { pushEnabled: false }, nav, query: new URLSearchParams(), framed: false });
-        expect(nav.serviceWorker.register).not.toHaveBeenCalled();
-
-        vi.resetModules();
-        const framed = await load();
-        framed.startPushWorker({ params: { pushEnabled: true }, nav, query: new URLSearchParams(), framed: true });
+        await start(await load(), { nav, framed: true });
         expect(nav.serviceWorker.register).not.toHaveBeenCalled();
     });
 
-    it('hands over the tap a page was opened for and takes it off the URL', async () => {
-        const { startPushWorker, setPushTapHandler } = await load();
+    it('unregisters an existing /sw.js where push is off, and registers nothing', async () => {
+        const puter = { active: { scriptURL: 'https://puter.test/sw.js' }, unregister: vi.fn(async () => true) };
+        const other = { active: { scriptURL: 'https://puter.test/other.js' }, unregister: vi.fn() };
+        const nav = makeNav([puter, other]);
+        await start(await load(), { nav, params: { pushEnabled: false } });
+        expect(nav.serviceWorker.register).not.toHaveBeenCalled();
+        expect(puter.unregister).toHaveBeenCalledOnce();
+        expect(other.unregister).not.toHaveBeenCalled();
+    });
+
+    it('hands over the notification uid a page was opened for and clears it', async () => {
+        const mod = await load();
         const handler = vi.fn();
-        setPushTapHandler(handler);
-        const tap = { uid: 'n1', target: { path: '/alice/Shared/a.txt' } };
-        const history = { state: null, replaceState: vi.fn() };
-        startPushWorker({
-            params: {},
+        mod.setPushTapHandler(handler);
+        const clearParam = vi.fn();
+        await start(mod, {
             nav: makeNav(),
-            query: new URLSearchParams({ 'puter.notification': JSON.stringify(tap) }),
-            loc: { href: `https://puter.test/?puter.notification=${encodeURIComponent(JSON.stringify(tap))}&x=1#files` },
-            history,
-            framed: false,
+            query: new URLSearchParams({ 'puter.notification': UID }),
+            clearParam,
         });
-        expect(handler).toHaveBeenCalledWith(tap);
-        expect(history.replaceState).toHaveBeenCalledWith(null, '', '/?x=1#files');
+        expect(clearParam).toHaveBeenCalledWith('puter.notification');
+        expect(handler).toHaveBeenCalledWith({ uid: UID, stored: true });
     });
-});
 
-describe('withoutTapParam', () => {
-    it('keeps the path, other parameters and the hash', () => {
-        expect(withoutTapParam('https://puter.test/app/x?puter.notification=%7B%7D&a=1#h')).toBe('/app/x?a=1#h');
+    it('clears a malformed parameter and hands nothing over', async () => {
+        const mod = await load();
+        const handler = vi.fn();
+        mod.setPushTapHandler(handler);
+        const clearParam = vi.fn();
+        await start(mod, {
+            nav: makeNav(),
+            query: new URLSearchParams({ 'puter.notification': JSON.stringify({ uid: UID }) }),
+            clearParam,
+        });
+        expect(clearParam).toHaveBeenCalledWith('puter.notification');
+        expect(handler).not.toHaveBeenCalled();
     });
 });
