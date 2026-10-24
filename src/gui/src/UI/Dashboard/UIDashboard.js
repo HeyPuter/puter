@@ -228,16 +228,21 @@ async function UIDashboard (options) {
         }
     }
 
-    // Saving a temporary account promotes this session's user in place: the
-    // save prompt goes, and the tabs that leave out cards for a temporary
-    // user (password, email) render again.
-    window.addEventListener('account-saved', () => {
-        $el_window.find('.bento-save-account-warning').remove();
+    // Account and Security decide some cards from the account's state when
+    // they render (password and email for a temporary user, the token
+    // button and 2FA for an unconfirmed email).
+    const rerender_account_tabs = () => {
         for ( const tab of tabs ) {
             if ( tab.id !== 'account' && tab.id !== 'security' ) continue;
             $el_window.find(`.dashboard-section-${tab.id}`).html(tab.html());
             tab.init?.($el_window);
         }
+    };
+
+    // Saving a temporary account promotes this session's user in place.
+    window.addEventListener('account-saved', () => {
+        $el_window.find('.bento-save-account-warning').remove();
+        rerender_account_tabs();
     });
 
     // Dispatch 'dashboard-ready' event for extensions
@@ -283,6 +288,13 @@ async function UIDashboard (options) {
 
     window.socket.on('reconnect_failed', () => {
         console.log('Dashboard Socket: Reconnection Failed');
+    });
+
+    // Confirming the email, here or in another tab, enables the token button
+    // and the 2FA card.
+    window.socket.on('user.email_confirmed', async () => {
+        await window.refresh_user_data(window.auth_token);
+        rerender_account_tabs();
     });
 
     // Upload/download progress tracking
