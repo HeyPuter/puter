@@ -125,6 +125,13 @@ describe('change username', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
+    it("doesn't post the name the account already has", async () => {
+        dialogs.openChangeUsernameDialog();
+        await submitWith({ username: 'Alice', password: 'pw' });
+        expect(status()).toBe('username_unchanged');
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
     it('renames the user everywhere on success', async () => {
         document.body.innerHTML = '<span class="username">alice</span>';
         fetch.mockResolvedValueOnce(reply(200));
@@ -167,6 +174,13 @@ describe('change password', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
+    it("doesn't post a new password that is the current one", async () => {
+        open();
+        await submitWith({ current: 'Strong1!pass', next: 'Strong1!pass', confirm: 'Strong1!pass' });
+        expect(status()).toBe('password_unchanged');
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
     it('posts the current and new password and confirms the change', async () => {
         fetch.mockResolvedValueOnce(reply(200));
         open();
@@ -201,6 +215,13 @@ describe('change email', () => {
         expect($('.dashboard-form-done p').text()).toBe('email_change_confirmation_sent');
         // Unconfirmed until the emailed link is followed.
         expect(window.user.email).toBe('alice@example.com');
+    });
+
+    it("doesn't post the address the account already has", async () => {
+        dialogs.openChangeEmailDialog();
+        await submitWith({ email: ' Alice@Example.com ', password: 'pw' });
+        expect(status()).toBe('email_unchanged');
+        expect(fetch).not.toHaveBeenCalled();
     });
 
     it('leaves the code out for an account without 2FA', async () => {

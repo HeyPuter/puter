@@ -146,6 +146,11 @@ export function openChangeUsernameDialog (opts = {}) {
                 dialog.setStatus(t('all_fields_required'), { field: 'username' });
                 return;
             }
+            // The server would call it taken, and count the password try.
+            if ( new_username.toLowerCase() === String(window.user?.username).toLowerCase() ) {
+                dialog.setStatus(t('username_unchanged'), { field: 'username' });
+                return;
+            }
             if ( ! isOidcOnly() && ! password ) {
                 dialog.setStatus(t('all_fields_required'), { field: 'password' });
                 return;
@@ -209,6 +214,11 @@ export function openChangePasswordDialog (opts = {}) {
                 dialog.setStatus(t('passwords_do_not_match'), { field: 'confirm' });
                 return;
             }
+            // It would go through, and sign every other session out for nothing.
+            if ( current && next === current ) {
+                dialog.setStatus(t('password_unchanged'), { field: 'next' });
+                return;
+            }
             if ( ! check_password_strength(next).overallPass ) {
                 dialog.setStatus(t('password_strength_error'), { field: 'next' });
                 return;
@@ -258,6 +268,12 @@ export function openChangeEmailDialog (opts = {}) {
             const new_email = email.trim();
             if ( ! new_email ) {
                 dialog.setStatus(t('all_fields_required'), { field: 'email' });
+                return;
+            }
+            // The server would accept it: mail the same inbox, and unlink any
+            // sign-in provider once confirmed.
+            if ( new_email.toLowerCase() === String(window.user?.email).toLowerCase() ) {
+                dialog.setStatus(t('email_unchanged'), { field: 'email' });
                 return;
             }
             if ( ! isOidcOnly() && ! password ) {
