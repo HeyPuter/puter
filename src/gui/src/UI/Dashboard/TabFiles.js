@@ -846,7 +846,7 @@ const TabFiles = {
 
             // When a context menu is open, yield control to keyboard.js
             if ( $('.context-menu').length > 0 ) {
-                if ( (e.which >= 37 && e.which <= 40) || e.which === 13 || e.which === 27 ) {
+                if ( (e.which >= 33 && e.which <= 40) || e.which === 13 || e.which === 27 ) {
                     return;
                 }
                 if ( !e.ctrlKey && !e.metaKey && e.key.length === 1 ) {
@@ -1077,16 +1077,16 @@ const TabFiles = {
                 return false;
             }
 
-            // Arrow keys - Navigate items
-            if ( e.which >= 37 && e.which <= 40 ) {
+            // Arrow keys, Home/End and PageUp/PageDown - Navigate items
+            if ( e.which >= 33 && e.which <= 40 ) {
                 e.preventDefault();
                 e.stopPropagation();
 
                 if ( $allRows.length === 0 ) return false;
 
-                // If nothing selected, select first item
+                // If nothing selected, select first item (End: the last)
                 if ( $selectedRows.length === 0 ) {
-                    const $first = $allRows.first();
+                    const $first = e.which === 35 ? $allRows.last() : $allRows.first();
                     $first.addClass('selected');
                     window.active_element = $first.get(0);
                     window.latest_selected_item = $first.get(0);
@@ -1128,6 +1128,22 @@ const TabFiles = {
                     case 40: // Down
                         nextIndex = Math.min($allRows.length - 1, currentIndex + cols);
                         break;
+                    case 36: // Home
+                        nextIndex = 0;
+                        break;
+                    case 35: // End
+                        nextIndex = $allRows.length - 1;
+                        break;
+                    case 33: // PageUp
+                    case 34: { // PageDown
+                        // A screenful of rows, whole rows of the grid.
+                        const rowHeight = $allRows.eq(0).outerHeight(true) || 1;
+                        const page = cols * Math.max(1, Math.floor($container.get(0).clientHeight / rowHeight));
+                        nextIndex = e.which === 33
+                            ? Math.max(0, currentIndex - page)
+                            : Math.min($allRows.length - 1, currentIndex + page);
+                        break;
+                    }
                 }
 
                 if ( nextIndex !== currentIndex ) {
