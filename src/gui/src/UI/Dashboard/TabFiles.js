@@ -288,12 +288,18 @@ const TabFiles = {
                 return;
             }
 
+            // A weblink's or app's icon is read from the file. Another folder
+            // may have opened meanwhile, or the row arrived another way.
+            const icon = await item_icon(file);
+            if ( _this.renderingDirectory || _this.currentPath !== parentDir ) return;
+            if ( _this.$el_window.find(`.files-tab .files .item[data-uid='${file.uid}']`).length > 0 ) return;
+
             // If the directory was empty, drop the "No files in this directory."
             // placeholder before inserting the first real row — otherwise it
             // stays and overlaps the new item.
             _this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row):not(.tabfiles-selection-area)').remove();
 
-            await _this.renderItem(file);
+            await _this.renderItem(file, icon);
 
             // Get the newly appended row (it's always last after renderItem)
             const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${file.uid}']`);
