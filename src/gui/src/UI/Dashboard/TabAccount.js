@@ -97,7 +97,8 @@ const TabAccount = {
                     ? i18n('username_set_by_team', { team })
                     : i18n('username_set_by_team_generic')
             }</span>`;
-        } else {
+        } else if ( ! window.user.is_temp ) {
+            // A temporary account can't change it until it is saved.
             h += `<button class="button change-username">${i18n('change_username')}</button>`;
         }
         h += '</div>';
