@@ -296,3 +296,25 @@ describe('TabFiles New Folder', () => {
         expect($(last.data).attr('data-path')).toBe('/alice/Documents/New Folder');
     });
 });
+
+describe('TabFiles.moveClipboardItems', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.actions_history = [{ operation: 'upload', data: ['/alice/Documents/notes.txt'] }];
+        window.clipboard = [{ path: '/alice/Documents/a.txt', uid: 'a1' }];
+        window.puter = { fs: { move: vi.fn(async () => ({
+            moved: { uid: 'a1', name: 'a.txt', path: '/alice/Pictures/a.txt', is_dir: false },
+        })) } };
+    });
+
+    it('is what Undo takes back, not the upload before it', async () => {
+        await TabFiles.moveClipboardItems('/alice/Pictures');
+
+        const last = window.actions_history.at(-1);
+        expect(last.operation).toBe('move');
+        expect(last.data).toEqual([expect.objectContaining({
+            original_path: '/alice/Documents/a.txt',
+            options: expect.objectContaining({ uid: 'a1', path: '/alice/Pictures/a.txt' }),
+        })]);
+    });
+});

@@ -4040,6 +4040,8 @@ const TabFiles = {
 
         const multiple_items = window.clipboard.length > 1;
         const moved_item_paths = [];
+        // In the shape the desktop's move_items records, for undo_move.
+        const moved_items = [];
         // Set once the user picks "Replace all" on a conflict; later items
         // then overwrite without asking again.
         let overwrite_all = false;
@@ -4065,6 +4067,13 @@ const TabFiles = {
                     // with "Keep Both" it differs from the source's name.
                     if ( resp?.moved?.path ) {
                         moved_item_paths.push(resp.moved.path);
+                        if ( item.path ) {
+                            const { uid, path: movedPath, name, is_dir } = resp.moved;
+                            moved_items.push({
+                                options: { uid, path: movedPath, name, is_dir, icon: await item_icon(resp.moved) },
+                                original_path: item.path,
+                            });
+                        }
                     }
                 } catch ( err ) {
                     // Same conflict resolution as the desktop's move_items:
@@ -4094,6 +4103,9 @@ const TabFiles = {
         }
 
         window.clipboard = [];
+        if ( moved_items.length > 0 ) {
+            window.actions_history.push({ operation: 'move', data: moved_items });
+        }
         return moved_item_paths;
     },
 
