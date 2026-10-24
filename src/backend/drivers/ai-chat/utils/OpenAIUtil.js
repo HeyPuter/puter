@@ -170,7 +170,12 @@ const hoistToolUseBlocks = (
             type: 'function',
             function: {
                 name: block.name,
-                arguments: JSON.stringify(block.input),
+                // A replayed OpenAI-shaped call arrives with `input` already
+                // serialized; encoding it again sends a JSON string literal.
+                arguments:
+                    typeof block.input === 'string'
+                        ? block.input
+                        : JSON.stringify(block.input),
             },
             ...(extraContent && block.extra_content
                 ? { extra_content: block.extra_content }
