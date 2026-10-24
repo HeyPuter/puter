@@ -352,7 +352,9 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             if ( notes.length ) via += `<span>${notes.join(' · ')}</span>`;
             if ( can_add_to_all ) {
                 via += `<button type="button" class="share-modal-row-link" data-key="${key}"
-                    aria-label="${i18n('share_add_to_all_for', { recipient: group.name, count: missing })}"
+                    aria-label="${missing === 1
+                        ? i18n('share_add_to_all_for_one', { recipient: group.name })
+                        : i18n('share_add_to_all_for', { recipient: group.name, count: missing })}"
                     >${i18n('share_add_to_all')}</button>`;
             }
             via += '</span>';

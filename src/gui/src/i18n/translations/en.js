@@ -540,6 +540,7 @@ const en = {
         share_add_to_all: 'Add to all',
         share_add_to_all_for:
             'Give {{recipient}} access to the other {{count}} items',
+        share_add_to_all_for_one: 'Give {{recipient}} access to the other item',
         share_inherited_via_count: 'via {{count}} folders',
         share_no_one_items: 'None of these items are shared yet.',
         share_failed_items: 'Could not share these items.',
