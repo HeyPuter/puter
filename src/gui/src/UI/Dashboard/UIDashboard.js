@@ -878,15 +878,15 @@ async function UIDashboard (options) {
                     // Check for open windows
                     if ( $('.window-app').length > 0 ) {
                         const alert_resp = await UIAlert({
-                            message: `<p>${i18n('confirm_open_apps_log_out')}</p>`,
+                            message: `<p>${i18n('confirm_open_apps_log_out', [], false)}</p>`,
                             buttons: [
                                 {
-                                    label: i18n('close_all_windows_and_log_out'),
+                                    label: i18n('close_all_windows_and_log_out', [], false),
                                     value: 'close_and_log_out',
                                     type: 'primary',
                                 },
                                 {
-                                    label: i18n('cancel'),
+                                    label: i18n('cancel', [], false),
                                 },
                             ],
                         });

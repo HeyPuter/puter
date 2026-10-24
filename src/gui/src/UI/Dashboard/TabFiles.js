@@ -934,10 +934,10 @@ const TabFiles = {
                     if ( trashedItems.length > 0 ) {
                         // Permanent delete with confirmation
                         const alert_resp = await UIAlert({
-                            message: i18n('confirm_delete_multiple_items'),
+                            message: i18n('confirm_delete_multiple_items', [], false),
                             buttons: [
-                                { label: i18n('delete'), value: 'delete', type: 'primary' },
-                                { label: i18n('cancel'), value: 'cancel' },
+                                { label: i18n('delete', [], false), value: 'delete', type: 'primary' },
+                                { label: i18n('cancel', [], false), value: 'cancel' },
                             ],
                         });
                         if ( alert_resp === 'delete' ) {
@@ -1663,10 +1663,10 @@ const TabFiles = {
 
             if ( anyTrashed ) {
                 const confirmed = await UIAlert({
-                    message: i18n('confirm_delete_multiple_items'),
+                    message: i18n('confirm_delete_multiple_items', [], false),
                     buttons: [
-                        { label: i18n('delete'), value: 'delete', type: 'primary' },
-                        { label: i18n('cancel'), value: 'cancel' },
+                        { label: i18n('delete', [], false), value: 'delete', type: 'primary' },
+                        { label: i18n('cancel', [], false), value: 'cancel' },
                     ],
                 });
                 if ( confirmed === 'delete' ) {
@@ -2538,7 +2538,7 @@ const TabFiles = {
                 _this.renderEmptyPlaceholderIfNeeded();
                 _this.updateFooterStats();
                 if ( err?.code === 'directory_depth_limit_exceeded' ) {
-                    UIAlert({ message: i18n('directory_depth_limit_exceeded') });
+                    UIAlert({ message: i18n('directory_depth_limit_exceeded', [], false) });
                 } else if ( err?.message ) {
                     UIAlert(err.message);
                 }
@@ -3999,10 +3999,10 @@ const TabFiles = {
         return UIAlert({
             message: i18n('item_already_exists', [name], false),
             buttons: [
-                { label: i18n('replace'), type: 'primary', value: 'replace' },
-                ... multiple ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
-                { label: i18n('keep_both'), value: 'keep_both' },
-                ... multiple ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
+                { label: i18n('replace', [], false), type: 'primary', value: 'replace' },
+                ... multiple ? [{ label: i18n('replace_all', [], false), value: 'replace_all' }] : [],
+                { label: i18n('keep_both', [], false), value: 'keep_both' },
+                ... multiple ? [{ label: i18n('skip', [], false), value: 'skip' }] : [{ label: i18n('cancel', [], false), value: 'cancel' }],
             ],
         });
     },
@@ -4756,10 +4756,10 @@ const TabFiles = {
                 html: i18n('delete_permanently'),
                 onClick: async function () {
                     const confirmed = await UIAlert({
-                        message: i18n('confirm_delete_multiple_items'),
+                        message: i18n('confirm_delete_multiple_items', [], false),
                         buttons: [
-                            { label: i18n('delete'), value: 'delete', type: 'primary' },
-                            { label: i18n('cancel'), value: 'cancel' },
+                            { label: i18n('delete', [], false), value: 'delete', type: 'primary' },
+                            { label: i18n('cancel', [], false), value: 'cancel' },
                         ],
                     });
                     if ( confirmed === 'delete' ) {
