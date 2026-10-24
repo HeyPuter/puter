@@ -48,6 +48,20 @@ import parse_item_metadata from '../../helpers/parseItemMetadata.js';
 const { html_encode, SelectionArea } = window;
 
 /**
+ * `p` with the folder `from` (itself, or anything under it) moved to `to`;
+ * any other path, or a non-string, comes back as it was.
+ *
+ * @param {string} p
+ * @param {string} from
+ * @param {string} to
+ * @returns {string}
+ */
+export function rebasePath (p, from, to) {
+    if ( typeof p !== 'string' ) return p;
+    return p === from || p.startsWith(`${from}/`) ? to + p.slice(from.length) : p;
+}
+
+/**
  * The alert for an upload some of whose items failed, one item per line,
  * or null when the error names none. Unencoded: UIAlert encodes the message
  * itself, apart from <p>, <strong> and <br>.
@@ -644,11 +658,8 @@ const TabFiles = {
         window.addEventListener('username-changed', ({ detail }) => {
             const oldHome = `/${detail.oldUsername}`;
             const newHome = `/${detail.newUsername}`;
-            const rebase = (p) => (typeof p === 'string' && (p === oldHome || p.startsWith(`${oldHome}/`)))
-                ? newHome + p.slice(oldHome.length)
-                : p;
-            const history = window.dashboard_nav_history;
-            for ( let i = 0; i < history.length; i++ ) history[i] = rebase(history[i]);
+            const rebase = (p) => rebasePath(p, oldHome, newHome);
+            this.rebaseNavHistory(oldHome, newHome);
             window.clipboard = (window.clipboard ?? []).map(item => (typeof item === 'string'
                 ? rebase(item)
                 : { ...item, path: rebase(item.path) }));
@@ -1684,6 +1695,19 @@ const TabFiles = {
         const list = Array.from(rows);
         const answers = await Promise.all(list.map((row) => can_restructure($(row).attr('data-path'))));
         return list.filter((_row, i) => answers[i]);
+    },
+
+    /**
+     * Points Back/Forward history entries in or under `oldPath` at `newPath`,
+     * after the folder was renamed or the home folder moved.
+     *
+     * @param {string} oldPath
+     * @param {string} newPath
+     * @returns {void}
+     */
+    rebaseNavHistory (oldPath, newPath) {
+        const history = window.dashboard_nav_history ?? [];
+        for ( let i = 0; i < history.length; i++ ) history[i] = rebasePath(history[i], oldPath, newPath);
     },
 
     /**
@@ -3330,6 +3354,9 @@ const TabFiles = {
                 // fit the name to this listing instead. A renamed entry may
                 // also have a new type (extension) and sort position.
                 _this.fitItemNames($(el_item_name));
+                // Back and Forward should reach a renamed folder (and what's
+                // inside it) under its new name.
+                if ( fsentry?.is_dir ) _this.rebaseNavHistory(old_path, path.join(path.dirname(old_path), fsentry.name ?? new_name));
                 if ( ! fsentry || ! document.body.contains(el_item) ) return;
                 $(el_item).attr('data-type', fsentry.type ?? '');
                 _this.insertAtSortedPosition($(el_item), fsentry);

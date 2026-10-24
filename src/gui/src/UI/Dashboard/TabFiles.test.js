@@ -35,7 +35,7 @@ globalThis.html_encode = value => jQuery('<div>').text(value).html();
 globalThis.i18n = globalThis.i18n ?? (key => key);
 window.icons = {};
 
-const { default: TabFiles, failedUploadsMessage } = await import('./TabFiles.js');
+const { default: TabFiles, failedUploadsMessage, rebasePath } = await import('./TabFiles.js');
 
 const TRASH = '/alice/Trash';
 
@@ -184,5 +184,27 @@ describe('TabFiles.dropRowsInto', () => {
         expect(window.create_shortcut).not.toHaveBeenCalled();
         expect(window.move_items).toHaveBeenCalledTimes(2);
         expect(window.move_items).toHaveBeenCalledWith([row], TRASH);
+    });
+});
+
+describe('rebasePath', () => {
+    it('moves the folder itself and anything under it', () => {
+        expect(rebasePath('/alice/Proj', '/alice/Proj', '/alice/Proj2')).toBe('/alice/Proj2');
+        expect(rebasePath('/alice/Proj/src/a', '/alice/Proj', '/alice/Proj2')).toBe('/alice/Proj2/src/a');
+    });
+
+    it('leaves siblings that only share a prefix, and non-strings, alone', () => {
+        expect(rebasePath('/alice/Projects', '/alice/Proj', '/alice/Proj2')).toBe('/alice/Projects');
+        expect(rebasePath(null, '/alice/Proj', '/alice/Proj2')).toBe(null);
+    });
+});
+
+describe('TabFiles.rebaseNavHistory', () => {
+    it('points Back/Forward entries at a renamed folder', () => {
+        window.dashboard_nav_history = ['/alice', '/alice/Proj', '/alice/Proj/src', '/alice/Projects'];
+
+        TabFiles.rebaseNavHistory('/alice/Proj', '/alice/Proj2');
+
+        expect(window.dashboard_nav_history).toEqual(['/alice', '/alice/Proj2', '/alice/Proj2/src', '/alice/Projects']);
     });
 });
