@@ -2444,7 +2444,13 @@ const TabFiles = {
         // on — a row for `targetPath/New Folder` sitting in another folder's
         // listing, with the rename editor open on it. Drop the click instead,
         // exactly as renderDirectory drops navigation clicks while it renders.
-        if ( this.renderingDirectory ) return;
+        // A refresh of this folder keeps its rows up, so the click would look
+        // ignored: take it over, and go on once its listing is in.
+        if ( this.renderingDirectory ) {
+            if ( ! this.refreshInFlight || targetPath !== this.currentPath ) return;
+            await this.renderDirectory(targetPath);
+            if ( this.renderingDirectory || this.currentPath !== targetPath ) return;
+        }
 
         // Invoked from a sidebar or breadcrumb menu for a folder that isn't
         // the one on screen — go there first, so the row (and the rename that

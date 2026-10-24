@@ -305,6 +305,21 @@ describe('TabFiles New Folder', () => {
         expect(last.operation).toBe('create_folder');
         expect($(last.data).attr('data-path')).toBe('/alice/Documents/New Folder');
     });
+
+    it('is made, not dropped, while the folder is refreshing', async () => {
+        mountListing([], '/alice/Documents');
+        TabFiles.trashedNames ??= new Map();
+        TabFiles._creatingItem = 0;
+        window.home_path = '/alice';
+        window.puter.fs.readdir = vi.fn(async () => []);
+        TabFiles.renderingDirectory = true;
+        TabFiles.refreshInFlight = true;
+
+        await TabFiles.createFolderInstant('/alice/Documents');
+
+        expect(window.puter.fs.mkdir).toHaveBeenCalled();
+        expect(TabFiles.renderingDirectory).toBe(false);
+    });
 });
 
 describe('TabFiles.moveClipboardItems', () => {
