@@ -89,13 +89,13 @@ describe('push device routes over HTTP', () => {
         const user = await freshUser(env);
         const res = await call(env, 'POST', '/push/devices', user.token, {
             platform: 'android',
-            token: 'fcm-token-register',
+            token: 'device-token-register',
             label: '  Pixel  ',
         });
 
         expect(res.status).toBe(200);
         const text = await res.text();
-        expect(text).not.toContain('fcm-token-register');
+        expect(text).not.toContain('device-token-register');
         expect(text).not.toContain('token_hash');
         const { device } = JSON.parse(text) as DeviceBody;
         expect(Object.keys(device).sort()).toEqual(
