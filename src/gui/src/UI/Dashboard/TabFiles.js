@@ -2944,6 +2944,9 @@ const TabFiles = {
             row.setAttribute('data-path', place.path);
             row.setAttribute('data-name', place.label);
             row.setAttribute('data-is_dir', '1');
+            // The sidebar's Shared and Trash are keyboard-reachable; so are these.
+            row.setAttribute('tabindex', '0');
+            row.setAttribute('role', 'link');
             row.innerHTML = `
                 <div class="item-checkbox"><span class="checkbox-icon"></span></div>
                 <div class="item-icon"><img src="${html_encode(place.icon)}"/></div>

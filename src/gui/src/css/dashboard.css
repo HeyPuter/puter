@@ -4068,8 +4068,10 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
-/* Keyboard focus on the folder sidebar, crumbs, and nav arrows */
+/* Keyboard focus on the folder sidebar, crumbs, nav arrows, and Home's
+   Shared/Trash rows */
 .dashboard-section-files .directories li:focus-visible,
+.dashboard-section-files .files-tab .files .row.place-row:focus-visible,
 .dashboard-section-files .header .path .dirname:focus-visible,
 .dashboard-section-files .header .path-btn:focus-visible {
     outline: 2px solid var(--select-ring);
