@@ -213,6 +213,10 @@ async function UIDashboard (options) {
     // Set initial file path BEFORE tabs are initialized (so TabFiles.init() can use it)
     if ( window.dashboard_initial_route?.tab === 'files' && window.dashboard_initial_route?.path ) {
         window.dashboard_initial_file_path = window.dashboard_initial_route.path;
+        // Consumed here like a share link: Files doesn't keep its folder in
+        // the URL, so a path left there would be stale after the first move,
+        // and Back or a reload would jump to it.
+        window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}#files`);
     } else if ( window.dashboard_initial_route?.tab === 'files' && window.dashboard_initial_route?.shared ) {
         // A share link: open Shared, and pick out the items it names once
         // the listing is up. Consumed here, so a reload shows Files plainly.
@@ -555,12 +559,16 @@ async function UIDashboard (options) {
         // Scroll content area to top
         $el_window.find('.dashboard-content').scrollTop(0);
 
-        // If files tab with path, navigate without adding to history
+        // A files link with a path opens that folder, as a step in Files' own
+        // Back/Forward, and leaves the URL (see the initial route above).
         if ( tab === 'files' && filePath ) {
             const filesTab = tabs.find(t => t.id === 'files');
             if ( filesTab?.renderDirectory ) {
-                filesTab.renderDirectory(filePath, { skipUrlUpdate: true, skipNavHistory: true });
+                filesTab.pushNavHistory?.(filePath);
+                filesTab.renderDirectory(filePath, { skipUrlUpdate: true });
             }
+            window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}#files`);
+            lastHandledHref = window.location.href;
         }
     };
 
