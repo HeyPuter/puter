@@ -620,10 +620,10 @@ async function UIDashboard (options) {
     const $scrim = $el_window.find('.dashboard-sidebar-scrim');
     const $sidebar_toggle = $el_window.find('.dashboard-sidebar-toggle');
     const drawerFocusables = () => $sidebar.find('a[href], button').filter(':visible:not(:disabled)');
-    const setMobileSidebar = (open) => {
+    const setMobileSidebar = (open, { keepFocus = false } = {}) => {
         // Focus left inside a closing drawer would sit on hidden controls
         // (and fall to <body>); the toggle that reopens it takes it instead.
-        const focusInside = ! open && $sidebar.hasClass('open') && $sidebar[0].contains(document.activeElement);
+        const focusInside = ! open && ! keepFocus && $sidebar.hasClass('open') && $sidebar[0].contains(document.activeElement);
         const opening = open && ! $sidebar.hasClass('open');
         $sidebar.toggleClass('open', open);
         $scrim.toggleClass('open', open);
@@ -635,6 +635,13 @@ async function UIDashboard (options) {
             (current ?? drawerFocusables()[0])?.focus({ preventScroll: true });
         }
     };
+
+    // Widened past the breakpoint (a tablet turned to landscape), the drawer
+    // is the desktop sidebar again, shown and no longer modal; focus in it
+    // can stay where it is.
+    window.matchMedia('(max-width: 768px)').addEventListener('change', (e) => {
+        if ( ! e.matches && $sidebar.hasClass('open') ) setMobileSidebar(false, { keepFocus: true });
+    });
 
     // Tab cycles inside the open drawer instead of reaching the content
     // behind the scrim.
