@@ -235,3 +235,33 @@ describe('TabFiles opening a folder that fails to list', () => {
         expect(TabFiles.renderingDirectory).toBe(false);
     });
 });
+
+describe('TabFiles opening a folder during a refresh', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+    });
+
+    it('opens it, and the refresh gives way', async () => {
+        mountListing([], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        let finishRefresh;
+        window.puter = { fs: { readdir: vi.fn(({ path }) => (path === '/alice/Documents'
+            ? new Promise(resolve => {
+                finishRefresh = resolve;
+            })
+            : Promise.resolve([]))) } };
+
+        const refresh = TabFiles.renderDirectory('/alice/Documents');
+        await TabFiles.renderDirectory('/alice/Pictures');
+        expect(TabFiles.currentPath).toBe('/alice/Pictures');
+
+        finishRefresh([]);
+        await refresh;
+        expect(TabFiles.currentPath).toBe('/alice/Pictures');
+        expect(TabFiles.renderingDirectory).toBe(false);
+    });
+});

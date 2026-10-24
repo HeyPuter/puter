@@ -313,6 +313,7 @@ const TabFiles = {
         };
 
         this.renderingDirectory = false;
+        this.refreshInFlight = false;
         // Count, not flag: creates are started from a button that answers
         // instantly now, so two can easily overlap and the first one finishing
         // must not uncover the second.
@@ -708,7 +709,10 @@ const TabFiles = {
             ? $(window.latest_selected_item).attr('data-uid')
             : null;
 
-        await this.renderDirectory(this.currentPath, options);
+        const folder = this.currentPath;
+        await this.renderDirectory(folder, options);
+        // The user opened another folder meanwhile.
+        if ( this.currentPath !== folder ) return;
 
         if ( selectedUids.size > 0 ) {
             $filesTab.find('.row').each(function () {
@@ -2596,8 +2600,11 @@ const TabFiles = {
      * @returns {Promise<void>}
      */
     async renderDirectory (target, options = {}) {
-        if ( this.renderingDirectory ) return;
+        if ( this.renderBlocked(target) ) return;
         this.renderingDirectory = true;
+        // A newer render supersedes this one; past each await, a superseded
+        // render stops without touching the listing or the flags.
+        const seq = this.renderSeq = (this.renderSeq ?? 0) + 1;
         const _this = this;
         // The preview shows a row of the listing being replaced.
         if ( this.previewOpen && target !== this.currentPath ) this.closeImagePreview();
@@ -2609,6 +2616,7 @@ const TabFiles = {
         // read as flicker. Navigating to a different directory still clears
         // immediately so the user gets instant feedback.
         const isSameDirRefresh = typeof target === 'string' && target === this.currentPath;
+        this.refreshInFlight = isSameDirRefresh;
         const $files = this.$el_window.find('.files-tab .files');
         const prevScrollTop = isSameDirRefresh ? $files.scrollTop() : 0;
 
@@ -2656,6 +2664,7 @@ const TabFiles = {
             readFailed = true;
             directoryContents = [];
         }
+        if ( seq !== this.renderSeq ) return;
         if ( ! directoryContents ) {
             this.hideSpinner();
             this.loadingFolder = false;
@@ -2877,6 +2886,7 @@ const TabFiles = {
         // resolve every icon first and append in sorted order. allSettled so
         // one failure can't reject the batch and leave renderingDirectory stuck.
         const iconResults = await Promise.allSettled(sortedContents.map(file => item_icon(file)));
+        if ( seq !== this.renderSeq ) return;
         for ( let i = 0; i < sortedContents.length; i++ ) {
             const iconResult = iconResults[i].status === 'fulfilled'
                 ? iconResults[i].value
@@ -4422,11 +4432,23 @@ const TabFiles = {
      * @param {string} newPath - The path to add to history
      * @returns {void}
      */
+    /**
+     * Whether a render of `target` would be dropped: one is already loading,
+     * and it isn't a refresh of the folder on screen, which gives way to
+     * opening another folder.
+     *
+     * @param {string} target
+     * @returns {boolean}
+     */
+    renderBlocked (target) {
+        return this.renderingDirectory && ! (this.refreshInFlight && target !== this.currentPath);
+    },
+
     pushNavHistory (newPath) {
         // renderDirectory drops a navigation while another is loading, so
         // history must not move either, or Back/Forward would point at
         // folders that were never shown.
-        if ( this.renderingDirectory ) return;
+        if ( this.renderBlocked(newPath) ) return;
         // If history is empty, initialize with this path
         if ( window.dashboard_nav_history.length === 0 ) {
             window.dashboard_nav_history = [newPath];
@@ -4449,7 +4471,7 @@ const TabFiles = {
      * @returns {void}
      */
     goToHistoryPosition (position) {
-        if ( this.renderingDirectory ) return;
+        if ( this.renderBlocked(window.dashboard_nav_history[position]) ) return;
         window.dashboard_nav_history_current_position = position;
         this.updateNavButtonStates();
         this.renderDirectory(window.dashboard_nav_history[position]);
