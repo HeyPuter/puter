@@ -5005,6 +5005,12 @@ const TabFiles = {
                 selection_area = null;
                 // Flag to prevent the click handler from clearing selection
                 _this.rubberBandSelectionJustEnded = true;
+                // That click comes straight after the release, and only when
+                // the release is inside the listing; past this task the flag
+                // would swallow the user's next, real click on a row.
+                setTimeout(() => {
+                    _this.rubberBandSelectionJustEnded = false;
+                }, 0);
             }
             // Re-enable pointer events on selection actions bar
             _this.$el_window.find('.files-selection-actions').removeClass('rubberband-active');
