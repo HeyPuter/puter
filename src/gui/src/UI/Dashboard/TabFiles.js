@@ -819,6 +819,20 @@ const TabFiles = {
                 return false;
             }
 
+            // Menu key / Shift+F10 - the selection's menu, anchored to the
+            // row's ⋯ button: the keyboard's only way to Share, Download or
+            // open Properties.
+            if ( e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10') ) {
+                const row = $selectedRows.toArray().find(r => r === window.latest_selected_item) ?? $selectedRows[0];
+                if ( row ) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    row.scrollIntoView({ block: 'nearest' });
+                    row.querySelector('.item-more')?.click();
+                }
+                return false;
+            }
+
             // Enter - Open selected items
             if ( e.which === 13 && !$(focused_el).hasClass('item-name-editor') ) {
                 if ( $selectedRows.length > 0 ) {
