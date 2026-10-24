@@ -2910,8 +2910,9 @@ const TabFiles = {
             this.currentPath = path || target;
         }
         this.loadingFolder = false;
-        // Arriving at Shared shows everyone's items; a refresh keeps the filter.
-        if ( ! isSameDirRefresh ) this.sharerFilter = null;
+        // The people filter lasts while the user browses what was shared with
+        // them, so Back out of a shared folder finds it still set.
+        if ( is_owned_by_me(this.currentPath) ) this.sharerFilter = null;
         this.syncSharedViewChrome();
 
         // Update browser URL to reflect current file path (only when Files tab is active)

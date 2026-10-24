@@ -574,3 +574,58 @@ describe('TabFiles "Shared by" column width', () => {
         expect(TabFiles.clampColumnWidth('sharedBy', 200)).toBe(92);
     });
 });
+
+describe('TabFiles people filter across navigation', () => {
+    const SHARED = 'puter://shared';
+    const share = (name, sharer) => ({
+        uid: name, name, path: `/${sharer}/${name}-uid/${name}`, is_dir: true, size: 0, modified: 0,
+        shared_with_me: true, shared_by: sharer, owner: sharer,
+    });
+    const listed = () => $('.files .row').map((_, r) => r.getAttribute('data-name')).get().sort();
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        window.trash_path = TRASH;
+        window.shared_path = SHARED;
+        window.byte_format = bytes => `${bytes} B`;
+        window.puter = { fs: { readdir: vi.fn(async () => []) } };
+        mountListing([], '/alice');
+        $('.files-tab').prepend('<div class="shared-people-filter" hidden></div>');
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        TabFiles.sharerFilter = null;
+        vi.spyOn(TabFiles, 'listSharedView').mockImplementation(async () => [share('a', 'ann'), share('b', 'bob')]);
+        vi.spyOn(TabFiles, 'applyColumnWidths').mockImplementation(() => {});
+        vi.spyOn(TabFiles, 'renderItem').mockImplementation(async (file) => {
+            $('.files').append(`<div class="row item" data-uid="${file.uid}" data-path="${file.path}" data-name="${file.name}"></div>`);
+        });
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('is still set on coming back out of a shared folder', async () => {
+        await TabFiles.renderDirectory(SHARED);
+        await TabFiles.setSharerFilter('bob');
+        expect(listed()).toEqual(['b']);
+
+        await TabFiles.renderDirectory('/bob/b-uid/b');
+        await TabFiles.renderDirectory(SHARED);
+
+        expect(TabFiles.sharerFilter).toBe('bob');
+        expect(listed()).toEqual(['b']);
+        expect($('.sharer-chip.active').attr('data-sharer')).toBe('bob');
+    });
+
+    it("clears once the user goes back to their own files", async () => {
+        await TabFiles.renderDirectory(SHARED);
+        await TabFiles.setSharerFilter('bob');
+
+        await TabFiles.renderDirectory('/alice/Documents');
+        await TabFiles.renderDirectory(SHARED);
+
+        expect(TabFiles.sharerFilter).toBeNull();
+        expect(listed()).toEqual(['a', 'b']);
+    });
+});
