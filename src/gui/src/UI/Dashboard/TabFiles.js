@@ -1625,7 +1625,10 @@ const TabFiles = {
         // Download button
         $actions.find('.download-btn').on('click', function () {
             const selectedRows = document.querySelectorAll('.files-tab .row.selected');
-            if ( selectedRows.length > 0 ) {
+            // One file downloads as itself, as from its menu, not as a zip.
+            if ( selectedRows.length === 1 && $(selectedRows[0]).attr('data-is_dir') !== '1' ) {
+                window.trigger_download([$(selectedRows[0]).attr('data-path')]);
+            } else if ( selectedRows.length > 0 ) {
                 window.zipItems(Array.from(selectedRows), _this.currentPath, true);
             }
         });
