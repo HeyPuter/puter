@@ -1693,7 +1693,9 @@ input.myapps-group-name:focus {
 
 .app-feedback-modal {
     width: min(440px, 100%);
-    max-height: calc(100vh - 40px);
+    /* dvh: on phones 100vh is the viewport with the browser bars hidden,
+       taller than what's visible while they show. */
+    max-height: calc(100dvh - 40px);
     overflow-y: auto;
     background: var(--afb-bg);
     color: var(--afb-fg);
@@ -1921,7 +1923,7 @@ input.myapps-group-name:focus {
     }
     .app-feedback-modal {
         width: 100%;
-        max-height: 92vh;
+        max-height: 92dvh;
         border-radius: 14px 14px 0 0;
         transform: translateY(16px);
         /* Flush with the bottom edge: keep the actions above the home
@@ -3605,7 +3607,7 @@ select.share-modal-row-mode:focus {
     .profile-crop-modal {
         width: 100%;
         max-width: none;
-        max-height: 92vh;
+        max-height: 92dvh;
         border-radius: 16px 16px 0 0;
         border-bottom: none;
         transform: translateY(24px);
@@ -7093,7 +7095,9 @@ body.myapps-reordering .myapps-tile {
     transform: scale(0.9);
     opacity: 0;
     transition: transform 200ms ease-in-out, opacity 200ms ease-in-out;
-    max-height: calc(100vh - 40px);
+    /* dvh: ContextMenu.js places the menu within the visible height, which
+       on phones is less than 100vh while the browser bars show. */
+    max-height: calc(100dvh - 40px);
     display: flex;
     flex-direction: column;
 }
