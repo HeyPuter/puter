@@ -13,6 +13,7 @@ const recipeTags = {
     events: 'Events',
     hosting: 'Hosting',
     workers: 'Workers',
+    peer: 'Peer',
     email: 'Email',
     ui: 'UI',
     teams: 'Teams',
