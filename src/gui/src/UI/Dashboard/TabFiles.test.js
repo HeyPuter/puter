@@ -361,3 +361,22 @@ describe('TabFiles refreshing a folder during a refresh of it', () => {
         expect(TabFiles.renderingDirectory).toBe(false);
     });
 });
+
+describe('TabFiles.toggleSelectMode', () => {
+    beforeEach(() => {
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+    });
+
+    it('shows the action bar for rows selected before it was entered', () => {
+        mountListing(['a.txt', 'b.txt'], '/alice/Documents');
+        $('.files .row').first().addClass('selected');
+        TabFiles.selectModeActive = false;
+
+        TabFiles.toggleSelectMode();
+
+        expect($('.files-selection-actions').hasClass('visible')).toBe(true);
+        TabFiles.toggleSelectMode();
+        expect($('.files-selection-actions').hasClass('visible')).toBe(false);
+    });
+});

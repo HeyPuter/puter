@@ -4318,8 +4318,9 @@ const TabFiles = {
             $selectBtn.removeClass('active').attr('aria-pressed', 'false');
             // Clear all selections when exiting select mode
             this.$el_window.find('.files .row.selected').removeClass('selected');
-            this.updateFooterStats();
         }
+        // Entering with rows already selected (an upload's) shows the bar.
+        this.updateFooterStats();
     },
 
     /**
