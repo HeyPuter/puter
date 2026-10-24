@@ -369,6 +369,9 @@ export default function shareRecipientPicker ({
     });
 
     $input.on('keydown', (e) => {
+        // Keys that drive an IME (picking or confirming a candidate) are its
+        // own; jQuery's event doesn't carry isComposing, the browser's does.
+        if ( e.originalEvent?.isComposing || e.keyCode === 229 ) return;
         if ( e.key === 'ArrowDown' ) {
             e.preventDefault();
             if ( picked ) return;
