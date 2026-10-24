@@ -237,10 +237,9 @@ export class OpenAICompatProvider implements IChatProvider {
         let pricingTime = attemptPricingTime ?? new Date();
         let completion;
         try {
-            completion = await this.createCompletion(
-                options.client,
-                params,
-                signal,
+            completion = await options.client.chat.completions.create(
+                params as never,
+                { signal },
             );
         } catch (e) {
             const retryParams =
@@ -252,10 +251,9 @@ export class OpenAICompatProvider implements IChatProvider {
                     : undefined;
             if (!retryParams) throw e;
             pricingTime = attemptPricingTime ?? new Date();
-            completion = await this.createCompletion(
-                options.client,
-                retryParams,
-                signal,
+            completion = await options.client.chat.completions.create(
+                retryParams as never,
+                { signal },
             );
         }
 
@@ -328,16 +326,12 @@ export class OpenAICompatProvider implements IChatProvider {
         return false;
     }
 
+    /**
+     * Whether a replayed assistant turn keeps its text beside hoisted tool
+     * calls.
+     */
     protected preservesAssistantContent(_model: IChatModel): boolean {
         return false;
-    }
-
-    protected createCompletion(
-        client: ChatCompletionsClient,
-        params: Record<string, unknown>,
-        signal?: AbortSignal,
-    ): Promise<unknown> {
-        return client.chat.completions.create(params as never, { signal });
     }
 
     /** Last pass over the messages, after `process_input_messages`. */

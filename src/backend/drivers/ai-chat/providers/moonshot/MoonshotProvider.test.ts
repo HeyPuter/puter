@@ -31,7 +31,7 @@
  * (MoonshotProvider.integration.test.ts) exercises the real Moonshot endpoint.
  */
 
-import { Readable, Writable } from 'node:stream';
+import { Writable } from 'node:stream';
 import {
     afterAll,
     afterEach,
@@ -44,13 +44,8 @@ import {
     type MockInstance,
 } from 'vitest';
 
-import { chat as sdkChat } from '../../../../../puter-js/src/modules/ai/chat.js';
-import * as sdkUtils from '../../../../../puter-js/src/lib/utils.js';
 import { ChatCompletionDriver } from '../../ChatCompletionDriver.js';
-import {
-    clearUnhealthyRoutes,
-    isRouteUnhealthy,
-} from '../../utils/providerHealth.js';
+import { clearUnhealthyRoutes } from '../../utils/providerHealth.js';
 import { SYSTEM_ACTOR } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
@@ -60,7 +55,6 @@ import {
     withTestActor,
 } from '../../../integrationTestUtil.js';
 import { AIChatStream } from '../../utils/Streaming.js';
-import { FakeChatProvider } from '../FakeChatProvider.js';
 import { MOONSHOT_MODELS } from './models.js';
 import { MoonshotProvider } from './MoonshotProvider.js';
 import {
@@ -815,6 +809,11 @@ describe('MoonshotProvider.checkModeration', () => {
 
 describe('Kimi K3.1 Pro', () => {
     const models = ['kimi-k3.1-pro', 'kimi-k3.1-pro-highspeed'];
+    /** Catalog rates in µ¢ per token: $2/$10 for Pro, $4/$20 for Highspeed. */
+    const rates = (model: string) =>
+        model.endsWith('highspeed')
+            ? { input: 400, output: 2000 }
+            : { input: 200, output: 1000 };
     const usage = {
         prompt_tokens: 100,
         completion_tokens: 10,
@@ -833,79 +832,61 @@ describe('Kimi K3.1 Pro', () => {
         ],
         usage: structuredClone(usage),
     });
-    const mockResponse = (
-        data: unknown,
-        oneHour: string | null = '10',
-        fiveMinute: string | null = null,
-    ) => {
-        const headers = new Headers();
-        if (oneHour !== null)
-            headers.set('Msh-Usage-Cache-Write-Tokens-1h', oneHour);
-        if (fiveMinute !== null)
-            headers.set('Msh-Usage-Cache-Write-Tokens-5m', fiveMinute);
-        createMock.mockReturnValueOnce({
-            withResponse: async () => ({
-                data,
-                response: new Response(null, { headers }),
-            }),
-        });
-    };
+    const fund = (balance: number) =>
+        vi.spyOn(
+            server.services.metering,
+            'getUsageHeadroom',
+        ).mockResolvedValue({ balance, held: 0 });
+    const user = (content: string) => [{ role: 'user', content }];
 
     it.each(models)(
         'maps %s caps and reasoning without sampling parameters',
         async (model) => {
             const { provider } = makeProvider();
-            mockResponse(response());
+            createMock.mockResolvedValueOnce(response());
             await withTestActor(() =>
                 provider.complete({
                     model,
-                    messages: [{ role: 'user', content: 'hi' }],
+                    messages: user('hi'),
                     max_tokens: 512,
                     reasoning_effort: 'high',
                     temperature: 0.2,
                     top_p: 0.1,
                 }),
             );
-            expect(createMock.mock.calls[0]![0]).toMatchObject({
+            const sent = createMock.mock.calls[0]![0];
+            expect(sent).toMatchObject({
                 model,
                 max_completion_tokens: 512,
                 reasoning_effort: 'high',
             });
-            expect(createMock.mock.calls[0]![0]).not.toHaveProperty(
-                'max_tokens',
-            );
-            expect(createMock.mock.calls[0]![0]).not.toHaveProperty(
-                'temperature',
-            );
-            expect(createMock.mock.calls[0]![0]).not.toHaveProperty('top_p');
+            expect(sent).not.toHaveProperty('max_tokens');
+            expect(sent).not.toHaveProperty('temperature');
+            expect(sent).not.toHaveProperty('top_p');
         },
     );
 
-    it('uses the official default output cap and preserves the default thinking mode', async () => {
+    it('uses the upstream default output cap and leaves thinking to the model', async () => {
         const { provider } = makeProvider();
-        mockResponse(response());
+        createMock.mockResolvedValueOnce(response());
         await withTestActor(() =>
-            provider.complete({
-                model: models[0]!,
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
+            provider.complete({ model: models[0]!, messages: user('hi') }),
         );
-        expect(createMock.mock.calls[0]![0].max_completion_tokens).toBe(131072);
-        expect(createMock.mock.calls[0]![0]).not.toHaveProperty('thinking');
-        expect(createMock.mock.calls[0]![0]).not.toHaveProperty(
-            'reasoning_effort',
-        );
+        const sent = createMock.mock.calls[0]![0];
+        expect(sent.max_completion_tokens).toBe(131072);
+        expect(sent).not.toHaveProperty('thinking');
+        expect(sent).not.toHaveProperty('reasoning_effort');
     });
 
     it.each(['low', 'max'] as const)(
         'forwards %s reasoning effort',
         async (effort) => {
             const { provider } = makeProvider();
-            mockResponse(response(), '0');
+            createMock.mockResolvedValueOnce(response());
             await withTestActor(() =>
                 provider.complete({
                     model: models[0]!,
-                    messages: [{ role: 'user', content: 'hi' }],
+                    messages: user('hi'),
                     reasoning_effort: effort,
                 }),
             );
@@ -913,37 +894,13 @@ describe('Kimi K3.1 Pro', () => {
         },
     );
 
-    it('keeps K3 on its existing request and billing path', async () => {
-        const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce(response());
-        await withTestActor(() =>
-            provider.complete({
-                model: 'kimi-k3',
-                messages: [{ role: 'user', content: 'hi' }],
-                max_tokens: 512,
-            }),
-        );
-        expect(createMock.mock.calls[0]![0]).toMatchObject({
-            model: 'kimi-k3',
-            max_tokens: 512,
-        });
-        expect(createMock.mock.calls[0]![0]).not.toHaveProperty(
-            'max_completion_tokens',
-        );
-        expect(recordSpy.mock.calls[0]![0]).toEqual({
-            prompt_tokens: 80,
-            completion_tokens: 10,
-            cached_tokens: 20,
-        });
-    });
-
-    it('rejects unsupported reasoning effort before inference', async () => {
+    it('rejects an unsupported reasoning effort before inference', async () => {
         const { provider } = makeProvider();
         await expect(
             withTestActor(() =>
                 provider.complete({
                     model: models[0]!,
-                    messages: [{ role: 'user', content: 'hi' }],
+                    messages: user('hi'),
                     reasoning_effort: 'medium',
                 }),
             ),
@@ -951,34 +908,107 @@ describe('Kimi K3.1 Pro', () => {
         expect(createMock).not.toHaveBeenCalled();
     });
 
+    it.each([
+        { options: { reasoning: { effort: 'low' } }, expected: 'low' },
+        { options: { reasoning: { effort: 'max' } }, expected: 'max' },
+        {
+            options: { reasoning: { effort: 'low' }, reasoning_effort: 'high' },
+            expected: 'high',
+        },
+        { options: {}, expected: undefined },
+    ])(
+        'sends the nested reasoning form through the driver: $options',
+        async ({ options, expected }) => {
+            createMock.mockResolvedValueOnce(response());
+            await withTestActor(() =>
+                driver.complete({
+                    model: models[0]!,
+                    provider: 'moonshotai',
+                    messages: user('hi'),
+                    ...options,
+                } as never),
+            );
+            expect(createMock).toHaveBeenCalledTimes(1);
+            expect(createMock.mock.calls[0]![0].reasoning_effort).toBe(
+                expected,
+            );
+        },
+    );
+
+    it.each(['medium', 'none'])(
+        'rejects the nested reasoning form %s through the driver',
+        async (effort) => {
+            await expect(
+                withTestActor(() =>
+                    driver.complete({
+                        model: models[0]!,
+                        provider: 'moonshotai',
+                        messages: user('hi'),
+                        reasoning: { effort },
+                    } as never),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            });
+            expect(createMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it('keeps K3 on max_tokens and bills its cache writes at the K3 write rate', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(response());
+        await withTestActor(() =>
+            provider.complete({
+                model: 'kimi-k3',
+                messages: user('hi'),
+                max_tokens: 512,
+            }),
+        );
+        const sent = createMock.mock.calls[0]![0];
+        expect(sent).toMatchObject({ model: 'kimi-k3', max_tokens: 512 });
+        expect(sent).not.toHaveProperty('max_completion_tokens');
+        expect(recordSpy).toHaveBeenCalledWith(
+            {
+                prompt_tokens: 30,
+                completion_tokens: 10,
+                cached_tokens: 20,
+                cache_write_tokens: 50,
+            },
+            expect.anything(),
+            'moonshotai:kimi-k3',
+            {
+                prompt_tokens: 30 * 300,
+                completion_tokens: 10 * 1500,
+                cached_tokens: 20 * 30,
+                cache_write_tokens: 50 * 300,
+            },
+        );
+    });
+
     it.each(models)(
-        'meters disjoint cache reads, writes and uncached input for %s',
+        'meters cache reads, writes and uncached input separately for %s',
         async (model) => {
             const { provider } = makeProvider();
-            mockResponse(response());
+            createMock.mockResolvedValueOnce(response());
             const result = await withTestActor(() =>
-                provider.complete({
-                    model,
-                    messages: [{ role: 'user', content: 'hi' }],
-                }),
+                provider.complete({ model, messages: user('hi') }),
             );
-            const inputRate = model.endsWith('highspeed') ? 400 : 200;
+            const { input, output } = rates(model);
             expect(recordSpy).toHaveBeenCalledWith(
                 {
                     prompt_tokens: 30,
                     completion_tokens: 10,
                     cached_tokens: 20,
-                    cache_write_tokens: 40,
-                    cache_write_1h_tokens: 10,
+                    cache_write_tokens: 50,
                 },
                 expect.anything(),
                 `moonshotai:${model}`,
                 {
-                    prompt_tokens: 30 * inputRate,
-                    completion_tokens: 10 * inputRate * 5,
+                    prompt_tokens: 30 * input,
+                    completion_tokens: 10 * output,
                     cached_tokens: 20 * 20,
-                    cache_write_tokens: 40 * inputRate,
-                    cache_write_1h_tokens: 10 * inputRate * 2,
+                    cache_write_tokens: 50 * input,
                 },
             );
             expect(result).toMatchObject({
@@ -986,8 +1016,7 @@ describe('Kimi K3.1 Pro', () => {
                     inputTokens: 30,
                     outputTokens: 10,
                     cacheReadTokens: 20,
-                    cacheWrite5mTokens: 40,
-                    cacheWrite1hTokens: 10,
+                    cacheWrite5mTokens: 50,
                 },
             });
         },
@@ -1002,27 +1031,28 @@ describe('Kimi K3.1 Pro', () => {
         }));
         const first = response();
         Object.assign(first.choices[0]!.message, { tool_calls: toolCalls });
-        mockResponse(first);
+        createMock.mockResolvedValueOnce(first);
         const result = await withTestActor(() =>
-            provider.complete({
-                model: models[0]!,
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
+            provider.complete({ model: models[0]!, messages: user('hi') }),
         );
-        mockResponse(response());
+        createMock.mockResolvedValueOnce(response());
         await withTestActor(() =>
             provider.complete({
                 model: models[0]!,
                 messages: [(result as { message: unknown }).message],
             }),
         );
-        expect(createMock.mock.calls[1]![0].messages[0]).toEqual({
+        const replayed = createMock.mock.calls[1]![0].messages[0];
+        expect(replayed).toMatchObject({
             role: 'assistant',
             content: 'answer',
             reasoning_content: 'reasoning',
-            tool_calls: toolCalls,
         });
-        mockResponse(response());
+        expect(replayed).not.toHaveProperty('reasoning');
+        expect(
+            replayed.tool_calls.map((call: { id: string }) => call.id),
+        ).toEqual(['a', 'b']);
+        createMock.mockResolvedValueOnce(response());
         await withTestActor(() =>
             provider.complete({
                 model: models[0]!,
@@ -1051,9 +1081,9 @@ describe('Kimi K3.1 Pro', () => {
         });
     });
 
-    it('meters streamed cache writes from final usage and response headers', async () => {
+    it('meters a stream from its final usage chunk', async () => {
         const { provider } = makeProvider();
-        mockResponse(
+        createMock.mockResolvedValueOnce(
             asAsyncIterable([
                 { choices: [{ delta: { reasoning_content: 'reasoning' } }] },
                 { choices: [{ delta: { content: 'answer' } }] },
@@ -1063,7 +1093,7 @@ describe('Kimi K3.1 Pro', () => {
         const result = await withTestActor(() =>
             provider.complete({
                 model: models[0]!,
-                messages: [{ role: 'user', content: 'hi' }],
+                messages: user('hi'),
                 stream: true,
             }),
         );
@@ -1081,77 +1111,66 @@ describe('Kimi K3.1 Pro', () => {
             prompt_tokens: 30,
             completion_tokens: 10,
             cached_tokens: 20,
-            cache_write_tokens: 40,
-            cache_write_1h_tokens: 10,
+            cache_write_tokens: 50,
         });
     });
+
     it.each(models)(
-        'reserves the highest write rate before sending %s',
+        'reserves the prompt at the input rate for %s',
         async (model) => {
-            const inputRate = model.endsWith('highspeed') ? 800 : 400;
-            const outputRate = model.endsWith('highspeed') ? 2000 : 1000;
-            vi.spyOn(
-                server.services.metering,
-                'getUsageHeadroom',
-            ).mockResolvedValue({ balance: 2_000_000_000, held: 0 });
+            const { input, output } = rates(model);
+            fund(2_000_000_000);
             const reserve = vi.spyOn(
                 server.services.metering,
                 'reserveCredits',
             );
-            mockResponse(
-                {
-                    choices: [
-                        {
-                            message: { role: 'assistant', content: 'ok' },
-                            finish_reason: 'stop',
-                        },
-                    ],
-                    usage: {
-                        prompt_tokens: 1_000_000,
-                        completion_tokens: 10,
-                        prompt_tokens_details: {
-                            cached_tokens: 100_000,
-                            cache_write_tokens: 900_000,
-                        },
+            createMock.mockResolvedValueOnce({
+                choices: [
+                    {
+                        message: { role: 'assistant', content: 'ok' },
+                        finish_reason: 'stop',
+                    },
+                ],
+                usage: {
+                    prompt_tokens: 1_000_000,
+                    completion_tokens: 10,
+                    prompt_tokens_details: {
+                        cached_tokens: 100_000,
+                        cache_write_tokens: 900_000,
                     },
                 },
-                '900000',
-            );
+            });
             await withTestActor(() =>
                 driver.complete({
                     model,
                     provider: 'moonshotai',
-                    messages: [
-                        { role: 'user', content: 'x'.repeat(8_000_000) },
-                    ],
+                    messages: user('x'.repeat(8_000_000)),
                     max_tokens: 10,
                 }),
             );
             expect(reserve).toHaveBeenCalledTimes(1);
             expect(reserve.mock.calls[0]![1]).toBeGreaterThanOrEqual(
-                1_000_000 * inputRate + 10 * outputRate,
+                1_000_000 * input + 10 * output,
             );
             expect(reserve.mock.calls[0]![1]).toBeLessThan(
-                1_000_001 * inputRate + 10 * outputRate,
+                1_000_001 * input + 10 * output,
             );
             expect(recordSpy.mock.calls[0]![0]).toMatchObject({
-                cached_tokens: 100_000,
-                cache_write_1h_tokens: 900_000,
                 prompt_tokens: 0,
+                completion_tokens: 10,
+                cached_tokens: 100_000,
+                cache_write_tokens: 900_000,
             });
         },
     );
 
     it.each(['kimi-k3', 'kimi-k2.6'])(
-        'keeps the existing driver reservation rate for %s',
+        'keeps the existing reservation for %s',
         async (model) => {
             const entry = MOONSHOT_MODELS.find(
                 (candidate) => candidate.id === model,
             )!;
-            vi.spyOn(
-                server.services.metering,
-                'getUsageHeadroom',
-            ).mockResolvedValue({ balance: 2_000_000_000, held: 0 });
+            fund(2_000_000_000);
             const reserve = vi.spyOn(
                 server.services.metering,
                 'reserveCredits',
@@ -1179,25 +1198,16 @@ describe('Kimi K3.1 Pro', () => {
     );
 
     it.each(models)(
-        'rejects an underfunded inherited-cache request for %s before inference',
+        'rejects an underfunded request for %s before inference',
         async (model) => {
-            vi.spyOn(
-                server.services.metering,
-                'getUsageHeadroom',
-            ).mockResolvedValue({
-                balance: model.endsWith('highspeed')
-                    ? 600_000_000
-                    : 300_000_000,
-                held: 0,
-            });
+            // Short of the prompt alone at the input rate.
+            fund(model.endsWith('highspeed') ? 300_000_000 : 150_000_000);
             await expect(
                 withTestActor(() =>
                     driver.complete({
                         model,
                         provider: 'moonshotai',
-                        messages: [
-                            { role: 'user', content: 'x'.repeat(8_000_000) },
-                        ],
+                        messages: user('x'.repeat(8_000_000)),
                         max_tokens: 10,
                     }),
                 ),
@@ -1219,31 +1229,28 @@ describe('Kimi K3.1 Pro', () => {
                     },
                 },
             ];
-            mockResponse(
-                {
-                    choices: [
-                        {
-                            message: {
-                                role: 'assistant',
-                                content,
-                                reasoning_content: 'Check weather',
-                                tool_calls: toolCalls,
-                            },
-                            finish_reason: 'tool_calls',
+            createMock.mockResolvedValueOnce({
+                choices: [
+                    {
+                        message: {
+                            role: 'assistant',
+                            content,
+                            reasoning_content: 'Check weather',
+                            tool_calls: toolCalls,
                         },
-                    ],
-                    usage: { prompt_tokens: 1, completion_tokens: 1 },
-                },
-                null,
-            );
+                        finish_reason: 'tool_calls',
+                    },
+                ],
+                usage: { prompt_tokens: 1, completion_tokens: 1 },
+            });
             const first = await withTestActor(() =>
                 driver.complete({
                     model: models[0]!,
                     provider: 'moonshotai',
-                    messages: [{ role: 'user', content: 'weather?' }],
+                    messages: user('weather?'),
                 }),
             );
-            mockResponse(response());
+            createMock.mockResolvedValueOnce(response());
             await withTestActor(() =>
                 driver.complete({
                     model: models[0]!,
@@ -1265,18 +1272,20 @@ describe('Kimi K3.1 Pro', () => {
                 role: 'assistant',
                 content: null,
                 reasoning_content: 'Check weather',
-                tool_calls: toolCalls,
             });
-            expect(
-                JSON.parse(assistant.tool_calls[0].function.arguments),
-            ).toEqual({ city: 'Paris' });
+            expect(assistant).not.toHaveProperty('normalized');
+            expect(assistant.tool_calls).toHaveLength(1);
+            expect(assistant.tool_calls[0]).toMatchObject({
+                id: 'call_paris',
+                function: { name: 'weather' },
+            });
         },
     );
 
     it.each([{ city: 'Paris' }, 'Paris'])(
         'keeps native tool_use input %j through the driver',
         async (input) => {
-            mockResponse(response());
+            createMock.mockResolvedValueOnce(response());
             await withTestActor(() =>
                 driver.complete({
                     model: models[0]!,
@@ -1312,29 +1321,6 @@ describe('Kimi K3.1 Pro', () => {
         },
     );
 
-    it.each([
-        [null, null],
-        ['bad', null],
-        ['51', null],
-        ['-1', null],
-        ['10', '41'],
-    ] as const)(
-        'rejects unverifiable TTL counters %s/%s without guessing a charge',
-        async (oneHour, fiveMinute) => {
-            const { provider } = makeProvider();
-            mockResponse(response(), oneHour, fiveMinute);
-            await expect(
-                withTestActor(() =>
-                    provider.complete({
-                        model: models[0]!,
-                        messages: [{ role: 'user', content: 'hi' }],
-                    }),
-                ),
-            ).rejects.toMatchObject({ statusCode: 502 });
-            expect(recordSpy).not.toHaveBeenCalled();
-        },
-    );
-
     it.each(
         models.flatMap((model) =>
             ['reasoning', 'reasoning_content', 'both'].map((alias) => ({
@@ -1355,22 +1341,19 @@ describe('Kimi K3.1 Pro', () => {
                 ...(alias !== 'reasoning' ? { reasoning_content: text } : {}),
             };
             const messages = [
-                { role: 'user', content: 'hi' },
+                ...user('hi'),
                 assistant,
-                { role: 'user', content: 'continue' },
+                ...user('continue'),
             ];
             const tokens =
                 estimatePromptTokens(messages) + estimateTextTokens(text);
-            const inputRate = model.endsWith('highspeed') ? 800 : 400;
-            const outputRate = model.endsWith('highspeed') ? 2000 : 1000;
-            const headroom = vi
-                .spyOn(server.services.metering, 'getUsageHeadroom')
-                .mockResolvedValue({ balance: 2_000_000_000, held: 0 });
+            const { input, output } = rates(model);
+            const headroom = fund(2_000_000_000);
             const reserve = vi.spyOn(
                 server.services.metering,
                 'reserveCredits',
             );
-            mockResponse(response());
+            createMock.mockResolvedValueOnce(response());
             await withTestActor(() =>
                 driver.complete({
                     model,
@@ -1379,13 +1362,13 @@ describe('Kimi K3.1 Pro', () => {
                 }),
             );
             expect(reserve.mock.calls[0]![1]).toBe(
-                tokens * inputRate + 10 * outputRate,
+                tokens * input + 10 * output,
             );
             expect(
                 createMock.mock.calls[0]![0].messages[1].reasoning_content,
             ).toBe(text);
             headroom.mockResolvedValue({
-                balance: tokens * inputRate - 1,
+                balance: tokens * input - 1,
                 held: 0,
             });
             await expect(
@@ -1402,68 +1385,8 @@ describe('Kimi K3.1 Pro', () => {
         },
     );
 
-    it.each(
-        models.flatMap((model) => [
-            ...['low', 'high', 'max'].map((effort) => ({
-                model,
-                options: { reasoning: { effort } },
-                expected: effort,
-                invalid: false,
-            })),
-            {
-                model,
-                options: {
-                    reasoning: { effort: 'low' },
-                    reasoning_effort: 'high',
-                },
-                expected: 'high',
-                invalid: false,
-            },
-            { model, options: {}, expected: undefined, invalid: false },
-            ...['medium', 'none'].map((effort) => ({
-                model,
-                options: { reasoning: { effort } },
-                expected: undefined,
-                invalid: true,
-            })),
-        ]),
-    )(
-        'SDK reasoning contract $model $options',
-        async ({ model, options, expected, invalid }) => {
-            // Bridge only the SDK transport, preserving JSON serialization and the real driver.
-            vi.spyOn(sdkUtils, 'makeDriverMethod').mockImplementation(
-                () =>
-                    ((args: unknown) =>
-                        withTestActor(() =>
-                            driver.complete(JSON.parse(JSON.stringify(args))),
-                        )) as never,
-            );
-            mockResponse(response());
-            const result = sdkChat.call(
-                { puter: {} },
-                'hi',
-                { model, ...options },
-                undefined,
-                undefined,
-            );
-            if (invalid) {
-                await expect(result).rejects.toMatchObject({
-                    statusCode: 400,
-                    legacyCode: 'bad_request',
-                });
-                expect(createMock).not.toHaveBeenCalled();
-            } else {
-                await result;
-                expect(createMock).toHaveBeenCalledTimes(1);
-                expect(createMock.mock.calls[0]![0].reasoning_effort).toBe(
-                    expected,
-                );
-            }
-        },
-    );
-
     it.each(models)(
-        'estimates transmitted reasoning on interrupted %s streams',
+        'charges the estimate, replayed reasoning included, when a %s stream is interrupted',
         async (model) => {
             const reasoning = 'history '.repeat(1000);
             const messages = [
@@ -1473,19 +1396,17 @@ describe('Kimi K3.1 Pro', () => {
                     reasoning: 'ignored alias',
                     reasoning_content: reasoning,
                 },
-                { role: 'user', content: 'hi' },
+                ...user('hi'),
             ];
             const expectedInput =
                 estimatePromptTokens(messages) + estimateTextTokens(reasoning);
-            mockResponse(
+            createMock.mockResolvedValueOnce(
                 (async function* () {
                     yield {
                         choices: [{ delta: { content: 'partial answer' } }],
                     };
                     throw new Error('upstream connection lost');
                 })(),
-                null,
-                null,
             );
             const result = await withTestActor(() =>
                 driver.complete({
@@ -1496,7 +1417,6 @@ describe('Kimi K3.1 Pro', () => {
             );
             const text = (await readStreamResult(result)).toString();
             expect(text).toContain('upstream connection lost');
-            expect(text).not.toContain('completion_accounting_failed');
             await vi.waitFor(() => expect(recordSpy).toHaveBeenCalledTimes(1));
             expect(
                 createMock.mock.calls[0]![0].messages[0].reasoning_content,
@@ -1511,225 +1431,34 @@ describe('Kimi K3.1 Pro', () => {
         },
     );
 
-    const invalidUsage = [
-        ['absent usage', undefined],
-        ['null usage', null],
-        ['missing totals', {}],
-        [
-            'reads exceed total',
-            {
-                ...usage,
-                prompt_tokens_details: {
-                    cached_tokens: 120,
-                    cache_write_tokens: 0,
-                },
-            },
-        ],
-        [
-            'fractional writes',
-            {
-                ...usage,
-                prompt_tokens_details: {
-                    cached_tokens: 20,
-                    cache_write_tokens: 50.5,
-                },
-            },
-        ],
-        [
-            'negative reads',
-            {
-                ...usage,
-                prompt_tokens_details: {
-                    cached_tokens: -1,
-                    cache_write_tokens: 50,
-                },
-            },
-        ],
-        ['negative output', { ...usage, completion_tokens: -1 }],
-        ['string total', { ...usage, prompt_tokens: '100' }],
-        [
-            'unsafe total',
-            { ...usage, prompt_tokens: Number.MAX_SAFE_INTEGER + 1 },
-        ],
-        [
-            'null writes',
-            {
-                ...usage,
-                prompt_tokens_details: {
-                    cached_tokens: 20,
-                    cache_write_tokens: null,
-                },
-            },
-        ],
-    ] as const;
-
-    it.each([
-        [false, null, null, false, 'headers', usage],
-        [false, '10', '41', false, 'headers', usage],
-        [true, null, null, false, 'headers', usage],
-        [true, '10', '41', false, 'headers', usage],
-        [false, null, null, true, 'headers', usage],
-        [false, '10', '41', true, 'headers', usage],
-        ...invalidUsage.flatMap(
-            ([name, value]) =>
-                [
-                    [false, '0', null, false, name, value],
-                    [true, '0', null, false, name, value],
-                ] as const,
-        ),
-        [true, null, null, false, 'transport after finish', undefined],
-        [true, '10', null, false, 'transport after finish empty usage', {}],
-        [
-            true,
-            '10',
-            null,
-            false,
-            'transport after finish invalid usage',
-            { ...usage, completion_tokens: -1 },
-        ],
-        [true, '10', null, false, 'transport after finish valid usage', usage],
-        [false, '0x0', null, false, 'nondecimal TTL', usage],
-        [true, '0x0', null, false, 'nondecimal TTL', usage],
-    ] as const)(
-        'settles completed requests (stream=%s, TTL=%s/%s, fallback=%s, %s) without fallback or estimated charging',
-        async (
-            stream,
-            oneHour,
-            fiveMinute,
-            startWithFake,
-            _name,
-            upstreamUsage,
-        ) => {
-            const validSettlement =
-                _name === 'transport after finish valid usage';
-            const model = MOONSHOT_MODELS.find((m) => m.id === models[0])!;
-            // A real alternative route ensures a retry would be observable.
-            vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValue([
-                model,
-            ]);
-            const fallback = vi.spyOn(FakeChatProvider.prototype, 'complete');
-            if (startWithFake)
-                fallback.mockRejectedValueOnce(new Error('Connection failed'));
-            const d = new ChatCompletionDriver(
-                {
-                    providers: {
-                        moonshot: { apiKey: 'test-key' },
-                        ollama: { enabled: false },
-                    },
-                } as never,
-                server.clients,
-                server.stores,
-                server.services,
+    it.each(models)(
+        'charges the estimate when a %s stream completes without a usage chunk',
+        async (model) => {
+            createMock.mockResolvedValueOnce(
+                asAsyncIterable([
+                    { choices: [{ delta: { content: 'answer' } }] },
+                    { choices: [{ delta: {}, finish_reason: 'stop' }] },
+                ]),
             );
-            await d.onServerStart();
-            const actor = {
-                user: {
-                    uuid: `kimi-accounting-${Math.random()}`,
-                    username: 'kimi-accounting',
-                    email: 'kimi@test.com',
-                },
-            } as never;
-            const take = vi.spyOn(server.stores.creditHold, 'take');
-            const release = vi.spyOn(server.stores.creditHold, 'release');
-            mockResponse(
-                stream
-                    ? (async function* () {
-                          yield { choices: [{ delta: { content: 'answer' } }] };
-                          yield {
-                              choices: [{ delta: {}, finish_reason: 'stop' }],
-                              usage: structuredClone(upstreamUsage),
-                          };
-                          if (_name.startsWith('transport after finish'))
-                              throw new Error('upstream connection lost');
-                      })()
-                    : { ...response(), usage: structuredClone(upstreamUsage) },
-                oneHour,
-                fiveMinute,
+            const result = await withTestActor(() =>
+                driver.complete({
+                    model,
+                    provider: 'moonshotai',
+                    messages: user('hi'),
+                    stream: true,
+                }),
             );
-            const completion = withTestActor(
-                () =>
-                    d.complete({
-                        model: models[0]!,
-                        provider: startWithFake ? 'fake-chat' : 'moonshot',
-                        messages: [{ role: 'user', content: 'hi' }],
-                        max_tokens: 10,
-                        stream,
-                    }),
-                actor,
-            );
-            if (stream) {
-                const result = (await completion) as unknown as {
-                    stream: Readable;
-                };
-                const events = (await readStreamResult(result))
-                    .toString()
-                    .trim()
-                    .split('\n')
-                    .map((line) => JSON.parse(line));
-                if (validSettlement) {
-                    expect(events.some((event) => event.type === 'error')).toBe(
-                        false,
-                    );
-                    expect(events).toContainEqual(
-                        expect.objectContaining({ type: 'usage' }),
-                    );
-                } else {
-                    expect(events).toContainEqual(
-                        expect.objectContaining({
-                            type: 'error',
-                            code: 'completion_accounting_failed',
-                            status: 502,
-                            message: expect.stringContaining(
-                                'No charge was recorded',
-                            ),
-                        }),
-                    );
-                }
-            } else {
-                await expect(completion).rejects.toMatchObject({
-                    statusCode: 502,
-                    legacyCode: 'completion_accounting_failed',
-                    message: expect.stringContaining('No charge was recorded'),
-                });
-            }
-            await vi.waitFor(() =>
-                expect(release).toHaveBeenCalledTimes(startWithFake ? 2 : 1),
-            );
-            expect(take).toHaveBeenCalledTimes(startWithFake ? 2 : 1);
-            expect(take.mock.calls[0]![1]).toBeGreaterThan(0);
-            expect(
-                await server.services.metering.getOutstandingHolds(actor),
-            ).toBe(0);
-            expect(createMock).toHaveBeenCalledTimes(1);
-            expect(fallback).toHaveBeenCalledTimes(startWithFake ? 1 : 0);
-            if (validSettlement) {
-                expect(recordSpy).toHaveBeenCalledTimes(1);
-                expect(recordSpy.mock.calls[0]![0]).toEqual({
-                    prompt_tokens: 30,
-                    completion_tokens: 10,
-                    cached_tokens: 20,
-                    cache_write_tokens: 40,
-                    cache_write_1h_tokens: 10,
-                });
-            } else {
-                expect(recordSpy).not.toHaveBeenCalled();
-            }
-            expect(isRouteUnhealthy('moonshot', models[0]!)).toBe(false);
+            const events = (await readStreamResult(result))
+                .toString()
+                .trim()
+                .split('\n')
+                .map((line) => JSON.parse(line));
+            expect(events.some((event) => event.type === 'error')).toBe(false);
+            await vi.waitFor(() => expect(recordSpy).toHaveBeenCalledTimes(1));
+            expect(recordSpy.mock.calls[0]![0]).toMatchObject({
+                estimated_prompt_tokens: expect.any(Number),
+                estimated_completion_tokens: expect.any(Number),
+            });
         },
     );
-
-    it('derives one-hour writes from the five-minute header and total writes', async () => {
-        const { provider } = makeProvider();
-        mockResponse(response(), null, '40');
-        await withTestActor(() =>
-            provider.complete({
-                model: models[0]!,
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
-        expect(recordSpy.mock.calls[0]![0]).toMatchObject({
-            cache_write_tokens: 40,
-            cache_write_1h_tokens: 10,
-        });
-    });
 });

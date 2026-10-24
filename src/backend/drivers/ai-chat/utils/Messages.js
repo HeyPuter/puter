@@ -85,25 +85,11 @@ export const normalize_single_message = (message, params = {}) => {
                         { legacyCode: 'bad_request' },
                     );
                 }
-                let input = tool_call.function.arguments;
-                if (typeof input === 'string') {
-                    try {
-                        input = JSON.parse(input);
-                    } catch {
-                        throw new HttpError(
-                            400,
-                            'tool_call function arguments must be valid JSON',
-                            {
-                                legacyCode: 'bad_request',
-                            },
-                        );
-                    }
-                }
                 message.content.push({
                     type: 'tool_use',
                     id: tool_call.id,
                     name: tool_call.function.name,
-                    input,
+                    input: tool_call.function.arguments,
                     // Gemini's thought signature rides here and must be
                     // replayed with the call.
                     ...(tool_call.extra_content

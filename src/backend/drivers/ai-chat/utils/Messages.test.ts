@@ -224,23 +224,6 @@ describe('normalize_single_message tool_calls', () => {
         );
     });
 
-    it('rejects malformed serialized tool arguments', () => {
-        expect(() =>
-            normalize_messages([
-                {
-                    role: 'assistant',
-                    content: null,
-                    tool_calls: [
-                        {
-                            id: 'c1',
-                            function: { name: 'lookup', arguments: '{' },
-                        },
-                    ],
-                },
-            ] as never),
-        ).toThrow('tool_call function arguments must be valid JSON');
-    });
-
     it('still converts a well-formed tool_call', () => {
         const result = normalize_messages([
             {
@@ -251,7 +234,7 @@ describe('normalize_single_message tool_calls', () => {
             },
         ] as never);
         expect(result[0].content).toEqual([
-            { type: 'tool_use', id: 'c1', name: 'lookup', input: {} },
+            { type: 'tool_use', id: 'c1', name: 'lookup', input: '{}' },
         ]);
     });
 

@@ -888,6 +888,35 @@ describe('splitCachedPrompt', () => {
             cached_tokens: 0,
         });
     });
+
+    it('takes cache writes out of prompt_tokens under their own key', () => {
+        expect(
+            splitCachedPrompt({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                prompt_tokens_details: { cached_tokens: 3, cache_write_tokens: 4 },
+            }),
+        ).toEqual({
+            prompt_tokens: 3,
+            completion_tokens: 5,
+            cached_tokens: 3,
+            cache_write_tokens: 4,
+        });
+    });
+
+    it('leaves cache writes out when the upstream reports no count', () => {
+        expect(
+            splitCachedPrompt({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                prompt_tokens_details: { cached_tokens: 3, cache_write_tokens: null },
+            }),
+        ).toEqual({
+            prompt_tokens: 7,
+            completion_tokens: 5,
+            cached_tokens: 3,
+        });
+    });
 });
 
 // ── recorded usage costs ────────────────────────────────────────────
