@@ -432,3 +432,24 @@ describe('typeSelectTarget', () => {
         expect(typeSelectTarget(names, 0, 'q')).toBe(-1);
     });
 });
+
+describe('TabFiles.updateNavButtonStates', () => {
+    it('takes a disabled arrow out of the Tab order and puts it back', () => {
+        document.body.innerHTML = `
+            <div class="window">
+                <img class="path-btn path-btn-back" tabindex="0">
+                <img class="path-btn path-btn-forward" tabindex="0">
+                <img class="path-btn path-btn-up" tabindex="0">
+            </div>`;
+        TabFiles.$el_window = $('.window');
+        TabFiles.currentPath = '/alice/Documents';
+        window.dashboard_nav_history = ['/alice', '/alice/Documents'];
+        window.dashboard_nav_history_current_position = 1;
+
+        TabFiles.updateNavButtonStates();
+
+        expect($('.path-btn-back').attr('tabindex')).toBe('0');
+        expect($('.path-btn-forward').attr('tabindex')).toBe('-1');
+        expect($('.path-btn-forward').attr('aria-disabled')).toBe('true');
+    });
+});

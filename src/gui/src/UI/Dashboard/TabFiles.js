@@ -154,9 +154,9 @@ const TabFiles = {
                     <div class="header">
                         <div class="path">
                             <div class="path-nav-buttons">
-                                <img draggable="false" class="path-btn path-btn-back path-btn-disabled" tabindex="0" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_back')}" src="${html_encode(window.icons['arrow-left-thin.svg'])}" title="${i18n('window_click_to_go_back')}">
-                                <img draggable="false" class="path-btn path-btn-forward path-btn-disabled" tabindex="0" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_forward')}" src="${html_encode(window.icons['arrow-right-thin.svg'])}" title="${i18n('window_click_to_go_forward')}">
-                                <img draggable="false" class="path-btn path-btn-up path-btn-disabled" tabindex="0" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_up')}" src="${html_encode(window.icons['arrow-up-thin.svg'])}" title="${i18n('window_click_to_go_up')}">
+                                <img draggable="false" class="path-btn path-btn-back path-btn-disabled" tabindex="-1" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_back')}" src="${html_encode(window.icons['arrow-left-thin.svg'])}" title="${i18n('window_click_to_go_back')}">
+                                <img draggable="false" class="path-btn path-btn-forward path-btn-disabled" tabindex="-1" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_forward')}" src="${html_encode(window.icons['arrow-right-thin.svg'])}" title="${i18n('window_click_to_go_forward')}">
+                                <img draggable="false" class="path-btn path-btn-up path-btn-disabled" tabindex="-1" role="button" aria-disabled="true" aria-label="${i18n('window_click_to_go_up')}" src="${html_encode(window.icons['arrow-up-thin.svg'])}" title="${i18n('window_click_to_go_up')}">
                             </div>
                             <div class="path-breadcrumbs"></div>
                             <div class="path-actions">
@@ -4524,9 +4524,12 @@ const TabFiles = {
         const forwardBtn = this.$el_window.find('.path-btn-forward');
         const upBtn = this.$el_window.find('.path-btn-up');
 
+        // Out of the Tab order while disabled, as a disabled <button> is: at
+        // its 10% opacity a focus ring on it can't be seen.
         const setDisabled = ($btn, disabled) => $btn
             .toggleClass('path-btn-disabled', disabled)
-            .attr('aria-disabled', disabled ? 'true' : 'false');
+            .attr('aria-disabled', disabled ? 'true' : 'false')
+            .attr('tabindex', disabled ? '-1' : '0');
 
         setDisabled(backBtn, window.dashboard_nav_history_current_position === 0);
         setDisabled(forwardBtn, window.dashboard_nav_history_current_position >= window.dashboard_nav_history.length - 1);
