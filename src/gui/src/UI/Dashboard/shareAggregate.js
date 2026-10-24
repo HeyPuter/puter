@@ -46,6 +46,8 @@ import { team_label } from '../../helpers/shareTeams.js';
  * @property {string|null} inheritedMode - Mode of the inherited grants, null when they disagree
  * @property {string|null} inheritedFrom - The one ancestor every inherited grant
  *   comes through, null when there is more than one
+ * @property {string[]} issuers - Who issued the direct grants and invitations.
+ *   Only the item's owner or a grant's issuer can change or withdraw it.
  * @property {number} accessCount - Items the person can reach, by any of the three
  */
 
@@ -148,6 +150,7 @@ export const aggregateShares = (paths, sharesByPath) => {
             const { key, name, teamUid, anonymous } = identity;
 
             if ( counted.has(`${key}|${bucket}`) ) {
+                if ( bucket !== 'inherited' ) groups.get(key)._issuers.add(share.issuer);
                 const modes = groups.get(key)[`_${bucket}Modes`];
                 modes[modes.length - 1] = stronger(modes[modes.length - 1], share.mode);
                 continue;
@@ -168,9 +171,11 @@ export const aggregateShares = (paths, sharesByPath) => {
                     _pendingModes: [],
                     _inheritedModes: [],
                     _inheritedFroms: [],
+                    _issuers: new Set(),
                 });
             }
             const group = groups.get(key);
+            if ( bucket !== 'inherited' ) group._issuers.add(share.issuer);
 
             if ( bucket === 'pending' ) {
                 group.pendingPaths.push(item_path);
@@ -205,6 +210,7 @@ export const aggregateShares = (paths, sharesByPath) => {
             pendingMode: uniform(group._pendingModes),
             inheritedMode: uniform(group._inheritedModes),
             inheritedFrom: uniform(group._inheritedFroms),
+            issuers: [...group._issuers],
             accessCount: reached.size,
         };
     });

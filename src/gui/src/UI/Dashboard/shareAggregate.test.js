@@ -152,6 +152,18 @@ describe('aggregateShares', () => {
         expect(groups[0].mode).toBe('write');
     });
 
+    it('lists who issued the grants and invitations, but not inherited ones', () => {
+        const groups = aggregateShares(['/me/a', '/me/b'], new Map([
+            ['/me/a', [
+                grant('ann', 'read', { issuer: 'me' }),
+                grant('ann', 'write', { issuer: 'bob' }),
+            ]],
+            ['/me/b', [grant('ann', 'read', { issuer: 'carl', inheritedFrom: '/me' })]],
+        ]));
+
+        expect(groups[0].issuers).toEqual(['me', 'bob']);
+    });
+
     it('lists people in the order the items first mention them', () => {
         const groups = aggregateShares(['/me/a', '/me/b'], new Map([
             ['/me/a', [grant('zed', 'read')]],

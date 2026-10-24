@@ -329,9 +329,15 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         // Only direct grants live on the items themselves; an inherited one
         // belongs to the ancestor folder and has to be changed there.
         // Every action addresses a person by name; a withheld invite has none.
-        const can_change = group.directPaths.length > 0 && ! group.anonymous;
-        const can_revoke = ! group.anonymous
-            && (can_change || group.pendingPaths.length > 0);
+        // Someone the owner let share can only change or withdraw the grants
+        // they issued, and leave their own; on anyone else's the request
+        // would do nothing.
+        const may_act = ! group.anonymous
+            && (allow_manage || group.issuers.every((issuer) => issuer === window.user.username));
+        const is_self = ! group.teamUid && ! group.pending && group.name === window.user.username;
+        const can_change = group.directPaths.length > 0 && may_act;
+        const can_revoke = (may_act && (can_change || group.pendingPaths.length > 0))
+            || (is_self && group.directPaths.length > 0);
         // Extending someone needs a mode to extend; a person whose grants
         // disagree levels them with the select first.
         const missing = missingPathsFor(target_paths, group).length;
@@ -365,7 +371,9 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             // reader user unable to tell whose grant a control changes.
             row += `<select class="share-modal-row-mode" data-key="${key}" aria-label="${i18n('share_access_level_for', { recipient: group.name })}">${options_for(group.mode, { allow_manage })}</select>`;
         } else {
-            const fixed_mode = group.pending ? group.pendingMode : group.inheritedMode;
+            let fixed_mode = group.inheritedMode;
+            if ( group.pending ) fixed_mode = group.pendingMode;
+            else if ( group.directPaths.length ) fixed_mode = group.mode;
             row += `<span class="share-modal-row-tag">${fixed_mode ? mode_label(fixed_mode) : i18n('share_access_mixed')}</span>`;
         }
 
