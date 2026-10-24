@@ -4930,6 +4930,14 @@ body.myapps-reordering .myapps-tile {
     filter: none;
 }
 
+@media (prefers-color-scheme: dark) {
+    /* A black glyph, lost on a dark disc; it gets the white one the shortcut
+       and worker badges carry. */
+    .dashboard-section-files .files-tab .files.files-grid-view .row img.item-has-website-url-badge {
+        background: #ffffff;
+    }
+}
+
 .dashboard-section-files .files-tab .files.files-grid-view .row {
     display: flex;
     flex-direction: column;
