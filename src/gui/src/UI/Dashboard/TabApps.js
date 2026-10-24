@@ -2214,11 +2214,19 @@ const TabApps = {
     // Dissolve a folder: its apps stay exactly where the folder was, side by
     // side, so nothing is lost or moved somewhere the user has to find.
     _ungroup ($el_window, groupId) {
-        if ( ! findGroupById(this._groups, groupId) ) return;
+        const group = findGroupById(this._groups, groupId);
+        if ( ! group ) return;
         if ( this._openGroupId === groupId ) this._closeGroup($el_window);
         this._groups = removeGroup(this._groups, groupId);
         this.saveGroups();
         this.renderApps($el_window, { preservePage: true, instant: true });
+        // The folder's tile, focused or not, is gone; a keyboard user lands
+        // on its first app instead of back at the top of the page.
+        if ( ! document.activeElement || document.activeElement === document.body ) {
+            $el_window.find('.myapps-page .myapps-tile').toArray()
+                .find(el => el.dataset.appName === group.apps[0])
+                ?.focus({ preventScroll: true });
+        }
     },
 
     // Take one app out of a folder. It lands on the grid immediately after
