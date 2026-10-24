@@ -4869,6 +4869,11 @@ const TabFiles = {
                 await _this.restoreRows([el]);
             },
             onPasteInto: (destPath) => _this.pasteClipboardInto(destPath),
+            // The people filter and its counts, the empty notice and the
+            // footer all come from the listing.
+            onRemovedFromShared: () => {
+                if ( _this.currentPath === window.shared_path ) _this.refreshKeepingSelection();
+            },
             onOpen: (el, fsentry) => {
                 // Custom open handler for Dashboard (avoids window_nav_history issues)
                 if ( fsentry.is_dir ) {

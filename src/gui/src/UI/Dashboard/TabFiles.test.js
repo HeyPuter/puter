@@ -26,6 +26,7 @@ vi.mock('../UIWindow.js', () => ({ default: vi.fn() }));
 vi.mock('../UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('../UIWindowProgress.js', () => ({ default: vi.fn() }));
 vi.mock('../UIContextMenu.js', () => ({ default: vi.fn() }));
+vi.mock('../../helpers/generateFileContextMenu.js', () => ({ default: vi.fn(async () => []) }));
 
 globalThis.$ = jQuery;
 globalThis.jQuery = jQuery;
@@ -36,6 +37,7 @@ globalThis.i18n = globalThis.i18n ?? (key => key);
 window.icons = {};
 
 const { default: TabFiles, failedUploadsMessage, rebasePath, typeSelectTarget } = await import('./TabFiles.js');
+const { default: generateFileContextMenu } = await import('../../helpers/generateFileContextMenu.js');
 
 const TRASH = '/alice/Trash';
 
@@ -627,5 +629,33 @@ describe('TabFiles people filter across navigation', () => {
 
         expect(TabFiles.sharerFilter).toBeNull();
         expect(listed()).toEqual(['a', 'b']);
+    });
+});
+
+describe('TabFiles Remove from Shared', () => {
+    const SHARED = 'puter://shared';
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        window.shared_path = SHARED;
+        window.trash_path = TRASH;
+        vi.spyOn(TabFiles, 'refreshKeepingSelection').mockImplementation(async () => {});
+    });
+
+    const removeFromShared = async () => {
+        await TabFiles.generateContextMenuItems($('.files .row')[0], {});
+        generateFileContextMenu.mock.lastCall[0].onRemovedFromShared();
+    };
+
+    it('lists Shared again, for the people filter and the empty notice', async () => {
+        mountListing(['a'], SHARED);
+        await removeFromShared();
+        expect(TabFiles.refreshKeepingSelection).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves another folder the user has since opened alone', async () => {
+        mountListing(['a'], '/alice/Documents');
+        await removeFromShared();
+        expect(TabFiles.refreshKeepingSelection).not.toHaveBeenCalled();
     });
 });
