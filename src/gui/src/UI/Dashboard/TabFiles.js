@@ -3956,7 +3956,13 @@ const TabFiles = {
                                 ? _this.renderTarget
                                 : _this.currentPath;
 
-                            void _this.dropRowsInto(itemsToMove, destPath, event);
+                            // Shared, or a share the user can only read, takes
+                            // nothing: the drag goes back to where it began.
+                            if ( _this.acceptsNewItems(destPath) ) {
+                                void _this.dropRowsInto(itemsToMove, destPath, event);
+                            } else {
+                                _this.navigateBackFromSpringLoad();
+                            }
                         } else {
                             // Dropped outside file list → cancel, navigate back
                             _this.navigateBackFromSpringLoad();
