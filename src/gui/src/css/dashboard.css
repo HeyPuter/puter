@@ -504,6 +504,23 @@ body {
     }
 }
 
+@media (pointer: coarse) {
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .dashboard-sidebar-close {
+        position: relative;
+    }
+
+    .dashboard-sidebar-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+}
+
 .dashboard-sidebar-nav {
     flex: 1;
     min-height: 0;
@@ -1595,6 +1612,11 @@ input.myapps-group-name:focus {
     cursor: pointer;
     transition: background 0.15s, opacity 0.15s;
 }
+@media (pointer: coarse) {
+    .myapps-modal-btn {
+        min-height: 44px;
+    }
+}
 .myapps-modal-cancel {
     background: var(--dashboard-card-background);
     color: var(--dashboard-text-primary);
@@ -1697,6 +1719,7 @@ input.myapps-group-name:focus {
     font-weight: 600;
 }
 .app-feedback-x {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1710,6 +1733,18 @@ input.myapps-group-name:focus {
     color: var(--afb-muted);
     cursor: pointer;
     transition: background-color 0.12s ease, color 0.12s ease;
+}
+@media (pointer: coarse) {
+    /* Keeps its 30px look and hit-tests at 44x44. */
+    .app-feedback-x::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 .app-feedback-x svg {
     width: 16px;
@@ -2000,6 +2035,7 @@ input.myapps-group-name:focus {
     margin: 0;
 }
 .myapps-add-back {
+    position: relative;
     flex: none;
     display: flex;
     align-items: center;
@@ -2015,6 +2051,18 @@ input.myapps-group-name:focus {
     background: none;
     color: var(--dashboard-text-secondary);
     cursor: pointer;
+}
+@media (pointer: coarse) {
+    /* Keeps its 26px look and hit-tests at 44x44. */
+    .myapps-add-back::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 .myapps-add-back svg {
     width: 17px;
@@ -2178,6 +2226,7 @@ p.myapps-add-error {
     color: var(--dashboard-text-muted);
 }
 .item-props-close {
+    position: relative;
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -2191,6 +2240,18 @@ p.myapps-add-error {
     color: var(--dashboard-text-secondary);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
+}
+@media (pointer: coarse) {
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .item-props-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 @media (hover: hover) {
     .item-props-close:hover {
@@ -3109,7 +3170,8 @@ select.share-modal-row-mode:focus {
         padding-top: 9px;
         padding-bottom: 9px;
     }
-    .share-modal-submit {
+    .share-modal-submit,
+    .share-modal-copy-link {
         height: 44px;
     }
     .share-modal-btn-quiet,
@@ -3997,6 +4059,21 @@ body.myapps-reordering .myapps-tile {
         width: 36px;
         padding: 8px;
         margin: -4px;
+    }
+
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .dashboard-section-files .header .path-action-btn {
+        position: relative;
+    }
+
+    .dashboard-section-files .header .path-action-btn::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
     }
 }
 
@@ -7083,6 +7160,12 @@ body.myapps-reordering .myapps-tile {
     font-family: inherit;
 }
 
+@media (pointer: coarse) {
+    .context-menu-modal-dialog .context-menu-item {
+        min-height: 44px;
+    }
+}
+
 .context-menu-modal-dialog .context-menu-item:last-child {
     border-bottom: none;
 }
@@ -7862,11 +7945,25 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 }
 
 .dashboard-notifications-close {
+    position: relative;
     width: 30px;
     height: 30px;
     padding: 0;
     justify-content: center;
     color: var(--dashboard-text-muted);
+}
+
+@media (pointer: coarse) {
+    /* Keeps its 30px look and hit-tests at 44x44. */
+    .dashboard-notifications-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 
 .dashboard-notifications-close svg {
