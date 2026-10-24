@@ -46,7 +46,7 @@ import { parent_path_for, parse_shared_path, shared_crumbs_for, shared_uids_from
 import resolve_shared_item from '../../helpers/resolveSharedItem.js';
 import { is_owned_by_me } from '../../helpers/pathOwner.js';
 import parse_item_metadata from '../../helpers/parseItemMetadata.js';
-import { compareSharers, filterBySharer, sharedByCellHtml, sharerFilterHtml, summarizeSharers } from './sharedBy.js';
+import { compareSharers, filterBySharer, fitSharedByWidth, sharedByCellHtml, sharerFilterHtml, summarizeSharers } from './sharedBy.js';
 
 const { html_encode, SelectionArea } = window;
 
@@ -2064,6 +2064,11 @@ const TabFiles = {
             }
         }
         this.appliedColumnWidths = { name: nameWidth, sharedBy: sharedByWidth, size: sizeWidth, modified: modifiedWidth };
+        // Narrowed beside an auto-width name on every pass, so a resize of
+        // another column doesn't save the narrowed width.
+        if ( hasSharedBy && ! nameWidth && containerWidth > 0 ) {
+            sharedByWidth = fitSharedByWidth(sharedByWidth, containerWidth - COLUMN_FIXED_WIDTH - 4 - sizeWidth - modifiedWidth);
+        }
 
         const nameCol = nameWidth ? `${nameWidth}px` : 'auto';
         const sharedByCols = hasSharedBy ? `${sharedByWidth}px 4px ` : '';
@@ -2124,12 +2129,21 @@ const TabFiles = {
             modified: this.columnWidths.modified || 120,
         };
         let fixed = COLUMN_FIXED_WIDTH;
+        // Beside an auto-width name, "Shared by" is narrowed as applyColumnWidths lays it out.
+        const narrowsSharedBy = this.currentPath === window.shared_path && ! this.columnWidths.name;
         if ( this.currentPath === window.shared_path ) {
-            widths.sharedBy = this.columnWidths.sharedBy || 160;
             fixed += 4;
+            widths.sharedBy = this.columnWidths.sharedBy || 160;
+            if ( narrowsSharedBy ) {
+                widths.sharedBy = fitSharedByWidth(widths.sharedBy, containerWidth - fixed - widths.size - widths.modified);
+            }
         }
         const others = Object.keys(widths).filter(c => c !== column).reduce((sum, c) => sum + widths[c], 0);
-        return Math.max(min, Math.min(width, containerWidth - fixed - others));
+        const clamped = Math.max(min, Math.min(width, containerWidth - fixed - others));
+        if ( column === 'sharedBy' && narrowsSharedBy ) {
+            return fitSharedByWidth(clamped, containerWidth - fixed - widths.size - widths.modified);
+        }
+        return clamped;
     },
 
     /**

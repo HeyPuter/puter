@@ -18,7 +18,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 // The tab's window and dialog plumbing isn't what these tests exercise.
@@ -533,5 +533,44 @@ describe('TabFiles.applyHiddenRule', () => {
         expect($('.files .row').first().hasClass('item-revealed')).toBe(true);
         TabFiles.applyHiddenRule($('.files .row').first(), 'b.txt');
         expect($('.files .row').first().hasClass('item-revealed')).toBe(false);
+    });
+});
+
+describe('TabFiles "Shared by" column width', () => {
+    const SHARED = 'puter://shared';
+
+    beforeEach(() => {
+        // Earlier suites stub applyColumnWidths out.
+        vi.restoreAllMocks();
+        window.shared_path = SHARED;
+        window.trash_path = TRASH;
+        mountListing([], SHARED);
+        TabFiles.columnWidths = { name: null, sharedBy: 160, size: 100, modified: 120 };
+        // jsdom lays nothing out; give the listing a width.
+        vi.spyOn($.fn, 'width').mockImplementation(function () {
+            return this.hasClass('files') ? 530 : 0;
+        });
+        vi.spyOn(TabFiles, 'fitItemNames').mockImplementation(() => {});
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('leaves the auto-width name the larger part in a narrow listing', () => {
+        TabFiles.applyColumnWidths();
+        expect(TabFiles.columnGridTemplate).toBe('24px auto 4px 92px 4px 100px 4px 120px 4px 20px');
+    });
+
+    it('keeps its own width when another column is resized', () => {
+        TabFiles.applyColumnWidths();
+        TabFiles.adoptAppliedColumnWidths();
+        expect(TabFiles.columnWidths.sharedBy).toBe(160);
+    });
+
+    it('leaves other columns room to resize as it is laid out', () => {
+        expect(TabFiles.clampColumnWidth('size', 90)).toBe(90);
+    });
+
+    it('is resized only as far as it is laid out', () => {
+        expect(TabFiles.clampColumnWidth('sharedBy', 200)).toBe(92);
     });
 });

@@ -78,6 +78,17 @@ export const compareSharers = (a, b) => compareNames(sharerOf(a), sharerOf(b));
 const compareNames = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
 
 /**
+ * The "Shared by" column's width beside an auto-width name column: `width`,
+ * held to 40% of the `room` the two split so the name keeps the larger part,
+ * and never under the 60px every resizable column keeps.
+ *
+ * @param {number} width
+ * @param {number} room
+ * @returns {number}
+ */
+export const fitSharedByWidth = (width, room) => Math.max(60, Math.min(width, Math.floor(room * 0.4)));
+
+/**
  * The initial-and-color avatar the share modal uses, sized by `className`.
  *
  * @param {string} name

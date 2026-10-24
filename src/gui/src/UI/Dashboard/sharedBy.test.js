@@ -31,6 +31,7 @@ globalThis.window = {
 const {
     compareSharers,
     filterBySharer,
+    fitSharedByWidth,
     sharedByCellHtml,
     sharedByTitle,
     sharerFilterHtml,
@@ -92,6 +93,21 @@ describe('compareSharers', () => {
     it('sorts by sharer, ignoring case', () => {
         const sorted = [row('carl'), row('Ann'), row('bob')].sort(compareSharers);
         expect(sorted.map(sharerOf)).toEqual(['Ann', 'bob', 'carl']);
+    });
+});
+
+describe('fitSharedByWidth', () => {
+    it('keeps the width while the name has the larger part', () => {
+        expect(fitSharedByWidth(160, 1200)).toBe(160);
+    });
+
+    it('yields to the name in a narrow listing', () => {
+        // A 530px listing leaves 230px for the name and "Shared by" together.
+        expect(fitSharedByWidth(160, 230)).toBe(92);
+    });
+
+    it('never goes under the column minimum', () => {
+        expect(fitSharedByWidth(160, 50)).toBe(60);
     });
 });
 
