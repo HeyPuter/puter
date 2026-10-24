@@ -55,7 +55,10 @@ const ACK_CONCURRENCY = 6;
 /** How many of the most recent notifications the panel lists, read or not. */
 const HISTORY_LIMIT = 30;
 
-/** Rows a listing asks for, past HISTORY_LIMIT, for the ones the panel hides. */
+/**
+ * Rows a listing asks for: past HISTORY_LIMIT for the ones the panel hides
+ * and for older unread ones, which it lists too. The driver's maximum.
+ */
 const LISTING_LIMIT = 200;
 
 /** Matches the panel's CSS transition; `hidden` is set once it has run. */

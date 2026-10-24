@@ -153,9 +153,9 @@ describe('listedEntries', () => {
         expect(listedEntries(rows, NOW, 30).map((e) => e.uid)).toEqual(['share', 'older']);
     });
 
-    it('keeps the newest `limit`', () => {
-        const rows = Array.from({ length: 5 }, (_, i) => row(`n${i}`));
-        expect(listedEntries(rows, NOW, 3).map((e) => e.uid)).toEqual(['n0', 'n1', 'n2']);
+    it('keeps the newest `limit`, and every unread one past them', () => {
+        const rows = Array.from({ length: 6 }, (_, i) => ({ ...row(`n${i}`), acknowledged: i === 4 ? null : NOW / 1000 }));
+        expect(listedEntries(rows, NOW, 3).map((e) => e.uid)).toEqual(['n0', 'n1', 'n2', 'n4']);
     });
 });
 

@@ -137,9 +137,10 @@ export const toEntry = (raw, now) => {
 };
 
 /**
- * The entries a listing contributes: its newest `limit` the center shows.
- * Hidden rows are dropped before counting, so a run of them (a developer's
- * deploy results) can't take the places of the rest.
+ * The entries a listing contributes: its newest `limit` the center shows,
+ * and every unread one past them, so the badge and "Mark all as read" cover
+ * them all. Hidden rows are dropped before counting, so a run of them (a
+ * developer's deploy results) can't take the places of the rest.
  *
  * @param {Object[]} rows - Driver rows, newest first
  * @param {number} now - Epoch ms
@@ -149,7 +150,7 @@ export const toEntry = (raw, now) => {
 export const listedEntries = (rows, now, limit) => rows
     .map((row) => toEntry(row, now))
     .filter(Boolean)
-    .slice(0, limit);
+    .filter((entry, i) => i < limit || isUnread(entry));
 
 /**
  * Newest first; entries without a time sort as newest (they are the ones
