@@ -136,9 +136,9 @@ const TabFiles = {
                             </div>
                             <div class="path-breadcrumbs"></div>
                             <div class="path-actions">
-                                <button class="path-action-btn select-mode-btn" title="${i18n('select')}">${icons.select}</button>
-                                <button class="path-action-btn sort-btn" title="${i18n('sort_by')}">${icons.sort}</button>
-                                <button class="path-action-btn view-toggle-btn" title="${i18n('toggle_view')}">${icons.grid}</button>
+                                <button class="path-action-btn select-mode-btn" title="${i18n('select')}" aria-pressed="false">${icons.select}</button>
+                                <button class="path-action-btn sort-btn" title="${i18n('sort_by')}" aria-haspopup="menu">${icons.sort}</button>
+                                <button class="path-action-btn view-toggle-btn" title="${i18n('toggle_view')}" aria-haspopup="menu">${icons.grid}</button>
                                 <button class="path-action-btn new-folder-btn" title="${i18n('new_folder')}">${icons.newFolder}</button>
                                 <button class="path-action-btn upload-btn" title="${i18n('upload')}">${icons.upload}</button>
                             </div>
@@ -4289,10 +4289,10 @@ const TabFiles = {
 
         if ( this.selectModeActive ) {
             $filesTab.addClass('select-mode-active');
-            $selectBtn.addClass('active');
+            $selectBtn.addClass('active').attr('aria-pressed', 'true');
         } else {
             $filesTab.removeClass('select-mode-active');
-            $selectBtn.removeClass('active');
+            $selectBtn.removeClass('active').attr('aria-pressed', 'false');
             // Clear all selections when exiting select mode
             this.$el_window.find('.files .row.selected').removeClass('selected');
             this.updateFooterStats();
@@ -4310,7 +4310,7 @@ const TabFiles = {
             const $filesTab = this.$el_window.find('.files-tab');
             const $selectBtn = this.$el_window.find('.select-mode-btn');
             $filesTab.removeClass('select-mode-active');
-            $selectBtn.removeClass('active');
+            $selectBtn.removeClass('active').attr('aria-pressed', 'false');
             // Clear all selections
             this.$el_window.find('.files .row.selected').removeClass('selected');
             this.updateFooterStats();
