@@ -1286,11 +1286,14 @@ const TabApps = {
         // Mouse wheel / two-finger vertical swipe flips one page per gesture.
         // Horizontal trackpad panning is left to the native scroller, whose
         // snap points already handle it.
+        // jQuery wheel listeners are passive here (see initgui), and the
+        // scroller can't scroll vertically anyway, so nothing is prevented.
+        // A trackpad pinch arrives as ctrlKey wheel events: that's a zoom.
         $el_window.on('wheel', '.myapps-pager-scroller', function (e) {
             const oe = e.originalEvent;
+            if ( oe.ctrlKey ) return;
             if ( Math.abs(oe.deltaX) > Math.abs(oe.deltaY) ) return;
             if ( Math.abs(oe.deltaY) < 4 ) return;
-            e.preventDefault();
             // Inertial scrolling keeps emitting events after the flip; treat
             // everything within 150ms of the last event as the same gesture.
             clearTimeout(self._wheelTimer);
@@ -1821,11 +1824,12 @@ const TabApps = {
 
         // Mouse wheel / two-finger vertical swipe flips one folder page per
         // gesture, mirroring the grid's scroller (which see for the debounce).
+        // As the grid's: passive, and a pinch is a zoom.
         $overlay.on('wheel', '.myapps-group-panel-grid', function (e) {
             const oe = e.originalEvent;
+            if ( oe.ctrlKey ) return;
             if ( Math.abs(oe.deltaX) > Math.abs(oe.deltaY) ) return;
             if ( Math.abs(oe.deltaY) < 4 ) return;
-            e.preventDefault();
             clearTimeout(self._groupWheelTimer);
             self._groupWheelTimer = setTimeout(() => {
                 self._groupWheelActive = false;
