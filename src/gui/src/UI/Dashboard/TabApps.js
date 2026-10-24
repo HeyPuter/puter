@@ -950,6 +950,9 @@ const TabApps = {
         // After the field, so Tab reaches it from there.
         h += `<button type="button" class="myapps-search-icon myapps-icon-clear" aria-label="${i18n('clear_search')}" title="${i18n('clear_search')}" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`;
         h += '</div>';
+        // Says when a search finds nothing; the grid itself is re-rendered
+        // silently.
+        h += '<div class="myapps-search-status" role="status" aria-live="polite"></div>';
         // Touch devices' way into drag-to-reorder (CSS shows it only there);
         // toggles the reorder mode — see _setReorderMode.
         h += `<button type="button" class="myapps-reorder-btn" aria-pressed="false" aria-label="${i18n('edit_apps')}">${REORDER_BTN_ICON}</button>`;
@@ -1523,6 +1526,9 @@ const TabApps = {
         const emptyNotice = items.length === 0
             ? (query ? buildNoMatchesHtml() : buildNoAppsHtml())
             : '';
+        const status = query && items.length === 0 ? i18n('no_apps_match', [], false) : '';
+        const $status = $el_window.find('.myapps-search-status');
+        if ( $status.text() !== status ) $status.text(status);
 
         // The add-an-app tile rides at the tail of the grid: after every app,
         // on the last page, and nowhere else — a drag can't place an app past

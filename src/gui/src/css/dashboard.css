@@ -8357,9 +8357,11 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     margin-bottom: 10px;
 }
 
-/* Screen-reader-only: the live region for arrivals, and a row's unread state */
+/* Screen-reader-only: the live region for arrivals, a row's unread state,
+   and what the Apps search found */
 .dashboard-notifications-live,
-.dashboard-notification-sr {
+.dashboard-notification-sr,
+.myapps-search-status {
     position: absolute;
     width: 1px;
     height: 1px;
