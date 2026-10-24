@@ -36,6 +36,7 @@ import { SessionStore } from './session/SessionStore.js';
 import { ShareStore } from './share/ShareStore.js';
 import { SubdomainStore } from './subdomain/SubdomainStore.js';
 import { PresenceStore } from './events/PresenceStore.js';
+import { PushDeviceStore } from './push/PushDeviceStore.js';
 import { SystemKVStore } from './systemKv/SystemKVStore.js';
 import { UploadReservationStore } from './fs/UploadReservationStore.js';
 import { UserBlockStore } from './userBlock/UserBlockStore.js';
@@ -74,6 +75,7 @@ declare module './types.js' {
         kvShareHandle: KvShareHandleStore;
         pendingDelivery: PendingDeliveryStore;
         presence: PresenceStore;
+        pushDevice: PushDeviceStore;
     }
 }
 
@@ -118,4 +120,6 @@ export const puterStores = {
     kvShareHandle: KvShareHandleStore,
     // Writes presence rows through `kv`'s reserved-item path, so it follows it.
     presence: PresenceStore,
+    // Table only.
+    pushDevice: PushDeviceStore,
 } satisfies IPuterStoreRegistry;

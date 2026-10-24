@@ -40,6 +40,7 @@ import { MeteringService } from './metering/MeteringService';
 import { NotificationService } from './notification/NotificationService';
 import { PermissionService } from './permission/PermissionService';
 import { ProfileService } from './profile/ProfileService';
+import { PushService } from './push/PushService';
 import { DefaultUserService } from './selfhosted/DefaultUserService';
 import { ShareNotificationService } from './share/ShareNotificationService';
 import { ShareService } from './share/ShareService';
@@ -77,6 +78,7 @@ declare module './types' {
         events: EventsService;
         eventForward: EventForwardService;
         notification: NotificationService;
+        push: PushService;
         appFeedback: AppFeedbackService;
         broadcast: BroadcastService;
         cacheReplication: CacheReplicationService;
@@ -138,6 +140,8 @@ export const puterServices = {
     // both; `fs` reaches back for dispatch at call time only.
     events: EventsService,
     notification: NotificationService,
+    // Device lifecycle only: listens for session revokes and sweeps stale rows.
+    push: PushService,
     // Declared after `auth` (origin → app uid resolution happens through
     // AuthService.appUidFromOrigin).
     appFeedback: AppFeedbackService,
