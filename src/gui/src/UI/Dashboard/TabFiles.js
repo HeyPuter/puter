@@ -2623,6 +2623,8 @@ const TabFiles = {
         // A newer render supersedes this one; past each await, a superseded
         // render stops without touching the listing or the flags.
         const seq = this.renderSeq = (this.renderSeq ?? 0) + 1;
+        // currentPath only moves once the listing arrives.
+        this.renderTarget = target;
         const _this = this;
         // The preview shows a row of the listing being replaced.
         if ( this.previewOpen && target !== this.currentPath ) this.closeImagePreview();
@@ -3724,13 +3726,18 @@ const TabFiles = {
                             event.clientY >= rect.top && event.clientY <= rect.bottom;
 
                         if ( inFiles ) {
-                            // Dropped in file list but not on a folder → move to current dir
+                            // Dropped in file list but not on a folder → move to
+                            // the folder shown, or still opening (whose listing
+                            // is what the drop landed on)
                             const itemsToMove = [el_item];
                             $('.item-selected-clone').find('.row').each(function () {
                                 itemsToMove.push(this);
                             });
+                            const destPath = _this.renderingDirectory && String(_this.renderTarget).startsWith('/')
+                                ? _this.renderTarget
+                                : _this.currentPath;
 
-                            void _this.dropRowsInto(itemsToMove, _this.currentPath, event);
+                            void _this.dropRowsInto(itemsToMove, destPath, event);
                         } else {
                             // Dropped outside file list → cancel, navigate back
                             _this.navigateBackFromSpringLoad();
