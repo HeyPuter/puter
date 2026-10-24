@@ -41,9 +41,10 @@ import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js'
 
 import { icons } from '../../helpers/actionIcons.js';
 import list_all_shared from '../../helpers/listAllShared.js';
-import { can_restructure, can_share, remember_shared_root, remember_shared_roots } from '../../helpers/sharedAccess.js';
+import { can_restructure, can_share, remember_shared_root, remember_shared_roots, shared_root_for } from '../../helpers/sharedAccess.js';
 import { parent_path_for, parse_shared_path, shared_crumbs_for, shared_uids_from_paths } from '../../helpers/sharePaths.js';
 import resolve_shared_item from '../../helpers/resolveSharedItem.js';
+import { is_owned_by_me } from '../../helpers/pathOwner.js';
 import parse_item_metadata from '../../helpers/parseItemMetadata.js';
 
 const { html_encode, SelectionArea } = window;
@@ -2147,7 +2148,8 @@ const TabFiles = {
      * Whether items can be created, uploaded or pasted into a folder. Not the
      * Trash or a folder inside it (Restore needs metadata only Delete writes),
      * not the Shared view (a query, not a directory), not `/`, and not a
-     * folder Files just failed to list.
+     * folder Files just failed to list, and not a folder shared with the
+     * user to view only (where the server refuses each of them).
      *
      * @param {string} folderPath
      * @returns {boolean}
@@ -2158,7 +2160,22 @@ const TabFiles = {
             && folderPath !== '/'
             && folderPath !== window.trash_path
             && ! folderPath.startsWith(`${window.trash_path}/`)
-            && folderPath !== window.shared_path;
+            && folderPath !== window.shared_path
+            && ! this.isReadOnlyShare(folderPath);
+    },
+
+    /**
+     * Whether a folder is someone else's, shared with the user without write
+     * access, by the shares already loaded (the Shared listing records them).
+     * Unknown counts as writable: the server still has the last word.
+     *
+     * @param {string} folderPath
+     * @returns {boolean}
+     */
+    isReadOnlyShare (folderPath) {
+        if ( is_owned_by_me(folderPath) ) return false;
+        const mode = shared_root_for(folderPath)?.mode;
+        return !! mode && ! ['write', 'manage'].includes(mode);
     },
 
     /**
@@ -3883,9 +3900,10 @@ const TabFiles = {
 
                     const targetPath = $(el_item).attr('data-path');
 
-                    // Don't allow drop on trash folder
+                    // Don't allow drop on trash folder, or one shared view-only
                     if ( targetPath === window.trash_path ||
-                        targetPath?.startsWith(`${window.trash_path}/`) ) {
+                        targetPath?.startsWith(`${window.trash_path}/`) ||
+                        TabFiles.isReadOnlyShare(targetPath) ) {
                         return;
                     }
 
@@ -3911,9 +3929,10 @@ const TabFiles = {
 
                     const targetPath = $(el_item).attr('data-path');
 
-                    // Block uploads to trash
+                    // Block uploads to trash, and to a folder shared view-only
                     if ( targetPath === window.trash_path ||
-                        targetPath?.startsWith(`${window.trash_path}/`) ) {
+                        targetPath?.startsWith(`${window.trash_path}/`) ||
+                        TabFiles.isReadOnlyShare(targetPath) ) {
                         return;
                     }
 

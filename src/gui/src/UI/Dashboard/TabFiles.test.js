@@ -501,3 +501,20 @@ describe('TabFiles image preview', () => {
         expect($('.image-preview-popover')).toHaveLength(0);
     });
 });
+
+describe('TabFiles.acceptsNewItems', () => {
+    it('refuses a folder shared to view only, and takes one shared to edit', async () => {
+        const { remember_shared_roots } = await import('../../helpers/sharedAccess.js');
+        window.user = { username: 'alice' };
+        window.trash_path = TRASH;
+        remember_shared_roots([
+            { path: '/bob/Photos', mode: 'read' },
+            { path: '/bob/Drafts', mode: 'write' },
+        ]);
+
+        expect(TabFiles.acceptsNewItems('/bob/Photos')).toBe(false);
+        expect(TabFiles.acceptsNewItems('/bob/Photos/2024')).toBe(false);
+        expect(TabFiles.acceptsNewItems('/bob/Drafts')).toBe(true);
+        expect(TabFiles.acceptsNewItems('/alice/Documents')).toBe(true);
+    });
+});
