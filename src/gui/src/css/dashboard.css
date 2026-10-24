@@ -4908,6 +4908,14 @@ body.myapps-reordering .myapps-tile {
     display: none;
 }
 
+/* Its two-word label fits on one line, ending in an ellipsis once narrowed. */
+.dashboard-section-files .header .columns .item-shared-by .sortable-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .dashboard-section-files .row .item-shared-by {
     display: flex;
     align-items: center;

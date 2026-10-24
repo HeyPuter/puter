@@ -174,7 +174,7 @@ const TabFiles = {
                             <div class="item-icon"></div>
                             <div class="item-name sortable" data-sort="name">${i18n('name')}</div>
                             <div class="col-resize-handle" data-resize="name"></div>
-                            <div class="item-shared-by sortable" data-sort="shared_by">${i18n('shared_by')}</div>
+                            <div class="item-shared-by sortable" data-sort="shared_by"><span class="sortable-label">${i18n('shared_by')}</span></div>
                             <div class="col-resize-handle" data-resize="sharedBy"></div>
                             <div class="item-size sortable" data-sort="size">${i18n('size')}</div>
                             <div class="col-resize-handle" data-resize="size"></div>
