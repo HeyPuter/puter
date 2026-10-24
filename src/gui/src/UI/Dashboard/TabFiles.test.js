@@ -647,6 +647,22 @@ describe('TabFiles people filter across navigation', () => {
         expect($('.files .row.selected').attr('data-name')).toBe('b');
     });
 
+    it('shows every folder to a drag that springs into Shared', async () => {
+        await TabFiles.renderDirectory(SHARED);
+        await TabFiles.setSharerFilter('bob');
+        await TabFiles.renderDirectory('/bob/b-uid/b');
+
+        window.an_item_is_being_dragged = true;
+        try {
+            await TabFiles.renderDirectory(SHARED);
+        } finally {
+            window.an_item_is_being_dragged = false;
+        }
+
+        expect(TabFiles.sharerFilter).toBeNull();
+        expect(listed()).toEqual(['a', 'b']);
+    });
+
     it("clears once the user goes back to their own files", async () => {
         await TabFiles.renderDirectory(SHARED);
         await TabFiles.setSharerFilter('bob');
