@@ -2001,11 +2001,19 @@ const TabFiles = {
                     }
                 });
             } else if ( column === 'sharedBy' ) {
-                // The avatar and its gap sit beside the name.
-                $filesTab.find('.files.files-list-view .row:not(.header) .item-shared-by-name').each(function () {
-                    const textWidth = measureTextWidth($(this).text(), '400 13px system-ui, -apple-system, sans-serif') + padding + 26;
-                    maxWidth = Math.max(maxWidth, textWidth);
-                });
+                const $names = $filesTab.find('.files.files-list-view .row:not(.header) .item-shared-by-name');
+                if ( $names.length ) {
+                    // Read off a rendered cell: its font, and the padding,
+                    // avatar and gap beside the name.
+                    const nameStyle = getComputedStyle($names[0]);
+                    const font = `${nameStyle.fontWeight} ${nameStyle.fontSize} ${nameStyle.fontFamily}`;
+                    const cellStyle = getComputedStyle($names[0].parentElement);
+                    const beside = parseFloat(cellStyle.paddingLeft) + parseFloat(cellStyle.paddingRight)
+                        + (parseFloat(cellStyle.columnGap) || 0) + ($names[0].previousElementSibling?.offsetWidth ?? 0);
+                    $names.each(function () {
+                        maxWidth = Math.max(maxWidth, measureTextWidth(this.textContent, font) + beside);
+                    });
+                }
             } else if ( column === 'size' ) {
                 $filesTab.find('.files.files-list-view .row:not(.header) .item-size').each(function () {
                     const text = $(this).text();
