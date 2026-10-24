@@ -147,21 +147,25 @@ const TabAccount = {
         h += '<div class="dashboard-settings-card-icon">';
         h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>';
         h += '</div>';
-        h += '<div class="dashboard-settings-card-info">';
-        h += `<strong>${i18n('api_token')}</strong>`;
-        h += `<span>${i18n('api_token_description')}</span>`;
-        h += '</div>';
-        h += '</div>';
-        if ( window.user?.email_confirmed ) {
-            h += `<button class="button copy-auth-token">${i18n('create_token')}</button>`;
-        } else {
-            // "Verify your email" is a dead end for an account with none.
-            const tokenHint = window.user?.email
+        // "Verify your email" is a dead end for an account with none.
+        const tokenHint = window.user?.email_confirmed
+            ? null
+            : window.user?.email
                 ? i18n('verify_email_to_create_token')
                 : i18n('email_needed_to_create_token');
+        h += '<div class="dashboard-settings-card-info">';
+        h += `<strong>${i18n('api_token')}</strong>`;
+        // Why the button is off, where keyboard, touch and screen reader
+        // users can read it too, not only in a hover tooltip.
+        h += `<span>${tokenHint ?? i18n('api_token_description')}</span>`;
+        h += '</div>';
+        h += '</div>';
+        if ( ! tokenHint ) {
+            h += `<button class="button copy-auth-token">${i18n('create_token')}</button>`;
+        } else {
             // Disabled buttons have `pointer-events: none`, so the tooltip
             // lives on a wrapping span that still receives hover.
-            h += `<span title="${html_encode(tokenHint)}" style="cursor: not-allowed;">`;
+            h += `<span title="${tokenHint}" style="cursor: not-allowed;">`;
             h += `<button class="button copy-auth-token" disabled>${i18n('create_token')}</button>`;
             h += '</span>';
         }
