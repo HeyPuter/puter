@@ -1049,9 +1049,7 @@ describe('Kimi K3.1 Pro', () => {
             reasoning_content: 'reasoning',
         });
         expect(replayed).not.toHaveProperty('reasoning');
-        expect(
-            replayed.tool_calls.map((call: { id: string }) => call.id),
-        ).toEqual(['a', 'b']);
+        expect(replayed.tool_calls).toEqual(toolCalls);
         createMock.mockResolvedValueOnce(response());
         await withTestActor(() =>
             provider.complete({
@@ -1274,15 +1272,14 @@ describe('Kimi K3.1 Pro', () => {
                 reasoning_content: 'Check weather',
             });
             expect(assistant).not.toHaveProperty('normalized');
-            expect(assistant.tool_calls).toHaveLength(1);
-            expect(assistant.tool_calls[0]).toMatchObject({
-                id: 'call_paris',
-                function: { name: 'weather' },
-            });
+            expect(assistant.tool_calls).toEqual(toolCalls);
+            expect(
+                JSON.parse(assistant.tool_calls[0].function.arguments),
+            ).toEqual({ city: 'Paris' });
         },
     );
 
-    it.each([{ city: 'Paris' }, 'Paris'])(
+    it.each([{ city: 'Paris' }, '{"city":"Paris"}'])(
         'keeps native tool_use input %j through the driver',
         async (input) => {
             createMock.mockResolvedValueOnce(response());
@@ -1315,9 +1312,9 @@ describe('Kimi K3.1 Pro', () => {
                 (message: { role: string }) => message.role === 'assistant',
             );
             expect(assistant.reasoning_content).toBe('Check weather');
-            expect(
-                JSON.parse(assistant.tool_calls[0].function.arguments),
-            ).toEqual(input);
+            expect(assistant.tool_calls[0].function.arguments).toBe(
+                '{"city":"Paris"}',
+            );
         },
     );
 
