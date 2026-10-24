@@ -335,6 +335,16 @@ async function UIDashboard (options) {
     // approach but adapted for Dashboard's list-view structure.
     // =========================================================================
 
+    // A row taken away from elsewhere: keep the footer's count and size in
+    // step, and say the folder is empty when the Files listing just lost its
+    // last row (rows can also sit in a file picker window).
+    const remove_row = (el_row) => {
+        const from_listing = $(el_row).closest('.files-tab .files').length > 0;
+        $(el_row).remove();
+        if ( from_listing ) window.dashboard_object?.renderEmptyPlaceholderIfNeeded?.();
+        window.dashboard_object?.updateFooterStats?.();
+    };
+
     window.socket.on('item.moved', async (resp) => {
         if ( resp.original_client_socket_id === window.socket.id ) return;
 
@@ -355,8 +365,7 @@ async function UIDashboard (options) {
             $candidates.filter(function () {
                 return $(this).attr('data-path') === old_path;
             }).fadeOut(150, function () {
-                $(this).remove();
-                window.dashboard_object?.updateFooterStats?.();
+                remove_row(this);
             });
         }
 
@@ -379,9 +388,7 @@ async function UIDashboard (options) {
                 return $(this).attr('data-path') === item.path;
             });
         $rows.fadeOut(150, function () {
-            $(this).remove();
-            // Keep the footer item count / total size in sync with the removal.
-            window.dashboard_object?.updateFooterStats?.();
+            remove_row(this);
         });
     });
 
