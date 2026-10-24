@@ -1496,7 +1496,7 @@ const TabFiles = {
                 error: async function (err) {
                     const failedMessage = failedUploadsMessage(err);
                     if ( failedMessage ) UIAlert(failedMessage);
-                    upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
+                    upload_progress_window.show_error(i18n('error_uploading_files', [], false), err.message);
                     // remove from active_uploads
                     delete window.active_uploads[opid];
                     _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
@@ -5248,7 +5248,7 @@ const TabFiles = {
             error: async function (err) {
                 const failedMessage = failedUploadsMessage(err);
                 if ( failedMessage ) UIAlert(failedMessage);
-                upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
+                upload_progress_window.show_error(i18n('error_uploading_files', [], false), err.message);
                 delete window.active_uploads[opid];
                 _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
             },

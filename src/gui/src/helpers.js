@@ -2428,7 +2428,7 @@ window.upload_items = async function (items, dest_path) {
             },
             // error
             error: async function (err) {
-                upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
+                upload_progress_window.show_error(i18n('error_uploading_files', [], false), err.message);
                 // remove from active_uploads
                 delete window.active_uploads[opid];
             },
