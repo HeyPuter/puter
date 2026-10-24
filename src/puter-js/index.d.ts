@@ -200,6 +200,20 @@ export type {
 export type { Networking, SocketEvent } from './types/modules/networking/types.js';
 export type { PSocket, PTLSSocket } from './types/modules/networking/PSocket.js';
 
+// -- puter.notifications --
+export type {
+    AppNotification,
+    NotificationClick,
+    NotificationHandler,
+    NotificationInput,
+    NotificationListener,
+    NotificationSender,
+    OnNotificationOptions,
+    PushDevice,
+    PushDeviceRegistration,
+    PushPlatform,
+} from './types/modules/notifications/types.js';
+
 // -- puter.os --
 
 // -- puter.peer --
@@ -313,6 +327,7 @@ export type Events = InstanceType<import('./types/modules/events/index.js').Even
 export type FS = InstanceType<import('./types/modules/FileSystem/index.js').FSConstructor>;
 export type Hosting = InstanceType<import('./types/modules/hosting/index.js').HostingConstructor>;
 export type KV = InstanceType<import('./types/modules/kv/index.js').KVConstructor>;
+export type Notifications = InstanceType<import('./types/modules/notifications/index.js').NotificationsConstructor>;
 export type OS = InstanceType<import('./types/modules/os/index.js').OSConstructor>;
 export type Peer = InstanceType<import('./types/modules/Peer/index.js').PeerConstructor>;
 export type Perms = InstanceType<import('./types/modules/perms/index.js').PermsConstructor>;
