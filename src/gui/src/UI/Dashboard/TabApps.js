@@ -1343,6 +1343,15 @@ const TabApps = {
                 // button behavior keep working.
                 if ( ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable) ) {
                     const emptySearch = $(ae).hasClass('myapps-search') && ae.value === '';
+                    // Enter in a search opens the first match, as in any launcher.
+                    if ( e.key === 'Enter' && $(ae).hasClass('myapps-search') && ! emptySearch && ! e.isComposing ) {
+                        const first = pageTiles.find(el => ! el.classList.contains('myapps-add-tile'));
+                        if ( first ) {
+                            e.preventDefault();
+                            $(first).trigger('click');
+                        }
+                        return;
+                    }
                     if ( e.key !== 'ArrowDown' && ! (emptySearch && e.key.startsWith('Arrow')) ) return;
                 } else if ( ! e.key.startsWith('Arrow') ) {
                     return;
