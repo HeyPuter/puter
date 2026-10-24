@@ -324,6 +324,7 @@ const en = {
         previous_page: 'Previous page',
         quit: 'Quit',
         search_apps: 'Search apps...',
+        clear_search: 'Clear search',
         uninstall: 'Uninstall',
         uninstall_app: 'Uninstall {{name}}?',
         uninstall_app_body: 'This will revoke all permissions for this app.',
