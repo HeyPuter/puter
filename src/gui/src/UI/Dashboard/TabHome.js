@@ -31,6 +31,9 @@ import { intlLocale } from '../../i18n/intlLocale.js';
 // open, short enough that a user watching the panel still sees movement.
 const USAGE_REFRESH_DEBOUNCE_MS = 5_000;
 
+// How long the plan card waits for the subscription read before giving up.
+const PLAN_REQUEST_TIMEOUT_MS = 15_000;
+
 // Whether "Recently used" has its list: until the first answer it says
 // nothing, rather than "No recent apps yet", and a failed first load says so.
 let recentAppsState = 'loading';
@@ -513,9 +516,14 @@ const TabHome = {
         // upgrade dialog either, which only hosted Puter loads).
         let noBilling = false;
         try {
+            // fetch has no timeout of its own; one that never answers would
+            // hold every later refresh of the cards behind it.
             const resp = await fetch(
                 `${window.api_origin}/marketplace/subscriptions/current`,
-                { headers: { Authorization: `Bearer ${puter.authToken}` } },
+                {
+                    headers: { Authorization: `Bearer ${puter.authToken}` },
+                    signal: AbortSignal.timeout?.(PLAN_REQUEST_TIMEOUT_MS),
+                },
             );
             noBilling = resp.status === 404;
             // A refusal is not a free plan: a seat owing a password change 403s.
@@ -641,9 +649,16 @@ const TabHome = {
     },
 
     async _loadUsageDataUncached($el_window) {
-        await this._renderPlanCard($el_window);
+        // Side by side: neither meter needs the plan, and a slow plan read
+        // must not hold them at "--".
+        await Promise.all([
+            this._renderPlanCard($el_window),
+            this._renderStorageCard($el_window),
+            this._renderResourcesCard($el_window),
+        ]);
+    },
 
-        // Load storage data
+    async _renderStorageCard($el_window) {
         try {
             const res = await getStorageSpace();
             // Guard capacity 0 — 0/0 would render literally as "NaN%".
@@ -672,8 +687,9 @@ const TabHome = {
         } catch (e) {
             console.error('Failed to load storage data:', e);
         }
+    },
 
-        // Load monthly usage data
+    async _renderResourcesCard($el_window) {
         try {
             const res = monthlyUsageOrThrow(await getMonthlyUsage());
             const budget = usageBudget(res.usage, res.allowanceInfo);
