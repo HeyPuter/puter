@@ -281,7 +281,7 @@ const generate_file_context_menu = async function (options) {
     // Cut
     // -------------------------------------------
     // Trashed items leave the Trash through Restore; moved any other way, they'd keep their uid as their name.
-    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed ) {
+    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && may_restructure ) {
         menu_items.push({
             html: i18n('cut'),
             onClick: function () {
