@@ -575,15 +575,17 @@ body {
 }
 
 /* Keyboard focus on the sidebar's controls: swap the UA's default blue
-   ring for the dashboard's own selection ring, hugging the control's
+   ring for the dashboard's own selection color, hugging the control's
    rounded corners from the inside. :focus-visible only, so a mouse click
-   (which also focuses these) never paints it. */
+   (which also focuses these) never paints it. A 2px ring is the only sign
+   of focus here, so it is the solid color: --select-ring's translucent
+   one is 1.6:1 against the surfaces, under the 3:1 a focus ring needs. */
 .dashboard-sidebar-item:focus-visible,
 .dashboard-user-btn:focus-visible,
 .dashboard-sidebar-toggle:focus-visible,
 .dashboard-sidebar-collapse-toggle:focus-visible,
 .dashboard-sidebar-close:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: -2px;
 }
 
@@ -1268,7 +1270,7 @@ input.myapps-search:disabled {
 
 /* The enlargement alone is easy to miss; a ring says which tile has focus. */
 .myapps-tile:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: 2px;
     border-radius: 14px;
 }
@@ -4200,7 +4202,7 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files .row.place-row:focus-visible,
 .dashboard-section-files .header .path .dirname:focus-visible,
 .dashboard-section-files .header .path-btn:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: -2px;
 }
 
@@ -6068,7 +6070,7 @@ body.myapps-reordering .myapps-tile {
 
 /* Inset: the card's rounded overflow clip would cut an outer ring. */
 .dashboard .bento-card-fancy-header:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: -2px;
 }
 
@@ -6208,7 +6210,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard .bento-recent-app:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: 2px;
 }
 
@@ -8290,7 +8292,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 .dashboard-notifications-mark-all:focus-visible,
 .dashboard-notifications-close:focus-visible,
 .dashboard-notifications-retry:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: -2px;
 }
 
