@@ -579,6 +579,11 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                 () => puter.fs.share({ paths: run, recipient, mode }),
             ) ?? []));
         }
+        // A selection too large to list again (see refresh) learns which rows
+        // are now shared from the grants themselves.
+        if ( total > MAX_ITEMS_PER_REQUEST ) {
+            for ( const share of created ) mark_item_shared(share.path, true);
+        }
         return created;
     };
 
