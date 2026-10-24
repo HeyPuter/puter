@@ -1315,6 +1315,20 @@ const TabApps = {
         // take over from there. While a folder is open the same arrows walk
         // ITS tiles: the grid behind is inert, so focus must not be there.
         $(document).off('keydown.myapps-keyboard').on('keydown.myapps-keyboard', function (e) {
+            // The Menu key or Shift+F10 on a focused tile opens its menu
+            // (Open, Uninstall, a folder's Ungroup) at the tile; browsers
+            // don't all send a contextmenu event for them.
+            if ( e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10') ) {
+                const tile = document.activeElement;
+                if ( ! tile?.classList?.contains('myapps-tile') || ! $el_window[0].contains(tile) ) return;
+                e.preventDefault();
+                const r = tile.getBoundingClientRect();
+                $(tile).trigger($.Event('contextmenu', {
+                    clientX: r.left + r.width / 2,
+                    clientY: r.top + r.height / 2,
+                }));
+                return;
+            }
             if ( ! ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', ' '].includes(e.key) ) return;
             if ( ! $el_window.find('.dashboard-section-apps').hasClass('active') ) return;
             if ( ! $el_window.is(':visible') ) return;
