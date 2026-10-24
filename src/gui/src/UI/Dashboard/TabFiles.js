@@ -48,6 +48,27 @@ import parse_item_metadata from '../../helpers/parseItemMetadata.js';
 const { html_encode, SelectionArea } = window;
 
 /**
+ * The alert for an upload some of whose items failed, one item per line,
+ * or null when the error names none. Unencoded: UIAlert encodes the message
+ * itself, apart from <p>, <strong> and <br>.
+ *
+ * @param {{ failedItems?: Array<{ path?: string, name?: string, requestIndex?: number, message?: string }> }} err
+ * @returns {string|null}
+ */
+export function failedUploadsMessage (err) {
+    const failedItems = Array.isArray(err?.failedItems) ? err.failedItems : [];
+    if ( failedItems.length === 0 ) return null;
+    const lines = failedItems.map((item) => {
+        const failedPath = item?.path || item?.name || `item ${item?.requestIndex ?? '?'}`;
+        const failedMessage = typeof item?.message === 'string' && item.message.length > 0
+            ? ` (${item.message})`
+            : '';
+        return `- ${failedPath}${failedMessage}`;
+    });
+    return [i18n('upload_some_failed', [], false), ...lines].join('<br>');
+}
+
+/**
  * TabFiles - File browser tab component for the Puter Dashboard.
  *
  * Provides a full-featured file management interface including:
@@ -1473,18 +1494,8 @@ const TabFiles = {
                 },
                 // error
                 error: async function (err) {
-                    const failedItems = Array.isArray(err?.failedItems) ? err.failedItems : [];
-                    if ( failedItems.length > 0 ) {
-                        const failedSummary = failedItems.map((item) => {
-                            const failedPath = item?.path || item?.name || `item ${item?.requestIndex ?? '?'}`;
-                            const failedMessage = typeof item?.message === 'string' && item.message.length > 0
-                                ? ` (${item.message})`
-                                : '';
-                            return `- ${failedPath}${failedMessage}`;
-                        }).join('<br>');
-                        // UIAlert encodes the message itself, apart from <p>, <strong> and <br>.
-                        UIAlert(`${i18n('upload_some_failed', [], false)}<br>${failedSummary}`);
-                    }
+                    const failedMessage = failedUploadsMessage(err);
+                    if ( failedMessage ) UIAlert(failedMessage);
                     upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                     // remove from active_uploads
                     delete window.active_uploads[opid];
@@ -5196,17 +5207,8 @@ const TabFiles = {
                 _this.selectUploadedRows(files);
             },
             error: async function (err) {
-                const failedItems = Array.isArray(err?.failedItems) ? err.failedItems : [];
-                if ( failedItems.length > 0 ) {
-                    const failedSummary = failedItems.map((item) => {
-                        const failedPath = item?.path || item?.name || `item ${item?.requestIndex ?? '?'}`;
-                        const failedMessage = typeof item?.message === 'string' && item.message.length > 0
-                            ? ` (${item.message})`
-                            : '';
-                        return `- ${failedPath}${failedMessage}`;
-                    }).join('\n');
-                    UIAlert(`${i18n('upload_some_failed', [], false)}\n${failedSummary}`);
-                }
+                const failedMessage = failedUploadsMessage(err);
+                if ( failedMessage ) UIAlert(failedMessage);
                 upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                 delete window.active_uploads[opid];
                 _this.renderDirectory(_this.currentPath, { consistency: 'strong' });

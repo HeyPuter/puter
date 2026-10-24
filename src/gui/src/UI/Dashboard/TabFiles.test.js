@@ -35,7 +35,7 @@ globalThis.html_encode = value => jQuery('<div>').text(value).html();
 globalThis.i18n = globalThis.i18n ?? (key => key);
 window.icons = {};
 
-const { default: TabFiles } = await import('./TabFiles.js');
+const { default: TabFiles, failedUploadsMessage } = await import('./TabFiles.js');
 
 const TRASH = '/alice/Trash';
 
@@ -100,5 +100,27 @@ describe('TabFiles emptying the Trash', () => {
 
         expect($('.files-empty-notice').length).toBe(0);
         expect(footer()).toBe('stale');
+    });
+});
+
+describe('failedUploadsMessage', () => {
+    it('puts each failed item on its own line', () => {
+        const message = failedUploadsMessage({ failedItems: [
+            { path: '/alice/a.txt', message: 'Too large' },
+            { name: 'b.txt' },
+            { requestIndex: 3 },
+        ] });
+        // UIAlert keeps <br> and encodes the rest; a "\n" would collapse into a space.
+        expect(message.split('<br>').slice(1)).toEqual([
+            '- /alice/a.txt (Too large)',
+            '- b.txt',
+            '- item 3',
+        ]);
+        expect(message).not.toContain('\n');
+    });
+
+    it('has nothing to say when no item is named', () => {
+        expect(failedUploadsMessage({ message: 'offline' })).toBeNull();
+        expect(failedUploadsMessage(undefined)).toBeNull();
     });
 });
