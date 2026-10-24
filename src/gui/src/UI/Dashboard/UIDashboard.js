@@ -737,9 +737,10 @@ async function UIDashboard (options) {
             .attr('aria-expanded', collapsed ? 'false' : 'true');
     });
 
-    // Sidebar collapsed tooltips
+    // Sidebar collapsed tooltips, for the keyboard as well as the pointer:
+    // collapsed, an item shows its icon only.
     const $tooltip = $('<div class="dashboard-sidebar-tooltip"></div>').appendTo('body');
-    $el_window.on('mouseenter', '.dashboard-sidebar-item[data-tooltip]', function () {
+    $el_window.on('mouseenter focusin', '.dashboard-sidebar-item[data-tooltip]', function () {
         if ( ! $el_window.find('.dashboard-sidebar').hasClass('collapsed') ) return;
         // The drawer ignores the collapse and shows its labels.
         if ( window.matchMedia('(max-width: 768px)').matches ) return;
@@ -751,7 +752,7 @@ async function UIDashboard (options) {
         });
         $tooltip.addClass('visible');
     });
-    $el_window.on('mouseleave', '.dashboard-sidebar-item[data-tooltip]', function () {
+    $el_window.on('mouseleave focusout', '.dashboard-sidebar-item[data-tooltip]', function () {
         $tooltip.removeClass('visible');
     });
 
