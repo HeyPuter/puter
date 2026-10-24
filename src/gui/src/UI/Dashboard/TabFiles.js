@@ -4005,6 +4005,13 @@ const TabFiles = {
                     // — quietly rename the dragged file to "New Folder".
                     if ( isPending() ) return;
 
+                    // A folder shared read-only takes nothing; the server
+                    // would refuse each item. The drag goes back instead.
+                    if ( _this.isReadOnlyShare($(el_item).attr('data-path')) ) {
+                        ui.helper.data('cancelled', true);
+                        return;
+                    }
+
                     const draggedPath = $(ui.draggable).attr('data-path');
                     if ( event.ctrlKey && draggedPath?.startsWith(`${window.trash_path}/`) ) {
                         return;
@@ -4032,9 +4039,12 @@ const TabFiles = {
                         // not exist yet (see the drop handler above).
                         if ( isPending() ) return;
 
-                        $(el_item).addClass('selected');
-
                         const _this = TabFiles;
+                        // Not a drop target, but it still opens on a dwell.
+                        if ( ! _this.isReadOnlyShare($(el_item).attr('data-path')) ) {
+                            $(el_item).addClass('selected');
+                        }
+
                         const targetPath = $(el_item).attr('data-path');
 
                         // Don't auto-open the current directory or trash
