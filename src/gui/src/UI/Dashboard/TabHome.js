@@ -31,6 +31,10 @@ import { intlLocale } from '../../i18n/intlLocale.js';
 // open, short enough that a user watching the panel still sees movement.
 const USAGE_REFRESH_DEBOUNCE_MS = 5_000;
 
+// Whether "Recently used" has its list: until the first answer it says
+// nothing, rather than "No recent apps yet", and a failed first load says so.
+let recentAppsState = 'loading';
+
 function buildRecentAppsHTML() {
     let h = '';
 
@@ -63,6 +67,8 @@ function buildRecentAppsHTML() {
             h += '</button>';
         }
         h += '</div>';
+    } else if (recentAppsState === 'loading') {
+        h += '<div class="bento-recent-apps-empty" aria-busy="true"></div>';
     } else {
         h += '<div class="bento-recent-apps-empty">';
         h +=
@@ -72,8 +78,12 @@ function buildRecentAppsHTML() {
         h +=
             '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>';
         h += '</svg>';
-        h += `<p>${i18n('no_recent_apps')}</p>`;
-        h += `<span>${i18n('no_recent_apps_hint')}</span>`;
+        if (recentAppsState === 'failed') {
+            h += `<p>${i18n('apps_load_failed')}</p>`;
+        } else {
+            h += `<p>${i18n('no_recent_apps')}</p>`;
+            h += `<span>${i18n('no_recent_apps_hint')}</span>`;
+        }
         h += '</div>';
     }
 
@@ -439,8 +449,11 @@ const TabHome = {
             });
             if (seq !== this._recentAppsSeq) return;
             window.launch_apps = launchApps;
+            recentAppsState = 'loaded';
         } catch (e) {
             console.error('Failed to load launch apps:', e);
+            // A list already shown stays; it is only out of date.
+            if (recentAppsState === 'loading') recentAppsState = 'failed';
         }
         if (seq !== this._recentAppsSeq) return;
         $el_window
