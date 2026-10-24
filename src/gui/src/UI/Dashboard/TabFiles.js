@@ -2608,7 +2608,7 @@ const TabFiles = {
      * @returns {Promise<void>}
      */
     async renderDirectory (target, options = {}) {
-        if ( this.renderBlocked(target) ) return;
+        if ( this.renderBlocked() ) return;
         this.renderingDirectory = true;
         // A newer render supersedes this one; past each await, a superseded
         // render stops without touching the listing or the flags.
@@ -4455,22 +4455,22 @@ const TabFiles = {
      * @returns {void}
      */
     /**
-     * Whether a render of `target` would be dropped: one is already loading,
-     * and it isn't a refresh of the folder on screen, which gives way to
-     * opening another folder.
+     * Whether a render of `target` would be dropped: a navigation is already
+     * loading. A refresh of the folder on screen gives way to anything,
+     * another refresh included, since its listing may predate what the newer
+     * one was asked for (an upload that just finished).
      *
-     * @param {string} target
      * @returns {boolean}
      */
-    renderBlocked (target) {
-        return this.renderingDirectory && ! (this.refreshInFlight && target !== this.currentPath);
+    renderBlocked () {
+        return this.renderingDirectory && ! this.refreshInFlight;
     },
 
     pushNavHistory (newPath) {
         // renderDirectory drops a navigation while another is loading, so
         // history must not move either, or Back/Forward would point at
         // folders that were never shown.
-        if ( this.renderBlocked(newPath) ) return;
+        if ( this.renderBlocked() ) return;
         // If history is empty, initialize with this path
         if ( window.dashboard_nav_history.length === 0 ) {
             window.dashboard_nav_history = [newPath];
@@ -4493,7 +4493,7 @@ const TabFiles = {
      * @returns {void}
      */
     goToHistoryPosition (position) {
-        if ( this.renderBlocked(window.dashboard_nav_history[position]) ) return;
+        if ( this.renderBlocked() ) return;
         window.dashboard_nav_history_current_position = position;
         this.updateNavButtonStates();
         this.renderDirectory(window.dashboard_nav_history[position]);

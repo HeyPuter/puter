@@ -328,3 +328,36 @@ describe('TabFiles.moveClipboardItems', () => {
         })]);
     });
 });
+
+describe('TabFiles refreshing a folder during a refresh of it', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+        vi.spyOn(TabFiles, 'renderItem').mockImplementation(async (file) => {
+            $('.files').append(`<div class="row item" data-uid="${file.uid}" data-path="${file.path}" data-name="${file.name}"></div>`);
+        });
+    });
+
+    it("shows the later listing, not the earlier one's", async () => {
+        mountListing([], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        const entry = name => ({ uid: name, name, path: `/alice/Documents/${name}`, is_dir: false, size: 1, modified: 0 });
+        let finishFirst;
+        window.puter = { fs: { readdir: vi.fn()
+            .mockImplementationOnce(() => new Promise(resolve => {
+                finishFirst = resolve;
+            }))
+            .mockImplementationOnce(async () => [entry('a.txt'), entry('b.txt')]) } };
+
+        const first = TabFiles.renderDirectory('/alice/Documents', { consistency: 'strong' });
+        await TabFiles.renderDirectory('/alice/Documents', { consistency: 'strong' });
+        finishFirst([entry('a.txt')]);
+        await first;
+
+        expect($('.files .row').map((_, r) => r.getAttribute('data-name')).get().sort()).toEqual(['a.txt', 'b.txt']);
+        expect(TabFiles.renderingDirectory).toBe(false);
+    });
+});
