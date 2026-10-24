@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Request, Response } from 'express';
@@ -321,6 +321,20 @@ describe('PuterHomepageService — gui() parameters', () => {
         ).toMatchObject({ disable_temp_users: true, extra: 1 });
     });
 
+    it('reports pushEnabled from config, off unless set to true', async () => {
+        expect(guiParamsOf(await render(makeService())).pushEnabled).toBe(
+            false,
+        );
+        expect(
+            guiParamsOf(await render(makeService({ push: { enabled: 'yes' } })))
+                .pushEnabled,
+        ).toBe(false);
+        expect(
+            guiParamsOf(await render(makeService({ push: { enabled: true } })))
+                .pushEnabled,
+        ).toBe(true);
+    });
+
     it('escapes `<` so the params payload cannot break out of the script tag', async () => {
         const service = makeService();
         service.setGuiParam('injected', '</script><img src=x>');
@@ -613,5 +627,75 @@ describe('PuterHomepageService — pre-paint session gate', () => {
         expect(html.indexOf('has-stored-session')).toBeLessThan(
             html.indexOf('<main class="hide-if-logged-in">'),
         );
+    });
+});
+
+describe('PuterHomepageService service worker', () => {
+    const makeGuiRoot = async (): Promise<string> => {
+        const root = await mkdtemp(path.join(tmpdir(), 'puter-sw-'));
+        await mkdir(path.join(root, 'src'));
+        await mkdir(path.join(root, 'dist'));
+        await writeFile(path.join(root, 'src', 'sw.js'), '// src worker\n');
+        await writeFile(path.join(root, 'dist', 'sw.js'), '// dist worker\n');
+        return root;
+    };
+
+    it('has no source without a GUI assets root or a built worker', async () => {
+        expect(await makeService().serviceWorkerSource()).toBeNull();
+        const root = await mkdtemp(path.join(tmpdir(), 'puter-sw-'));
+        expect(
+            await makeService({ gui_assets_root: root }).serviceWorkerSource(),
+        ).toBeNull();
+    });
+
+    it('serves the built worker in prod and the source copy in dev', async () => {
+        const root = await makeGuiRoot();
+        expect(
+            await makeService({ gui_assets_root: root }).serviceWorkerSource(),
+        ).toBe('// dist worker\n');
+        expect(
+            await makeService({
+                gui_assets_root: root,
+                env: 'dev',
+            }).serviceWorkerSource(),
+        ).toBe('// src worker\n');
+    });
+
+    it('imports each registered script on its own, once, ahead of the worker', async () => {
+        const root = await makeGuiRoot();
+        const service = makeService({ gui_assets_root: root });
+        service.registerServiceWorkerScript('/ext/a.js');
+        service.registerServiceWorkerScript('/ext/b.js?v=2');
+        service.registerServiceWorkerScript('/ext/a.js');
+        const source = (await service.serviceWorkerSource()) ?? '';
+        const lines = source.split('\n');
+        expect(lines[0]).toMatch(/^try \{ importScripts\("\/ext\/a\.js"\); \}/);
+        expect(lines[1]).toMatch(
+            /^try \{ importScripts\("\/ext\/b\.js\?v=2"\); \}/,
+        );
+        expect(lines.slice(2).join('\n')).toBe('// dist worker\n');
+
+        // A first script that fails to load leaves the second one loading.
+        const loaded: string[] = [];
+        const importScripts = (url: string) => {
+            if (url === '/ext/a.js') throw new Error('network');
+            loaded.push(url);
+        };
+        const quiet = { error: () => {} };
+        new Function('importScripts', 'console', source)(importScripts, quiet);
+        expect(loaded).toEqual(['/ext/b.js?v=2']);
+    });
+
+    it('takes only same-origin absolute paths as worker scripts', () => {
+        const service = makeService();
+        for (const bad of [
+            'ext/a.js',
+            '//example.com/a.js',
+            'https://example.com/a.js',
+            '/\\example.com/a.js',
+            '/a b.js',
+        ]) {
+            expect(() => service.registerServiceWorkerScript(bad)).toThrow();
+        }
     });
 });

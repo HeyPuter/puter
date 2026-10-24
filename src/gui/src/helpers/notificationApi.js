@@ -81,6 +81,7 @@ export async function markNotificationShown (uid) {
  * @typedef {Object} NotificationRow
  * @property {string} uid
  * @property {Object} value - The notification payload: `{ source, title, text?, icon?, template?, fields? }`
+ * @property {string|null} [app_uid] - The app the row is about
  * @property {number|null} shown
  * @property {number|null} acknowledged
  * @property {string|number|null} created_at
@@ -112,4 +113,29 @@ export async function listNotifications ({ predicate = 'unacknowledged', limit =
         throw new Error(body?.error?.message ?? 'notification listing failed');
     }
     return Array.isArray(body?.result) ? body.result : [];
+}
+
+/**
+ * @param {string} uid
+ * @returns {Promise<NotificationRow|null>} The user's own row, or null
+ */
+export async function getNotification (uid) {
+    try {
+        const res = await fetch(`${window.api_origin}/drivers/call`, {
+            method: 'POST',
+            headers: authHeaders(),
+            body: JSON.stringify({
+                interface: 'puter-notifications',
+                driver: 'es:notification',
+                method: 'read',
+                args: { uid },
+            }),
+        });
+        if ( ! res.ok ) return null;
+        const body = await res.json();
+        const row = body?.result;
+        return body?.success !== false && row?.uid === uid ? row : null;
+    } catch {
+        return null;
+    }
 }

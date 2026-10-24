@@ -29,7 +29,7 @@
  * @property {string} [source] - Legacy sender marker: `sharing`, `worker`, …
  * @property {string} [title]
  * @property {string} [text]
- * @property {string} [icon] - A `window.icons` key
+ * @property {string} [icon] - A `window.icons` key, or an https URL on an app message
  * @property {string} [template] - Legacy marker, superseded by `type`
  * @property {Object} [fields]
  */
@@ -38,6 +38,7 @@
  * @typedef {Object} NotificationEntry
  * @property {string} uid
  * @property {NotificationPayload} notification
+ * @property {string} [appUid] - The app the row is about, when it names one
  * @property {number|null} createdAt - Epoch milliseconds, `null` when unknown
  * @property {number|null} readAt - When the user acknowledged it (epoch ms); `null` while unread
  * @property {number} receivedAt - When this client first saw it (epoch ms)
@@ -125,9 +126,11 @@ export const toEntry = (raw, now) => {
     if ( HIDDEN_TYPES.has(notification.type) ) return null;
     if ( LEGACY_HIDDEN_SOURCES.has(notification.source) ) return null;
     const createdAt = parseCreatedAt(raw.created_at);
+    const appUid = raw.app_uid ?? raw.appUid;
     return {
         uid,
         notification,
+        ...(typeof appUid === 'string' && appUid ? { appUid } : {}),
         // A push arrives before its row is written, so "now" is accurate for
         // it; a listed row always carries its own time.
         createdAt: createdAt ?? (raw.created_at === undefined ? now : null),
@@ -254,6 +257,23 @@ export const senderNameFor = (notification) => {
     if ( notification?.type !== 'app.message' ) return null;
     const name = notification.app?.name;
     return typeof name === 'string' && name.trim() ? name : null;
+};
+
+/**
+ * @param {NotificationPayload} notification
+ * @returns {string|null} Its own or its app's icon, when that is an https URL
+ */
+export const httpsIconFor = (notification) => {
+    for ( const candidate of [notification?.icon, notification?.app?.icon] ) {
+        if ( typeof candidate !== 'string' ) continue;
+        try {
+            const url = new URL(candidate);
+            if ( url.protocol === 'https:' ) return url.href;
+        } catch {
+            // a `window.icons` key or not a URL at all
+        }
+    }
+    return null;
 };
 
 /**
