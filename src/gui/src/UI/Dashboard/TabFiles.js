@@ -3237,6 +3237,8 @@ const TabFiles = {
         };
 
         el_item.onclick = (e) => {
+            // A tap in the name field places the caret; it doesn't open the item.
+            if ( e.target.classList.contains('item-name-editor') ) return;
             if ( e.target.classList.contains('item-more') ) {
                 if ( isPending() ) return;
                 this.handleMoreClick(el_item, file, e.target, lastPointerType === 'touch');
@@ -3430,6 +3432,12 @@ const TabFiles = {
 
         // Right-click context menu handler (desktop) and taphold (touch devices)
         $(el_item).on('contextmenu taphold', async (e) => {
+            // The name field keeps the browser's own menu and long-press
+            // text selection; the listing's menu mustn't take it either.
+            if ( e.target.classList.contains('item-name-editor') ) {
+                e.stopPropagation();
+                return;
+            }
             // A taphold only counts when it came from an actual touch — the
             // plugin (helpers.js) also fires it for a 1s mouse-button hold,
             // which must stay inert, touchscreen or not.
