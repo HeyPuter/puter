@@ -291,7 +291,7 @@ const TabFiles = {
             // If the directory was empty, drop the "No files in this directory."
             // placeholder before inserting the first real row — otherwise it
             // stays and overlaps the new item.
-            _this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row)').remove();
+            _this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row):not(.tabfiles-selection-area)').remove();
 
             await _this.renderItem(file);
 
@@ -2463,7 +2463,7 @@ const TabFiles = {
 
         // Drop the "No files in this directory." placeholder before inserting
         // the first row, otherwise it stays and overlaps the new item.
-        this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row)').remove();
+        this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row):not(.tabfiles-selection-area)').remove();
 
         await this.renderItem(placeholder);
         const $row = this.$el_window.find(`.files-tab .files .item[data-uid='${placeholder.uid}']`);
@@ -4828,7 +4828,7 @@ const TabFiles = {
                                 const result = await uploadPromise;
                                 if ( targetPath === _this.currentPath ) {
                                     // Remove empty-directory placeholder if present
-                                    _this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row)').remove();
+                                    _this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row):not(.tabfiles-selection-area)').remove();
                                     // Add the new file incrementally
                                     await _this.renderItem(result);
                                     const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
