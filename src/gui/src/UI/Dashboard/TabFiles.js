@@ -82,6 +82,9 @@ export function failedUploadsMessage (err) {
     return [i18n('upload_some_failed', [], false), ...lines].join('<br>');
 }
 
+/** On a Mac, Ctrl+click is a right-click; Cmd is what adds to a selection. */
+const CTRL_CLICK_IS_SECONDARY = /mac/i.test(navigator.userAgentData?.platform ?? navigator.platform ?? '');
+
 /**
  * The row type-to-select lands on, or -1 for none. A repeated letter ("r",
  * "rr") steps through the names starting with it, past the selected one;
@@ -3307,7 +3310,7 @@ const TabFiles = {
             // gets the grey context-menu state instead (added by the
             // contextmenu handler), and an existing selection is preserved
             // so the multi-select menu still applies to it.
-            if ( e.button === 2 ) {
+            if ( e.button === 2 || (CTRL_CLICK_IS_SECONDARY && e.ctrlKey && e.button === 0) ) {
                 window.active_element = el_item;
                 window.active_item_container = el_item.closest('.files');
                 return;
