@@ -1670,6 +1670,7 @@ const TabFiles = {
                     ],
                 });
                 if ( confirmed === 'delete' ) {
+                    $actions.removeClass('visible');
                     for ( const row of selectedRows ) {
                         await window.delete_item(row);
                     }
@@ -1678,10 +1679,10 @@ const TabFiles = {
             } else {
                 const rows = await _this.restructurableRows(selectedRows);
                 if ( rows.length > 0 ) {
+                    $actions.removeClass('visible');
                     window.move_items(rows, window.trash_path);
                 }
             }
-            $actions.removeClass('visible');
         });
 
         // Done button (exits select mode on mobile)
