@@ -545,6 +545,7 @@ const en = {
         share_inherited_via_count: 'via {{count}} folders',
         share_no_one_items: 'None of these items are shared yet.',
         share_failed_items: 'Could not share these items.',
+        share_load_failed: 'Could not load who has access.',
         share_load_partial_failed:
             'Could not load who has access to every item.',
         share_access_list_too_many:

@@ -458,7 +458,8 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
 
         if ( by_path.size === 0 ) {
             $list.attr('aria-busy', 'false').empty();
-            show_error(error_html(failure));
+            // Nothing was being shared: share_failed would say otherwise.
+            show_error(failure?.message ? html_encode(failure.message) : i18n('share_load_failed'));
             return;
         }
         render(aggregateShares(target_paths, by_path));
