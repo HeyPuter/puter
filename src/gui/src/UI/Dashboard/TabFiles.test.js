@@ -518,3 +518,20 @@ describe('TabFiles.acceptsNewItems', () => {
         expect(TabFiles.acceptsNewItems('/alice/Documents')).toBe(true);
     });
 });
+
+describe('TabFiles.applyHiddenRule', () => {
+    it('hides a row renamed to a dot-name, or dims it when hidden files show', () => {
+        window.trash_path = TRASH;
+        mountListing(['a.txt', 'b.txt'], '/alice/Documents');
+        window.user_preferences = { show_hidden_files: false };
+
+        expect(TabFiles.applyHiddenRule($('.files .row').first(), '.a.txt')).toBe(false);
+        expect($('.files .row')).toHaveLength(1);
+
+        window.user_preferences = { show_hidden_files: true };
+        expect(TabFiles.applyHiddenRule($('.files .row').first(), '.b.txt')).toBe(true);
+        expect($('.files .row').first().hasClass('item-revealed')).toBe(true);
+        TabFiles.applyHiddenRule($('.files .row').first(), 'b.txt');
+        expect($('.files .row').first().hasClass('item-revealed')).toBe(false);
+    });
+});

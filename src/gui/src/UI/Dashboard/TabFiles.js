@@ -259,6 +259,7 @@ const TabFiles = {
                 }
             }
             if ( file.path ) $row.attr('data-path', file.path);
+            if ( file.name && ! _this.applyHiddenRule($row, file.name) ) return;
             if ( typeof file.type !== 'undefined' ) $row.attr('data-type', file.type || '');
             // Refresh the visible Size/Modified cells too, not just the
             // hidden data attributes, so a remote overwrite is reflected.
@@ -2181,6 +2182,26 @@ const TabFiles = {
     },
 
     /**
+     * Applies the hidden-files rule to a row whose name changed, as listing
+     * the folder again would: gone while dot-files are hidden, dimmed while
+     * they show.
+     *
+     * @param {jQuery} $row
+     * @param {string} name - The entry's own name (a trashed one's is its uid)
+     * @returns {boolean} Whether the row stays
+     */
+    applyHiddenRule ($row, name) {
+        if ( ! isEntryVisible(name, showHiddenFiles()) ) {
+            $row.remove();
+            this.renderEmptyPlaceholderIfNeeded();
+            this.updateFooterStats();
+            return false;
+        }
+        $row.toggleClass('item-revealed', isHiddenName(name));
+        return true;
+    },
+
+    /**
      * Whether a folder is someone else's, shared with the user without write
      * access, by the shares already loaded (the Shared listing records them).
      * Unknown counts as writable: the server still has the last word.
@@ -3532,6 +3553,7 @@ const TabFiles = {
                 // inside it) under its new name.
                 if ( fsentry?.is_dir ) _this.rebaseNavHistory(old_path, path.join(path.dirname(old_path), fsentry.name ?? new_name));
                 if ( ! fsentry || ! document.body.contains(el_item) ) return;
+                if ( ! _this.applyHiddenRule($(el_item), fsentry.name ?? new_name) ) return;
                 $(el_item).attr('data-type', fsentry.type ?? '');
                 _this.insertAtSortedPosition($(el_item), fsentry);
                 item_icon(fsentry).then(({ image }) => {
