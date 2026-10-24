@@ -278,11 +278,12 @@ body {
 }
 
 .dashboard-sidebar {
-    width: 250px;
-    min-width: 200px;
+    /* The safe-area insets clear a landscape phone's notch; elsewhere they're 0. */
+    width: calc(250px + env(safe-area-inset-left, 0px));
+    min-width: calc(200px + env(safe-area-inset-left, 0px));
     background: var(--dashboard-sidebar-background);
     border-right: 1px solid var(--dashboard-border);
-    padding: 16px 12px;
+    padding: 16px 12px 16px calc(12px + env(safe-area-inset-left, 0px));
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
@@ -387,9 +388,9 @@ body {
    drawer as an unlabeled icon strip. */
 @media (min-width: 769px) {
     .dashboard-sidebar.collapsed {
-        width: 50px;
-        min-width: 50px;
-        padding: 16px 6px;
+        width: calc(50px + env(safe-area-inset-left, 0px));
+        min-width: calc(50px + env(safe-area-inset-left, 0px));
+        padding: 16px 6px 16px calc(6px + env(safe-area-inset-left, 0px));
     }
 
     .dashboard-sidebar.collapsed .dashboard-sidebar-header {
@@ -655,7 +656,7 @@ body {
 
 .dashboard-content {
     flex: 1;
-    padding: 24px 32px;
+    padding: 24px calc(32px + env(safe-area-inset-right, 0px)) 24px 32px;
     overflow-y: auto;
     overflow-x: hidden;
     background: var(--dashboard-content-background);
@@ -714,7 +715,7 @@ body {
 /* Dashboard Apps */
 
 .dashboard-content.apps {
-    padding: 0;
+    padding: 0 env(safe-area-inset-right, 0px) 0 0;
 }
 
 .dashboard-section-apps {
@@ -3910,7 +3911,7 @@ body.myapps-reordering .myapps-tile {
    so a vh-sized list overhung the clipped content box and its last rows could
    never be scrolled into view. */
 .dashboard-content.files {
-    padding: 0 0 0 10px;
+    padding: 0 env(safe-area-inset-right, 0px) 0 10px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -8428,7 +8429,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
    while one is open must still be seen. Under context menus. */
 body.dashboard-mode .notification-container {
     top: 12px;
-    right: 12px;
+    right: calc(12px + env(safe-area-inset-right, 0px));
     z-index: 999999999;
 }
 
