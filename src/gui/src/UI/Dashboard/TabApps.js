@@ -993,16 +993,18 @@ const TabApps = {
             self.updateRunningDots($el_window);
         });
 
+        // Results show at once: the first load's fade waits on page one's
+        // icons, and a slow one would blank the grid on every keystroke.
         $el_window.on('input', '.myapps-search', function () {
             self.updateSearchIcons($el_window);
-            self.renderApps($el_window);
+            self.renderApps($el_window, { instant: true });
         });
 
         // Clear search on cross click
         $el_window.on('click', '.myapps-icon-clear', function () {
             $el_window.find('.myapps-search').val('').focus();
             self.updateSearchIcons($el_window);
-            self.renderApps($el_window);
+            self.renderApps($el_window, { instant: true });
         });
 
         // Handle app tile clicks. External apps carry a target link (their
@@ -1620,7 +1622,7 @@ const TabApps = {
         if ( on && String($search.val() || '') !== '' ) {
             $search.val('');
             this.updateSearchIcons($el_window);
-            this.renderApps($el_window);
+            this.renderApps($el_window, { instant: true });
         }
         $search.prop('disabled', on);
 
