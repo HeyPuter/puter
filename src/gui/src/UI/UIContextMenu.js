@@ -355,7 +355,10 @@
             .mouseleave(mouseleaveRow)
             .click(clickRow);
 
-        $(document).mousemove(mousemoveDocument);
+        // Comes off with the menu: left bound, it would keep the removed menu
+        // and its items alive and run on every mouse move for the session.
+        $(document).on('mousemove', mousemoveDocument);
+        $menu.on('remove', () => $(document).off('mousemove', mousemoveDocument));
 
     };
 })(jQuery);
