@@ -3722,6 +3722,9 @@ const TabApps = {
                 const tiles = $el_window.find('.dashboard-section-apps.active .myapps-tile').toArray();
                 const candidate = tiles.find(el => el.dataset.appName === appName)
                     || tiles.find(el => el.dataset.groupId && parseTileGroupApps(el).includes(appName));
+                // A search that leaves the app out keeps its tile off the
+                // grid however long this waits.
+                if ( ! candidate && String($el_window.find('.myapps-search').val() || '').trim() !== '' ) return null;
                 if ( candidate ) {
                     const revealed = ! $el_window.find('.myapps-pager').hasClass('myapps-pager-loading');
                     const img = candidate.querySelector('.myapps-tile-icon img');
