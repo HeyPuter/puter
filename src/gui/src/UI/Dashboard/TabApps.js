@@ -2496,6 +2496,9 @@ const TabApps = {
     // the drag saves only the final position.
     _ejectToGrid (d) {
         const appName = d.tileEl.dataset.appName;
+        // The eject is saved now, mid-drag; a drag cancelled after it puts
+        // this back (see _endDrag).
+        const preEject = { groups: JSON.parse(JSON.stringify(this._groups)), apps: this._apps.slice() };
         if ( ! this._ejectApp(d.$el_window, d.groupId, appName) ) return;
         this._closeGroup(d.$el_window);
         this.renderApps(d.$el_window, { preservePage: true, instant: true, duringDrag: true });
@@ -2508,6 +2511,7 @@ const TabApps = {
             this._endDrag(false);
             return;
         }
+        d.preEject = preEject;
 
         // A folder-page flip armed just before the icon left the card must
         // not fire into the grid drag this has become.
@@ -2956,6 +2960,16 @@ const TabApps = {
         // The click this drop synthesizes may land on empty grid space (the
         // drop spot) — it is the tail of the drag, not an exit-the-mode tap.
         this._suppressEmptyTapBriefly();
+
+        // Cancelled (Escape, the window losing focus) after the app had been
+        // carried out of its folder: the folder, a two-app one included, and
+        // the order go back to what they were.
+        if ( ! commit && d.preEject ) {
+            this._groups = d.preEject.groups;
+            this._apps = reconcileAppOrder(this._apps, d.preEject.apps.map(a => a.name));
+            this.saveGroups();
+            this.saveOrder();
+        }
 
         let changed = false;
         if ( mergeEl ) {

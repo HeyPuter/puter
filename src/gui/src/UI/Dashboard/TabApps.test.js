@@ -66,3 +66,32 @@ describe('TabApps.beginDeepLinkLaunch', () => {
         TabApps._launchingApps.delete('app-center');
     });
 });
+
+describe('TabApps cancelling a drag out of a folder', () => {
+    it('puts the folder and the order back as they were', () => {
+        document.body.innerHTML = '<div class="window"><div class="dashboard-section-apps active"><div class="myapps-container"><div class="myapps-page"><div class="myapps-tile" data-app-name="a"></div></div></div></div></div>';
+        window.puter = { kv: { set: vi.fn(async () => {}), get: vi.fn(async () => null) } };
+        TabApps._groupsLoaded = true;
+        TabApps._orderLoaded = true;
+        TabApps._groups = [{ id: 'g1', name: 'Work', apps: ['a', 'b'] }];
+        TabApps._apps = [{ name: 'a' }, { name: 'b' }, { name: 'c' }];
+        const tile = document.createElement('div');
+        tile.dataset.appName = 'a';
+        const $el_window = $('.window');
+        vi.spyOn(TabApps, '_gridOrderNames').mockReturnValue(['g1', 'c']);
+        vi.spyOn(TabApps, '_closeGroup').mockImplementation(() => {});
+        vi.spyOn(TabApps, 'renderApps').mockImplementation(() => {});
+        vi.spyOn(TabApps, '_updatePlaceholder').mockImplementation(() => {});
+
+        const d = { started: true, tileEl: tile, $el_window, groupId: 'g1', ejecting: true };
+        TabApps._drag = d;
+        TabApps._ejectToGrid(d);
+        expect(TabApps._groups).toEqual([]);
+
+        TabApps._endDrag(false);
+
+        expect(TabApps._groups).toEqual([{ id: 'g1', name: 'Work', apps: ['a', 'b'] }]);
+        expect(JSON.parse(window.puter.kv.set.mock.calls.at(-2)[1])).toEqual([{ id: 'g1', name: 'Work', apps: ['a', 'b'] }]);
+        vi.restoreAllMocks();
+    });
+});
