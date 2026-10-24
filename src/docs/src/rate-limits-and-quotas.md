@@ -385,6 +385,26 @@ Over these, **the share still succeeds**; only the announcement is skipped. The 
 
 Recipients can opt out of share email with the link in the email, and a deployment can turn it off with `share_email_notifications: false`. Recipients can also block shares from one sender or from everyone (**Settings → Security → Blocked people**); the sender's `share` then fails with `recipient_not_accepting_shares`.
 
+### Notifications
+
+An app, its workers and the tokens it issues can send the user they act for an `app.message` notification. Each app has its own budget per user:
+
+| Limit                            | Value                             | Scope             |
+| -------------------------------- | --------------------------------- | ----------------- |
+| `app.message` notifications      | 30/min, 300/day                   | Per user, per app |
+| `title`                          | 120 characters                    |                   |
+| `text`                           | 240 characters                    |                   |
+| `icon` (an `https` URL)          | 2,048 characters                  |                   |
+| `target` (a path inside the app) | 512 characters                    |                   |
+| `data`                           | 1 KiB, measured as JSON           |                   |
+| `group`                          | 64 characters                     |                   |
+| `channel`                        | 32 characters                     |                   |
+| `ttl`                            | 1 second to 1 day, default 1 hour |                   |
+
+`ttl` is how long a push provider keeps trying to reach an offline device, not how long the notification is kept. `sensitive`, `target`, `group` and `channel` are used by push delivery and by clients that show the notification. Every message carries the name of the app that sent it.
+
+Over the rate limit the call fails with `429 too_many_requests`, and a refused call counts against neither window. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
+
 ### Teams
 
 Available only where the deployment has teams turned on; elsewhere `puter.teams` rejects with `not_found`.

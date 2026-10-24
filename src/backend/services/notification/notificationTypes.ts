@@ -109,6 +109,14 @@ export const NOTIFICATION_TYPES = [
         groupable: false,
         subject: subjectFor('developer'),
     },
+    // The only type apps create; its kind goes in the value's `channel`.
+    {
+        type: 'app.message',
+        audience: 'app-user',
+        appScoped: true,
+        groupable: false,
+        subject: subjectFor('app-user'),
+    },
 ] as const satisfies readonly NotificationType[];
 
 /** Every registered type name; what `notify` accepts. */
