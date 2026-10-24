@@ -24,7 +24,7 @@ globalThis.$ = jQuery;
 globalThis.jQuery = jQuery;
 window.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 
-const { default: mountDashboardOverlay } = await import('./dashboardOverlay.js');
+const { default: mountDashboardOverlay, bindBackdropDismiss } = await import('./dashboardOverlay.js');
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const card = '<div class="dashboard-dialog" tabindex="-1"><button class="dashboard-dialog-close">x</button><input class="inside"></div>';
@@ -149,5 +149,38 @@ describe('mountDashboardOverlay', () => {
 
         close();
         expect(window.visualViewport.removeEventListener).toHaveBeenCalledWith('resize', listeners.resize);
+    });
+});
+
+describe('bindBackdropDismiss', () => {
+    const mount = () => {
+        document.body.innerHTML = '<div class="scrim"><div class="card"><textarea></textarea></div></div>';
+        const $overlay = $('.scrim');
+        const dismiss = vi.fn();
+        bindBackdropDismiss($overlay, (el) => el === $overlay[0], dismiss);
+        return { el_scrim: $overlay[0], el_card: $('.card')[0], dismiss };
+    };
+    const fire = (el, type, detail = 1) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, detail }));
+
+    it('dismisses on a press and release on the backdrop', () => {
+        const { el_scrim, dismiss } = mount();
+        fire(el_scrim, 'mousedown');
+        fire(el_scrim, 'click');
+        expect(dismiss).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the overlay when a drag from the card ends on the backdrop', () => {
+        const { el_scrim, el_card, dismiss } = mount();
+        fire(el_card, 'mousedown');
+        // The browser fires the click on the nearest common ancestor.
+        fire(el_scrim, 'click');
+        expect(dismiss).not.toHaveBeenCalled();
+    });
+
+    it('ignores the second press of the double-click that opened it', () => {
+        const { el_scrim, dismiss } = mount();
+        fire(el_scrim, 'mousedown', 2);
+        fire(el_scrim, 'click', 2);
+        expect(dismiss).not.toHaveBeenCalled();
     });
 });
