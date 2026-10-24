@@ -482,3 +482,22 @@ describe('TabFiles cancelling a drag that opened a folder', () => {
         expect(window.dashboard_nav_history_current_position).toBe(0);
     });
 });
+
+describe('TabFiles image preview', () => {
+    it('closes once the row it shows is gone', () => {
+        window.trash_path = TRASH;
+        mountListing(['a.png'], '/alice/Pictures');
+        $('.files .row').attr('data-uid', 'u1');
+        $('body').append('<div class="image-preview-popover"></div>');
+        TabFiles.previewOpen = true;
+        TabFiles.previewCurrentUid = 'u1';
+
+        TabFiles.updateFooterStats();
+        expect(TabFiles.previewOpen).toBe(true);
+
+        $('.files .row').remove();
+        TabFiles.updateFooterStats();
+        expect(TabFiles.previewOpen).toBe(false);
+        expect($('.image-preview-popover')).toHaveLength(0);
+    });
+});

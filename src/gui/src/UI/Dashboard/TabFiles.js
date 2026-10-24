@@ -4209,6 +4209,12 @@ const TabFiles = {
             $footer.find('.files-footer-separator').css('display', 'none');
         }
 
+        // Rows come and go through here (deleted, trashed, moved away, here or
+        // elsewhere); the preview goes with the row it shows.
+        if ( this.previewOpen && ! allRows.some(row => row.getAttribute('data-uid') === this.previewCurrentUid) ) {
+            this.closeImagePreview();
+        }
+
         // The floating action bar only appears in select mode (narrow
         // screens); elsewhere multi-selection relies on the context menu.
         if ( this.selectModeActive && selectedCount >= 1 ) {
