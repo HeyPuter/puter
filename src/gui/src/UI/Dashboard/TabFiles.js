@@ -46,6 +46,7 @@ import { parent_path_for, parse_shared_path, shared_crumbs_for, shared_uids_from
 import resolve_shared_item from '../../helpers/resolveSharedItem.js';
 import { is_owned_by_me } from '../../helpers/pathOwner.js';
 import parse_item_metadata from '../../helpers/parseItemMetadata.js';
+import { compareSharers, filterBySharer, sharedByCellHtml, sharerFilterHtml, summarizeSharers } from './sharedBy.js';
 
 const { html_encode, SelectionArea } = window;
 
@@ -168,10 +169,13 @@ const TabFiles = {
                                 <button class="path-action-btn upload-btn" title="${i18n('upload')}">${icons.upload}</button>
                             </div>
                         </div>
+                        <div class="shared-people-filter" role="group" aria-label="${i18n('shared_filter_people')}" hidden></div>
                         <div class="columns">
                             <div class="item-icon"></div>
                             <div class="item-name sortable" data-sort="name">${i18n('name')}</div>
                             <div class="col-resize-handle" data-resize="name"></div>
+                            <div class="item-shared-by sortable" data-sort="shared_by">${i18n('shared_by')}</div>
+                            <div class="col-resize-handle" data-resize="sharedBy"></div>
                             <div class="item-size sortable" data-sort="size">${i18n('size')}</div>
                             <div class="col-resize-handle" data-resize="size"></div>
                             <div class="item-modified sortable" data-sort="modified">${i18n('modified')}</div>
@@ -356,6 +360,8 @@ const TabFiles = {
         this.uploadTargetPath = null;
         // Trash item path → the name it had before it was trashed (renderItem).
         this.trashedNames = new Map();
+        // The Shared view's people filter: a username, or null for everyone.
+        this.sharerFilter = null;
         this.folderDwellTimer = null;
         this.folderDwellTarget = null;
         this.springLoadedActive = false;
@@ -373,7 +379,7 @@ const TabFiles = {
         this.currentView = 'list';
         this.sortColumn = 'name';
         this.sortDirection = 'asc';
-        this.columnWidths = { name: null, size: 100, modified: 120 };
+        this.columnWidths = { name: null, sharedBy: 160, size: 100, modified: 120 };
         const [savedView, savedSortColumn, savedSortDirection, savedWidths] = await Promise.all([
             puter.kv.get('view_mode').catch(() => null),
             puter.kv.get('sort_column').catch(() => null),
@@ -384,7 +390,7 @@ const TabFiles = {
         this.currentView = ['list', 'grid', 'grid-sm'].includes(savedView) ? savedView : 'list';
 
         // Sorting state
-        this.sortColumn = ['name', 'size', 'modified'].includes(savedSortColumn) ? savedSortColumn : 'name';
+        this.sortColumn = ['name', 'size', 'modified', 'shared_by'].includes(savedSortColumn) ? savedSortColumn : 'name';
         this.sortDirection = savedSortDirection === 'desc' ? 'desc' : 'asc';
 
         // Column widths state (for resizing). A corrupt saved value falls back
@@ -1610,6 +1616,10 @@ const TabFiles = {
             this.toggleSelectMode();
         };
 
+        this.$el_window.find('.header .shared-people-filter').on('click', '.sharer-chip', (e) => {
+            this.setSharerFilter(e.currentTarget.getAttribute('data-sharer') || null);
+        });
+
         // Column header sorting
         this.$el_window.find('.header .columns .sortable').on('click', (e) => {
             const column = $(e.currentTarget).attr('data-sort');
@@ -1928,6 +1938,8 @@ const TabFiles = {
             let $targetColumn;
             if ( column === 'name' ) {
                 $targetColumn = $header.find('.item-name');
+            } else if ( column === 'sharedBy' ) {
+                $targetColumn = $header.find('.item-shared-by');
             } else if ( column === 'size' ) {
                 $targetColumn = $header.find('.item-size');
             } else if ( column === 'modified' ) {
@@ -1988,6 +2000,12 @@ const TabFiles = {
                         maxWidth = Math.max(maxWidth, textWidth);
                     }
                 });
+            } else if ( column === 'sharedBy' ) {
+                // The avatar and its gap sit beside the name.
+                $filesTab.find('.files.files-list-view .row:not(.header) .item-shared-by-name').each(function () {
+                    const textWidth = measureTextWidth($(this).text(), '400 13px system-ui, -apple-system, sans-serif') + padding + 26;
+                    maxWidth = Math.max(maxWidth, textWidth);
+                });
             } else if ( column === 'size' ) {
                 $filesTab.find('.files.files-list-view .row:not(.header) .item-size').each(function () {
                     const text = $(this).text();
@@ -2026,24 +2044,30 @@ const TabFiles = {
         const $container = $filesTab.find('.files');
         const containerWidth = $container.width();
 
+        // Only the Shared view has a "Shared by" column.
+        const hasSharedBy = this.currentPath === window.shared_path;
         let nameWidth = this.columnWidths.name;
+        let sharedByWidth = this.columnWidths.sharedBy || 160;
         let sizeWidth = this.columnWidths.size || 100;
         let modifiedWidth = this.columnWidths.modified || 120;
 
         // Columns that don't fit lay out at the defaults, but the saved
         // widths stay so they come back once the listing is wide enough.
         if ( containerWidth > 0 && nameWidth ) {
-            const totalWidth = COLUMN_FIXED_WIDTH + nameWidth + sizeWidth + modifiedWidth;
+            const totalWidth = COLUMN_FIXED_WIDTH + nameWidth + sizeWidth + modifiedWidth
+                + (hasSharedBy ? sharedByWidth + 4 : 0);
             if ( totalWidth > containerWidth ) {
                 nameWidth = null;
+                sharedByWidth = 160;
                 sizeWidth = 100;
                 modifiedWidth = 120;
             }
         }
-        this.appliedColumnWidths = { name: nameWidth, size: sizeWidth, modified: modifiedWidth };
+        this.appliedColumnWidths = { name: nameWidth, sharedBy: sharedByWidth, size: sizeWidth, modified: modifiedWidth };
 
         const nameCol = nameWidth ? `${nameWidth}px` : 'auto';
-        const gridTemplate = `24px ${nameCol} 4px ${sizeWidth}px 4px ${modifiedWidth}px 4px 20px`;
+        const sharedByCols = hasSharedBy ? `${sharedByWidth}px 4px ` : '';
+        const gridTemplate = `24px ${nameCol} 4px ${sharedByCols}${sizeWidth}px 4px ${modifiedWidth}px 4px 20px`;
         this.columnGridTemplate = gridTemplate;
 
         $filesTab.find('.header .columns').css('grid-template-columns', gridTemplate);
@@ -2086,7 +2110,7 @@ const TabFiles = {
      * `width` held between the column's minimum and the widest it can be
      * without the columns overflowing the listing, given the other columns.
      *
-     * @param {'name'|'size'|'modified'} column
+     * @param {'name'|'sharedBy'|'size'|'modified'} column
      * @param {number} width
      * @returns {number}
      */
@@ -2099,8 +2123,13 @@ const TabFiles = {
             size: this.columnWidths.size || 100,
             modified: this.columnWidths.modified || 120,
         };
+        let fixed = COLUMN_FIXED_WIDTH;
+        if ( this.currentPath === window.shared_path ) {
+            widths.sharedBy = this.columnWidths.sharedBy || 160;
+            fixed += 4;
+        }
         const others = Object.keys(widths).filter(c => c !== column).reduce((sum, c) => sum + widths[c], 0);
-        return Math.max(min, Math.min(width, containerWidth - COLUMN_FIXED_WIDTH - others));
+        return Math.max(min, Math.min(width, containerWidth - fixed - others));
     },
 
     /**
@@ -2281,9 +2310,13 @@ const TabFiles = {
             { column: 'size', label: i18n('size') },
             { column: 'modified', label: i18n('date_modified') },
         ];
+        if ( this.currentPath === window.shared_path ) {
+            sortOptions.splice(1, 0, { column: 'shared_by', label: i18n('shared_by') });
+        }
+        const sortColumn = this.activeSortColumn();
 
         const items = sortOptions.map(opt => {
-            const isActive = _this.sortColumn === opt.column;
+            const isActive = sortColumn === opt.column;
             const directionIcon = _this.sortDirection === 'asc' ? ' ↑' : ' ↓';
 
             return {
@@ -2302,10 +2335,21 @@ const TabFiles = {
     },
 
     /**
+     * The column the listing on screen is sorted by. "Shared by" orders only
+     * the Shared view; other folders sort by name until it is changed.
+     *
+     * @returns {'name'|'size'|'modified'|'shared_by'}
+     */
+    activeSortColumn () {
+        if ( this.sortColumn === 'shared_by' && this.currentPath !== window.shared_path ) return 'name';
+        return this.sortColumn;
+    },
+
+    /**
      * Sorts an array of files according to current sort settings.
      *
      * Folders are always sorted before files. Within each group, items are
-     * sorted by the selected column (name, size, or modified date).
+     * sorted by the selected column (name, size, modified date, or sharer).
      *
      * @param {Array<Object>} files - Array of file/folder objects to sort
      * @returns {Array<Object>} Sorted array with folders first, then files
@@ -2323,14 +2367,18 @@ const TabFiles = {
             }
         };
 
+        const sortColumn = this.activeSortColumn();
         const sortFn = (a, b) => {
             let comparison = 0;
             const aName = getDisplayName(a);
             const bName = getDisplayName(b);
 
-            switch ( this.sortColumn ) {
+            switch ( sortColumn ) {
                 case 'name':
                     comparison = aName.localeCompare(bName);
+                    break;
+                case 'shared_by':
+                    comparison = compareSharers(a, b) || aName.localeCompare(bName);
                     break;
                 case 'size':
                     comparison = (a.size || 0) - (b.size || 0);
@@ -2373,7 +2421,7 @@ const TabFiles = {
         const newName = ($newRow.attr('data-name') || file.name || '').toLowerCase();
         const newSize = file.size || 0;
         const newModified = file.modified || 0;
-        const sortColumn = this.sortColumn;
+        const sortColumn = this.activeSortColumn();
         const sortDirection = this.sortDirection;
         let inserted = false;
 
@@ -2629,16 +2677,18 @@ const TabFiles = {
      * Clicking the same column toggles direction; clicking a new column
      * sets ascending order. Persists settings and re-renders the directory.
      *
-     * @param {string} column - Column name to sort by ('name', 'size', or 'modified')
+     * @param {string} column - Column name to sort by ('name', 'size', 'modified', or 'shared_by')
      * @returns {void}
      */
     handleSort (column) {
-        if ( this.sortColumn === column ) {
+        // Against the column on screen: outside Shared, a saved "Shared by"
+        // sort shows as name, so clicking Name flips that order.
+        if ( this.activeSortColumn() === column ) {
             this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
         } else {
-            this.sortColumn = column;
             this.sortDirection = 'asc';
         }
+        this.sortColumn = column;
 
         this.updateSortIndicators();
         this.refreshKeepingSelection();
@@ -2663,8 +2713,74 @@ const TabFiles = {
 
         $columns.find('.sortable').removeClass('sort-asc sort-desc');
 
-        const $activeColumn = $columns.find(`.sortable[data-sort="${this.sortColumn}"]`);
+        const $activeColumn = $columns.find(`.sortable[data-sort="${this.activeSortColumn()}"]`);
         $activeColumn.addClass(this.sortDirection === 'asc' ? 'sort-asc' : 'sort-desc');
+    },
+
+    /**
+     * Shows the "Shared by" column and people filter in the Shared view only,
+     * and re-lays the columns when the listing moves into or out of it.
+     *
+     * @returns {void}
+     */
+    syncSharedViewChrome () {
+        const $filesTab = this.$el_window.find('.files-tab');
+        const isSharedView = this.currentPath === window.shared_path;
+        if ( $filesTab.hasClass('shared-view') === isSharedView ) return;
+        $filesTab.toggleClass('shared-view', isSharedView);
+        if ( ! isSharedView ) $filesTab.find('.shared-people-filter').empty().prop('hidden', true);
+        this.updateSortIndicators();
+        this.applyColumnWidths();
+    },
+
+    /**
+     * In the Shared view, rebuilds the people filter from the full listing
+     * and returns the rows of the person filtered to. Other folders pass
+     * through unchanged.
+     *
+     * @param {Array<Object>} rows
+     * @returns {Array<Object>}
+     */
+    applySharerFilter (rows) {
+        if ( this.currentPath !== window.shared_path ) return rows;
+        const sharers = summarizeSharers(rows);
+        // The person's last item went away (unshared, or removed from Shared).
+        if ( ! sharers.some(({ name }) => name === this.sharerFilter) ) this.sharerFilter = null;
+
+        const $bar = this.$el_window.find('.files-tab .shared-people-filter');
+        const bar = $bar[0];
+        // Rebuilding the chips drops focus and scroll; carry both across.
+        const focused = $bar.find('.sharer-chip:focus').attr('data-sharer');
+        const scrollLeft = bar.scrollLeft;
+        const html = sharerFilterHtml(sharers, this.sharerFilter);
+        $bar.html(html).prop('hidden', ! html);
+        bar.scrollLeft = scrollLeft;
+        if ( focused !== undefined ) {
+            $bar.find('.sharer-chip').filter((_, el) => el.getAttribute('data-sharer') === focused)[0]
+                ?.focus({ preventScroll: true });
+        }
+        return filterBySharer(rows, this.sharerFilter);
+    },
+
+    /**
+     * Narrows the Shared view to what one person shared, or back to everyone.
+     *
+     * @param {string | null} sharer - Username, or null for everyone
+     * @returns {Promise<void>}
+     */
+    async setSharerFilter (sharer) {
+        if ( this.currentPath !== window.shared_path || this.sharerFilter === sharer ) return;
+        this.sharerFilter = sharer;
+        // The chip answers at once; the rows follow when the listing is back.
+        this.$el_window.find('.files-tab .shared-people-filter .sharer-chip').each(function () {
+            const pressed = (this.getAttribute('data-sharer') || null) === sharer;
+            this.classList.toggle('active', pressed);
+            this.setAttribute('aria-pressed', String(pressed));
+        });
+        await this.renderDirectory(window.shared_path);
+        if ( this.currentPath === window.shared_path ) {
+            this.$el_window.find('.files-tab .files').scrollTop(0);
+        }
     },
 
     /**
@@ -2772,6 +2888,9 @@ const TabFiles = {
             this.currentPath = path || target;
         }
         this.loadingFolder = false;
+        // Arriving at Shared shows everyone's items; a refresh keeps the filter.
+        if ( ! isSameDirRefresh ) this.sharerFilter = null;
+        this.syncSharedViewChrome();
 
         // Update browser URL to reflect current file path (only when Files tab is active)
         if ( !options.skipUrlUpdate && window.is_dashboard_mode && this.isDashboardFilesActive() ) {
@@ -2790,6 +2909,7 @@ const TabFiles = {
             if ( file.path === window.trash_path ) return false;
             return true;
         });
+        directoryContents = this.applySharerFilter(directoryContents);
 
         const isTrashFolder = this.currentPath === window.trash_path;
         this.updateActionButtons(isTrashFolder);
@@ -3205,6 +3325,7 @@ const TabFiles = {
             </div>
             <div class="col-spacer"></div>
             <div class="item-metadata">
+                ${this.currentPath === window.shared_path ? `${sharedByCellHtml(file)}<div class="col-spacer"></div>` : ''}
                 ${file.is_dir ? '<div class="item-size"></div>' : `<div class="item-size">${this.formatFileSize(file.size)}</div>`}
                 <div class="col-spacer"></div>
                 <div class="item-modified">${html_encode(formatRelativeTime(file.modified * 1000, Date.now(), window.locale))}</div>
