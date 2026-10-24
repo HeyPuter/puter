@@ -25,6 +25,7 @@ import {
     glyphKey,
     isShareNotification,
     isUnread,
+    listedEntries,
     mergeEntries,
     notificationTarget,
     parseCreatedAt,
@@ -137,6 +138,24 @@ describe('toEntry', () => {
         expect(toEntry({ uid: 'a', value: worker, created_at: '2026-08-27 12:00:00' }, NOW)).toBeNull();
         expect(toEntry({ uid: 'b', notification: worker }, NOW)).toBeNull();
         expect(toEntry({ uid: 'c', notification: { ...worker, source: 'sharing' } }, NOW)).not.toBeNull();
+    });
+});
+
+describe('listedEntries', () => {
+    const row = (uid, type) => ({ uid, value: { type, title: uid }, created_at: null });
+
+    it("doesn't let hidden rows take the places of shown ones", () => {
+        const rows = [
+            ...Array.from({ length: 40 }, (_, i) => row(`deploy${i}`, 'app.worker.deployed')),
+            row('share', 'fs.share.granted'),
+            row('older', 'fs.share.granted'),
+        ];
+        expect(listedEntries(rows, NOW, 30).map((e) => e.uid)).toEqual(['share', 'older']);
+    });
+
+    it('keeps the newest `limit`', () => {
+        const rows = Array.from({ length: 5 }, (_, i) => row(`n${i}`));
+        expect(listedEntries(rows, NOW, 3).map((e) => e.uid)).toEqual(['n0', 'n1', 'n2']);
     });
 });
 
