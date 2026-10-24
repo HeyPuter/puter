@@ -231,7 +231,10 @@ async function UIDashboard (options) {
     // Account and Security decide some cards from the account's state when
     // they render (password and email for a temporary user, the token
     // button and 2FA for an unconfirmed email).
+    const account_state = () => JSON.stringify([window.user?.email, window.user?.email_confirmed]);
+    let rendered_account_state = account_state();
     const rerender_account_tabs = () => {
+        rendered_account_state = account_state();
         for ( const tab of tabs ) {
             if ( tab.id !== 'account' && tab.id !== 'security' ) continue;
             $el_window.find(`.dashboard-section-${tab.id}`).html(tab.html());
@@ -243,6 +246,13 @@ async function UIDashboard (options) {
     window.addEventListener('account-saved', () => {
         $el_window.find('.bento-save-account-warning').remove();
         rerender_account_tabs();
+    });
+
+    // Returning to the browser tab re-reads the account and then sends this
+    // (see TabHome). An email change confirmed from its link in another tab
+    // sends no socket event of its own, so it shows here.
+    window.addEventListener('puter:subscription:changed', () => {
+        if ( account_state() !== rendered_account_state ) rerender_account_tabs();
     });
 
     // Dispatch 'dashboard-ready' event for extensions
