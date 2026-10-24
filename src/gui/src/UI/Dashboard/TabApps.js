@@ -1028,6 +1028,15 @@ const TabApps = {
         // Tiles double as the app switcher for headless in-page apps: a
         // dot marks tiles whose app has an open (or minimized) window.
         // UIWindow fires this event on every window open/close.
+        // Another browser tab may have rearranged the grid or its folders
+        // meanwhile; this tab's copy would otherwise be what its next change
+        // writes back over them.
+        document.addEventListener('visibilitychange', () => {
+            if ( document.visibilityState !== 'visible' ) return;
+            if ( ! $el_window.find('.dashboard-section-apps').hasClass('active') ) return;
+            self.loadApps($el_window);
+        });
+
         document.addEventListener('dashboard-app-windows-changed', () => {
             self.updateRunningDots($el_window);
         });
