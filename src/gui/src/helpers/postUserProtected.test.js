@@ -113,6 +113,14 @@ describe('postUserProtected', () => {
         expect(fetch).not.toHaveBeenCalled();
     });
 
+    it('says the current password is wrong in the reader\'s language', async () => {
+        fetch.mockResolvedValueOnce(reply(400, { message: 'Password mismatch', code: 'password_mismatch' }));
+
+        const result = await postUserProtected('change-password', { new_pass: 'n' }, { password: 'wrong' });
+
+        expect(result).toMatchObject({ ok: false, message: 'incorrect_password' });
+    });
+
     it('passes the server message through on any other failure', async () => {
         fetch.mockResolvedValueOnce(reply(400, { message: 'Username taken', code: 'bad_request' }));
 

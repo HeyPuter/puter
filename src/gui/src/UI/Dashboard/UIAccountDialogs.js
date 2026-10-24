@@ -54,6 +54,9 @@ const passwordField = (label) => ({
     attrs: { autocomplete: 'current-password' },
 });
 
+/** Puts a refused password's status on the field, to be typed again. */
+const wrongPassword = (result, field) => (result.data?.code === 'password_mismatch' ? { field } : undefined);
+
 /** Text that tells a provider-only account what will happen instead of a password. */
 const oidcNotice = () => (isOidcOnly() ? `<p>${i18n('revalidate_flow_notice')}</p>` : '');
 
@@ -152,7 +155,7 @@ export function openChangeUsernameDialog (opts = {}) {
                 onRevalidate: revalidating(dialog),
             });
             if ( ! result.ok ) {
-                dialog.setStatus(result.message);
+                dialog.setStatus(result.message, wrongPassword(result, 'password'));
                 return;
             }
             update_username_in_gui(new_username);
@@ -215,7 +218,7 @@ export function openChangePasswordDialog (opts = {}) {
                 onRevalidate: revalidating(dialog),
             });
             if ( ! result.ok ) {
-                dialog.setStatus(result.message);
+                dialog.setStatus(result.message, wrongPassword(result, 'current'));
                 return;
             }
             dialog.finish({ message: t('password_changed') });
@@ -270,7 +273,7 @@ export function openChangeEmailDialog (opts = {}) {
                 // Accounts with 2FA turned on since the page loaded learn about it here.
                 const needs_code = result.data.factor === 'otp';
                 if ( needs_code ) dialog.showField('code', true);
-                dialog.setStatus(result.message, needs_code ? { field: 'code' } : undefined);
+                dialog.setStatus(result.message, needs_code ? { field: 'code' } : wrongPassword(result, 'password'));
                 return;
             }
             // The address is the account's once the emailed link is followed, not yet.
@@ -418,7 +421,7 @@ export function openDeleteAccountDialog (opts = {}) {
                 onRevalidate: revalidating(dialog),
             });
             if ( ! result.ok || ! result.data.success ) {
-                dialog.setStatus(result.message ?? t('error_unknown_cause'));
+                dialog.setStatus(result.message ?? t('error_unknown_cause'), wrongPassword(result, 'password'));
                 return;
             }
             window.user.deleted = true;
