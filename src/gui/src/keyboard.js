@@ -478,12 +478,17 @@ $(document).bind('keydown', async function (e) {
     //-----------------------------------------------------------------------
     if ( e.which === 27 ) {
         // close open context menus
+        const closedMenu = $('.context-menu').length > 0;
         $('.context-menu').remove();
 
         // close the Launch Popover if it's open
         $('.launch-popover').closest('.popover').fadeOut(200, function () {
             $('.launch-popover').closest('.popover').remove();
         });
+
+        // That Escape was the menu's; later handlers must not also act on it
+        // (clear a Files selection, close its preview).
+        if ( closedMenu ) e.stopImmediatePropagation();
     }
 });
 
