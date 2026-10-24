@@ -844,6 +844,9 @@ const TabFiles = {
             // row's ⋯ button: the keyboard's only way to Share, Download or
             // open Properties.
             if ( e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10') ) {
+                // A focused folder, crumb or button gets the browser's
+                // contextmenu event, and with it its own menu.
+                if ( $(focused_el).is('a[href], button, select, [tabindex]') ) return;
                 const row = $selectedRows.toArray().find(r => r === window.latest_selected_item) ?? $selectedRows[0];
                 if ( row ) {
                     e.preventDefault();
