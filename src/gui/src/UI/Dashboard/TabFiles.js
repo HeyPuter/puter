@@ -2691,7 +2691,17 @@ const TabFiles = {
         const isTrashFolder = this.currentPath === window.trash_path;
         this.updateActionButtons(isTrashFolder);
 
+        // Rebuilding the crumbs drops a focused one; keyboard focus stays on
+        // the same folder's crumb, else on the folder now open.
+        const focusedCrumb = document.activeElement?.matches('.path-breadcrumbs .dirname:focus-visible')
+            ? document.activeElement.getAttribute('data-path')
+            : undefined;
         $('.path-breadcrumbs').html(this.renderPath(this.currentPath, window.user.username));
+        if ( focusedCrumb !== undefined ) {
+            const $crumbs = $('.path-breadcrumbs .dirname');
+            const $same = $crumbs.filter((_, el) => el.getAttribute('data-path') === focusedCrumb);
+            ($same[0] ?? $crumbs.last()[0])?.focus({ preventScroll: true });
+        }
         this.revealCurrentCrumb();
         $('.path-breadcrumbs .dirname').each(function () {
             const dirnameElement = this;
