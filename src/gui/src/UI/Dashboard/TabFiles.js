@@ -2799,7 +2799,7 @@ const TabFiles = {
             this.classList.toggle('active', pressed);
             this.setAttribute('aria-pressed', String(pressed));
         });
-        await this.renderDirectory(window.shared_path);
+        await this.renderDirectory(window.shared_path, { filterChange: true });
         if ( this.currentPath === window.shared_path ) {
             this.$el_window.find('.files-tab .files').scrollTop(0);
         }
@@ -2816,6 +2816,7 @@ const TabFiles = {
      * @param {boolean} [options.skipUrlUpdate] - If true, don't update browser URL
      * @param {boolean} [options.skipNavHistory] - If true, don't add to navigation history
      * @param {boolean} [options.force] - Supersede a navigation that is still loading
+     * @param {boolean} [options.filterChange] - A people filter change: if Shared can't be listed, filter the rows already loaded
      * @returns {Promise<void>}
      */
     async renderDirectory (target, options = {}) {
@@ -2880,10 +2881,17 @@ const TabFiles = {
             directoryContents = isSharedView
                 ? await this.listSharedView()
                 : await window.puter.fs.readdir(readdirArg);
+            if ( isSharedView ) this.sharedRows = directoryContents;
         } catch ( err ) {
             console.error('Failed to read directory:', err);
-            readFailed = true;
-            directoryContents = [];
+            // Filtering needs no server: a filter change still applies to
+            // the rows already loaded.
+            if ( isSharedView && options.filterChange && this.sharedRows ) {
+                directoryContents = this.sharedRows;
+            } else {
+                readFailed = true;
+                directoryContents = [];
+            }
         }
         if ( seq !== this.renderSeq ) return;
         if ( ! directoryContents ) {

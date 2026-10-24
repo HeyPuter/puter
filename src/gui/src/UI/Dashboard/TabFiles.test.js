@@ -663,6 +663,33 @@ describe('TabFiles people filter across navigation', () => {
         expect(listed()).toEqual(['a', 'b']);
     });
 
+    it('still filters when Shared fails to list again', async () => {
+        await TabFiles.renderDirectory(SHARED);
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        TabFiles.listSharedView.mockImplementation(async () => {
+            throw new Error('offline');
+        });
+
+        await TabFiles.setSharerFilter('bob');
+
+        expect(listed()).toEqual(['b']);
+        expect($('.sharer-chip.active').attr('data-sharer')).toBe('bob');
+        expect($('.files').text()).not.toContain("couldn't be opened");
+    });
+
+    it('still says a Shared it was asked to open could not be listed', async () => {
+        await TabFiles.renderDirectory(SHARED);
+        await TabFiles.renderDirectory('/alice/Documents');
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        TabFiles.listSharedView.mockImplementation(async () => {
+            throw new Error('offline');
+        });
+
+        await TabFiles.renderDirectory(SHARED);
+
+        expect($('.files').text()).toContain("couldn't be opened");
+    });
+
     it("clears once the user goes back to their own files", async () => {
         await TabFiles.renderDirectory(SHARED);
         await TabFiles.setSharerFilter('bob');
