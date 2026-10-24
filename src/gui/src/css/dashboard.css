@@ -63,8 +63,9 @@
     --dashboard-avatar-background: #ddd;
     --dashboard-input-background: rgb(245, 247, 249);
 
-    --dashboard-link: #5271ff;
-    --dashboard-link-hover: #3d5bd9;
+    /* Link text: 4.5:1 or better on the cards and the content background. */
+    --dashboard-link: #3d5bd9;
+    --dashboard-link-hover: #2f4bc0;
     /* Primary button fills, under white text: 4.5:1 or better in both themes. */
     --dashboard-button-primary: #4a67f5;
     --dashboard-button-primary-hover: #3d5bd9;
