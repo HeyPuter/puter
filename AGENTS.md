@@ -185,9 +185,10 @@ Recipes are tested, copy-pasteable patterns for a task, one layer above the per-
 - **Intro.** Explain the situation and why you'd do this, tied to something the reader already knows ("`puter.kv` is your database in Puter.js"). No "Use this when" bullet list.
 - **Structure.** Get to the first working call as early as possible, then add validation, rate limits, and sign-in after it. Explain a Puter concept the first time it appears, such as what `me.puter` is or that `puter.workers.exec()` opens the Puter sign-in window. Split recipes by what the reader needs, not by technique, and give a family of recipes a shared tag.
 - **Link to the reference for full option lists.** Mention only the options the recipe uses, then link to the function page for the rest ("All the sort options are listed on [`puter.fs.readdir()`](/FS/readdir/)."). A copied list of options, rules, or scopes goes stale when the reference changes.
+- **Limits.** Mention a limit only when it's the reason for a pattern the recipe uses, such as one wildcard subscription instead of one per key, and link to [rate-limits-and-quotas.md](src/docs/src/rate-limits-and-quotas.md) or the function page for the number. Leave out limits that code following the recipe never reaches.
 - **Code.** Platform-neutral: just the code, with top-level `await`. No `<script>` or `<html>` wrapper, no IIFE.
 - **Tradeoffs.** Justify a choice with one scenario the reader can picture right away, in about two short paragraphs, or fold each point into the section where it matters. The description states the benefit only.
-- **Notes.** Leave out `## Notes` by default. Use it only to point to an architecturally different approach. A limit goes in the section it applies to; other facts belong on the linked reference page.
+- **Notes.** Leave out `## Notes` by default. Use it only to point to an architecturally different approach. A limit the recipe needs goes in the section it applies to, and other facts belong on the linked reference page.
 
 ---
 
