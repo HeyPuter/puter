@@ -3618,7 +3618,7 @@ const TabFiles = {
             cursorAt: { left: -14, top: -12 },
             cursor: 'grabbing',
             revert: 'invalid',
-            zIndex: 10000,
+            zIndex: 999999999,
             scroll: false,
             distance: 5,
             revertDuration: 100,

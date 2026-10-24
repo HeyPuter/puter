@@ -4352,7 +4352,8 @@ body.myapps-reordering .myapps-tile {
 
 .files-drag-ghost {
     pointer-events: none;
-    z-index: 10000;
+    /* On body, above the dashboard window (see the sidebar tooltip). */
+    z-index: 999999999;
     opacity: 0.95;
     animation: files-drag-ghost-in 120ms ease-out;
 }
@@ -5403,7 +5404,8 @@ body.myapps-reordering .myapps-tile {
 /* Image preview popover */
 .image-preview-popover {
     position: fixed;
-    z-index: 9999;
+    /* On body, above the dashboard window (see the sidebar tooltip). */
+    z-index: 999999999;
     background: var(--dashboard-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 8px;
