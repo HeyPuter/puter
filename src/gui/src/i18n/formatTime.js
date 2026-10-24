@@ -83,15 +83,23 @@ const tryMake = (make) => {
     }
 };
 
+// A listing formats a date per row; making a formatter costs far more than
+// using one. Keyed by language and options, of which there are a handful.
+const formatters = new Map();
+const cached = (key, make) => {
+    if ( ! formatters.has(key) ) formatters.set(key, make());
+    return formatters.get(key);
+};
+
 // An unknown locale tag throws; the English formatter beats none at all.
 const relativeFormatter = (locale) => {
     if ( typeof Intl === 'undefined' || ! Intl.RelativeTimeFormat ) return null;
-    return tryMake(() => new Intl.RelativeTimeFormat(intlLocale(locale), { numeric: 'auto' }))
-        ?? tryMake(() => new Intl.RelativeTimeFormat('en', { numeric: 'auto' }));
+    return cached(`relative:${locale}`, () => tryMake(() => new Intl.RelativeTimeFormat(intlLocale(locale), { numeric: 'auto' }))
+        ?? tryMake(() => new Intl.RelativeTimeFormat('en', { numeric: 'auto' })));
 };
 
 const dateFormatter = (locale, options) => {
     if ( typeof Intl === 'undefined' || ! Intl.DateTimeFormat ) return null;
-    return tryMake(() => new Intl.DateTimeFormat(intlLocale(locale), options))
-        ?? tryMake(() => new Intl.DateTimeFormat('en', options));
+    return cached(`date:${locale}:${JSON.stringify(options)}`, () => tryMake(() => new Intl.DateTimeFormat(intlLocale(locale), options))
+        ?? tryMake(() => new Intl.DateTimeFormat('en', options)));
 };

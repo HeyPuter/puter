@@ -28,6 +28,7 @@ import UIAlert from '../UIAlert.js';
 import generate_file_context_menu from '../../helpers/generateFileContextMenu.js';
 import update_title_based_on_uploads from '../../helpers/updateTitleBasedOnUploads.js';
 import item_icon from '../../helpers/itemIcon.js';
+import { formatRelativeTime } from '../../i18n/formatTime.js';
 import { user_facing_windows } from '../../helpers/windowVisibility.js';
 import new_context_menu_item from '../../helpers/newContextMenuItem.js';
 import publish_as_website from '../../helpers/publishAsWebsite.js';
@@ -270,7 +271,7 @@ const TabFiles = {
             }
             if ( file.modified ) {
                 $row.attr('data-modified', file.modified);
-                $row.find('.item-modified').text(window.timeago.format(file.modified * 1000));
+                $row.find('.item-modified').text(formatRelativeTime(file.modified * 1000, Date.now(), window.locale));
             }
             if (
                 _this.isGridView() &&
@@ -3140,7 +3141,7 @@ const TabFiles = {
             <div class="item-metadata">
                 ${file.is_dir ? '<div class="item-size"></div>' : `<div class="item-size">${this.formatFileSize(file.size)}</div>`}
                 <div class="col-spacer"></div>
-                <div class="item-modified">${window.timeago.format(file.modified * 1000)}</div>
+                <div class="item-modified">${html_encode(formatRelativeTime(file.modified * 1000, Date.now(), window.locale))}</div>
             </div>
             <div class="col-spacer"></div>
             <div class="item-more">${icons.more}</div>

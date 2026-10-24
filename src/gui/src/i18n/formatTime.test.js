@@ -75,3 +75,11 @@ describe('formatAbsoluteTime', () => {
         expect(formatAbsoluteTime(NOW, 'en')).toMatch(/Aug 27, 2026/);
     });
 });
+
+describe('formatter reuse', () => {
+    it('keeps each language apart', () => {
+        expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'de')).toBe('vor 5 Minuten');
+        expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'fr')).toBe('il y a 5 minutes');
+        expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'de')).toBe('vor 5 Minuten');
+    });
+});
