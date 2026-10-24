@@ -684,37 +684,48 @@ const TabFiles = {
             // So would an open menu: its actions are bound to the old rows.
             if ( $('.context-menu, .context-menu-modal-backdrop').length > 0 ) return;
 
-            // The rebuild also wipes selection, the keyboard/shift anchor,
-            // and scroll position — state the user expects to survive a quick
-            // trip to another browser tab. Carry it across by uid.
-            const $files = $filesTab.find('.files');
-            const scrollTop = $files.scrollTop();
-            const selectedUids = new Set($filesTab.find('.row.selected').map(function () {
-                return $(this).attr('data-uid');
-            }).get());
-            const anchorUid = window.latest_selected_item
-                ? $(window.latest_selected_item).attr('data-uid')
-                : null;
-
-            await this.renderDirectory(this.currentPath, { skipNavHistory: true, skipUrlUpdate: true });
-
-            if ( selectedUids.size > 0 ) {
-                $filesTab.find('.row').each(function () {
-                    if ( selectedUids.has($(this).attr('data-uid')) ) {
-                        this.classList.add('selected');
-                    }
-                });
-                this.updateFooterStats();
-            }
-            if ( anchorUid ) {
-                const anchorRow = $filesTab.find(`.row[data-uid="${anchorUid}"]`)[0];
-                if ( anchorRow ) {
-                    window.latest_selected_item = anchorRow;
-                    window.active_element = anchorRow;
-                }
-            }
-            $files.scrollTop(scrollTop);
+            await this.refreshKeepingSelection({ skipNavHistory: true, skipUrlUpdate: true });
         });
+    },
+
+    /**
+     * Lists the folder on screen again. The rebuild wipes the selection, the
+     * keyboard/shift anchor and the scroll position, which a re-sort or a
+     * quick trip to another browser tab must not lose, so they're carried
+     * across by uid.
+     *
+     * @param {Object} [options] - Passed on to renderDirectory
+     * @returns {Promise<void>}
+     */
+    async refreshKeepingSelection (options = {}) {
+        const $filesTab = this.$el_window.find('.files-tab');
+        const $files = $filesTab.find('.files');
+        const scrollTop = $files.scrollTop();
+        const selectedUids = new Set($filesTab.find('.row.selected').map(function () {
+            return $(this).attr('data-uid');
+        }).get());
+        const anchorUid = window.latest_selected_item
+            ? $(window.latest_selected_item).attr('data-uid')
+            : null;
+
+        await this.renderDirectory(this.currentPath, options);
+
+        if ( selectedUids.size > 0 ) {
+            $filesTab.find('.row').each(function () {
+                if ( selectedUids.has($(this).attr('data-uid')) ) {
+                    this.classList.add('selected');
+                }
+            });
+            this.updateFooterStats();
+        }
+        if ( anchorUid ) {
+            const anchorRow = $filesTab.find(`.row[data-uid="${anchorUid}"]`)[0];
+            if ( anchorRow ) {
+                window.latest_selected_item = anchorRow;
+                window.active_element = anchorRow;
+            }
+        }
+        $files.scrollTop(scrollTop);
     },
 
     /**
@@ -2546,7 +2557,7 @@ const TabFiles = {
         }
 
         this.updateSortIndicators();
-        this.renderDirectory(this.currentPath);
+        this.refreshKeepingSelection();
 
         // Persisting is best-effort and must not hold up the re-sort: awaited,
         // the two writes added two round-trips before anything moved.
@@ -4223,7 +4234,7 @@ const TabFiles = {
 
         // Refresh content to update icons for the new view mode
         if ( this.currentPath ) {
-            this.renderDirectory(this.currentPath);
+            this.refreshKeepingSelection();
         }
     },
 
@@ -4900,7 +4911,7 @@ const TabFiles = {
                 window.mutate_user_preferences({
                     show_hidden_files: ! showHiddenFiles(),
                 });
-                _this.renderDirectory(_this.currentPath);
+                _this.refreshKeepingSelection();
             },
         });
 
