@@ -4130,6 +4130,10 @@ body.myapps-reordering .myapps-tile {
     .path-btn {
         filter: invert(1) hue-rotate(180deg);
     }
+    /* A black chevron; uninverted it disappears into the dark header. */
+    .dashboard-section-files .path-seperator {
+        filter: invert(1);
+    }
     @media (hover: hover) {
         /* The hover chip is light (#EEE) even in dark mode, so the icon must
            drop its dark-mode inversion to stay readable on it. */
