@@ -2614,10 +2614,11 @@ const TabFiles = {
      * @param {Object} [options] - Optional settings
      * @param {boolean} [options.skipUrlUpdate] - If true, don't update browser URL
      * @param {boolean} [options.skipNavHistory] - If true, don't add to navigation history
+     * @param {boolean} [options.force] - Supersede a navigation that is still loading
      * @returns {Promise<void>}
      */
     async renderDirectory (target, options = {}) {
-        if ( this.renderBlocked() ) return;
+        if ( ! options.force && this.renderBlocked() ) return;
         this.renderingDirectory = true;
         // A newer render supersedes this one; past each await, a superseded
         // render stops without touching the listing or the flags.
@@ -4357,11 +4358,14 @@ const TabFiles = {
      */
     navigateBackFromSpringLoad () {
         if ( ! this.springLoadedOriginalPath ) return;
+        // The folder the drag opened may still be loading; going back
+        // overrides it rather than being dropped.
+        const force = true;
 
         // Walk back through nav history to find the original path
         for ( let i = window.dashboard_nav_history_current_position - 1; i >= 0; i-- ) {
             if ( window.dashboard_nav_history[i] === this.springLoadedOriginalPath ) {
-                this.goToHistoryPosition(i);
+                this.goToHistoryPosition(i, { force });
                 return;
             }
         }
@@ -4370,12 +4374,12 @@ const TabFiles = {
         // forward too.
         for ( let i = window.dashboard_nav_history_current_position + 1; i < window.dashboard_nav_history.length; i++ ) {
             if ( window.dashboard_nav_history[i] === this.springLoadedOriginalPath ) {
-                this.goToHistoryPosition(i);
+                this.goToHistoryPosition(i, { force });
                 return;
             }
         }
         // Fallback: render the original path directly
-        this.renderDirectory(this.springLoadedOriginalPath);
+        this.renderDirectory(this.springLoadedOriginalPath, { force });
     },
 
     /**
@@ -4502,11 +4506,11 @@ const TabFiles = {
      * @param {number} position - Index into dashboard_nav_history
      * @returns {void}
      */
-    goToHistoryPosition (position) {
-        if ( this.renderBlocked() ) return;
+    goToHistoryPosition (position, { force = false } = {}) {
+        if ( ! force && this.renderBlocked() ) return;
         window.dashboard_nav_history_current_position = position;
         this.updateNavButtonStates();
-        this.renderDirectory(window.dashboard_nav_history[position]);
+        this.renderDirectory(window.dashboard_nav_history[position], { force });
     },
 
     /**

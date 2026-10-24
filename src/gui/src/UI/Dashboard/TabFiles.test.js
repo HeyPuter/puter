@@ -453,3 +453,32 @@ describe('TabFiles.updateNavButtonStates', () => {
         expect($('.path-btn-forward').attr('aria-disabled')).toBe('true');
     });
 });
+
+describe('TabFiles cancelling a drag that opened a folder', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+    });
+
+    it('goes back even while that folder is still loading', async () => {
+        mountListing([], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        window.puter = { fs: { readdir: vi.fn(({ path }) => (path === '/alice/Pictures'
+            ? new Promise(() => {})
+            : Promise.resolve([]))) } };
+        window.dashboard_nav_history = ['/alice/Documents'];
+        window.dashboard_nav_history_current_position = 0;
+
+        TabFiles.springLoadedOriginalPath = '/alice/Documents';
+        TabFiles.pushNavHistory('/alice/Pictures');
+        void TabFiles.renderDirectory('/alice/Pictures');
+        TabFiles.navigateBackFromSpringLoad();
+        await vi.waitFor(() => expect(TabFiles.renderingDirectory).toBe(false));
+
+        expect(TabFiles.currentPath).toBe('/alice/Documents');
+        expect(window.dashboard_nav_history_current_position).toBe(0);
+    });
+});
