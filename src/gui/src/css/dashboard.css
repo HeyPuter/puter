@@ -2206,7 +2206,9 @@ p.myapps-add-error {
     display: flex;
     flex-direction: column;
     width: min(460px, 100%);
-    max-height: min(600px, 85vh);
+    /* 100%: within the overlay, which is the visible height; vh is the
+       largest one, and with the browser's bars showing overflows it. */
+    max-height: min(600px, 85vh, 100%);
     background: var(--dashboard-card-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 14px;
@@ -2450,7 +2452,7 @@ p.myapps-add-error {
     .item-props-modal {
         width: 100%;
         max-width: none;
-        max-height: 88vh;
+        max-height: min(88vh, 100%);
         border-radius: 16px 16px 0 0;
         border-bottom: none;
         transform: translateY(24px);
@@ -2504,7 +2506,8 @@ p.myapps-add-error {
     display: flex;
     flex-direction: column;
     width: min(440px, 100%);
-    max-height: min(620px, 85vh);
+    /* 100%: within the overlay (see .item-props-modal). */
+    max-height: min(620px, 85vh, 100%);
     background: var(--dashboard-card-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 14px;
@@ -3255,7 +3258,7 @@ select.share-modal-row-mode:focus {
     .share-modal {
         width: 100%;
         max-width: none;
-        max-height: 88vh;
+        max-height: min(88vh, 100%);
         border-radius: 16px 16px 0 0;
         border-bottom: none;
         transform: translateY(24px);
