@@ -641,7 +641,7 @@ function UIContextMenu (options) {
 
     // An item is clicked. Bound on the menu, not delegated from document, so
     // the handler (and the items its closure holds) goes when the menu does.
-    $(contextMenu).on('click', 'li:not(.context-menu-item-disabled)', function (e) {
+    $(contextMenu).on('click', 'li:not(.context-menu-item-disabled):not(.context-menu-divider)', function (e) {
         // A double-click's second click lands while the menu fades out; the
         // item has run already (opening a dialog twice, say).
         if ( $(contextMenu).hasClass('context-menu-closing') ) {
