@@ -287,7 +287,10 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
         },
         error: () => {
             if ( closed ) return;
-            $list.html(`<div class="item-props-empty">${i18n('error_unknown_cause')}</div>`);
+            // Still marked busy, the list's error would go unannounced.
+            const failed = `<div class="item-props-empty">${i18n('error_unknown_cause')}</div>`;
+            $list.attr('aria-busy', 'false').html(failed);
+            $versions.html(failed);
         },
     })
         // The error callback renders the failure; the promise rejects with it too.
