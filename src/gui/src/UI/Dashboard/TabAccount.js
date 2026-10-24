@@ -89,14 +89,18 @@ const TabAccount = {
         h += `<span class="username">${html_encode(window.user.username)}</span>`;
         h += '</div>';
         h += '</div>';
-        // A seat's name is the team's; the console and audit log key on it.
-        if ( isOrgSeat(window.user) ) {
+        // A seat's name and address are the team's; the console and audit
+        // log key on the name, and admin-issued credentials go to the address.
+        const setByTeamNote = () => {
             const team = orgSeatTeamName(window.user);
-            h += `<span class="dashboard-settings-card-note">${
+            return `<span class="dashboard-settings-card-note">${
                 team
                     ? i18n('username_set_by_team', { team })
                     : i18n('username_set_by_team_generic')
             }</span>`;
+        };
+        if ( isOrgSeat(window.user) ) {
+            h += setByTeamNote();
         } else if ( ! window.user.is_temp ) {
             // A temporary account can't change it until it is saved.
             h += `<button class="button change-username">${i18n('change_username')}</button>`;
@@ -131,7 +135,9 @@ const TabAccount = {
             h += `<span class="user-email">${html_encode(window.user.email)}</span>`;
             h += '</div>';
             h += '</div>';
-            h += `<button class="button change-email">${i18n('change_email')}</button>`;
+            h += isOrgSeat(window.user)
+                ? setByTeamNote()
+                : `<button class="button change-email">${i18n('change_email')}</button>`;
             h += '</div>';
         }
 
