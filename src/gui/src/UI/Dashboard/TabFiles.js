@@ -2076,15 +2076,20 @@ const TabFiles = {
         names.forEach((el, i) => {
             const fullName = el.closest('.row')?.getAttribute('data-name');
             if ( ! fullName ) return;
+            let text;
             if ( ! isList ) {
-                el.textContent = truncateFilenameToWidth(fullName, widths[i], font);
+                text = truncateFilenameToWidth(fullName, widths[i], font);
             } else if ( nameWidth ) {
                 // 8px padding on each side
-                el.textContent = truncateFilenameToWidth(fullName, nameWidth - 16, font);
+                text = truncateFilenameToWidth(fullName, nameWidth - 16, font);
             } else {
                 // Auto-width column: the full name, clipped by CSS
-                el.textContent = fullName;
+                text = fullName;
             }
+            el.textContent = text;
+            // A shortened name shows in full on hover.
+            const title = text === fullName ? '' : fullName;
+            if ( el.title !== title ) el.title = title;
         });
     },
 
