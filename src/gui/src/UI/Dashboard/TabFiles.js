@@ -1081,9 +1081,32 @@ const TabFiles = {
                     if ( ! e.shiftKey ) {
                         // Normal navigation - clear selection
                         $allRows.removeClass('selected');
+                        $next.addClass('selected');
+                    } else {
+                        // A run of Shift+Arrows selects from where it started
+                        // to the cursor, on top of what was selected before
+                        // it, so stepping back shrinks the range again.
+                        // Any other change to the selection starts a new run.
+                        const run = _this.shiftArrowRun;
+                        const continuing = run?.cursor === $current.get(0)
+                            && $allRows.index(run.anchor) !== -1
+                            && run.after.length === $selectedRows.length
+                            && run.after.every(row => row.classList.contains('selected'));
+                        const { anchor, before } = continuing
+                            ? run
+                            : { anchor: $current.get(0), before: $selectedRows.toArray() };
+                        const anchorIndex = $allRows.index(anchor);
+                        $allRows.removeClass('selected');
+                        $(before).addClass('selected');
+                        $allRows.slice(Math.min(anchorIndex, nextIndex), Math.max(anchorIndex, nextIndex) + 1)
+                            .addClass('selected');
+                        _this.shiftArrowRun = {
+                            anchor,
+                            before,
+                            cursor: $next.get(0),
+                            after: $allRows.filter('.selected').toArray(),
+                        };
                     }
-
-                    $next.addClass('selected');
                     window.active_element = $next.get(0);
                     window.latest_selected_item = $next.get(0);
                     $next.get(0).scrollIntoView({ block: 'nearest' });
