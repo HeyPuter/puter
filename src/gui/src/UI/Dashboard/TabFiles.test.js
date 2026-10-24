@@ -380,3 +380,18 @@ describe('TabFiles.toggleSelectMode', () => {
         expect($('.files-selection-actions').hasClass('visible')).toBe(false);
     });
 });
+
+describe('TabFiles footer', () => {
+    it('gives sizes as the rows do', () => {
+        window.trash_path = TRASH;
+        mountListing(['a.txt'], '/alice/Documents');
+        $('.files .row').attr('data-size', '1536').addClass('selected');
+        TabFiles.updateFooterStats();
+        expect($('.files-footer-item-count').text()).toContain('1.5 KB');
+        expect($('.files-footer-selected-items').text()).toContain('1.5 KB');
+
+        $('.files .row').attr('data-size', '0');
+        TabFiles.updateFooterStats();
+        expect($('.files-footer-item-count').text()).toContain('0 B');
+    });
+});

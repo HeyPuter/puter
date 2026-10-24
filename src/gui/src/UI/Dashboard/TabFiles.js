@@ -4174,12 +4174,12 @@ const TabFiles = {
 
         const countText = count => i18n(count === 1 ? 'items_count_one' : 'items_count_other', { count }, false);
         $footer.find('.files-footer-item-count').text(
-            `${countText(totalCount)} · ${window.byte_format(totalSize)}`,
+            `${countText(totalCount)} · ${this.formatFileSize(totalSize)}`,
         );
 
         if ( selectedCount > 0 ) {
             $footer.find('.files-footer-selected-items')
-                .text(`${i18n('items_selected', { items: countText(selectedCount) }, false)} · ${window.byte_format(selectedSize)}`)
+                .text(`${i18n('items_selected', { items: countText(selectedCount) }, false)} · ${this.formatFileSize(selectedSize)}`)
                 .css('display', 'inline');
             $footer.find('.files-footer-separator').css('display', 'inline');
         } else {
