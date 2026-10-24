@@ -1015,6 +1015,10 @@ const TabApps = {
                 self._justDragged = false;
                 return;
             }
+            // The first click of a double-click already acted. The second
+            // would open an external app's site a second time, or land on
+            // the tile under a modal option the first click just chose.
+            if ( (e.detail ?? 0) > 1 ) return;
             // The tail tile isn't an app — it asks how you'd like to get one.
             // Answered in every mode: it is never part of the arrangement
             // reorder mode exists to edit.
