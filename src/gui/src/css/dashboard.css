@@ -3008,7 +3008,7 @@ select.share-modal-link-access {
     font-size: 13px;
     font-weight: 600;
     background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
-    color: hsl(var(--share-avatar-hue, 213), 45%, 38%);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
 }
 .share-modal-row-who {
     flex: 1 1 auto;
@@ -3251,7 +3251,7 @@ select.share-modal-row-mode:focus {
     .share-modal-avatar,
     .share-modal .share-suggest-avatar {
         background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
-        color: hsl(var(--share-avatar-hue, 213), 55%, 72%);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 76%);
     }
     /* Restated after the rule above, which would otherwise repaint the glyph
        variant with a hue it does not carry. */
@@ -4950,14 +4950,14 @@ body.myapps-reordering .myapps-tile {
     font-weight: 600;
     line-height: 1;
     background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
-    color: hsl(var(--share-avatar-hue, 213), 45%, 38%);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
 }
 
 @media (prefers-color-scheme: dark) {
     .dashboard-section-files .item-shared-by-avatar,
     .dashboard-section-files .sharer-chip-avatar {
         background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
-        color: hsl(var(--share-avatar-hue, 213), 55%, 72%);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 76%);
     }
 }
 
