@@ -326,7 +326,11 @@ const TabHome = {
         // Deliberate refreshes (subscription changed, returning from the
         // billing portal) must bypass the freshness window — they exist to
         // replace state we already know is stale.
-        const refresh = () => this.loadUsageData($el_window, { force: true });
+        // Recently used too: an app opened in another browser tab moves up it.
+        const refresh = () => {
+            this.loadUsageData($el_window, { force: true });
+            this.loadRecentApps($el_window);
+        };
         const refreshAndBroadcast = async () => {
             // Pull fresh whoami, then broadcast. The dispatched event is handled
             // by the `refresh` listener below, so we don't call refresh() here —
@@ -441,8 +445,8 @@ const TabHome = {
 
     async loadRecentApps($el_window) {
         // Always refetch: gating on an empty list froze "Recently used" for the
-        // whole session (apps launched after load never appeared). loadUsageData
-        // refreshes on the same activate/focus triggers, so this stays in step.
+        // whole session (apps launched after load never appeared). It refreshes
+        // on the same activate/focus triggers as loadUsageData.
         // Only the newest request may write: an older one answering last
         // would put a stale list back.
         const seq = (this._recentAppsSeq = (this._recentAppsSeq ?? 0) + 1);
