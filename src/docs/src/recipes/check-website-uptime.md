@@ -1,6 +1,6 @@
 ---
 title: Check Website Uptime
-description: "Learn how to check a website, save each result in the user's key-value store and show recent checks with Puter.js."
+description: Learn how to check whether a website is up with Puter.js and keep a history of recent checks for each user.
 tags: [net, kv]
 order: 71
 ---
@@ -12,7 +12,8 @@ checks, HTTP errors and connection failures.
 
 This example checks a site when the user clicks a button, keeps each result
 for seven days, and shows the latest 20 checks. Each user's history lives in
-their own account.
+their own account. The first check opens the Puter sign-in window if the user
+isn't signed in yet.
 
 ## Check the Site
 
@@ -50,11 +51,21 @@ async function checkWebsite(url) {
 
 An HTTP error has a status, such as `503`. A request that fails before getting
 a response has `status: null` and an error message. A failed KV write still
-rejects, so the app can tell the user when a result could not be saved.
+rejects, so the app can tell the user when a result couldn't be saved.
+
+This example treats every status outside `200` to `299` as down. Change that
+rule if your endpoint uses another status for a successful check. Use an
+endpoint that accepts `HEAD`, because a site that rejects it can return `405`
+even when its pages work. For a `GET` check, cancel the response body with
+`await response.body?.cancel()` after reading the status.
+
+The elapsed time includes connection setup and the network path from the
+user's browser, so each result is one sample of the site's availability.
 
 Each check has its own key. The timestamp sorts checks by time, and the UUID
 keeps two checks made in the same millisecond from replacing each other.
-The third argument to `set()` is an expiry timestamp in seconds.
+The third argument to [`puter.kv.set()`](/KV/set/) is an expiry timestamp in
+seconds.
 
 ## Read Recent Checks
 
@@ -75,9 +86,13 @@ async function getHistory(url) {
 }
 ```
 
-With `limit`, `list()` returns a page object whose `items` hold the key-value
-pairs. `fetchUntilFull` fills the page when possible, even if expired keys
-are skipped. A site with no saved checks returns an empty list.
+With `limit`, [`puter.kv.list()`](/KV/list/) returns a page object whose
+`items` hold the key-value pairs. The `fetchUntilFull` option fills the page
+when possible, even if expired keys are skipped. A site with no saved checks
+returns an empty list.
+
+To show older results, keep the page's `cursor` and request the next page, as
+in [store a large collection](/recipes/store-large-collection/).
 
 ## Show the History
 
@@ -85,7 +100,6 @@ Add a button, a status message and a place for the history to a page that
 loads Puter.js:
 
 ```html
-<script src="https://js.puter.com/v2/"></script>
 <button id="check-site" type="button">Check now</button>
 <p id="check-status" role="status"></p>
 <pre id="check-history"></pre>
@@ -134,17 +148,6 @@ showHistory().catch((error) => {
 
 The button stays disabled until the check and history refresh finish. A
 connection failure is saved as a failed check, and its message appears in
-the history.
+the history. Checks run only when the user clicks the button, so closing the
+page stops them.
 
-## Notes
-
-- Use an endpoint that accepts `HEAD`. A site that rejects it can return
-  `405` even when its pages work. For a `GET` check, cancel the response body
-  with `await response.body?.cancel()` after reading the status.
-- This example treats every non-2xx status as down. Change that rule if your
-  endpoint uses another status for a successful check.
-- The elapsed time includes connection setup and the network path from the
-  user's browser. Each result is one sample of the site's availability.
-- Checks run when the user clicks the button. Closing the page stops them.
-- To show older results, keep the page's `cursor` and request the next page,
-  as in [store a large collection](/recipes/store-large-collection/).

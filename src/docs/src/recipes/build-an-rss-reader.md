@@ -1,6 +1,6 @@
 ---
 title: Build an RSS Reader
-description: "Learn how to fetch an RSS feed, cache its headlines in the user's key-value store and show links in your app with Puter.js."
+description: Learn how to build an RSS reader with Puter.js, so users can read the latest headlines from any feed.
 tags: [net, kv]
 order: 70
 ---
@@ -12,13 +12,15 @@ cross-origin requests, then cache the headlines with
 
 This example keeps up to 20 headlines for five minutes and lets the user
 refresh them sooner. The cache belongs to the signed-in user, inside your
-app's key-value store.
+app's key-value store. The first request opens the Puter sign-in window if
+the user isn't signed in yet.
 
 ## Read the Feed
 
 Fetch the XML, check the HTTP status, and parse it with the browser's
 [DOMParser](https://developer.mozilla.org/en-US/docs/Web/API/DOMParser/parseFromString).
-Read the title and link from each RSS `item`:
+Read the title and link from each RSS `item`. Because DOMParser is a browser
+API, this code runs in your app's page:
 
 ```js
 async function readFeed(feedUrl) {
@@ -61,6 +63,9 @@ The function returns plain objects that can go straight into KV. Items
 without a valid HTTP or HTTPS link are left out. Relative links are resolved
 against the feed's URL.
 
+This parser reads RSS feeds with `channel` and `item` elements. Atom feeds use
+a different format and need a different parser.
+
 ## Cache the Headlines
 
 Use [`puter.kv.get()`](/KV/get/) to look for a cached result before fetching.
@@ -86,12 +91,14 @@ A missing or expired key returns `null`. An empty feed returns an empty
 array, which is cached too. Passing `true` for `refresh` fetches a new copy
 and replaces the cache after the feed has been read successfully.
 
+Only titles and links are cached, which keeps each value well under the
+[KV value size limit](/KV/MAX_VALUE_SIZE/).
+
 ## Show the Headlines
 
 Add these elements to a page that loads Puter.js:
 
 ```html
-<script src="https://js.puter.com/v2/"></script>
 <button id="refresh-feed" type="button">Refresh</button>
 <p id="feed-status" role="status"></p>
 <ul id="headlines"></ul>
@@ -142,11 +149,5 @@ shows the error.
 
 ## Notes
 
-- This parser reads RSS feeds with `channel` and `item` elements. Atom feeds
-  use a different format and need a different parser.
-- `DOMParser` is a browser API, so these examples run in your app's page.
-- Only titles and links are cached. For larger feed data, see
-  [store files](/recipes/store-files/) and the [KV value size
-  limit](/KV/MAX_VALUE_SIZE/).
-- The cache expires even when the app is closed. It fetches a new copy the
-  next time it loads the feed after expiry.
+- To keep full articles or other large feed data, save it as files instead.
+  See [store files](/recipes/store-files/).

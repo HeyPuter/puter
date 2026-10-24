@@ -18,7 +18,7 @@ const recipeTags = {
     teams: 'Teams',
     performance: 'Performance',
     'data-modeling': 'Data Modeling',
-	net: "Networking",
+    net: 'Networking',
 };
 
 module.exports = recipeTags;
