@@ -505,7 +505,11 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
             const onBlur = () => finish(true);
             el_input.addEventListener('keydown', (ev) => {
                 if ( ev.key === 'Enter' ) finish(true);
-                else if ( ev.key === 'Escape' ) finish(false);
+                else if ( ev.key === 'Escape' ) {
+                    // Cancels the rename only, not the whole modal.
+                    ev.stopPropagation();
+                    finish(false);
+                }
             });
             el_input.addEventListener('blur', onBlur);
         };
@@ -731,6 +735,14 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     el_search.type = 'search';
     el_search.placeholder = i18n('ui_search') || 'Search sessions…';
     el_search.classList.add('session-manager-search');
+    // Escape empties a search first; the next one closes the modal.
+    el_search.addEventListener('keydown', (ev) => {
+        if ( ev.key !== 'Escape' || el_search.value === '' ) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        el_search.value = '';
+        el_search.dispatchEvent(new Event('input'));
+    });
     el_search.addEventListener('input', () => {
         searchQuery = el_search.value.trim();
         // Pure client-side filter — re-render from the cached list
