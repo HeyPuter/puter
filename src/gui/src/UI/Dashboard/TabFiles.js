@@ -993,7 +993,7 @@ const TabFiles = {
                 if ( window.clipboard.length > 0 && _this.currentPath ) {
                     e.preventDefault();
                     e.stopPropagation();
-                    if ( ! _this.acceptsNewItems(_this.currentPath) ) {
+                    if ( ! _this.acceptsNewItemsHere() ) {
                         return false;
                     }
                     _this.pasteClipboardInto(_this.currentPath);
@@ -2082,6 +2082,16 @@ const TabFiles = {
     },
 
     /**
+     * Whether the folder on screen takes new items. Not while another folder
+     * loads: until its listing arrives, currentPath is the one being left.
+     *
+     * @returns {boolean}
+     */
+    acceptsNewItemsHere () {
+        return ! this.loadingFolder && this.acceptsNewItems(this.currentPath);
+    },
+
+    /**
      * Updates header action buttons based on current folder context.
      *
      * Shows/hides new folder, upload, and empty trash buttons as appropriate.
@@ -2560,6 +2570,7 @@ const TabFiles = {
         if ( ! isSameDirRefresh ) {
             clearListing();
             this.showSpinner();
+            this.loadingFolder = true;
         }
 
         // Determine whether target is a path or uid
@@ -2587,6 +2598,7 @@ const TabFiles = {
         }
         if ( ! directoryContents ) {
             this.hideSpinner();
+            this.loadingFolder = false;
             this.renderingDirectory = false;
             return;
         }
@@ -2607,6 +2619,7 @@ const TabFiles = {
             });
             this.currentPath = path || target;
         }
+        this.loadingFolder = false;
 
         // Update browser URL to reflect current file path (only when Files tab is active)
         if ( !options.skipUrlUpdate && window.is_dashboard_mode && this.isDashboardFilesActive() ) {
@@ -4671,7 +4684,7 @@ const TabFiles = {
         // The Shared view is a query, not a directory — nothing can be
         // created, pasted or uploaded "into" it.
         const isSharedView = targetPath === window.shared_path;
-        const canCreate = this.acceptsNewItems(targetPath);
+        const canCreate = folderPath ? this.acceptsNewItems(targetPath) : this.acceptsNewItemsHere();
         const items = [];
 
         // New submenu (folder, text document, etc.) - not available in Trash
@@ -5102,7 +5115,7 @@ const TabFiles = {
                 }
 
                 // No drop zone where nothing can be uploaded
-                if ( ! _this.acceptsNewItems(_this.currentPath) ) {
+                if ( ! _this.acceptsNewItemsHere() ) {
                     return;
                 }
 
@@ -5134,7 +5147,7 @@ const TabFiles = {
                     return;
                 }
 
-                if ( ! _this.acceptsNewItems(_this.currentPath) ) {
+                if ( ! _this.acceptsNewItemsHere() ) {
                     return;
                 }
 
