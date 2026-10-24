@@ -274,6 +274,14 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     const focus_dialog = () => {
         $overlay.find('.share-modal').get(0)?.focus({ preventScroll: true });
     };
+    // Focus a round-trip lost (a disabled control drops it on <body>, a
+    // re-render removes it) goes back; focus the user took elsewhere while
+    // waiting, into the add-people field say, stays where they put it.
+    const focus_moved_on = () => {
+        const el = document.activeElement;
+        return !! el && el !== document.body && el !== $overlay.find('.share-modal').get(0)
+            && ! $list.get(0).contains(el);
+    };
 
     // Both take HTML-safe text; `error_html` encodes the one raw source.
     const show_error = (html) => {
@@ -747,7 +755,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             picker.remember(chosen, created);
             invalidate_shared_roots();
             await refresh();
-            $recipient.get(0)?.focus({ preventScroll: true });
+            if ( ! focus_moved_on() ) $recipient.get(0)?.focus({ preventScroll: true });
         } catch (err) {
             show_error(error_html(err));
             $submit.prop('disabled', false);
@@ -776,7 +784,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         }
         invalidate_shared_roots();
         await refresh();
-        focus_list_control('.share-modal-row-mode', key) || focus_dialog();
+        if ( ! focus_moved_on() ) focus_list_control('.share-modal-row-mode', key) || focus_dialog();
     });
 
     // -- Extend a partial grant to the rest of the selection --
@@ -800,7 +808,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         await refresh();
         // The link is gone once they hold everything; the mode select is the
         // nearest surviving control for the same person.
-        focus_list_control('.share-modal-row-mode', key) || focus_dialog();
+        if ( ! focus_moved_on() ) focus_list_control('.share-modal-row-mode', key) || focus_dialog();
     });
 
     // -- Revoke, confirmed inline in the row --
@@ -883,7 +891,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             await refresh();
             // The focused row is gone; the dialog itself takes focus (the
             // input would pop the on-screen keyboard on touch devices).
-            focus_dialog();
+            if ( ! focus_moved_on() ) focus_dialog();
         } catch (err) {
             show_error(error_html(err));
             render(last_groups);
