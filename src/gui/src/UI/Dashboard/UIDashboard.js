@@ -319,10 +319,12 @@ async function UIDashboard (options) {
         // Update sidebar Trash icon
         window.update_trash_icons(msg.is_empty);
 
-        // If currently viewing trash and it's empty, clear the file list
+        // Emptied elsewhere while this tab shows Trash: take its rows away.
+        // Only the rows: the loading overlay lives in the listing too.
         const dashboard = window.dashboard_object;
         if ( msg.is_empty && dashboard && dashboard.currentPath === window.trash_path ) {
-            $('.files-tab .files').empty();
+            $('.files-tab .files .item').remove();
+            dashboard.syncEmptiedTrash?.();
         }
     });
 

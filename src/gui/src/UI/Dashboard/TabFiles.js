@@ -2051,7 +2051,7 @@ const TabFiles = {
                 const emptyTrashBtn = $(`<button class="path-action-btn empty-trash-btn" title="${i18n('empty_trash')}">${icons.trash}</button>`);
                 $pathActions.append(emptyTrashBtn);
                 emptyTrashBtn.on('click', () => {
-                    window.empty_trash();
+                    this.emptyTrash();
                 });
             }
             $pathActions.find('.empty-trash-btn').show();
@@ -2225,6 +2225,29 @@ const TabFiles = {
         // It belongs at the end. A just-appended row already is, but a renamed
         // one is still wherever its old name sorted.
         if ( ! inserted ) $newRow.insertAfter($existingRows.last());
+    },
+
+    /**
+     * Empties the Trash (after the user confirms). The rows go as the delete
+     * lands; the notice and footer have to follow while Trash is in view.
+     *
+     * @returns {Promise<void>}
+     */
+    async emptyTrash () {
+        await window.empty_trash();
+        this.syncEmptiedTrash();
+    },
+
+    /**
+     * Brings an open Trash listing in line with a Trash that is now empty,
+     * here or in another tab.
+     *
+     * @returns {void}
+     */
+    syncEmptiedTrash () {
+        if ( this.currentPath !== window.trash_path ) return;
+        this.renderEmptyPlaceholderIfNeeded();
+        this.updateFooterStats();
     },
 
     /**
@@ -4788,7 +4811,7 @@ const TabFiles = {
             items.push({
                 html: i18n('empty_trash'),
                 onClick: function () {
-                    window.empty_trash();
+                    _this.emptyTrash();
                 },
             });
         }
