@@ -21,10 +21,9 @@ import UINotification from '../UINotification.js';
 import { reveal_dashboard } from '../UIWindow.js';
 import { listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
 import { applyToastMark, createNotificationFeed } from '../../helpers/notificationFeed.js';
+import { formatAbsoluteTime, formatRelativeTime } from '../../i18n/formatTime.js';
 import {
     badgeLabel,
-    formatAbsoluteTime,
-    formatRelativeTime,
     glyphKey,
     isUnread,
     listedEntries,
