@@ -862,7 +862,9 @@ function revealWhenLoaded ($container) {
 
 const TabApps = {
     id: 'apps',
-    label: i18n('apps'),
+    get label () {
+        return i18n('apps');
+    },
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>',
 
     _apps: null,

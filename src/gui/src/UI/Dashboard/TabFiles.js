@@ -98,7 +98,9 @@ export function failedUploadsMessage (err) {
  */
 const TabFiles = {
     id: 'files',
-    label: i18n('files'),
+    get label () {
+        return i18n('files');
+    },
     icon: icons.files,
 
     /**
