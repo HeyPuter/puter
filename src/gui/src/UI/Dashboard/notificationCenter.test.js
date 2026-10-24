@@ -420,6 +420,14 @@ describe('formatRelativeTime', () => {
         expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'fr')).toBe('il y a 5 minutes');
     });
 
+    it("reads Puter's language codes that aren't BCP 47 tags", () => {
+        expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'br')).toBe('há 5 minutos');
+        expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'ua')).toBe('5 хвилин тому');
+        expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'zhtw')).toBe('5 分鐘前');
+        expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'emoji')).toBe('5 minutes ago');
+        expect(formatAbsoluteTime(NOW, 'zhtw')).toMatch(/^2026年8月\d+日/);
+    });
+
     it('survives an unknown locale', () => {
         expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'not-a-locale-!!')).toBe('5 minutes ago');
         expect(formatRelativeTime(NOW - 10 * DAY, NOW, 'not-a-locale-!!')).toBe('Aug 17');

@@ -348,16 +348,22 @@ const tryMake = (make) => {
     }
 };
 
+// Puter's language codes that aren't the BCP 47 tag for that language: Intl
+// reads `br` as Breton, and `ua` and `emoji` as nothing at all.
+const INTL_LOCALES = { br: 'pt-BR', ua: 'uk', zh: 'zh-CN', zhtw: 'zh-TW', emoji: 'en' };
+
+const intlLocale = (locale) => INTL_LOCALES[locale] ?? locale;
+
 // An unknown locale tag throws; the English formatter beats none at all.
 const relativeFormatter = (locale) => {
     if ( typeof Intl === 'undefined' || ! Intl.RelativeTimeFormat ) return null;
-    return tryMake(() => new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }))
+    return tryMake(() => new Intl.RelativeTimeFormat(intlLocale(locale), { numeric: 'auto' }))
         ?? tryMake(() => new Intl.RelativeTimeFormat('en', { numeric: 'auto' }));
 };
 
 const dateFormatter = (locale, options) => {
     if ( typeof Intl === 'undefined' || ! Intl.DateTimeFormat ) return null;
-    return tryMake(() => new Intl.DateTimeFormat(locale, options))
+    return tryMake(() => new Intl.DateTimeFormat(intlLocale(locale), options))
         ?? tryMake(() => new Intl.DateTimeFormat('en', options));
 };
 
