@@ -1707,16 +1707,18 @@ const TabFiles = {
     },
 
     /**
-     * Moves dragged rows into a folder, leaving out the ones the user can't
-     * move (see restructurableRows), which the server would refuse with an
-     * alert apiece.
+     * Moves dragged rows into a folder, leaving out the ones already in it (a
+     * drop back where they came from does nothing, as on the breadcrumbs)
+     * and the ones the user can't move (see restructurableRows). move_items
+     * would stop on an alert apiece for either.
      *
      * @param {HTMLElement[]} rows
      * @param {string} targetPath
      * @returns {Promise<void>}
      */
     async moveDraggedRows (rows, targetPath) {
-        const movable = await this.restructurableRows(rows);
+        const elsewhere = Array.from(rows).filter((row) => path.dirname($(row).attr('data-path')) !== targetPath);
+        const movable = await this.restructurableRows(elsewhere);
         if ( movable.length > 0 ) await window.move_items(movable, targetPath);
     },
 

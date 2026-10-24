@@ -124,3 +124,27 @@ describe('failedUploadsMessage', () => {
         expect(failedUploadsMessage(undefined)).toBeNull();
     });
 });
+
+describe('TabFiles.moveDraggedRows', () => {
+    const rowAt = (rowPath) => $(`<div class="row item" data-path="${rowPath}"></div>`)[0];
+
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.move_items = vi.fn(async () => {});
+    });
+
+    it('leaves out rows dropped back into the folder they are in', async () => {
+        const stays = rowAt('/alice/Documents/a.txt');
+        const moves = rowAt('/alice/Pictures/b.png');
+
+        await TabFiles.moveDraggedRows([stays, moves], '/alice/Documents');
+
+        expect(window.move_items).toHaveBeenCalledWith([moves], '/alice/Documents');
+    });
+
+    it('moves nothing when every row is already there', async () => {
+        await TabFiles.moveDraggedRows([rowAt('/alice/Documents/a.txt'), rowAt('/alice/Documents/b.txt')], '/alice/Documents');
+
+        expect(window.move_items).not.toHaveBeenCalled();
+    });
+});
