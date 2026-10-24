@@ -5917,6 +5917,18 @@ body.myapps-reordering .myapps-tile {
         margin: 0 6px 0 2px;
     }
 
+    /* A long sharer name ends in an ellipsis instead of pushing the date off
+       the row and under the ⋯ button, which the name line keeps clear too. */
+    .dashboard-section-files .files-tab.shared-view .files.files-list-view .row .item-metadata {
+        min-width: 0;
+        padding-right: 40px;
+    }
+
+    .dashboard-section-files .files-tab.shared-view .files.files-list-view .row .item-size,
+    .dashboard-section-files .files-tab.shared-view .files.files-list-view .row .item-modified {
+        flex: none;
+    }
+
     /* Hide outer spacers */
     .dashboard-section-files .files-tab .files.files-list-view .row > .col-spacer {
         display: none;
