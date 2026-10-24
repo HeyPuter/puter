@@ -667,15 +667,13 @@ const TabHome = {
     async _renderStorageCard($el_window) {
         try {
             const res = await getStorageSpace();
+            // On a self-hosted install the disk's use, Puter's files with it;
+            // the meter measures the same amount the card names.
+            const general_used = res.host_used || res.used;
             // Guard capacity 0 — 0/0 would render literally as "NaN%".
             const usage_percentage = res.capacity
-                ? Math.min(100, meterPercent((res.used / res.capacity) * 100))
+                ? Math.min(100, meterPercent((general_used / res.capacity) * 100))
                 : 0;
-
-            let general_used = res.used;
-            if (res.host_used) {
-                general_used = res.host_used;
-            }
 
             $el_window
                 .find('.bento-storage-used')
