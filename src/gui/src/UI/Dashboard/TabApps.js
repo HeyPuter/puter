@@ -3538,6 +3538,16 @@ const TabApps = {
     // the tile mid-intro is swallowed instead of spawning a second instance
     // (same guard as the click handler). The caller MUST call
     // settleDeepLinkLaunch once its launch attempt settles.
+    /**
+     * The grid's apps: the load in flight, or the one already done. A launch
+     * from the grid (the add-app modal's options) must not wait on a fresh
+     * fetch of every app list first.
+     */
+    _appsLoaded ($el_window) {
+        if ( Array.isArray(this._apps) && ! this._loadPromise ) return Promise.resolve();
+        return this.loadApps($el_window);
+    },
+
     async beginDeepLinkLaunch (appName, $el_window, appInfoPromise = null) {
         this._launchingApps.add(appName);
         // No animations, no intro: the morph and the flourish would both
@@ -3547,7 +3557,7 @@ const TabApps = {
         // hold the launch, and a failure just means the tile waits for the
         // next refresh, as it always did).
         if ( ! window.animate_window_opening || this._reduceMotion() ) {
-            Promise.resolve(this.loadApps($el_window))
+            Promise.resolve(this._appsLoaded($el_window))
                 .then(() => this._spliceDeepLinkApp($el_window, appName, appInfoPromise))
                 .catch(() => {});
             return null;
@@ -3590,7 +3600,7 @@ const TabApps = {
             // lets input cut this wait short.)
             try {
                 await Promise.race([
-                    this.loadApps($el_window),
+                    this._appsLoaded($el_window),
                     sleep(Math.max(0, deadline - Date.now())),
                 ]);
             } catch ( _e ) { /* a failed load leaves _apps unset; handled below */ }
