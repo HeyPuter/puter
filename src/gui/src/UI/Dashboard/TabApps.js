@@ -1337,8 +1337,8 @@ const TabApps = {
             // An open context menu owns arrows and Enter (keyboard.js).
             if ( $('.context-menu').length ) return;
             // So does a dialog over the grid: the notifications panel, an
-            // account dialog, or the touch action sheet.
-            if ( $('.dashboard-notifications-panel.open, .dashboard-dialog-overlay, .context-menu-modal-backdrop').length ) return;
+            // account dialog, the touch action sheet, or the phone drawer.
+            if ( $('.dashboard-notifications-panel.open, .dashboard-dialog-overlay, .context-menu-modal-backdrop, .dashboard-sidebar.open').length ) return;
 
             const $panelGrid = $el_window.find('.myapps-group-panel-grid');
             const pageTiles = ($panelGrid.length
