@@ -5703,15 +5703,21 @@ const TabFiles = {
      * Selects the rows for the items a share link names, replacing the
      * current selection. Matched by uid — the link's `/<owner>/<uid>/<name>`
      * form carries it, and unlike the name it survives a rename. Values that
-     * aren't shared paths, or items no longer shared, match nothing.
+     * aren't shared paths, or items no longer shared, match nothing. A
+     * people filter that hides one of the items gives way to everyone's.
      *
      * @param {string[]} sharedPaths - The link's `?shared=` values
-     * @returns {void}
+     * @returns {Promise<void>}
      */
-    selectSharedRows (sharedPaths) {
+    async selectSharedRows (sharedPaths) {
         const wanted = new Set(shared_uids_from_paths(sharedPaths));
         if ( wanted.size === 0 ) return;
-        this.selectRowsWhere((row) => wanted.has(String(row.getAttribute('data-uid') ?? '').toLowerCase()));
+        const uidOf = (row) => String(row.getAttribute('data-uid') ?? '').toLowerCase();
+        if ( this.sharerFilter && this.currentPath === window.shared_path ) {
+            const shown = new Set(this.$el_window.find('.files-tab .files .row').map((_, row) => uidOf(row)).get());
+            if ( [...wanted].some((uid) => ! shown.has(uid)) ) await this.setSharerFilter(null);
+        }
+        this.selectRowsWhere((row) => wanted.has(uidOf(row)));
     },
 
     /**

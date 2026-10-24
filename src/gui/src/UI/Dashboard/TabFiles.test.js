@@ -598,6 +598,8 @@ describe('TabFiles people filter across navigation', () => {
         TabFiles.renderingDirectory = false;
         TabFiles.trashedNames ??= new Map();
         TabFiles.sharerFilter = null;
+        // jsdom has no layout to scroll.
+        Element.prototype.scrollIntoView ??= () => {};
         vi.spyOn(TabFiles, 'listSharedView').mockImplementation(async () => [share('a', 'ann'), share('b', 'bob')]);
         vi.spyOn(TabFiles, 'applyColumnWidths').mockImplementation(() => {});
         vi.spyOn(TabFiles, 'renderItem').mockImplementation(async (file) => {
@@ -618,6 +620,31 @@ describe('TabFiles people filter across navigation', () => {
         expect(TabFiles.sharerFilter).toBe('bob');
         expect(listed()).toEqual(['b']);
         expect($('.sharer-chip.active').attr('data-sharer')).toBe('bob');
+    });
+
+    it('gives way to show an item a share link or notification names', async () => {
+        const uid = '5298098f-d8a2-41da-828f-867b9a7f0cce';
+        TabFiles.listSharedView.mockImplementation(async () => [{ ...share('a', 'ann'), uid }, share('b', 'bob')]);
+        await TabFiles.renderDirectory(SHARED);
+        await TabFiles.setSharerFilter('bob');
+
+        await TabFiles.selectSharedRows([`/ann/${uid}/a`]);
+
+        expect(TabFiles.sharerFilter).toBeNull();
+        expect(listed()).toEqual(['a', 'b']);
+        expect($('.files .row.selected').attr('data-name')).toBe('a');
+    });
+
+    it('stays put when the named item is already shown', async () => {
+        const uid = '5298098f-d8a2-41da-828f-867b9a7f0cce';
+        TabFiles.listSharedView.mockImplementation(async () => [share('a', 'ann'), { ...share('b', 'bob'), uid }]);
+        await TabFiles.renderDirectory(SHARED);
+        await TabFiles.setSharerFilter('bob');
+
+        await TabFiles.selectSharedRows([`/bob/${uid}/b`]);
+
+        expect(TabFiles.sharerFilter).toBe('bob');
+        expect($('.files .row.selected').attr('data-name')).toBe('b');
     });
 
     it("clears once the user goes back to their own files", async () => {
