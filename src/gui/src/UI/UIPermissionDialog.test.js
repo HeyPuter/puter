@@ -10,8 +10,12 @@ window.auth_token = 'tok';
 globalThis.i18n = (key, params = {}) =>
     `${key}(${Object.entries(params).map(([k, v]) => `${k}=${v}`).join(',')})`;
 
-const { get_app_data_description, get_kv_share_description, guard_input } =
-    await import('./UIPermissionDialog.js');
+const {
+    get_app_data_description,
+    get_kv_share_description,
+    get_permission_description,
+    guard_input,
+} = await import('./UIPermissionDialog.js');
 
 const CONTACTS = 'app-contacts';
 const CALENDAR = 'app-calendar';
@@ -243,6 +247,20 @@ describe('UIPermissionDialog key-value delegation descriptions', () => {
                 `manage:kv-share:someone-else:${CALENDAR}:workspace:abc`,
             ),
         ).toBeNull();
+    });
+});
+
+describe('UIPermissionDialog push notification description', () => {
+    it('describes the push permission under its own wording', async () => {
+        const d = await get_permission_description('notifications:push');
+        expect(d.html).toContain('perm_notifications_push');
+        expect(d.icon).toBe('bell');
+    });
+
+    it('refuses anything else under notifications', async () => {
+        for ( const permission of ['notifications', 'notifications:push:x', 'notifications:other'] ) {
+            expect(await get_permission_description(permission)).toBeNull();
+        }
     });
 });
 

@@ -629,6 +629,7 @@ function permission_icon_svg (icon) {
         apps: `<svg ${attrs}><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>`,
         globe: `<svg ${attrs}><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>`,
         zap: `<svg ${attrs}><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+        bell: `<svg ${attrs}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>`,
         chat: `<svg ${attrs}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
         shield: `<svg ${attrs}><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>`,
     };
@@ -647,7 +648,7 @@ const FS_ACCESS_MODES = ['see', 'list', 'read', 'write'];
  * @returns {Promise<{html: string, icon: string} | null>} Description (HTML)
  * and icon key, or null if the permission cannot be requested interactively.
  */
-async function get_permission_description (permission, options = {}) {
+export async function get_permission_description (permission, options = {}) {
     const parts = split_permission(permission);
 
     if ( ['fs', 'thread', 'service', 'driver'].includes(parts[0]) ) {
@@ -767,6 +768,10 @@ async function get_permission_description (permission, options = {}) {
 
     if ( parts[0] === 'events' && parts[1] === 'background' ) {
         return { html: i18n('perm_events_background'), icon: 'zap' };
+    }
+
+    if ( permission === 'notifications:push' ) {
+        return { html: i18n('perm_notifications_push'), icon: 'bell' };
     }
 
     if ( parts[0] === 'app-root-dir' ) {

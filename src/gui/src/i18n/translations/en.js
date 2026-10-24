@@ -974,6 +974,7 @@ const en = {
         'perm_app_data_all': "read, change and delete everything {{app}} has saved for you, including any saved logins.",
         'perm_kv_share_manage': "share the {{region}} section of {{app}}'s data in your account with other Puter users it picks.",
         'perm_events_background': 'run in the background when your files or data change, even while it is closed',
+        'perm_notifications_push': 'send notifications to your devices, even while it is closed',
         'perm_dialog_wants_to': 'wants permission to',
         'perm_dialog_footnote': 'You can change this anytime in Settings.',
         'perm_dialog_error': 'Something went wrong. Please try again.',
