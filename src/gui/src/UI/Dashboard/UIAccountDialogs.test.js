@@ -191,6 +191,16 @@ describe('change password', () => {
         expect($('.dashboard-form-done p').text()).toBe('password_changed');
     });
 
+    it('lets a provider-only account use its new password from then on', async () => {
+        window.user.oidc_only = true;
+        fetch.mockResolvedValueOnce(reply(200));
+        open();
+
+        await submitWith({ next: 'Strong1!pass', confirm: 'Strong1!pass' });
+
+        expect(window.user.oidc_only).toBe(false);
+    });
+
     it('shows the server message and keeps the form when the change is refused', async () => {
         fetch.mockResolvedValueOnce(reply(400, { message: 'Wrong password' }));
         open();

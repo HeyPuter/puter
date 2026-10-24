@@ -231,6 +231,9 @@ export function openChangePasswordDialog (opts = {}) {
                 dialog.setStatus(result.message, wrongPassword(result, 'current'));
                 return;
             }
+            // A provider-only account now has a password, and the other
+            // dialogs ask for it instead of the provider's sign-in.
+            if ( window.user ) window.user.oidc_only = false;
             dialog.finish({ message: t('password_changed') });
         },
     });
