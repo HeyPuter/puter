@@ -88,7 +88,7 @@
     --dashboard-success-border: #08bf4e;
     --dashboard-success-text: #15803d;
 
-    --dashboard-danger-text: #dc2626;
+    --dashboard-danger-text: #b91c1c;
     --dashboard-danger-background: #fef2f2;
     --dashboard-danger-border: #fecaca;
     --dashboard-error-text: #dc2626;
@@ -1605,9 +1605,9 @@ input.myapps-group-name:focus {
     }
 }
 .myapps-modal-confirm {
-    background: #e53935;
+    background: #d32f2f;
     color: #fff;
-    border-color: #e53935;
+    border-color: #d32f2f;
 }
 @media (hover: hover) {
     .myapps-modal-confirm:hover {
@@ -4484,7 +4484,7 @@ body.myapps-reordering .myapps-tile {
     position: absolute;
     bottom: 32px;
     right: 32px;
-    background: #ef4444;
+    background: #dc2626;
     color: white;
     padding: 16px 32px;
     border-radius: 6px;
@@ -4498,7 +4498,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .drag-cancel-zone.drag-cancel-hover {
-    background: #dc2626;
+    background: #b91c1c;
     transform: scale(1.05);
 }
 
@@ -8622,8 +8622,8 @@ body.dashboard-mode .notifications-close-all {
 }
 
 .dashboard-dialog-btn-danger {
-    border-color: #f00808;
-    background: #f00808;
+    border-color: #d90707;
+    background: #d90707;
     color: #fff;
 }
 
@@ -8638,8 +8638,8 @@ body.dashboard-mode .notifications-close-all {
     }
 
     .dashboard-dialog-btn-danger:hover {
-        background: #d90707;
-        border-color: #d90707;
+        background: #b80606;
+        border-color: #b80606;
     }
 }
 
