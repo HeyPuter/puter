@@ -905,7 +905,9 @@ $(document).bind('keyup keydown', async function (e) {
     // Undo
     // ctrl/command + z, will undo last action
     //-----------------------------------------------------------------------------
-    if ( (e.ctrlKey || e.metaKey) && e.which === 90 ) {
+    // Not in a text field, whose own undo is what the user means: the last
+    // file action could be an upload, which Undo deletes outright.
+    if ( (e.ctrlKey || e.metaKey) && e.which === 90 && ! $(focused_el).is('input, textarea, [contenteditable]') ) {
         window.undo_last_action();
         return false;
     }
