@@ -6978,6 +6978,12 @@ body.myapps-reordering .myapps-tile {
     transition: transform 0.2s ease;
 }
 
+/* Off, the track is barely darker than the card it sits on (1.2:1 on the
+   2FA warning card); its outline is what shows the control is there. */
+.dashboard-switch input:not(:checked) + .dashboard-switch-slider {
+    box-shadow: inset 0 0 0 1px var(--dashboard-text-hint);
+}
+
 .dashboard-switch input:checked + .dashboard-switch-slider {
     background-color: var(--dashboard-success-border);
 }
