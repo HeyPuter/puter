@@ -817,9 +817,10 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             confirm_text = i18n('share_confirm_remove_items', { recipient: group.name, count: affected });
         } else {
             // "this item" only reads right when the dialog is about one item.
+            // A team's removal reaches all its members; the desktop says so too.
             confirm_text = is_multi
                 ? i18n('share_confirm_remove_plain', { recipient: group.name })
-                : i18n('share_confirm_remove', { recipient: group.name });
+                : i18n(group.teamUid ? 'share_confirm_remove_team' : 'share_confirm_remove', { recipient: group.name });
         }
 
         // One confirmation at a time: opening a second one restores the first
