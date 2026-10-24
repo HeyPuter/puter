@@ -94,6 +94,10 @@ describe('compareSharers', () => {
         const sorted = [row('carl'), row('Ann'), row('bob')].sort(compareSharers);
         expect(sorted.map(sharerOf)).toEqual(['Ann', 'bob', 'carl']);
     });
+
+    it('treats accented and plain letters alike', () => {
+        expect(compareSharers(row('José'), row('jose'))).toBe(0);
+    });
 });
 
 describe('fitSharedByWidth', () => {

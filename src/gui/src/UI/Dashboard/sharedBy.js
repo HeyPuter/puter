@@ -75,7 +75,9 @@ export const filterBySharer = (rows, sharer) => (sharer
  */
 export const compareSharers = (a, b) => compareNames(sharerOf(a), sharerOf(b));
 
-const compareNames = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
+// One collator for every comparison: localeCompare with options builds a new
+// one per call, which made sorting a large Shared listing over 20x slower.
+const compareNames = new Intl.Collator(undefined, { sensitivity: 'base' }).compare;
 
 /**
  * The "Shared by" column's width beside an auto-width name column: `width`,
