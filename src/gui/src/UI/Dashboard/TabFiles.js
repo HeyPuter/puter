@@ -29,7 +29,7 @@ import generate_file_context_menu from '../../helpers/generateFileContextMenu.js
 import update_title_based_on_uploads from '../../helpers/updateTitleBasedOnUploads.js';
 import item_icon from '../../helpers/itemIcon.js';
 import { formatRelativeTime } from '../../i18n/formatTime.js';
-import { user_facing_windows } from '../../helpers/windowVisibility.js';
+import { is_window_on_screen, user_facing_windows } from '../../helpers/windowVisibility.js';
 import new_context_menu_item from '../../helpers/newContextMenuItem.js';
 import publish_as_website from '../../helpers/publishAsWebsite.js';
 import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
@@ -677,6 +677,12 @@ const TabFiles = {
         // minimized — app window. UIWindow fires this on window open/close.
         document.addEventListener('dashboard-app-windows-changed', () => {
             this.updateOpenFileDots();
+            // An app opened from Files (Enter, Open, Open With) would come up
+            // under the preview, which sits above every window.
+            const appWindows = $('.window[data-app]').not(this.$el_window).filter((_, w) => !! w.getAttribute('data-app'));
+            if ( this.previewOpen && user_facing_windows(appWindows).some(is_window_on_screen) ) {
+                this.closeImagePreview();
+            }
         });
 
         // Select mode's Select and Done buttons only show up to 480px (see
