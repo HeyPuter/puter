@@ -148,3 +148,41 @@ describe('TabFiles.moveDraggedRows', () => {
         expect(window.move_items).not.toHaveBeenCalled();
     });
 });
+
+describe('TabFiles.dropRowsInto', () => {
+    const rowAt = (rowPath) => $(`<div class="row item" data-path="${rowPath}" data-uid="u-${rowPath}"></div>`)[0];
+
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.trash_path = TRASH;
+        window.feature_flags = { create_shortcut: true };
+        window.move_items = vi.fn(async () => {});
+        window.copy_items = vi.fn(async () => {});
+        window.create_shortcut = vi.fn(async () => {});
+    });
+
+    it('copies on Ctrl, makes shortcuts on Alt, moves otherwise', async () => {
+        const row = rowAt('/alice/Documents/a.txt');
+
+        await TabFiles.dropRowsInto([row], '/alice/Pictures', { ctrlKey: true });
+        expect(window.copy_items).toHaveBeenCalledWith([row], '/alice/Pictures');
+
+        await TabFiles.dropRowsInto([row], '/alice/Pictures', { altKey: true });
+        expect(window.create_shortcut).toHaveBeenCalledWith('a.txt', false, '/alice/Pictures', null, 'u-/alice/Documents/a.txt', '/alice/Documents/a.txt');
+
+        await TabFiles.dropRowsInto([row], '/alice/Pictures', {});
+        expect(window.move_items).toHaveBeenCalledWith([row], '/alice/Pictures');
+    });
+
+    it('trashes what is dropped on the Trash whatever the modifier', async () => {
+        const row = rowAt('/alice/Documents/a.txt');
+
+        await TabFiles.dropRowsInto([row], TRASH, { ctrlKey: true });
+        await TabFiles.dropRowsInto([row], TRASH, { altKey: true });
+
+        expect(window.copy_items).not.toHaveBeenCalled();
+        expect(window.create_shortcut).not.toHaveBeenCalled();
+        expect(window.move_items).toHaveBeenCalledTimes(2);
+        expect(window.move_items).toHaveBeenCalledWith([row], TRASH);
+    });
+});

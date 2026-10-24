@@ -435,27 +435,7 @@ const TabFiles = {
                         if ( sourceItem ) itemsToMove.push(sourceItem);
                     });
 
-                    // Perform operation based on modifier keys
-                    if ( event.ctrlKey ) {
-                        // Copy
-                        await window.copy_items(itemsToMove, targetPath);
-                    }
-                    else if ( event.altKey && window.feature_flags?.create_shortcut ) {
-                        // Create shortcuts
-                        for ( const item of itemsToMove ) {
-                            const itemPath = $(item).attr('data-path');
-                            const itemName = itemPath.split('/').pop();
-                            const isDir = $(item).attr('data-is_dir') === '1';
-                            const shortcutTo = $(item).attr('data-shortcut_to') || $(item).attr('data-uid');
-                            const shortcutToPath = $(item).attr('data-shortcut_to_path') || itemPath;
-
-                            await window.create_shortcut(itemName, isDir, targetPath, null, shortcutTo, shortcutToPath);
-                        }
-                    }
-                    else {
-                        // Move
-                        await _this.moveDraggedRows(itemsToMove, targetPath);
-                    }
+                    await _this.dropRowsInto(itemsToMove, targetPath, event);
                 },
 
                 over: function (_event, ui) {
@@ -1707,6 +1687,35 @@ const TabFiles = {
     },
 
     /**
+     * Carries out a drop of rows on a folder: Ctrl copies, Alt makes
+     * shortcuts (where enabled), anything else moves. The Trash only takes
+     * items by trashing them; a copy or shortcut put there has nowhere to be
+     * restored to.
+     *
+     * @param {HTMLElement[]} rows
+     * @param {string} targetPath
+     * @param {{ ctrlKey?: boolean, altKey?: boolean }} modifiers - The drop event's
+     * @returns {Promise<void>}
+     */
+    async dropRowsInto (rows, targetPath, { ctrlKey = false, altKey = false } = {}) {
+        const intoTrash = targetPath === window.trash_path;
+        if ( ctrlKey && ! intoTrash ) {
+            await window.copy_items(rows, targetPath);
+        } else if ( altKey && window.feature_flags?.create_shortcut && ! intoTrash ) {
+            for ( const row of rows ) {
+                const itemPath = $(row).attr('data-path');
+                const itemName = itemPath.split('/').pop();
+                const isDir = $(row).attr('data-is_dir') === '1';
+                const shortcutTo = $(row).attr('data-shortcut_to') || $(row).attr('data-uid');
+                const shortcutToPath = $(row).attr('data-shortcut_to_path') || itemPath;
+                await window.create_shortcut(itemName, isDir, targetPath, null, shortcutTo, shortcutToPath);
+            }
+        } else {
+            await this.moveDraggedRows(rows, targetPath);
+        }
+    },
+
+    /**
      * Moves dragged rows into a folder, leaving out the ones already in it (a
      * drop back where they came from does nothing, as on the breadcrumbs)
      * and the ones the user can't move (see restructurableRows). move_items
@@ -2682,21 +2691,7 @@ const TabFiles = {
                         if ( sourceItem ) itemsToMove.push(sourceItem);
                     });
 
-                    // Perform operation based on modifier keys
-                    if ( event.ctrlKey ) {
-                        await window.copy_items(itemsToMove, targetPath);
-                    } else if ( event.altKey && window.feature_flags?.create_shortcut ) {
-                        for ( const item of itemsToMove ) {
-                            const itemPath = $(item).attr('data-path');
-                            const itemName = itemPath.split('/').pop();
-                            const isDir = $(item).attr('data-is_dir') === '1';
-                            const shortcutTo = $(item).attr('data-shortcut_to') || $(item).attr('data-uid');
-                            const shortcutToPath = $(item).attr('data-shortcut_to_path') || itemPath;
-                            await window.create_shortcut(itemName, isDir, targetPath, null, shortcutTo, shortcutToPath);
-                        }
-                    } else {
-                        await _this.moveDraggedRows(itemsToMove, targetPath);
-                    }
+                    await _this.dropRowsInto(itemsToMove, targetPath, event);
                 },
 
                 over: function (_event, ui) {
@@ -3572,22 +3567,7 @@ const TabFiles = {
                                 itemsToMove.push(this);
                             });
 
-                            if ( event.ctrlKey ) {
-                                window.copy_items(itemsToMove, _this.currentPath);
-                            }
-                            else if ( event.altKey && window.feature_flags?.create_shortcut ) {
-                                for ( const item of itemsToMove ) {
-                                    const itemPath = $(item).attr('data-path');
-                                    const itemName = itemPath.split('/').pop();
-                                    const isDir = $(item).attr('data-is_dir') === '1';
-                                    const shortcutTo = $(item).attr('data-shortcut_to') || $(item).attr('data-uid');
-                                    const shortcutToPath = $(item).attr('data-shortcut_to_path') || itemPath;
-                                    window.create_shortcut(itemName, isDir, _this.currentPath, null, shortcutTo, shortcutToPath);
-                                }
-                            }
-                            else {
-                                _this.moveDraggedRows(itemsToMove, _this.currentPath);
-                            }
+                            void _this.dropRowsInto(itemsToMove, _this.currentPath, event);
                         } else {
                             // Dropped outside file list → cancel, navigate back
                             _this.navigateBackFromSpringLoad();
@@ -3645,25 +3625,7 @@ const TabFiles = {
 
                     const targetPath = $(el_item).attr('data-path');
 
-                    if ( event.ctrlKey ) {
-                        // Copy
-                        await window.copy_items(itemsToMove, targetPath);
-                    }
-                    else if ( event.altKey && window.feature_flags?.create_shortcut ) {
-                        // Create shortcuts
-                        for ( const item of itemsToMove ) {
-                            const itemPath = $(item).attr('data-path');
-                            const itemName = itemPath.split('/').pop();
-                            const isDir = $(item).attr('data-is_dir') === '1';
-                            const shortcutTo = $(item).attr('data-shortcut_to') || $(item).attr('data-uid');
-                            const shortcutToPath = $(item).attr('data-shortcut_to_path') || itemPath;
-
-                            await window.create_shortcut(itemName, isDir, targetPath, null, shortcutTo, shortcutToPath);
-                        }
-                    }
-                    else {
-                        await _this.moveDraggedRows(itemsToMove, targetPath);
-                    }
+                    await _this.dropRowsInto(itemsToMove, targetPath, event);
                 },
 
                 over: function (_event, ui) {
