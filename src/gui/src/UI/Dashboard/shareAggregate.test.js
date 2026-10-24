@@ -88,6 +88,17 @@ describe('aggregateShares', () => {
         expect(groups[0].inheritedMode).toBe('read');
     });
 
+    it('counts the folders inherited grants come through, not the items', () => {
+        const groups = aggregateShares(['/me/D/a', '/me/D/b', '/me/D/c', '/me/P/d'], new Map([
+            ['/me/D/a', [grant('ann', 'read', { inheritedFrom: '/me/D' })]],
+            ['/me/D/b', [grant('ann', 'read', { inheritedFrom: '/me/D' })]],
+            ['/me/D/c', [grant('ann', 'read', { inheritedFrom: '/me/D' })]],
+            ['/me/P/d', [grant('ann', 'read', { inheritedFrom: '/me/P' })]],
+        ]));
+
+        expect(groups[0].inheritedFolderCount).toBe(2);
+    });
+
     it('keys an invitation by its email, apart from any username', () => {
         const groups = aggregateShares(['/me/a', '/me/b'], new Map([
             ['/me/a', [grant(null, 'read', { pending: true, recipientEmail: 'ann@example.com' })]],

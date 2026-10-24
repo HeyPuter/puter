@@ -315,7 +315,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         if ( group.inheritedFrom ) {
             notes.push(i18n('share_inherited_via', { folder: path.basename(group.inheritedFrom) }));
         } else if ( group.inheritedPaths.length ) {
-            notes.push(i18n('share_inherited_via_count', { count: group.inheritedPaths.length }));
+            notes.push(i18n('share_inherited_via_count', { count: group.inheritedFolderCount }));
         }
         return notes;
     };

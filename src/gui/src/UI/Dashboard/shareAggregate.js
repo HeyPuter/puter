@@ -46,6 +46,8 @@ import { team_label } from '../../helpers/shareTeams.js';
  * @property {string|null} inheritedMode - Mode of the inherited grants, null when they disagree
  * @property {string|null} inheritedFrom - The one ancestor every inherited grant
  *   comes through, null when there is more than one
+ * @property {number} inheritedFolderCount - How many ancestors the inherited
+ *   grants come through
  * @property {string[]} issuers - Who issued the direct grants and invitations.
  *   Only the item's owner or a grant's issuer can change or withdraw it.
  * @property {number} accessCount - Items the person can reach, by any of the three
@@ -210,6 +212,7 @@ export const aggregateShares = (paths, sharesByPath) => {
             pendingMode: uniform(group._pendingModes),
             inheritedMode: uniform(group._inheritedModes),
             inheritedFrom: uniform(group._inheritedFroms),
+            inheritedFolderCount: new Set(group._inheritedFroms).size,
             issuers: [...group._issuers],
             accessCount: reached.size,
         };
