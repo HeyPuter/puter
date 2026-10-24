@@ -1431,7 +1431,11 @@ const TabApps = {
                     self.goToPage($el_window, self._page, false);
                     return;
                 }
-                self.renderApps($el_window, { preservePage: true });
+                // A grid already on screen re-flows at once rather than
+                // blinking back through the load fade (see _spliceDeepLinkApp).
+                const revealed = $el_window.find('.myapps-pager').length > 0
+                    && $el_window.find('.myapps-pager-loading').length === 0;
+                self.renderApps($el_window, { preservePage: true, instant: revealed });
             }, 100);
         });
         self._resizeObserver.observe($el_window.find('.myapps-container')[0]);
