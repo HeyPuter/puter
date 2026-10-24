@@ -140,7 +140,7 @@ export const puterServices = {
     // both; `fs` reaches back for dispatch at call time only.
     events: EventsService,
     notification: NotificationService,
-    // Device lifecycle only: listens for session revokes and sweeps stale rows.
+    // Reaches `socket`, `eventForward` and `permission` at call time only.
     push: PushService,
     // Declared after `auth` (origin → app uid resolution happens through
     // AuthService.appUidFromOrigin).

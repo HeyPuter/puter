@@ -516,6 +516,17 @@ export type EventMap = {
         /** Events handler runs behind whatever created it. */
         handlerDepth?: number;
     };
+    /** Every non-silent write or update, only on the node that wrote it. */
+    'notif.written': {
+        userId: number;
+        uid: string;
+        type: string;
+        /** The row's app. Absent on an update, which keeps the row's own. */
+        appUid?: string | null;
+        value: Record<string, unknown>;
+        /** An earlier notification rewritten in place. */
+        updated?: true;
+    };
     /**
      * One notification, addressed at whatever sockets each region holds for the
      * recipient. `outer.*` reaches peer regions and never sibling nodes, so
@@ -927,11 +938,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

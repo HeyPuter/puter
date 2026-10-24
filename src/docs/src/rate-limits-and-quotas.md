@@ -405,6 +405,17 @@ An app, its workers and the tokens it issues can send the user they act for an `
 
 Over the rate limit the call fails with `429 too_many_requests`, and a refused call counts against neither window. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
 
+Where the deployment sends push notifications, these apply to each push:
+
+| Limit                             | Value                | Scope            |
+| --------------------------------- | -------------------- | ---------------- |
+| Push size                         | 3,800 bytes, as JSON | Per notification |
+| Devices one push reaches          | 1,000                | Per notification |
+| Pushes being sent at once         | 64                   | Per server       |
+| Time a push service has to answer | 30 seconds           | Per call         |
+
+A push over the size limit is shortened. The `text` is cut first, then the icon is left out, and then the `title` is cut. If the `title` would keep fewer than 8 characters, or the `data` alone doesn't fit, the notification isn't pushed. Past the number of pushes being sent at once, a notification isn't pushed. A notification that isn't pushed is still in the user's notification list.
+
 ### Teams
 
 Available only where the deployment has teams turned on; elsewhere `puter.teams` rejects with `not_found`.
