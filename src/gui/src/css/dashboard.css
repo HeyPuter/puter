@@ -1143,6 +1143,17 @@ input.myapps-search:disabled {
     opacity: 0.85;
 }
 
+/* Touch: the same 7px dot, in a 24px target; at 17px apiece, side by side,
+   a tap easily lands on the neighbor. */
+@media (pointer: coarse) {
+    .myapps-pager-dot,
+    .myapps-group-dot {
+        width: 24px;
+        height: 24px;
+        padding: 8.5px;
+    }
+}
+
 @media (hover: hover) {
     .myapps-pager-dot:not(.active):hover,
     .myapps-group-dot:not(.active):hover {
