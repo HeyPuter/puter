@@ -1899,7 +1899,7 @@ const TabApps = {
             // The folder is modal: Tab cycles inside it rather than walking
             // off into the inert grid behind.
             if ( e.key !== 'Tab' ) return;
-            const focusables = $overlay.find('.myapps-group-name, .myapps-tile').toArray()
+            const focusables = $overlay.find('.myapps-group-name, .myapps-tile, .myapps-group-dot').toArray()
                 .filter(el => el.offsetParent !== null);
             if ( focusables.length === 0 ) return;
             const first = focusables[0];
