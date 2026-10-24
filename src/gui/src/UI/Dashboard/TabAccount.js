@@ -288,8 +288,11 @@ const TabAccount = {
             const $btn = $(this);
             const $hint = $el_window.find('.dashboard-section-account .dashboard-profile-hint');
             $btn.prop('disabled', true);
+            // A picture saved meanwhile is newer than this removal.
+            const seq = ++avatar_save_seq;
             // update_profile resolves with no profile when the request failed.
             const profile = await update_profile(window.user.username, { picture: null });
+            if ( seq !== avatar_save_seq ) return;
             $btn.prop('disabled', false);
             if ( ! profile ) {
                 $hint.text(i18n('profile_picture_remove_failed', [], false));
