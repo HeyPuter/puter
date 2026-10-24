@@ -20,6 +20,7 @@
 import path from '../lib/path.js';
 import { PROCESS_IPC_ATTACHED, PROCESS_RUNNING, PortalProcess, PseudoProcess } from '../definitions.js';
 import UIWindow from '../UI/UIWindow.js';
+import UIAlert from '../UI/UIAlert.js';
 import { starts_hidden } from './startsHidden.js';
 import { append_signed_item_params } from './appendSignedItemParams.js';
 import { expand_home_path } from './expandHomePath.js';
@@ -238,15 +239,11 @@ const launch_app = async (options) => {
             return fallbackLaunchOutcome ?? { launchResult: redirectedLaunchResult };
         }
 
-        const deniedAppTitle = app_info.title ?? app_info.name ?? options.name ?? 'this app';
-        const safeDeniedAppTitle = window.html_encode
-            ? window.html_encode(deniedAppTitle)
-            : deniedAppTitle;
-        if ( typeof window.UIAlert === 'function' ) {
-            await window.UIAlert(`You don't have access to ${safeDeniedAppTitle}.`);
-        } else {
-            window.alert(`You don't have access to ${deniedAppTitle}.`);
-        }
+        // Unencoded: UIAlert encodes its message itself.
+        const deniedAppTitle = app_info.title ?? app_info.name ?? options.name;
+        await UIAlert(deniedAppTitle
+            ? i18n('app_launch_no_access', { app: deniedAppTitle }, false)
+            : i18n('app_launch_no_access_unnamed', [], false));
 
         const deniedLaunchResult = {
             launched: false,
@@ -548,15 +545,10 @@ const launch_app = async (options) => {
                 tokenResult,
             });
 
-            const tokenErrorAppTitle = app_info?.title ?? app_info?.name ?? options?.name ?? 'this app';
-            const safeTokenErrorAppTitle = window.html_encode
-                ? window.html_encode(tokenErrorAppTitle)
-                : tokenErrorAppTitle;
-            if ( typeof window.UIAlert === 'function' ) {
-                await window.UIAlert(`Couldn't open ${safeTokenErrorAppTitle}. Please try again.`);
-            } else {
-                window.alert(`Couldn't open ${tokenErrorAppTitle}. Please try again.`);
-            }
+            const tokenErrorAppTitle = app_info?.title ?? app_info?.name ?? options?.name;
+            await UIAlert(tokenErrorAppTitle
+                ? i18n('app_launch_failed_retry', { app: tokenErrorAppTitle }, false)
+                : i18n('app_launch_failed_retry_unnamed', [], false));
 
             const tokenFailureLaunchResult = {
                 launched: false,

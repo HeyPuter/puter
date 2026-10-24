@@ -38,6 +38,26 @@ export function isOverlayOnTop (el_overlay) {
 }
 
 /**
+ * Dismiss an overlay on a press and release on its backdrop. The press must
+ * start there: a drag that starts in the card (a text selection) and ends
+ * outside registers its click on the overlay. The second press of a
+ * double-click on the control that opened it doesn't count either.
+ *
+ * @param {jQuery} $overlay
+ * @param {(el: Element) => boolean} isBackdrop Whether a press on `el` is a press on the backdrop.
+ * @param {() => void} dismiss
+ */
+export function bindBackdropDismiss ($overlay, isBackdrop, dismiss) {
+    let backdrop_pressed = false;
+    $overlay.on('mousedown', function (e) {
+        backdrop_pressed = isBackdrop(e.target) && (e.detail ?? 0) < 2;
+    });
+    $overlay.on('click', function (e) {
+        if ( backdrop_pressed && isBackdrop(e.target) ) dismiss();
+    });
+}
+
+/**
  * Mounts `.dashboard-dialog-overlay` around the given card and wires the
  * reveal transition, dismissal (Escape, `.dashboard-dialog-close`, a press
  * and release on the backdrop), a Tab focus trap, room for an on-screen
@@ -106,18 +126,11 @@ export default function mountDashboardOverlay ({ html, $container, returnFocusTo
 
     $overlay.on('click', '.dashboard-dialog-close', () => dismiss('close'));
 
-    // Backdrop close goes by where the press started, so a drag that
-    // starts in the card and ends outside does not dismiss it. The second
-    // press of a double-click on the button that opened it doesn't count.
-    let backdrop_pressed = false;
-    $overlay.on('mousedown', function (e) {
-        backdrop_pressed = e.target === el_overlay && (e.detail ?? 0) < 2;
+    bindBackdropDismiss($overlay, (el) => el === el_overlay, () => dismiss('backdrop'));
+    $overlay.on('mousedown', function () {
         // A press inside the overlay must not let initgui's global mousedown
         // hand focus (and the z-index) back to the window underneath it.
         window.mouseover_window = undefined;
-    });
-    $overlay.on('click', function (e) {
-        if ( e.target === el_overlay && backdrop_pressed ) dismiss('backdrop');
     });
 
     $(document).on(`keydown${ns}`, function (e) {

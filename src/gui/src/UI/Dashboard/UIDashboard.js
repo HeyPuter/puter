@@ -319,10 +319,12 @@ async function UIDashboard (options) {
         // Update sidebar Trash icon
         window.update_trash_icons(msg.is_empty);
 
-        // If currently viewing trash and it's empty, clear the file list
+        // Emptied elsewhere while this tab shows Trash: take its rows away.
+        // Only the rows: the loading overlay lives in the listing too.
         const dashboard = window.dashboard_object;
         if ( msg.is_empty && dashboard && dashboard.currentPath === window.trash_path ) {
-            $('.files-tab .files').empty();
+            $('.files-tab .files .item').remove();
+            dashboard.syncEmptiedTrash?.();
         }
     });
 
@@ -332,6 +334,16 @@ async function UIDashboard (options) {
     // direct jQuery manipulation for removals/updates. Mirrors UIDesktop's
     // approach but adapted for Dashboard's list-view structure.
     // =========================================================================
+
+    // A row taken away from elsewhere: keep the footer's count and size in
+    // step, and say the folder is empty when the Files listing just lost its
+    // last row (rows can also sit in a file picker window).
+    const remove_row = (el_row) => {
+        const from_listing = $(el_row).closest('.files-tab .files').length > 0;
+        $(el_row).remove();
+        if ( from_listing ) window.dashboard_object?.renderEmptyPlaceholderIfNeeded?.();
+        window.dashboard_object?.updateFooterStats?.();
+    };
 
     window.socket.on('item.moved', async (resp) => {
         if ( resp.original_client_socket_id === window.socket.id ) return;
@@ -353,8 +365,7 @@ async function UIDashboard (options) {
             $candidates.filter(function () {
                 return $(this).attr('data-path') === old_path;
             }).fadeOut(150, function () {
-                $(this).remove();
-                window.dashboard_object?.updateFooterStats?.();
+                remove_row(this);
             });
         }
 
@@ -377,9 +388,7 @@ async function UIDashboard (options) {
                 return $(this).attr('data-path') === item.path;
             });
         $rows.fadeOut(150, function () {
-            $(this).remove();
-            // Keep the footer item count / total size in sync with the removal.
-            window.dashboard_object?.updateFooterStats?.();
+            remove_row(this);
         });
     });
 

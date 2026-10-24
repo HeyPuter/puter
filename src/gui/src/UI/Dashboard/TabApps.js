@@ -23,6 +23,7 @@ import launch_app from '../../helpers/launchApp.js';
 import revokeAppSessions from '../../helpers/revokeAppSessions.js';
 import { begin_dashboard_tile_launch, settle_dashboard_tile_launch } from '../UIWindow.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
+import { bindBackdropDismiss } from './dashboardOverlay.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
 import { appTileLink } from './appLink.js';
@@ -449,9 +450,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
     };
 
     $overlay.on('click', '.myapps-modal-cancel', () => close());
-    $overlay.on('click', function (e) {
-        if ( e.target === $overlay[0] ) close();
-    });
+    bindBackdropDismiss($overlay, (el) => el === $overlay[0], () => close());
     $(document).on('keydown.uninstall-modal', function (e) {
         if ( e.key === 'Escape' ) close();
     });
@@ -705,9 +704,7 @@ function showAddAppModal ({ $el_window }) {
     };
 
     $overlay.on('click', '.myapps-modal-cancel', close);
-    $overlay.on('click', function (e) {
-        if ( e.target === $overlay[0] ) close();
-    });
+    bindBackdropDismiss($overlay, (el) => el === $overlay[0], close);
     $overlay.on('click', '.myapps-add-back', () => showPane('options'));
     $(document).on('keydown.add-app-modal', function (e) {
         if ( e.key !== 'Escape' ) return;
@@ -762,7 +759,10 @@ function showAddAppModal ({ $el_window }) {
         })();
     };
 
-    $overlay.on('click', '.myapps-add-option', function () {
+    $overlay.on('click', '.myapps-add-option', function (e) {
+        // The second click of a double-click on the "+" tile lands on
+        // whichever option opened under the pointer; that isn't a choice.
+        if ( (e.detail ?? 0) > 1 ) return;
         const key = this.dataset.addOption;
         if ( key === 'request' ) {
             showPane('request');
@@ -1015,6 +1015,10 @@ const TabApps = {
                 self._justDragged = false;
                 return;
             }
+            // The first click of a double-click already acted. The second
+            // would open an external app's site a second time, or land on
+            // the tile under a modal option the first click just chose.
+            if ( (e.detail ?? 0) > 1 ) return;
             // The tail tile isn't an app — it asks how you'd like to get one.
             // Answered in every mode: it is never part of the arrangement
             // reorder mode exists to edit.
@@ -1769,11 +1773,11 @@ const TabApps = {
         const self = this;
 
         // Anywhere outside the card — including the strip of scrim beside it.
-        $overlay.on('click', function (e) {
-            if ( e.target === this || $(e.target).hasClass('myapps-group-backdrop') ) {
-                self._closeGroup($el_window);
-            }
-        });
+        bindBackdropDismiss(
+            $overlay,
+            (el) => el === $overlay[0] || $(el).hasClass('myapps-group-backdrop'),
+            () => self._closeGroup($el_window),
+        );
 
         // A press inside the overlay must not let initgui's global mousedown
         // hand focus (and the z-index) back to the window underneath it.

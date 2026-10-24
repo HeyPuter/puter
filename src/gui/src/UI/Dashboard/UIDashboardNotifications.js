@@ -473,7 +473,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             icon: toastIconFor(notification),
             value: notification,
             timeout: TOAST_TIMEOUT_MS,
-            click: () => void reveal_dashboard().then(() => actOn(entry)),
+            // With nothing to open on the dashboard, a click only dismisses;
+            // it mustn't send the apps the user is working in away.
+            click: () => {
+                if ( notificationTarget(notification) === null ) void markRead(entry.uid);
+                else void reveal_dashboard().then(() => actOn(entry));
+            },
             // The ✕ is a dismissal; timing out is not, so `close` alone acks.
             close: () => void markRead(entry.uid),
         });

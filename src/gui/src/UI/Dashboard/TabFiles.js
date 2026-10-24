@@ -48,6 +48,41 @@ import parse_item_metadata from '../../helpers/parseItemMetadata.js';
 const { html_encode, SelectionArea } = window;
 
 /**
+ * `p` with the folder `from` (itself, or anything under it) moved to `to`;
+ * any other path, or a non-string, comes back as it was.
+ *
+ * @param {string} p
+ * @param {string} from
+ * @param {string} to
+ * @returns {string}
+ */
+export function rebasePath (p, from, to) {
+    if ( typeof p !== 'string' ) return p;
+    return p === from || p.startsWith(`${from}/`) ? to + p.slice(from.length) : p;
+}
+
+/**
+ * The alert for an upload some of whose items failed, one item per line,
+ * or null when the error names none. Unencoded: UIAlert encodes the message
+ * itself, apart from <p>, <strong> and <br>.
+ *
+ * @param {{ failedItems?: Array<{ path?: string, name?: string, requestIndex?: number, message?: string }> }} err
+ * @returns {string|null}
+ */
+export function failedUploadsMessage (err) {
+    const failedItems = Array.isArray(err?.failedItems) ? err.failedItems : [];
+    if ( failedItems.length === 0 ) return null;
+    const lines = failedItems.map((item) => {
+        const failedPath = item?.path || item?.name || `item ${item?.requestIndex ?? '?'}`;
+        const failedMessage = typeof item?.message === 'string' && item.message.length > 0
+            ? ` (${item.message})`
+            : '';
+        return `- ${failedPath}${failedMessage}`;
+    });
+    return [i18n('upload_some_failed', [], false), ...lines].join('<br>');
+}
+
+/**
  * TabFiles - File browser tab component for the Puter Dashboard.
  *
  * Provides a full-featured file management interface including:
@@ -414,27 +449,7 @@ const TabFiles = {
                         if ( sourceItem ) itemsToMove.push(sourceItem);
                     });
 
-                    // Perform operation based on modifier keys
-                    if ( event.ctrlKey ) {
-                        // Copy
-                        await window.copy_items(itemsToMove, targetPath);
-                    }
-                    else if ( event.altKey && window.feature_flags?.create_shortcut ) {
-                        // Create shortcuts
-                        for ( const item of itemsToMove ) {
-                            const itemPath = $(item).attr('data-path');
-                            const itemName = itemPath.split('/').pop();
-                            const isDir = $(item).attr('data-is_dir') === '1';
-                            const shortcutTo = $(item).attr('data-shortcut_to') || $(item).attr('data-uid');
-                            const shortcutToPath = $(item).attr('data-shortcut_to_path') || itemPath;
-
-                            await window.create_shortcut(itemName, isDir, targetPath, null, shortcutTo, shortcutToPath);
-                        }
-                    }
-                    else {
-                        // Move
-                        await _this.moveDraggedRows(itemsToMove, targetPath);
-                    }
+                    await _this.dropRowsInto(itemsToMove, targetPath, event);
                 },
 
                 over: function (_event, ui) {
@@ -643,11 +658,8 @@ const TabFiles = {
         window.addEventListener('username-changed', ({ detail }) => {
             const oldHome = `/${detail.oldUsername}`;
             const newHome = `/${detail.newUsername}`;
-            const rebase = (p) => (typeof p === 'string' && (p === oldHome || p.startsWith(`${oldHome}/`)))
-                ? newHome + p.slice(oldHome.length)
-                : p;
-            const history = window.dashboard_nav_history;
-            for ( let i = 0; i < history.length; i++ ) history[i] = rebase(history[i]);
+            const rebase = (p) => rebasePath(p, oldHome, newHome);
+            this.rebaseNavHistory(oldHome, newHome);
             window.clipboard = (window.clipboard ?? []).map(item => (typeof item === 'string'
                 ? rebase(item)
                 : { ...item, path: rebase(item.path) }));
@@ -1473,18 +1485,8 @@ const TabFiles = {
                 },
                 // error
                 error: async function (err) {
-                    const failedItems = Array.isArray(err?.failedItems) ? err.failedItems : [];
-                    if ( failedItems.length > 0 ) {
-                        const failedSummary = failedItems.map((item) => {
-                            const failedPath = item?.path || item?.name || `item ${item?.requestIndex ?? '?'}`;
-                            const failedMessage = typeof item?.message === 'string' && item.message.length > 0
-                                ? ` (${item.message})`
-                                : '';
-                            return `- ${failedPath}${failedMessage}`;
-                        }).join('<br>');
-                        // UIAlert encodes the message itself, apart from <p>, <strong> and <br>.
-                        UIAlert(`${i18n('upload_some_failed', [], false)}<br>${failedSummary}`);
-                    }
+                    const failedMessage = failedUploadsMessage(err);
+                    if ( failedMessage ) UIAlert(failedMessage);
                     upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                     // remove from active_uploads
                     delete window.active_uploads[opid];
@@ -1696,16 +1698,60 @@ const TabFiles = {
     },
 
     /**
-     * Moves dragged rows into a folder, leaving out the ones the user can't
-     * move (see restructurableRows), which the server would refuse with an
-     * alert apiece.
+     * Points Back/Forward history entries in or under `oldPath` at `newPath`,
+     * after the folder was renamed or the home folder moved.
+     *
+     * @param {string} oldPath
+     * @param {string} newPath
+     * @returns {void}
+     */
+    rebaseNavHistory (oldPath, newPath) {
+        const history = window.dashboard_nav_history ?? [];
+        for ( let i = 0; i < history.length; i++ ) history[i] = rebasePath(history[i], oldPath, newPath);
+    },
+
+    /**
+     * Carries out a drop of rows on a folder: Ctrl copies, Alt makes
+     * shortcuts (where enabled), anything else moves. The Trash only takes
+     * items by trashing them; a copy or shortcut put there has nowhere to be
+     * restored to.
+     *
+     * @param {HTMLElement[]} rows
+     * @param {string} targetPath
+     * @param {{ ctrlKey?: boolean, altKey?: boolean }} modifiers - The drop event's
+     * @returns {Promise<void>}
+     */
+    async dropRowsInto (rows, targetPath, { ctrlKey = false, altKey = false } = {}) {
+        const intoTrash = targetPath === window.trash_path;
+        if ( ctrlKey && ! intoTrash ) {
+            await window.copy_items(rows, targetPath);
+        } else if ( altKey && window.feature_flags?.create_shortcut && ! intoTrash ) {
+            for ( const row of rows ) {
+                const itemPath = $(row).attr('data-path');
+                const itemName = itemPath.split('/').pop();
+                const isDir = $(row).attr('data-is_dir') === '1';
+                const shortcutTo = $(row).attr('data-shortcut_to') || $(row).attr('data-uid');
+                const shortcutToPath = $(row).attr('data-shortcut_to_path') || itemPath;
+                await window.create_shortcut(itemName, isDir, targetPath, null, shortcutTo, shortcutToPath);
+            }
+        } else {
+            await this.moveDraggedRows(rows, targetPath);
+        }
+    },
+
+    /**
+     * Moves dragged rows into a folder, leaving out the ones already in it (a
+     * drop back where they came from does nothing, as on the breadcrumbs)
+     * and the ones the user can't move (see restructurableRows). move_items
+     * would stop on an alert apiece for either.
      *
      * @param {HTMLElement[]} rows
      * @param {string} targetPath
      * @returns {Promise<void>}
      */
     async moveDraggedRows (rows, targetPath) {
-        const movable = await this.restructurableRows(rows);
+        const elsewhere = Array.from(rows).filter((row) => path.dirname($(row).attr('data-path')) !== targetPath);
+        const movable = await this.restructurableRows(elsewhere);
         if ( movable.length > 0 ) await window.move_items(movable, targetPath);
     },
 
@@ -2018,13 +2064,15 @@ const TabFiles = {
     /**
      * Whether items can be created, uploaded or pasted into a folder. Not the
      * Trash or a folder inside it (Restore needs metadata only Delete writes),
-     * not the Shared view (a query, not a directory), and not `/`.
+     * not the Shared view (a query, not a directory), not `/`, and not a
+     * folder Files just failed to list.
      *
      * @param {string} folderPath
      * @returns {boolean}
      */
     acceptsNewItems (folderPath) {
         return !! folderPath
+            && folderPath !== this.unreadablePath
             && folderPath !== '/'
             && folderPath !== window.trash_path
             && ! folderPath.startsWith(`${window.trash_path}/`)
@@ -2051,7 +2099,7 @@ const TabFiles = {
                 const emptyTrashBtn = $(`<button class="path-action-btn empty-trash-btn" title="${i18n('empty_trash')}">${icons.trash}</button>`);
                 $pathActions.append(emptyTrashBtn);
                 emptyTrashBtn.on('click', () => {
-                    window.empty_trash();
+                    this.emptyTrash();
                 });
             }
             $pathActions.find('.empty-trash-btn').show();
@@ -2225,6 +2273,29 @@ const TabFiles = {
         // It belongs at the end. A just-appended row already is, but a renamed
         // one is still wherever its old name sorted.
         if ( ! inserted ) $newRow.insertAfter($existingRows.last());
+    },
+
+    /**
+     * Empties the Trash (after the user confirms). The rows go as the delete
+     * lands; the notice and footer have to follow while Trash is in view.
+     *
+     * @returns {Promise<void>}
+     */
+    async emptyTrash () {
+        await window.empty_trash();
+        this.syncEmptiedTrash();
+    },
+
+    /**
+     * Brings an open Trash listing in line with a Trash that is now empty,
+     * here or in another tab.
+     *
+     * @returns {void}
+     */
+    syncEmptiedTrash () {
+        if ( this.currentPath !== window.trash_path ) return;
+        this.renderEmptyPlaceholderIfNeeded();
+        this.updateFooterStats();
     },
 
     /**
@@ -2498,38 +2569,19 @@ const TabFiles = {
         // and live under their owners' paths.
         const isSharedView = target === window.shared_path;
         let directoryContents;
+        // readdir rejects on any backend error (permission, deleted dir,
+        // network). The listing then says so, but the tab still moves to the
+        // folder it was asked for: left on the previous one, New Folder,
+        // Upload and Paste would act on a folder that is no longer on screen.
+        let readFailed = false;
         try {
             directoryContents = isSharedView
                 ? await this.listSharedView()
                 : await window.puter.fs.readdir(readdirArg);
         } catch ( err ) {
-            // readdir rejects on any backend error (permission, deleted dir,
-            // network). Without this, renderingDirectory would stay true and
-            // the guard above would block all further navigation.
             console.error('Failed to read directory:', err);
-            // Replace whatever the pane shows (blank after navigation, the
-            // stale rows during a same-directory refresh) with a message
-            // rather than leaving it unexplained.
-            clearListing();
-            this.$el_window.find('.files-tab .files').html(`<div style="
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                pointer-events: none;
-                text-align: center;
-                padding: 0 16px;
-            ">${i18n('folder_open_failed')}</div>`);
-            // The list was emptied above; without this the footer keeps the
-            // previous directory's item count over a pane with zero rows.
-            this.updateFooterStats();
-            this.hideSpinner();
-            this.renderingDirectory = false;
-            return;
+            readFailed = true;
+            directoryContents = [];
         }
         if ( ! directoryContents ) {
             this.hideSpinner();
@@ -2560,6 +2612,8 @@ const TabFiles = {
         }
 
         this.updateSidebarSelection();
+        // Nothing can be created in a folder that couldn't be read.
+        this.unreadablePath = readFailed ? this.currentPath : null;
 
         // Filter out hidden files/folders and AppData in home directory.
         // Trash is reachable from the sidebar; don't list it as a row too.
@@ -2646,21 +2700,7 @@ const TabFiles = {
                         if ( sourceItem ) itemsToMove.push(sourceItem);
                     });
 
-                    // Perform operation based on modifier keys
-                    if ( event.ctrlKey ) {
-                        await window.copy_items(itemsToMove, targetPath);
-                    } else if ( event.altKey && window.feature_flags?.create_shortcut ) {
-                        for ( const item of itemsToMove ) {
-                            const itemPath = $(item).attr('data-path');
-                            const itemName = itemPath.split('/').pop();
-                            const isDir = $(item).attr('data-is_dir') === '1';
-                            const shortcutTo = $(item).attr('data-shortcut_to') || $(item).attr('data-uid');
-                            const shortcutToPath = $(item).attr('data-shortcut_to_path') || itemPath;
-                            await window.create_shortcut(itemName, isDir, targetPath, null, shortcutTo, shortcutToPath);
-                        }
-                    } else {
-                        await _this.moveDraggedRows(itemsToMove, targetPath);
-                    }
+                    await _this.dropRowsInto(itemsToMove, targetPath, event);
                 },
 
                 over: function (_event, ui) {
@@ -2685,6 +2725,33 @@ const TabFiles = {
                 },
             });
         });
+
+        if ( readFailed ) {
+            // Replace whatever the pane shows (blank after navigation, the
+            // stale rows during a same-directory refresh) with a message
+            // rather than leaving it unexplained.
+            clearListing();
+            $files.html(`<div style="
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                pointer-events: none;
+                text-align: center;
+                padding: 0 16px;
+            ">${i18n('folder_open_failed')}</div>`);
+            // The list was emptied above; without this the footer keeps the
+            // previous directory's item count over a pane with zero rows.
+            this.updateFooterStats();
+            this.updateNavButtonStates();
+            this.hideSpinner();
+            this.renderingDirectory = false;
+            return;
+        }
 
         // Same-directory refresh: the stale rows stayed on screen during the
         // fetch; swap them for the fresh listing now that it's here. The
@@ -3299,6 +3366,9 @@ const TabFiles = {
                 // fit the name to this listing instead. A renamed entry may
                 // also have a new type (extension) and sort position.
                 _this.fitItemNames($(el_item_name));
+                // Back and Forward should reach a renamed folder (and what's
+                // inside it) under its new name.
+                if ( fsentry?.is_dir ) _this.rebaseNavHistory(old_path, path.join(path.dirname(old_path), fsentry.name ?? new_name));
                 if ( ! fsentry || ! document.body.contains(el_item) ) return;
                 $(el_item).attr('data-type', fsentry.type ?? '');
                 _this.insertAtSortedPosition($(el_item), fsentry);
@@ -3536,22 +3606,7 @@ const TabFiles = {
                                 itemsToMove.push(this);
                             });
 
-                            if ( event.ctrlKey ) {
-                                window.copy_items(itemsToMove, _this.currentPath);
-                            }
-                            else if ( event.altKey && window.feature_flags?.create_shortcut ) {
-                                for ( const item of itemsToMove ) {
-                                    const itemPath = $(item).attr('data-path');
-                                    const itemName = itemPath.split('/').pop();
-                                    const isDir = $(item).attr('data-is_dir') === '1';
-                                    const shortcutTo = $(item).attr('data-shortcut_to') || $(item).attr('data-uid');
-                                    const shortcutToPath = $(item).attr('data-shortcut_to_path') || itemPath;
-                                    window.create_shortcut(itemName, isDir, _this.currentPath, null, shortcutTo, shortcutToPath);
-                                }
-                            }
-                            else {
-                                _this.moveDraggedRows(itemsToMove, _this.currentPath);
-                            }
+                            void _this.dropRowsInto(itemsToMove, _this.currentPath, event);
                         } else {
                             // Dropped outside file list → cancel, navigate back
                             _this.navigateBackFromSpringLoad();
@@ -3609,25 +3664,7 @@ const TabFiles = {
 
                     const targetPath = $(el_item).attr('data-path');
 
-                    if ( event.ctrlKey ) {
-                        // Copy
-                        await window.copy_items(itemsToMove, targetPath);
-                    }
-                    else if ( event.altKey && window.feature_flags?.create_shortcut ) {
-                        // Create shortcuts
-                        for ( const item of itemsToMove ) {
-                            const itemPath = $(item).attr('data-path');
-                            const itemName = itemPath.split('/').pop();
-                            const isDir = $(item).attr('data-is_dir') === '1';
-                            const shortcutTo = $(item).attr('data-shortcut_to') || $(item).attr('data-uid');
-                            const shortcutToPath = $(item).attr('data-shortcut_to_path') || itemPath;
-
-                            await window.create_shortcut(itemName, isDir, targetPath, null, shortcutTo, shortcutToPath);
-                        }
-                    }
-                    else {
-                        await _this.moveDraggedRows(itemsToMove, targetPath);
-                    }
+                    await _this.dropRowsInto(itemsToMove, targetPath, event);
                 },
 
                 over: function (_event, ui) {
@@ -4788,7 +4825,7 @@ const TabFiles = {
             items.push({
                 html: i18n('empty_trash'),
                 onClick: function () {
-                    window.empty_trash();
+                    _this.emptyTrash();
                 },
             });
         }
@@ -5007,6 +5044,12 @@ const TabFiles = {
                 selection_area = null;
                 // Flag to prevent the click handler from clearing selection
                 _this.rubberBandSelectionJustEnded = true;
+                // That click comes straight after the release, and only when
+                // the release is inside the listing; past this task the flag
+                // would swallow the user's next, real click on a row.
+                setTimeout(() => {
+                    _this.rubberBandSelectionJustEnded = false;
+                }, 0);
             }
             // Re-enable pointer events on selection actions bar
             _this.$el_window.find('.files-selection-actions').removeClass('rubberband-active');
@@ -5173,17 +5216,8 @@ const TabFiles = {
                 _this.selectUploadedRows(files);
             },
             error: async function (err) {
-                const failedItems = Array.isArray(err?.failedItems) ? err.failedItems : [];
-                if ( failedItems.length > 0 ) {
-                    const failedSummary = failedItems.map((item) => {
-                        const failedPath = item?.path || item?.name || `item ${item?.requestIndex ?? '?'}`;
-                        const failedMessage = typeof item?.message === 'string' && item.message.length > 0
-                            ? ` (${item.message})`
-                            : '';
-                        return `- ${failedPath}${failedMessage}`;
-                    }).join('\n');
-                    UIAlert(`${i18n('upload_some_failed', [], false)}\n${failedSummary}`);
-                }
+                const failedMessage = failedUploadsMessage(err);
+                if ( failedMessage ) UIAlert(failedMessage);
                 upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
                 delete window.active_uploads[opid];
                 _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
