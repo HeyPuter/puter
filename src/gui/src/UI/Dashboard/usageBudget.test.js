@@ -18,7 +18,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { addonCreditsRemaining, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
 
 const info = (allowance, addons = {}) => ({
     monthUsageAllowance: allowance,
@@ -159,5 +159,23 @@ describe('monthlyUsageOrThrow', () => {
         expect(() => monthlyUsageOrThrow({ usage: null })).toThrow();
         expect(() => monthlyUsageOrThrow(null)).toThrow();
         expect(() => monthlyUsageOrThrow(undefined)).toThrow();
+    });
+});
+
+describe('meterPercent', () => {
+    it('holds at 99% until the meter is full', () => {
+        expect(meterPercent(99.5)).toBe(99);
+        expect(meterPercent(99.99)).toBe(99);
+        expect(meterPercent(100)).toBe(100);
+    });
+
+    it('rounds anything below that', () => {
+        expect(meterPercent(0)).toBe(0);
+        expect(meterPercent(42.5)).toBe(43);
+        expect(meterPercent(98.4)).toBe(98);
+    });
+
+    it('reports an overspent meter as it is', () => {
+        expect(meterPercent(130.2)).toBe(130);
     });
 });

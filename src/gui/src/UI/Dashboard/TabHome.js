@@ -19,7 +19,7 @@
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
-import { addonCreditsRemaining, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
 import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
@@ -628,10 +628,9 @@ const TabHome = {
         try {
             const res = await getStorageSpace();
             // Guard capacity 0 — 0/0 would render literally as "NaN%".
-            let usage_percentage = res.capacity
-                ? ((res.used / res.capacity) * 100).toFixed(0)
-                : '0';
-            usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;
+            const usage_percentage = res.capacity
+                ? Math.min(100, meterPercent((res.used / res.capacity) * 100))
+                : 0;
 
             let general_used = res.used;
             if (res.host_used) {
