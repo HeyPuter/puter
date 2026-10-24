@@ -18,6 +18,8 @@
  */
 
 const ELLIPSIS = '…';
+// Longer than any extension in common use (".markdown", ".numbers").
+const MAX_EXTENSION_LENGTH = 10;
 
 const segmenter = typeof Intl !== 'undefined' && Intl.Segmenter
     ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
@@ -53,8 +55,11 @@ const largestFitting = (max, fits) => {
 export function middleTruncate (filename, maxWidth, measure) {
     if ( measure(filename) <= maxWidth ) return filename;
 
+    // Only a short, unbroken tail is an extension: in "Report v1.2 final
+    // draft" the text after the dot is part of the name.
     const lastDot = filename.lastIndexOf('.');
-    const hasExtension = lastDot > 0 && lastDot < filename.length - 1;
+    const tail = filename.slice(lastDot + 1);
+    const hasExtension = lastDot > 0 && tail.length > 0 && tail.length <= MAX_EXTENSION_LENGTH && ! /\s/.test(tail);
     const extension = hasExtension ? filename.slice(lastDot) : '';
     const baseName = hasExtension ? filename.slice(0, lastDot) : filename;
 
