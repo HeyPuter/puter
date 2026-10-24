@@ -137,6 +137,21 @@ describe('aggregateShares', () => {
         expect(groups[0].accessCount).toBe(1);
     });
 
+    it('shows the stronger grant when two issuers grant the same person', () => {
+        const groups = aggregateShares(['/me/a', '/me/b'], new Map([
+            ['/me/a', [
+                grant('ann', 'read', { issuer: 'me' }),
+                grant('ann', 'write', { issuer: 'bob' }),
+            ]],
+            ['/me/b', [
+                grant('ann', 'write', { issuer: 'bob' }),
+                grant('ann', 'read', { issuer: 'me' }),
+            ]],
+        ]));
+
+        expect(groups[0].mode).toBe('write');
+    });
+
     it('lists people in the order the items first mention them', () => {
         const groups = aggregateShares(['/me/a', '/me/b'], new Map([
             ['/me/a', [grant('zed', 'read')]],

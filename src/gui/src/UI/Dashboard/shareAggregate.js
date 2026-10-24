@@ -61,6 +61,12 @@ const uniform = (values) => {
     return values.every((value) => (value ?? null) === first) ? first : null;
 };
 
+// Weakest to strongest.
+const MODE_ORDER = ['see', 'list', 'read', 'write', 'manage'];
+
+/** The stronger of two modes. */
+const stronger = (a, b) => (MODE_ORDER.indexOf(b) > MODE_ORDER.indexOf(a) ? b : a);
+
 /**
  * Which of the three buckets a share row belongs to. Pending wins over
  * inherited: an invitation carries no username to hang an inherited row on.
@@ -131,7 +137,8 @@ export const aggregateShares = (paths, sharesByPath) => {
 
     for ( const item_path of paths ) {
         // The same person can hold more than one grant on an item (different
-        // issuers), which must not count as reaching it twice.
+        // issuers), which must not count as reaching it twice. They hold the
+        // stronger of the two.
         const counted = new Set();
 
         for ( const share of sharesByPath.get(item_path) ?? [] ) {
@@ -140,7 +147,11 @@ export const aggregateShares = (paths, sharesByPath) => {
             if ( ! identity ) continue;
             const { key, name, teamUid, anonymous } = identity;
 
-            if ( counted.has(`${key}|${bucket}`) ) continue;
+            if ( counted.has(`${key}|${bucket}`) ) {
+                const modes = groups.get(key)[`_${bucket}Modes`];
+                modes[modes.length - 1] = stronger(modes[modes.length - 1], share.mode);
+                continue;
+            }
             counted.add(`${key}|${bucket}`);
 
             if ( ! groups.has(key) ) {
