@@ -94,6 +94,17 @@ const kindBadgeLabel = (kind) => {
     }
 };
 
+
+/** A refused request's message: the body is JSON `{ message, code }`. */
+const responseMessage = async (resp) => {
+    const text = await resp.text();
+    try {
+        return JSON.parse(text)?.message || text;
+    } catch {
+        return text;
+    }
+};
+
 const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     options = options ?? {};
 
@@ -493,12 +504,12 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                             }),
                         },
                     );
-                    if ( !resp.ok ) throw new Error(await resp.text());
+                    if ( !resp.ok ) throw new Error(await responseMessage(resp));
                 } catch ( e ) {
                     // Roll back optimistic update
                     session.label = original || null;
                     el_title.textContent = sessionTitle(session);
-                    alertDialog({ message: e?.toString?.() ?? String(e) });
+                    alertDialog({ message: e?.message ?? String(e) });
                 }
             };
 
@@ -613,7 +624,9 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                         reload_sessions();
                         return;
                     }
-                    alertDialog({ message: await resp.text() });
+                    // Revoked meanwhile (another tab): the list is what's stale.
+                    if ( resp.status === 404 ) reload_sessions();
+                    alertDialog({ message: await responseMessage(resp) });
                 } catch ( e ) {
                     alertDialog({ message: e.toString() });
                 }
@@ -786,7 +799,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                 reload_sessions();
                 return;
             }
-            alertDialog({ message: await resp.text() });
+            alertDialog({ message: await responseMessage(resp) });
         } catch ( e ) {
             alertDialog({ message: e.toString() });
         }
