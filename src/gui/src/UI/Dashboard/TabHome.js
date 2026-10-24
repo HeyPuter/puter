@@ -418,7 +418,10 @@ const TabHome = {
         $el_window.on('click', '.bento-save-account-warning', function (e) {
             e.preventDefault();
             e.stopPropagation();
+            // As from the user menu: the temporary username comes prefilled.
             UIWindowSaveAccount({
+                send_confirmation_code: false,
+                default_username: window.user.username,
                 window_options: {
                     backdrop: true,
                     close_on_backdrop_click: true,
