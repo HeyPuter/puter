@@ -595,6 +595,21 @@ Relay traffic a guest sends is billed to the account that issued the grant. Issu
 
 An account can also hold at most **150** open connections from one origin, so a single page can't use up the whole allowance. Over either limit, the new connection is closed as soon as it opens; connections already open stay up.
 
+### Push devices
+
+The Puter desktop and the Puter mobile apps register the devices that receive an account's push notifications. These routes only accept a signed-in Puter session, so apps and API tokens can't call them.
+
+| Limit                                         | Value            |
+| --------------------------------------------- | ---------------- |
+| Device registrations (`POST /push/devices`)   | 30/min           |
+| Device list reads (`GET /push/devices`)       | 60/min           |
+| Device removals (`DELETE /push/devices/:uid`) | 30/min           |
+| Devices per account                           | 20               |
+| Device token                                  | 4,096 characters |
+| Device label                                  | 64 characters    |
+
+Registering a new device when the account already has 20 removes the device that was seen least recently.
+
 ### All driver calls
 
 Every driver call also counts toward **8,000 calls/min**, before the per-API limits above. It only exists to catch runaway loops; a client that hits it is looping.

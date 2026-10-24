@@ -388,6 +388,31 @@ describe('PushDeviceStore', () => {
             expect(await store().getByUid(others.uid)).not.toBeNull();
         });
 
+        it('keeps only the most recently seen devices of one user', async () => {
+            const user = await makeUser();
+            const other = await makeUser();
+            const stalest = await register(user.id);
+            const stale = await register(user.id);
+            const fresh = await register(user.id);
+            const freshest = await register(user.id);
+            const others = await register(other.id);
+            // Later than any cutoff the other tests sweep with.
+            const now = Math.floor(Date.now() / 1000);
+            await setLastSeen(stalest.uid, now + 1);
+            await setLastSeen(stale.uid, now + 2);
+            await setLastSeen(fresh.uid, now + 3);
+            await setLastSeen(freshest.uid, now + 4);
+            await setLastSeen(others.uid, now);
+
+            expect(await store().removeOldestBeyond(user.id, 4)).toBe(0);
+            expect(await store().removeOldestBeyond(user.id, 2)).toBe(2);
+            const left = await store().listByUser(user.id);
+            expect(left.map((d) => d.uid).sort()).toEqual(
+                [fresh.uid, freshest.uid].sort(),
+            );
+            expect(await store().getByUid(others.uid)).not.toBeNull();
+        });
+
         it('touches last_seen_at and counts failures', async () => {
             const user = await makeUser();
             const device = await register(user.id);

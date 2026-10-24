@@ -30,6 +30,7 @@ import { HostingController } from './hosting/HostingController.js';
 import { LegacyFSController } from './fs/LegacyFSController.js';
 import { NotificationController } from './notification/NotificationController.js';
 import { OIDCController } from './oidc/OIDCController.js';
+import { PushController } from './push/PushController.js';
 import { PuterAIController } from './puterai/PuterAIController.js';
 import { ShareController } from './share/ShareController.js';
 import { StaticAssetsController } from './static/StaticAssetsController.js';
@@ -57,6 +58,7 @@ export const puterControllers = {
     drivers: DriverController,
     broadcast: BroadcastController,
     notification: NotificationController,
+    push: PushController,
     events: EventsController,
     share: ShareController,
     webdav: WebDAVController,

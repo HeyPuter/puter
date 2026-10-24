@@ -290,6 +290,23 @@ export class PushDeviceStore extends PuterStore {
         return result.affectedRows;
     }
 
+    /** Remove up to 500 devices past the user's `keep` most recently seen. */
+    async removeOldestBeyond(userId: number, keep: number): Promise<number> {
+        const offset = safeLimit(keep, 0);
+        const rows = await this.clients.db.pread(
+            'SELECT `id` FROM `push_device` WHERE `user_id` = ? ' +
+                'ORDER BY `last_seen_at` DESC, `id` DESC LIMIT ? OFFSET ?',
+            [userId, 500, offset],
+        );
+        const ids = rows.map((row) => Number(row.id));
+        if (ids.length === 0) return 0;
+        const result = await this.clients.db.write(
+            `DELETE FROM \`push_device\` WHERE \`id\` IN (${placeholders(ids)})`,
+            ids,
+        );
+        return result.affectedRows;
+    }
+
     async touch(userId: number, uids: string[]): Promise<void> {
         const list = unique(uids);
         if (list.length === 0) return;
