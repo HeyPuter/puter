@@ -19,7 +19,7 @@
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
-import { addonCreditsRemaining, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
 import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
@@ -197,7 +197,9 @@ function trialUsageNote(fraction, planName) {
 
 const TabHome = {
     id: 'home',
-    label: i18n('home'),
+    get label () {
+        return i18n('home');
+    },
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
 
     html() {
@@ -626,10 +628,9 @@ const TabHome = {
         try {
             const res = await getStorageSpace();
             // Guard capacity 0 — 0/0 would render literally as "NaN%".
-            let usage_percentage = res.capacity
-                ? ((res.used / res.capacity) * 100).toFixed(0)
-                : '0';
-            usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;
+            const usage_percentage = res.capacity
+                ? Math.min(100, meterPercent((res.used / res.capacity) * 100))
+                : 0;
 
             let general_used = res.used;
             if (res.host_used) {
@@ -672,7 +673,7 @@ const TabHome = {
                 .find('.bento-resources-capacity')
                 .text(
                     inCredits
-                        ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'credits' : 'monthly_credits')}`
+                        ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'usage_credits' : 'monthly_credits')}`
                         : amount(budget.capacity),
                 );
             $el_window

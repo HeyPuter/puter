@@ -228,16 +228,21 @@ async function UIDashboard (options) {
         }
     }
 
-    // Saving a temporary account promotes this session's user in place: the
-    // save prompt goes, and the tabs that leave out cards for a temporary
-    // user (password, email) render again.
-    window.addEventListener('account-saved', () => {
-        $el_window.find('.bento-save-account-warning').remove();
+    // Account and Security decide some cards from the account's state when
+    // they render (password and email for a temporary user, the token
+    // button and 2FA for an unconfirmed email).
+    const rerender_account_tabs = () => {
         for ( const tab of tabs ) {
             if ( tab.id !== 'account' && tab.id !== 'security' ) continue;
             $el_window.find(`.dashboard-section-${tab.id}`).html(tab.html());
             tab.init?.($el_window);
         }
+    };
+
+    // Saving a temporary account promotes this session's user in place.
+    window.addEventListener('account-saved', () => {
+        $el_window.find('.bento-save-account-warning').remove();
+        rerender_account_tabs();
     });
 
     // Dispatch 'dashboard-ready' event for extensions
@@ -283,6 +288,13 @@ async function UIDashboard (options) {
 
     window.socket.on('reconnect_failed', () => {
         console.log('Dashboard Socket: Reconnection Failed');
+    });
+
+    // Confirming the email, here or in another tab, enables the token button
+    // and the 2FA card.
+    window.socket.on('user.email_confirmed', async () => {
+        await window.refresh_user_data(window.auth_token);
+        rerender_account_tabs();
     });
 
     // Upload/download progress tracking
@@ -594,15 +606,39 @@ async function UIDashboard (options) {
     const $sidebar = $el_window.find('.dashboard-sidebar');
     const $scrim = $el_window.find('.dashboard-sidebar-scrim');
     const $sidebar_toggle = $el_window.find('.dashboard-sidebar-toggle');
+    const drawerFocusables = () => $sidebar.find('a[href], button').filter(':visible:not(:disabled)');
     const setMobileSidebar = (open) => {
         // Focus left inside a closing drawer would sit on hidden controls
         // (and fall to <body>); the toggle that reopens it takes it instead.
         const focusInside = ! open && $sidebar.hasClass('open') && $sidebar[0].contains(document.activeElement);
+        const opening = open && ! $sidebar.hasClass('open');
         $sidebar.toggleClass('open', open);
         $scrim.toggleClass('open', open);
         $sidebar_toggle.toggleClass('open', open).attr('aria-expanded', open ? 'true' : 'false');
         if ( focusInside ) $sidebar_toggle[0].focus({ preventScroll: true });
+        // The drawer is modal: focus starts on the current page's entry.
+        if ( opening ) {
+            const current = $sidebar.find('.dashboard-sidebar-item[aria-current="page"]')[0];
+            (current ?? drawerFocusables()[0])?.focus({ preventScroll: true });
+        }
     };
+
+    // Tab cycles inside the open drawer instead of reaching the content
+    // behind the scrim.
+    $sidebar.on('keydown', function (e) {
+        if ( e.key !== 'Tab' || ! $sidebar.hasClass('open') ) return;
+        const $focusables = drawerFocusables();
+        if ( ! $focusables.length ) return;
+        const first = $focusables[0];
+        const last = $focusables[$focusables.length - 1];
+        if ( e.shiftKey && document.activeElement === first ) {
+            e.preventDefault();
+            last.focus();
+        } else if ( ! e.shiftKey && document.activeElement === last ) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
 
     $el_window.on('click', '.dashboard-sidebar-toggle', function () {
         setMobileSidebar(!$sidebar.hasClass('open'));

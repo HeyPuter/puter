@@ -711,13 +711,18 @@ window.mutate_user_preferences = function (user_preferences_delta) {
     window.update_user_preferences({ ...window.user_preferences, ...user_preferences_delta });
 };
 
+/**
+ * The language to render in for a saved `language` preference. The stored
+ * value can be anything, and i18n/Intl throw on some bad locales.
+ */
+window.resolve_language = (language) => (window.listSupportedLanguages().some(lang => lang.code === language)
+    ? language
+    : 'en');
+
 window.update_user_preferences = function (user_preferences) {
     window.user_preferences = user_preferences;
     localStorage.setItem('user_preferences', JSON.stringify(user_preferences));
-    // The stored value can be anything, and i18n/Intl throw on some bad locales.
-    const language = window.listSupportedLanguages().some(lang => lang.code === user_preferences.language)
-        ? user_preferences.language
-        : 'en';
+    const language = window.resolve_language(user_preferences.language);
     window.locale = language;
 
     // Broadcast locale change to apps
@@ -725,6 +730,32 @@ window.update_user_preferences = function (user_preferences) {
     broadcastService.sendBroadcast('localeChanged', {
         language: language,
     }, { sendToNewAppInstances: true });
+};
+
+/**
+ * Read the account's saved preferences and apply them. A read that fails
+ * keeps what this browser last loaded.
+ */
+window.load_user_preferences = async function () {
+    const user_preferences = {
+        show_hidden_files: window.user_preferences.show_hidden_files,
+        language: window.user_preferences.language,
+    };
+    try {
+        user_preferences.show_hidden_files = JSON.parse(await puter.kv.get('user_preferences.show_hidden_files'));
+    } catch (e) {
+        console.error('Error loading show_hidden_files', e);
+    }
+    try {
+        user_preferences.language = await puter.kv.get('user_preferences.language');
+    } catch (e) {
+        console.error('Error loading language', e);
+    }
+    const entries = await puter.kv.list('user_preferences.default_apps.*', true).catch(() => []);
+    for ( const entry of entries ) {
+        user_preferences[entry.key.substring(17)] = entry.value;
+    }
+    window.update_user_preferences(user_preferences);
 };
 
 window.sendWindowWillCloseMsg = function (iframe_element) {
@@ -2397,7 +2428,7 @@ window.upload_items = async function (items, dest_path) {
             },
             // error
             error: async function (err) {
-                upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
+                upload_progress_window.show_error(i18n('error_uploading_files', [], false), err.message);
                 // remove from active_uploads
                 delete window.active_uploads[opid];
             },

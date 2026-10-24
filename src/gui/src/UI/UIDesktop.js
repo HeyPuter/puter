@@ -738,37 +738,7 @@ async function UIDesktop (options) {
         window.history.pushState(null, document.title, window.location.pathname);
     }
 
-    //show_hidden_files
-    let show_hidden_files = false;
-    try {
-        show_hidden_files = JSON.parse(await puter.kv.get('user_preferences.show_hidden_files'));
-    } catch (e) {
-        console.error('Error loading show_hidden_files', e);
-    }
-
-    // language
-    let language = 'en';
-    try {
-        language = await puter.kv.get('user_preferences.language');
-    } catch (e) {
-        console.error('Error loading language', e);
-    }
-
-    // update local user preferences
-    const user_preferences = {
-        show_hidden_files: show_hidden_files,
-        language: language,
-    };
-
-    // update default apps
-    {
-        const entries = await puter.kv.list('user_preferences.default_apps.*', true).catch(() => []);
-        for ( const entry of entries ) {
-            user_preferences[entry.key.substring(17)] = entry.value;
-        }
-
-        window.update_user_preferences(user_preferences);
-    }
+    await window.load_user_preferences();
 
     // Append to <body>
     $('body').append(h);

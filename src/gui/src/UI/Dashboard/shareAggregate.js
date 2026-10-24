@@ -46,6 +46,10 @@ import { team_label } from '../../helpers/shareTeams.js';
  * @property {string|null} inheritedMode - Mode of the inherited grants, null when they disagree
  * @property {string|null} inheritedFrom - The one ancestor every inherited grant
  *   comes through, null when there is more than one
+ * @property {number} inheritedFolderCount - How many ancestors the inherited
+ *   grants come through
+ * @property {string[]} issuers - Who issued the direct grants and invitations.
+ *   Only the item's owner or a grant's issuer can change or withdraw it.
  * @property {number} accessCount - Items the person can reach, by any of the three
  */
 
@@ -60,6 +64,12 @@ const uniform = (values) => {
     const first = values[0] ?? null;
     return values.every((value) => (value ?? null) === first) ? first : null;
 };
+
+// Weakest to strongest.
+const MODE_ORDER = ['see', 'list', 'read', 'write', 'manage'];
+
+/** The stronger of two modes. */
+const stronger = (a, b) => (MODE_ORDER.indexOf(b) > MODE_ORDER.indexOf(a) ? b : a);
 
 /**
  * Which of the three buckets a share row belongs to. Pending wins over
@@ -131,7 +141,8 @@ export const aggregateShares = (paths, sharesByPath) => {
 
     for ( const item_path of paths ) {
         // The same person can hold more than one grant on an item (different
-        // issuers), which must not count as reaching it twice.
+        // issuers), which must not count as reaching it twice. They hold the
+        // stronger of the two.
         const counted = new Set();
 
         for ( const share of sharesByPath.get(item_path) ?? [] ) {
@@ -140,7 +151,12 @@ export const aggregateShares = (paths, sharesByPath) => {
             if ( ! identity ) continue;
             const { key, name, teamUid, anonymous } = identity;
 
-            if ( counted.has(`${key}|${bucket}`) ) continue;
+            if ( counted.has(`${key}|${bucket}`) ) {
+                if ( bucket !== 'inherited' ) groups.get(key)._issuers.add(share.issuer);
+                const modes = groups.get(key)[`_${bucket}Modes`];
+                modes[modes.length - 1] = stronger(modes[modes.length - 1], share.mode);
+                continue;
+            }
             counted.add(`${key}|${bucket}`);
 
             if ( ! groups.has(key) ) {
@@ -157,9 +173,11 @@ export const aggregateShares = (paths, sharesByPath) => {
                     _pendingModes: [],
                     _inheritedModes: [],
                     _inheritedFroms: [],
+                    _issuers: new Set(),
                 });
             }
             const group = groups.get(key);
+            if ( bucket !== 'inherited' ) group._issuers.add(share.issuer);
 
             if ( bucket === 'pending' ) {
                 group.pendingPaths.push(item_path);
@@ -194,6 +212,8 @@ export const aggregateShares = (paths, sharesByPath) => {
             pendingMode: uniform(group._pendingModes),
             inheritedMode: uniform(group._inheritedModes),
             inheritedFrom: uniform(group._inheritedFroms),
+            inheritedFolderCount: new Set(group._inheritedFroms).size,
+            issuers: [...group._issuers],
             accessCount: reached.size,
         };
     });

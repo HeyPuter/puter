@@ -315,7 +315,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         if ( group.inheritedFrom ) {
             notes.push(i18n('share_inherited_via', { folder: path.basename(group.inheritedFrom) }));
         } else if ( group.inheritedPaths.length ) {
-            notes.push(i18n('share_inherited_via_count', { count: group.inheritedPaths.length }));
+            notes.push(i18n('share_inherited_via_count', { count: group.inheritedFolderCount }));
         }
         return notes;
     };
@@ -329,9 +329,15 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         // Only direct grants live on the items themselves; an inherited one
         // belongs to the ancestor folder and has to be changed there.
         // Every action addresses a person by name; a withheld invite has none.
-        const can_change = group.directPaths.length > 0 && ! group.anonymous;
-        const can_revoke = ! group.anonymous
-            && (can_change || group.pendingPaths.length > 0);
+        // Someone the owner let share can only change or withdraw the grants
+        // they issued, and leave their own; on anyone else's the request
+        // would do nothing.
+        const may_act = ! group.anonymous
+            && (allow_manage || group.issuers.every((issuer) => issuer === window.user.username));
+        const is_self = ! group.teamUid && ! group.pending && group.name === window.user.username;
+        const can_change = group.directPaths.length > 0 && may_act;
+        const can_revoke = (may_act && (can_change || group.pendingPaths.length > 0))
+            || (is_self && group.directPaths.length > 0);
         // Extending someone needs a mode to extend; a person whose grants
         // disagree levels them with the select first.
         const missing = missingPathsFor(target_paths, group).length;
@@ -346,7 +352,9 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             if ( notes.length ) via += `<span>${notes.join(' · ')}</span>`;
             if ( can_add_to_all ) {
                 via += `<button type="button" class="share-modal-row-link" data-key="${key}"
-                    aria-label="${i18n('share_add_to_all_for', { recipient: group.name, count: missing })}"
+                    aria-label="${missing === 1
+                        ? i18n('share_add_to_all_for_one', { recipient: group.name })
+                        : i18n('share_add_to_all_for', { recipient: group.name, count: missing })}"
                     >${i18n('share_add_to_all')}</button>`;
             }
             via += '</span>';
@@ -365,7 +373,9 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             // reader user unable to tell whose grant a control changes.
             row += `<select class="share-modal-row-mode" data-key="${key}" aria-label="${i18n('share_access_level_for', { recipient: group.name })}">${options_for(group.mode, { allow_manage })}</select>`;
         } else {
-            const fixed_mode = group.pending ? group.pendingMode : group.inheritedMode;
+            let fixed_mode = group.inheritedMode;
+            if ( group.pending ) fixed_mode = group.pendingMode;
+            else if ( group.directPaths.length ) fixed_mode = group.mode;
             row += `<span class="share-modal-row-tag">${fixed_mode ? mode_label(fixed_mode) : i18n('share_access_mixed')}</span>`;
         }
 
@@ -426,7 +436,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         const settled = await Promise.allSettled(
             target_paths.map((target) => puter.fs.getShares(target)),
         );
-        if ( closed || seq !== refresh_seq ) return;
+        if ( seq !== refresh_seq ) return;
 
         /** @type {Map<string, Object[]>} */
         const by_path = new Map();
@@ -439,14 +449,17 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             }
         });
 
+        // Each listing is authoritative for its own item. The Files rows
+        // still need it when the dialog was closed while a change was saving.
+        for ( const [target, shares] of by_path ) {
+            mark_item_shared(target, has_direct_share(shares));
+        }
+        if ( closed ) return;
+
         if ( by_path.size === 0 ) {
             $list.attr('aria-busy', 'false').empty();
             show_error(error_html(failure));
             return;
-        }
-        // Each listing is authoritative for its own item.
-        for ( const [target, shares] of by_path ) {
-            mark_item_shared(target, has_direct_share(shares));
         }
         render(aggregateShares(target_paths, by_path));
         link_state = linkShareState(target_paths, by_path);
@@ -567,6 +580,11 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             created.push(...(await with_verification_gate(
                 () => puter.fs.share({ paths: run, recipient, mode }),
             ) ?? []));
+        }
+        // A selection too large to list again (see refresh) learns which rows
+        // are now shared from the grants themselves.
+        if ( total > MAX_ITEMS_PER_REQUEST ) {
+            for ( const share of created ) mark_item_shared(share.path, true);
         }
         return created;
     };
@@ -801,9 +819,10 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             confirm_text = i18n('share_confirm_remove_items', { recipient: group.name, count: affected });
         } else {
             // "this item" only reads right when the dialog is about one item.
+            // A team's removal reaches all its members; the desktop says so too.
             confirm_text = is_multi
                 ? i18n('share_confirm_remove_plain', { recipient: group.name })
-                : i18n('share_confirm_remove', { recipient: group.name });
+                : i18n(group.teamUid ? 'share_confirm_remove_team' : 'share_confirm_remove', { recipient: group.name });
         }
 
         // One confirmation at a time: opening a second one restores the first

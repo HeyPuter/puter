@@ -44,6 +44,11 @@ describe('middleTruncate', () => {
         expect(middleTruncate('abcdefghij.markdown', 10, measure)).toBe('….markdown');
     });
 
+    it('treats a long or spaced tail after the last dot as part of the name', () => {
+        expect(middleTruncate('Report v1.2 final draft for board', 15, measure)).toBe('Report …r board');
+        expect(middleTruncate('backup.20240101-full-archive', 15, measure)).toBe('backup.…archive');
+    });
+
     it('never cuts an emoji in half', () => {
         const name = `x${'😀'.repeat(30)}.txt`;
         for ( let width = 6; width <= 60; width++ ) {

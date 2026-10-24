@@ -323,14 +323,17 @@ export default class ContextMenuModal {
         };
         document.addEventListener('keydown', this.escapeKeyHandler);
 
-        // Arrow keys move between the enabled items, as in any menu.
+        // Arrow keys move between the enabled items, as in any menu. So does
+        // Tab: the sheet is modal, and focus mustn't reach the page behind.
         this.arrowKeyHandler = (e) => {
             const items = [...this.modal.querySelectorAll('.context-menu-item:not(:disabled)')];
             if ( items.length === 0 ) return;
             const current = items.indexOf(document.activeElement);
+            const forward = e.key === 'ArrowDown' || (e.key === 'Tab' && ! e.shiftKey);
+            const back = e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey);
             let next;
-            if ( e.key === 'ArrowDown' ) next = (current + 1) % items.length;
-            else if ( e.key === 'ArrowUp' ) next = current <= 0 ? items.length - 1 : current - 1;
+            if ( forward ) next = (current + 1) % items.length;
+            else if ( back ) next = current <= 0 ? items.length - 1 : current - 1;
             else if ( e.key === 'Home' ) next = 0;
             else if ( e.key === 'End' ) next = items.length - 1;
             else return;

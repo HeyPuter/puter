@@ -20,6 +20,15 @@
 const nonNegative = (value) => Number.isFinite(value) ? Math.max(0, value) : 0;
 
 /**
+ * A meter's share as a whole percent. 100% reads as spent, so a meter with
+ * anything left shows 99% at most.
+ *
+ * @param {number} share - The share, 0-100 (or past 100 when overspent).
+ * @returns {number}
+ */
+export const meterPercent = (share) => (share < 100 ? Math.min(99, Math.round(share)) : Math.round(share));
+
+/**
  * @typedef {Object} UsageBudget
  * @property {number} used - Allowance-charged spend, in the server's units.
  * @property {number} capacity - The monthly plan allowance.
@@ -55,8 +64,7 @@ export const usageBudget = (usage, allowanceInfo) => {
     return {
         used,
         capacity,
-        // 100% reads as spent: an allowance with anything left shows 99%.
-        percent: share < 100 ? Math.min(99, Math.round(share)) : Math.round(share),
+        percent: meterPercent(share),
         barPercent: Math.max(0, Math.min(100, share)),
     };
 };

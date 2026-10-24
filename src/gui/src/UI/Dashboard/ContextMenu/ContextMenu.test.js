@@ -66,7 +66,7 @@ describe('ContextMenuModal accessibility', () => {
         { label: 'Locked', disabled: true, action: () => {} },
         { label: 'New', items: [{ label: 'Folder', action: () => {} }] },
     ];
-    const press = (el, key) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    const press = (el, key, init = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init }));
 
     it('is a menu of menuitems and separators', () => {
         setTouchViewport(390);
@@ -107,6 +107,21 @@ describe('ContextMenuModal accessibility', () => {
         press(document.activeElement, 'ArrowDown');
         expect(label()).toBe('Open');
         press(document.activeElement, 'ArrowUp');
+        expect(label()).toBe('New');
+    });
+
+    it('keeps Tab and Shift+Tab inside the menu', () => {
+        setTouchViewport(390);
+        const menu = new ContextMenuModal();
+        menu.show(items, { left: 0, top: 0, width: 10, height: 10 });
+        const dialog = document.querySelector('.context-menu-modal-dialog');
+        const label = () => document.activeElement.querySelector('.context-menu-item-label')?.textContent;
+        press(dialog, 'ArrowDown');
+        press(document.activeElement, 'Tab');
+        expect(label()).toBe('New');
+        expect(press(document.activeElement, 'Tab')).toBe(false);
+        expect(label()).toBe('Open');
+        press(document.activeElement, 'Tab', { shiftKey: true });
         expect(label()).toBe('New');
     });
 });

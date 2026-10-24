@@ -821,6 +821,35 @@ function showAddAppModal ({ $el_window }) {
 /** An app id minted from a uuid (`app-<uuid>`), as website shortcuts are named. */
 const GENERATED_APP_ID = /^app-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+/**
+ * Scrolls a pager to a page. A smooth scroll passes over the pages between,
+ * which the pager's scroll handler must not read back as the current page
+ * (see settledPage) until it arrives, or within a second if the user takes
+ * over.
+ */
+function scrollPagerTo (scroller, page, smooth) {
+    const left = page * scroller.clientWidth;
+    clearTimeout(scroller._targetPageTimer);
+    scroller._targetPage = smooth && Math.abs(scroller.scrollLeft - left) > 1 ? page : null;
+    if ( scroller._targetPage !== null ) {
+        scroller._targetPageTimer = setTimeout(() => {
+            scroller._targetPage = null;
+        }, 1000);
+    }
+    scroller.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' });
+}
+
+/** The page a pager's scroll position shows, or null while scrollPagerTo is still on its way. */
+function settledPage (scroller, pageCount) {
+    const idx = Math.round(Math.abs(scroller.scrollLeft) / (scroller.clientWidth || 1));
+    const page = Math.max(0, Math.min(pageCount - 1, idx));
+    if ( scroller._targetPage !== null && scroller._targetPage !== undefined ) {
+        if ( page !== scroller._targetPage ) return null;
+        scroller._targetPage = null;
+    }
+    return page;
+}
+
 /** Longest the grid waits on page one's icons before showing anyway. */
 const ICON_REVEAL_DEADLINE_MS = 1500;
 
@@ -862,7 +891,9 @@ function revealWhenLoaded ($container) {
 
 const TabApps = {
     id: 'apps',
-    label: i18n('apps'),
+    get label () {
+        return i18n('apps');
+    },
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>',
 
     _apps: null,
@@ -991,16 +1022,18 @@ const TabApps = {
             self.updateRunningDots($el_window);
         });
 
+        // Results show at once: the first load's fade waits on page one's
+        // icons, and a slow one would blank the grid on every keystroke.
         $el_window.on('input', '.myapps-search', function () {
             self.updateSearchIcons($el_window);
-            self.renderApps($el_window);
+            self.renderApps($el_window, { instant: true });
         });
 
         // Clear search on cross click
         $el_window.on('click', '.myapps-icon-clear', function () {
             $el_window.find('.myapps-search').val('').focus();
             self.updateSearchIcons($el_window);
-            self.renderApps($el_window);
+            self.renderApps($el_window, { instant: true });
         });
 
         // Handle app tile clicks. External apps carry a target link (their
@@ -1253,11 +1286,14 @@ const TabApps = {
         // Mouse wheel / two-finger vertical swipe flips one page per gesture.
         // Horizontal trackpad panning is left to the native scroller, whose
         // snap points already handle it.
+        // jQuery wheel listeners are passive here (see initgui), and the
+        // scroller can't scroll vertically anyway, so nothing is prevented.
+        // A trackpad pinch arrives as ctrlKey wheel events: that's a zoom.
         $el_window.on('wheel', '.myapps-pager-scroller', function (e) {
             const oe = e.originalEvent;
+            if ( oe.ctrlKey ) return;
             if ( Math.abs(oe.deltaX) > Math.abs(oe.deltaY) ) return;
             if ( Math.abs(oe.deltaY) < 4 ) return;
-            e.preventDefault();
             // Inertial scrolling keeps emitting events after the flip; treat
             // everything within 150ms of the last event as the same gesture.
             clearTimeout(self._wheelTimer);
@@ -1279,6 +1315,20 @@ const TabApps = {
         // take over from there. While a folder is open the same arrows walk
         // ITS tiles: the grid behind is inert, so focus must not be there.
         $(document).off('keydown.myapps-keyboard').on('keydown.myapps-keyboard', function (e) {
+            // The Menu key or Shift+F10 on a focused tile opens its menu
+            // (Open, Uninstall, a folder's Ungroup) at the tile; browsers
+            // don't all send a contextmenu event for them.
+            if ( e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10') ) {
+                const tile = document.activeElement;
+                if ( ! tile?.classList?.contains('myapps-tile') || ! $el_window[0].contains(tile) ) return;
+                e.preventDefault();
+                const r = tile.getBoundingClientRect();
+                $(tile).trigger($.Event('contextmenu', {
+                    clientX: r.left + r.width / 2,
+                    clientY: r.top + r.height / 2,
+                }));
+                return;
+            }
             if ( ! ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', ' '].includes(e.key) ) return;
             if ( ! $el_window.find('.dashboard-section-apps').hasClass('active') ) return;
             if ( ! $el_window.is(':visible') ) return;
@@ -1307,6 +1357,15 @@ const TabApps = {
                 // button behavior keep working.
                 if ( ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable) ) {
                     const emptySearch = $(ae).hasClass('myapps-search') && ae.value === '';
+                    // Enter in a search opens the first match, as in any launcher.
+                    if ( e.key === 'Enter' && $(ae).hasClass('myapps-search') && ! emptySearch && ! e.isComposing ) {
+                        const first = pageTiles.find(el => ! el.classList.contains('myapps-add-tile'));
+                        if ( first ) {
+                            e.preventDefault();
+                            $(first).trigger('click');
+                        }
+                        return;
+                    }
                     if ( e.key !== 'ArrowDown' && ! (emptySearch && e.key.startsWith('Arrow')) ) return;
                 } else if ( ! e.key.startsWith('Arrow') ) {
                     return;
@@ -1506,10 +1565,8 @@ const TabApps = {
             ticking = true;
             requestAnimationFrame(() => {
                 ticking = false;
-                const pageW = scroller.clientWidth || 1;
-                const idx = Math.round(Math.abs(scroller.scrollLeft) / pageW);
-                const page = Math.max(0, Math.min(self._pageCount - 1, idx));
-                if ( page !== self._page ) {
+                const page = settledPage(scroller, self._pageCount);
+                if ( page !== null && page !== self._page ) {
                     self._page = page;
                     self.updatePagerUI($el_window);
                 }
@@ -1563,10 +1620,7 @@ const TabApps = {
         const scroller = $el_window.find('.myapps-pager-scroller')[0];
         if ( ! scroller || this._pageCount === 0 ) return;
         const page = Math.max(0, Math.min(this._pageCount - 1, index));
-        scroller.scrollTo({
-            left: page * scroller.clientWidth,
-            behavior: (smooth && !this._reduceMotion()) ? 'smooth' : 'auto',
-        });
+        scrollPagerTo(scroller, page, smooth && ! this._reduceMotion());
         // Programmatic scrolls don't reliably emit 'scroll' events (so the
         // scroll-driven sync above can miss them); track the page eagerly.
         this._page = page;
@@ -1618,7 +1672,7 @@ const TabApps = {
         if ( on && String($search.val() || '') !== '' ) {
             $search.val('');
             this.updateSearchIcons($el_window);
-            this.renderApps($el_window);
+            this.renderApps($el_window, { instant: true });
         }
         $search.prop('disabled', on);
 
@@ -1793,11 +1847,12 @@ const TabApps = {
 
         // Mouse wheel / two-finger vertical swipe flips one folder page per
         // gesture, mirroring the grid's scroller (which see for the debounce).
+        // As the grid's: passive, and a pinch is a zoom.
         $overlay.on('wheel', '.myapps-group-panel-grid', function (e) {
             const oe = e.originalEvent;
+            if ( oe.ctrlKey ) return;
             if ( Math.abs(oe.deltaX) > Math.abs(oe.deltaY) ) return;
             if ( Math.abs(oe.deltaY) < 4 ) return;
-            e.preventDefault();
             clearTimeout(self._groupWheelTimer);
             self._groupWheelTimer = setTimeout(() => {
                 self._groupWheelActive = false;
@@ -1817,10 +1872,8 @@ const TabApps = {
             ticking = true;
             requestAnimationFrame(() => {
                 ticking = false;
-                const pageW = scroller.clientWidth || 1;
-                const idx = Math.round(Math.abs(scroller.scrollLeft) / pageW);
-                const page = Math.max(0, Math.min((self._groupPageCount || 1) - 1, idx));
-                if ( page !== self._groupPage ) {
+                const page = settledPage(scroller, self._groupPageCount || 1);
+                if ( page !== null && page !== self._groupPage ) {
                     self._groupPage = page;
                     self._updateGroupPagerUI($el_window);
                 }
@@ -1860,7 +1913,7 @@ const TabApps = {
             // The folder is modal: Tab cycles inside it rather than walking
             // off into the inert grid behind.
             if ( e.key !== 'Tab' ) return;
-            const focusables = $overlay.find('.myapps-group-name, .myapps-tile').toArray()
+            const focusables = $overlay.find('.myapps-group-name, .myapps-tile, .myapps-group-dot').toArray()
                 .filter(el => el.offsetParent !== null);
             if ( focusables.length === 0 ) return;
             const first = focusables[0];
@@ -2037,10 +2090,7 @@ const TabApps = {
         const scroller = $el_window.find('.myapps-group-panel-grid')[0];
         if ( ! scroller || ! this._groupPageCount ) return;
         const page = Math.max(0, Math.min(this._groupPageCount - 1, index));
-        scroller.scrollTo({
-            left: page * scroller.clientWidth,
-            behavior: (smooth && ! this._reduceMotion()) ? 'smooth' : 'auto',
-        });
+        scrollPagerTo(scroller, page, smooth && ! this._reduceMotion());
         // Programmatic scrolls don't reliably emit 'scroll' events; track the
         // page eagerly (same as goToPage).
         this._groupPage = page;
@@ -2164,11 +2214,19 @@ const TabApps = {
     // Dissolve a folder: its apps stay exactly where the folder was, side by
     // side, so nothing is lost or moved somewhere the user has to find.
     _ungroup ($el_window, groupId) {
-        if ( ! findGroupById(this._groups, groupId) ) return;
+        const group = findGroupById(this._groups, groupId);
+        if ( ! group ) return;
         if ( this._openGroupId === groupId ) this._closeGroup($el_window);
         this._groups = removeGroup(this._groups, groupId);
         this.saveGroups();
         this.renderApps($el_window, { preservePage: true, instant: true });
+        // The folder's tile, focused or not, is gone; a keyboard user lands
+        // on its first app instead of back at the top of the page.
+        if ( ! document.activeElement || document.activeElement === document.body ) {
+            $el_window.find('.myapps-page .myapps-tile').toArray()
+                .find(el => el.dataset.appName === group.apps[0])
+                ?.focus({ preventScroll: true });
+        }
     },
 
     // Take one app out of a folder. It lands on the grid immediately after
@@ -2508,6 +2566,9 @@ const TabApps = {
                 if ( this._drag !== d ) return;
                 d.flipping = false;
                 this._updatePlaceholder(d.lastClientX, d.lastClientY);
+                // Still held at the edge: keep paging, as only a move would
+                // otherwise start the next dwell.
+                this._maybeEdgeFlip(d.lastClientX);
             }, this._reduceMotion() ? 60 : DRAG_FLIP_SETTLE_MS);
         }, DRAG_EDGE_DWELL_MS);
     },
@@ -2552,6 +2613,7 @@ const TabApps = {
                 if ( this._drag !== d ) return;
                 d.flipping = false;
                 this._updatePlaceholder(d.lastClientX, d.lastClientY);
+                this._maybeGroupEdgeFlip(d.lastClientX);
             }, this._reduceMotion() ? 60 : DRAG_FLIP_SETTLE_MS);
         }, DRAG_EDGE_DWELL_MS);
     },
@@ -3536,6 +3598,16 @@ const TabApps = {
     // the tile mid-intro is swallowed instead of spawning a second instance
     // (same guard as the click handler). The caller MUST call
     // settleDeepLinkLaunch once its launch attempt settles.
+    /**
+     * The grid's apps: the load in flight, or the one already done. A launch
+     * from the grid (the add-app modal's options) must not wait on a fresh
+     * fetch of every app list first.
+     */
+    _appsLoaded ($el_window) {
+        if ( Array.isArray(this._apps) && ! this._loadPromise ) return Promise.resolve();
+        return this.loadApps($el_window);
+    },
+
     async beginDeepLinkLaunch (appName, $el_window, appInfoPromise = null) {
         this._launchingApps.add(appName);
         // No animations, no intro: the morph and the flourish would both
@@ -3545,7 +3617,7 @@ const TabApps = {
         // hold the launch, and a failure just means the tile waits for the
         // next refresh, as it always did).
         if ( ! window.animate_window_opening || this._reduceMotion() ) {
-            Promise.resolve(this.loadApps($el_window))
+            Promise.resolve(this._appsLoaded($el_window))
                 .then(() => this._spliceDeepLinkApp($el_window, appName, appInfoPromise))
                 .catch(() => {});
             return null;
@@ -3588,7 +3660,7 @@ const TabApps = {
             // lets input cut this wait short.)
             try {
                 await Promise.race([
-                    this.loadApps($el_window),
+                    this._appsLoaded($el_window),
                     sleep(Math.max(0, deadline - Date.now())),
                 ]);
             } catch ( _e ) { /* a failed load leaves _apps unset; handled below */ }

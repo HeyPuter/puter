@@ -1859,7 +1859,7 @@ window.activate_item_name_editor = async function (el_item) {
     }
     // files in trash cannot be renamed, user should be notified with an Alert.
     else if ( path.dirname($(el_item).attr('data-path')) === window.trash_path ) {
-        UIAlert(i18n('items_in_trash_cannot_be_renamed'));
+        UIAlert(i18n('items_in_trash_cannot_be_renamed', [], false));
         return;
     }
     // Someone else's item is renameable only with write on it (files, not

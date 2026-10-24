@@ -63,8 +63,9 @@
     --dashboard-avatar-background: #ddd;
     --dashboard-input-background: rgb(245, 247, 249);
 
-    --dashboard-link: #5271ff;
-    --dashboard-link-hover: #3d5bd9;
+    /* Link text: 4.5:1 or better on the cards and the content background. */
+    --dashboard-link: #3d5bd9;
+    --dashboard-link-hover: #2f4bc0;
     /* Primary button fills, under white text: 4.5:1 or better in both themes. */
     --dashboard-button-primary: #4a67f5;
     --dashboard-button-primary-hover: #3d5bd9;
@@ -85,9 +86,9 @@
 
     --dashboard-success-background: #e6ffed;
     --dashboard-success-border: #08bf4e;
-    --dashboard-success-text: #03933a;
+    --dashboard-success-text: #15803d;
 
-    --dashboard-danger-text: #dc2626;
+    --dashboard-danger-text: #b91c1c;
     --dashboard-danger-background: #fef2f2;
     --dashboard-danger-border: #fecaca;
     --dashboard-error-text: #dc2626;
@@ -277,11 +278,12 @@ body {
 }
 
 .dashboard-sidebar {
-    width: 250px;
-    min-width: 200px;
+    /* The safe-area insets clear a landscape phone's notch; elsewhere they're 0. */
+    width: calc(250px + env(safe-area-inset-left, 0px));
+    min-width: calc(200px + env(safe-area-inset-left, 0px));
     background: var(--dashboard-sidebar-background);
     border-right: 1px solid var(--dashboard-border);
-    padding: 16px 12px;
+    padding: 16px 12px 16px calc(12px + env(safe-area-inset-left, 0px));
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
@@ -386,9 +388,9 @@ body {
    drawer as an unlabeled icon strip. */
 @media (min-width: 769px) {
     .dashboard-sidebar.collapsed {
-        width: 50px;
-        min-width: 50px;
-        padding: 16px 6px;
+        width: calc(50px + env(safe-area-inset-left, 0px));
+        min-width: calc(50px + env(safe-area-inset-left, 0px));
+        padding: 16px 6px 16px calc(6px + env(safe-area-inset-left, 0px));
     }
 
     .dashboard-sidebar.collapsed .dashboard-sidebar-header {
@@ -500,6 +502,23 @@ body {
 
     .dashboard-sidebar-close {
         display: inline-flex;
+    }
+}
+
+@media (pointer: coarse) {
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .dashboard-sidebar-close {
+        position: relative;
+    }
+
+    .dashboard-sidebar-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
     }
 }
 
@@ -637,7 +656,7 @@ body {
 
 .dashboard-content {
     flex: 1;
-    padding: 24px 32px;
+    padding: 24px calc(32px + env(safe-area-inset-right, 0px)) 24px 32px;
     overflow-y: auto;
     overflow-x: hidden;
     background: var(--dashboard-content-background);
@@ -696,7 +715,7 @@ body {
 /* Dashboard Apps */
 
 .dashboard-content.apps {
-    padding: 0;
+    padding: 0 env(safe-area-inset-right, 0px) 0 0;
 }
 
 .dashboard-section-apps {
@@ -1594,6 +1613,11 @@ input.myapps-group-name:focus {
     cursor: pointer;
     transition: background 0.15s, opacity 0.15s;
 }
+@media (pointer: coarse) {
+    .myapps-modal-btn {
+        min-height: 44px;
+    }
+}
 .myapps-modal-cancel {
     background: var(--dashboard-card-background);
     color: var(--dashboard-text-primary);
@@ -1604,9 +1628,9 @@ input.myapps-group-name:focus {
     }
 }
 .myapps-modal-confirm {
-    background: #e53935;
+    background: #d32f2f;
     color: #fff;
-    border-color: #e53935;
+    border-color: #d32f2f;
 }
 @media (hover: hover) {
     .myapps-modal-confirm:hover {
@@ -1669,7 +1693,9 @@ input.myapps-group-name:focus {
 
 .app-feedback-modal {
     width: min(440px, 100%);
-    max-height: calc(100vh - 40px);
+    /* dvh: on phones 100vh is the viewport with the browser bars hidden,
+       taller than what's visible while they show. */
+    max-height: calc(100dvh - 40px);
     overflow-y: auto;
     background: var(--afb-bg);
     color: var(--afb-fg);
@@ -1696,6 +1722,7 @@ input.myapps-group-name:focus {
     font-weight: 600;
 }
 .app-feedback-x {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1709,6 +1736,18 @@ input.myapps-group-name:focus {
     color: var(--afb-muted);
     cursor: pointer;
     transition: background-color 0.12s ease, color 0.12s ease;
+}
+@media (pointer: coarse) {
+    /* Keeps its 30px look and hit-tests at 44x44. */
+    .app-feedback-x::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 .app-feedback-x svg {
     width: 16px;
@@ -1828,22 +1867,21 @@ input.myapps-group-name:focus {
     }
 }
 .app-feedback-btn-primary {
-    border-color: #088ef0;
-    background: linear-gradient(#34a5f8, #088ef0);
+    border-color: var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
     color: #fff;
 }
 @media (hover: hover) {
     /* Must out-rank .app-feedback-btn:hover:not(:disabled) above, which
        would otherwise repaint the primary button with the light hover bg. */
     .app-feedback-btn.app-feedback-btn-primary:hover:not(:disabled) {
-        filter: brightness(1.05);
-        background: linear-gradient(#34a5f8, #088ef0);
+        border-color: var(--dashboard-button-primary-hover);
+        background: var(--dashboard-button-primary-hover);
     }
 }
 .app-feedback-btn-primary:disabled {
     opacity: 0.5;
     cursor: default;
-    filter: none;
 }
 /* Cancel/X are disabled while a submit is in flight. */
 .app-feedback-btn:disabled,
@@ -1885,7 +1923,7 @@ input.myapps-group-name:focus {
     }
     .app-feedback-modal {
         width: 100%;
-        max-height: 92vh;
+        max-height: 92dvh;
         border-radius: 14px 14px 0 0;
         transform: translateY(16px);
         /* Flush with the bottom edge: keep the actions above the home
@@ -2000,6 +2038,7 @@ input.myapps-group-name:focus {
     margin: 0;
 }
 .myapps-add-back {
+    position: relative;
     flex: none;
     display: flex;
     align-items: center;
@@ -2015,6 +2054,18 @@ input.myapps-group-name:focus {
     background: none;
     color: var(--dashboard-text-secondary);
     cursor: pointer;
+}
+@media (pointer: coarse) {
+    /* Keeps its 26px look and hit-tests at 44x44. */
+    .myapps-add-back::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 .myapps-add-back svg {
     width: 17px;
@@ -2178,6 +2229,7 @@ p.myapps-add-error {
     color: var(--dashboard-text-muted);
 }
 .item-props-close {
+    position: relative;
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -2191,6 +2243,18 @@ p.myapps-add-error {
     color: var(--dashboard-text-secondary);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
+}
+@media (pointer: coarse) {
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .item-props-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 @media (hover: hover) {
     .item-props-close:hover {
@@ -3109,7 +3173,8 @@ select.share-modal-row-mode:focus {
         padding-top: 9px;
         padding-bottom: 9px;
     }
-    .share-modal-submit {
+    .share-modal-submit,
+    .share-modal-copy-link {
         height: 44px;
     }
     .share-modal-btn-quiet,
@@ -3542,7 +3607,7 @@ select.share-modal-row-mode:focus {
     .profile-crop-modal {
         width: 100%;
         max-width: none;
-        max-height: 92vh;
+        max-height: 92dvh;
         border-radius: 16px 16px 0 0;
         border-bottom: none;
         transform: translateY(24px);
@@ -3848,7 +3913,7 @@ body.myapps-reordering .myapps-tile {
    so a vh-sized list overhung the clipped content box and its last rows could
    never be scrolled into view. */
 .dashboard-content.files {
-    padding: 0 0 0 10px;
+    padding: 0 env(safe-area-inset-right, 0px) 0 10px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -3998,6 +4063,21 @@ body.myapps-reordering .myapps-tile {
         padding: 8px;
         margin: -4px;
     }
+
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .dashboard-section-files .header .path-action-btn {
+        position: relative;
+    }
+
+    .dashboard-section-files .header .path-action-btn::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 
 @media (hover: hover) {
@@ -4068,8 +4148,10 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
-/* Keyboard focus on the folder sidebar, crumbs, and nav arrows */
+/* Keyboard focus on the folder sidebar, crumbs, nav arrows, and Home's
+   Shared/Trash rows */
 .dashboard-section-files .directories li:focus-visible,
+.dashboard-section-files .files-tab .files .row.place-row:focus-visible,
 .dashboard-section-files .header .path .dirname:focus-visible,
 .dashboard-section-files .header .path-btn:focus-visible {
     outline: 2px solid var(--select-ring);
@@ -4350,7 +4432,8 @@ body.myapps-reordering .myapps-tile {
 
 .files-drag-ghost {
     pointer-events: none;
-    z-index: 10000;
+    /* On body, above the dashboard window (see the sidebar tooltip). */
+    z-index: 999999999;
     opacity: 0.95;
     animation: files-drag-ghost-in 120ms ease-out;
 }
@@ -4481,7 +4564,7 @@ body.myapps-reordering .myapps-tile {
     position: absolute;
     bottom: 32px;
     right: 32px;
-    background: #ef4444;
+    background: #dc2626;
     color: white;
     padding: 16px 32px;
     border-radius: 6px;
@@ -4495,7 +4578,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .drag-cancel-zone.drag-cancel-hover {
-    background: #dc2626;
+    background: #b91c1c;
     transform: scale(1.05);
 }
 
@@ -4837,6 +4920,22 @@ body.myapps-reordering .myapps-tile {
     border-color: var(--select-ring);
 }
 
+/* Drop target and spring-load dwell, as in the list: the grid rules above
+   out-rank the shared ones. A pixel of padding pays for the wider border,
+   so the tile doesn't shift. */
+.dashboard-section-files .files-tab .files.files-grid-view .row.folder.ui-droppable-hover,
+.dashboard-section-files .files-tab .files.files-grid-view .row.folder.dwell-opening {
+    padding: 11px;
+    background-color: rgba(59, 130, 246, 0.1);
+    border: 2px dashed var(--select-color);
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view .row.folder.dwell-opening {
+    background-image: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 100%, transparent 100%);
+    background-size: 0% 100%;
+    background-repeat: no-repeat;
+}
+
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-icon {
     width: 150px;
     height: 150px;
@@ -4938,6 +5037,11 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row {
     padding: 8px;
     gap: 6px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row.folder.ui-droppable-hover,
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row.folder.dwell-opening {
+    padding: 7px;
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-icon {
@@ -5380,7 +5484,8 @@ body.myapps-reordering .myapps-tile {
 /* Image preview popover */
 .image-preview-popover {
     position: fixed;
-    z-index: 9999;
+    /* On body, above the dashboard window (see the sidebar tooltip). */
+    z-index: 999999999;
     background: var(--dashboard-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 8px;
@@ -6990,7 +7095,9 @@ body.myapps-reordering .myapps-tile {
     transform: scale(0.9);
     opacity: 0;
     transition: transform 200ms ease-in-out, opacity 200ms ease-in-out;
-    max-height: calc(100vh - 40px);
+    /* dvh: ContextMenu.js places the menu within the visible height, which
+       on phones is less than 100vh while the browser bars show. */
+    max-height: calc(100dvh - 40px);
     display: flex;
     flex-direction: column;
 }
@@ -7056,6 +7163,12 @@ body.myapps-reordering .myapps-tile {
     text-align: left;
     transition: background-color 150ms ease-in-out;
     font-family: inherit;
+}
+
+@media (pointer: coarse) {
+    .context-menu-modal-dialog .context-menu-item {
+        min-height: 44px;
+    }
 }
 
 .context-menu-modal-dialog .context-menu-item:last-child {
@@ -7837,11 +7950,25 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 }
 
 .dashboard-notifications-close {
+    position: relative;
     width: 30px;
     height: 30px;
     padding: 0;
     justify-content: center;
     color: var(--dashboard-text-muted);
+}
+
+@media (pointer: coarse) {
+    /* Keeps its 30px look and hit-tests at 44x44. */
+    .dashboard-notifications-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 
 .dashboard-notifications-close svg {
@@ -8306,7 +8433,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
    while one is open must still be seen. Under context menus. */
 body.dashboard-mode .notification-container {
     top: 12px;
-    right: 12px;
+    right: calc(12px + env(safe-area-inset-right, 0px));
     z-index: 999999999;
 }
 
@@ -8619,8 +8746,8 @@ body.dashboard-mode .notifications-close-all {
 }
 
 .dashboard-dialog-btn-danger {
-    border-color: #f00808;
-    background: #f00808;
+    border-color: #d90707;
+    background: #d90707;
     color: #fff;
 }
 
@@ -8635,8 +8762,8 @@ body.dashboard-mode .notifications-close-all {
     }
 
     .dashboard-dialog-btn-danger:hover {
-        background: #d90707;
-        border-color: #d90707;
+        background: #b80606;
+        border-color: #b80606;
     }
 }
 
