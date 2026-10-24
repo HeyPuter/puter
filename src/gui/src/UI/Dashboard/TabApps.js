@@ -821,6 +821,35 @@ function showAddAppModal ({ $el_window }) {
 /** An app id minted from a uuid (`app-<uuid>`), as website shortcuts are named. */
 const GENERATED_APP_ID = /^app-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+/**
+ * Scrolls a pager to a page. A smooth scroll passes over the pages between,
+ * which the pager's scroll handler must not read back as the current page
+ * (see settledPage) until it arrives, or within a second if the user takes
+ * over.
+ */
+function scrollPagerTo (scroller, page, smooth) {
+    const left = page * scroller.clientWidth;
+    clearTimeout(scroller._targetPageTimer);
+    scroller._targetPage = smooth && Math.abs(scroller.scrollLeft - left) > 1 ? page : null;
+    if ( scroller._targetPage !== null ) {
+        scroller._targetPageTimer = setTimeout(() => {
+            scroller._targetPage = null;
+        }, 1000);
+    }
+    scroller.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' });
+}
+
+/** The page a pager's scroll position shows, or null while scrollPagerTo is still on its way. */
+function settledPage (scroller, pageCount) {
+    const idx = Math.round(Math.abs(scroller.scrollLeft) / (scroller.clientWidth || 1));
+    const page = Math.max(0, Math.min(pageCount - 1, idx));
+    if ( scroller._targetPage !== null && scroller._targetPage !== undefined ) {
+        if ( page !== scroller._targetPage ) return null;
+        scroller._targetPage = null;
+    }
+    return page;
+}
+
 /** Longest the grid waits on page one's icons before showing anyway. */
 const ICON_REVEAL_DEADLINE_MS = 1500;
 
@@ -1510,10 +1539,8 @@ const TabApps = {
             ticking = true;
             requestAnimationFrame(() => {
                 ticking = false;
-                const pageW = scroller.clientWidth || 1;
-                const idx = Math.round(Math.abs(scroller.scrollLeft) / pageW);
-                const page = Math.max(0, Math.min(self._pageCount - 1, idx));
-                if ( page !== self._page ) {
+                const page = settledPage(scroller, self._pageCount);
+                if ( page !== null && page !== self._page ) {
                     self._page = page;
                     self.updatePagerUI($el_window);
                 }
@@ -1567,10 +1594,7 @@ const TabApps = {
         const scroller = $el_window.find('.myapps-pager-scroller')[0];
         if ( ! scroller || this._pageCount === 0 ) return;
         const page = Math.max(0, Math.min(this._pageCount - 1, index));
-        scroller.scrollTo({
-            left: page * scroller.clientWidth,
-            behavior: (smooth && !this._reduceMotion()) ? 'smooth' : 'auto',
-        });
+        scrollPagerTo(scroller, page, smooth && ! this._reduceMotion());
         // Programmatic scrolls don't reliably emit 'scroll' events (so the
         // scroll-driven sync above can miss them); track the page eagerly.
         this._page = page;
@@ -1821,10 +1845,8 @@ const TabApps = {
             ticking = true;
             requestAnimationFrame(() => {
                 ticking = false;
-                const pageW = scroller.clientWidth || 1;
-                const idx = Math.round(Math.abs(scroller.scrollLeft) / pageW);
-                const page = Math.max(0, Math.min((self._groupPageCount || 1) - 1, idx));
-                if ( page !== self._groupPage ) {
+                const page = settledPage(scroller, self._groupPageCount || 1);
+                if ( page !== null && page !== self._groupPage ) {
                     self._groupPage = page;
                     self._updateGroupPagerUI($el_window);
                 }
@@ -2041,10 +2063,7 @@ const TabApps = {
         const scroller = $el_window.find('.myapps-group-panel-grid')[0];
         if ( ! scroller || ! this._groupPageCount ) return;
         const page = Math.max(0, Math.min(this._groupPageCount - 1, index));
-        scroller.scrollTo({
-            left: page * scroller.clientWidth,
-            behavior: (smooth && ! this._reduceMotion()) ? 'smooth' : 'auto',
-        });
+        scrollPagerTo(scroller, page, smooth && ! this._reduceMotion());
         // Programmatic scrolls don't reliably emit 'scroll' events; track the
         // page eagerly (same as goToPage).
         this._groupPage = page;
