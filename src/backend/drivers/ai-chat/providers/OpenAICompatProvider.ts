@@ -194,7 +194,9 @@ export class OpenAICompatProvider implements IChatProvider {
             await OpenAIUtil.process_input_messages(messages, {
                 preserveToolCallOrder: this.preservesToolCallOrder(model),
                 keepExtraContent: this.keepsToolCallExtraContent(model),
+                keepAssistantContent: this.preservesAssistantContent(model),
             }),
+            model,
         );
 
         const tools = args.tools
@@ -324,8 +326,19 @@ export class OpenAICompatProvider implements IChatProvider {
         return false;
     }
 
+    /**
+     * Whether a replayed assistant turn keeps its text beside hoisted tool
+     * calls.
+     */
+    protected preservesAssistantContent(_model: IChatModel): boolean {
+        return false;
+    }
+
     /** Last pass over the messages, after `process_input_messages`. */
-    protected prepareMessages(messages: PuterMessage[]): PuterMessage[] {
+    protected prepareMessages(
+        messages: PuterMessage[],
+        _model: IChatModel,
+    ): PuterMessage[] {
         return messages;
     }
 

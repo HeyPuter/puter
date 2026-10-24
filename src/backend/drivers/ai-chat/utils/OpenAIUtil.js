@@ -195,14 +195,22 @@ const hoistToolUseBlocks = (
  * make changes in-place.
  *
  * @param {Message[]} messages - Array of normalized messages
- * @param {{ preserveToolCallOrder?: boolean; keepExtraContent?: boolean }} [opts]
+ * @param {{
+ *     preserveToolCallOrder?: boolean;
+ *     keepExtraContent?: boolean;
+ *     keepAssistantContent?: boolean;
+ * }} [opts]
  *   `preserveToolCallOrder` keeps a turn's tool calls in the order the model made
  *   them. `keepExtraContent` keeps each tool call's `extra_content`.
  * @returns {Message[]} - Array of messages in OpenAI format
  */
 export const process_input_messages = async (
     messages,
-    { preserveToolCallOrder = false, keepExtraContent = false } = {},
+    {
+        preserveToolCallOrder = false,
+        keepExtraContent = false,
+        keepAssistantContent = false,
+    } = {},
 ) => {
     for (const msg of messages) {
         if (!msg.content) continue;
@@ -225,7 +233,12 @@ export const process_input_messages = async (
                 extraContent: keepExtraContent,
             })
         )
-            msg.content = null;
+            msg.content =
+                keepAssistantContent &&
+                msg.role === 'assistant' &&
+                content.length
+                    ? content
+                    : null;
 
         // coerce tool results
         // (we assume multiple tool results were already split into separate messages)
@@ -475,11 +488,22 @@ export const extractMeteredUsage = (usage) => {
  * @param {import('openai/resources/completions.mjs').CompletionUsage | undefined} usage
  */
 export const splitCachedPrompt = (usage) => {
-    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    const details = usage?.prompt_tokens_details;
+    const cachedTokens = details?.cached_tokens ?? 0;
+    // Moonshot counts the prompt tokens it wrote to its prefix cache here;
+    // they're billed at the model's write rate, not the plain prompt rate.
+    const writeTokens =
+        typeof details?.cache_write_tokens === 'number'
+            ? details.cache_write_tokens
+            : undefined;
     return {
-        prompt_tokens: (usage?.prompt_tokens ?? 0) - cachedTokens,
+        prompt_tokens:
+            (usage?.prompt_tokens ?? 0) - cachedTokens - (writeTokens ?? 0),
         completion_tokens: usage?.completion_tokens ?? 0,
         cached_tokens: cachedTokens,
+        ...(writeTokens !== undefined
+            ? { cache_write_tokens: writeTokens }
+            : {}),
     };
 };
 
