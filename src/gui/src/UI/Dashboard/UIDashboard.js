@@ -606,15 +606,39 @@ async function UIDashboard (options) {
     const $sidebar = $el_window.find('.dashboard-sidebar');
     const $scrim = $el_window.find('.dashboard-sidebar-scrim');
     const $sidebar_toggle = $el_window.find('.dashboard-sidebar-toggle');
+    const drawerFocusables = () => $sidebar.find('a[href], button').filter(':visible:not(:disabled)');
     const setMobileSidebar = (open) => {
         // Focus left inside a closing drawer would sit on hidden controls
         // (and fall to <body>); the toggle that reopens it takes it instead.
         const focusInside = ! open && $sidebar.hasClass('open') && $sidebar[0].contains(document.activeElement);
+        const opening = open && ! $sidebar.hasClass('open');
         $sidebar.toggleClass('open', open);
         $scrim.toggleClass('open', open);
         $sidebar_toggle.toggleClass('open', open).attr('aria-expanded', open ? 'true' : 'false');
         if ( focusInside ) $sidebar_toggle[0].focus({ preventScroll: true });
+        // The drawer is modal: focus starts on the current page's entry.
+        if ( opening ) {
+            const current = $sidebar.find('.dashboard-sidebar-item[aria-current="page"]')[0];
+            (current ?? drawerFocusables()[0])?.focus({ preventScroll: true });
+        }
     };
+
+    // Tab cycles inside the open drawer instead of reaching the content
+    // behind the scrim.
+    $sidebar.on('keydown', function (e) {
+        if ( e.key !== 'Tab' || ! $sidebar.hasClass('open') ) return;
+        const $focusables = drawerFocusables();
+        if ( ! $focusables.length ) return;
+        const first = $focusables[0];
+        const last = $focusables[$focusables.length - 1];
+        if ( e.shiftKey && document.activeElement === first ) {
+            e.preventDefault();
+            last.focus();
+        } else if ( ! e.shiftKey && document.activeElement === last ) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
 
     $el_window.on('click', '.dashboard-sidebar-toggle', function () {
         setMobileSidebar(!$sidebar.hasClass('open'));
