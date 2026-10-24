@@ -36,6 +36,10 @@
     --select-tint: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.1);
     --select-tint-strong: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.2);
     --select-ring: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.4);
+    /* --select-color is 3.7:1 on white, short of the 4.5:1 text needs: the
+       same hue, darker, for text in it (5.3:1) and fills under white text. */
+    --select-text: hsl(var(--select-hue), var(--select-saturation), 45%);
+    --select-fill: hsl(var(--select-hue), var(--select-saturation), 45%);
 
     --dashboard-text: #444;
     --dashboard-border: #e0e0e0;
@@ -164,6 +168,8 @@ body {
         --select-tint: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.16);
         --select-tint-strong: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.28);
         --select-ring: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.5);
+        /* Lighter on dark surfaces (5.5:1 on the cards); fills keep theirs. */
+        --select-text: hsl(var(--select-hue), var(--select-saturation), 65%);
 
         --dashboard-text: #d4d4d4;
         --dashboard-border: #3d3d3d;
@@ -2151,8 +2157,8 @@ p.myapps-add-error {
     color: var(--dashboard-error-text);
 }
 .myapps-add-send {
-    background: var(--select-color);
-    border-color: var(--select-color);
+    background: var(--select-fill);
+    border-color: var(--select-fill);
     color: #fff;
 }
 @media (hover: hover) {
@@ -3030,7 +3036,7 @@ select.share-modal-link-access {
     font-family: inherit;
     font-size: 12px;
     font-weight: 600;
-    color: var(--select-color);
+    color: var(--select-text);
     cursor: pointer;
 }
 @media (hover: hover) {
@@ -4036,7 +4042,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .directories li.active {
-    color: var(--select-color);
+    color: var(--select-text);
     font-weight: 500;
 }
 
@@ -4259,9 +4265,9 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .header .path .dirname.context-menu-active {
-    color: var(--dashboard-background);
-    background-color: var(--select-color);
-    border: 1px solid var(--select-color);
+    color: #fff;
+    background-color: var(--select-fill);
+    border: 1px solid var(--select-fill);
 }
 
 .dashboard-section-files .header .columns {
@@ -4562,7 +4568,7 @@ body.myapps-reordering .myapps-tile {
     padding: 0 6px;
     box-sizing: border-box;
     border-radius: 10px;
-    background: var(--select-color);
+    background: var(--select-fill);
     color: #fff;
     font-size: 11px;
     font-weight: 600;
@@ -7841,7 +7847,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     height: 20px;
     padding: 0 6px;
     border-radius: 10px;
-    background: var(--select-color);
+    background: var(--select-fill);
     color: #fff;
     font-size: 11px;
     font-weight: 600;
