@@ -2101,7 +2101,7 @@ const TabFiles = {
                 // Auto-width column: the full name, clipped by CSS
                 text = fullName;
             }
-            el.textContent = text;
+            if ( el.textContent !== text ) el.textContent = text;
             // A shortened name shows in full on hover.
             const title = text === fullName ? '' : fullName;
             if ( el.title !== title ) el.title = title;
