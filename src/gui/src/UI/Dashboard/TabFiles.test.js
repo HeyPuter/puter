@@ -35,7 +35,7 @@ globalThis.html_encode = value => jQuery('<div>').text(value).html();
 globalThis.i18n = globalThis.i18n ?? (key => key);
 window.icons = {};
 
-const { default: TabFiles, failedUploadsMessage, rebasePath } = await import('./TabFiles.js');
+const { default: TabFiles, failedUploadsMessage, rebasePath, typeSelectTarget } = await import('./TabFiles.js');
 
 const TRASH = '/alice/Trash';
 
@@ -408,5 +408,27 @@ describe('TabFiles footer', () => {
         $('.files .row').attr('data-size', '0');
         TabFiles.updateFooterStats();
         expect($('.files-footer-item-count').text()).toContain('0 B');
+    });
+});
+
+describe('typeSelectTarget', () => {
+    const names = ['notes', 'readme', 'report-a', 'report-b', 'zip'];
+
+    it('steps through the names a repeated letter starts', () => {
+        expect(typeSelectTarget(names, -1, 'r')).toBe(1);
+        expect(typeSelectTarget(names, 1, 'r')).toBe(2);
+        expect(typeSelectTarget(names, 2, 'rr')).toBe(3);
+        expect(typeSelectTarget(names, 3, 'rrr')).toBe(1);
+        expect(typeSelectTarget(names, 0, 'r')).toBe(1);
+    });
+
+    it('keeps a selected row a longer prefix still matches', () => {
+        expect(typeSelectTarget(names, 3, 're')).toBe(3);
+        expect(typeSelectTarget(names, 1, 'rep')).toBe(2);
+        expect(typeSelectTarget(names, 0, 'rep')).toBe(2);
+    });
+
+    it('finds nothing to select for a prefix nothing has', () => {
+        expect(typeSelectTarget(names, 0, 'q')).toBe(-1);
     });
 });

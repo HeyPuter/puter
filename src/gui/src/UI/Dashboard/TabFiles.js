@@ -83,6 +83,26 @@ export function failedUploadsMessage (err) {
 }
 
 /**
+ * The row type-to-select lands on, or -1 for none. A repeated letter ("r",
+ * "rr") steps through the names starting with it, past the selected one;
+ * a longer prefix stays on the selected row while it still matches.
+ *
+ * @param {string[]} names - The rows' names, lower-cased, in listing order
+ * @param {number} selected - Index of the selected row, or -1
+ * @param {string} term - What has been typed, lower-cased
+ * @returns {number}
+ */
+export function typeSelectTarget (names, selected, term) {
+    const cycling = [...term].every(ch => ch === term[0]);
+    const prefix = cycling ? term[0] : term;
+    const matches = names.flatMap((name, i) => (name.startsWith(prefix) ? [i] : []));
+    if ( matches.length === 0 ) return -1;
+    const at = matches.indexOf(selected);
+    if ( at === -1 ) return matches[0];
+    return cycling ? matches[(at + 1) % matches.length] : selected;
+}
+
+/**
  * TabFiles - File browser tab component for the Puter Dashboard.
  *
  * Provides a full-featured file management interface including:
@@ -1185,46 +1205,15 @@ const TabFiles = {
 
                 _this.typeSearchTerm += e.key.toLocaleLowerCase();
 
-                let matches = [];
-                const $currentSelected = $selectedRows.first();
-
-                // If selected item already matches, keep it
-                if ( $currentSelected.length === 1 ) {
-                    const selectedName = ($currentSelected.attr('data-name') || '').toLowerCase();
-                    if ( selectedName.startsWith(_this.typeSearchTerm) ) {
-                        return false;
-                    }
-                }
-
-                // Search all rows for matches
-                for ( let j = 0; j < $allRows.length; j++ ) {
-                    const name = ($allRows.eq(j).attr('data-name') || '').toLowerCase();
-                    if ( name.startsWith(_this.typeSearchTerm) ) {
-                        matches.push($allRows.get(j));
-                    }
-                }
-
-                if ( matches.length > 0 ) {
-                    // If multiple matches and one is selected, cycle past it
-                    if ( $currentSelected.length > 0 && matches.length > 1 ) {
-                        let match_index;
-                        for ( let i = 0; i < matches.length - 1; i++ ) {
-                            if ( $(matches[i]).is($currentSelected) ) {
-                                match_index = i;
-                                break;
-                            }
-                        }
-                        if ( match_index !== undefined ) {
-                            matches.splice(0, match_index + 1);
-                        }
-                    }
-
-                    // Deselect all, select the match
+                const names = $allRows.map((_, row) => (row.getAttribute('data-name') || '').toLowerCase()).get();
+                const target = typeSelectTarget(names, $allRows.index($selectedRows.first()), _this.typeSearchTerm);
+                if ( target !== -1 ) {
+                    const row = $allRows.get(target);
                     $allRows.removeClass('selected');
-                    $(matches[0]).addClass('selected');
-                    window.active_element = matches[0];
-                    window.latest_selected_item = matches[0];
-                    matches[0].scrollIntoView({ block: 'nearest' });
+                    $(row).addClass('selected');
+                    window.active_element = row;
+                    window.latest_selected_item = row;
+                    row.scrollIntoView({ block: 'nearest' });
                     _this.updateFooterStats();
                 }
 
