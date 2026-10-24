@@ -122,9 +122,10 @@ async function UIWindowDisable2FA (options) {
         hint.text(REVALIDATE_POPUP_TEXT).show();
         try {
             await openRevalidatePopup(revalidateUrl);
+            return true;
         } catch (e) {
             onError(e.message || 'Authentication failed');
-            return;
+            return false;
         } finally {
             hint.hide();
         }
@@ -153,7 +154,9 @@ async function UIWindowDisable2FA (options) {
         }
 
         if ( oidc_only && !revalidated && !password ) {
-            await myOpenRevalidatePopup();
+            // A popup closed or blocked says so; the request would only be
+            // refused, and its message would replace that.
+            if ( ! await myOpenRevalidatePopup() ) return;
 
             const res = await doSubmit({ password: undefined });
             const data = await res.json().catch(() => ({}));
@@ -178,7 +181,7 @@ async function UIWindowDisable2FA (options) {
             return;
         }
         if ( data.code === 'oidc_revalidation_required' && data.revalidate_url ) {
-            await myOpenRevalidatePopup(data.revalidate_url);
+            if ( ! await myOpenRevalidatePopup(data.revalidate_url) ) return;
             const r = await doSubmit({ password: undefined });
             if ( r.ok ) {
                 onSuccess();
