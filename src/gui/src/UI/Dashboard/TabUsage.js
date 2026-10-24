@@ -273,7 +273,7 @@ function renderUsageTable () {
         <tr>
             ${sortableTh('resource', i18n('resource'))}
             <th>${i18n('units')}</th>
-            ${sortableTh('cost', i18n(usageShowsCredits ? 'credits' : 'cost'))}
+            ${sortableTh('cost', i18n(usageShowsCredits ? 'usage_credits' : 'cost'))}
         </tr>
     </thead>`;
 
@@ -322,7 +322,7 @@ async function update_usage_details ($el_window) {
 
         $('#total-usage').html(amount(budget.used));
         $('#total-capacity').html(inCredits
-            ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'credits' : 'monthly_credits')}`
+            ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'usage_credits' : 'monthly_credits')}`
             : amount(budget.capacity));
         $('.usage-progbar-percent').html(`${budget.percent }%`);
         $('.usage-progbar').css({

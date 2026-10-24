@@ -674,7 +674,7 @@ const TabHome = {
                 .find('.bento-resources-capacity')
                 .text(
                     inCredits
-                        ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'credits' : 'monthly_credits')}`
+                        ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'usage_credits' : 'monthly_credits')}`
                         : amount(budget.capacity),
                 );
             $el_window
