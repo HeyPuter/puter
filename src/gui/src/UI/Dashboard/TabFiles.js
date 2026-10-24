@@ -1802,16 +1802,20 @@ const TabFiles = {
 
     /**
      * Moves dragged rows into a folder, leaving out the ones already in it (a
-     * drop back where they came from does nothing, as on the breadcrumbs)
-     * and the ones the user can't move (see restructurableRows). move_items
-     * would stop on an alert apiece for either.
+     * drop back where they came from does nothing, as on the breadcrumbs),
+     * the folder itself and its ancestors, and the ones the user can't move
+     * (see restructurableRows). move_items would stop on an alert apiece.
      *
      * @param {HTMLElement[]} rows
      * @param {string} targetPath
      * @returns {Promise<void>}
      */
     async moveDraggedRows (rows, targetPath) {
-        const elsewhere = Array.from(rows).filter((row) => path.dirname($(row).attr('data-path')) !== targetPath);
+        const elsewhere = Array.from(rows).filter((row) => {
+            const rowPath = $(row).attr('data-path');
+            return path.dirname(rowPath) !== targetPath
+                && targetPath !== rowPath && ! targetPath.startsWith(`${rowPath}/`);
+        });
         const movable = await this.restructurableRows(elsewhere);
         if ( movable.length > 0 ) await window.move_items(movable, targetPath);
     },
@@ -3738,7 +3742,9 @@ const TabFiles = {
 
         if ( file.is_dir ) {
             $(el_item).droppable({
-                accept: '.row',
+                // Not a target for a drag it is part of: that would move it
+                // into itself, and spring-load it open mid-drag.
+                accept: (draggable) => draggable.hasClass('row') && ! el_item.classList.contains('dragging-source'),
                 tolerance: 'pointer',
 
                 drop: async function (event, ui) {

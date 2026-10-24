@@ -142,6 +142,16 @@ describe('TabFiles.moveDraggedRows', () => {
         expect(window.move_items).toHaveBeenCalledWith([moves], '/alice/Documents');
     });
 
+    it('leaves out the target folder and any folder holding it', async () => {
+        const target = rowAt('/alice/Documents/Work');
+        const ancestor = rowAt('/alice/Documents');
+        const moves = rowAt('/alice/Pictures/b.png');
+
+        await TabFiles.moveDraggedRows([target, ancestor, moves], '/alice/Documents/Work');
+
+        expect(window.move_items).toHaveBeenCalledWith([moves], '/alice/Documents/Work');
+    });
+
     it('moves nothing when every row is already there', async () => {
         await TabFiles.moveDraggedRows([rowAt('/alice/Documents/a.txt'), rowAt('/alice/Documents/b.txt')], '/alice/Documents');
 
