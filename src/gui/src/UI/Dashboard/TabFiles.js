@@ -861,6 +861,13 @@ const TabFiles = {
                     // Force jQuery UI to end the drag
                     $(document).trigger('mouseup');
 
+                    // Ended this way, the drag never leaves the target it was
+                    // over, so nothing undoes that target's highlight.
+                    $('.files-tab .row.ui-droppable-hover:not(.dragging-source)').removeClass('selected');
+                    $('.files-tab .ui-droppable-hover').removeClass('ui-droppable-hover');
+                    $('.path-breadcrumbs .drop-target').removeClass('drop-target');
+                    _this.updateSidebarSelection();
+
                     // Cleanup
                     $('.drag-cancel-zone').remove();
                     $('.item-selected-clone').remove();
