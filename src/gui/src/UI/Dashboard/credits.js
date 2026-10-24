@@ -52,10 +52,15 @@ export const formatCredits = (credits) => {
     return value < 0.01 ? '<0.01' : String(Number(value.toFixed(2)));
 };
 
-/** Dollar rendering for deployments that report raw (unscaled) amounts. */
+/**
+ * Dollar rendering for deployments that report raw (unscaled) amounts. Like
+ * `formatCredits`, a nonzero amount under a cent shows as "<$0.01", not "$0.00".
+ */
 export const formatDollarsFromMicrocents = (microcents) => {
     const mc = Number.isFinite(microcents) ? microcents : 0;
-    return window.number_format(mc / 100_000_000, {
+    const dollars = mc / 100_000_000;
+    if ( dollars !== 0 && Math.abs(dollars) < 0.005 ) return `${dollars < 0 ? '-' : ''}<$0.01`;
+    return window.number_format(dollars, {
         decimals: 2,
         prefix: '$',
     });

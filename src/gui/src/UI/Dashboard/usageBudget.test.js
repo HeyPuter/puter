@@ -1,5 +1,24 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 import { describe, expect, it } from 'vitest';
-import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
 
 const info = (allowance, addons = {}) => ({
     monthUsageAllowance: allowance,
@@ -82,6 +101,11 @@ describe('usageBudget', () => {
         expect(budget.barPercent).toBe(100);
     });
 
+    it('reads 99% rather than 100% while some allowance is left', () => {
+        expect(usageBudget({ total: 996 }, info(1000)).percent).toBe(99);
+        expect(usageBudget({ total: 1000 }, info(1000)).percent).toBe(100);
+    });
+
     it('answers zero for an account with no budget at all', () => {
         const budget = usageBudget({ total: 0 }, info(0));
         expect(budget).toMatchObject({ capacity: 0, used: 0, percent: 0 });
@@ -121,5 +145,37 @@ describe('addonCreditsRemaining', () => {
             purchasedCredits: 1_000,
             consumedPurchaseCredits: NaN,
         }))).toBe(1_000);
+    });
+});
+
+describe('monthlyUsageOrThrow', () => {
+    it('passes a usage report through', () => {
+        const res = { usage: { total: 0 }, allowanceInfo: null };
+        expect(monthlyUsageOrThrow(res)).toBe(res);
+    });
+
+    it('throws on an error body instead of reading it as zero usage', () => {
+        expect(() => monthlyUsageOrThrow({ message: 'boom' })).toThrow('boom');
+        expect(() => monthlyUsageOrThrow({ usage: null })).toThrow();
+        expect(() => monthlyUsageOrThrow(null)).toThrow();
+        expect(() => monthlyUsageOrThrow(undefined)).toThrow();
+    });
+});
+
+describe('meterPercent', () => {
+    it('holds at 99% until the meter is full', () => {
+        expect(meterPercent(99.5)).toBe(99);
+        expect(meterPercent(99.99)).toBe(99);
+        expect(meterPercent(100)).toBe(100);
+    });
+
+    it('rounds anything below that', () => {
+        expect(meterPercent(0)).toBe(0);
+        expect(meterPercent(42.5)).toBe(43);
+        expect(meterPercent(98.4)).toBe(98);
+    });
+
+    it('reports an overspent meter as it is', () => {
+        expect(meterPercent(130.2)).toBe(130);
     });
 });

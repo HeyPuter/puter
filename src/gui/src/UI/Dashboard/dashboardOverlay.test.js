@@ -1,4 +1,22 @@
 // @vitest-environment jsdom
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
@@ -6,7 +24,7 @@ globalThis.$ = jQuery;
 globalThis.jQuery = jQuery;
 window.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 
-const { default: mountDashboardOverlay } = await import('./dashboardOverlay.js');
+const { default: mountDashboardOverlay, bindBackdropDismiss } = await import('./dashboardOverlay.js');
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const card = '<div class="dashboard-dialog" tabindex="-1"><button class="dashboard-dialog-close">x</button><input class="inside"></div>';
@@ -43,6 +61,17 @@ describe('mountDashboardOverlay', () => {
         mountDashboardOverlay({ html: card, onDismiss });
         $('.dashboard-dialog-close').last().trigger('click');
         expect(onDismiss).toHaveBeenCalledTimes(2);
+    });
+
+    it('stays up when canDismiss says no, and tells it which way was tried', () => {
+        const canDismiss = vi.fn(() => false);
+        const a = mountDashboardOverlay({ html: card, canDismiss });
+        escape();
+        $('.dashboard-dialog-close').trigger('click');
+        a.$overlay.trigger($.Event('mousedown', { target: a.$overlay[0] }));
+        a.$overlay.trigger($.Event('click', { target: a.$overlay[0] }));
+        expect(canDismiss.mock.calls.map(([via]) => via)).toEqual(['escape', 'close', 'backdrop']);
+        expect(a.isClosed()).toBe(false);
     });
 
     // A window opened from the overlay (the session manager, say) owns its own Escape.
@@ -120,5 +149,38 @@ describe('mountDashboardOverlay', () => {
 
         close();
         expect(window.visualViewport.removeEventListener).toHaveBeenCalledWith('resize', listeners.resize);
+    });
+});
+
+describe('bindBackdropDismiss', () => {
+    const mount = () => {
+        document.body.innerHTML = '<div class="scrim"><div class="card"><textarea></textarea></div></div>';
+        const $overlay = $('.scrim');
+        const dismiss = vi.fn();
+        bindBackdropDismiss($overlay, (el) => el === $overlay[0], dismiss);
+        return { el_scrim: $overlay[0], el_card: $('.card')[0], dismiss };
+    };
+    const fire = (el, type, detail = 1) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, detail }));
+
+    it('dismisses on a press and release on the backdrop', () => {
+        const { el_scrim, dismiss } = mount();
+        fire(el_scrim, 'mousedown');
+        fire(el_scrim, 'click');
+        expect(dismiss).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the overlay when a drag from the card ends on the backdrop', () => {
+        const { el_scrim, el_card, dismiss } = mount();
+        fire(el_card, 'mousedown');
+        // The browser fires the click on the nearest common ancestor.
+        fire(el_scrim, 'click');
+        expect(dismiss).not.toHaveBeenCalled();
+    });
+
+    it('ignores the second press of the double-click that opened it', () => {
+        const { el_scrim, dismiss } = mount();
+        fire(el_scrim, 'mousedown', 2);
+        fire(el_scrim, 'click', 2);
+        expect(dismiss).not.toHaveBeenCalled();
     });
 });

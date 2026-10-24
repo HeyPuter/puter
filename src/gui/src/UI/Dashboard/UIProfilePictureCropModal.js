@@ -343,7 +343,9 @@ export default function UIProfilePictureCropModal ({ picture, onSave, $container
 
     // -- Save --
     $save.on('click', function () {
-        if ( ! state ) return;
+        // The overlay fades out for a moment after closing; a second click on
+        // Save in that time (a double-click) must not save the picture again.
+        if ( ! state || closed ) return;
         const canvas = document.createElement('canvas');
         canvas.width = OUTPUT_SIZE;
         canvas.height = OUTPUT_SIZE;

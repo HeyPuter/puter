@@ -26,7 +26,9 @@ import { openChangePasswordDialog } from './UIAccountDialogs.js';
 
 const TabSecurity = {
     id: 'security',
-    label: i18n('security'),
+    get label () {
+        return i18n('security');
+    },
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
 
     html () {
@@ -115,6 +117,14 @@ const TabSecurity = {
     },
 
     init ($el_window) {
+        // These dialogs don't hand focus back when they close; a keyboard
+        // user would be left on <body>, at the top of the page.
+        const returnFocus = (el) => {
+            if ( ! document.activeElement || document.activeElement === document.body ) {
+                el?.focus({ preventScroll: true });
+            }
+        };
+
         $el_window.find('.dashboard-section-security .change-password').on('click', function () {
             openChangePasswordDialog({ $container: $el_window, returnFocusTo: this });
         });
@@ -134,8 +144,10 @@ const TabSecurity = {
         });
 
         $el_window.find('.dashboard-section-security .manage-blocked-senders').on('click', function (e) {
+            const opener = this;
             UIWindowBlockedSenders({
                 window_options: {
+                    on_close: () => setTimeout(() => returnFocus(opener)),
                     parent_uuid: $el_window.attr('data-element_uuid'),
                     backdrop: true,
                     close_on_backdrop_click: true,
@@ -168,6 +180,8 @@ const TabSecurity = {
 
             $toggle.prop('disabled', false);
             $label.removeClass('dashboard-switch-pending');
+            // After the dialog has gone, which can trail its answer.
+            setTimeout(() => returnFocus(this), 250);
 
             if ( ! succeeded ) {
                 $toggle.prop('checked', ! enabling);

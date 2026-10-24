@@ -19,7 +19,8 @@
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
-import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
@@ -196,7 +197,9 @@ function trialUsageNote(fraction, planName) {
 
 const TabHome = {
     id: 'home',
-    label: i18n('home'),
+    get label () {
+        return i18n('home');
+    },
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
 
     html() {
@@ -367,7 +370,7 @@ const TabHome = {
             if (targetLink && targetLink !== '') {
                 window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if (appName) {
-                window.open(`/app/${appName}`, '_blank', 'noopener,noreferrer');
+                window.open(`/app/${encodeURIComponent(appName)}`, '_blank', 'noopener,noreferrer');
             }
         });
 
@@ -415,8 +418,11 @@ const TabHome = {
         // Always refetch: gating on an empty list froze "Recently used" for the
         // whole session (apps launched after load never appeared). loadUsageData
         // refreshes on the same activate/focus triggers, so this stays in step.
+        // Only the newest request may write: an older one answering last
+        // would put a stale list back.
+        const seq = (this._recentAppsSeq = (this._recentAppsSeq ?? 0) + 1);
         try {
-            window.launch_apps = await $.ajax({
+            const launchApps = await $.ajax({
                 url: `${window.api_origin}/get-launch-apps?icon_size=64`,
                 type: 'GET',
                 async: true,
@@ -425,9 +431,12 @@ const TabHome = {
                     Authorization: `Bearer ${window.auth_token}`,
                 },
             });
+            if (seq !== this._recentAppsSeq) return;
+            window.launch_apps = launchApps;
         } catch (e) {
             console.error('Failed to load launch apps:', e);
         }
+        if (seq !== this._recentAppsSeq) return;
         $el_window
             .find('.bento-recent-apps-container')
             .html(buildRecentAppsHTML());
@@ -480,14 +489,19 @@ const TabHome = {
      */
     async _renderPlanCard($el_window) {
         let subscription = null;
+        // A self-hosted install has no billing routes; its users have the
+        // plan every account starts on, with nothing to upgrade to (no
+        // upgrade dialog either, which only hosted Puter loads).
+        let noBilling = false;
         try {
             const resp = await fetch(
                 `${window.api_origin}/marketplace/subscriptions/current`,
                 { headers: { Authorization: `Bearer ${puter.authToken}` } },
             );
+            noBilling = resp.status === 404;
             // A refusal is not a free plan: a seat owing a password change 403s.
-            if (!resp.ok) return;
-            const data = await resp.json();
+            if (!resp.ok && !noBilling) return;
+            const data = noBilling ? null : await resp.json();
             subscription = data?.subscription ?? null;
         } catch (e) {
             console.error('Failed to load plan data:', e);
@@ -588,6 +602,11 @@ const TabHome = {
                 $el_window.find('.bento-plan-upgrade').hide();
             }
 
+            if (noBilling && typeof window.UIUpgradeAccount !== 'function') {
+                $badge.text('').removeClass('free');
+                $el_window.find('.bento-plan-upgrade').hide();
+            }
+
             $el_window
                 .find('.bento-plan-upgrade')
                 .off('click.billing')
@@ -607,12 +626,11 @@ const TabHome = {
 
         // Load storage data
         try {
-            const res = await puter.fs.space();
+            const res = await getStorageSpace();
             // Guard capacity 0 — 0/0 would render literally as "NaN%".
-            let usage_percentage = res.capacity
-                ? ((res.used / res.capacity) * 100).toFixed(0)
-                : '0';
-            usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;
+            const usage_percentage = res.capacity
+                ? Math.min(100, meterPercent((res.used / res.capacity) * 100))
+                : 0;
 
             let general_used = res.used;
             if (res.host_used) {
@@ -638,7 +656,7 @@ const TabHome = {
 
         // Load monthly usage data
         try {
-            const res = await puter.auth.getMonthlyUsage();
+            const res = monthlyUsageOrThrow(await getMonthlyUsage());
             const budget = usageBudget(res.usage, res.allowanceInfo);
             const addonLeft = addonCreditsRemaining(res.allowanceInfo);
             // The server reports credits (already scaled) or raw amounts
@@ -655,7 +673,7 @@ const TabHome = {
                 .find('.bento-resources-capacity')
                 .text(
                     inCredits
-                        ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'credits' : 'monthly_credits')}`
+                        ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'usage_credits' : 'monthly_credits')}`
                         : amount(budget.capacity),
                 );
             $el_window

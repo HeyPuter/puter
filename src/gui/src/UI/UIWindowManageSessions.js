@@ -131,9 +131,12 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     w_body.className = 'session-manager-list';
     modal.appendChild(w_body);
 
+    // The modal takes keyboard focus while it's up, and gives it back after.
+    const el_previous_focus = document.activeElement;
     document.body.appendChild(backdrop);
     // Next frame so the open transition runs.
     requestAnimationFrame(() => backdrop.classList.add('open'));
+    el_close.focus({ preventScroll: true });
 
     // Refresh handles — assigned once the list wiring below is in place,
     // referenced by close(). Declared here so close() can see them.
@@ -150,6 +153,9 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         backdrop.classList.remove('open');
         // Remove after the fade-out; guard against a missing transitionend.
         setTimeout(() => backdrop.remove(), 200);
+        if ( modal.contains(document.activeElement) || document.activeElement === document.body ) {
+            el_previous_focus?.focus?.({ preventScroll: true });
+        }
     };
 
     // Escape: cancel an open confirm sheet if there is one, otherwise close
@@ -164,6 +170,23 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         close();
     };
     document.addEventListener('keydown', onKeydown);
+
+    // Tab cycles inside the modal rather than reaching the page behind it.
+    modal.addEventListener('keydown', (e) => {
+        if ( e.key !== 'Tab' ) return;
+        const focusables = [...modal.querySelectorAll('button, input, select, textarea, a[href], [tabindex]:not([tabindex="-1"])')]
+            .filter(el => ! el.disabled && el.offsetParent !== null);
+        if ( ! focusables.length ) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if ( e.shiftKey && document.activeElement === first ) {
+            e.preventDefault();
+            last.focus();
+        } else if ( ! e.shiftKey && document.activeElement === last ) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
 
     el_close.addEventListener('click', close);
     backdrop.addEventListener('mousedown', (e) => {

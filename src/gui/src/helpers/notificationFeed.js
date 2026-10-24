@@ -262,10 +262,14 @@ export function createNotificationFeed ({
             undismissed(),
         ]);
 
+        const claimed = [];
         for ( const item of replayCandidates(pages.flat(), { unacknowledged, delivered }) ) {
-            const claimed = await claimShown(item.uid).catch(() => false);
-            if ( claimed ) hand([item], true);
+            if ( await claimShown(item.uid).catch(() => false) ) claimed.push(item);
         }
+        // One hand-off, so a pile of missed notifications toasts as a burst
+        // (a few, then a summary) rather than one toast each. Anything that
+        // arrived live while the claims were out has been shown already.
+        hand(claimed.filter((item) => ! delivered.has(item.uid)), true);
     };
 
     /** The subscription is gone; the socket listeners render from here on. */

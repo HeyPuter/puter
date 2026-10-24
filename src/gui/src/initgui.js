@@ -245,6 +245,20 @@ const postAuthActions = async (action) => {
     // Dashboard mode
     // -------------------------------------------------------------------------------------
     else if ( window.is_dashboard_mode ) {
+        // Paint in the language this browser last loaded, so the dashboard
+        // doesn't wait on the saved preferences; a different saved language
+        // reloads into it.
+        window.locale = window.resolve_language(window.user_preferences.language);
+        const painted_language = window.locale;
+        const painted_hidden = !! window.user_preferences.show_hidden_files;
+        window.load_user_preferences().then(() => {
+            if ( window.locale !== painted_language ) {
+                location.reload();
+            } else if ( !! window.user_preferences.show_hidden_files !== painted_hidden
+                && window.dashboard_object?.currentPath ) {
+                window.dashboard_object.renderDirectory(window.dashboard_object.currentPath);
+            }
+        });
         const el_dashboard_promise = UIDashboard();
         // Direct landing on /app/<name>: open the app in the dashboard the
         // same way a tile launch does. The dashboard's route is slotted
@@ -327,6 +341,7 @@ const postAuthActions = async (action) => {
                     // No dashboard window — no intro; still launch.
                 }
                 const app_obj = await app_info_promise;
+                let launched = false;
                 launch_app({
                     name: app_name,
                     maximized: true,
@@ -340,10 +355,12 @@ const postAuthActions = async (action) => {
                         },
                     } : {}),
                     window_options: { morph_from_dashboard_tile: true },
+                }).then((outcome) => {
+                    launched = outcome?.launchResult?.launched !== false;
                 }).catch((err) => {
                     console.error(`Failed to launch ${app_name} from URL:`, err);
                 }).finally(() => {
-                    TabApps.settleDeepLinkLaunch(app_name, tile);
+                    TabApps.settleDeepLinkLaunch(app_name, tile, launched);
                 });
             })();
         }

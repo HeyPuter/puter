@@ -711,13 +711,18 @@ window.mutate_user_preferences = function (user_preferences_delta) {
     window.update_user_preferences({ ...window.user_preferences, ...user_preferences_delta });
 };
 
+/**
+ * The language to render in for a saved `language` preference. The stored
+ * value can be anything, and i18n/Intl throw on some bad locales.
+ */
+window.resolve_language = (language) => (window.listSupportedLanguages().some(lang => lang.code === language)
+    ? language
+    : 'en');
+
 window.update_user_preferences = function (user_preferences) {
     window.user_preferences = user_preferences;
     localStorage.setItem('user_preferences', JSON.stringify(user_preferences));
-    // The stored value can be anything, and i18n/Intl throw on some bad locales.
-    const language = window.listSupportedLanguages().some(lang => lang.code === user_preferences.language)
-        ? user_preferences.language
-        : 'en';
+    const language = window.resolve_language(user_preferences.language);
     window.locale = language;
 
     // Broadcast locale change to apps
@@ -725,6 +730,32 @@ window.update_user_preferences = function (user_preferences) {
     broadcastService.sendBroadcast('localeChanged', {
         language: language,
     }, { sendToNewAppInstances: true });
+};
+
+/**
+ * Read the account's saved preferences and apply them. A read that fails
+ * keeps what this browser last loaded.
+ */
+window.load_user_preferences = async function () {
+    const user_preferences = {
+        show_hidden_files: window.user_preferences.show_hidden_files,
+        language: window.user_preferences.language,
+    };
+    try {
+        user_preferences.show_hidden_files = JSON.parse(await puter.kv.get('user_preferences.show_hidden_files'));
+    } catch (e) {
+        console.error('Error loading show_hidden_files', e);
+    }
+    try {
+        user_preferences.language = await puter.kv.get('user_preferences.language');
+    } catch (e) {
+        console.error('Error loading language', e);
+    }
+    const entries = await puter.kv.list('user_preferences.default_apps.*', true).catch(() => []);
+    for ( const entry of entries ) {
+        user_preferences[entry.key.substring(17)] = entry.value;
+    }
+    window.update_user_preferences(user_preferences);
 };
 
 window.sendWindowWillCloseMsg = function (iframe_element) {
@@ -1288,7 +1319,7 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                         // pops up on top of the dialog while it waits.
                         clearTimeout(progwin_timeout);
                         const alert_resp = await UIAlert({
-                            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                            message: i18n('item_already_exists', [err.entry_name], false),
                             buttons: [
                                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                                 ... (window.clipboard.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
@@ -1427,7 +1458,7 @@ window.copy_items = function (el_items, dest_path) {
                         // pops up on top of the dialog while it waits.
                         clearTimeout(progwin_timeout);
                         const alert_resp = await UIAlert({
-                            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                            message: i18n('item_already_exists', [err.entry_name], false),
                             buttons: [
                                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                                 ... (el_items.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
@@ -1533,7 +1564,9 @@ window.delete_item = async function (el_item, descendants_only = false) {
             $(`.item[data-shortcut_to_path="${html_encode($(el_item).attr('data-path'))}" i]`).attr('data-shortcut_to_path', '');
         });
     } catch ( err ) {
-        UIAlert(err.responseText);
+        // Nothing was deleted: bring back what was faded out above.
+        $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).stop(true).fadeIn(150);
+        UIAlert(err?.message ?? err?.responseText ?? String(err));
     }
 };
 
@@ -2025,7 +2058,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     // pops up on top of the dialog while it waits.
                     clearTimeout(progwin_timeout);
                     const alert_resp = await UIAlert({
-                        message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                        message: i18n('item_already_exists', [err.entry_name], false),
                         buttons: [
                             { label: i18n('replace'), type: 'primary', value: 'replace' },
                             ... (el_items.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
@@ -2395,7 +2428,7 @@ window.upload_items = async function (items, dest_path) {
             },
             // error
             error: async function (err) {
-                upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
+                upload_progress_window.show_error(i18n('error_uploading_files', [], false), err.message);
                 // remove from active_uploads
                 delete window.active_uploads[opid];
             },
@@ -3657,7 +3690,7 @@ window.handle_same_name_exists = async ({
             return false;
         }
         const alert_resp = await UIAlert({
-            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+            message: i18n('item_already_exists', [err.entry_name], false),
             buttons: [
                 {
                     label: i18n('replace'),

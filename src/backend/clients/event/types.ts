@@ -679,6 +679,10 @@ export type EventMap = {
         requestHash?: string;
         mime: string;
     };
+    // Asked for a request whose host is outside every configured domain. A
+    // listener that recognises the host sets `result.subdomain` to the site
+    // it serves; an unclaimed host is answered with a 404.
+    'site.resolveHost': { host: string; result: { subdomain: string | null } };
     // Asked before a hosted file is streamed. A listener that owns the site
     // sets `result.allowed = false` to withhold the entry; the visitor then
     // sees the same 404 as for a missing file.

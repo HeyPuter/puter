@@ -66,6 +66,10 @@ const revalidating = (dialog) => () => dialog.setStatus(t('revalidate_sign_in_po
  * @param {AccountDialogOptions & { onSave?: (profile: { displayName?: string|null, bio?: string|null }) => void }} [opts]
  */
 export function openEditProfileDialog ({ onSave, ...opts } = {}) {
+    const initial = {
+        displayName: window.user?.profile?.displayName ?? '',
+        bio: window.user?.profile?.bio ?? '',
+    };
     return UIDashboardFormDialog({
         ...opts,
         title: t('edit_profile'),
@@ -74,24 +78,33 @@ export function openEditProfileDialog ({ onSave, ...opts } = {}) {
             {
                 name: 'displayName',
                 label: i18n('display_name'),
-                value: window.user?.profile?.displayName ?? '',
+                value: initial.displayName,
                 attrs: { maxlength: DISPLAY_NAME_MAX_LENGTH, autocomplete: 'off' },
             },
             {
                 name: 'bio',
                 type: 'textarea',
                 label: i18n('bio'),
-                value: window.user?.profile?.bio ?? '',
+                value: initial.bio,
                 attrs: { maxlength: BIO_MAX_LENGTH, rows: 4 },
             },
         ],
         async onSubmit (dialog) {
             const values = dialog.values();
-            // An empty field clears it.
-            const patch = {
-                displayName: values.displayName.trim() || null,
-                bio: values.bio.trim() || null,
-            };
+            // Only what was edited: the prefill comes from this session's copy
+            // of the profile, which can be stale, and sending an untouched
+            // field would write that copy over a newer one. An empty field
+            // clears it.
+            const patch = {};
+            for ( const key of ['displayName', 'bio'] ) {
+                if ( values[key].trim() !== initial[key].trim() ) {
+                    patch[key] = values[key].trim() || null;
+                }
+            }
+            if ( ! Object.keys(patch).length ) {
+                dialog.close();
+                return;
+            }
             // update_profile resolves with no profile when the request failed.
             const profile = await window.update_profile(window.user.username, patch);
             if ( ! profile ) {
@@ -313,7 +326,8 @@ export function openCreateTokenDialog ({ $sessionsParent, ...opts } = {}) {
             h += `<button type="button" class="dashboard-dialog-btn dashboard-dialog-btn-quiet dashboard-token-copy">${i18n('copy')}</button>`;
             h += '</div>';
             h += `<p class="dashboard-form-hint">${i18n('token_manage_hint')} <button type="button" class="dashboard-token-sessions">${i18n('ui_manage_sessions')}</button>.</p>`;
-            dialog.finish({ html: h });
+            // The token is shown only once; only Done, ✕ or Escape put it away.
+            dialog.finish({ html: h, keepOnBackdrop: true });
         },
     });
 
@@ -321,14 +335,25 @@ export function openCreateTokenDialog ({ $sessionsParent, ...opts } = {}) {
     dialog.$dialog.on('click', '.dashboard-token-copy', function () {
         const $btn = $(this);
         const $value = dialog.$dialog.find('.dashboard-token-value');
-        navigator.clipboard.writeText(String($value.val())).then(() => {
+        const copied = () => {
             $btn.text(t('token_copied'));
             clearTimeout(copied_timer);
             copied_timer = setTimeout(() => $btn.text(t('copy')), TOKEN_COPIED_RESET_MS);
-        }, () => {
-            // No clipboard access: select it so the user can copy it by hand.
+        };
+        // No clipboard access (an insecure origin has no navigator.clipboard
+        // at all): select it, try the legacy copy, and leave it selected so
+        // the user can copy it by hand.
+        const by_hand = () => {
             $value.get(0)?.select();
-        });
+            try {
+                if ( document.execCommand('copy') ) copied();
+            } catch { /* stays selected */ }
+        };
+        if ( navigator.clipboard?.writeText ) {
+            navigator.clipboard.writeText(String($value.val())).then(copied, by_hand);
+        } else {
+            by_hand();
+        }
     });
     dialog.$dialog.on('focus', '.dashboard-token-value', function () {
         this.select();

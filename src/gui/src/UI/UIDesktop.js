@@ -383,17 +383,18 @@ async function UIDesktop (options) {
         $(`.item[data-uid='${item.uid}']`).find('.item-icon-thumb').attr('src', new_icon);
         $(`.item[data-uid='${item.uid}']`).find('.item-icon-icon').attr('src', new_icon);
 
-        // Set new data-name
-        $(`.item[data-uid='${item.uid}']`).attr('data-name', html_encode(item.name));
-        $(`.window-${item.uid}`).attr('data-name', html_encode(item.name));
+        // Set new data-name. Attributes and form values are stored raw
+        // (.attr()/.val() don't parse HTML), as rename_file writes them.
+        $(`.item[data-uid='${item.uid}']`).attr('data-name', item.name);
+        $(`.window-${item.uid}`).attr('data-name', item.name);
 
         // Set new title attribute
-        $(`.item[data-uid='${item.uid}']`).attr('title', html_encode(item.name));
-        $(`.window-${options.uid}`).attr('title', html_encode(item.name));
+        $(`.item[data-uid='${item.uid}']`).attr('title', item.name);
+        $(`.window-${item.uid}`).attr('title', item.name);
 
         // Set new value for item-name-editor
-        $(`.item[data-uid='${item.uid}'] .item-name-editor`).val(html_encode(item.name));
-        $(`.item[data-uid='${item.uid}'] .item-name`).attr('title', html_encode(item.name));
+        $(`.item[data-uid='${item.uid}'] .item-name-editor`).val(item.name);
+        $(`.item[data-uid='${item.uid}'] .item-name`).attr('title', item.name);
 
         // Set new data-path
         const new_path = item.path;
@@ -616,17 +617,18 @@ async function UIDesktop (options) {
         const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await item_icon(item)).image);
         $(`.item[data-uid='${item.uid}']`).find('.item-icon-icon').attr('src', new_icon);
 
-        // Set new data-name
-        $(`.item[data-uid='${item.uid}']`).attr('data-name', html_encode(item.name));
-        $(`.window-${item.uid}`).attr('data-name', html_encode(item.name));
+        // Set new data-name. Attributes and form values are stored raw
+        // (.attr()/.val() don't parse HTML), as rename_file writes them.
+        $(`.item[data-uid='${item.uid}']`).attr('data-name', item.name);
+        $(`.window-${item.uid}`).attr('data-name', item.name);
 
         // Set new title attribute
-        $(`.item[data-uid='${item.uid}']`).attr('title', html_encode(item.name));
-        $(`.window-${options.uid}`).attr('title', html_encode(item.name));
+        $(`.item[data-uid='${item.uid}']`).attr('title', item.name);
+        $(`.window-${item.uid}`).attr('title', item.name);
 
         // Set new value for item-name-editor
-        $(`.item[data-uid='${item.uid}'] .item-name-editor`).val(html_encode(item.name));
-        $(`.item[data-uid='${item.uid}'] .item-name`).attr('title', html_encode(item.name));
+        $(`.item[data-uid='${item.uid}'] .item-name-editor`).val(item.name);
+        $(`.item[data-uid='${item.uid}'] .item-name`).attr('title', item.name);
 
         // Set new data-path
         const new_path = item.path;
@@ -736,37 +738,7 @@ async function UIDesktop (options) {
         window.history.pushState(null, document.title, window.location.pathname);
     }
 
-    //show_hidden_files
-    let show_hidden_files = false;
-    try {
-        show_hidden_files = JSON.parse(await puter.kv.get('user_preferences.show_hidden_files'));
-    } catch (e) {
-        console.error('Error loading show_hidden_files', e);
-    }
-
-    // language
-    let language = 'en';
-    try {
-        language = await puter.kv.get('user_preferences.language');
-    } catch (e) {
-        console.error('Error loading language', e);
-    }
-
-    // update local user preferences
-    const user_preferences = {
-        show_hidden_files: show_hidden_files,
-        language: language,
-    };
-
-    // update default apps
-    {
-        const entries = await puter.kv.list('user_preferences.default_apps.*', true).catch(() => []);
-        for ( const entry of entries ) {
-            user_preferences[entry.key.substring(17)] = entry.value;
-        }
-
-        window.update_user_preferences(user_preferences);
-    }
+    await window.load_user_preferences();
 
     // Append to <body>
     $('body').append(h);

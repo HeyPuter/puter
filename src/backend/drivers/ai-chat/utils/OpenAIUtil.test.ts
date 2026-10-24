@@ -331,6 +331,29 @@ describe('process_input_messages', () => {
         ]);
     });
 
+    it("keeps a replayed call's serialized arguments verbatim", async () => {
+        // An OpenAI-shaped `tool_calls` entry normalizes with its arguments
+        // still a JSON string.
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'call_1',
+                        name: 'lookup',
+                        input: '{"q":"puter"}',
+                    },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages(messages)) as Array<{
+            tool_calls: Array<{ function: { arguments: string } }>;
+        }>;
+        expect(out!.tool_calls[0]!.function.arguments).toBe('{"q":"puter"}');
+    });
+
     describe('tool call extra_content', () => {
         const turn = (): Array<Record<string, unknown>> => [
             {
@@ -770,6 +793,28 @@ describe('process_input_messages_responses_api', () => {
         expect(out!.arguments).toBe(JSON.stringify({ q: 'puter' }));
         expect(out!.role).toBeUndefined();
         expect(out!.content).toBeUndefined();
+    });
+
+    it("keeps a replayed call's serialized arguments verbatim", async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'call_1',
+                        name: 'lookup',
+                        input: '{"q":"puter"}',
+                    },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out!.type).toBe('function_call');
+        expect(out!.arguments).toBe('{"q":"puter"}');
     });
 
     it('rewrites tool_result blocks into function_call_output', async () => {

@@ -317,6 +317,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     };
 
     const render = () => {
+        const hadFocus = $panel[0].contains(document.activeElement);
         const count = unreadCount(entries);
         const label = badgeLabel(count);
 
@@ -340,6 +341,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const was = isOpen ? focusedRow() : null;
         $list.html(entries.map(rowHtml).join(''));
         restoreFocus(was);
+        // A control this render hid (Mark all read, Retry) took focus with
+        // it; keep it in the panel rather than on the page behind.
+        if ( isOpen && hadFocus && ! $panel[0].contains(document.activeElement) ) {
+            $panel[0].focus({ preventScroll: true });
+        }
         justAdded.clear();
         if ( isOpen ) for ( const entry of entries ) surfaced.add(entry.uid);
     };
@@ -467,7 +473,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             icon: toastIconFor(notification),
             value: notification,
             timeout: TOAST_TIMEOUT_MS,
-            click: () => void reveal_dashboard().then(() => actOn(entry)),
+            // With nothing to open on the dashboard, a click only dismisses;
+            // it mustn't send the apps the user is working in away.
+            click: () => {
+                if ( notificationTarget(notification) === null ) void markRead(entry.uid);
+                else void reveal_dashboard().then(() => actOn(entry));
+            },
             // The ✕ is a dismissal; timing out is not, so `close` alone acks.
             close: () => void markRead(entry.uid),
         });
@@ -709,10 +720,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     socket.on('notif.ack', ({ uid }) => {
         if ( ! uid ) return;
         $(`.notification[data-uid="${html_encode(uid)}"]`).closest('.notification-wrapper').remove();
-        if ( ! entries.some((e) => e.uid === uid && isUnread(e)) ) return;
-        // Read in another tab: a listing already in flight predates it too.
+        // Read in another tab: a listing already in flight predates it too,
+        // even one bringing an entry this tab hasn't seen yet.
         const now = Date.now();
         acked.set(uid, now);
+        if ( ! entries.some((e) => e.uid === uid && isUnread(e)) ) return;
         entries = setReadAt(entries, uid, now);
         render();
     });

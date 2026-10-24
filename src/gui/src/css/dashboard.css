@@ -1,3 +1,22 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 /* ======================================
    Dashboard
    ====================================== */
@@ -27,12 +46,15 @@
 
     --dashboard-text-primary: #1e293b;
     --dashboard-text-secondary: #666;
-    --dashboard-text-tertiary: #888;
+    --dashboard-text-tertiary: #707070;
     --dashboard-text-heading: #333;
     --dashboard-text-card-title: #1a1a1a;
     --dashboard-text-username: #414b62;
     --dashboard-text-hint: #64748b;
-    --dashboard-text-muted: #94a3b8;
+    /* Muted and tertiary text still clear 4.5:1 on the cards and sidebar;
+       disabled controls keep the fainter grey. */
+    --dashboard-text-muted: #5f6b7d;
+    --dashboard-text-disabled: #94a3b8;
 
     --dashboard-card-background: #ffffff;
     --dashboard-content-background: #fcfcfd;
@@ -41,8 +63,12 @@
     --dashboard-avatar-background: #ddd;
     --dashboard-input-background: rgb(245, 247, 249);
 
-    --dashboard-link: #5271ff;
-    --dashboard-link-hover: #3d5bd9;
+    /* Link text: 4.5:1 or better on the cards and the content background. */
+    --dashboard-link: #3d5bd9;
+    --dashboard-link-hover: #2f4bc0;
+    /* Primary button fills, under white text: 4.5:1 or better in both themes. */
+    --dashboard-button-primary: #4a67f5;
+    --dashboard-button-primary-hover: #3d5bd9;
 
     --dashboard-warning-icon: #ffbb00;
     --dashboard-warning-background: #fef3c7;
@@ -60,9 +86,9 @@
 
     --dashboard-success-background: #e6ffed;
     --dashboard-success-border: #08bf4e;
-    --dashboard-success-text: #03933a;
+    --dashboard-success-text: #15803d;
 
-    --dashboard-danger-text: #dc2626;
+    --dashboard-danger-text: #b91c1c;
     --dashboard-danger-background: #fef2f2;
     --dashboard-danger-border: #fecaca;
     --dashboard-error-text: #dc2626;
@@ -142,18 +168,21 @@ body {
         --dashboard-text: #d4d4d4;
         --dashboard-border: #3d3d3d;
         --dashboard-background: #1e1e1e;
-        --dashboard-hover: #2a2a2a;
+        /* As far off the dark cards and sidebar as light mode's hover is
+           off white; #2a2a2a barely differed from them. */
+        --dashboard-hover: #333333;
         --dashboard-icon: #888;
         --dashboard-sidebar-background: #252525;
 
         --dashboard-text-primary: #e2e8f0;
         --dashboard-text-secondary: #a1a1aa;
-        --dashboard-text-tertiary: #71717a;
+        --dashboard-text-tertiary: #94949c;
         --dashboard-text-heading: #f4f4f5;
         --dashboard-text-card-title: #fafafa;
         --dashboard-text-username: #c4cad6;
         --dashboard-text-hint: #94a3b8;
-        --dashboard-text-muted: #64748b;
+        --dashboard-text-muted: #8b95a5;
+        --dashboard-text-disabled: #64748b;
 
         --dashboard-card-background: #262626;
         --dashboard-content-background: #1e1e1e;
@@ -164,6 +193,9 @@ body {
 
         --dashboard-link: #6b8cff;
         --dashboard-link-hover: #8aa4ff;
+        /* Hover darkens here too: the lighter link-hover fails under white text. */
+        --dashboard-button-primary: #4a67f5;
+        --dashboard-button-primary-hover: #3d5bd9;
 
         --dashboard-warning-icon: #fbbf24;
         --dashboard-warning-background: #422006;
@@ -246,11 +278,12 @@ body {
 }
 
 .dashboard-sidebar {
-    width: 250px;
-    min-width: 200px;
+    /* The safe-area insets clear a landscape phone's notch; elsewhere they're 0. */
+    width: calc(250px + env(safe-area-inset-left, 0px));
+    min-width: calc(200px + env(safe-area-inset-left, 0px));
     background: var(--dashboard-sidebar-background);
     border-right: 1px solid var(--dashboard-border);
-    padding: 16px 12px;
+    padding: 16px 12px 16px calc(12px + env(safe-area-inset-left, 0px));
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
@@ -343,9 +376,11 @@ body {
     display: none;
 }
 
-.dashboard-sidebar-collapse-toggle:hover {
-    background: var(--dashboard-hover);
-    color: var(--dashboard-text);
+@media (hover: hover) {
+    .dashboard-sidebar-collapse-toggle:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text);
+    }
 }
 
 /* Collapsed sidebar state. Desktop only: below the drawer breakpoint the
@@ -353,9 +388,9 @@ body {
    drawer as an unlabeled icon strip. */
 @media (min-width: 769px) {
     .dashboard-sidebar.collapsed {
-        width: 50px;
-        min-width: 50px;
-        padding: 16px 6px;
+        width: calc(50px + env(safe-area-inset-left, 0px));
+        min-width: calc(50px + env(safe-area-inset-left, 0px));
+        padding: 16px 6px 16px calc(6px + env(safe-area-inset-left, 0px));
     }
 
     .dashboard-sidebar.collapsed .dashboard-sidebar-header {
@@ -419,7 +454,9 @@ body {
     color: var(--dashboard-text);
     white-space: nowrap;
     pointer-events: none;
-    z-index: 1000;
+    /* On body, so above the dashboard window, whose z-index climbs with
+       every click (focusWindow); same band as the notification toasts. */
+    z-index: 999999999;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     opacity: 0;
     transition: opacity 0.15s ease;
@@ -465,6 +502,23 @@ body {
 
     .dashboard-sidebar-close {
         display: inline-flex;
+    }
+}
+
+@media (pointer: coarse) {
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .dashboard-sidebar-close {
+        position: relative;
+    }
+
+    .dashboard-sidebar-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
     }
 }
 
@@ -602,7 +656,7 @@ body {
 
 .dashboard-content {
     flex: 1;
-    padding: 24px 32px;
+    padding: 24px calc(32px + env(safe-area-inset-right, 0px)) 24px 32px;
     overflow-y: auto;
     overflow-x: hidden;
     background: var(--dashboard-content-background);
@@ -661,7 +715,7 @@ body {
 /* Dashboard Apps */
 
 .dashboard-content.apps {
-    padding: 0;
+    padding: 0 env(safe-area-inset-right, 0px) 0 0;
 }
 
 .dashboard-section-apps {
@@ -1082,6 +1136,12 @@ input.myapps-search:disabled {
     height: 16px;
 }
 
+/* An arrow with no page to go to leaves the accessibility tree once faded. */
+.myapps-pager-arrow.myapps-pager-arrow-hidden {
+    visibility: hidden;
+    transition: opacity 0.15s ease, background 0.15s ease, visibility 0s 0.15s;
+}
+
 .myapps-pager-arrow-prev {
     left: 0;
 }
@@ -1165,6 +1225,13 @@ input.myapps-search:disabled {
 
 .myapps-tile:focus-visible .myapps-tile-icon {
     transform: scale(1.08);
+}
+
+/* The enlargement alone is easy to miss; a ring says which tile has focus. */
+.myapps-tile:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: 2px;
+    border-radius: 14px;
 }
 
 /* Uninstall: the tile shrinks away in place, then the surviving tiles
@@ -1546,6 +1613,11 @@ input.myapps-group-name:focus {
     cursor: pointer;
     transition: background 0.15s, opacity 0.15s;
 }
+@media (pointer: coarse) {
+    .myapps-modal-btn {
+        min-height: 44px;
+    }
+}
 .myapps-modal-cancel {
     background: var(--dashboard-card-background);
     color: var(--dashboard-text-primary);
@@ -1556,9 +1628,9 @@ input.myapps-group-name:focus {
     }
 }
 .myapps-modal-confirm {
-    background: #e53935;
+    background: #d32f2f;
     color: #fff;
-    border-color: #e53935;
+    border-color: #d32f2f;
 }
 @media (hover: hover) {
     .myapps-modal-confirm:hover {
@@ -1621,7 +1693,9 @@ input.myapps-group-name:focus {
 
 .app-feedback-modal {
     width: min(440px, 100%);
-    max-height: calc(100vh - 40px);
+    /* dvh: on phones 100vh is the viewport with the browser bars hidden,
+       taller than what's visible while they show. */
+    max-height: calc(100dvh - 40px);
     overflow-y: auto;
     background: var(--afb-bg);
     color: var(--afb-fg);
@@ -1648,6 +1722,7 @@ input.myapps-group-name:focus {
     font-weight: 600;
 }
 .app-feedback-x {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1661,6 +1736,18 @@ input.myapps-group-name:focus {
     color: var(--afb-muted);
     cursor: pointer;
     transition: background-color 0.12s ease, color 0.12s ease;
+}
+@media (pointer: coarse) {
+    /* Keeps its 30px look and hit-tests at 44x44. */
+    .app-feedback-x::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 .app-feedback-x svg {
     width: 16px;
@@ -1780,22 +1867,21 @@ input.myapps-group-name:focus {
     }
 }
 .app-feedback-btn-primary {
-    border-color: #088ef0;
-    background: linear-gradient(#34a5f8, #088ef0);
+    border-color: var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
     color: #fff;
 }
 @media (hover: hover) {
     /* Must out-rank .app-feedback-btn:hover:not(:disabled) above, which
        would otherwise repaint the primary button with the light hover bg. */
     .app-feedback-btn.app-feedback-btn-primary:hover:not(:disabled) {
-        filter: brightness(1.05);
-        background: linear-gradient(#34a5f8, #088ef0);
+        border-color: var(--dashboard-button-primary-hover);
+        background: var(--dashboard-button-primary-hover);
     }
 }
 .app-feedback-btn-primary:disabled {
     opacity: 0.5;
     cursor: default;
-    filter: none;
 }
 /* Cancel/X are disabled while a submit is in flight. */
 .app-feedback-btn:disabled,
@@ -1837,7 +1923,7 @@ input.myapps-group-name:focus {
     }
     .app-feedback-modal {
         width: 100%;
-        max-height: 92vh;
+        max-height: 92dvh;
         border-radius: 14px 14px 0 0;
         transform: translateY(16px);
         /* Flush with the bottom edge: keep the actions above the home
@@ -1952,6 +2038,7 @@ input.myapps-group-name:focus {
     margin: 0;
 }
 .myapps-add-back {
+    position: relative;
     flex: none;
     display: flex;
     align-items: center;
@@ -1967,6 +2054,18 @@ input.myapps-group-name:focus {
     background: none;
     color: var(--dashboard-text-secondary);
     cursor: pointer;
+}
+@media (pointer: coarse) {
+    /* Keeps its 26px look and hit-tests at 44x44. */
+    .myapps-add-back::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 .myapps-add-back svg {
     width: 17px;
@@ -2130,6 +2229,7 @@ p.myapps-add-error {
     color: var(--dashboard-text-muted);
 }
 .item-props-close {
+    position: relative;
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -2143,6 +2243,18 @@ p.myapps-add-error {
     color: var(--dashboard-text-secondary);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
+}
+@media (pointer: coarse) {
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .item-props-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 @media (hover: hover) {
     .item-props-close:hover {
@@ -2236,12 +2348,31 @@ p.myapps-add-error {
 }
 .item-props-disassociate {
     margin-left: 8px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    font: inherit;
     font-size: 12px;
     color: var(--dashboard-danger-text);
     cursor: pointer;
 }
 .item-props-disassociate:hover {
     text-decoration: underline;
+}
+.item-props-disassociate:disabled {
+    opacity: 0.5;
+    cursor: default;
+    text-decoration: none;
+}
+.item-props-modal:focus {
+    outline: none;
+}
+.item-props-close:focus-visible,
+.item-props-tab:focus-visible,
+.item-props-disassociate:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
 }
 
 /* Versions */
@@ -2299,6 +2430,13 @@ p.myapps-add-error {
     }
     .item-props-label {
         flex-basis: auto;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .item-props-overlay,
+    .item-props-modal {
+        transition: none;
     }
 }
 
@@ -2691,9 +2829,9 @@ select.share-modal-link-access {
     margin-top: 10px;
     padding: 0 16px;
     height: 38px;
-    border: 1px solid var(--dashboard-link);
+    border: 1px solid var(--dashboard-button-primary);
     border-radius: 10px;
-    background: var(--dashboard-link);
+    background: var(--dashboard-button-primary);
     font-size: 13.5px;
     font-weight: 600;
     font-family: inherit;
@@ -2703,8 +2841,8 @@ select.share-modal-link-access {
 }
 @media (hover: hover) {
     .share-modal-submit:hover:not(:disabled) {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
+        background: var(--dashboard-button-primary-hover);
+        border-color: var(--dashboard-button-primary-hover);
     }
 }
 .share-modal-submit:focus-visible {
@@ -2714,13 +2852,13 @@ select.share-modal-link-access {
 .share-modal-submit:disabled {
     background: var(--dashboard-input-background);
     border-color: var(--dashboard-border);
-    color: var(--dashboard-text-muted);
+    color: var(--dashboard-text-disabled);
     cursor: default;
 }
 /* In flight it is disabled too, but should read as working, not empty */
 .share-modal-submit.share-modal-btn-busy:disabled {
-    background: var(--dashboard-link);
-    border-color: var(--dashboard-link);
+    background: var(--dashboard-button-primary);
+    border-color: var(--dashboard-button-primary);
     color: #fff;
     opacity: 0.75;
 }
@@ -3035,7 +3173,8 @@ select.share-modal-row-mode:focus {
         padding-top: 9px;
         padding-bottom: 9px;
     }
-    .share-modal-submit {
+    .share-modal-submit,
+    .share-modal-copy-link {
         height: 44px;
     }
     .share-modal-btn-quiet,
@@ -3061,6 +3200,8 @@ select.share-modal-row-mode:focus {
     }
     /* Chevron: slate-400, lighter than the light theme's stroke */
     select.share-modal-mode,
+    select.share-modal-link-access,
+    select.share-modal-link-mode,
     select.share-modal-row-mode {
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
     }
@@ -3392,8 +3533,8 @@ select.share-modal-row-mode:focus {
     color: var(--dashboard-text-primary);
 }
 .profile-crop-save {
-    border: 1px solid var(--dashboard-link);
-    background: var(--dashboard-link);
+    border: 1px solid var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
     color: #fff;
 }
 @media (hover: hover) {
@@ -3401,8 +3542,8 @@ select.share-modal-row-mode:focus {
         background: var(--dashboard-sidebar-background);
     }
     .profile-crop-save:hover:not(:disabled) {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
+        background: var(--dashboard-button-primary-hover);
+        border-color: var(--dashboard-button-primary-hover);
     }
 }
 .profile-crop-btn-quiet:focus-visible,
@@ -3413,7 +3554,7 @@ select.share-modal-row-mode:focus {
 .profile-crop-save:disabled {
     background: var(--dashboard-input-background);
     border-color: var(--dashboard-border);
-    color: var(--dashboard-text-muted);
+    color: var(--dashboard-text-disabled);
     cursor: default;
 }
 
@@ -3466,7 +3607,7 @@ select.share-modal-row-mode:focus {
     .profile-crop-modal {
         width: 100%;
         max-width: none;
-        max-height: 92vh;
+        max-height: 92dvh;
         border-radius: 16px 16px 0 0;
         border-bottom: none;
         transform: translateY(24px);
@@ -3761,12 +3902,6 @@ body.myapps-reordering .myapps-tile {
     body.myapps-reordering .myapps-tile.myapps-tile-merge-armed .myapps-tile-icon {
         transition: none;
     }
-
-    .dashboard-sidebar,
-    .dashboard-sidebar-scrim,
-    .dashboard-sidebar-toggle {
-        transition: none;
-    }
 }
 
 /* Dashboard files */
@@ -3778,7 +3913,7 @@ body.myapps-reordering .myapps-tile {
    so a vh-sized list overhung the clipped content box and its last rows could
    never be scrolled into view. */
 .dashboard-content.files {
-    padding: 0 0 0 10px;
+    padding: 0 env(safe-area-inset-right, 0px) 0 10px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -3928,6 +4063,21 @@ body.myapps-reordering .myapps-tile {
         padding: 8px;
         margin: -4px;
     }
+
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .dashboard-section-files .header .path-action-btn {
+        position: relative;
+    }
+
+    .dashboard-section-files .header .path-action-btn::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 
 @media (hover: hover) {
@@ -3998,8 +4148,10 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
-/* Keyboard focus on the folder sidebar, crumbs, and nav arrows */
+/* Keyboard focus on the folder sidebar, crumbs, nav arrows, and Home's
+   Shared/Trash rows */
 .dashboard-section-files .directories li:focus-visible,
+.dashboard-section-files .files-tab .files .row.place-row:focus-visible,
 .dashboard-section-files .header .path .dirname:focus-visible,
 .dashboard-section-files .header .path-btn:focus-visible {
     outline: 2px solid var(--select-ring);
@@ -4033,6 +4185,22 @@ body.myapps-reordering .myapps-tile {
     .dashboard-section-files .header .path .dirname:hover {
         background-color: #EEE;
         border-color: #EEE;
+    }
+}
+
+/* Dark mode keeps the toolbar's light hover chip (see .path-btn), so what sits
+   on it goes dark; at rest the action icons match the inverted nav arrows. */
+@media (prefers-color-scheme: dark) {
+    .dashboard-section-files .header .path-action-btn {
+        color: #a3a3a3;
+    }
+    @media (hover: hover) {
+        .dashboard-section-files .header .path-action-btn:hover {
+            color: #5c5c5c;
+        }
+        .dashboard-section-files .header .path .dirname:hover {
+            color: #3f3f46;
+        }
     }
 }
 
@@ -4224,6 +4392,14 @@ body.myapps-reordering .myapps-tile {
     pointer-events: none;
 }
 
+/* Without hover there is no reveal, so touch screens show it at rest as
+   quietly as the row's other metadata. */
+@media (hover: none) {
+    .dashboard-section-files .row .item-more {
+        color: var(--dashboard-text-tertiary);
+    }
+}
+
 @media (hover: hover) {
     .dashboard-section-files .row:hover .item-more {
         color: var(--dashboard-text);
@@ -4256,7 +4432,8 @@ body.myapps-reordering .myapps-tile {
 
 .files-drag-ghost {
     pointer-events: none;
-    z-index: 10000;
+    /* On body, above the dashboard window (see the sidebar tooltip). */
+    z-index: 999999999;
     opacity: 0.95;
     animation: files-drag-ghost-in 120ms ease-out;
 }
@@ -4387,7 +4564,7 @@ body.myapps-reordering .myapps-tile {
     position: absolute;
     bottom: 32px;
     right: 32px;
-    background: #ef4444;
+    background: #dc2626;
     color: white;
     padding: 16px 32px;
     border-radius: 6px;
@@ -4401,7 +4578,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .drag-cancel-zone.drag-cancel-hover {
-    background: #dc2626;
+    background: #b91c1c;
     transform: scale(1.05);
 }
 
@@ -4595,8 +4772,8 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .files-tab .files .row.selected .item-checkbox .checkbox-icon {
-    background: var(--primary-color, #3b82f6);
-    border-color: var(--primary-color, #3b82f6);
+    background: var(--select-color);
+    border-color: var(--select-color);
 }
 
 .dashboard-section-files .files-tab .files .row.selected .item-checkbox .checkbox-icon::after {
@@ -4632,7 +4809,7 @@ body.myapps-reordering .myapps-tile {
     height: 7px;
     right: 2px;
     bottom: 2px;
-    box-shadow: 0 0 0 1px white;
+    box-shadow: 0 0 0 1px var(--dashboard-background);
 }
 
 .dashboard-section-files .files-tab .files.files-list-view .row .item-icon img {
@@ -4743,6 +4920,22 @@ body.myapps-reordering .myapps-tile {
     border-color: var(--select-ring);
 }
 
+/* Drop target and spring-load dwell, as in the list: the grid rules above
+   out-rank the shared ones. A pixel of padding pays for the wider border,
+   so the tile doesn't shift. */
+.dashboard-section-files .files-tab .files.files-grid-view .row.folder.ui-droppable-hover,
+.dashboard-section-files .files-tab .files.files-grid-view .row.folder.dwell-opening {
+    padding: 11px;
+    background-color: rgba(59, 130, 246, 0.1);
+    border: 2px dashed var(--select-color);
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view .row.folder.dwell-opening {
+    background-image: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 100%, transparent 100%);
+    background-size: 0% 100%;
+    background-repeat: no-repeat;
+}
+
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-icon {
     width: 150px;
     height: 150px;
@@ -4844,6 +5037,11 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row {
     padding: 8px;
     gap: 6px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row.folder.ui-droppable-hover,
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row.folder.dwell-opening {
+    padding: 7px;
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-icon {
@@ -5260,6 +5458,16 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* After the drawer rules above, which it has to override. */
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-sidebar,
+    .dashboard-sidebar.open,
+    .dashboard-sidebar-scrim,
+    .dashboard-sidebar-toggle {
+        transition: none;
+    }
+}
+
 /* Three columns rather than four once four (4x72 + 3x12 + the card's padding)
    no longer fits a phone's width. */
 @media (max-width: 400px) {
@@ -5276,7 +5484,8 @@ body.myapps-reordering .myapps-tile {
 /* Image preview popover */
 .image-preview-popover {
     position: fixed;
-    z-index: 9999;
+    /* On body, above the dashboard window (see the sidebar tooltip). */
+    z-index: 999999999;
     background: var(--dashboard-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 8px;
@@ -5540,7 +5749,7 @@ body.myapps-reordering .myapps-tile {
     }
 
     .dashboard-section-files .header .path-action-btn.select-mode-btn.active {
-        background: var(--primary-color, #3b82f6);
+        background: var(--select-color);
         color: white;
         border-radius: 6px;
     }
@@ -5572,7 +5781,7 @@ body.myapps-reordering .myapps-tile {
     /* Mobile: Show Done button in floating action bar during select mode */
     .dashboard-section-files .files-tab.select-mode-active .files-selection-actions .done-btn {
         display: flex;
-        background: var(--primary-color, #3b82f6);
+        background: var(--select-color);
         color: white;
         padding: 5px;
         margin-left: 8px;
@@ -5801,6 +6010,12 @@ body.myapps-reordering .myapps-tile {
     border-bottom: 1px solid var(--dashboard-shadow-light);
     text-decoration: none;
     color: inherit;
+}
+
+/* Inset: the card's rounded overflow clip would cut an outer ring. */
+.dashboard .bento-card-fancy-header:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: -2px;
 }
 
 .dashboard .bento-recent > .bento-card-fancy-header {
@@ -6487,6 +6702,8 @@ body.myapps-reordering .myapps-tile {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    /* Lets a long username or email wrap inside the card, not run past it. */
+    min-width: 0;
 }
 
 .dashboard-profile-info h3 {
@@ -6494,12 +6711,14 @@ body.myapps-reordering .myapps-tile {
     font-size: 22px;
     font-weight: 700;
     color: var(--dashboard-text-primary);
+    overflow-wrap: anywhere;
 }
 
 .dashboard-profile-info p {
     margin: 0;
     font-size: 14px;
     color: var(--dashboard-text-hint);
+    overflow-wrap: anywhere;
 }
 
 .dashboard-profile-hint {
@@ -6643,7 +6862,7 @@ body.myapps-reordering .myapps-tile {
 .dashboard-settings-card .button:disabled {
     background: var(--dashboard-card-background) !important;
     border-color: var(--dashboard-border) !important;
-    color: var(--dashboard-text-muted) !important;
+    color: var(--dashboard-text-disabled) !important;
     text-shadow: none !important;
 }
 
@@ -6778,6 +6997,12 @@ body.myapps-reordering .myapps-tile {
     line-height: 1.5;
 }
 
+/* The same focus ring as the settings cards' buttons; the base style.css
+   rule drops the outline. */
+.dashboard-danger-card .button:focus-visible {
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
 /* Responsive styles for Account tab */
 @media (max-width: 768px) {
     .dashboard-tab-content {
@@ -6870,7 +7095,9 @@ body.myapps-reordering .myapps-tile {
     transform: scale(0.9);
     opacity: 0;
     transition: transform 200ms ease-in-out, opacity 200ms ease-in-out;
-    max-height: calc(100vh - 40px);
+    /* dvh: ContextMenu.js places the menu within the visible height, which
+       on phones is less than 100vh while the browser bars show. */
+    max-height: calc(100dvh - 40px);
     display: flex;
     flex-direction: column;
 }
@@ -6878,6 +7105,30 @@ body.myapps-reordering .myapps-tile {
 .context-menu-modal-backdrop.show .context-menu-modal-dialog {
     transform: scale(1);
     opacity: 1;
+}
+
+/* The dialog takes focus only to hand it to its items. */
+.context-menu-modal-dialog:focus {
+    outline: none;
+}
+
+/* Inset, so the dialog's rounded clip doesn't cut the ring off. */
+.context-menu-modal-dialog .context-menu-item:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -2px;
+}
+
+/* Reduced motion: these still fade, but don't scale or slide into place. */
+@media (prefers-reduced-motion: reduce) {
+    .context-menu-modal-dialog {
+        transition: opacity 200ms ease-in-out;
+    }
+    .dashboard-section-files .files-selection-actions {
+        transition: opacity 0.25s ease, visibility 0.25s ease;
+    }
+    .app-feedback-modal {
+        transition: none;
+    }
 }
 
 /* Title shown at top of context menu (e.g. filename) */
@@ -6912,6 +7163,12 @@ body.myapps-reordering .myapps-tile {
     text-align: left;
     transition: background-color 150ms ease-in-out;
     font-family: inherit;
+}
+
+@media (pointer: coarse) {
+    .context-menu-modal-dialog .context-menu-item {
+        min-height: 44px;
+    }
 }
 
 .context-menu-modal-dialog .context-menu-item:last-child {
@@ -7028,7 +7285,9 @@ body.myapps-reordering .myapps-tile {
     width: 100%;
     height: 100%;
     /* background-color: var(--dashboard-background); */
-    z-index: 2147483647;
+    /* Above the rows only: below the footer (10) and selection bar (15), and
+       never over the mobile drawer, its scrim or the dashboard's modals. */
+    z-index: 9;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -7691,11 +7950,25 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 }
 
 .dashboard-notifications-close {
+    position: relative;
     width: 30px;
     height: 30px;
     padding: 0;
     justify-content: center;
     color: var(--dashboard-text-muted);
+}
+
+@media (pointer: coarse) {
+    /* Keeps its 30px look and hit-tests at 44x44. */
+    .dashboard-notifications-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 
 .dashboard-notifications-close svg {
@@ -8160,7 +8433,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
    while one is open must still be seen. Under context menus. */
 body.dashboard-mode .notification-container {
     top: 12px;
-    right: 12px;
+    right: calc(12px + env(safe-area-inset-right, 0px));
     z-index: 999999999;
 }
 
@@ -8205,8 +8478,9 @@ body.dashboard-mode .notifications-close-all {
 }
 
 @media (prefers-color-scheme: dark) {
+    /* The invert turns the white disc and dark cross into a dark disc
+       with a white cross. */
     body.dashboard-mode .notification-close {
-        background: var(--dashboard-card-background);
         filter: invert(1) drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
     }
 }
@@ -8466,14 +8740,14 @@ body.dashboard-mode .notifications-close-all {
 }
 
 .dashboard-dialog-btn-primary {
-    border-color: var(--dashboard-link);
-    background: var(--dashboard-link);
+    border-color: var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
     color: #fff;
 }
 
 .dashboard-dialog-btn-danger {
-    border-color: #f00808;
-    background: #f00808;
+    border-color: #d90707;
+    background: #d90707;
     color: #fff;
 }
 
@@ -8483,13 +8757,13 @@ body.dashboard-mode .notifications-close-all {
     }
 
     .dashboard-dialog-btn-primary:hover {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
+        background: var(--dashboard-button-primary-hover);
+        border-color: var(--dashboard-button-primary-hover);
     }
 
     .dashboard-dialog-btn-danger:hover {
-        background: #d90707;
-        border-color: #d90707;
+        background: #b80606;
+        border-color: #b80606;
     }
 }
 
@@ -8713,10 +8987,6 @@ body.dashboard-mode .notifications-close-all {
 }
 
 @media (pointer: coarse) {
-    .dashboard-dialog .dashboard-dialog-input.dashboard-token-value {
-        font-size: 16px;
-    }
-
     .dashboard-form-reveal {
         width: 40px;
         height: 40px;
@@ -8826,6 +9096,13 @@ body.dashboard-mode .notifications-close-all {
     min-width: 0;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 13px;
+}
+
+/* 16px, like the other dialog inputs on touch, so iOS doesn't zoom on focus. */
+@media (pointer: coarse) {
+    .dashboard-dialog .dashboard-dialog-input.dashboard-token-value {
+        font-size: 16px;
+    }
 }
 
 .dashboard-token-copy {

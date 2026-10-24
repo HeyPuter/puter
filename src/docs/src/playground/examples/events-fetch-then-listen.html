@@ -13,10 +13,10 @@
 
             // Live first, so nothing arriving during the catch-up is lost —
             // `id` is what makes the overlap harmless.
-            const sub = await puter.events.onLocal('notif:account',
+            const sub = await puter.events.onLocal('notif:app-user',
                 ({ event }) => show(event));
 
-            const page = await puter.events.fetch({ subject: 'notif:account' });
+            const page = await puter.events.fetch({ subject: 'notif:app-user' });
             page.items.forEach(show);
 
             await sub.off();

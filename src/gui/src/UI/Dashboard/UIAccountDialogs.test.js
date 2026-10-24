@@ -1,4 +1,22 @@
 // @vitest-environment jsdom
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
@@ -64,13 +82,33 @@ describe('edit profile', () => {
         expect(isOpen()).toBe(false);
     });
 
+    it('sends only the fields that were edited', async () => {
+        window.update_profile = vi.fn(async (_username, patch) => patch);
+        dialogs.openEditProfileDialog();
+
+        await submitWith({ bio: 'New bio' });
+
+        expect(window.update_profile).toHaveBeenCalledWith('alice', { bio: 'New bio' });
+        expect(isOpen()).toBe(false);
+    });
+
+    it('closes without saving when nothing changed', async () => {
+        window.update_profile = vi.fn();
+        dialogs.openEditProfileDialog();
+
+        await submitWith({ displayName: ' Alice ' });
+
+        expect(window.update_profile).not.toHaveBeenCalled();
+        expect(isOpen()).toBe(false);
+    });
+
     it('stays open with an error when the save fails', async () => {
         window.update_profile = vi.fn(async () => undefined);
         const onSave = vi.fn();
         dialogs.openEditProfileDialog({ onSave });
         await settle();
 
-        await submitWith();
+        await submitWith({ bio: 'Bye' });
 
         expect(status()).toBe('profile_save_failed');
         expect(onSave).not.toHaveBeenCalled();

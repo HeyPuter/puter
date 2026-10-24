@@ -1,8 +1,28 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 import { describe, expect, it } from 'vitest';
 import { aggregateOwners, aggregateShares, linkShareState, missingPathsFor } from './shareAggregate.js';
 
-// The helper labels an inherited link share through i18n.
-globalThis.i18n = (key) => key;
+// The helper labels some rows through i18n. Row names are plain text that the
+// dialog encodes, so an HTML-encoded label would show its entities.
+globalThis.i18n = (key, _args, encode = true) => (encode ? `encoded:${key}` : key);
 
 const grant = (holder, mode, extra = {}) => ({ holder, mode, ...extra });
 
@@ -68,6 +88,17 @@ describe('aggregateShares', () => {
         expect(groups[0].inheritedMode).toBe('read');
     });
 
+    it('counts the folders inherited grants come through, not the items', () => {
+        const groups = aggregateShares(['/me/D/a', '/me/D/b', '/me/D/c', '/me/P/d'], new Map([
+            ['/me/D/a', [grant('ann', 'read', { inheritedFrom: '/me/D' })]],
+            ['/me/D/b', [grant('ann', 'read', { inheritedFrom: '/me/D' })]],
+            ['/me/D/c', [grant('ann', 'read', { inheritedFrom: '/me/D' })]],
+            ['/me/P/d', [grant('ann', 'read', { inheritedFrom: '/me/P' })]],
+        ]));
+
+        expect(groups[0].inheritedFolderCount).toBe(2);
+    });
+
     it('keys an invitation by its email, apart from any username', () => {
         const groups = aggregateShares(['/me/a', '/me/b'], new Map([
             ['/me/a', [grant(null, 'read', { pending: true, recipientEmail: 'ann@example.com' })]],
@@ -115,6 +146,33 @@ describe('aggregateShares', () => {
 
         expect(groups[0].directPaths).toEqual(['/me/a']);
         expect(groups[0].accessCount).toBe(1);
+    });
+
+    it('shows the stronger grant when two issuers grant the same person', () => {
+        const groups = aggregateShares(['/me/a', '/me/b'], new Map([
+            ['/me/a', [
+                grant('ann', 'read', { issuer: 'me' }),
+                grant('ann', 'write', { issuer: 'bob' }),
+            ]],
+            ['/me/b', [
+                grant('ann', 'write', { issuer: 'bob' }),
+                grant('ann', 'read', { issuer: 'me' }),
+            ]],
+        ]));
+
+        expect(groups[0].mode).toBe('write');
+    });
+
+    it('lists who issued the grants and invitations, but not inherited ones', () => {
+        const groups = aggregateShares(['/me/a', '/me/b'], new Map([
+            ['/me/a', [
+                grant('ann', 'read', { issuer: 'me' }),
+                grant('ann', 'write', { issuer: 'bob' }),
+            ]],
+            ['/me/b', [grant('ann', 'read', { issuer: 'carl', inheritedFrom: '/me' })]],
+        ]));
+
+        expect(groups[0].issuers).toEqual(['me', 'bob']);
     });
 
     it('lists people in the order the items first mention them', () => {
