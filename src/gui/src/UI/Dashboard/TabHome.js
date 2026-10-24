@@ -368,6 +368,9 @@ const TabHome = {
         $el_window.on('click', '.bento-recent-app', function (e) {
             e.preventDefault();
             e.stopPropagation();
+            // The first click of a double-click already opened the app; the
+            // second would open another tab of it, as an Apps tile won't.
+            if ((e.detail ?? 0) > 1) return;
             const appName = $(this).attr('data-app-name');
             const targetLink = $(this).attr('data-target-link');
             if (targetLink && targetLink !== '') {
