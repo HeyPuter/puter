@@ -4839,6 +4839,22 @@ body.myapps-reordering .myapps-tile {
     border-color: var(--select-ring);
 }
 
+/* Drop target and spring-load dwell, as in the list: the grid rules above
+   out-rank the shared ones. A pixel of padding pays for the wider border,
+   so the tile doesn't shift. */
+.dashboard-section-files .files-tab .files.files-grid-view .row.folder.ui-droppable-hover,
+.dashboard-section-files .files-tab .files.files-grid-view .row.folder.dwell-opening {
+    padding: 11px;
+    background-color: rgba(59, 130, 246, 0.1);
+    border: 2px dashed var(--select-color);
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view .row.folder.dwell-opening {
+    background-image: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 100%, transparent 100%);
+    background-size: 0% 100%;
+    background-repeat: no-repeat;
+}
+
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-icon {
     width: 150px;
     height: 150px;
@@ -4940,6 +4956,11 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row {
     padding: 8px;
     gap: 6px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row.folder.ui-droppable-hover,
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row.folder.dwell-opening {
+    padding: 7px;
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-icon {
