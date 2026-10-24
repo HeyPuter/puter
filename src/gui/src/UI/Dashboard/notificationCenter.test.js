@@ -407,6 +407,13 @@ describe('formatRelativeTime', () => {
         expect(formatRelativeTime(NOW - 3 * DAY, NOW)).toBe('3 days ago');
     });
 
+    it('counts days by the calendar, not by 24-hour spans', () => {
+        const at = (d, h, m = 0) => new Date(2026, 7, d, h, m).getTime();
+        expect(formatRelativeTime(at(27, 0, 45), at(27, 23, 30))).toBe('23 hours ago');
+        expect(formatRelativeTime(at(24, 23), at(26, 9))).toBe('2 days ago');
+        expect(formatRelativeTime(at(26, 20), at(27, 19))).toBe('yesterday');
+    });
+
     it('falls back to a short date past a week', () => {
         expect(formatRelativeTime(NOW - 10 * DAY, NOW)).toBe('Aug 17');
         expect(formatRelativeTime(NOW - 400 * DAY, NOW)).toBe('Jul 23, 2025');

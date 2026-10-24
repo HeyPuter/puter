@@ -310,15 +310,16 @@ export const formatRelativeTime = (at, now, locale = 'en') => {
         const minutes = Math.max(1, Math.round(diff / MINUTE));
         return rtf ? rtf.format(-minutes, 'minute') : `${minutes}m`;
     }
-    if ( diff < 22 * HOUR ) {
+    const then = new Date(at);
+    // "Yesterday" names a calendar day, so days are counted midnight to midnight.
+    const days = Math.round((startOfDay(new Date(now)) - startOfDay(then)) / DAY);
+    if ( days === 0 || diff < 22 * HOUR ) {
         const hours = Math.max(1, Math.round(diff / HOUR));
         return rtf ? rtf.format(-hours, 'hour') : `${hours}h`;
     }
-    if ( diff < 7 * DAY ) {
-        const days = Math.max(1, Math.round(diff / DAY));
+    if ( days < 7 ) {
         return rtf ? rtf.format(-days, 'day') : `${days}d`;
     }
-    const then = new Date(at);
     const sameYear = then.getFullYear() === new Date(now).getFullYear();
     const dtf = dateFormatter(locale, {
         month: 'short',
@@ -339,6 +340,8 @@ export const formatAbsoluteTime = (at, locale = 'en') => {
     const dtf = dateFormatter(locale, { dateStyle: 'medium', timeStyle: 'short' });
     return dtf ? dtf.format(new Date(at)) : new Date(at).toLocaleString();
 };
+
+const startOfDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 
 const tryMake = (make) => {
     try {
