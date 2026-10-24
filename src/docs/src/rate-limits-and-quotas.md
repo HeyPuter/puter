@@ -407,14 +407,17 @@ Over the rate limit the call fails with `429 too_many_requests`, and a refused c
 
 Where the deployment sends push notifications, these apply to each push:
 
-| Limit                             | Value                | Scope            |
-| --------------------------------- | -------------------- | ---------------- |
-| Push size                         | 3,800 bytes, as JSON | Per notification |
-| Devices one push reaches          | 1,000                | Per notification |
-| Pushes being sent at once         | 64                   | Per server       |
-| Time a push service has to answer | 30 seconds           | Per call         |
+| Limit                             | Value                | Scope             |
+| --------------------------------- | -------------------- | ----------------- |
+| Push size                         | 3,800 bytes, as JSON | Per notification  |
+| Devices one push reaches          | 1,000                | Per notification  |
+| Pushes being sent at once         | 64                   | Per server        |
+| Time a push service has to answer | 30 seconds           | Per call          |
+| App pushes                        | 1/min                | Per user, per app |
 
 A push over the size limit is shortened. The `text` is cut first, then the icon is left out, and then the `title` is cut. If the `title` would keep fewer than 8 characters, or the `data` alone doesn't fit, the notification isn't pushed. Past the number of pushes being sent at once, a notification isn't pushed. A notification that isn't pushed is still in the user's notification list.
+
+The app push limit counts every push of an `app.message`, including one that replaces an earlier push in the same group. Over it, the push is skipped and the notification still shows in Puter. Puter's own notifications don't count, and neither does a notification that isn't pushed for another reason. If the limit can't be checked, the push is sent. A deployment can change the limit with `push: { appPushesPerMinute }`; 0 or less removes it.
 
 ### Teams
 
