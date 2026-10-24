@@ -4983,7 +4983,8 @@ const TabFiles = {
         // the Shared view aren't real fsentries, and Trash itself only offers
         // Empty Trash — same as the desktop's folder menus.
         if ( targetPath !== '/' && ! isTrashFolder && ! isSharedView ) {
-            const targetName = path.basename(targetPath);
+            // A trashed folder's path ends in its uid, not its name.
+            const targetName = this.trashedNames.get(targetPath) ?? path.basename(targetPath);
 
             items.push('-');
 
