@@ -759,7 +759,10 @@ function showAddAppModal ({ $el_window }) {
         })();
     };
 
-    $overlay.on('click', '.myapps-add-option', function () {
+    $overlay.on('click', '.myapps-add-option', function (e) {
+        // The second click of a double-click on the "+" tile lands on
+        // whichever option opened under the pointer; that isn't a choice.
+        if ( (e.detail ?? 0) > 1 ) return;
         const key = this.dataset.addOption;
         if ( key === 'request' ) {
             showPane('request');
