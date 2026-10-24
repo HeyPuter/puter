@@ -130,7 +130,17 @@ async function UIWindowDisable2FA (options) {
         }
     };
 
-    $(el_window).find('.disable-2fa-btn').on('click', async function (e) {
+    $(el_window).find('.disable-2fa-btn').on('click', async function () {
+        try {
+            await submit();
+        } catch {
+            // A request that never got an answer (offline): say so, and give
+            // the button and the field back for a retry.
+            onError(i18n('something_went_wrong', [], false));
+        }
+    });
+
+    async function submit () {
         $(el_window).find('.form-success-msg, .form-error-msg').hide();
 
         const password = password_entry.get('value');
@@ -180,7 +190,7 @@ async function UIWindowDisable2FA (options) {
             return;
         }
         onError(data.message || 'Request failed', data);
-    });
+    }
 
     function doSubmit ({ password } = {}) {
         // Do not send Authorization: user-protected endpoints use session cookie (hasHttpOnlyCookie).

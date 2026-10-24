@@ -615,15 +615,22 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     const oidc_only = !!(window.user && window.user.oidc_only);
 
     // ── API helpers ──────────────────────────────────────────────────────
+    // A network failure is a failed request like any other: rejecting here
+    // would leave the code inputs disabled and the spinner up for good.
     const api = async (endpoint, body = {}) => {
-        const res = await fetch(`${window.api_origin}/auth/configure-2fa/${endpoint}`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${puter.authToken}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-        });
+        let res;
+        try {
+            res = await fetch(`${window.api_origin}/auth/configure-2fa/${endpoint}`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${puter.authToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            });
+        } catch {
+            return { ok: false, data: {} };
+        }
         return { ok: res.ok, data: await read_json(res) };
     };
 
