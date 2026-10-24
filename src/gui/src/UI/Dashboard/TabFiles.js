@@ -2499,6 +2499,9 @@ const TabFiles = {
                 // hand it to the incremental adder once that guard lifts.
                 if ( ! document.body.contains($row[0]) ) {
                     detached = result;
+                    // Undo finds the folder by these, whatever the row's fate.
+                    $row.attr({ 'data-uid': result.uid, 'data-path': result.path });
+                    window.actions_history.push({ operation: 'create_folder', data: $row });
                     return;
                 }
 
@@ -2510,6 +2513,7 @@ const TabFiles = {
                 $row.attr('data-path', result.path);
                 $row.attr('data-modified', result.modified);
                 $row.removeAttr('data-pending');
+                window.actions_history.push({ operation: 'create_folder', data: $row });
 
                 // Our prediction lost a race with another client. Correct the
                 // row, but never over text the user has started typing.
@@ -4826,6 +4830,12 @@ const TabFiles = {
 
                             if ( uploadPromise ) {
                                 const result = await uploadPromise;
+                                // Undo deletes by path, so a stand-in row serves
+                                // when the new one isn't on screen.
+                                window.actions_history.push({
+                                    operation: 'create_file',
+                                    data: $('<div>').attr({ 'data-uid': result.uid, 'data-path': result.path }),
+                                });
                                 if ( targetPath === _this.currentPath ) {
                                     // Remove empty-directory placeholder if present
                                     _this.$el_window.find('.files-tab .files > div:not(.item):not(.place-row):not(.tabfiles-selection-area)').remove();

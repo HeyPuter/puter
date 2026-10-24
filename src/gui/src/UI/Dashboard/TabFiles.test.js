@@ -265,3 +265,34 @@ describe('TabFiles opening a folder during a refresh', () => {
         expect(TabFiles.renderingDirectory).toBe(false);
     });
 });
+
+describe('TabFiles New Folder', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice', directories: {} };
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+        window.global_element_id = 1;
+        window.activate_item_name_editor = vi.fn();
+        window.actions_history = [{ operation: 'upload', data: ['/alice/Documents/notes.txt'] }];
+        window.puter = { fs: { mkdir: vi.fn(async () => ({
+            uid: 'f1', name: 'New Folder', path: '/alice/Documents/New Folder', is_dir: true,
+        })) } };
+        vi.spyOn(TabFiles, 'renderItem').mockImplementation(async (file) => {
+            $('.files').append(`<div class="row item" data-uid="${file.uid}" data-path="${file.path}"></div>`);
+        });
+        vi.spyOn(TabFiles, 'insertAtSortedPosition').mockImplementation(() => {});
+        vi.spyOn(TabFiles, 'applyColumnWidths').mockImplementation(() => {});
+    });
+
+    it('is what Undo takes back, not the upload before it', async () => {
+        mountListing([], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles._creatingItem = 0;
+
+        await TabFiles.createFolderInstant('/alice/Documents');
+
+        const last = window.actions_history.at(-1);
+        expect(last.operation).toBe('create_folder');
+        expect($(last.data).attr('data-path')).toBe('/alice/Documents/New Folder');
+    });
+});
