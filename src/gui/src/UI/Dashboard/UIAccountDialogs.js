@@ -54,6 +54,9 @@ const passwordField = (label) => ({
     attrs: { autocomplete: 'current-password' },
 });
 
+/** Puts a refused password's status on the field, to be typed again. */
+const wrongPassword = (result, field) => (result.data?.code === 'password_mismatch' ? { field } : undefined);
+
 /** Text that tells a provider-only account what will happen instead of a password. */
 const oidcNotice = () => (isOidcOnly() ? `<p>${i18n('revalidate_flow_notice')}</p>` : '');
 
@@ -143,6 +146,11 @@ export function openChangeUsernameDialog (opts = {}) {
                 dialog.setStatus(t('all_fields_required'), { field: 'username' });
                 return;
             }
+            // The server would call it taken, and count the password try.
+            if ( new_username.toLowerCase() === String(window.user?.username).toLowerCase() ) {
+                dialog.setStatus(t('username_unchanged'), { field: 'username' });
+                return;
+            }
             if ( ! isOidcOnly() && ! password ) {
                 dialog.setStatus(t('all_fields_required'), { field: 'password' });
                 return;
@@ -152,7 +160,7 @@ export function openChangeUsernameDialog (opts = {}) {
                 onRevalidate: revalidating(dialog),
             });
             if ( ! result.ok ) {
-                dialog.setStatus(result.message);
+                dialog.setStatus(result.message, wrongPassword(result, 'password'));
                 return;
             }
             update_username_in_gui(new_username);
@@ -206,6 +214,11 @@ export function openChangePasswordDialog (opts = {}) {
                 dialog.setStatus(t('passwords_do_not_match'), { field: 'confirm' });
                 return;
             }
+            // It would go through, and sign every other session out for nothing.
+            if ( current && next === current ) {
+                dialog.setStatus(t('password_unchanged'), { field: 'next' });
+                return;
+            }
             if ( ! check_password_strength(next).overallPass ) {
                 dialog.setStatus(t('password_strength_error'), { field: 'next' });
                 return;
@@ -215,9 +228,12 @@ export function openChangePasswordDialog (opts = {}) {
                 onRevalidate: revalidating(dialog),
             });
             if ( ! result.ok ) {
-                dialog.setStatus(result.message);
+                dialog.setStatus(result.message, wrongPassword(result, 'current'));
                 return;
             }
+            // A provider-only account now has a password, and the other
+            // dialogs ask for it instead of the provider's sign-in.
+            if ( window.user ) window.user.oidc_only = false;
             dialog.finish({ message: t('password_changed') });
         },
     });
@@ -257,6 +273,12 @@ export function openChangeEmailDialog (opts = {}) {
                 dialog.setStatus(t('all_fields_required'), { field: 'email' });
                 return;
             }
+            // The server would accept it: mail the same inbox, and unlink any
+            // sign-in provider once confirmed.
+            if ( new_email.toLowerCase() === String(window.user?.email).toLowerCase() ) {
+                dialog.setStatus(t('email_unchanged'), { field: 'email' });
+                return;
+            }
             if ( ! isOidcOnly() && ! password ) {
                 dialog.setStatus(t('all_fields_required'), { field: 'password' });
                 return;
@@ -270,7 +292,7 @@ export function openChangeEmailDialog (opts = {}) {
                 // Accounts with 2FA turned on since the page loaded learn about it here.
                 const needs_code = result.data.factor === 'otp';
                 if ( needs_code ) dialog.showField('code', true);
-                dialog.setStatus(result.message, needs_code ? { field: 'code' } : undefined);
+                dialog.setStatus(result.message, needs_code ? { field: 'code' } : wrongPassword(result, 'password'));
                 return;
             }
             // The address is the account's once the emailed link is followed, not yet.
@@ -327,7 +349,7 @@ export function openCreateTokenDialog ({ $sessionsParent, ...opts } = {}) {
             h += '</div>';
             h += `<p class="dashboard-form-hint">${i18n('token_manage_hint')} <button type="button" class="dashboard-token-sessions">${i18n('ui_manage_sessions')}</button>.</p>`;
             // The token is shown only once; only Done, ✕ or Escape put it away.
-            dialog.finish({ html: h, keepOnBackdrop: true });
+            dialog.finish({ html: h, describe: '.dashboard-token-warning', keepOnBackdrop: true });
         },
     });
 
@@ -418,7 +440,7 @@ export function openDeleteAccountDialog (opts = {}) {
                 onRevalidate: revalidating(dialog),
             });
             if ( ! result.ok || ! result.data.success ) {
-                dialog.setStatus(result.message ?? t('error_unknown_cause'));
+                dialog.setStatus(result.message ?? t('error_unknown_cause'), wrongPassword(result, 'password'));
                 return;
             }
             window.user.deleted = true;

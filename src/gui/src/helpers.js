@@ -1695,7 +1695,7 @@ window.refresh_trash_state = async function () {
     // 'strong' consistency: an 'eventual' stat can be served from the SDK
     // cache, which is stale right after a trash mutation and — when seeded
     // by readdir — lacks the `is_empty` field entirely.
-    const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'eventual' });
+    const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'strong' });
     if ( window.socket ) {
         window.socket.emit('trash.is_empty', { is_empty: trash.is_empty });
     }

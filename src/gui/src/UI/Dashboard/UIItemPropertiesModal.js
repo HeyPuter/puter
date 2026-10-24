@@ -20,6 +20,7 @@
 import item_icon from '../../helpers/itemIcon.js';
 import UIAlert from '../UIAlert.js';
 import { isOverlayOnTop } from './dashboardOverlay.js';
+import { formatRelativeTime } from '../../i18n/formatTime.js';
 
 const { html_encode } = window;
 
@@ -224,9 +225,9 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
             addRow($list, i18n('size'),
                 (fsentry.size === null || fsentry.size === undefined) ? '-' : html_encode(window.byte_format(fsentry.size)));
             addRow($list, i18n('modified'),
-                fsentry.modified === 0 ? '-' : html_encode(timeago.format(fsentry.modified * 1000)));
+                fsentry.modified === 0 ? '-' : html_encode(formatRelativeTime(fsentry.modified * 1000, Date.now(), window.locale)));
             addRow($list, i18n('created'),
-                fsentry.created === 0 ? '-' : html_encode(timeago.format(fsentry.created * 1000)));
+                fsentry.created === 0 ? '-' : html_encode(formatRelativeTime(fsentry.created * 1000, Date.now(), window.locale)));
 
             // Worker (published .js files)
             if ( fsentry.path?.endsWith('.js') && fsentry.workers?.length > 0 ) {
@@ -252,7 +253,7 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
                     fsentry.versions.slice().reverse().forEach(version => {
                         $versions.append(`
                             <div class="item-props-version-entry">
-                                <span class="item-props-version-meta">${html_encode(version.user ? version.user.username : '')} &bull; ${html_encode(timeago.format(version.timestamp * 1000))}</span>
+                                <span class="item-props-version-meta">${html_encode(version.user ? version.user.username : '')} &bull; ${html_encode(formatRelativeTime(version.timestamp * 1000, Date.now(), window.locale))}</span>
                                 <span class="item-props-version-id">${html_encode(version.id)}</span>
                             </div>
                         `);

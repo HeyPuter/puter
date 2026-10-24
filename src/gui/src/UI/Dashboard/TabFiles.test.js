@@ -35,7 +35,7 @@ globalThis.html_encode = value => jQuery('<div>').text(value).html();
 globalThis.i18n = globalThis.i18n ?? (key => key);
 window.icons = {};
 
-const { default: TabFiles, failedUploadsMessage, rebasePath } = await import('./TabFiles.js');
+const { default: TabFiles, failedUploadsMessage, rebasePath, typeSelectTarget } = await import('./TabFiles.js');
 
 const TRASH = '/alice/Trash';
 
@@ -140,6 +140,16 @@ describe('TabFiles.moveDraggedRows', () => {
         await TabFiles.moveDraggedRows([stays, moves], '/alice/Documents');
 
         expect(window.move_items).toHaveBeenCalledWith([moves], '/alice/Documents');
+    });
+
+    it('leaves out the target folder and any folder holding it', async () => {
+        const target = rowAt('/alice/Documents/Work');
+        const ancestor = rowAt('/alice/Documents');
+        const moves = rowAt('/alice/Pictures/b.png');
+
+        await TabFiles.moveDraggedRows([target, ancestor, moves], '/alice/Documents/Work');
+
+        expect(window.move_items).toHaveBeenCalledWith([moves], '/alice/Documents/Work');
     });
 
     it('moves nothing when every row is already there', async () => {
@@ -263,5 +273,265 @@ describe('TabFiles opening a folder during a refresh', () => {
         await refresh;
         expect(TabFiles.currentPath).toBe('/alice/Pictures');
         expect(TabFiles.renderingDirectory).toBe(false);
+    });
+});
+
+describe('TabFiles New Folder', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice', directories: {} };
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+        window.global_element_id = 1;
+        window.activate_item_name_editor = vi.fn();
+        window.actions_history = [{ operation: 'upload', data: ['/alice/Documents/notes.txt'] }];
+        window.puter = { fs: { mkdir: vi.fn(async () => ({
+            uid: 'f1', name: 'New Folder', path: '/alice/Documents/New Folder', is_dir: true,
+        })) } };
+        vi.spyOn(TabFiles, 'renderItem').mockImplementation(async (file) => {
+            $('.files').append(`<div class="row item" data-uid="${file.uid}" data-path="${file.path}"></div>`);
+        });
+        vi.spyOn(TabFiles, 'insertAtSortedPosition').mockImplementation(() => {});
+        vi.spyOn(TabFiles, 'applyColumnWidths').mockImplementation(() => {});
+    });
+
+    it('is what Undo takes back, not the upload before it', async () => {
+        mountListing([], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles._creatingItem = 0;
+
+        await TabFiles.createFolderInstant('/alice/Documents');
+
+        const last = window.actions_history.at(-1);
+        expect(last.operation).toBe('create_folder');
+        expect($(last.data).attr('data-path')).toBe('/alice/Documents/New Folder');
+    });
+
+    it('is made, not dropped, while the folder is refreshing', async () => {
+        mountListing([], '/alice/Documents');
+        TabFiles.trashedNames ??= new Map();
+        TabFiles._creatingItem = 0;
+        window.home_path = '/alice';
+        window.puter.fs.readdir = vi.fn(async () => []);
+        TabFiles.renderingDirectory = true;
+        TabFiles.refreshInFlight = true;
+
+        await TabFiles.createFolderInstant('/alice/Documents');
+
+        expect(window.puter.fs.mkdir).toHaveBeenCalled();
+        expect(TabFiles.renderingDirectory).toBe(false);
+    });
+});
+
+describe('TabFiles.moveClipboardItems', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice' };
+        window.actions_history = [{ operation: 'upload', data: ['/alice/Documents/notes.txt'] }];
+        window.clipboard = [{ path: '/alice/Documents/a.txt', uid: 'a1' }];
+        window.puter = { fs: { move: vi.fn(async () => ({
+            moved: { uid: 'a1', name: 'a.txt', path: '/alice/Pictures/a.txt', is_dir: false },
+        })) } };
+    });
+
+    it('is what Undo takes back, not the upload before it', async () => {
+        await TabFiles.moveClipboardItems('/alice/Pictures');
+
+        const last = window.actions_history.at(-1);
+        expect(last.operation).toBe('move');
+        expect(last.data).toEqual([expect.objectContaining({
+            original_path: '/alice/Documents/a.txt',
+            options: expect.objectContaining({ uid: 'a1', path: '/alice/Pictures/a.txt' }),
+        })]);
+    });
+});
+
+describe('TabFiles refreshing a folder during a refresh of it', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+        vi.spyOn(TabFiles, 'renderItem').mockImplementation(async (file) => {
+            $('.files').append(`<div class="row item" data-uid="${file.uid}" data-path="${file.path}" data-name="${file.name}"></div>`);
+        });
+    });
+
+    it("shows the later listing, not the earlier one's", async () => {
+        mountListing([], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        const entry = name => ({ uid: name, name, path: `/alice/Documents/${name}`, is_dir: false, size: 1, modified: 0 });
+        let finishFirst;
+        window.puter = { fs: { readdir: vi.fn()
+            .mockImplementationOnce(() => new Promise(resolve => {
+                finishFirst = resolve;
+            }))
+            .mockImplementationOnce(async () => [entry('a.txt'), entry('b.txt')]) } };
+
+        const first = TabFiles.renderDirectory('/alice/Documents', { consistency: 'strong' });
+        await TabFiles.renderDirectory('/alice/Documents', { consistency: 'strong' });
+        finishFirst([entry('a.txt')]);
+        await first;
+
+        expect($('.files .row').map((_, r) => r.getAttribute('data-name')).get().sort()).toEqual(['a.txt', 'b.txt']);
+        expect(TabFiles.renderingDirectory).toBe(false);
+    });
+});
+
+describe('TabFiles.toggleSelectMode', () => {
+    beforeEach(() => {
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+    });
+
+    it('shows the action bar for rows selected before it was entered', () => {
+        mountListing(['a.txt', 'b.txt'], '/alice/Documents');
+        $('.files .row').first().addClass('selected');
+        TabFiles.selectModeActive = false;
+
+        TabFiles.toggleSelectMode();
+
+        expect($('.files-selection-actions').hasClass('visible')).toBe(true);
+        TabFiles.toggleSelectMode();
+        expect($('.files-selection-actions').hasClass('visible')).toBe(false);
+    });
+});
+
+describe('TabFiles footer', () => {
+    it('gives sizes as the rows do', () => {
+        window.trash_path = TRASH;
+        mountListing(['a.txt'], '/alice/Documents');
+        $('.files .row').attr('data-size', '1536').addClass('selected');
+        TabFiles.updateFooterStats();
+        expect($('.files-footer-item-count').text()).toContain('1.5 KB');
+        expect($('.files-footer-selected-items').text()).toContain('1.5 KB');
+
+        $('.files .row').attr('data-size', '0');
+        TabFiles.updateFooterStats();
+        expect($('.files-footer-item-count').text()).toContain('0 B');
+    });
+});
+
+describe('typeSelectTarget', () => {
+    const names = ['notes', 'readme', 'report-a', 'report-b', 'zip'];
+
+    it('steps through the names a repeated letter starts', () => {
+        expect(typeSelectTarget(names, -1, 'r')).toBe(1);
+        expect(typeSelectTarget(names, 1, 'r')).toBe(2);
+        expect(typeSelectTarget(names, 2, 'rr')).toBe(3);
+        expect(typeSelectTarget(names, 3, 'rrr')).toBe(1);
+        expect(typeSelectTarget(names, 0, 'r')).toBe(1);
+    });
+
+    it('keeps a selected row a longer prefix still matches', () => {
+        expect(typeSelectTarget(names, 3, 're')).toBe(3);
+        expect(typeSelectTarget(names, 1, 'rep')).toBe(2);
+        expect(typeSelectTarget(names, 0, 'rep')).toBe(2);
+    });
+
+    it('finds nothing to select for a prefix nothing has', () => {
+        expect(typeSelectTarget(names, 0, 'q')).toBe(-1);
+    });
+});
+
+describe('TabFiles.updateNavButtonStates', () => {
+    it('takes a disabled arrow out of the Tab order and puts it back', () => {
+        document.body.innerHTML = `
+            <div class="window">
+                <img class="path-btn path-btn-back" tabindex="0">
+                <img class="path-btn path-btn-forward" tabindex="0">
+                <img class="path-btn path-btn-up" tabindex="0">
+            </div>`;
+        TabFiles.$el_window = $('.window');
+        TabFiles.currentPath = '/alice/Documents';
+        window.dashboard_nav_history = ['/alice', '/alice/Documents'];
+        window.dashboard_nav_history_current_position = 1;
+
+        TabFiles.updateNavButtonStates();
+
+        expect($('.path-btn-back').attr('tabindex')).toBe('0');
+        expect($('.path-btn-forward').attr('tabindex')).toBe('-1');
+        expect($('.path-btn-forward').attr('aria-disabled')).toBe('true');
+    });
+});
+
+describe('TabFiles cancelling a drag that opened a folder', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+    });
+
+    it('goes back even while that folder is still loading', async () => {
+        mountListing([], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        window.puter = { fs: { readdir: vi.fn(({ path }) => (path === '/alice/Pictures'
+            ? new Promise(() => {})
+            : Promise.resolve([]))) } };
+        window.dashboard_nav_history = ['/alice/Documents'];
+        window.dashboard_nav_history_current_position = 0;
+
+        TabFiles.springLoadedOriginalPath = '/alice/Documents';
+        TabFiles.pushNavHistory('/alice/Pictures');
+        void TabFiles.renderDirectory('/alice/Pictures');
+        TabFiles.navigateBackFromSpringLoad();
+        await vi.waitFor(() => expect(TabFiles.renderingDirectory).toBe(false));
+
+        expect(TabFiles.currentPath).toBe('/alice/Documents');
+        expect(window.dashboard_nav_history_current_position).toBe(0);
+    });
+});
+
+describe('TabFiles image preview', () => {
+    it('closes once the row it shows is gone', () => {
+        window.trash_path = TRASH;
+        mountListing(['a.png'], '/alice/Pictures');
+        $('.files .row').attr('data-uid', 'u1');
+        $('body').append('<div class="image-preview-popover"></div>');
+        TabFiles.previewOpen = true;
+        TabFiles.previewCurrentUid = 'u1';
+
+        TabFiles.updateFooterStats();
+        expect(TabFiles.previewOpen).toBe(true);
+
+        $('.files .row').remove();
+        TabFiles.updateFooterStats();
+        expect(TabFiles.previewOpen).toBe(false);
+        expect($('.image-preview-popover')).toHaveLength(0);
+    });
+});
+
+describe('TabFiles.acceptsNewItems', () => {
+    it('refuses a folder shared to view only, and takes one shared to edit', async () => {
+        const { remember_shared_roots } = await import('../../helpers/sharedAccess.js');
+        window.user = { username: 'alice' };
+        window.trash_path = TRASH;
+        remember_shared_roots([
+            { path: '/bob/Photos', mode: 'read' },
+            { path: '/bob/Drafts', mode: 'write' },
+        ]);
+
+        expect(TabFiles.acceptsNewItems('/bob/Photos')).toBe(false);
+        expect(TabFiles.acceptsNewItems('/bob/Photos/2024')).toBe(false);
+        expect(TabFiles.acceptsNewItems('/bob/Drafts')).toBe(true);
+        expect(TabFiles.acceptsNewItems('/alice/Documents')).toBe(true);
+    });
+});
+
+describe('TabFiles.applyHiddenRule', () => {
+    it('hides a row renamed to a dot-name, or dims it when hidden files show', () => {
+        window.trash_path = TRASH;
+        mountListing(['a.txt', 'b.txt'], '/alice/Documents');
+        window.user_preferences = { show_hidden_files: false };
+
+        expect(TabFiles.applyHiddenRule($('.files .row').first(), '.a.txt')).toBe(false);
+        expect($('.files .row')).toHaveLength(1);
+
+        window.user_preferences = { show_hidden_files: true };
+        expect(TabFiles.applyHiddenRule($('.files .row').first(), '.b.txt')).toBe(true);
+        expect($('.files .row').first().hasClass('item-revealed')).toBe(true);
+        TabFiles.applyHiddenRule($('.files .row').first(), 'b.txt');
+        expect($('.files .row').first().hasClass('item-revealed')).toBe(false);
     });
 });

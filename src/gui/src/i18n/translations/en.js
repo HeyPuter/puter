@@ -324,6 +324,7 @@ const en = {
         previous_page: 'Previous page',
         quit: 'Quit',
         search_apps: 'Search apps...',
+        clear_search: 'Clear search',
         uninstall: 'Uninstall',
         uninstall_app: 'Uninstall {{name}}?',
         uninstall_app_body: 'This will revoke all permissions for this app.',
@@ -347,6 +348,9 @@ const en = {
         password_change_required_title: 'Choose your own password',
         password_change_required_hint: 'This account was created for you, and its password is still the one you were given. Pick your own to continue.',
         password_change_required_same: 'Your new password must be different from the one you were given.',
+        password_unchanged: 'Your new password must be different from your current one.',
+        username_unchanged: 'That is already your username.',
+        email_unchanged: 'That is already your email address.',
         password_strength_error: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character.',
         passwords_do_not_match: '`New Password` and `Confirm New Password` do not match.',
         paste: 'Paste',
@@ -544,6 +548,7 @@ const en = {
         share_inherited_via_count: 'via {{count}} folders',
         share_no_one_items: 'None of these items are shared yet.',
         share_failed_items: 'Could not share these items.',
+        share_load_failed: 'Could not load who has access.',
         share_load_partial_failed:
             'Could not load who has access to every item.',
         share_access_list_too_many:

@@ -258,6 +258,17 @@ describe('choosing someone', () => {
         });
     });
 
+    it('leaves Enter and the arrows to an IME that is composing', async () => {
+        const { picker, $input } = await open();
+        const key = (k, init = {}) => $input[0].dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...init }));
+        key('ArrowDown', { isComposing: true });
+        key('Enter', { isComposing: true });
+        expect(picker.recipient()).toBe(null);
+        key('ArrowDown');
+        key('Enter');
+        expect(picker.recipient()).not.toBe(null);
+    });
+
     it('hands a typed address over untouched', async () => {
         const { picker, $input } = mount();
         $input.val('  someone@example.com  ').trigger('input');

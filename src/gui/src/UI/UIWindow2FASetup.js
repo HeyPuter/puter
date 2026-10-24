@@ -615,15 +615,22 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     const oidc_only = !!(window.user && window.user.oidc_only);
 
     // ── API helpers ──────────────────────────────────────────────────────
+    // A network failure is a failed request like any other: rejecting here
+    // would leave the code inputs disabled and the spinner up for good.
     const api = async (endpoint, body = {}) => {
-        const res = await fetch(`${window.api_origin}/auth/configure-2fa/${endpoint}`, {
-            method: 'POST',
-            headers: {
-                Authorization: `Bearer ${puter.authToken}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(body),
-        });
+        let res;
+        try {
+            res = await fetch(`${window.api_origin}/auth/configure-2fa/${endpoint}`, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${puter.authToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(body),
+            });
+        } catch {
+            return { ok: false, data: {} };
+        }
         return { ok: res.ok, data: await read_json(res) };
     };
 
@@ -709,8 +716,8 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     h += '<div class="tfa-codes-card">';
     h += '  <div class="tfa-codes-grid"></div>';
     h += '  <div class="tfa-codes-actions">';
-    h += `    <button class="tfa-copy-codes">${SVG_COPY} <span>${html_encode(i18n('copy'))}</span></button>`;
-    h += `    <button class="tfa-print-codes">${SVG_PRINT} <span>${html_encode(i18n('print'))}</span></button>`;
+    h += `    <button class="tfa-copy-codes">${SVG_COPY} <span>${i18n('copy')}</span></button>`;
+    h += `    <button class="tfa-print-codes">${SVG_PRINT} <span>${i18n('print')}</span></button>`;
     h += '  </div>';
     h += '</div>';
 
@@ -719,11 +726,11 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     h += '<div class="tfa-confirmations">';
     h += '  <div class="tfa-confirm-item">';
     h += '    <input type="checkbox" id="tfa-confirm-saved" />';
-    h += `    <label for="tfa-confirm-saved">${html_encode(i18n('setup2fa_5_confirmation_1'))}</label>`;
+    h += `    <label for="tfa-confirm-saved">${i18n('setup2fa_5_confirmation_1')}</label>`;
     h += '  </div>';
     h += '  <div class="tfa-confirm-item">';
     h += '    <input type="checkbox" id="tfa-confirm-ready" />';
-    h += `    <label for="tfa-confirm-ready">${html_encode(i18n('setup2fa_5_confirmation_2'))}</label>`;
+    h += `    <label for="tfa-confirm-ready">${i18n('setup2fa_5_confirmation_2')}</label>`;
     h += '  </div>';
     h += '</div>';
 
@@ -732,7 +739,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
 
     // ── Screen 3: Verify Code ─────────────────────────────────────────────
     h += '<div class="tfa-screen" data-screen="3">';
-    h += `<p class="tfa-instruction">${html_encode(i18n('setup2fa_3_step_heading'))}</p>`;
+    h += `<p class="tfa-instruction">${i18n('setup2fa_3_step_heading')}</p>`;
     h += '<div class="tfa-code-section">';
     h += '  <div class="tfa-code-inputs">';
     for ( let i = 0; i < 6; i++ ) {
@@ -747,7 +754,7 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
     // ── Screen 4: Success ────────────────────────────────────────────────
     h += '<div class="tfa-screen" data-screen="4">';
     h += `<div class="tfa-success-icon">${SVG_SHIELD_CHECK}</div>`;
-    h += `<div class="tfa-success-title">${html_encode(i18n('two_factor_enabled'))}</div>`;
+    h += `<div class="tfa-success-title">${i18n('two_factor_enabled')}</div>`;
     h += '<p class="tfa-success-text">Your account is now protected with two-factor authentication. You\'ll be asked for a verification code each time you sign in.</p>';
     h += `<button class="tfa-btn tfa-btn-success tfa-done-btn">Done</button>`;
     h += '</div>'; // end screen 4
