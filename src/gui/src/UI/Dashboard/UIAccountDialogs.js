@@ -327,7 +327,7 @@ export function openCreateTokenDialog ({ $sessionsParent, ...opts } = {}) {
             h += '</div>';
             h += `<p class="dashboard-form-hint">${i18n('token_manage_hint')} <button type="button" class="dashboard-token-sessions">${i18n('ui_manage_sessions')}</button>.</p>`;
             // The token is shown only once; only Done, ✕ or Escape put it away.
-            dialog.finish({ html: h, keepOnBackdrop: true });
+            dialog.finish({ html: h, describe: '.dashboard-token-warning', keepOnBackdrop: true });
         },
     });
 

@@ -56,9 +56,10 @@ const FORM_ICONS = {
  * @property {(name: string, show: boolean) => void} showField
  * @property {(text: string, opts?: { kind?: 'error'|'info', field?: string }) => void} setStatus
  *   Plain text; an empty string clears it. Naming a field marks it invalid and focuses it.
- * @property {(opts: { message?: string, html?: string, keepOnBackdrop?: boolean }) => void} finish
+ * @property {(opts: { message?: string, html?: string, describe?: string, keepOnBackdrop?: boolean }) => void} finish
  *   Swaps the form for a done state (a plain-text `message`, or the caller's
- *   encoded `html`) with a single Done button. `keepOnBackdrop` stops a stray
+ *   encoded `html`) with a single Done button. `describe` selects the part of
+ *   `html` the focused Done button reads out. `keepOnBackdrop` stops a stray
  *   click outside the card from closing it, for content shown only once.
  */
 
@@ -193,15 +194,16 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
                 else $field.get(0)?.focus({ preventScroll: true });
             }
         },
-        finish ({ message, html, keepOnBackdrop = false }) {
+        finish ({ message, html, describe, keepOnBackdrop = false }) {
             keep_on_backdrop = keepOnBackdrop;
             const content = html ?? `<div class="dashboard-form-done">${FORM_ICONS.done}<p id="${id}-done">${html_encode(message ?? '')}</p></div>`;
             $dialog.attr('aria-describedby', null);
             $dialog.find('.dashboard-dialog-body').html(`<div class="dashboard-dialog-content" role="status">${content}</div>`);
+            const described = ! html || (describe && $dialog.find('.dashboard-dialog-body').find(describe).first().attr('id', `${id}-done`).length > 0);
             // A status region that arrives with its text isn't announced;
             // the focused Done button reads the message out instead.
             $dialog.find('.dashboard-dialog-footer').html(
-                `<button type="button" class="dashboard-dialog-btn dashboard-dialog-btn-primary dashboard-form-done-btn"${html ? '' : ` aria-describedby="${id}-done"`}>${i18n('done')}</button>`);
+                `<button type="button" class="dashboard-dialog-btn dashboard-dialog-btn-primary dashboard-form-done-btn"${described ? ` aria-describedby="${id}-done"` : ''}>${i18n('done')}</button>`);
             $dialog.find('.dashboard-form-done-btn').get(0)?.focus({ preventScroll: true });
         },
     };

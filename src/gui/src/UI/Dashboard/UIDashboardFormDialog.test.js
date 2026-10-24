@@ -184,6 +184,15 @@ describe('UIDashboardFormDialog', () => {
         expect($('.dashboard-form-status').text()).toBe('Server says no');
     });
 
+    it("has Done read out the part of the caller's html it names", async () => {
+        open({ onSubmit: (dialog) => dialog.finish({ html: '<p class="warn">Shown once</p><input value="tok">', describe: '.warn' }) });
+        submit();
+        await tick();
+
+        const described_by = $('.dashboard-form-done-btn').attr('aria-describedby');
+        expect($(`#${described_by}`).text()).toBe('Shown once');
+    });
+
     it('swaps the form for a done state whose button closes it', async () => {
         open({ onSubmit: (dialog) => dialog.finish({ message: 'All <good>' }) });
         submit();
