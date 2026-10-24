@@ -2531,6 +2531,9 @@ const TabApps = {
                 if ( this._drag !== d ) return;
                 d.flipping = false;
                 this._updatePlaceholder(d.lastClientX, d.lastClientY);
+                // Still held at the edge: keep paging, as only a move would
+                // otherwise start the next dwell.
+                this._maybeEdgeFlip(d.lastClientX);
             }, this._reduceMotion() ? 60 : DRAG_FLIP_SETTLE_MS);
         }, DRAG_EDGE_DWELL_MS);
     },
@@ -2575,6 +2578,7 @@ const TabApps = {
                 if ( this._drag !== d ) return;
                 d.flipping = false;
                 this._updatePlaceholder(d.lastClientX, d.lastClientY);
+                this._maybeGroupEdgeFlip(d.lastClientX);
             }, this._reduceMotion() ? 60 : DRAG_FLIP_SETTLE_MS);
         }, DRAG_EDGE_DWELL_MS);
     },
