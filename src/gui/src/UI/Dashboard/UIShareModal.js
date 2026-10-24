@@ -434,7 +434,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         const settled = await Promise.allSettled(
             target_paths.map((target) => puter.fs.getShares(target)),
         );
-        if ( closed || seq !== refresh_seq ) return;
+        if ( seq !== refresh_seq ) return;
 
         /** @type {Map<string, Object[]>} */
         const by_path = new Map();
@@ -447,14 +447,17 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             }
         });
 
+        // Each listing is authoritative for its own item. The Files rows
+        // still need it when the dialog was closed while a change was saving.
+        for ( const [target, shares] of by_path ) {
+            mark_item_shared(target, has_direct_share(shares));
+        }
+        if ( closed ) return;
+
         if ( by_path.size === 0 ) {
             $list.attr('aria-busy', 'false').empty();
             show_error(error_html(failure));
             return;
-        }
-        // Each listing is authoritative for its own item.
-        for ( const [target, shares] of by_path ) {
-            mark_item_shared(target, has_direct_share(shares));
         }
         render(aggregateShares(target_paths, by_path));
         link_state = linkShareState(target_paths, by_path);
