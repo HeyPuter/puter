@@ -1555,7 +1555,17 @@ const TabApps = {
         this._pageCount = Math.ceil(items.length / layout.perPage);
         this._page = Math.min(Math.floor(anchorIndex / layout.perPage), this._pageCount - 1);
 
+        // Every tile is replaced; a keyboard user on one stays on it.
+        const focused = document.activeElement;
+        const focusedTile = focused?.classList.contains('myapps-tile') && $container[0].contains(focused)
+            ? tileIdentity(focused)
+            : null;
         $container.html(emptyNotice + buildPagerHtml(items, layout, instant));
+        if ( focusedTile ) {
+            $container.find('.myapps-tile').toArray()
+                .find(el => tileIdentity(el) === focusedTile)
+                ?.focus({ preventScroll: true });
+        }
         // A tile mid-arrival (a deep-link landing installing its app — see
         // _spliceDeepLinkApp) stays parked invisible across re-renders; the
         // intro's arrival beat, not the render, is what reveals it.
