@@ -531,6 +531,12 @@ async function UIDashboard (options) {
         const tab = route.tab;
         const filePath = route.path;
         notifications.close({ restoreFocus: false });
+        // What was open over the tab being left goes with it, as on a
+        // sidebar click: the phone drawer, a menu, and Files' Share and
+        // Properties, which act on its rows (their changes are already saved).
+        setMobileSidebar(false);
+        $('.context-menu').remove();
+        $el_window.find('.share-modal-close, .item-props-close').trigger('click');
 
         // Switch to correct tab
         const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tab}"]`);
