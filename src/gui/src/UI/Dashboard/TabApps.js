@@ -1325,6 +1325,9 @@ const TabApps = {
         // take over from there. While a folder is open the same arrows walk
         // ITS tiles: the grid behind is inert, so focus must not be there.
         $(document).off('keydown.myapps-keyboard').on('keydown.myapps-keyboard', function (e) {
+            // Keys typed into an IME (choosing a CJK candidate) are its own.
+            // jQuery's event doesn't carry isComposing; the browser's does.
+            if ( e.originalEvent?.isComposing || e.keyCode === 229 ) return;
             // The Menu key or Shift+F10 on a focused tile opens its menu
             // (Open, Uninstall, a folder's Ungroup) at the tile; browsers
             // don't all send a contextmenu event for them.
@@ -1368,7 +1371,7 @@ const TabApps = {
                 if ( ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable) ) {
                     const emptySearch = $(ae).hasClass('myapps-search') && ae.value === '';
                     // Enter in a search opens the first match, as in any launcher.
-                    if ( e.key === 'Enter' && $(ae).hasClass('myapps-search') && ! emptySearch && ! e.isComposing ) {
+                    if ( e.key === 'Enter' && $(ae).hasClass('myapps-search') && ! emptySearch ) {
                         if ( e.originalEvent?.repeat ) return;
                         const first = pageTiles.find(el => ! el.classList.contains('myapps-add-tile'));
                         if ( first ) {
@@ -1966,6 +1969,9 @@ const TabApps = {
         // Enter commits (and gets out of the way); blur commits too, so a
         // click straight onto an app in the folder keeps the new name.
         $name.on('keydown', function (e) {
+            // Enter and Escape that confirm or cancel an IME conversion
+            // aren't the name's.
+            if ( e.originalEvent?.isComposing || e.keyCode === 229 ) return;
             if ( e.key === 'Enter' ) {
                 e.preventDefault();
                 // The name box owns this Enter: the grid's document-level key
