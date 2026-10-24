@@ -208,3 +208,30 @@ describe('TabFiles.rebaseNavHistory', () => {
         expect(window.dashboard_nav_history).toEqual(['/alice', '/alice/Proj2', '/alice/Proj2/src', '/alice/Projects']);
     });
 });
+
+describe('TabFiles opening a folder that fails to list', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+        window.puter = { fs: { readdir: vi.fn(async () => {
+            throw new Error('not found');
+        }) } };
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    it('moves to that folder and creates nothing in it', async () => {
+        mountListing([], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+
+        await TabFiles.renderDirectory('/alice/Gone');
+
+        expect(TabFiles.currentPath).toBe('/alice/Gone');
+        expect($('.files').text()).toContain("couldn't be opened");
+        expect(TabFiles.acceptsNewItems('/alice/Gone')).toBe(false);
+        expect(TabFiles.acceptsNewItems('/alice/Documents')).toBe(true);
+        expect(TabFiles.renderingDirectory).toBe(false);
+    });
+});

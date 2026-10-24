@@ -2064,13 +2064,15 @@ const TabFiles = {
     /**
      * Whether items can be created, uploaded or pasted into a folder. Not the
      * Trash or a folder inside it (Restore needs metadata only Delete writes),
-     * not the Shared view (a query, not a directory), and not `/`.
+     * not the Shared view (a query, not a directory), not `/`, and not a
+     * folder Files just failed to list.
      *
      * @param {string} folderPath
      * @returns {boolean}
      */
     acceptsNewItems (folderPath) {
         return !! folderPath
+            && folderPath !== this.unreadablePath
             && folderPath !== '/'
             && folderPath !== window.trash_path
             && ! folderPath.startsWith(`${window.trash_path}/`)
@@ -2567,38 +2569,19 @@ const TabFiles = {
         // and live under their owners' paths.
         const isSharedView = target === window.shared_path;
         let directoryContents;
+        // readdir rejects on any backend error (permission, deleted dir,
+        // network). The listing then says so, but the tab still moves to the
+        // folder it was asked for: left on the previous one, New Folder,
+        // Upload and Paste would act on a folder that is no longer on screen.
+        let readFailed = false;
         try {
             directoryContents = isSharedView
                 ? await this.listSharedView()
                 : await window.puter.fs.readdir(readdirArg);
         } catch ( err ) {
-            // readdir rejects on any backend error (permission, deleted dir,
-            // network). Without this, renderingDirectory would stay true and
-            // the guard above would block all further navigation.
             console.error('Failed to read directory:', err);
-            // Replace whatever the pane shows (blank after navigation, the
-            // stale rows during a same-directory refresh) with a message
-            // rather than leaving it unexplained.
-            clearListing();
-            this.$el_window.find('.files-tab .files').html(`<div style="
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                pointer-events: none;
-                text-align: center;
-                padding: 0 16px;
-            ">${i18n('folder_open_failed')}</div>`);
-            // The list was emptied above; without this the footer keeps the
-            // previous directory's item count over a pane with zero rows.
-            this.updateFooterStats();
-            this.hideSpinner();
-            this.renderingDirectory = false;
-            return;
+            readFailed = true;
+            directoryContents = [];
         }
         if ( ! directoryContents ) {
             this.hideSpinner();
@@ -2629,6 +2612,8 @@ const TabFiles = {
         }
 
         this.updateSidebarSelection();
+        // Nothing can be created in a folder that couldn't be read.
+        this.unreadablePath = readFailed ? this.currentPath : null;
 
         // Filter out hidden files/folders and AppData in home directory.
         // Trash is reachable from the sidebar; don't list it as a row too.
@@ -2740,6 +2725,33 @@ const TabFiles = {
                 },
             });
         });
+
+        if ( readFailed ) {
+            // Replace whatever the pane shows (blank after navigation, the
+            // stale rows during a same-directory refresh) with a message
+            // rather than leaving it unexplained.
+            clearListing();
+            $files.html(`<div style="
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                pointer-events: none;
+                text-align: center;
+                padding: 0 16px;
+            ">${i18n('folder_open_failed')}</div>`);
+            // The list was emptied above; without this the footer keeps the
+            // previous directory's item count over a pane with zero rows.
+            this.updateFooterStats();
+            this.updateNavButtonStates();
+            this.hideSpinner();
+            this.renderingDirectory = false;
+            return;
+        }
 
         // Same-directory refresh: the stale rows stayed on screen during the
         // fetch; swap them for the fresh listing now that it's here. The
