@@ -30,6 +30,7 @@ import type {
     PuterMessage,
 } from '../../types.js';
 import { CompletionAccountingError } from '../../utils/meterChatUsage.js';
+import { estimateTextTokens } from '../../utils/usageEstimate.js';
 import { openAICompatParams } from '../../utils/openaiParams.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
@@ -60,9 +61,26 @@ export class MoonshotProvider extends OpenAICompatProvider {
         });
     }
 
-    requestPricing(_args: ICompleteArguments, model: IChatModel) {
+    requestPricing(args: ICompleteArguments, model: IChatModel) {
+        if (!isK31(model.id)) return {};
+        const additionalPromptTokens = (args.messages ?? []).reduce(
+            (tokens, message) => {
+                if (message.role !== 'assistant') return tokens;
+                const reasoning =
+                    message.reasoning_content !== undefined
+                        ? message.reasoning_content
+                        : message.reasoning;
+                return (
+                    tokens +
+                    (typeof reasoning === 'string'
+                        ? estimateTextTokens(reasoning)
+                        : 0)
+                );
+            },
+            0,
+        );
         // Appended prefixes can inherit a one-hour cache entry's write rate.
-        return isK31(model.id) ? { inputKey: 'cache_write_1h_tokens' } : {};
+        return { inputKey: 'cache_write_1h_tokens', additionalPromptTokens };
     }
 
     protected override preservesToolCallOrder(model: IChatModel) {
@@ -97,10 +115,8 @@ export class MoonshotProvider extends OpenAICompatProvider {
         model: IChatModel,
     ) {
         if (!isK31(model.id)) return params;
-        if (
-            args.reasoning_effort &&
-            !['low', 'high', 'max'].includes(args.reasoning_effort)
-        ) {
+        const effort = args.reasoning_effort ?? args.reasoning?.effort;
+        if (effort !== undefined && !['low', 'high', 'max'].includes(effort)) {
             throw new HttpError(
                 400,
                 'Kimi K3.1 Pro reasoning_effort must be low, high, or max',
@@ -112,9 +128,17 @@ export class MoonshotProvider extends OpenAICompatProvider {
         const { max_tokens, ...rest } = params;
         return {
             ...rest,
-            ...openAICompatParams(args, 'chat', {
-                only: ['tool_choice', 'response_format', 'reasoning_effort'],
-            }),
+            ...openAICompatParams(
+                { ...args, reasoning_effort: effort },
+                'chat',
+                {
+                    only: [
+                        'tool_choice',
+                        'response_format',
+                        'reasoning_effort',
+                    ],
+                },
+            ),
             max_completion_tokens: max_tokens ?? 131_072,
         };
     }
@@ -149,9 +173,22 @@ export class MoonshotProvider extends OpenAICompatProvider {
         };
         if (!params.stream) return addWriteUsage(data as ChatCompletion);
         return (async function* () {
-            for await (const chunk of data as Stream<ChatCompletionChunk>) {
-                yield addWriteUsage(chunk);
+            let finished = false;
+            let hasUsage = false;
+            try {
+                for await (const chunk of data as Stream<ChatCompletionChunk>) {
+                    finished ||= chunk.choices.some(
+                        (choice) => !!choice.finish_reason,
+                    );
+                    hasUsage ||= chunk.usage != null;
+                    yield addWriteUsage(chunk);
+                }
+            } catch (error) {
+                if (!finished) throw error;
+                // After finish, let the normal calculator validate and settle any usage.
             }
+            // A completed inference with missing accounting must not be estimated.
+            if (finished && !hasUsage) throw new CompletionAccountingError();
         })();
     }
 
@@ -165,10 +202,36 @@ export class MoonshotProvider extends OpenAICompatProvider {
                 cache_write_tokens?: number;
             };
         };
-        const cached = usage.prompt_tokens_details?.cached_tokens ?? 0;
-        const written = usage.prompt_tokens_details?.cache_write_tokens ?? 0;
+        const details = usage?.prompt_tokens_details;
+        const cached =
+            details?.cached_tokens === undefined ? 0 : details.cached_tokens;
+        const written =
+            details?.cache_write_tokens === undefined
+                ? 0
+                : details.cache_write_tokens;
+        if (
+            !usage ||
+            (details !== undefined &&
+                (details === null ||
+                    typeof details !== 'object' ||
+                    Array.isArray(details))) ||
+            ![
+                usage.prompt_tokens,
+                usage.completion_tokens,
+                cached,
+                written,
+            ].every((count) => Number.isSafeInteger(count) && count >= 0) ||
+            cached > usage.prompt_tokens ||
+            written > usage.prompt_tokens - cached
+        ) {
+            throw new CompletionAccountingError();
+        }
         const fiveMinuteHeader = usage.moonshotCacheWrite5mTokens;
         const oneHourHeader = usage.moonshotCacheWrite1hTokens;
+        const headers = [fiveMinuteHeader, oneHourHeader];
+        if (headers.some((value) => value != null && !/^\d+$/.test(value))) {
+            throw new CompletionAccountingError();
+        }
         const oneHour =
             oneHourHeader != null
                 ? Number(oneHourHeader)
@@ -183,9 +246,7 @@ export class MoonshotProvider extends OpenAICompatProvider {
             oneHour < 0 ||
             oneHour > written ||
             (fiveMinuteHeader != null &&
-                Number(fiveMinuteHeader) !== written - oneHour) ||
-            fiveMinuteHeader === '' ||
-            oneHourHeader === ''
+                Number(fiveMinuteHeader) !== written - oneHour)
         ) {
             throw new CompletionAccountingError();
         }

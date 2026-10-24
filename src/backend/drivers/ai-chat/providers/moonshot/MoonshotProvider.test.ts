@@ -20,17 +20,15 @@
 /**
  * Offline unit tests for MoonshotProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs MoonshotProvider directly against the live
- * wired `MeteringService` so the recording side is exercised end-to-
- * end. Moonshot is OpenAI-compatible so the OpenAI SDK is mocked at
- * the module boundary; that's the real network egress point. Image-
- * inlining behaviour is covered by `utils/inlineImages.test.ts`; here we
- * stub `inlineHttpImageUrls` so http URLs in vision messages don't
- * trigger network fetches and only verify the provider invokes it
- * for vision-capable models. The companion integration test
- * (MoonshotProvider.integration.test.ts) exercises the real Moonshot
- * endpoint.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs MoonshotProvider directly against the live wired `MeteringService`
+ * so the recording side is exercised end-to- end. Moonshot is OpenAI-compatible
+ * so the OpenAI SDK is mocked at the module boundary; that's the real network
+ * egress point. Image- inlining behaviour is covered by
+ * `utils/inlineImages.test.ts`; here we stub `inlineHttpImageUrls` so http URLs
+ * in vision messages don't trigger network fetches and only verify the provider
+ * invokes it for vision-capable models. The companion integration test
+ * (MoonshotProvider.integration.test.ts) exercises the real Moonshot endpoint.
  */
 
 import { Readable, Writable } from 'node:stream';
@@ -46,6 +44,8 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { chat as sdkChat } from '../../../../../puter-js/src/modules/ai/chat.js';
+import * as sdkUtils from '../../../../../puter-js/src/lib/utils.js';
 import { ChatCompletionDriver } from '../../ChatCompletionDriver.js';
 import {
     clearUnhealthyRoutes,
@@ -63,6 +63,10 @@ import { AIChatStream } from '../../utils/Streaming.js';
 import { FakeChatProvider } from '../FakeChatProvider.js';
 import { MOONSHOT_MODELS } from './models.js';
 import { MoonshotProvider } from './MoonshotProvider.js';
+import {
+    estimatePromptTokens,
+    estimateTextTokens,
+} from '../../utils/usageEstimate.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // ── OpenAI SDK mock ─────────────────────────────────────────────────
@@ -1157,7 +1161,13 @@ describe('Kimi K3.1 Pro', () => {
                 driver.complete({
                     model,
                     provider: 'moonshotai',
-                    messages: [{ role: 'user', content: 'x'.repeat(8000) }],
+                    messages: [
+                        {
+                            role: 'assistant',
+                            content: 'x'.repeat(8000),
+                            reasoning: 'thought '.repeat(90000),
+                        },
+                    ],
                     max_tokens: 10,
                 }),
             );
@@ -1325,16 +1335,273 @@ describe('Kimi K3.1 Pro', () => {
         },
     );
 
+    it.each(
+        models.flatMap((model) =>
+            ['reasoning', 'reasoning_content', 'both'].map((alias) => ({
+                model,
+                alias,
+            })),
+        ),
+    )(
+        'reserves replayed reasoning once with wire precedence: $model $alias',
+        async ({ model, alias }) => {
+            const text = 'reasoning '.repeat(90000);
+            const assistant = {
+                role: 'assistant',
+                content: 'answer',
+                ...(alias !== 'reasoning_content'
+                    ? { reasoning: alias === 'both' ? 'short' : text }
+                    : {}),
+                ...(alias !== 'reasoning' ? { reasoning_content: text } : {}),
+            };
+            const messages = [
+                { role: 'user', content: 'hi' },
+                assistant,
+                { role: 'user', content: 'continue' },
+            ];
+            const tokens =
+                estimatePromptTokens(messages) + estimateTextTokens(text);
+            const inputRate = model.endsWith('highspeed') ? 800 : 400;
+            const outputRate = model.endsWith('highspeed') ? 2000 : 1000;
+            const headroom = vi
+                .spyOn(server.services.metering, 'getUsageHeadroom')
+                .mockResolvedValue({ balance: 2_000_000_000, held: 0 });
+            const reserve = vi.spyOn(
+                server.services.metering,
+                'reserveCredits',
+            );
+            mockResponse(response());
+            await withTestActor(() =>
+                driver.complete({
+                    model,
+                    messages: structuredClone(messages),
+                    max_tokens: 10,
+                }),
+            );
+            expect(reserve.mock.calls[0]![1]).toBe(
+                tokens * inputRate + 10 * outputRate,
+            );
+            expect(
+                createMock.mock.calls[0]![0].messages[1].reasoning_content,
+            ).toBe(text);
+            headroom.mockResolvedValue({
+                balance: tokens * inputRate - 1,
+                held: 0,
+            });
+            await expect(
+                withTestActor(() =>
+                    driver.complete({
+                        model,
+                        messages: structuredClone(messages),
+                        max_tokens: 10,
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 402 });
+            expect(createMock).toHaveBeenCalledTimes(1);
+            expect(reserve).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it.each(
+        models.flatMap((model) => [
+            ...['low', 'high', 'max'].map((effort) => ({
+                model,
+                options: { reasoning: { effort } },
+                expected: effort,
+                invalid: false,
+            })),
+            {
+                model,
+                options: {
+                    reasoning: { effort: 'low' },
+                    reasoning_effort: 'high',
+                },
+                expected: 'high',
+                invalid: false,
+            },
+            { model, options: {}, expected: undefined, invalid: false },
+            ...['medium', 'none'].map((effort) => ({
+                model,
+                options: { reasoning: { effort } },
+                expected: undefined,
+                invalid: true,
+            })),
+        ]),
+    )(
+        'SDK reasoning contract $model $options',
+        async ({ model, options, expected, invalid }) => {
+            // Bridge only the SDK transport, preserving JSON serialization and the real driver.
+            vi.spyOn(sdkUtils, 'makeDriverMethod').mockImplementation(
+                () =>
+                    ((args: unknown) =>
+                        withTestActor(() =>
+                            driver.complete(JSON.parse(JSON.stringify(args))),
+                        )) as never,
+            );
+            mockResponse(response());
+            const result = sdkChat.call(
+                { puter: {} },
+                'hi',
+                { model, ...options },
+                undefined,
+                undefined,
+            );
+            if (invalid) {
+                await expect(result).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                });
+                expect(createMock).not.toHaveBeenCalled();
+            } else {
+                await result;
+                expect(createMock).toHaveBeenCalledTimes(1);
+                expect(createMock.mock.calls[0]![0].reasoning_effort).toBe(
+                    expected,
+                );
+            }
+        },
+    );
+
+    it.each(models)(
+        'estimates transmitted reasoning on interrupted %s streams',
+        async (model) => {
+            const reasoning = 'history '.repeat(1000);
+            const messages = [
+                {
+                    role: 'assistant',
+                    content: 'answer',
+                    reasoning: 'ignored alias',
+                    reasoning_content: reasoning,
+                },
+                { role: 'user', content: 'hi' },
+            ];
+            const expectedInput =
+                estimatePromptTokens(messages) + estimateTextTokens(reasoning);
+            mockResponse(
+                (async function* () {
+                    yield {
+                        choices: [{ delta: { content: 'partial answer' } }],
+                    };
+                    throw new Error('upstream connection lost');
+                })(),
+                null,
+                null,
+            );
+            const result = await withTestActor(() =>
+                driver.complete({
+                    model,
+                    messages: structuredClone(messages),
+                    stream: true,
+                }),
+            );
+            const text = (await readStreamResult(result)).toString();
+            expect(text).toContain('upstream connection lost');
+            expect(text).not.toContain('completion_accounting_failed');
+            await vi.waitFor(() => expect(recordSpy).toHaveBeenCalledTimes(1));
+            expect(
+                createMock.mock.calls[0]![0].messages[0].reasoning_content,
+            ).toBe(reasoning);
+            expect(recordSpy.mock.calls[0]![0]).toHaveProperty(
+                'estimated_prompt_tokens',
+                expectedInput,
+            );
+            expect(recordSpy.mock.calls[0]![0]).toHaveProperty(
+                'estimated_completion_tokens',
+            );
+        },
+    );
+
+    const invalidUsage = [
+        ['absent usage', undefined],
+        ['null usage', null],
+        ['missing totals', {}],
+        [
+            'reads exceed total',
+            {
+                ...usage,
+                prompt_tokens_details: {
+                    cached_tokens: 120,
+                    cache_write_tokens: 0,
+                },
+            },
+        ],
+        [
+            'fractional writes',
+            {
+                ...usage,
+                prompt_tokens_details: {
+                    cached_tokens: 20,
+                    cache_write_tokens: 50.5,
+                },
+            },
+        ],
+        [
+            'negative reads',
+            {
+                ...usage,
+                prompt_tokens_details: {
+                    cached_tokens: -1,
+                    cache_write_tokens: 50,
+                },
+            },
+        ],
+        ['negative output', { ...usage, completion_tokens: -1 }],
+        ['string total', { ...usage, prompt_tokens: '100' }],
+        [
+            'unsafe total',
+            { ...usage, prompt_tokens: Number.MAX_SAFE_INTEGER + 1 },
+        ],
+        [
+            'null writes',
+            {
+                ...usage,
+                prompt_tokens_details: {
+                    cached_tokens: 20,
+                    cache_write_tokens: null,
+                },
+            },
+        ],
+    ] as const;
+
     it.each([
-        [false, null, null, false],
-        [false, '10', '41', false],
-        [true, null, null, false],
-        [true, '10', '41', false],
-        [false, null, null, true],
-        [false, '10', '41', true],
+        [false, null, null, false, 'headers', usage],
+        [false, '10', '41', false, 'headers', usage],
+        [true, null, null, false, 'headers', usage],
+        [true, '10', '41', false, 'headers', usage],
+        [false, null, null, true, 'headers', usage],
+        [false, '10', '41', true, 'headers', usage],
+        ...invalidUsage.flatMap(
+            ([name, value]) =>
+                [
+                    [false, '0', null, false, name, value],
+                    [true, '0', null, false, name, value],
+                ] as const,
+        ),
+        [true, null, null, false, 'transport after finish', undefined],
+        [true, '10', null, false, 'transport after finish empty usage', {}],
+        [
+            true,
+            '10',
+            null,
+            false,
+            'transport after finish invalid usage',
+            { ...usage, completion_tokens: -1 },
+        ],
+        [true, '10', null, false, 'transport after finish valid usage', usage],
+        [false, '0x0', null, false, 'nondecimal TTL', usage],
+        [true, '0x0', null, false, 'nondecimal TTL', usage],
     ] as const)(
-        'terminates accounting failures (stream=%s, TTL=%s/%s, fallback=%s) without retry or estimated charge',
-        async (stream, oneHour, fiveMinute, startWithFake) => {
+        'settles completed requests (stream=%s, TTL=%s/%s, fallback=%s, %s) without fallback or estimated charging',
+        async (
+            stream,
+            oneHour,
+            fiveMinute,
+            startWithFake,
+            _name,
+            upstreamUsage,
+        ) => {
+            const validSettlement =
+                _name === 'transport after finish valid usage';
             const model = MOONSHOT_MODELS.find((m) => m.id === models[0])!;
             // A real alternative route ensures a retry would be observable.
             vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValue([
@@ -1366,11 +1633,16 @@ describe('Kimi K3.1 Pro', () => {
             const release = vi.spyOn(server.stores.creditHold, 'release');
             mockResponse(
                 stream
-                    ? asAsyncIterable([
-                          { choices: [{ delta: { content: 'answer' } }] },
-                          { choices: [], usage: structuredClone(usage) },
-                      ])
-                    : response(),
+                    ? (async function* () {
+                          yield { choices: [{ delta: { content: 'answer' } }] };
+                          yield {
+                              choices: [{ delta: {}, finish_reason: 'stop' }],
+                              usage: structuredClone(upstreamUsage),
+                          };
+                          if (_name.startsWith('transport after finish'))
+                              throw new Error('upstream connection lost');
+                      })()
+                    : { ...response(), usage: structuredClone(upstreamUsage) },
                 oneHour,
                 fiveMinute,
             );
@@ -1394,16 +1666,25 @@ describe('Kimi K3.1 Pro', () => {
                     .trim()
                     .split('\n')
                     .map((line) => JSON.parse(line));
-                expect(events).toContainEqual(
-                    expect.objectContaining({
-                        type: 'error',
-                        code: 'completion_accounting_failed',
-                        status: 502,
-                        message: expect.stringContaining(
-                            'No charge was recorded',
-                        ),
-                    }),
-                );
+                if (validSettlement) {
+                    expect(events.some((event) => event.type === 'error')).toBe(
+                        false,
+                    );
+                    expect(events).toContainEqual(
+                        expect.objectContaining({ type: 'usage' }),
+                    );
+                } else {
+                    expect(events).toContainEqual(
+                        expect.objectContaining({
+                            type: 'error',
+                            code: 'completion_accounting_failed',
+                            status: 502,
+                            message: expect.stringContaining(
+                                'No charge was recorded',
+                            ),
+                        }),
+                    );
+                }
             } else {
                 await expect(completion).rejects.toMatchObject({
                     statusCode: 502,
@@ -1421,7 +1702,18 @@ describe('Kimi K3.1 Pro', () => {
             ).toBe(0);
             expect(createMock).toHaveBeenCalledTimes(1);
             expect(fallback).toHaveBeenCalledTimes(startWithFake ? 1 : 0);
-            expect(recordSpy).not.toHaveBeenCalled();
+            if (validSettlement) {
+                expect(recordSpy).toHaveBeenCalledTimes(1);
+                expect(recordSpy.mock.calls[0]![0]).toEqual({
+                    prompt_tokens: 30,
+                    completion_tokens: 10,
+                    cached_tokens: 20,
+                    cache_write_tokens: 40,
+                    cache_write_1h_tokens: 10,
+                });
+            } else {
+                expect(recordSpy).not.toHaveBeenCalled();
+            }
             expect(isRouteUnhealthy('moonshot', models[0]!)).toBe(false);
         },
     );

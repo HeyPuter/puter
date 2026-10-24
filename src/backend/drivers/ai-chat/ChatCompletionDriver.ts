@@ -817,6 +817,7 @@ export class ChatCompletionDriver extends PuterDriver {
         // where "done" is the stream draining rather than this method
         // returning.
         let hold: CreditHold = NO_CREDIT_HOLD;
+        let attemptPromptTokenEstimate = promptTokenEstimate;
         // The current attempt's balance-bound output cap, if it had one.
         let fundsCap: number | undefined;
         // The cost factor the current attempt's charges are recorded at.
@@ -825,12 +826,16 @@ export class ChatCompletionDriver extends PuterDriver {
         // charge, so a rate change mid-request can't split the two.
         let pricingTime = new Date();
         if (!useFakeProvider) {
-            ({ hold, fundsCap, costFactor } = await this.#applyCreditGate(
-                actor,
-                model,
-                args,
-                { promptTokenEstimate, requestedMaxTokens, pricingTime },
-            ));
+            ({
+                hold,
+                fundsCap,
+                costFactor,
+                promptTokenEstimate: attemptPromptTokenEstimate,
+            } = await this.#applyCreditGate(actor, model, args, {
+                promptTokenEstimate,
+                requestedMaxTokens,
+                pricingTime,
+            }));
         }
 
         // First attempt
@@ -962,12 +967,16 @@ export class ChatCompletionDriver extends PuterDriver {
                 // this one starts from nothing held.
                 pricingTime = new Date();
                 if (!useFakeProvider) {
-                    ({ hold, fundsCap, costFactor } =
-                        await this.#applyCreditGate(actor, fallback, args, {
-                            promptTokenEstimate,
-                            requestedMaxTokens,
-                            pricingTime,
-                        }));
+                    ({
+                        hold,
+                        fundsCap,
+                        costFactor,
+                        promptTokenEstimate: attemptPromptTokenEstimate,
+                    } = await this.#applyCreditGate(actor, fallback, args, {
+                        promptTokenEstimate,
+                        requestedMaxTokens,
+                        pricingTime,
+                    }));
                 }
 
                 tried.add(routeId(fallback.provider!, fallback.id));
@@ -1208,7 +1217,7 @@ export class ChatCompletionDriver extends PuterDriver {
                                 actor,
                                 chatStream,
                                 model,
-                                promptTokenEstimate,
+                                promptTokenEstimate: attemptPromptTokenEstimate,
                                 completionId,
                                 username,
                                 intendedProvider,
@@ -1452,10 +1461,15 @@ export class ChatCompletionDriver extends PuterDriver {
             /** The instant this attempt is priced at. */
             pricingTime: Date;
         },
-    ): Promise<{ hold: CreditHold; fundsCap?: number; costFactor: number }> {
+    ): Promise<{
+        hold: CreditHold;
+        fundsCap?: number;
+        costFactor: number;
+        promptTokenEstimate: number;
+    }> {
         const metering = this.services.metering;
-        const { promptTokenEstimate, requestedMaxTokens, pricingTime } =
-            estimates;
+        const { requestedMaxTokens, pricingTime } = estimates;
+        let { promptTokenEstimate } = estimates;
         // A provider can name its own cost keys for this request (Claude's
         // fast-mode rate card), cap its output, and size an extra reservation
         // the per-token math can't see (a web-search/advisor tool that could
@@ -1466,6 +1480,7 @@ export class ChatCompletionDriver extends PuterDriver {
             this.#providers[model.provider!]?.requestPricing?.(args, model, {
                 promptTokenEstimate,
             }) ?? {};
+        promptTokenEstimate += pricing.additionalPromptTokens ?? 0;
         const { inputKey: defaultInputKey, outputKey: defaultOutputKey } =
             costKeys(model);
         const inputKey = pricing.inputKey ?? defaultInputKey;
@@ -1580,7 +1595,7 @@ export class ChatCompletionDriver extends PuterDriver {
             actor,
             Math.max(worstCaseCost, minimumCredits),
         );
-        return { hold, fundsCap, costFactor };
+        return { hold, fundsCap, costFactor, promptTokenEstimate };
     }
 
     /** The key `model`'s usage is recorded and cost-factored under. */
