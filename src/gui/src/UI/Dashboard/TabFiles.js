@@ -1341,7 +1341,7 @@ const TabFiles = {
                 const history_item = window.dashboard_nav_history[index];
 
                 items.push({
-                    html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
+                    html: `<span>${html_encode(_this.historyLabel(history_item))}</span>`,
                     val: index,
                     onClick: function (e) {
                         _this.goToHistoryPosition(e.value);
@@ -1378,7 +1378,7 @@ const TabFiles = {
                 const history_item = window.dashboard_nav_history[index];
 
                 items.push({
-                    html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
+                    html: `<span>${html_encode(_this.historyLabel(history_item))}</span>`,
                     val: index,
                     onClick: function (e) {
                         _this.goToHistoryPosition(e.value);
@@ -5407,6 +5407,21 @@ const TabFiles = {
         rows.addClass('selected');
         this.updateFooterStats();
         rows[0].scrollIntoView({ block: 'nearest' });
+    },
+
+    /**
+     * A folder's name in the Back/Forward history menus, as the breadcrumbs
+     * show it.
+     *
+     * @param {string} folderPath
+     * @returns {string} Plain text
+     */
+    historyLabel (folderPath) {
+        if ( folderPath === window.home_path ) return i18n('home', [], false);
+        if ( folderPath === '/' ) return window.root_dirname;
+        if ( folderPath === window.shared_path ) return i18n('shared', [], false);
+        if ( folderPath === window.trash_path ) return i18n('trash', [], false);
+        return this.trashedNames.get(folderPath) ?? path.basename(folderPath);
     },
 
     /**
