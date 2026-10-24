@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { intlLocale } from '../../i18n/intlLocale.js';
+
 /**
  * The dashboard notification center's logic, kept free of the DOM: what the
  * list holds, how arrivals fold into it, what a click on an entry should do,
@@ -366,12 +368,6 @@ const tryMake = (make) => {
         return null;
     }
 };
-
-// Puter's language codes that aren't the BCP 47 tag for that language: Intl
-// reads `br` as Breton, and `ua` and `emoji` as nothing at all.
-const INTL_LOCALES = { br: 'pt-BR', ua: 'uk', zh: 'zh-CN', zhtw: 'zh-TW', emoji: 'en' };
-
-const intlLocale = (locale) => INTL_LOCALES[locale] ?? locale;
 
 // An unknown locale tag throws; the English formatter beats none at all.
 const relativeFormatter = (locale) => {

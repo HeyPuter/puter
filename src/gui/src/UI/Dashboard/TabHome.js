@@ -24,6 +24,7 @@ import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
+import { intlLocale } from '../../i18n/intlLocale.js';
 
 // How long a completed usage load stays fresh enough to skip a repeat. Long
 // enough to absorb the init/onActivate/routing burst on a single dashboard
@@ -163,12 +164,14 @@ function formatTrialEnd(trialEndsAt) {
         0,
         Math.ceil((date.getTime() - Date.now()) / 86400000),
     );
+    // In the dashboard's language, which the sentences around it are in.
+    const locale = intlLocale(window.locale);
     return {
-        short: date.toLocaleDateString(undefined, {
+        short: date.toLocaleDateString(locale, {
             month: 'short',
             day: 'numeric',
         }),
-        long: date.toLocaleDateString(undefined, {
+        long: date.toLocaleDateString(locale, {
             year: 'numeric',
             month: 'long',
             day: 'numeric',
