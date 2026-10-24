@@ -759,6 +759,12 @@ function showAddAppModal ({ $el_window }) {
         })();
     };
 
+    // Enter held on the "+" tile opens this with the first option focused;
+    // its repeats must not pick that option.
+    $overlay.on('keydown', '.myapps-add-option', function (e) {
+        if ( e.key === 'Enter' && e.originalEvent?.repeat ) e.preventDefault();
+    });
+
     $overlay.on('click', '.myapps-add-option', function (e) {
         // The second click of a double-click on the "+" tile lands on
         // whichever option opened under the pointer; that isn't a choice.
@@ -1359,6 +1365,7 @@ const TabApps = {
                     const emptySearch = $(ae).hasClass('myapps-search') && ae.value === '';
                     // Enter in a search opens the first match, as in any launcher.
                     if ( e.key === 'Enter' && $(ae).hasClass('myapps-search') && ! emptySearch && ! e.isComposing ) {
+                        if ( e.originalEvent?.repeat ) return;
                         const first = pageTiles.find(el => ! el.classList.contains('myapps-add-tile'));
                         if ( first ) {
                             e.preventDefault();
@@ -1377,7 +1384,9 @@ const TabApps = {
 
             if ( e.key === 'Enter' || e.key === ' ' ) {
                 e.preventDefault();
-                $(ae).trigger('click');
+                // A held key acts once: opening a folder moves focus to its
+                // first app, which a repeat would then launch.
+                if ( ! e.originalEvent?.repeat ) $(ae).trigger('click');
                 return;
             }
 
