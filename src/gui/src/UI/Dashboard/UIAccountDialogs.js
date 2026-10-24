@@ -66,6 +66,10 @@ const revalidating = (dialog) => () => dialog.setStatus(t('revalidate_sign_in_po
  * @param {AccountDialogOptions & { onSave?: (profile: { displayName?: string|null, bio?: string|null }) => void }} [opts]
  */
 export function openEditProfileDialog ({ onSave, ...opts } = {}) {
+    const initial = {
+        displayName: window.user?.profile?.displayName ?? '',
+        bio: window.user?.profile?.bio ?? '',
+    };
     return UIDashboardFormDialog({
         ...opts,
         title: t('edit_profile'),
@@ -74,24 +78,33 @@ export function openEditProfileDialog ({ onSave, ...opts } = {}) {
             {
                 name: 'displayName',
                 label: i18n('display_name'),
-                value: window.user?.profile?.displayName ?? '',
+                value: initial.displayName,
                 attrs: { maxlength: DISPLAY_NAME_MAX_LENGTH, autocomplete: 'off' },
             },
             {
                 name: 'bio',
                 type: 'textarea',
                 label: i18n('bio'),
-                value: window.user?.profile?.bio ?? '',
+                value: initial.bio,
                 attrs: { maxlength: BIO_MAX_LENGTH, rows: 4 },
             },
         ],
         async onSubmit (dialog) {
             const values = dialog.values();
-            // An empty field clears it.
-            const patch = {
-                displayName: values.displayName.trim() || null,
-                bio: values.bio.trim() || null,
-            };
+            // Only what was edited: the prefill comes from this session's copy
+            // of the profile, which can be stale, and sending an untouched
+            // field would write that copy over a newer one. An empty field
+            // clears it.
+            const patch = {};
+            for ( const key of ['displayName', 'bio'] ) {
+                if ( values[key].trim() !== initial[key].trim() ) {
+                    patch[key] = values[key].trim() || null;
+                }
+            }
+            if ( ! Object.keys(patch).length ) {
+                dialog.close();
+                return;
+            }
             // update_profile resolves with no profile when the request failed.
             const profile = await window.update_profile(window.user.username, patch);
             if ( ! profile ) {

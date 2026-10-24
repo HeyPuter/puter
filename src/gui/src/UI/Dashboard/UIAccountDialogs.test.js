@@ -82,13 +82,33 @@ describe('edit profile', () => {
         expect(isOpen()).toBe(false);
     });
 
+    it('sends only the fields that were edited', async () => {
+        window.update_profile = vi.fn(async (_username, patch) => patch);
+        dialogs.openEditProfileDialog();
+
+        await submitWith({ bio: 'New bio' });
+
+        expect(window.update_profile).toHaveBeenCalledWith('alice', { bio: 'New bio' });
+        expect(isOpen()).toBe(false);
+    });
+
+    it('closes without saving when nothing changed', async () => {
+        window.update_profile = vi.fn();
+        dialogs.openEditProfileDialog();
+
+        await submitWith({ displayName: ' Alice ' });
+
+        expect(window.update_profile).not.toHaveBeenCalled();
+        expect(isOpen()).toBe(false);
+    });
+
     it('stays open with an error when the save fails', async () => {
         window.update_profile = vi.fn(async () => undefined);
         const onSave = vi.fn();
         dialogs.openEditProfileDialog({ onSave });
         await settle();
 
-        await submitWith();
+        await submitWith({ bio: 'Bye' });
 
         expect(status()).toBe('profile_save_failed');
         expect(onSave).not.toHaveBeenCalled();
