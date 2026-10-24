@@ -7054,6 +7054,20 @@ body.myapps-reordering .myapps-tile {
     box-shadow: 0 0 0 3px var(--select-ring);
 }
 
+/* style.css's red puts the white label at 4.4:1; this is the dashboard
+   dialogs' danger red, at 5.3:1. */
+.dashboard-danger-card .button-danger {
+    border-color: #d90707;
+    background: #d90707;
+}
+
+@media (hover: hover) {
+    .dashboard-danger-card .button-danger:hover {
+        border-color: #b80606;
+        background: #b80606;
+    }
+}
+
 /* Responsive styles for Account tab */
 @media (max-width: 768px) {
     .dashboard-tab-content {
