@@ -1829,22 +1829,21 @@ input.myapps-group-name:focus {
     }
 }
 .app-feedback-btn-primary {
-    border-color: #088ef0;
-    background: linear-gradient(#34a5f8, #088ef0);
+    border-color: var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
     color: #fff;
 }
 @media (hover: hover) {
     /* Must out-rank .app-feedback-btn:hover:not(:disabled) above, which
        would otherwise repaint the primary button with the light hover bg. */
     .app-feedback-btn.app-feedback-btn-primary:hover:not(:disabled) {
-        filter: brightness(1.05);
-        background: linear-gradient(#34a5f8, #088ef0);
+        border-color: var(--dashboard-button-primary-hover);
+        background: var(--dashboard-button-primary-hover);
     }
 }
 .app-feedback-btn-primary:disabled {
     opacity: 0.5;
     cursor: default;
-    filter: none;
 }
 /* Cancel/X are disabled while a submit is in flight. */
 .app-feedback-btn:disabled,
