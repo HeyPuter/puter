@@ -862,6 +862,15 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         $(this).closest('.share-modal-row-confirm').find('button').prop('disabled', true);
         try {
             await revoke_access(recipient_of(group), revoke_paths);
+            // Leaving takes away the access this list is read with, and the
+            // items may leave the listing behind it (the Shared view) too.
+            if ( ! group.teamUid && ! group.pending && group.name === window.user.username ) {
+                invalidate_shared_roots();
+                close();
+                const files = window.dashboard_object;
+                files?.renderDirectory?.(files.currentPath, { consistency: 'strong' });
+                return;
+            }
             if ( group.pending ) {
                 show_success(i18n('share_invite_cancelled', { recipient: group.name }));
             } else {
