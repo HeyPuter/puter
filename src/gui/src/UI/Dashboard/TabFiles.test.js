@@ -1088,3 +1088,26 @@ describe('TabFiles folder menu', () => {
         expect(publishItem(TabFiles.generateFolderContextMenu('/alice/Documents')).disabled).toBe(false);
     });
 });
+
+describe('TabFiles opening a folder being renamed', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('opens it under its new name', async () => {
+        mountListing(['New Folder'], '/alice/Documents');
+        const row = $('.files .row')[0];
+        row.setAttribute('data-is_dir', '1');
+        let finishRename;
+        row._pendingRename = new Promise((resolve) => {
+            finishRename = resolve;
+        });
+        vi.spyOn(TabFiles, 'pushNavHistory').mockImplementation(() => {});
+        vi.spyOn(TabFiles, 'renderDirectory').mockImplementation(async () => {});
+
+        const opening = TabFiles.openRow(row);
+        row.setAttribute('data-path', '/alice/Documents/Photos');
+        finishRename();
+        await opening;
+
+        expect(TabFiles.renderDirectory).toHaveBeenCalledWith('/alice/Documents/Photos');
+    });
+});

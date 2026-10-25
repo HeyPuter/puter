@@ -922,16 +922,11 @@ const TabFiles = {
                     // and Forward pointing at folders that were never shown.
                     let entered = false;
                     $selectedRows.not('[data-pending]').each(function () {
-                        const isDir = $(this).attr('data-is_dir') === '1';
-                        const itemPath = $(this).attr('data-path');
-                        if ( isDir ) {
+                        if ( $(this).attr('data-is_dir') === '1' ) {
                             if ( entered ) return;
                             entered = true;
-                            _this.pushNavHistory(itemPath);
-                            _this.renderDirectory(itemPath);
-                        } else {
-                            open_item({ item: this });
                         }
+                        _this.openRow(this);
                     });
                 }
                 return false;
@@ -3369,7 +3364,6 @@ const TabFiles = {
         const el_item_name = el_item.querySelector(`.item-name`);
         const el_item_icon = el_item.querySelector('.item-icon');
         const el_item_name_editor = el_item.querySelector(`.item-name-editor`);
-        const isFolder = el_item.getAttribute('data-is_dir');
         let website_url = window.determine_website_url(file.path);
         let rename_cancelled = false;
         let shift_clicked = false;
@@ -3565,12 +3559,7 @@ const TabFiles = {
             // Use lastPointerType as primary signal (works even if isMobile misdetects).
             if ( lastPointerType === 'touch' || window.isMobile.phone || window.isMobile.tablet ) {
                 if ( isPending() ) return;
-                if ( isFolder === "1" ) {
-                    _this.pushNavHistory(file.path);
-                    _this.renderDirectory(file.path);
-                } else {
-                    open_item({ item: el_item });
-                }
+                _this.openRow(el_item);
                 return;
             }
 
@@ -3611,12 +3600,7 @@ const TabFiles = {
             // The preview floats above app windows; opening the item ends it,
             // as Enter does.
             if ( _this.previewOpen ) _this.closeImagePreview();
-            if ( isFolder === "1" ) {
-                _this.pushNavHistory(file.path);
-                _this.renderDirectory(file.path);
-            } else {
-                open_item({ item: el_item });
-            }
+            _this.openRow(el_item);
             el_item.classList.remove('selected');
             _this.updateFooterStats();
         };
@@ -3663,8 +3647,14 @@ const TabFiles = {
             // deactivate item name editable
             $(el_item_name_editor).removeClass('item-name-editor-active');
 
-            // Perform rename request
+            // Perform rename request. Opening the row waits on it (see openRow).
+            let renameSettled;
+            el_item._pendingRename = new Promise((resolve) => {
+                renameSettled = resolve;
+            });
             window.rename_file(file, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, false, (fsentry) => {
+                delete el_item._pendingRename;
+                renameSettled();
                 // rename_file writes the desktop's fixed-length truncation;
                 // fit the name to this listing instead. A renamed entry may
                 // also have a new type (extension) and sort position.
@@ -4128,6 +4118,25 @@ const TabFiles = {
                     e.preventDefault();
                 },
             });
+        }
+    },
+
+    /**
+     * Opens a row: enters its folder, or opens its file. A rename still on
+     * its way to the server is waited for, so a folder opens under the name
+     * it is getting rather than the one it had.
+     *
+     * @param {HTMLElement} row
+     * @returns {Promise<void>}
+     */
+    async openRow (row) {
+        if ( row._pendingRename ) await row._pendingRename;
+        if ( row.getAttribute('data-is_dir') === '1' ) {
+            const folderPath = row.getAttribute('data-path');
+            this.pushNavHistory(folderPath);
+            this.renderDirectory(folderPath);
+        } else {
+            open_item({ item: row });
         }
     },
 
@@ -4877,15 +4886,8 @@ const TabFiles = {
             onRemovedFromShared: () => {
                 if ( _this.currentPath === window.shared_path ) _this.refreshKeepingSelection();
             },
-            onOpen: (el, fsentry) => {
-                // Custom open handler for Dashboard (avoids window_nav_history issues)
-                if ( fsentry.is_dir ) {
-                    _this.pushNavHistory(fsentry.path);
-                    _this.renderDirectory(fsentry.path);
-                } else {
-                    open_item({ item: el });
-                }
-            },
+            // Custom open handler for Dashboard (avoids window_nav_history issues)
+            onOpen: (el) => _this.openRow(el),
             onShowProperties: ({ name, path: item_path, uid }) => {
                 // Dashboard uses a responsive modal instead of the desktop UIWindow.
                 UIItemPropertiesModal({
