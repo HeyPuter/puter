@@ -17,6 +17,13 @@ puter.ui.showFontPicker(options)
 #### `defaultFont` (String)
 The default font to select when the font picker is opened.
 
+#### `options` (Object)
+An object with the following properties:
+
+- `defaultFont` (String): The font to select when the font picker is opened. The name is matched without regard to case. `defaultValue` and `default` are accepted as aliases.
+
+## Return value
+A `Promise` that resolves to an object with a `fontFamily` property holding the name of the selected font.
 
 ## Examples
 
