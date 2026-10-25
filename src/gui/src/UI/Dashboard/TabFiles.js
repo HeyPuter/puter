@@ -300,7 +300,12 @@ const TabFiles = {
         window.UIDashboardFileItem = async function (file) {
             if ( ! _this.currentPath ) return;
             if ( _this.renderingDirectory ) return;
-            if ( _this._creatingItem ) return;
+            // Held until the create is done: its own item.added can't be told
+            // from the rest until its row has the real uid (see doneCreating).
+            if ( _this._creatingItem ) {
+                _this.deferredAdds.push(file);
+                return;
+            }
 
             const parentDir = path.dirname(file.path);
             if ( _this.currentPath !== parentDir ) return;
@@ -357,6 +362,7 @@ const TabFiles = {
         // instantly now, so two can easily overlap and the first one finishing
         // must not uncover the second.
         this._creatingItem = 0;
+        this.deferredAdds = [];
         this.activeMenuFileUid = null;
         this.currentPath = null;
         // Set by a folder menu's Upload; null uploads into the folder on screen.
@@ -2603,7 +2609,7 @@ const TabFiles = {
         await this.renderItem(placeholder);
         const $row = this.$el_window.find(`.files-tab .files .item[data-uid='${placeholder.uid}']`);
         if ( $row.length === 0 ) {
-            this._creatingItem--;
+            this.doneCreating();
             return;
         }
 
@@ -2674,13 +2680,26 @@ const TabFiles = {
                     ? i18n('directory_depth_limit_exceeded', [], false)
                     : err?.message || i18n('error_unknown_cause', [], false));
             } finally {
-                _this._creatingItem--;
+                _this.doneCreating();
                 if ( detached ) window.UIDashboardFileItem(detached);
             }
         })();
 
         $row[0]._pendingCreate = pending;
         await pending;
+    },
+
+    /**
+     * Ends one create (see _creatingItem) and, once none is left, adds the
+     * items that arrived meanwhile. The create's own comes through as an
+     * update of the row it already drew.
+     *
+     * @returns {void}
+     */
+    doneCreating () {
+        this._creatingItem--;
+        if ( this._creatingItem > 0 ) return;
+        for ( const file of this.deferredAdds.splice(0) ) window.UIDashboardFileItem(file);
     },
 
     /**
@@ -5175,7 +5194,7 @@ const TabFiles = {
                             UIAlert(err?.message || i18n('error_unknown_cause', [], false));
                         } finally {
                             window.create_file = origCreateFile;
-                            if ( uploadPromise ) _this._creatingItem--;
+                            if ( uploadPromise ) _this.doneCreating();
                         }
                     };
                 };

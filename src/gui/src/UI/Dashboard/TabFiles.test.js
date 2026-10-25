@@ -328,6 +328,7 @@ describe('TabFiles New Folder', () => {
         });
         vi.spyOn(TabFiles, 'insertAtSortedPosition').mockImplementation(() => {});
         vi.spyOn(TabFiles, 'applyColumnWidths').mockImplementation(() => {});
+        TabFiles.deferredAdds = [];
     });
 
     it('is what Undo takes back, not the upload before it', async () => {
@@ -353,6 +354,32 @@ describe('TabFiles New Folder', () => {
 
         expect($('.files .row.selected')).toHaveLength(1);
         expect($('.files-footer-selected-items').text()).toMatch(/^1 item selected/);
+    });
+
+    it('lets items added meanwhile in, once it is made', async () => {
+        mountListing([], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles._creatingItem = 0;
+        let finishMkdir;
+        window.puter.fs.mkdir = vi.fn(() => new Promise((resolve) => {
+            finishMkdir = resolve;
+        }));
+        const added = vi.fn();
+        const previous = window.UIDashboardFileItem;
+        window.UIDashboardFileItem = (file) => {
+            if ( TabFiles._creatingItem ) TabFiles.deferredAdds.push(file);
+            else added(file);
+        };
+
+        const creating = TabFiles.createFolderInstant('/alice/Documents');
+        await vi.waitFor(() => expect(finishMkdir).toBeTypeOf('function'));
+        window.UIDashboardFileItem({ uid: 'u2', path: '/alice/Documents/from-elsewhere.txt' });
+        expect(added).not.toHaveBeenCalled();
+        finishMkdir({ uid: 'f1', name: 'New Folder', path: '/alice/Documents/New Folder', is_dir: true });
+        await creating;
+
+        expect(added).toHaveBeenCalledWith({ uid: 'u2', path: '/alice/Documents/from-elsewhere.txt' });
+        window.UIDashboardFileItem = previous;
     });
 
     it('says so when the network fails, rather than vanishing', async () => {
