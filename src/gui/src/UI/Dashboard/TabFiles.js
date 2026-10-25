@@ -1981,12 +1981,21 @@ const TabFiles = {
             _this.adoptAppliedColumnWidths();
             let maxWidth = 60; // Minimum width
 
+            // Measured in the font the column renders in, read off a cell.
+            const fontOf = (cell) => {
+                if ( ! cell ) return undefined;
+                const style = getComputedStyle(cell);
+                return `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+            };
+
             if ( column === 'name' ) {
                 maxWidth = 100;
-                $filesTab.find('.files.files-list-view .row:not(.header)').each(function () {
+                const $rows = $filesTab.find('.files.files-list-view .row:not(.header)');
+                const font = fontOf($rows.find('.item-name')[0]);
+                $rows.each(function () {
                     const fullName = $(this).attr('data-name');
                     if ( fullName ) {
-                        const textWidth = measureTextWidth(fullName) + padding;
+                        const textWidth = measureTextWidth(fullName, font) + padding;
                         maxWidth = Math.max(maxWidth, textWidth);
                     }
                 });
@@ -2004,19 +2013,15 @@ const TabFiles = {
                         maxWidth = Math.max(maxWidth, measureTextWidth(this.textContent, font) + beside);
                     });
                 }
-            } else if ( column === 'size' ) {
-                $filesTab.find('.files.files-list-view .row:not(.header) .item-size').each(function () {
+            } else if ( column === 'size' || column === 'modified' ) {
+                const $cells = $filesTab.find(`.files.files-list-view .row:not(.header) .item-${column}`);
+                const font = fontOf($cells[0]);
+                const cellStyle = $cells[0] && getComputedStyle($cells[0]);
+                const beside = cellStyle ? parseFloat(cellStyle.paddingLeft) + parseFloat(cellStyle.paddingRight) : padding;
+                $cells.each(function () {
                     const text = $(this).text();
                     if ( text ) {
-                        const textWidth = measureTextWidth(text) + padding;
-                        maxWidth = Math.max(maxWidth, textWidth);
-                    }
-                });
-            } else if ( column === 'modified' ) {
-                $filesTab.find('.files.files-list-view .row:not(.header) .item-modified').each(function () {
-                    const text = $(this).text();
-                    if ( text ) {
-                        const textWidth = measureTextWidth(text) + padding;
+                        const textWidth = measureTextWidth(text, font) + beside;
                         maxWidth = Math.max(maxWidth, textWidth);
                     }
                 });
