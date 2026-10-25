@@ -2069,9 +2069,14 @@ const TabFiles = {
 
         // Columns that don't fit lay out at the defaults, but the saved
         // widths stay so they come back once the listing is wide enough.
-        if ( containerWidth > 0 && nameWidth ) {
-            const totalWidth = COLUMN_FIXED_WIDTH + nameWidth + sizeWidth + modifiedWidth
-                + (hasSharedBy ? sharedByWidth + 4 : 0);
+        // An auto-width name still needs its minimum, beside a "Shared by"
+        // narrowed as it is laid out below.
+        if ( containerWidth > 0 ) {
+            const sharedByFit = nameWidth
+                ? sharedByWidth
+                : fitSharedByWidth(sharedByWidth, containerWidth - COLUMN_FIXED_WIDTH - 4 - sizeWidth - modifiedWidth);
+            const totalWidth = COLUMN_FIXED_WIDTH + (nameWidth || 100) + sizeWidth + modifiedWidth
+                + (hasSharedBy ? sharedByFit + 4 : 0);
             if ( totalWidth > containerWidth ) {
                 nameWidth = null;
                 sharedByWidth = 160;

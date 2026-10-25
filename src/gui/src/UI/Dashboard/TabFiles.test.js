@@ -846,3 +846,31 @@ describe('TabFiles permanent delete', () => {
         expect(window.delete_item).not.toHaveBeenCalled();
     });
 });
+
+describe('TabFiles column widths that no longer fit', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        window.shared_path = 'puter://shared';
+        window.trash_path = TRASH;
+        mountListing([], '/alice/Documents');
+        vi.spyOn($.fn, 'width').mockImplementation(function () {
+            return this.hasClass('files') ? 1200 : 0;
+        });
+        vi.spyOn(TabFiles, 'fitItemNames').mockImplementation(() => {});
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('lay out at the defaults beside an auto-width name', () => {
+        TabFiles.columnWidths = { name: null, sharedBy: 160, size: 100, modified: 1800 };
+        TabFiles.applyColumnWidths();
+        expect(TabFiles.columnGridTemplate).toBe('24px auto 4px 100px 4px 120px 4px 20px');
+        expect(TabFiles.columnWidths.modified).toBe(1800);
+    });
+
+    it('stay as saved while they fit', () => {
+        TabFiles.columnWidths = { name: null, sharedBy: 160, size: 100, modified: 900 };
+        TabFiles.applyColumnWidths();
+        expect(TabFiles.columnGridTemplate).toBe('24px auto 4px 100px 4px 900px 4px 20px');
+    });
+});
