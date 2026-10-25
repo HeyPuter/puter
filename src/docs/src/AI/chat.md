@@ -176,7 +176,7 @@ We use different vendors for different models and try to use the best vendor ava
 When the vendor serving a request fails, Puter retries the request on the next vendor that serves the same model (up to three attempts), and you are billed for the attempt that answers. Pass `fallback: false` to turn this off, so that a failure from the first vendor tried is returned to you instead:
 
 ```js
-// Served by Anthropic directly, or an error — never rerouted to a reseller.
+// Answered by Anthropic directly, or an error. Never rerouted to a reseller.
 const response = await puter.ai.chat('Hello', {
     model: 'claude-sonnet-4-6',
     provider: 'claude',
