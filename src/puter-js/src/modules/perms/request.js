@@ -7,17 +7,22 @@ import {
 } from './appRootDir.js';
 import { PuterJSError } from '../../lib/PuterJSError.js';
 import { folderPathFor, folderReadable } from './folders.js';
+import { fsTargetOf } from './fs.js';
+import { kvShareRequestPermission } from './kvShare.js';
 import { checkPermissions } from './lib/holds.js';
 import {
     appRootDirPermission,
     appsPermission,
+    BACKGROUND_EVENTS_PERMISSION,
     emailPermission,
     fsPermission,
     subdomainsPermission,
 } from './lib/permissionStrings.js';
 import {
     assertAccess,
+    assertCreateKind,
     assertFolderName,
+    assertKnownFields,
     invalidArgument,
 } from './lib/validate.js';
 import { requestPermissions } from './permissions.js';
@@ -68,15 +73,7 @@ const folderNameOf = (details) => assertFolderName(details.name);
  */
 const permissionsOf = (details) => {
     const { permission, permissions, create } = details;
-    if (
-        create !== undefined &&
-        create !== true &&
-        create !== false &&
-        create !== 'dir' &&
-        create !== 'file'
-    ) {
-        throw invalidArgument('`create` must be true, false, "dir", or "file"');
-    }
+    assertCreateKind(create);
     if (permissions !== undefined) {
         if (permission !== undefined) {
             throw invalidArgument(
@@ -148,6 +145,47 @@ const permissionsOf = (details) => {
  * @type {Record<string, PermsResourceHandler>}
  */
 const RESOURCES = Object.assign(Object.create(null), {
+    fs: {
+        permissions: async ({ ctx, details }) => {
+            assertKnownFields(details, ['path', 'uid', 'access', 'create']);
+            assertCreateKind(details.create);
+            return [
+                fsPermission(
+                    await fsTargetOf(details, ctx.whoami),
+                    accessOf(details),
+                ),
+            ];
+        },
+        // The server answers an app's own `fs:` check through ACL, so a
+        // grant on a parent folder counts.
+        check: async ({ permissions, holds }) => holds(permissions),
+        resolve: async (_query, held) => held,
+    },
+
+    backgroundEvents: {
+        permissions: async ({ details }) => {
+            assertKnownFields(details, []);
+            return [BACKGROUND_EVENTS_PERMISSION];
+        },
+        check: async ({ permissions, holds }) => holds(permissions),
+        resolve: async (_query, held) => held,
+    },
+
+    kvShare: {
+        permissions: async ({ ctx, details }) => {
+            assertKnownFields(details, ['prefix', 'access']);
+            return [
+                kvShareRequestPermission(
+                    ctx.puter,
+                    await ctx.whoami(),
+                    details,
+                ),
+            ];
+        },
+        check: async ({ permissions, holds }) => holds(permissions),
+        resolve: async (_query, held) => held,
+    },
+
     email: {
         permissions: async ({ ctx }) => [
             emailPermission((await ctx.whoami()).uuid),
@@ -282,6 +320,9 @@ const RESOURCES = Object.assign(Object.create(null), {
 /** The resource names, for the "expected one of" in an unknown-resource error. */
 const RESOURCE_NAMES = Object.keys(RESOURCES);
 
+/** The resources whose details carry `create`. */
+const CREATE_RESOURCES = new Set(['fs', 'permission']);
+
 /**
  * Resolve a call to its resource, or to the legacy raw-permission form.
  *
@@ -389,13 +430,12 @@ async function runEntries(ctx, entries, prompt) {
         ),
     );
 
-    // Only the raw-permission resource carries `create`, and one prompt is one
-    // decision — so at most one distinct value may cover it. Checked here,
-    // still before anything is asked.
+    // One prompt is one decision, so at most one distinct `create` may cover
+    // it. Checked here, still before anything is asked.
     const createValues = [
         ...new Set(
             entries
-                .filter(({ resource }) => resource === 'permission')
+                .filter(({ resource }) => CREATE_RESOURCES.has(resource))
                 .map(({ details }) => details.create)
                 .filter((value) => value !== undefined),
         ),
@@ -486,6 +526,12 @@ const entriesOf = (resource, details) => {
 
 /**
  * @overload
+ * @param {'fs'} resource
+ * @param {import('./types.js').PermsFsRequest} details
+ * @returns {Promise<boolean>}
+ */
+/**
+ * @overload
  * @param {'email'} resource
  * @returns {Promise<string | null | undefined>}
  */
@@ -515,6 +561,18 @@ const entriesOf = (resource, details) => {
  */
 /**
  * @overload
+ * @param {'backgroundEvents'} resource
+ * @returns {Promise<boolean>}
+ */
+/**
+ * @overload
+ * @param {'kvShare'} resource
+ * @param {import('./types.js').PermsKvShareRequest} details
+ * @returns {Promise<boolean>}
+ */
+/**
+ * @overload
+ * @deprecated Use the resource the permission string names, such as `'fs'`.
  * @param {'permission'} resource
  * @param {import('./types.js').PermsPermissionRequest} details
  * @returns {Promise<boolean>}
@@ -526,6 +584,7 @@ const entriesOf = (resource, details) => {
  */
 /**
  * @overload
+ * @deprecated Use the resource the permission string names, such as `'fs'`.
  * @param {string} permission
  * @returns {Promise<boolean>}
  */
@@ -533,11 +592,12 @@ const entriesOf = (resource, details) => {
  * Ask the user for access, prompting only for what isn't already held. The
  * resource decides which details are taken and what resolves: `'folder'` gives
  * the path, `'email'` the address, `'appRootDir'` the directory, the rest a
- * boolean. Denied is always falsy.
+ * boolean. Denied is always falsy. `puter.perms.Resource` and
+ * `puter.perms.Access` name the accepted values.
  *
- *     await puter.perms.request('folder', {
- *         name: 'Documents',
- *         access: 'write',
+ *     await puter.perms.request(puter.perms.Resource.FS, {
+ *         path: '~/Documents/notes.txt',
+ *         access: puter.perms.Access.WRITE,
  *     });
  *
  * An array asks for several at once, behind one prompt, resolving in order.
@@ -558,6 +618,12 @@ export async function request(resource, details) {
     return Array.isArray(resource) ? results : results[0];
 }
 
+/**
+ * @overload
+ * @param {'fs'} resource
+ * @param {import('./types.js').PermsFsRequest} details
+ * @returns {Promise<boolean>}
+ */
 /**
  * @overload
  * @param {'email'} resource
@@ -589,6 +655,18 @@ export async function request(resource, details) {
  */
 /**
  * @overload
+ * @param {'backgroundEvents'} resource
+ * @returns {Promise<boolean>}
+ */
+/**
+ * @overload
+ * @param {'kvShare'} resource
+ * @param {import('./types.js').PermsKvShareRequest} details
+ * @returns {Promise<boolean>}
+ */
+/**
+ * @overload
+ * @deprecated Use the resource the permission string names, such as `'fs'`.
  * @param {'permission'} resource
  * @param {import('./types.js').PermsPermissionRequest} details
  * @returns {Promise<boolean>}
@@ -600,6 +678,7 @@ export async function request(resource, details) {
  */
 /**
  * @overload
+ * @deprecated Use the resource the permission string names, such as `'fs'`.
  * @param {string} permission
  * @returns {Promise<boolean>}
  */

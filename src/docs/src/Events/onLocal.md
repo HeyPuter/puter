@@ -57,7 +57,7 @@ The promise rejects with `{ message, code }`:
 | `invalid_kv_handle_key` | A `kv:<handle>:…` subject names no key, or a key that tries to leave the shared region. |
 | `invalid_include_value` | `includeValue` isn't a boolean, or the subject isn't `kv:`. |
 | `events_cross_app_disabled` | The subject names another app's key-value data, and that's turned off on this server. |
-| `forbidden` | The other app doesn't share its data, or your app hasn't been granted `app-data:<appId>:kv:read`. |
+| `forbidden` | The other app doesn't share its data, or your app hasn't been granted read access to its key-value data (see [`puter.perms.request('appData')`](/Perms/appData/)). |
 | `subject_does_not_exist` | The subject doesn't exist, or this account can't read it. |
 | `events_subscription_limit` | This connection already has 50 subscriptions. |
 | `too_many_requests` | Over the subscribe rate limit. |

@@ -98,49 +98,48 @@ Watching another app's key-value data takes the same consent as reading it: the 
 
 Entries the other app wrote with `disableSharing` are never delivered. Marking a key private produces no event, so a value you already have for it may be stale.
 
-## Sharing key-value events with another user
+<a id="sharing-key-value-events-with-another-user"></a>
 
-`kv:` always means your own data. To let another account watch part of yours, mint a **share handle** over a key prefix and give it to them. They subscribe with the handle where an app id would go:
+## Sharing key-value data with another user
+
+`kv:` always means your own data. When another user shares part of theirs with you using [`puter.kv.share()`](/KV/share/), you watch it through the share's **handle**, which goes where an app id would go. For a walkthrough, see [Send Live Updates to Other Users](/recipes/send-live-updates-to-other-users/).
 
 ```js
-// The owner shares one workspace with another account.
-const res = await fetch(`${puter.APIOrigin}/events/kv-handles`, {
-    method: 'POST',
-    headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${puter.authToken}`,
-    },
-    body: JSON.stringify({
-        granteeUsername: 'bob',
-        // Use a segment you'll never rename: the handle is fixed to this prefix.
-        prefix: `workspace:${workspaceId}:`,
-    }),
-});
-const { handle } = await res.json();
+// The owner shares one workspace with another user.
+await puter.kv.share(`workspace:${workspaceId}:`, 'bob', 'watch');
 ```
 
 ```js
-// Bob watches every key written in that workspace.
+// Bob finds the share and watches every key written in that workspace.
 // `event.key` is relative to the handle: `messages:1`, not `workspace:<id>:messages:1`.
+const { items } = await puter.kv.listShared();
+const { handle } = items[0];
 await puter.events.onLocal(`kv:${handle}:*`, ({ event }) => render(event.key));
 ```
 
-- **The holder learns only the handle**: not whose data it is, where it sits, or anything above the prefix. `subject` and `key` in their deliveries are relative to the handle. `kv:<handle>:messages:*` narrows to part of the shared region.
-- **Values:** `includeValue` works through a handle, with the same limits. A handle grants events, not reads, so when a value is left out the holder needs some other authorized way to read it.
+- **Every level can watch.** A share has `watch`, `read`, or `write` access, and all three can subscribe. With `watch`, the holder only gets events. With `read`, they can also read the keys with [`puter.kv.get()`](/KV/get/) and [`puter.kv.list()`](/KV/list/), passing the handle, to catch up after a [gap](#gaps) or to read a value an event left out. With `write`, they can also change and delete the keys. [Sharing with other users](/KV/#sharing-with-other-users) covers the levels.
+- **The holder learns only the handle.** It doesn't say whose data it is or where it sits. The `subject` and `key` in their deliveries are relative to the handle. `kv:<handle>:messages:*` narrows to part of the shared region.
+- **Values.** `includeValue` works through a handle, with the same limits.
 - **Private entries stay private.** An entry written with `disableSharing` is never delivered through a handle: no event, key, or value.
-- **Use a stable prefix.** A handle stays on the prefix it was minted on. Rename `workspace:<uuid>:` to `project:<uuid>:` and existing handles point at keys nothing writes. Prefer synthetic ids (`workspace:<uuid>:`, `thread:<uuid>:`) over names that might change (`acme-corp:`).
-- **Prefixes are literal.** `*`, `?` and empty segments (`workspace::abc:`) are refused with `invalid_kv_share_prefix`. The trailing `:` is optional.
 - **Keys can't leave the handle.** A handle with no key after it, or a key using `..`, is refused with `invalid_kv_handle_key`.
+- **Writes from every side arrive.** A change the owner makes, and a change any holder makes through a `write` share, reach the owner's subscriptions and every holder's. On a holder's own write through the handle, `self` is `true`, so `self && !viaWorker` skips your own changes. See [the event](#the-event).
 
-**Managing handles.** `GET /events/kv-handles` lists the handles the account has minted, revoked ones included. `DELETE /events/kv-handles/<handle>` revokes one, and every persistent subscription on it is suspended with `permission_revoked` and its backlog dropped. Revoking an already-revoked handle isn't an error. See [Rate Limits and Quotas](/rate-limits-and-quotas/#events) for how many handles an account can hold. Temporary accounts can't mint handles (`events_kv_handle_requires_account`). Where the feature is off, minting and handle subjects fail with `events_kv_handles_disabled`.
+When a share stops, deliveries through its handle stop, and every persistent subscription on it is suspended with `permission_revoked` and its backlog dropped. If another share to the same holder still covers its keys, live deliveries through the stopped handle can continue for up to 60 seconds. This happens when the owner revokes it with [`puter.kv.unshare()`](/KV/unshare/), when the holder removes their own access the same way, and when the app whose data it is gets deleted. Where `watch` shares are off on the deployment, handle subjects fail with `events_kv_handles_disabled`.
 
-**Apps.** An app can mint, list and revoke handles for its user, but only inside its own namespace and with the user's consent: `manage:kv-share:<userUuid>:<appId>:<prefix>`, requested with [`puter.perms.request()`](/Perms/request/). The prefix supplies its segments, so `workspace:abc:` ends the permission as `…:workspace:abc`. The consent must name a prefix; asking for the whole namespace is refused with `invalid_kv_share_prefix`. An app that lists handles sees only its own namespace.
+**Apps.** An app can share, list, and unshare its user's data with [`puter.kv.share()`](/KV/share/) and its sibling methods, but only inside its own namespace and with the user's consent. To ask for it, call [`puter.perms.request()`](/Perms/request/) with the `'kvShare'` resource, the prefix the shares will cover, and the highest level they'll have:
+
+```js
+await puter.perms.request('kvShare', { prefix: 'workspace:abc:', access: 'watch' });
+```
+
+The consent covers that prefix and every key under it, at that level and the levels below it. It must name a prefix. A prefix that covers the whole namespace is rejected with `invalid_argument`. An app that lists shares sees only its own namespace.
 
 | Refused with | When |
 | --- | --- |
-| `events_kv_handle_not_delegated` | Minting or revoking outside the consented prefix, or after the consent was withdrawn (the handle stays in place). |
-| `events_kv_handle_outside_namespace` | Minting outside the app's own namespace. |
-| `events_kv_handle_owner_only` | The caller is an access token the app issued, a different app of the same user, or the handle is outside the app's namespace. |
+| `events_kv_handle_not_delegated` | Sharing or revoking outside the consented prefix or level, or after the consent was withdrawn (the share stays in place). |
+| `events_kv_handle_outside_namespace` | Sharing outside the app's own namespace. |
+| `events_kv_handle_owner_only` | Listing or revoking from an access token the app issued, or revoking a share outside the app's namespace. |
+| `forbidden` | Sharing from an access token the app issued. |
 
 An app can also subscribe through a handle, but only when the shared region belongs to that same app. A different app, even for the same user, is refused as if the handle didn't exist.
 
@@ -160,7 +159,8 @@ The handler is called with `{ event }`. A filesystem change carries:
 | `uid` | String | The uid of the node that changed. |
 | `path` | String | The path of the node that changed. |
 | `from` | String | On a `move`, the path the node left. Only present when the subscription was watching that location. |
-| `self` | Boolean | `true` when the account holding the subscription made the change. Use it to ignore your own writes. |
+| `self` | Boolean | `true` when the account holding the subscription made the change. |
+| `viaWorker` | Boolean | `true` when the change came from server-side code running as an account, such as a worker using `me.puter` or an [events handler](/Events/handlers/) running in the events worker. A worker using `user.puter` acts as the user who called it, so its changes are that user's own, with `viaWorker` set to `false`. A handler running in a client writes as that client, also with `viaWorker` set to `false`. Skip your own changes with `self && !viaWorker`, which still lets through the ones a worker made as your account. |
 | `ts` | Number | When it happened, in milliseconds since the epoch. |
 | `seq` | Number | Position within one dispatch, when a change goes to several subscriptions. |
 
@@ -169,11 +169,12 @@ A key-value change carries `key` instead of `uid` and `path`, and different ops:
 | Field | Type | Description |
 | --- | --- | --- |
 | `id` | String | Unique id for the event. |
-| `subject` | String | `kv:<appId>:<key>`, naming the key that changed. |
+| `subject` | String | `kv:<appId>:<key>`, naming the key that changed. Through a share, `kv:<handle>:<key>`. |
 | `op` | String | `set` for a write, `del` for a removal, `expire` when only the key's lifetime changed. |
 | `key` | String | The key that changed. |
 | `value` | Any | The new value (`null` on a `del`). Only with `includeValue`, and only within the [limits above](#getting-the-new-value). Never on an `expire`. |
 | `self` | Boolean | As above. |
+| `viaWorker` | Boolean | As above. |
 | `ts` | Number | As above. |
 | `seq` | Number | As above. |
 

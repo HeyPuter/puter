@@ -41,6 +41,7 @@ import {
     isAccountContext,
     isAppActor,
     isPlainUserActor,
+    viaWorkerOf,
 } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -4794,6 +4795,7 @@ export class FSService extends PuterService {
         const actor = Context.get('actor') as Actor | undefined;
         const actingUserId = actor?.user?.id;
         const handlerDepth = handlerDepthOf(actor);
+        const viaWorker = viaWorkerOf(actor);
         const movedFromChain = movedFrom && {
             path: movedFrom.path,
             ancestors: () => fsEntry.getAncestorChain(movedFrom.path),
@@ -4807,6 +4809,7 @@ export class FSService extends PuterService {
                         events.dispatchFs(key, entry, {
                             actingUserId,
                             handlerDepth,
+                            viaWorker,
                             ancestors: () => ancestors(entry),
                             ...(movedFromChain
                                 ? { movedFrom: movedFromChain }

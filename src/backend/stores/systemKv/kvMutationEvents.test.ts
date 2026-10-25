@@ -101,6 +101,7 @@ describe('what a mutation announces', () => {
             keys: [KEY],
             op: 'set',
             values: [1],
+            actingUserId: 42,
         });
         expect(mutations()[0].key).toBe('kv.mutated');
     });
@@ -279,8 +280,52 @@ describe('flush', () => {
         expect(mutations()[0].data).toEqual({
             namespace: namespaceOf(),
             userId: 42,
+            actingUserId: 42,
         });
     });
+});
+
+describe('who made the change', () => {
+    it('keys a write into another user`s namespace on its owner, naming the writer', async () => {
+        const ownerUuid = `owner-${Math.random().toString(36).slice(2)}`;
+        await store.set(
+            { key: KEY, value: 1 },
+            {
+                actor,
+                namespaceUser: { uuid: ownerUuid, id: 7 },
+                namespaceAppUuid: KV_GLOBAL_APP_KEY,
+            },
+        );
+
+        expect(onlyMutation()).toMatchObject({
+            namespace: `v1:${ownerUuid}:${KV_GLOBAL_APP_KEY}`,
+            userId: 7,
+            actingUserId: 42,
+        });
+        expect(onlyMutation()).not.toHaveProperty('viaWorker');
+    });
+
+    it.each([
+        ['a worker session', { session: { uid: 's-1', kind: 'worker' } }],
+        ['an events handler', { handlerDepth: 1 }],
+    ])(
+        'marks a write made by %s, on writes and flushes alike',
+        async (_name, extra) => {
+            const server = { ...actor, ...extra } as Actor;
+            await store.set({ key: KEY, value: 1 }, { actor: server });
+            expect(onlyMutation()).toMatchObject({
+                actingUserId: 42,
+                viaWorker: true,
+            });
+
+            emitted = [];
+            await store.flush({ actor: server });
+            expect(mutations()[0].data).toMatchObject({
+                actingUserId: 42,
+                viaWorker: true,
+            });
+        },
+    );
 });
 
 describe('who is left out', () => {

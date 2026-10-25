@@ -122,8 +122,12 @@ export const loadPuterJsTestOptions = (
         unlimitedMetering: true,
         // `puter.events` is a socket surface, so the suite needs the server
         // half switched on. Off, every subscribe answers `events_disabled` and
-        // the suite would only ever cover that one branch.
-        events: { enabled: true },
+        // the suite would only ever cover that one branch. Share handles are
+        // on too: `watch` shares and `kv:<handle>` subjects need `kvHandles`,
+        // and `read`/`write` shares and handle-addressed KV calls need
+        // `kv.shareHandles`.
+        events: { enabled: true, kvHandles: true },
+        kv: { shareHandles: true },
     };
 
     for (const mapping of MAPPINGS) {

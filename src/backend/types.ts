@@ -1269,6 +1269,19 @@ interface IConfigOptional {
     };
 
     /**
+     * Key-value sharing beyond watching.
+     *
+     * - `shareHandles` — whether a share handle may carry `read` or `write`
+     *   access, and be used for key-value calls. Absent means off: those mints
+     *   and upgrades reject with `kv_handles_disabled`. Watch-only handles stay
+     *   under `events.kvHandles`, and revoking, unsharing and listing are never
+     *   gated.
+     */
+    kv?: {
+        shareHandles?: boolean;
+    };
+
+    /**
      * Display multiplier converting metered amounts into the "credits" clients
      * show. Applied server-side by the usage-reporting endpoints, so raw
      * metered amounts never leave the API; purely presentational, so it can

@@ -64,6 +64,11 @@ export interface ProjectedFsEvent extends ProjectedEventBase {
     path: string;
     /** Present only on a `move` a subscribed folder lost the node from. */
     from?: string;
+    /**
+     * The change was made by server-side code running as the account (a worker,
+     * or an events handler) rather than by the account directly.
+     */
+    viaWorker: boolean;
 }
 
 /**
@@ -80,6 +85,8 @@ export interface ProjectedKvEvent extends ProjectedEventBase {
      * value is small enough to inline; an `expire` never carries one.
      */
     value?: unknown;
+    /** See {@link ProjectedFsEvent.viaWorker}. */
+    viaWorker: boolean;
 }
 
 /**
@@ -142,6 +149,8 @@ export interface EventContextBase {
     ts: number;
     /** Handler runs behind the change. Never projected. */
     handlerDepth?: number;
+    /** Made by server-side code running as the account; see `viaWorkerOf`. */
+    viaWorker?: boolean;
 }
 
 /** What dispatch knows about one committed filesystem change. */
@@ -284,6 +293,7 @@ const fsProject =
         path: delivery.entry.path,
         ...(delivery.movedFrom ? { from: delivery.movedFrom.path } : {}),
         self: delivery.self,
+        viaWorker: delivery.viaWorker === true,
         ts: delivery.ts,
         seq: delivery.seq,
     });
@@ -309,6 +319,7 @@ const kvProject = (delivery: KvDeliveryContext): ProjectedKvEvent => ({
     key: delivery.kvKey,
     ...(delivery.value !== undefined ? { value: delivery.value } : {}),
     self: delivery.self,
+    viaWorker: delivery.viaWorker === true,
     ts: delivery.ts,
     seq: delivery.seq,
 });
@@ -428,6 +439,10 @@ export const UNPUBLISHED_INTERNAL_EVENTS = [
     {
         event: 'kv.flushed',
         reason: 'No subject addresses "the whole namespace went": the grammar anchors on a key or a prefix, and fanning a flush out per key would report keys a truncated enumeration never saw.',
+    },
+    {
+        event: 'kv.share.retired',
+        reason: 'A share handle stopping is not a change to any key; it ends the subscriptions made through the handle rather than being delivered to them.',
     },
 ] as const satisfies readonly UnpublishedInternalEvent[];
 

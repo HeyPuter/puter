@@ -117,6 +117,9 @@ const setBatch = (/** @type {KVModule} */ kv, args) =>
  *
  * Legacy positional success/error callbacks may trail any positional form.
  *
+ * Resolves to `true` once written, or `false` when `optConfig.onlyIfAbsent`
+ * found a live entry and nothing was written.
+ *
  * @this {import('./index.js').KVModule}
  * @param {string | KVSetObject | KVSetBatch | KVSetItem[]} keyOrItems
  * @param {unknown} [value]

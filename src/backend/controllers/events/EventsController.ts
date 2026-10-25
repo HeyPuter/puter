@@ -154,8 +154,9 @@ export class EventsController extends PuterController {
     // -- Cross-user key-value handles --------------------------------
 
     /**
-     * POST /events/kv-handles — hand another user a watchable region of this
-     * account's key-value data.
+     * POST /events/kv-handles — hand another user a region of this account's
+     * key-value data, `watch` unless the body asks for more. The older name for
+     * `POST /kv/shares`, keeping its own body and response shapes.
      *
      * An account session, or an app session holding a `manage:` delegation on
      * the region — the service tells those apart and gates each rather than the
@@ -167,12 +168,32 @@ export class EventsController extends PuterController {
         subdomain: 'api',
         requireAuth: true,
         allowAccessToken: true,
+        requireVerified: true,
     })
     async mintKvHandle(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        res.json(
-            await this.services.events.mintKvHandle(actor, bodyRecord(req)),
+        const body = bodyRecord(req);
+        const share = await this.services.kvShare.mintKvHandle(
+            actor,
+            {
+                prefix: body.prefix,
+                recipient: {
+                    username:
+                        typeof body.granteeUsername === 'string'
+                            ? body.granteeUsername
+                            : undefined,
+                    uid:
+                        typeof body.granteeUid === 'string'
+                            ? body.granteeUid
+                            : undefined,
+                },
+                access: body.access,
+                appUid: body.appUid,
+            },
+            // Callers of this route mint again to get the same handle back.
+            { defaultAccess: 'watch', keepLevelUnlessNamed: true },
         );
+        res.json({ handle: share.handle, prefix: share.prefix });
     }
 
     /**
@@ -189,7 +210,7 @@ export class EventsController extends PuterController {
         const actor = this.#requireActor(req);
         const query = (req.query ?? {}) as Record<string, unknown>;
 
-        const page = await this.services.events.listKvHandles(actor, {
+        const page = await this.services.kvShare.listKvHandles(actor, {
             limit: normalizeLimit(query.limit, {
                 cap: KV_HANDLE_LIST_LIMIT_CAP,
             }),
@@ -198,7 +219,10 @@ export class EventsController extends PuterController {
         });
 
         res.json({
-            items: page.items,
+            items: page.items.map(({ holderUsername, ...row }) => ({
+                ...row,
+                granteeUsername: holderUsername,
+            })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
             ...(page.total !== undefined ? { total: page.total } : {}),
         });
@@ -217,7 +241,10 @@ export class EventsController extends PuterController {
     async revokeKvHandle(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
         res.json(
-            await this.services.events.revokeKvHandle(actor, req.params.handle),
+            await this.services.kvShare.revokeKvHandle(
+                actor,
+                req.params.handle,
+            ),
         );
     }
 

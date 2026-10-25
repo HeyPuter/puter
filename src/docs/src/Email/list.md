@@ -6,7 +6,11 @@ platforms: [websites, apps, nodejs, workers]
 
 Lists the messages in one folder of the user's mailbox, newest first. Every call returns one page of `items` plus, while more pages exist, a `cursor` to pass back for the next one. Listing reads the mailbox's folder structure only, so it never downloads a message: each item carries the subject, date, and size, and `puter.email.get()` fetches the rest.
 
-The mailbox belongs to the user, so it is protected like the rest of their files. An app reads it only after the user grants `fs:/{username}/.mail:read`, for example with `puter.perms.request('permission', { permission: `fs:/${username}/.mail:read` })`.
+The mailbox belongs to the user, so it is protected like the rest of their files. An app reads it only after the user grants read access to the `~/.mail` folder. To ask for it, call [`puter.perms.request()`](/Perms/request/):
+
+```js
+await puter.perms.request('fs', { path: '~/.mail', access: 'read' });
+```
 
 ## Syntax
 

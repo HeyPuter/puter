@@ -11,6 +11,7 @@ Add values to an existing key. When you pass an array, its elements are appended
 ```js
 puter.kv.add(key, value)
 puter.kv.add(key, pathAndValue)
+puter.kv.add(key, value, optConfig)
 ```
 
 ## Parameters
@@ -35,6 +36,15 @@ Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `s
 
 A plain object is read as a path map, never appended as an element: to append an object, wrap it in an array, as in `puter.kv.add('log', [{ at, event }])`.
 
+#### `optConfig` (Object) (optional)
+
+The last argument. It takes these properties:
+
+- `handle` (String): Work on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix. The share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
+- `appUuid` (String): Work on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+
+Pass `optConfig` after `value`, as in `puter.kv.add('tags', ['new'], { handle })`. An object in the place of `value` is read as a path map.
+
 ## Return value
 
 Returns a `Promise` that resolves to the updated value stored at `key`.
@@ -57,6 +67,11 @@ A rejection carries an `Error` with a stable `code`:
 | `subject_does_not_exist` | `optConfig.appUuid` names an app that doesn't exist. |
 | `response_timeout` | Too many writers on the key right now — retry. |
 | `too_many_requests` | The rate limit was exceeded. See [Rate Limits and Quotas](/rate-limits-and-quotas/). |
+| `kv_handle_not_found` | `handle` doesn't exist, the share stopped, or it isn't shared with you. |
+| `kv_handle_access_denied` | The share's access doesn't allow this method. |
+| `kv_handle_option_invalid` | `handle` was combined with `appUuid` or `disableSharing`. |
+| `kv_handle_key_invalid` | With `handle`, the key is empty or longer than 768 bytes. |
+| `kv_handles_disabled` | Shares can't be used this way on this deployment. |
 
 ## Examples
 
