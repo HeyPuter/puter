@@ -5223,6 +5223,9 @@ const TabFiles = {
             if ( ! isTrashedPath ) {
                 items.push({
                     html: i18n('publish_as_website'),
+                    // The right sharing takes, as on the folder's own menu: the
+                    // folder is yours, or shared with you to manage.
+                    disabled: ! is_owned_by_me(targetPath) && shared_root_for(targetPath)?.mode !== 'manage',
                     onClick: async function () {
                         // Publishing works off the path, but the uid is what
                         // refreshes the folder's website badge if its row is on

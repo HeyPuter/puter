@@ -1061,3 +1061,30 @@ describe('TabFiles rows still waiting on their mkdir', () => {
         expect(await TabFiles.restructurableRows([file, pending])).toEqual([file]);
     });
 });
+
+describe('TabFiles folder menu', () => {
+    const publishItem = items => items.find(item => item?.html === i18n('publish_as_website'));
+
+    it("doesn't offer to publish a folder shared with the user to view", async () => {
+        const { remember_shared_root } = await import('../../helpers/sharedAccess.js');
+        window.user = { username: 'alice', directories: {} };
+        window.trash_path = TRASH;
+        window.shared_path = 'puter://shared';
+        TabFiles.trashedNames ??= new Map();
+        const viewOnly = '/bob/0e98/Photos';
+        remember_shared_root({ path: viewOnly, mode: 'read', name: 'Photos' });
+        TabFiles.currentPath = viewOnly;
+
+        expect(publishItem(TabFiles.generateFolderContextMenu(viewOnly)).disabled).toBe(true);
+    });
+
+    it('offers to publish your own folder', () => {
+        window.user = { username: 'alice', directories: {} };
+        window.trash_path = TRASH;
+        window.shared_path = 'puter://shared';
+        TabFiles.trashedNames ??= new Map();
+        TabFiles.unreadablePath = '/alice/Documents';
+
+        expect(publishItem(TabFiles.generateFolderContextMenu('/alice/Documents')).disabled).toBe(false);
+    });
+});
