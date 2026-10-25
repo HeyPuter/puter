@@ -2919,6 +2919,11 @@ const TabFiles = {
                 }
             });
 
+            // Inside the Trash items leave only by Restore, and a share the
+            // user can only view takes nothing: such a crumb still opens on
+            // a dwell, but a drop on it goes back.
+            const refusesDrop = () => clickedPath.startsWith(`${window.trash_path}/`) || _this.isReadOnlyShare(clickedPath);
+
             // Make breadcrumb items droppable for file/folder moves
             $(dirnameElement).droppable({
                 accept: '.row',
@@ -2946,6 +2951,11 @@ const TabFiles = {
                     if ( targetPath === _this.currentPath || targetPath === window.shared_path ) {
                         return;
                     }
+                    if ( refusesDrop() ) {
+                        ui.helper.data('cancelled', true);
+                        $(ui.draggable).data('dropRefused', true);
+                        return;
+                    }
 
                     ui.helper.data('dropped', true);
 
@@ -2962,7 +2972,7 @@ const TabFiles = {
 
                 over: function (_event, ui) {
                     if ( $(ui.draggable).hasClass('row') ) {
-                        $(this).addClass('drop-target');
+                        if ( ! refusesDrop() ) $(this).addClass('drop-target');
 
                         // Holding over an ancestor breadcrumb navigates to it
                         if ( clickedPath !== _this.currentPath && _this.canSpringLoadInto(clickedPath) ) {
@@ -3930,8 +3940,10 @@ const TabFiles = {
         if ( file.is_dir ) {
             $(el_item).droppable({
                 // Not a target for a drag it is part of: that would move it
-                // into itself, and spring-load it open mid-drag.
-                accept: (draggable) => draggable.hasClass('row') && ! el_item.classList.contains('dragging-source'),
+                // into itself, and spring-load it open mid-drag. Nor inside
+                // the Trash, where items leave only by Restore.
+                accept: (draggable) => draggable.hasClass('row') && ! el_item.classList.contains('dragging-source')
+                    && ! (el_item.getAttribute('data-path') || '').startsWith(`${window.trash_path}/`),
                 tolerance: 'pointer',
 
                 drop: async function (event, ui) {
