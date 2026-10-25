@@ -36,7 +36,7 @@ import publish_as_website from '../../helpers/publishAsWebsite.js';
 import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import UIShareModal from './UIShareModal.js';
-import { dedupedName } from './dedupedName.js';
+import { dedupedName } from '../../helpers/dedupedName.js';
 import { compareEntries, compareNames } from './sortEntries.js';
 import { middleTruncate } from './middleTruncate.js';
 import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
