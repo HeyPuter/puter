@@ -1203,6 +1203,23 @@ describe('TabFiles opening a folder being renamed', () => {
 
         expect(TabFiles.renderDirectory).toHaveBeenCalledWith('/alice/Documents/Photos');
     });
+
+    it('opens it anyway when the rename never reports back', async () => {
+        vi.useFakeTimers();
+        mountListing(['Photos'], '/alice/Documents');
+        const row = $('.files .row')[0];
+        row.setAttribute('data-is_dir', '1');
+        row._pendingRename = new Promise(() => {});
+        vi.spyOn(TabFiles, 'pushNavHistory').mockImplementation(() => {});
+        vi.spyOn(TabFiles, 'renderDirectory').mockImplementation(async () => {});
+
+        const opening = TabFiles.openRow(row);
+        await vi.advanceTimersByTimeAsync(5000);
+        await opening;
+        vi.useRealTimers();
+
+        expect(TabFiles.renderDirectory).toHaveBeenCalledWith('/alice/Documents/Photos');
+    });
 });
 
 describe('TabFiles.folderMoved', () => {

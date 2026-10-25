@@ -4246,7 +4246,9 @@ const TabFiles = {
      * @returns {Promise<void>}
      */
     async openRow (row) {
-        if ( row._pendingRename ) await row._pendingRename;
+        // Not for ever: the rename settles in rename_file's last step, which
+        // a failure after the rename itself (refreshing websites) never reaches.
+        if ( row._pendingRename ) await Promise.race([row._pendingRename, new Promise(resolve => setTimeout(resolve, 5000))]);
         if ( row.getAttribute('data-is_dir') === '1' ) {
             const folderPath = row.getAttribute('data-path');
             this.pushNavHistory(folderPath);
