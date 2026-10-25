@@ -83,6 +83,21 @@ describe('profilePicture', () => {
         expect(window.get_profile_picture).toHaveBeenCalledTimes(2);
     });
 
+    it('serves the stale answer to everyone who asks while the fresh one loads', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const first = mod.profilePicture('ann');
+        await tick();
+        lookups.get('ann').resolve(PIC);
+        await first;
+        vi.setSystemTime(Date.now() + 5 * 60 * 1000 + 1);
+
+        const settled = [];
+        for ( let i = 0; i < 3; i++ ) mod.profilePicture('ann').then((picture) => settled.push(picture));
+        await tick();
+        expect(settled).toEqual([PIC, PIC, PIC]);
+        expect(window.get_profile_picture).toHaveBeenCalledTimes(2);
+    });
+
     it('resolves null when the lookup fails or returns something other than an image', async () => {
         const failed = mod.profilePicture('ann');
         await tick();
@@ -161,6 +176,15 @@ describe('paintAvatars', () => {
         expect(first.querySelector('img').getAttribute('src')).toBe(PIC);
         expect(second.querySelector('img')).not.toBeNull();
         expect(team.querySelector('img')).toBeNull();
+    });
+
+    it('looks no one up for a listing replaced before it was painted', async () => {
+        document.body.innerHTML = `<div><span${mod.avatarUserAttr('ann')}>A</span></div>`;
+        const stale = document.body.firstElementChild;
+        mod.paintAvatars(stale);
+        stale.remove();
+        await tick();
+        expect(window.get_profile_picture).not.toHaveBeenCalled();
     });
 
     it('leaves the initial when the person has no picture', async () => {

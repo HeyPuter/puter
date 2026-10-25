@@ -30,7 +30,7 @@ const MAX_CONCURRENT = 4;
 
 const DATA_URL = /^data:image\/[a-z0-9.+-]+;base64,/i;
 
-/** @type {Map<string, { at: number, promise: Promise<string | null> }>} */
+/** @type {Map<string, { at: number, promise: Promise<string | null>, stale?: Promise<string | null> }>} */
 const cache = new Map();
 
 let active = 0;
@@ -80,16 +80,18 @@ export const profilePicture = (username) => {
     cache.delete(username);
     if ( hit && now - hit.at < TTL ) {
         cache.set(username, hit);
-        return hit.promise;
+        return hit.stale ?? hit.promise;
     }
 
     const promise = limited(() => window.get_profile_picture(username))
         .then((picture) => (typeof picture === 'string' && DATA_URL.test(picture) ? picture : null))
         .catch(() => null);
-    cache.set(username, { at: now, promise });
+    // A stale answer still paints at once, for every caller until the fresh one lands.
+    const entry = { at: now, promise, stale: hit?.promise };
+    promise.then(() => { entry.stale = undefined; });
+    cache.set(username, entry);
     while ( cache.size > MAX_ENTRIES ) cache.delete(cache.keys().next().value);
-    // A stale answer still paints at once; the fresh one is for the next render.
-    return hit?.promise ?? promise;
+    return entry.stale ?? promise;
 };
 
 /**
@@ -130,17 +132,21 @@ const applyPicture = (el, username, picture) => {
 };
 
 /**
- * Fills every marked avatar under `root` that has no picture yet.
+ * Fills every marked avatar under `roots` that has no picture yet, one lookup
+ * per person. A root that left the page meanwhile was re-rendered away.
  *
- * @param {ParentNode} root
+ * @param {Iterable<Element>} roots
  */
-const paintNow = (root) => {
+const paintNow = (roots) => {
     /** @type {Map<string, HTMLElement[]>} */
     const byUser = new Map();
-    for ( const el of root.querySelectorAll('[data-avatar-user]:not(.has-picture)') ) {
-        const username = el.getAttribute('data-avatar-user');
-        if ( ! byUser.has(username) ) byUser.set(username, []);
-        byUser.get(username).push(el);
+    for ( const root of roots ) {
+        if ( ! root.isConnected ) continue;
+        for ( const el of root.querySelectorAll('[data-avatar-user]:not(.has-picture)') ) {
+            const username = el.getAttribute('data-avatar-user');
+            if ( ! byUser.has(username) ) byUser.set(username, []);
+            byUser.get(username).push(el);
+        }
     }
     for ( const [username, els] of byUser ) {
         profilePicture(username).then((picture) => {
@@ -150,7 +156,7 @@ const paintNow = (root) => {
     }
 };
 
-/** @type {Set<ParentNode>} */
+/** @type {Set<Element>} */
 const pendingRoots = new Set();
 let frame = 0;
 
@@ -159,7 +165,7 @@ let frame = 0;
  * frame are folded into one pass, so a listing that renders row by row can
  * call it per row.
  *
- * @param {ParentNode | null | undefined} root
+ * @param {Element | null | undefined} root
  */
 export const paintAvatars = (root) => {
     if ( ! root ) return;
@@ -169,6 +175,6 @@ export const paintAvatars = (root) => {
         frame = 0;
         const roots = [...pendingRoots];
         pendingRoots.clear();
-        for ( const r of roots ) paintNow(r);
+        paintNow(roots);
     });
 };
