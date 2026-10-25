@@ -502,6 +502,34 @@ describe('TabFiles image preview', () => {
         expect(TabFiles.previewOpen).toBe(false);
         expect($('.image-preview-popover')).toHaveLength(0);
     });
+
+    it('is not offered for a file named after an image type', async () => {
+        mountListing(['png'], '/alice/Pictures');
+        $('.files .row').attr({ 'data-uid': 'u1', 'data-name': 'png', 'data-is_dir': '0' });
+        window.puter = { fs: { getReadURL: vi.fn(async () => 'https://example.test/png') } };
+        TabFiles.previewOpen = false;
+
+        await TabFiles.showImagePreview($('.files .row'));
+
+        expect(window.puter.fs.getReadURL).not.toHaveBeenCalled();
+        expect(TabFiles.previewOpen).toBe(false);
+    });
+
+    it('closes, rather than showing the last image, when the next one fails to load', async () => {
+        mountListing(['b.png'], '/alice/Pictures');
+        $('.files .row').attr({ 'data-uid': 'u2', 'data-name': 'b.png', 'data-is_dir': '0' });
+        $('body').append('<div class="image-preview-popover" data-uid="u1"></div>');
+        TabFiles.previewOpen = true;
+        TabFiles.previewCurrentUid = 'u1';
+        window.puter = { fs: { getReadURL: vi.fn(async () => { throw new Error('gone'); }) } };
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        await TabFiles.showImagePreview($('.files .row'));
+
+        expect(TabFiles.previewOpen).toBe(false);
+        expect($('.image-preview-popover')).toHaveLength(0);
+        vi.restoreAllMocks();
+    });
 });
 
 describe('TabFiles.acceptsNewItems', () => {

@@ -1271,8 +1271,8 @@ const TabFiles = {
         const fileName = $row.attr('data-name');
         const filePath = $row.attr('data-path');
 
-        // Check if it's an image file
-        const extension = fileName.split('.').pop().toLowerCase();
+        // Check if it's an image file (a file named just "png" isn't one)
+        const extension = path.extname(fileName).slice(1).toLowerCase();
         const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
         if ( ! imageExtensions.includes(extension) || $row.attr('data-is_dir') === '1' ) {
             // Moving the selection onto a non-image must not leave the
@@ -1284,8 +1284,16 @@ const TabFiles = {
         // Get read URL for the actual image. A later call, or a close, while
         // this one waits supersedes it.
         const seq = this.previewSeq = (this.previewSeq ?? 0) + 1;
-        const imageUrl = await puter.fs.getReadURL(filePath);
+        const imageUrl = await puter.fs.getReadURL(filePath).catch((err) => {
+            console.error('Could not preview image:', err);
+            return null;
+        });
         if ( seq !== this.previewSeq ) return;
+        // Nor may a failed one leave the previous image up.
+        if ( ! imageUrl ) {
+            if ( this.previewOpen ) this.closeImagePreview();
+            return;
+        }
 
         // Remove any existing preview
         $('.image-preview-popover').remove();
