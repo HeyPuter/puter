@@ -2604,11 +2604,10 @@ const TabFiles = {
                 $row.remove();
                 _this.renderEmptyPlaceholderIfNeeded();
                 _this.updateFooterStats();
-                if ( err?.code === 'directory_depth_limit_exceeded' ) {
-                    UIAlert({ message: i18n('directory_depth_limit_exceeded', [], false) });
-                } else if ( err?.message ) {
-                    UIAlert(err.message);
-                }
+                // A network failure rejects with no message to show.
+                UIAlert(err?.code === 'directory_depth_limit_exceeded'
+                    ? i18n('directory_depth_limit_exceeded', [], false)
+                    : err?.message || i18n('error_unknown_cause', [], false));
             } finally {
                 _this._creatingItem--;
                 if ( detached ) window.UIDashboardFileItem(detached);
@@ -4178,7 +4177,7 @@ const TabFiles = {
                 if ( await this.restoreItem(row, conflict) ) restored.push(row);
             } catch ( err ) {
                 console.error('Failed to restore item:', err);
-                UIAlert(err?.message ?? String(err));
+                UIAlert(err?.message || i18n('error_unknown_cause', [], false));
             }
         }
         await $(restored).fadeOut(150).promise();
@@ -4303,7 +4302,7 @@ const TabFiles = {
                         console.error('Failed to move item:', err);
                         const item_name = String(item.path || source).split('/').pop();
                         // UIAlert encodes the message itself, apart from <p>, <strong> and <br>.
-                        UIAlert(`<p>${i18n('moving_file', [`<strong>${item_name}</strong>`], false)}</p>${err.message ?? ''}`);
+                        UIAlert(`<p>${i18n('moving_file', [`<strong>${item_name}</strong>`], false)}</p>${err?.message || i18n('error_unknown_cause', [], false)}`);
                     }
                 }
             } while ( retry );
@@ -5083,7 +5082,7 @@ const TabFiles = {
                                 }
                             }
                         } catch ( err ) {
-                            UIAlert(err?.message ?? String(err));
+                            UIAlert(err?.message || i18n('error_unknown_cause', [], false));
                         } finally {
                             window.create_file = origCreateFile;
                             if ( uploadPromise ) _this._creatingItem--;

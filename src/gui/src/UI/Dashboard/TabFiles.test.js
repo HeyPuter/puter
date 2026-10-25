@@ -313,6 +313,23 @@ describe('TabFiles New Folder', () => {
         expect($(last.data).attr('data-path')).toBe('/alice/Documents/New Folder');
     });
 
+    it('says so when the network fails, rather than vanishing', async () => {
+        const { default: UIAlert } = await import('../UIAlert.js');
+        UIAlert.mockClear();
+        mountListing([], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles._creatingItem = 0;
+        // puter.js rejects with the XMLHttpRequest itself, which has no message.
+        window.puter.fs.mkdir = vi.fn(async () => {
+            throw { status: 0 };
+        });
+
+        await TabFiles.createFolderInstant('/alice/Documents');
+
+        expect($('.files .row')).toHaveLength(0);
+        expect(UIAlert).toHaveBeenCalledWith('An unknown error occurred.');
+    });
+
     it('is made, not dropped, while the folder is refreshing', async () => {
         mountListing([], '/alice/Documents');
         TabFiles.trashedNames ??= new Map();
