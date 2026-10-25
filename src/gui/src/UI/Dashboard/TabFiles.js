@@ -2990,10 +2990,19 @@ const TabFiles = {
             return;
         }
 
+        const sortedContents = this.sortFiles(directoryContents);
+        // Icons resolve at different speeds (weblinks and .app files read
+        // theirs from the file) and a row is appended once its icon lands, so
+        // resolve every icon first and append in sorted order. allSettled so
+        // one failure can't reject the batch and leave renderingDirectory stuck.
+        const iconResults = await Promise.allSettled(sortedContents.map(file => item_icon(file)));
+        if ( seq !== this.renderSeq ) return;
+
         // Same-directory refresh: the stale rows stayed on screen during the
-        // fetch; swap them for the fresh listing now that it's here. The
-        // clear and the appends below run without an intervening task, so
-        // the browser paints the old and new listing back to back.
+        // fetch and the icon reads; swap them for the fresh listing now that
+        // it's here. The clear and the appends below run without an
+        // intervening task, so the browser paints the old and new listing
+        // back to back.
         // An open rename editor is carried across so the typing survives.
         let openEditor = null;
         if ( isSameDirRefresh ) {
@@ -3023,13 +3032,6 @@ const TabFiles = {
             return;
         }
 
-        const sortedContents = this.sortFiles(directoryContents);
-        // Icons resolve at different speeds (weblinks and .app files read
-        // theirs from the file) and a row is appended once its icon lands, so
-        // resolve every icon first and append in sorted order. allSettled so
-        // one failure can't reject the batch and leave renderingDirectory stuck.
-        const iconResults = await Promise.allSettled(sortedContents.map(file => item_icon(file)));
-        if ( seq !== this.renderSeq ) return;
         for ( let i = 0; i < sortedContents.length; i++ ) {
             const iconResult = iconResults[i].status === 'fulfilled'
                 ? iconResults[i].value

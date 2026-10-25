@@ -27,6 +27,10 @@ vi.mock('../UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('../UIWindowProgress.js', () => ({ default: vi.fn() }));
 vi.mock('../UIContextMenu.js', () => ({ default: vi.fn() }));
 vi.mock('../../helpers/generateFileContextMenu.js', () => ({ default: vi.fn(async () => []) }));
+vi.mock('../../helpers/itemIcon.js', async (importOriginal) => {
+    const actual = await importOriginal();
+    return { default: vi.fn(actual.default) };
+});
 
 globalThis.$ = jQuery;
 globalThis.jQuery = jQuery;
@@ -38,6 +42,7 @@ window.icons = {};
 
 const { default: TabFiles, failedUploadsMessage, rebasePath, typeSelectTarget } = await import('./TabFiles.js');
 const { default: generateFileContextMenu } = await import('../../helpers/generateFileContextMenu.js');
+const { default: itemIcon } = await import('../../helpers/itemIcon.js');
 
 const TRASH = '/alice/Trash';
 
@@ -929,5 +934,41 @@ describe('TabFiles uploads', () => {
 
         TabFiles.uploadFiles([new File(['x'], 'new.txt')], '/alice/Documents');
         await vi.waitFor(() => expect(TabFiles.renderDirectory).toHaveBeenCalledWith('/alice/Documents', { consistency: 'strong' }));
+    });
+});
+
+describe('TabFiles refreshing a folder whose icons are slow to read', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+        vi.spyOn(TabFiles, 'renderItem').mockImplementation(async (file) => {
+            $('.files').append(`<div class="row item" data-uid="${file.uid}" data-path="${file.path}" data-name="${file.name}"></div>`);
+        });
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('keeps the rows up until the new ones can be drawn', async () => {
+        mountListing(['old.txt'], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        window.puter = { fs: { readdir: vi.fn(async () => [
+            { uid: 'w', name: 'site.weblink', path: '/alice/Documents/site.weblink', is_dir: false, size: 1, modified: 0 },
+        ]) } };
+        let finishIcon;
+        itemIcon.mockImplementationOnce(() => new Promise(resolve => {
+            finishIcon = resolve;
+        }));
+
+        const refresh = TabFiles.renderDirectory('/alice/Documents');
+        await vi.waitFor(() => expect(finishIcon).toBeTypeOf('function'));
+        expect($('.files .row').map((_, r) => r.getAttribute('data-path')).get()).toEqual(['/alice/Documents/old.txt']);
+
+        finishIcon({ image: 'icon.svg', type: 'icon' });
+        await refresh;
+        expect($('.files .row').map((_, r) => r.getAttribute('data-name')).get()).toEqual(['site.weblink']);
     });
 });
