@@ -4170,7 +4170,10 @@ const TabFiles = {
 
             // Add native file drop support to folder rows
             $(el_item).dragster({
-                enter: function (_dragsterEvent, event) {
+                // These notifications bubble (jQuery trigger); the listing's
+                // own would otherwise take this row's leave for its own.
+                enter: function (dragsterEvent, event) {
+                    dragsterEvent.stopPropagation();
                     const e = event.originalEvent;
                     if ( ! e.dataTransfer?.types?.includes('Files') ) {
                         return;
@@ -4189,7 +4192,8 @@ const TabFiles = {
                     $(el_item).addClass('native-drop-target');
                 },
 
-                leave: function (_dragsterEvent, _event) {
+                leave: function (dragsterEvent, _event) {
+                    dragsterEvent.stopPropagation();
                     $(el_item).removeClass('native-drop-target');
                 },
 
@@ -5636,7 +5640,7 @@ const TabFiles = {
                 const e = event.originalEvent;
                 if ( ! e?.dataTransfer?.types?.includes('Files') ) return;
                 if ( $(e.target).closest('.row.folder').length ) return;
-                if ( ! $filesContainer.hasClass('native-drop-active') ) e.dataTransfer.dropEffect = 'none';
+                if ( ! _this.acceptsNewItemsHere() ) e.dataTransfer.dropEffect = 'none';
             },
 
             drop: async function (_dragsterEvent, event) {
