@@ -2169,32 +2169,46 @@ const TabFiles = {
         const columnsShown = this.$el_window.find('.files-tab .header .columns').css('display') !== 'none';
         const nameWidth = ! columnsShown ? null
             : this.appliedColumnWidths ? this.appliedColumnWidths.name : this.columnWidths.name;
-        const names = $names.toArray();
+        const names = $names.toArray().filter(el => el.closest('.row')?.getAttribute('data-name'));
         if ( ! names.length ) return;
         // Measure in the font the names render in (the compact grid's is smaller).
         const style = getComputedStyle(names[0]);
         const font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-        // Grid tiles size the room: read every width before writing any
-        // text, or each write forces a layout for the next read.
-        const widths = isList ? null : names.map(el => $(el).width() || 156);
-        names.forEach((el, i) => {
-            const fullName = el.closest('.row')?.getAttribute('data-name');
-            if ( ! fullName ) return;
-            let text;
-            if ( ! isList ) {
-                text = truncateFilenameToWidth(fullName, widths[i], font);
-            } else if ( nameWidth ) {
-                // 8px padding on each side
-                text = truncateFilenameToWidth(fullName, nameWidth - 16, font);
-            } else {
-                // Auto-width column: the full name, clipped by CSS
-                text = fullName;
-            }
+        const fullNameOf = el => el.closest('.row').getAttribute('data-name');
+        const write = (el, text) => {
             if ( el.textContent !== text ) el.textContent = text;
             // A shortened name shows in full on hover.
-            const title = text === fullName ? '' : fullName;
+            const title = text === fullNameOf(el) ? '' : fullNameOf(el);
             if ( el.title !== title ) el.title = title;
-        });
+        };
+
+        if ( isList ) {
+            for ( const el of names ) {
+                // 8px padding on each side; an auto-width column shows the
+                // full name, clipped by CSS.
+                write(el, nameWidth ? truncateFilenameToWidth(fullNameOf(el), nameWidth - 16, font) : fullNameOf(el));
+            }
+            return;
+        }
+
+        // A tile has two lines for its name (see dashboard.css): the whole
+        // name when it wraps into them, else cut in the middle until it does.
+        // Where the browser wraps can't be told from widths alone, so every
+        // tile is written and then read back, a layout a round, not a tile.
+        const widths = new Map(names.map(el => [el, $(el).width() || 156]));
+        names.forEach(el => write(el, fullNameOf(el)));
+        let overflowing = names;
+        for ( let round = 0; round <= 10; round++ ) {
+            overflowing = overflowing.filter(el => el.scrollHeight > el.clientHeight + 1);
+            if ( ! overflowing.length ) break;
+            // Wrapping leaves line ends empty: a tenth of a line less each
+            // round, and the last round one line's worth.
+            for ( const el of overflowing ) {
+                const width = widths.get(el);
+                const room = round < 10 ? width * (2 - round / 10) : width;
+                write(el, truncateFilenameToWidth(fullNameOf(el), room, font));
+            }
+        }
     },
 
     /**
