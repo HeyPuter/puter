@@ -1957,7 +1957,7 @@ const TabFiles = {
             }
 
             const startWidth = $targetColumn.outerWidth();
-            _this.adoptAppliedColumnWidths();
+            _this.adoptAppliedColumnWidths(column);
 
             // Relayout at most once a frame: each pass restyles every row and
             // re-truncates every name.
@@ -1998,7 +1998,7 @@ const TabFiles = {
             const column = $(this).attr('data-resize');
             const $filesTab = _this.$el_window.find('.files-tab');
             const padding = 16; // 8px padding on each side
-            _this.adoptAppliedColumnWidths();
+            _this.adoptAppliedColumnWidths(column);
             let maxWidth = 60; // Minimum width
 
             // Measured in the font the column renders in, read off a cell.
@@ -2133,10 +2133,18 @@ const TabFiles = {
      * the listing lay out at the defaults (see applyColumnWidths), and
      * resizing from those would fight the layout the user is looking at.
      *
+     * @param {'name'|'sharedBy'|'size'|'modified'} column - The one being resized
      * @returns {void}
      */
-    adoptAppliedColumnWidths () {
+    adoptAppliedColumnWidths (column) {
         if ( this.appliedColumnWidths ) this.columnWidths = { ...this.appliedColumnWidths };
+        // Sizing an auto-width name fixes "Shared by" at the width it is laid
+        // out at beside it, or it would spring back to its own and push the
+        // name narrower than it was.
+        if ( column === 'name' && ! this.columnWidths.name && this.currentPath === window.shared_path ) {
+            const laidOut = this.$el_window.find('.files-tab .header .columns .item-shared-by').outerWidth();
+            if ( laidOut ) this.columnWidths.sharedBy = Math.round(laidOut);
+        }
     },
 
     /**
