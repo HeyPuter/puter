@@ -3683,7 +3683,7 @@ const TabFiles = {
                 $(el_item_name_editor).blur();
                 $(el_item).addClass('selected');
                 window.last_enter_pressed_to_rename_ts = Date.now();
-                window.update_explorer_footer_selected_items_count($(el_item).closest('.item-container'));
+                _this.updateFooterStats();
                 return false;
             }
         });
