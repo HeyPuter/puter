@@ -25,6 +25,7 @@ import { icons } from '../../helpers/actionIcons.js';
 import { mode_label, options_for } from '../../helpers/shareModes.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { avatarHue, avatarInitial } from '../../helpers/shareAvatar.js';
+import { avatarUserAttr, paintAvatars } from '../../helpers/profilePictures.js';
 import {
     has_direct_share,
     mark_item_shared,
@@ -74,8 +75,16 @@ const chunk = (values, size) => {
     return out;
 };
 
-const avatar_html = (name) => {
-    return `<span class="share-modal-avatar" style="--share-avatar-hue: ${avatarHue(name)}" aria-hidden="true">${html_encode(avatarInitial(name))}</span>`;
+/**
+ * A row's avatar. `username` marks it for the person's picture; teams,
+ * invited emails and link shares have none.
+ *
+ * @param {string} name
+ * @param {string} [username]
+ * @returns {string} markup
+ */
+const avatar_html = (name, username) => {
+    return `<span class="share-modal-avatar" style="--share-avatar-hue: ${avatarHue(name)}"${avatarUserAttr(username)} aria-hidden="true">${html_encode(avatarInitial(name))}</span>`;
 };
 
 // Distinguishes one open dialog from another: the disclosure button points at
@@ -369,7 +378,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         }
 
         let row = `<div class="share-modal-row${group.pending ? ' share-modal-row-pending' : ''}${can_change || group.pending ? '' : ' share-modal-row-inherited'}">`;
-        row += avatar_html(group.name);
+        row += avatar_html(group.name, group.key.startsWith('user:') ? group.name : undefined);
         row += '<span class="share-modal-row-who">';
         row += `<span class="share-modal-row-name enable-user-select">${who}${you}</span>`;
         row += via;
@@ -406,7 +415,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         // A selection made in the Shared view can span owners.
         for ( const item_owner of aggregateOwners(targets.map((item) => item.owner)) ) {
             rows += '<div class="share-modal-row">';
-            rows += avatar_html(item_owner.name);
+            rows += avatar_html(item_owner.name, item_owner.name);
             rows += '<span class="share-modal-row-who">';
             rows += `<span class="share-modal-row-name enable-user-select">${html_encode(item_owner.name)}${item_owner.name === window.user.username ? ` (${i18n('share_you')})` : ''}</span>`;
             if ( item_owner.count < total ) {
@@ -424,6 +433,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             rows += `<p class="share-modal-empty">${is_multi ? i18n('share_no_one_items') : i18n('share_no_one')}</p>`;
         }
         $list.attr('aria-busy', 'false').html(rows);
+        paintAvatars($list[0]);
     };
 
     // Actions on different rows can overlap, each ending in a refresh; only
