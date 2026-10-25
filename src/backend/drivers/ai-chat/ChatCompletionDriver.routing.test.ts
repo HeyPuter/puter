@@ -910,6 +910,21 @@ describe('ChatCompletionDriver fallback opt-out', () => {
         expect(attempts[0]).toMatchObject({ provider: 'openrouter' });
     });
 
+    it('rejects a pinned provider that has no route for the model', async () => {
+        createMock.mockClear();
+        await expect(
+            withTestActor(() =>
+                driver.complete({
+                    model: SHARED,
+                    provider: 'claude',
+                    fallback: false,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
+    });
+
     it('still marks the failed route for the next caller', async () => {
         const [only] = await attemptsFor(SHARED, undefined, {
             fallback: false,
