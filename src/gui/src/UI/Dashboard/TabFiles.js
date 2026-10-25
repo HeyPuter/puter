@@ -920,7 +920,7 @@ const TabFiles = {
                     // but every pushNavHistory landed in history, leaving Back
                     // and Forward pointing at folders that were never shown.
                     let entered = false;
-                    $selectedRows.each(function () {
+                    $selectedRows.not('[data-pending]').each(function () {
                         const isDir = $(this).attr('data-is_dir') === '1';
                         const itemPath = $(this).attr('data-path');
                         if ( isDir ) {
@@ -1029,7 +1029,7 @@ const TabFiles = {
                     e.stopPropagation();
                     // Neither the Trash nor what's in it: a copy of a trashed
                     // item would be named after its uid, its raw name.
-                    const rows = $selectedRows.toArray().filter((row) => {
+                    const rows = $selectedRows.not('[data-pending]').toArray().filter((row) => {
                         const rowPath = $(row).attr('data-path') || '';
                         return rowPath !== window.trash_path && ! rowPath.startsWith(`${window.trash_path}/`);
                     });
@@ -1740,7 +1740,10 @@ const TabFiles = {
      */
     async restructurableRows (rows) {
         const list = Array.from(rows);
-        const answers = await Promise.all(list.map((row) => can_restructure($(row).attr('data-path'))));
+        // A folder still waiting on its mkdir has no real path to move yet.
+        const answers = await Promise.all(list.map((row) => (row.hasAttribute('data-pending')
+            ? false
+            : can_restructure($(row).attr('data-path')))));
         return list.filter((_row, i) => answers[i]);
     },
 

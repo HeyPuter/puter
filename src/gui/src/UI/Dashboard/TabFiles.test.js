@@ -998,3 +998,15 @@ describe('TabFiles refreshing a folder whose icons are slow to read', () => {
         expect($('.files .row').map((_, r) => r.getAttribute('data-name')).get()).toEqual(['site.weblink']);
     });
 });
+
+describe('TabFiles rows still waiting on their mkdir', () => {
+    it('are not moved, cut or trashed', async () => {
+        window.user = { username: 'alice', directories: {} };
+        window.trash_path = TRASH;
+        mountListing(['a.txt', 'New Folder'], '/alice/Documents');
+        const [file, pending] = $('.files .row').toArray();
+        pending.setAttribute('data-pending', '1');
+
+        expect(await TabFiles.restructurableRows([file, pending])).toEqual([file]);
+    });
+});
