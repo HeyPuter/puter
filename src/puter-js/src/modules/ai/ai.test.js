@@ -153,6 +153,7 @@ describe('ai.chat driver payloads', () => {
             max_tokens: 42,
             stream: true,
             provider: 'openai',
+            fallback: false,
             tools: [{ type: 'function' }],
             reasoning_effort: 'low',
             unknown_param: 'dropped',
@@ -164,6 +165,7 @@ describe('ai.chat driver payloads', () => {
             max_tokens: 42,
             stream: true,
             provider: 'openai',
+            fallback: false,
             tools: [{ type: 'function' }],
             reasoning_effort: 'low',
         });

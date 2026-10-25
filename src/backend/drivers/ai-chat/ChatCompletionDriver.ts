@@ -939,8 +939,15 @@ export class ChatCompletionDriver extends PuterDriver {
             const bucketKey = model.id;
             const tried = new Set([routeId(model.provider!, model.id)]);
             let lastError: Error | null = e as Error;
+            // With `fallback: false` the caller wants this route's answer or
+            // its error, not a bill for another provider's attempt.
+            const fallbackAllowed = args.fallback !== false;
 
-            while (lastError && attempts.length < MAX_ATTEMPTS) {
+            while (
+                fallbackAllowed &&
+                lastError &&
+                attempts.length < MAX_ATTEMPTS
+            ) {
                 const fallback = this.#findFallback(bucketKey, tried);
                 if (!fallback) break;
 

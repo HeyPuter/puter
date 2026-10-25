@@ -209,6 +209,7 @@ afterAll(async () => {
 const attemptsFor = async (
     model: string,
     thrown: unknown = new Error('upstream down'),
+    extra: { provider?: string; fallback?: boolean } = {},
 ) => {
     createMock.mockRejectedValue(thrown);
     let caught: HttpError | undefined;
@@ -217,6 +218,7 @@ const attemptsFor = async (
             driver.complete({
                 model,
                 messages: [{ role: 'user', content: 'hi' }],
+                ...extra,
             }),
         );
     } catch (e) {
@@ -883,6 +885,44 @@ describe('ChatCompletionDriver duplicate-model fallback', () => {
         const routes = attempts.map((a) => `${a.provider}:${a.model}`);
 
         expect(new Set(routes).size).toBe(routes.length);
+    });
+});
+
+describe('ChatCompletionDriver fallback opt-out', () => {
+    const SHARED = 'deepseek-v4-pro';
+
+    it('fails on the first route when the caller sets fallback: false', async () => {
+        const attempts = await attemptsFor(SHARED, undefined, {
+            fallback: false,
+        });
+
+        expect(attempts).toHaveLength(1);
+        expect(attempts[0]).toMatchObject({ provider: 'deepseek' });
+    });
+
+    it('tries only the pinned provider', async () => {
+        const attempts = await attemptsFor(SHARED, undefined, {
+            provider: 'openrouter',
+            fallback: false,
+        });
+
+        expect(attempts).toHaveLength(1);
+        expect(attempts[0]).toMatchObject({ provider: 'openrouter' });
+    });
+
+    it('still marks the failed route for the next caller', async () => {
+        const [only] = await attemptsFor(SHARED, undefined, {
+            fallback: false,
+        });
+
+        expect(isRouteUnhealthy(only.provider, only.model)).toBe(true);
+    });
+
+    it('keeps the chain when fallback is true or unset', async () => {
+        expect(
+            await attemptsFor(SHARED, undefined, { fallback: true }),
+        ).toHaveLength(3);
+        expect(await attemptsFor(SHARED)).toHaveLength(3);
     });
 });
 
