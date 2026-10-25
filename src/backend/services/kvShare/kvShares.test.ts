@@ -676,9 +676,17 @@ describe('the level ladder exploder', () => {
 });
 
 describe('the level a driver method needs', () => {
+    it('is watch for a listing of keys alone', () => {
+        expect(kvShareLevelForMethod('list', { as: 'keys' })).toBe('watch');
+    });
+
     it('is read for get and list, and write for every other mapped op', () => {
         expect(kvShareLevelForMethod('get')).toBe('read');
         expect(kvShareLevelForMethod('list')).toBe('read');
+        expect(kvShareLevelForMethod('list', { as: 'entries' })).toBe('read');
+        expect(kvShareLevelForMethod('list', { as: 'values' })).toBe('read');
+        expect(kvShareLevelForMethod('get', { as: 'keys' })).toBe('read');
+        expect(kvShareLevelForMethod('set', { as: 'keys' })).toBe('write');
         for (const method of [
             'set',
             'batchPut',

@@ -236,13 +236,18 @@ export const kvShareGrantCovers = (revoked: string, held: string): boolean => {
 /**
  * The level a key-value driver method needs through a share, or `null` for a
  * method no share reaches. Derived from the cross-app op table, so a method
- * missing from it fails closed.
+ * missing from it fails closed. Listing keys alone needs only `watch`, which
+ * already learns every key written in the region.
  */
-export const kvShareLevelForMethod = (method: string): KvShareAccess | null => {
+export const kvShareLevelForMethod = (
+    method: string,
+    args: { as?: unknown } = {},
+): KvShareAccess | null => {
     if (!Object.prototype.hasOwnProperty.call(APP_DATA_KV_METHOD_OPS, method))
         return null;
     const op = APP_DATA_KV_METHOD_OPS[method];
     if (op === null) return null;
+    if (op === 'list' && args.as === 'keys') return 'watch';
     return op === 'get' || op === 'list' ? 'read' : 'write';
 };
 
