@@ -3856,7 +3856,13 @@ const TabFiles = {
             // obscures the drop target under the cursor.
             cursorAt: { left: -14, top: -12 },
             cursor: 'grabbing',
-            revert: 'invalid',
+            // As 'invalid', and also when a folder refused the drop (a
+            // read-only share), so the chip slides back rather than vanishing.
+            revert: function (dropped) {
+                const refused = $(this).data('dropRefused');
+                $(this).removeData('dropRefused');
+                return ! dropped || !! refused;
+            },
             zIndex: 999999999,
             scroll: false,
             distance: 5,
@@ -4009,6 +4015,7 @@ const TabFiles = {
                     // would refuse each item. The drag goes back instead.
                     if ( _this.isReadOnlyShare($(el_item).attr('data-path')) ) {
                         ui.helper.data('cancelled', true);
+                        $(ui.draggable).data('dropRefused', true);
                         return;
                     }
 
