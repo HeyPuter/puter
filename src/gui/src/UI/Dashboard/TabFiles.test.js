@@ -894,3 +894,40 @@ describe('TabFiles names in a narrow listing', () => {
         expect($('.files .item-name').text()).toBe(name);
     });
 });
+
+describe('TabFiles uploads', () => {
+    beforeEach(async () => {
+        vi.restoreAllMocks();
+        window.trash_path = TRASH;
+        window.active_uploads = {};
+        window.actions_history = [];
+        window.show_save_account_notice_if_needed = vi.fn();
+        const { default: UIWindowProgress } = await import('../UIWindowProgress.js');
+        UIWindowProgress.mockResolvedValue({ set_status: vi.fn(), set_progress: vi.fn(), close: vi.fn(), show_error: vi.fn() });
+        window.puter = { fs: { upload: vi.fn(async (items, dest, callbacks) => {
+            await callbacks.init('op1', { abort: vi.fn() });
+            await callbacks.success([{ path: `${dest}/new.txt` }]);
+        }) } };
+        vi.spyOn(TabFiles, 'renderDirectory').mockImplementation(async () => {});
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('into another folder leave the listing and its selection alone', async () => {
+        mountListing(['a.txt', 'b.txt'], '/alice/Documents');
+        $('.files .row').addClass('selected');
+
+        TabFiles.uploadFiles([new File(['x'], 'new.txt')], '/alice/Documents/sub');
+        await vi.waitFor(() => expect(window.actions_history).toHaveLength(1));
+
+        expect(TabFiles.renderDirectory).not.toHaveBeenCalled();
+        expect($('.files .row.selected')).toHaveLength(2);
+    });
+
+    it('into the folder on screen list it again', async () => {
+        mountListing(['a.txt'], '/alice/Documents');
+
+        TabFiles.uploadFiles([new File(['x'], 'new.txt')], '/alice/Documents');
+        await vi.waitFor(() => expect(TabFiles.renderDirectory).toHaveBeenCalledWith('/alice/Documents', { consistency: 'strong' }));
+    });
+});

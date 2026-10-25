@@ -1508,87 +1508,7 @@ const TabFiles = {
             _this.uploadTargetPath = null;
             if ( files.length === 0 ) return;
             if ( ! _this.acceptsNewItems(destination) ) return;
-
-            let upload_progress_window;
-            let opid;
-
-            puter.fs.upload(files, destination, {
-                generateThumbnails: true,
-                thumbnailGenerator: createUploadThumbnailGenerator(),
-                init: async (operation_id, xhr) => {
-                    opid = operation_id;
-                    // register before the first await, so a failure while the progress
-                    // window is still opening can't delete the entry before it exists
-                    window.active_uploads[opid] = 0;
-                    // create upload progress window
-                    upload_progress_window = await UIWindowProgress({
-                        title: i18n('upload'),
-                        icon: window.icons['app-icon-uploader.svg'],
-                        operation_id: operation_id,
-                        show_progress: true,
-                        on_cancel: () => {
-                            window.show_save_account_notice_if_needed();
-                            xhr.abort();
-                        },
-                    });
-                },
-                // start
-                start: async function () {
-                    // change upload progress window message to uploading
-                    upload_progress_window.set_status(i18n('uploading'));
-                    upload_progress_window.set_progress(0);
-                },
-                // progress
-                progress: async function (operation_id, op_progress) {
-                    upload_progress_window.set_progress(op_progress);
-                    // update active_uploads
-                    window.active_uploads[opid] = op_progress;
-                    // update title if window is not visible
-                    if ( document.visibilityState !== 'visible' ) {
-                        update_title_based_on_uploads();
-                    }
-                },
-                // success
-                success: async function (items) {
-                    // Add action to actions_history for undo ability
-                    const files = [];
-                    if ( typeof items[Symbol.iterator] === 'function' ) {
-                        for ( const item of items ) {
-                            files.push(item.path);
-                        }
-                    } else {
-                        files.push(items.path);
-                    }
-                    window.actions_history.push({
-                        operation: 'upload',
-                        data: files,
-                    });
-                    setTimeout(() => {
-                        upload_progress_window.close();
-                    }, 1000);
-                    window.show_save_account_notice_if_needed();
-                    // remove from active_uploads
-                    delete window.active_uploads[opid];
-                    // refresh, then highlight the uploaded items
-                    await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
-                    _this.selectUploadedRows(files);
-                },
-                // error
-                error: async function (err) {
-                    const failedMessage = failedUploadsMessage(err);
-                    if ( failedMessage ) UIAlert(failedMessage);
-                    upload_progress_window.show_error(i18n('error_uploading_files', [], false), err.message);
-                    // remove from active_uploads
-                    delete window.active_uploads[opid];
-                    _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
-                },
-                // abort
-                // eslint-disable-next-line no-unused-vars
-                abort: async function (operation_id) {
-                    // remove from active_uploads
-                    delete window.active_uploads[opid];
-                },
-            });
+            _this.uploadFiles(files, destination);
         };
 
         // Upload button
@@ -5543,10 +5463,10 @@ const TabFiles = {
      * Uploads files to the specified destination path.
      *
      * This method handles the complete upload flow including progress modal,
-     * error handling, and directory refresh on completion. Used by drag-drop
-     * upload handlers to ensure the Dashboard view updates after uploads.
+     * error handling, and directory refresh on completion. Used by the Upload
+     * picker and the drag-drop upload handlers.
      *
-     * @param {DataTransferItemList|FileList} items - The files to upload
+     * @param {DataTransferItemList|FileList|File[]} items - The files to upload
      * @param {string} destPath - The destination directory path
      * @returns {void}
      */
@@ -5608,10 +5528,11 @@ const TabFiles = {
                 }, 1000);
                 window.show_save_account_notice_if_needed();
                 delete window.active_uploads[opid];
-                // Refresh directory to show uploaded files, then highlight
-                // them (a drop on a sidebar folder/breadcrumb uploads to a
-                // directory that isn't rendered — no rows match, no-op).
-                await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
+                // Refresh the folder to show the uploaded files, then highlight
+                // them. One elsewhere (a drop on a folder row, sidebar folder
+                // or crumb) changes no row on screen, nor the selection.
+                if ( destPath !== _this.currentPath ) return;
+                await _this.renderDirectory(destPath, { consistency: 'strong' });
                 _this.selectUploadedRows(files);
             },
             error: async function (err) {
@@ -5619,7 +5540,7 @@ const TabFiles = {
                 if ( failedMessage ) UIAlert(failedMessage);
                 upload_progress_window.show_error(i18n('error_uploading_files', [], false), err.message);
                 delete window.active_uploads[opid];
-                _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
+                if ( destPath === _this.currentPath ) _this.renderDirectory(destPath, { consistency: 'strong' });
             },
             abort: async function (_operation_id) {
                 delete window.active_uploads[opid];
