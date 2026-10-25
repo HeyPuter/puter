@@ -541,12 +541,12 @@ describe('TabFiles image preview', () => {
     it('is not offered for a file named after an image type', async () => {
         mountListing(['png'], '/alice/Pictures');
         $('.files .row').attr({ 'data-uid': 'u1', 'data-name': 'png', 'data-is_dir': '0' });
-        window.puter = { fs: { getReadURL: vi.fn(async () => 'https://example.test/png') } };
+        window.puter = { fs: { read: vi.fn(async () => new Blob(['x'])) } };
         TabFiles.previewOpen = false;
 
         await TabFiles.showImagePreview($('.files .row'));
 
-        expect(window.puter.fs.getReadURL).not.toHaveBeenCalled();
+        expect(window.puter.fs.read).not.toHaveBeenCalled();
         expect(TabFiles.previewOpen).toBe(false);
     });
 
@@ -559,7 +559,7 @@ describe('TabFiles image preview', () => {
         $('.files .row').attr({ 'data-uid': 'u1', 'data-name': 'a.png', 'data-is_dir': '0' });
         let finishUrl;
         window.puter = { fs: {
-            getReadURL: vi.fn(() => new Promise(resolve => {
+            read: vi.fn(() => new Promise(resolve => {
                 finishUrl = resolve;
             })),
             readdir: vi.fn(async () => []),
@@ -569,11 +569,32 @@ describe('TabFiles image preview', () => {
         expect(TabFiles.previewOpen).toBe(true);
         // Opening another folder meanwhile, as a double-click on one would.
         await TabFiles.renderDirectory('/alice/Documents');
-        finishUrl('https://example.test/a.png');
+        finishUrl(new Blob(['x']));
         await preview;
 
         expect(TabFiles.previewOpen).toBe(false);
         expect($('.image-preview-popover')).toHaveLength(0);
+    });
+
+    it('reads the image rather than spending an access token on it, typed so an SVG shows', async () => {
+        mountListing(['logo.svg'], '/alice/Pictures');
+        $('.files .row').attr({ 'data-uid': 'u1', 'data-name': 'logo.svg', 'data-is_dir': '0' });
+        window.puter = { fs: { read: vi.fn(async () => new Blob(['<svg/>'])), getReadURL: vi.fn() } };
+        const created = [];
+        URL.createObjectURL = vi.fn((blob) => {
+            created.push(blob);
+            return 'blob:preview';
+        });
+        URL.revokeObjectURL = vi.fn();
+
+        await TabFiles.showImagePreview($('.files .row'));
+
+        expect(window.puter.fs.getReadURL).not.toHaveBeenCalled();
+        expect(created[0].type).toBe('image/svg+xml');
+        expect($('.image-preview-popover img').attr('src')).toBe('blob:preview');
+
+        TabFiles.closeImagePreview();
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
     });
 
     it('closes, rather than showing the last image, when the next one fails to load', async () => {
@@ -582,7 +603,7 @@ describe('TabFiles image preview', () => {
         $('body').append('<div class="image-preview-popover" data-uid="u1"></div>');
         TabFiles.previewOpen = true;
         TabFiles.previewCurrentUid = 'u1';
-        window.puter = { fs: { getReadURL: vi.fn(async () => { throw new Error('gone'); }) } };
+        window.puter = { fs: { read: vi.fn(async () => { throw new Error('gone'); }) } };
         vi.spyOn(console, 'error').mockImplementation(() => {});
 
         await TabFiles.showImagePreview($('.files .row'));

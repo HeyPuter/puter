@@ -28,6 +28,7 @@ import UIAlert from '../UIAlert.js';
 import generate_file_context_menu from '../../helpers/generateFileContextMenu.js';
 import update_title_based_on_uploads from '../../helpers/updateTitleBasedOnUploads.js';
 import item_icon from '../../helpers/itemIcon.js';
+import mime from '../../lib/mime.js';
 import { formatRelativeTime } from '../../i18n/formatTime.js';
 import { is_window_on_screen, user_facing_windows } from '../../helpers/windowVisibility.js';
 import new_context_menu_item from '../../helpers/newContextMenuItem.js';
@@ -1193,11 +1194,18 @@ const TabFiles = {
                     $next.get(0).scrollIntoView({ block: 'nearest' });
                     _this.updateFooterStats();
 
-                    // If preview is open, switch to newly selected file
+                    // If preview is open, switch to newly selected file. A
+                    // held key steps faster than images load: show the one
+                    // it stops on.
                     if ( _this.previewOpen && !e.shiftKey ) {
                         const newUid = $next.attr('data-uid');
+                        clearTimeout(_this.previewStepTimer);
                         if ( newUid !== _this.previewCurrentUid ) {
-                            _this.showImagePreview($next);
+                            if ( e.originalEvent?.repeat ) {
+                                _this.previewStepTimer = setTimeout(() => _this.showImagePreview($next), 200);
+                            } else {
+                                _this.showImagePreview($next);
+                            }
                         }
                     }
                 }
@@ -1263,8 +1271,8 @@ const TabFiles = {
     /**
      * Shows an image preview popover for the selected file.
      *
-     * Fetches a signed URL for the actual image and displays it in a centered
-     * popover. The popover can be dismissed by pressing spacebar or clicking outside.
+     * Reads the image and displays it in a centered popover. The popover can
+     * be dismissed by pressing spacebar or clicking outside.
      *
      * @param {jQuery} $row - The selected row element
      * @returns {Promise<void>}
@@ -1304,22 +1312,27 @@ const TabFiles = {
             }
         });
 
-        // Get read URL for the actual image. A later call, or a close, while
-        // this one waits supersedes it.
+        // Read the image itself: a read URL costs an access token, which are
+        // few an hour, and stepping through images spent them in seconds. The
+        // read comes back untyped, and an SVG shows only with its type. A
+        // later call, or a close, while this one waits supersedes it.
         const seq = this.previewSeq = (this.previewSeq ?? 0) + 1;
-        const imageUrl = await puter.fs.getReadURL(filePath).catch((err) => {
+        const blob = await puter.fs.read(filePath).catch((err) => {
             console.error('Could not preview image:', err);
             return null;
         });
         if ( seq !== this.previewSeq ) return;
         // Nor may a failed one leave the previous image up.
-        if ( ! imageUrl ) {
+        if ( ! blob ) {
             this.closeImagePreview();
             return;
         }
+        const imageUrl = URL.createObjectURL(new Blob([blob], { type: mime.getType(fileName) ?? '' }));
 
         // Remove any existing preview
         $('.image-preview-popover').remove();
+        if ( this.previewImageUrl ) URL.revokeObjectURL(this.previewImageUrl);
+        this.previewImageUrl = imageUrl;
 
         const $filesContainer = this.$el_window.find('.files-tab .files');
         const containerWidth = $filesContainer.width();
@@ -1352,7 +1365,10 @@ const TabFiles = {
      */
     closeImagePreview () {
         this.previewSeq = (this.previewSeq ?? 0) + 1;
+        clearTimeout(this.previewStepTimer);
         $('.image-preview-popover').remove();
+        if ( this.previewImageUrl ) URL.revokeObjectURL(this.previewImageUrl);
+        this.previewImageUrl = null;
         $(document).off('click.imagepreview');
         this.previewOpen = false;
         this.previewCurrentUid = null;
