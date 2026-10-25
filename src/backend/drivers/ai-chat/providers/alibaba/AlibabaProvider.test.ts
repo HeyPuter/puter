@@ -946,6 +946,83 @@ describe('Alibaba official catalog', () => {
         expect(model).toBeNull();
     });
 
+    it.each([
+        [
+            'ASR',
+            {
+                capabilities: ['ASR'],
+                inference_metadata: {
+                    request_modality: ['Audio'],
+                    response_modality: ['Text'],
+                },
+            },
+        ],
+        [
+            'rerank',
+            {
+                capabilities: ['TR'],
+                inference_metadata: {
+                    request_modality: ['Text'],
+                    response_modality: ['Text'],
+                },
+            },
+        ],
+        [
+            'image generation',
+            {
+                capabilities: ['IG'],
+                inference_metadata: {
+                    request_modality: ['Text'],
+                    response_modality: ['Text', 'Image'],
+                },
+            },
+        ],
+        [
+            'realtime omni',
+            {
+                capabilities: ['Realtime-Omni'],
+                inference_metadata: {
+                    request_modality: ['Text', 'Image', 'Audio', 'Video'],
+                    response_modality: ['Text', 'Audio'],
+                },
+            },
+        ],
+        [
+            'TTS',
+            {
+                capabilities: ['TTS'],
+                inference_metadata: {
+                    request_modality: ['Audio'],
+                    response_modality: ['Text'],
+                },
+            },
+        ],
+    ])('rejects %s models that cannot serve chat completions', (_kind, raw) => {
+        expect(
+            mapAlibabaCatalogModel({
+                model: 'non-chat-fixture',
+                ...(raw as AlibabaApiModel),
+            }),
+        ).toBeNull();
+    });
+
+    it('admits a vision model', () => {
+        const model = mapAlibabaCatalogModel({
+            model: 'vision-fixture',
+            capabilities: ['VU'],
+            inference_metadata: {
+                request_modality: ['Text', 'Image'],
+                response_modality: ['Text'],
+            },
+        })!;
+        expect(model.modalities?.input).toEqual(['text', 'image']);
+    });
+
+    it('does not admit an uncurated entry without capability or modality data', () => {
+        expect(mapAlibabaCatalogModel({ model: 'mystery-model' })).toBeNull();
+        expect(mapAlibabaCatalogModel({ model: 'qwen-plus' })).not.toBeNull();
+    });
+
     it('refuses inference with unverified catalog prices', async () => {
         seedPages();
         const { provider } = makeProvider();

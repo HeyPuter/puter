@@ -107,16 +107,18 @@ export const mapAlibabaCatalogModel = (
     const id = raw.model.trim();
     const existing =
         previous ?? ALIBABA_MODELS.find((model) => model.id === id);
+    const input = raw.inference_metadata?.request_modality;
     const output = raw.inference_metadata?.response_modality;
-    if (output && !output.includes('Text')) return null;
     if (
-        !output &&
-        !existing &&
-        !raw.capabilities?.some((capability) =>
+        raw.capabilities &&
+        !raw.capabilities.some((capability) =>
             chatCapabilities.includes(capability),
         )
     )
         return null;
+    if (input && !input.includes('Text')) return null;
+    if (output && !output.includes('Text')) return null;
+    if (!raw.capabilities && !input && !output && !existing) return null;
     let puterId = existing?.puterId;
     if (!puterId) {
         puterId = inferPuterId(id);
