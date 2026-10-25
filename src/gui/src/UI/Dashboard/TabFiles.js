@@ -3742,6 +3742,8 @@ const TabFiles = {
             el_item._pendingRename = new Promise((resolve) => {
                 renameSettled = resolve;
             });
+            // Undo renames back through this same callback, from the new path.
+            let pathBefore = old_path;
             window.rename_file(file, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, false, (fsentry) => {
                 delete el_item._pendingRename;
                 renameSettled();
@@ -3751,7 +3753,11 @@ const TabFiles = {
                 _this.fitItemNames($(el_item_name));
                 // Back and Forward should reach a renamed folder (and what's
                 // inside it) under its new name.
-                if ( fsentry?.is_dir ) _this.rebaseNavHistory(old_path, path.join(path.dirname(old_path), fsentry.name ?? new_name));
+                if ( fsentry?.is_dir ) {
+                    const pathAfter = path.join(path.dirname(pathBefore), fsentry.name ?? new_name);
+                    _this.rebaseNavHistory(pathBefore, pathAfter);
+                    pathBefore = pathAfter;
+                }
                 if ( ! fsentry || ! document.body.contains(el_item) ) return;
                 if ( ! _this.applyHiddenRule($(el_item), fsentry.name ?? new_name) ) return;
                 $(el_item).attr('data-type', fsentry.type ?? '');
