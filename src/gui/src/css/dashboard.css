@@ -2450,6 +2450,33 @@ p.myapps-add-error {
     font-size: 13px;
     color: var(--dashboard-text-primary);
 }
+.item-props-person {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    vertical-align: middle;
+}
+.item-props-avatar {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
+}
+@media (prefers-color-scheme: dark) {
+    .item-props-avatar {
+        background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 76%);
+    }
+}
 .item-props-version-id {
     font-size: 11px;
     font-family: monospace;
@@ -9453,4 +9480,21 @@ body.dashboard-mode .notifications-close-all {
     .dashboard-form-spinner {
         animation-duration: 1.6s;
     }
+}
+
+/* A person's profile picture, laid over their initial once it loads. The
+   element selector outranks each avatar's own color, dark mode included. */
+span[data-avatar-user].has-picture {
+    position: relative;
+    overflow: hidden;
+    color: transparent;
+}
+span[data-avatar-user] > .avatar-picture {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: inherit;
+    pointer-events: none;
 }

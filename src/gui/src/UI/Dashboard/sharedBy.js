@@ -21,6 +21,7 @@
 // cell and the people filter above the listing.
 
 import { avatarHue, avatarInitial } from '../../helpers/shareAvatar.js';
+import { avatarUserAttr } from './profilePictures.js';
 
 /**
  * @typedef {{ shared_by?: string | null, owner?: string | null }} SharedRow
@@ -91,13 +92,14 @@ const compareNames = new Intl.Collator(undefined, { sensitivity: 'base' }).compa
 export const fitSharedByWidth = (width, room) => Math.max(60, Math.min(width, Math.floor(room * 0.4)));
 
 /**
- * The initial-and-color avatar the share modal uses, sized by `className`.
+ * The initial-and-color avatar the share modal uses, sized by `className`,
+ * marked for the person's picture.
  *
  * @param {string} name
  * @param {string} className
  * @returns {string} markup
  */
-const avatarHtml = (name, className) => `<span class="${className}" style="--share-avatar-hue: ${avatarHue(name)}" aria-hidden="true">${window.html_encode(avatarInitial(name))}</span>`;
+const avatarHtml = (name, className) => `<span class="${className}" style="--share-avatar-hue: ${avatarHue(name)}"${avatarUserAttr(name)} aria-hidden="true">${window.html_encode(avatarInitial(name))}</span>`;
 
 /**
  * Tooltip for a row's sharer, naming the owner too when someone else re-shared it.

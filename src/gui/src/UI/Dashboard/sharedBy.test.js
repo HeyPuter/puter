@@ -133,6 +133,10 @@ describe('sharedByCellHtml', () => {
         expect(h).toContain('<span class="item-shared-by-name">ann</span>');
     });
 
+    it('marks the avatar for the sharer\'s picture', () => {
+        expect(sharedByCellHtml(row('ann', 'bob'))).toContain('data-avatar-user="ann"');
+    });
+
     it('encodes the username', () => {
         const h = sharedByCellHtml(row('<b>"x"'));
         expect(h).not.toContain('<b>');
@@ -158,6 +162,7 @@ describe('sharerFilterHtml', () => {
         expect(chips[0]).toContain('aria-pressed="true"');
         expect(h).toContain('shared_filter_everyone:</span><span class="sharer-chip-count">3</span>');
         expect(chips[1]).toContain('data-sharer="bob"');
+        expect(h).toContain('data-avatar-user="bob"');
     });
 
     it('presses the active sharer only', () => {

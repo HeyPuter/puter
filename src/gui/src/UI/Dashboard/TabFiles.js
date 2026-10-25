@@ -47,6 +47,7 @@ import resolve_shared_item from '../../helpers/resolveSharedItem.js';
 import { is_owned_by_me } from '../../helpers/pathOwner.js';
 import parse_item_metadata from '../../helpers/parseItemMetadata.js';
 import { compareSharers, filterBySharer, fitSharedByWidth, sharedByCellHtml, sharerFilterHtml, summarizeSharers } from './sharedBy.js';
+import { paintAvatars } from './profilePictures.js';
 
 const { html_encode, SelectionArea } = window;
 
@@ -2776,6 +2777,7 @@ const TabFiles = {
         const scrollLeft = bar.scrollLeft;
         const html = sharerFilterHtml(sharers, this.sharerFilter);
         $bar.html(html).prop('hidden', ! html);
+        paintAvatars(bar);
         bar.scrollLeft = scrollLeft;
         if ( focused !== undefined ) {
             $bar.find('.sharer-chip').filter((_, el) => el.getAttribute('data-sharer') === focused)[0]
@@ -3368,6 +3370,7 @@ const TabFiles = {
             <div class="item-more">${icons.more}</div>
         `;
         this.$el_window.find('.files-tab .files').append(row);
+        if ( this.currentPath === window.shared_path ) paintAvatars(row);
 
         this.createItemListeners(row, file);
     },
