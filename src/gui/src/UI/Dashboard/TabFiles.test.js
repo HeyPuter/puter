@@ -757,3 +757,59 @@ describe('TabFiles Remove from Shared', () => {
         expect(TabFiles.refreshKeepingSelection).not.toHaveBeenCalled();
     });
 });
+
+describe('TabFiles sorting', () => {
+    const entries = [
+        { name: 'file10.txt', size: 5, modified: 3 },
+        { name: 'dir10', is_dir: true, size: 0, modified: 1 },
+        { name: 'file2.txt', size: 5, modified: 3 },
+        { name: 'Beta', is_dir: true, size: 0, modified: 1 },
+        { name: 'dir2', is_dir: true, size: 0, modified: 1 },
+        { name: 'big.bin', size: 50, modified: 2 },
+    ];
+    const sorted = (column, direction) => {
+        TabFiles.sortColumn = column;
+        TabFiles.sortDirection = direction;
+        return TabFiles.sortFiles(entries).map(e => e.name);
+    };
+
+    beforeEach(() => {
+        TabFiles.currentPath = '/alice/Documents';
+        window.shared_path = '/alice/Shared';
+    });
+
+    it('orders names with numbers by value, folders first', () => {
+        expect(sorted('name', 'asc')).toEqual(['Beta', 'dir2', 'dir10', 'big.bin', 'file2.txt', 'file10.txt']);
+    });
+
+    it('breaks ties in size by name', () => {
+        expect(sorted('size', 'asc')).toEqual(['Beta', 'dir2', 'dir10', 'file2.txt', 'file10.txt', 'big.bin']);
+        expect(sorted('size', 'desc')).toEqual(['dir10', 'dir2', 'Beta', 'big.bin', 'file10.txt', 'file2.txt']);
+    });
+
+    it('shows trashed items by the name they had', () => {
+        TabFiles.sortColumn = 'name';
+        TabFiles.sortDirection = 'asc';
+        const trashed = [
+            { name: 'uid-b', metadata: JSON.stringify({ original_name: 'b.txt' }) },
+            { name: 'uid-a', metadata: JSON.stringify({ original_name: 'a.txt' }) },
+        ];
+        expect(TabFiles.sortFiles(trashed).map(e => e.name)).toEqual(['uid-a', 'uid-b']);
+    });
+
+    it('puts an added row where a listing would', () => {
+        TabFiles.sortColumn = 'size';
+        TabFiles.sortDirection = 'asc';
+        const listed = TabFiles.sortFiles(entries.filter(e => e.name !== 'file2.txt'));
+        document.body.innerHTML = `<div class="window"><div class="files-tab"><div class="files">${listed.map(e => (
+            `<div class="item row" data-name="${e.name}" data-is_dir="${e.is_dir ? 1 : 0}" data-size="${e.size}" data-modified="${e.modified}"></div>`
+        )).join('')}</div></div></div>`;
+        TabFiles.$el_window = $('.window');
+        const $row = $('<div class="item row" data-name="file2.txt" data-is_dir="0"></div>').appendTo('.files');
+
+        TabFiles.insertAtSortedPosition($row, { name: 'file2.txt', size: 5, modified: 3 });
+
+        expect($('.files .row').map((_, r) => r.getAttribute('data-name')).get())
+            .toEqual(['Beta', 'dir2', 'dir10', 'file2.txt', 'file10.txt', 'big.bin']);
+    });
+});

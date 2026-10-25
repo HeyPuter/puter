@@ -36,6 +36,7 @@ import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMen
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import UIShareModal from './UIShareModal.js';
 import { dedupedName } from './dedupedName.js';
+import { compareEntries, compareNames } from './sortEntries.js';
 import { middleTruncate } from './middleTruncate.js';
 import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
 
@@ -2386,48 +2387,25 @@ const TabFiles = {
      * @returns {Array<Object>} Sorted array with folders first, then files
      */
     sortFiles (files) {
-        const folders = files.filter(f => f.is_dir);
-        const regularFiles = files.filter(f => !f.is_dir);
-
-        const getDisplayName = (file) => {
-            try {
-                const metadata = file.metadata ? JSON.parse(file.metadata) : {};
-                return (metadata.original_name || file.name).toLowerCase();
-            } catch {
-                return file.name.toLowerCase();
-            }
-        };
+        // Keyed once per entry: the comparator runs n·log n times, and a
+        // trashed item's shown name means parsing its metadata.
+        const keyed = files.map(file => ({
+            file,
+            name: parse_item_metadata(file.metadata).original_name || file.name || '',
+            size: file.size,
+            modified: file.modified,
+        }));
 
         const sortColumn = this.activeSortColumn();
-        const sortFn = (a, b) => {
-            let comparison = 0;
-            const aName = getDisplayName(a);
-            const bName = getDisplayName(b);
-
-            switch ( sortColumn ) {
-                case 'name':
-                    comparison = aName.localeCompare(bName);
-                    break;
-                case 'shared_by':
-                    comparison = compareSharers(a, b) || aName.localeCompare(bName);
-                    break;
-                case 'size':
-                    comparison = (a.size || 0) - (b.size || 0);
-                    break;
-                case 'modified':
-                    comparison = (a.modified || 0) - (b.modified || 0);
-                    break;
-                default:
-                    comparison = aName.localeCompare(bName);
-            }
-
-            return this.sortDirection === 'asc' ? comparison : -comparison;
-        };
-
-        folders.sort(sortFn);
-        regularFiles.sort(sortFn);
-
-        return [...folders, ...regularFiles];
+        const sign = this.sortDirection === 'asc' ? 1 : -1;
+        keyed.sort((a, b) => {
+            if ( !! a.file.is_dir !== !! b.file.is_dir ) return a.file.is_dir ? -1 : 1;
+            const comparison = sortColumn === 'shared_by'
+                ? compareSharers(a.file, b.file) || compareNames(a.name, b.name)
+                : compareEntries(a, b, sortColumn);
+            return sign * comparison;
+        });
+        return keyed.map(({ file }) => file);
     },
 
     /**
@@ -2449,20 +2427,22 @@ const TabFiles = {
         // matching sortFiles and the existing rows below. Using raw file.name here
         // mis-sorts trashed items, whose name is the UID and whose real name lives
         // in metadata.original_name.
-        const newName = ($newRow.attr('data-name') || file.name || '').toLowerCase();
-        const newSize = file.size || 0;
-        const newModified = file.modified || 0;
-        const sortColumn = this.activeSortColumn();
-        const sortDirection = this.sortDirection;
+        const newKey = {
+            name: $newRow.attr('data-name') || file.name || '',
+            size: file.size,
+            modified: file.modified,
+        };
+        // Rows aren't keyed by sharer; the Shared view takes no added rows.
+        const sortColumn = this.activeSortColumn() === 'shared_by' ? 'name' : this.activeSortColumn();
+        const sign = this.sortDirection === 'asc' ? 1 : -1;
         let inserted = false;
 
         $existingRows.each(function () {
-            const $existing = $(this);
-            const existingIsDir = $existing.attr('data-is_dir') === '1';
+            const existingIsDir = this.getAttribute('data-is_dir') === '1';
 
             // Folders always come before files
             if ( newIsDir && !existingIsDir ) {
-                $newRow.insertBefore($existing);
+                $newRow.insertBefore(this);
                 inserted = true;
                 return false;
             }
@@ -2471,25 +2451,14 @@ const TabFiles = {
             }
 
             // Same type — compare by sort column
-            let comparison = 0;
-            switch ( sortColumn ) {
-                case 'name':
-                    comparison = newName.localeCompare(($existing.attr('data-name') || '').toLowerCase());
-                    break;
-                case 'size':
-                    comparison = newSize - (parseInt($existing.attr('data-size')) || 0);
-                    break;
-                case 'modified':
-                    comparison = newModified - (parseInt($existing.attr('data-modified')) || 0);
-                    break;
-                default:
-                    comparison = newName.localeCompare(($existing.attr('data-name') || '').toLowerCase());
-            }
-
-            if ( sortDirection !== 'asc' ) comparison = -comparison;
+            const comparison = sign * compareEntries(newKey, {
+                name: this.getAttribute('data-name') || '',
+                size: parseInt(this.getAttribute('data-size')) || 0,
+                modified: parseInt(this.getAttribute('data-modified')) || 0,
+            }, sortColumn);
 
             if ( comparison < 0 ) {
-                $newRow.insertBefore($existing);
+                $newRow.insertBefore(this);
                 inserted = true;
                 return false;
             }
