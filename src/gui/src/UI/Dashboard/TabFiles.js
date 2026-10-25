@@ -3326,6 +3326,7 @@ const TabFiles = {
         let rename_cancelled = false;
         let shift_clicked = false;
         let itemWasSelectedOnMousedown = false;
+        let deselectOnClick = false;
         let lastPointerType = null;
 
         // A row rendered ahead of its mkdir (see createFolderInstant) carries a
@@ -3350,6 +3351,7 @@ const TabFiles = {
             if ( e.pointerType === 'touch' ) return;
 
             shift_clicked = false;
+            deselectOnClick = false;
 
             // Track whether item was already selected before this mousedown
             itemWasSelectedOnMousedown = el_item.classList.contains('selected');
@@ -3455,7 +3457,9 @@ const TabFiles = {
 
             if ( ! e.shiftKey ) {
                 if ( (e.ctrlKey || e.metaKey) && el_item.classList.contains('selected') ) {
-                    el_item.classList.remove('selected');
+                    // On release: a Ctrl/Cmd-drag from here carries the
+                    // whole selection, this row included.
+                    deselectOnClick = true;
                 } else {
                     el_item.classList.add('selected');
                     window.latest_selected_item = el_item;
@@ -3522,6 +3526,10 @@ const TabFiles = {
                 return;
             }
 
+            if ( deselectOnClick ) {
+                deselectOnClick = false;
+                el_item.classList.remove('selected');
+            }
             if ( !e.ctrlKey && !e.metaKey && !e.shiftKey ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
                     if ( r !== el_item ) r.classList.remove('selected');
@@ -3778,6 +3786,8 @@ const TabFiles = {
             revertDuration: 100,
 
             start: function (_event, ui) {
+                // A drag, not a Ctrl/Cmd-click: the row stays selected.
+                deselectOnClick = false;
                 // Returning false from here aborts the drag but skips the
                 // "stop" plugins, so the cursor plugin never restores the
                 // body cursor it already set to 'grabbing' — reset it on
