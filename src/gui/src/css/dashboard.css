@@ -3008,7 +3008,7 @@ select.share-modal-link-access {
     font-size: 13px;
     font-weight: 600;
     background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
-    color: hsl(var(--share-avatar-hue, 213), 45%, 38%);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
 }
 .share-modal-row-who {
     flex: 1 1 auto;
@@ -3251,7 +3251,7 @@ select.share-modal-row-mode:focus {
     .share-modal-avatar,
     .share-modal .share-suggest-avatar {
         background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
-        color: hsl(var(--share-avatar-hue, 213), 55%, 72%);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 76%);
     }
     /* Restated after the rule above, which would otherwise repaint the glyph
        variant with a hue it does not carry. */
@@ -4900,6 +4900,189 @@ body.myapps-reordering .myapps-tile {
     color: inherit;
 }
 
+/* -- Shared view: who shared each item --
+   The "Shared by" column, a sharer line on grid tiles, and the people filter.
+   TabFiles.js sets .shared-view on the Shared view only. */
+.dashboard-section-files .files-tab:not(.shared-view) .header .columns .item-shared-by,
+.dashboard-section-files .files-tab:not(.shared-view) .header .columns [data-resize="sharedBy"] {
+    display: none;
+}
+
+/* Its two-word label fits on one line, ending in an ellipsis once narrowed. */
+.dashboard-section-files .header .columns .item-shared-by .sortable-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-section-files .row .item-shared-by {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 0 10px;
+    color: var(--dashboard-text-tertiary);
+}
+
+.dashboard-section-files .row.selected .item-shared-by {
+    color: inherit;
+}
+
+.dashboard-section-files .item-shared-by-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The share modal's initial-and-color avatar, at row size. */
+.dashboard-section-files .item-shared-by-avatar,
+.dashboard-section-files .sharer-chip-avatar {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
+}
+
+@media (prefers-color-scheme: dark) {
+    .dashboard-section-files .item-shared-by-avatar,
+    .dashboard-section-files .sharer-chip-avatar {
+        background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 76%);
+    }
+}
+
+/* Grid tiles: the sharer on a line under the name. */
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-metadata {
+    max-width: 100%;
+    min-width: 0;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-shared-by {
+    justify-content: center;
+    gap: 5px;
+    margin-top: -4px;
+    padding: 0;
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-shared-by-avatar {
+    width: 16px;
+    height: 16px;
+    font-size: 9px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-shared-by {
+    font-size: 11px;
+}
+
+/* People filter: one chip per person, scrolling sideways when they don't fit.
+   The edges fade inside the bar's own padding, so a chip at rest never does. */
+.dashboard-section-files .shared-people-filter {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+}
+
+.dashboard-section-files .shared-people-filter[hidden] {
+    display: none;
+}
+
+.dashboard-section-files .shared-people-filter::-webkit-scrollbar {
+    display: none;
+}
+
+.dashboard-section-files .sharer-chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 220px;
+    height: 30px;
+    padding: 0 10px;
+    box-sizing: border-box;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 999px;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+/* The avatar sits in the chip's rounded end, as an input chip's does. */
+.dashboard-section-files .sharer-chip-avatar {
+    margin-left: -6px;
+}
+
+.dashboard-section-files .sharer-chip-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-section-files .sharer-chip-count {
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--dashboard-text-muted);
+}
+
+@media (hover: hover) {
+    .dashboard-section-files .sharer-chip:hover {
+        background: var(--select-tint-weak);
+        border-color: var(--select-tint-strong);
+    }
+}
+
+.dashboard-section-files .sharer-chip.active {
+    background: var(--select-tint);
+    border-color: var(--select-ring);
+    color: var(--select-text);
+}
+
+.dashboard-section-files .sharer-chip.active .sharer-chip-count {
+    color: inherit;
+}
+
+/* Inset, so the bar's scroll box doesn't clip the ring. */
+.dashboard-section-files .sharer-chip:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -2px;
+}
+
+@media (pointer: coarse) {
+    .dashboard-section-files .sharer-chip {
+        height: 36px;
+        font-size: 13px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-section-files .sharer-chip {
+        transition: none;
+    }
+}
+
 .dashboard-section-files .files-tab .files.files-grid-view {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -5710,6 +5893,40 @@ body.myapps-reordering .myapps-tile {
     .dashboard-section-files .files-tab .files.files-list-view .row .item-size:not(:empty)::after {
         content: '•';
         margin: 0 6px;
+    }
+
+    /* Shared view: the sharer leads the second line. */
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-shared-by {
+        flex: 0 1 auto;
+        gap: 4px;
+        padding: 0;
+        font-size: 11px;
+        line-height: 24px;
+        color: var(--dashboard-text-muted);
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-shared-by-avatar {
+        width: 16px;
+        height: 16px;
+        font-size: 9px;
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-shared-by:not(:empty)::after {
+        content: '•';
+        flex: none;
+        margin: 0 6px 0 2px;
+    }
+
+    /* A long sharer name ends in an ellipsis instead of pushing the date off
+       the row and under the ⋯ button, which the name line keeps clear too. */
+    .dashboard-section-files .files-tab.shared-view .files.files-list-view .row .item-metadata {
+        min-width: 0;
+        padding-right: 40px;
+    }
+
+    .dashboard-section-files .files-tab.shared-view .files.files-list-view .row .item-size,
+    .dashboard-section-files .files-tab.shared-view .files.files-list-view .row .item-modified {
+        flex: none;
     }
 
     /* Hide outer spacers */

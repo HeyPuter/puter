@@ -48,6 +48,7 @@ import { is_default_app } from './defaultApp.js';
  * @param {Function} options.onShowProperties - Optional custom properties handler (used by Dashboard); receives {name, path, uid, element}
  * @param {Function} options.onShare - Optional custom share handler (used by Dashboard); receives {name, path, uid, element}
  * @param {Function} options.onPasteInto - Optional custom paste handler (used by Dashboard); receives the folder's path
+ * @param {Function} options.onRemovedFromShared - Optional, called once Remove from Shared has taken the item's row away (used by Dashboard)
  * @returns {Promise<Array>} Array of context menu items
  */
 const generate_file_context_menu = async function (options) {
@@ -383,6 +384,7 @@ const generate_file_context_menu = async function (options) {
                     // walked away from.
                     invalidate_shared_roots();
                     $(el_item).remove();
+                    options.onRemovedFromShared?.();
                 } catch (e) {
                     UIAlert({ message: e?.message ?? i18n('error_unknown_cause') });
                 }

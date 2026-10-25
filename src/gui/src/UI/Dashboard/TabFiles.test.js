@@ -18,7 +18,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 // The tab's window and dialog plumbing isn't what these tests exercise.
@@ -26,6 +26,7 @@ vi.mock('../UIWindow.js', () => ({ default: vi.fn() }));
 vi.mock('../UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('../UIWindowProgress.js', () => ({ default: vi.fn() }));
 vi.mock('../UIContextMenu.js', () => ({ default: vi.fn() }));
+vi.mock('../../helpers/generateFileContextMenu.js', () => ({ default: vi.fn(async () => []) }));
 
 globalThis.$ = jQuery;
 globalThis.jQuery = jQuery;
@@ -36,6 +37,7 @@ globalThis.i18n = globalThis.i18n ?? (key => key);
 window.icons = {};
 
 const { default: TabFiles, failedUploadsMessage, rebasePath, typeSelectTarget } = await import('./TabFiles.js');
+const { default: generateFileContextMenu } = await import('../../helpers/generateFileContextMenu.js');
 
 const TRASH = '/alice/Trash';
 
@@ -533,5 +535,197 @@ describe('TabFiles.applyHiddenRule', () => {
         expect($('.files .row').first().hasClass('item-revealed')).toBe(true);
         TabFiles.applyHiddenRule($('.files .row').first(), 'b.txt');
         expect($('.files .row').first().hasClass('item-revealed')).toBe(false);
+    });
+});
+
+describe('TabFiles "Shared by" column width', () => {
+    const SHARED = 'puter://shared';
+
+    beforeEach(() => {
+        // Earlier suites stub applyColumnWidths out.
+        vi.restoreAllMocks();
+        window.shared_path = SHARED;
+        window.trash_path = TRASH;
+        mountListing([], SHARED);
+        TabFiles.columnWidths = { name: null, sharedBy: 160, size: 100, modified: 120 };
+        // jsdom lays nothing out; give the listing a width.
+        vi.spyOn($.fn, 'width').mockImplementation(function () {
+            return this.hasClass('files') ? 530 : 0;
+        });
+        vi.spyOn(TabFiles, 'fitItemNames').mockImplementation(() => {});
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('leaves the auto-width name the larger part in a narrow listing', () => {
+        TabFiles.applyColumnWidths();
+        expect(TabFiles.columnGridTemplate).toBe('24px auto 4px 92px 4px 100px 4px 120px 4px 20px');
+    });
+
+    it('keeps its own width when another column is resized', () => {
+        TabFiles.applyColumnWidths();
+        TabFiles.adoptAppliedColumnWidths();
+        expect(TabFiles.columnWidths.sharedBy).toBe(160);
+    });
+
+    it('leaves other columns room to resize as it is laid out', () => {
+        expect(TabFiles.clampColumnWidth('size', 90)).toBe(90);
+    });
+
+    it('is resized only as far as it is laid out', () => {
+        expect(TabFiles.clampColumnWidth('sharedBy', 200)).toBe(92);
+    });
+});
+
+describe('TabFiles people filter across navigation', () => {
+    const SHARED = 'puter://shared';
+    const share = (name, sharer) => ({
+        uid: name, name, path: `/${sharer}/${name}-uid/${name}`, is_dir: true, size: 0, modified: 0,
+        shared_with_me: true, shared_by: sharer, owner: sharer,
+    });
+    const listed = () => $('.files .row').map((_, r) => r.getAttribute('data-name')).get().sort();
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        window.trash_path = TRASH;
+        window.shared_path = SHARED;
+        window.byte_format = bytes => `${bytes} B`;
+        window.puter = { fs: { readdir: vi.fn(async () => []) } };
+        mountListing([], '/alice');
+        $('.files-tab').prepend('<div class="shared-people-filter" hidden></div>');
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        TabFiles.sharerFilter = null;
+        // jsdom has no layout to scroll.
+        Element.prototype.scrollIntoView ??= () => {};
+        vi.spyOn(TabFiles, 'listSharedView').mockImplementation(async () => [share('a', 'ann'), share('b', 'bob')]);
+        vi.spyOn(TabFiles, 'applyColumnWidths').mockImplementation(() => {});
+        vi.spyOn(TabFiles, 'renderItem').mockImplementation(async (file) => {
+            $('.files').append(`<div class="row item" data-uid="${file.uid}" data-path="${file.path}" data-name="${file.name}"></div>`);
+        });
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('is still set on coming back out of a shared folder', async () => {
+        await TabFiles.renderDirectory(SHARED);
+        await TabFiles.setSharerFilter('bob');
+        expect(listed()).toEqual(['b']);
+
+        await TabFiles.renderDirectory('/bob/b-uid/b');
+        await TabFiles.renderDirectory(SHARED);
+
+        expect(TabFiles.sharerFilter).toBe('bob');
+        expect(listed()).toEqual(['b']);
+        expect($('.sharer-chip.active').attr('data-sharer')).toBe('bob');
+    });
+
+    it('gives way to show an item a share link or notification names', async () => {
+        const uid = '5298098f-d8a2-41da-828f-867b9a7f0cce';
+        TabFiles.listSharedView.mockImplementation(async () => [{ ...share('a', 'ann'), uid }, share('b', 'bob')]);
+        await TabFiles.renderDirectory(SHARED);
+        await TabFiles.setSharerFilter('bob');
+
+        await TabFiles.selectSharedRows([`/ann/${uid}/a`]);
+
+        expect(TabFiles.sharerFilter).toBeNull();
+        expect(listed()).toEqual(['a', 'b']);
+        expect($('.files .row.selected').attr('data-name')).toBe('a');
+    });
+
+    it('stays put when the named item is already shown', async () => {
+        const uid = '5298098f-d8a2-41da-828f-867b9a7f0cce';
+        TabFiles.listSharedView.mockImplementation(async () => [share('a', 'ann'), { ...share('b', 'bob'), uid }]);
+        await TabFiles.renderDirectory(SHARED);
+        await TabFiles.setSharerFilter('bob');
+
+        await TabFiles.selectSharedRows([`/bob/${uid}/b`]);
+
+        expect(TabFiles.sharerFilter).toBe('bob');
+        expect($('.files .row.selected').attr('data-name')).toBe('b');
+    });
+
+    it('shows every folder to a drag that springs into Shared', async () => {
+        await TabFiles.renderDirectory(SHARED);
+        await TabFiles.setSharerFilter('bob');
+        await TabFiles.renderDirectory('/bob/b-uid/b');
+
+        window.an_item_is_being_dragged = true;
+        try {
+            await TabFiles.renderDirectory(SHARED);
+        } finally {
+            window.an_item_is_being_dragged = false;
+        }
+
+        expect(TabFiles.sharerFilter).toBeNull();
+        expect(listed()).toEqual(['a', 'b']);
+    });
+
+    it('still filters when Shared fails to list again', async () => {
+        await TabFiles.renderDirectory(SHARED);
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        TabFiles.listSharedView.mockImplementation(async () => {
+            throw new Error('offline');
+        });
+
+        await TabFiles.setSharerFilter('bob');
+
+        expect(listed()).toEqual(['b']);
+        expect($('.sharer-chip.active').attr('data-sharer')).toBe('bob');
+        expect($('.files').text()).not.toContain("couldn't be opened");
+    });
+
+    it('still says a Shared it was asked to open could not be listed', async () => {
+        await TabFiles.renderDirectory(SHARED);
+        await TabFiles.renderDirectory('/alice/Documents');
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        TabFiles.listSharedView.mockImplementation(async () => {
+            throw new Error('offline');
+        });
+
+        await TabFiles.renderDirectory(SHARED);
+
+        expect($('.files').text()).toContain("couldn't be opened");
+    });
+
+    it("clears once the user goes back to their own files", async () => {
+        await TabFiles.renderDirectory(SHARED);
+        await TabFiles.setSharerFilter('bob');
+
+        await TabFiles.renderDirectory('/alice/Documents');
+        await TabFiles.renderDirectory(SHARED);
+
+        expect(TabFiles.sharerFilter).toBeNull();
+        expect(listed()).toEqual(['a', 'b']);
+    });
+});
+
+describe('TabFiles Remove from Shared', () => {
+    const SHARED = 'puter://shared';
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        window.shared_path = SHARED;
+        window.trash_path = TRASH;
+        vi.spyOn(TabFiles, 'refreshKeepingSelection').mockImplementation(async () => {});
+    });
+
+    const removeFromShared = async () => {
+        await TabFiles.generateContextMenuItems($('.files .row')[0], {});
+        generateFileContextMenu.mock.lastCall[0].onRemovedFromShared();
+    };
+
+    it('lists Shared again, for the people filter and the empty notice', async () => {
+        mountListing(['a'], SHARED);
+        await removeFromShared();
+        expect(TabFiles.refreshKeepingSelection).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves another folder the user has since opened alone', async () => {
+        mountListing(['a'], '/alice/Documents');
+        await removeFromShared();
+        expect(TabFiles.refreshKeepingSelection).not.toHaveBeenCalled();
     });
 });
