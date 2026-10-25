@@ -186,6 +186,8 @@ const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
 // is bounded; cursors are the recommended way to page.
 const MAX_LIST_OFFSET = 5000;
 const MAX_FILL_PAGES = 10;
+/** Most items one query reads while a foreign listing skips hidden entries. */
+const MAX_HIDDEN_SKIP_READ = 1000;
 // Cache keys carried by one invalidation broadcast. A peer applies them in a
 // single pass either way; the cap only keeps an individual message a sane size.
 const KV_CACHE_BROADCAST_CHUNK = 500;
@@ -2626,6 +2628,9 @@ export class SystemKVStore extends PuterStore {
             }
         }
 
+        // Another namespace's page goes on past entries it hides, reading
+        // further each time, so its cursor can sit on an entry it shows.
+        const foreign = isForeignNamespace(opts);
         const collected: Array<Record<string, unknown>> = [];
         let nextKey = startKey;
         if (!exhausted) {
@@ -2634,7 +2639,13 @@ export class SystemKVStore extends PuterStore {
                 const want = normalizedLimit
                     ? normalizedLimit - collected.length
                     : 0;
-                const response = await runQuery(want, nextKey);
+                const skipping = foreign && pages > 0 && collected.length === 0;
+                const response = await runQuery(
+                    skipping
+                        ? Math.min(want * 2 ** pages, MAX_HIDDEN_SKIP_READ)
+                        : want,
+                    nextKey,
+                );
                 collected.push(
                     ...((response.Items ?? []) as Array<
                         Record<string, unknown>
@@ -2648,7 +2659,7 @@ export class SystemKVStore extends PuterStore {
                     // result is complete rather than capped at one response.
                     if (!nextKey) break;
                 } else if (
-                    !fetchUntilFull ||
+                    (!fetchUntilFull && !(foreign && collected.length === 0)) ||
                     collected.length >= normalizedLimit ||
                     !nextKey ||
                     pages >= MAX_FILL_PAGES
@@ -2656,6 +2667,16 @@ export class SystemKVStore extends PuterStore {
                     break;
                 }
             } while (true);
+        }
+
+        // The scan may have stopped on a private entry, so a foreign cursor
+        // resumes after the last entry kept, which a read-ahead can overshoot.
+        let resumeKey = nextKey;
+        if (foreign && normalizedLimit !== undefined) {
+            const overshot = collected.splice(normalizedLimit).length > 0;
+            const last = collected[collected.length - 1];
+            if (last && (nextKey || overshot))
+                resumeKey = { namespace, key: last.key };
         }
 
         const entries = collected
@@ -2685,9 +2706,9 @@ export class SystemKVStore extends PuterStore {
         }
 
         const nextCursor = encodeCursor(
-            nextKey && effectiveReverse
-                ? { reverse: true, key: nextKey }
-                : nextKey,
+            resumeKey && effectiveReverse
+                ? { reverse: true, key: resumeKey }
+                : resumeKey,
         );
         return {
             res: {

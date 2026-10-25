@@ -22,8 +22,10 @@ import { readFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../../server.ts';
+import { PermissionUtil } from '../../services/permission/permissionUtil.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import { decodeCursor } from '../../util/pagination.ts';
+import { FLAT_PERM_SCAN_CONCURRENCY } from './PermissionStore.ts';
 
 describe('PermissionStore', () => {
     let server: PuterServer;
@@ -1263,6 +1265,75 @@ describe('PermissionStore', () => {
                     'kv-share:owner:app:c',
                 ]),
             ).toHaveLength(1);
+        });
+
+        it('scans flat entries a few roots at a time, once per outermost root', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const outer = Array.from(
+                { length: 12 },
+                (_, i) => `kv-share:owner:app:r${i}`,
+            );
+            const nested = outer.map((root) => `${root}:deep`);
+            for (const root of outer) {
+                await store.upsertUserUserPerm(holder.id, issuer.id, root, {});
+                await store.setFlatUserPerm(holder.id, root, {
+                    permission: root,
+                    issuer_user_id: issuer.id,
+                });
+            }
+            // Flat only, beneath a nested root: the outer scan has to find it.
+            const orphan = `${nested[0]}:orphan`;
+            await store.setFlatUserPerm(holder.id, orphan, {
+                permission: orphan,
+                issuer_user_id: issuer.id,
+            });
+
+            const holderPrefix = PermissionUtil.join('perm', String(holder.id));
+            const dynamo = server.clients.dynamo;
+            const query = dynamo.query.bind(dynamo);
+            const scanned: string[] = [];
+            let inFlight = 0;
+            let peak = 0;
+            const spy = vi
+                .spyOn(dynamo, 'query')
+                .mockImplementation(async (...args) => {
+                    const prefix = args[6]?.beginsWith?.value;
+                    if (!prefix?.startsWith(holderPrefix))
+                        return query(...args);
+                    scanned.push(prefix);
+                    peak = Math.max(peak, ++inFlight);
+                    try {
+                        await new Promise((resolve) => setTimeout(resolve, 5));
+                        return await query(...args);
+                    } finally {
+                        inFlight--;
+                    }
+                });
+            let removed: string[];
+            try {
+                removed = await store.deleteUserUserPermSubtreeForHolder(
+                    holder.id,
+                    issuer.id,
+                    [...outer, ...nested, outer[0]],
+                );
+            } finally {
+                spy.mockRestore();
+            }
+
+            expect(peak).toBeGreaterThan(1);
+            expect(peak).toBeLessThanOrEqual(FLAT_PERM_SCAN_CONCURRENCY);
+            expect(scanned.sort()).toEqual(
+                outer
+                    .map((root) =>
+                        PermissionUtil.join('perm', String(holder.id), root),
+                    )
+                    .sort(),
+            );
+            expect(removed.sort()).toEqual([...outer].sort());
+            expect(
+                await store.getFlatUserPerms(holder.id, [...outer, orphan]),
+            ).toEqual([]);
         });
 
         it('deletes several exact grants of one issuer in one statement, reporting the ones it found', async () => {

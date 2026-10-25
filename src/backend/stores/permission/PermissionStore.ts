@@ -27,6 +27,7 @@ import {
     PERMISSION_CACHE_GENERATION_TTL_SECONDS,
     PERMISSION_SCAN_CACHE_TTL_SECONDS,
 } from '../../services/permission/consts';
+import { runWithConcurrencyLimit } from '../../util/concurrency';
 import { kv } from '../../util/kvSingleton';
 import { keysetPage, openIdCursor } from '../../util/pagination';
 import { bumpGeneration } from '../../util/redisGeneration';
@@ -43,6 +44,8 @@ const ACCESS_TOKEN_PERM_INSERT_CHUNK = 100;
 
 const AUDIT_PAGE_SIZE = 50;
 const MAX_AUDIT_PAGE_SIZE = 200;
+/** Flat-entry prefix scans one subtree revoke keeps in flight. */
+export const FLAT_PERM_SCAN_CONCURRENCY = 4;
 
 /** The user-to-app grant a user's first sign-in to an app records. */
 export const APP_AUTHENTICATED_FLAG = 'flag:app-is-authenticated';
@@ -161,6 +164,20 @@ const subtreeClause = (
         `${escapeLike(permission)}:%`,
     ]),
 });
+
+/** `roots` less any at or beneath another of them, which that one's scan covers. */
+const outermostRoots = (roots: readonly string[]): string[] => {
+    const all = new Set(roots);
+    return [...all].filter((root) => {
+        for (
+            let at = root.indexOf(':');
+            at !== -1;
+            at = root.indexOf(':', at + 1)
+        )
+            if (all.has(root.slice(0, at))) return false;
+        return true;
+    });
+};
 
 /**
  * PermissionStore owns the _persistence_ side of permissions:
@@ -730,8 +747,10 @@ export class PermissionStore extends PuterStore {
         );
         const escapedSeparator =
             PermissionUtil.escape_permission_component(':');
-        const found = await Promise.all(
-            roots.map(async (root) => {
+        const found = await runWithConcurrencyLimit(
+            outermostRoots(roots),
+            FLAT_PERM_SCAN_CONCURRENCY,
+            async (root) => {
                 const base = PermissionUtil.join(
                     PERM_KEY_PREFIX,
                     String(holderUserId),
@@ -753,7 +772,7 @@ export class PermissionStore extends PuterStore {
                             key.slice(holderKey.length + 1),
                         ),
                     );
-            }),
+            },
         );
         return found.flat();
     }

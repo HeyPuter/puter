@@ -34,6 +34,7 @@ import {
 } from '../../services/permission/appDataScopes.js';
 import {
     KV_GLOBAL_APP_KEY,
+    KV_MAX_KEY_BYTES,
     kvNamespace,
     type KVOpts,
     type KVUsage,
@@ -51,8 +52,8 @@ import {
 import {
     decodeCursor,
     normalizeLimit,
-    openCursor,
     sealCursor,
+    unsealCursor,
 } from '../../util/pagination.js';
 import { KV_COSTS } from './costs.js';
 import {
@@ -87,14 +88,45 @@ type KvCallArgs = {
 };
 
 /**
- * Store options plus, for a call through a share handle, the region's prefix:
- * keys go in under it and come back out relative to it.
+ * Store options plus, for a call through a share handle, the handle and its
+ * region's prefix: keys go in under it and come back out relative to it.
  */
-type DriverKvOpts = KVOpts & { handlePrefix?: string };
+type DriverKvOpts = KVOpts & { handle?: string; handlePrefix?: string };
 
 type KvListResult =
     | unknown[]
     | { items: unknown[]; cursor?: string; total?: number };
+
+/**
+ * A listing of another namespace, cross-app or through a handle: what its
+ * cursors are sealed to, the namespace a position rebuilds in, and the prefix
+ * its keys are relative to.
+ */
+interface ForeignListing {
+    bind: string;
+    namespace: string;
+    prefix: string;
+    /** Cross-app cursors were plain before they were sealed. */
+    acceptsPlain: boolean;
+}
+
+/**
+ * Plaintext bytes a foreign listing's cursor is padded to: a key at the store's
+ * limit in base64url, plus room for the binding and the envelope.
+ */
+const FOREIGN_CURSOR_BYTES = Math.ceil((KV_MAX_KEY_BYTES * 4) / 3) + 256;
+
+/** Whether `value` is a store position, `{ namespace, key }`, in `namespace`. */
+const isPositionIn = (value: unknown, namespace: string): boolean => {
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+        return false;
+    const { namespace: named, key, ...rest } = value as Record<string, unknown>;
+    return (
+        named === namespace &&
+        typeof key === 'string' &&
+        Object.keys(rest).length === 0
+    );
+};
 
 // -- Share-handle errors ----------------------------------------------
 
@@ -438,81 +470,113 @@ export class KVStoreDriver extends PuterDriver {
             actor,
             namespaceUser: { uuid: ownerUuid, id: row.ownerUserId },
             namespaceAppUuid: row.appUid,
+            handle,
             handlePrefix: row.keyPrefix,
         };
     }
 
-    /**
-     * A handle listing's cursor names a key relative to the handle. The store
-     * position is rebuilt from the handle's own namespace, so nothing the
-     * caller sends can name a namespace or a key outside the region.
-     */
-    #cursorIn(
-        cursor: unknown,
-        opts: DriverKvOpts,
-    ): Record<string, unknown> | undefined {
-        if (cursor === undefined || cursor === null) return undefined;
-        if (typeof cursor !== 'string' && typeof cursor !== 'object')
-            throw invalidCursor();
-        const decoded: unknown = openCursor(
-            cursor as string | Record<string, unknown>,
-            this.config.jwt_secret_v2,
-            'kv: cursor',
+    /** Set when a listing covers another namespace, cross-app or by handle. */
+    #foreignListing(opts: DriverKvOpts): ForeignListing | undefined {
+        if (opts.handle !== undefined)
+            return {
+                bind: opts.handle,
+                namespace: kvNamespace(
+                    opts.namespaceUser!.uuid,
+                    opts.namespaceAppUuid!,
+                ),
+                prefix: opts.handlePrefix!,
+                acceptsPlain: false,
+            };
+        if (!opts.namespaceAppUuid) return undefined;
+        const namespace = kvNamespace(
+            opts.actor!.user.uuid!,
+            opts.namespaceAppUuid,
         );
-        if (decoded === undefined) return undefined;
-        if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded))
-            throw invalidCursor();
-        const { k, r, ...rest } = decoded as Record<string, unknown>;
-        if (
-            typeof k !== 'string' ||
-            Buffer.byteLength(k, 'utf8') > KV_HANDLE_KEY_MAX_BYTES ||
-            (r !== undefined && r !== true) ||
-            Object.keys(rest).length > 0
-        )
-            throw invalidCursor();
-        const position = {
-            namespace: kvNamespace(
-                opts.namespaceUser!.uuid,
-                opts.namespaceAppUuid!,
-            ),
-            key: `${opts.handlePrefix}${k}`,
-        };
-        return r === true ? { reverse: true, key: position } : position;
+        return { bind: namespace, namespace, prefix: '', acceptsPlain: true };
     }
 
     /**
-     * The store's next-page position, as a key relative to the handle. Sealed:
-     * the scan can stop on a private entry it filtered out.
+     * A foreign listing's cursor as a store position, rebuilt in the listing's
+     * own namespace and region. Only a cursor sealed to this listing opens, or
+     * a plain cross-app one naming the same namespace.
      */
-    #cursorOut(cursor: string, opts: DriverKvOpts): string | undefined {
+    #cursorIn(
+        cursor: unknown,
+        listing: ForeignListing,
+    ): Record<string, unknown> | undefined {
+        if (cursor === undefined || cursor === null) return undefined;
+        if (typeof cursor === 'string') {
+            if (cursor.trim() === '') return undefined;
+            const sealed = unsealCursor(
+                cursor.trim(),
+                this.config.jwt_secret_v2,
+            );
+            if (sealed) {
+                const { s, k, r, ...rest } = sealed;
+                if (
+                    s !== listing.bind ||
+                    typeof k !== 'string' ||
+                    (r !== undefined && r !== true) ||
+                    Object.keys(rest).length > 0
+                )
+                    throw invalidCursor();
+                const position = {
+                    namespace: listing.namespace,
+                    key: `${listing.prefix}${Buffer.from(k, 'base64url').toString('utf8')}`,
+                };
+                return r ? { reverse: true, key: position } : position;
+            }
+        } else if (typeof cursor !== 'object') throw invalidCursor();
+        if (!listing.acceptsPlain) throw invalidCursor();
+
+        const plain = decodeCursor(
+            cursor as string | Record<string, unknown>,
+            'kv: cursor',
+        );
+        if (plain === undefined || isPositionIn(plain, listing.namespace))
+            return plain;
+        const { reverse, key, ...rest } = plain;
+        if (
+            reverse === true &&
+            Object.keys(rest).length === 0 &&
+            isPositionIn(key, listing.namespace)
+        )
+            return plain;
+        throw invalidCursor();
+    }
+
+    /**
+     * The store's next-page position, sealed to the listing and padded to one
+     * length, with its key relative to the region.
+     */
+    #cursorOut(cursor: string, listing: ForeignListing): string | undefined {
         const decoded = decodeCursor(cursor);
         const reverse = decoded?.reverse === true;
         const position = (reverse ? decoded?.key : decoded) as
             | { namespace?: unknown; key?: unknown }
             | undefined;
-        if (
-            position?.namespace !==
-            kvNamespace(opts.namespaceUser!.uuid, opts.namespaceAppUuid!)
-        )
-            throw outsideRegion();
+        if (position?.namespace !== listing.namespace) throw outsideRegion();
+        const key = this.#relativeKey(position.key, listing.prefix);
         return sealCursor(
             {
-                k: this.#relativeKey(position.key, opts.handlePrefix!),
+                s: listing.bind,
+                k: Buffer.from(key, 'utf8').toString('base64url'),
                 ...(reverse ? { r: true } : {}),
             },
             this.config.jwt_secret_v2,
+            { padTo: FOREIGN_CURSOR_BYTES },
         );
     }
 
-    /** A listing with every key in it relative to the handle. */
-    #relativeListing(
+    /** A foreign listing as its caller sees it: keys relative, cursor sealed. */
+    #foreignResult(
         res: KvListResult,
         as: string | undefined,
-        opts: DriverKvOpts,
+        listing: ForeignListing,
     ): KvListResult {
-        const prefix = opts.handlePrefix!;
+        const { prefix } = listing;
         const relative = (items: unknown[]): unknown[] => {
-            if (as === 'values') return items;
+            if (as === 'values' || prefix === '') return items;
             if (as === 'keys')
                 return items.map((key) => this.#relativeKey(key, prefix));
             return items.map((entry) => {
@@ -525,7 +589,7 @@ export class KVStoreDriver extends PuterDriver {
         };
         if (Array.isArray(res)) return relative(res);
         const cursor = res.cursor
-            ? this.#cursorOut(res.cursor, opts)
+            ? this.#cursorOut(res.cursor, listing)
             : undefined;
         return {
             items: relative(res.items),
@@ -836,6 +900,7 @@ export class KVStoreDriver extends PuterDriver {
             );
         }
         const handlePrefix = opts.handlePrefix;
+        const listing = this.#foreignListing(opts);
         if (
             handlePrefix !== undefined &&
             typeof args.pattern === 'string' &&
@@ -849,10 +914,9 @@ export class KVStoreDriver extends PuterDriver {
                     cap: KV_MAX_LIST_LIMIT,
                     label: 'kv: limit',
                 }),
-                cursor:
-                    handlePrefix === undefined
-                        ? args.cursor
-                        : this.#cursorIn(args.cursor, opts),
+                cursor: listing
+                    ? this.#cursorIn(args.cursor, listing)
+                    : args.cursor,
                 pattern: args.pattern,
                 offset: args.offset,
                 includeTotal: args.includeTotal,
@@ -865,8 +929,8 @@ export class KVStoreDriver extends PuterDriver {
             opts,
         );
         this.#meter(opts.actor, usage);
-        if (handlePrefix === undefined) return res;
-        return this.#relativeListing(res as KvListResult, args.as, opts);
+        if (!listing) return res;
+        return this.#foreignResult(res as KvListResult, args.as, listing);
     }
 
     async flush(args: { optConfig?: KvOptConfig }): Promise<boolean> {

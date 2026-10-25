@@ -52,7 +52,7 @@ import {
     type TestUserCredentials,
 } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
-import { openCursor } from '../../util/pagination.js';
+import { openCursor, sealCursor } from '../../util/pagination.js';
 import type { KVStoreDriver } from './KVStoreDriver.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
@@ -200,9 +200,16 @@ const drive = async (
     return { status: res.status, text, body: JSON.parse(text) };
 };
 
-const decode = (cursor: unknown) => openCursor(String(cursor), SECRET);
+/** A handle cursor as the server reads it, its key decoded. */
+const decode = (cursor: unknown) => {
+    const { k, ...rest } = openCursor(String(cursor), SECRET)!;
+    return { ...rest, k: Buffer.from(String(k), 'base64url').toString('utf8') };
+};
 const encode = (payload: unknown) =>
     Buffer.from(JSON.stringify(payload)).toString('base64');
+/** A cursor sealed to `bind`, positioned after `key`. */
+const sealedAt = (bind: string, key: string) =>
+    sealCursor({ s: bind, k: Buffer.from(key).toString('base64url') }, SECRET)!;
 
 beforeAll(async () => {
     env = await setupPuterTestEnv({
@@ -628,7 +635,11 @@ describe('confinement to the region', () => {
             ) as Promise<{ items: string[]; cursor?: string }>;
 
         const first = await list({});
-        expect(decode(first.cursor)).toEqual({ k: 'a' });
+        expect(decode(first.cursor)).toEqual({ s: handle, k: 'a' });
+        expect((await list({ cursor: sealedAt(handle, 'a') })).items).toEqual([
+            'b',
+        ]);
+        const { handle: elsewhere } = await share(region('cur2'), 'read');
 
         const ownCursor = (
             (await as(owner.actor, (d) =>
@@ -650,6 +661,13 @@ describe('confinement to the region', () => {
             encode({ k: 7 }),
             encode({ k: 'a', r: 'yes' }),
             encode(['a']),
+            // The plain shape a sealed cursor holds.
+            encode({ s: handle, k: Buffer.from('a').toString('base64url') }),
+            encode({ k: 'a' }),
+            // Sealed, but to another handle or a namespace.
+            sealedAt(elsewhere, 'a'),
+            sealedAt(`v1:${owner.uuid}:${GLOBAL}`, `${prefix}a`),
+            sealCursor({ id: 1 }, SECRET),
         ];
         for (const cursor of forged)
             await expect(list({ cursor })).rejects.toMatchObject({
@@ -664,9 +682,11 @@ describe('confinement to the region', () => {
             disableSharing: true,
         });
         await ownerSet(`${prefix}b-open`, 'open');
+        await ownerSet(`${prefix}c-open-with-a-longer-name`, 'open');
         const { handle } = await share(prefix, 'read');
 
         const keys: string[] = [];
+        const lengths = new Set<number>();
         let cursor: string | undefined;
         for (let pages = 0; pages < 5; pages++) {
             const page = (await as(guest.actor, (d) =>
@@ -687,8 +707,14 @@ describe('confinement to the region', () => {
             ).not.toContain('secret');
             cursor = page.cursor;
             if (!cursor) break;
+            expect(JSON.stringify(openCursor(cursor, SECRET))).not.toContain(
+                'secret',
+            );
+            expect(decode(cursor).k).not.toContain('secret');
+            lengths.add(cursor.length);
         }
-        expect(keys).toEqual(['b-open']);
+        expect(keys).toEqual(['b-open', 'c-open-with-a-longer-name']);
+        expect(lengths.size).toBe(1);
     });
 });
 
@@ -735,6 +761,7 @@ describe('listing through a handle', () => {
         'pages as $as, reverse $reverse, includeTotal $includeTotal',
         async ({ as, reverse, includeTotal }) => {
             const items: unknown[] = [];
+            const lengths = new Set<number>();
             let cursor: string | undefined;
             let pages = 0;
             do {
@@ -751,9 +778,12 @@ describe('listing through a handle', () => {
                 if (page.cursor) {
                     const next = decode(page.cursor);
                     expect(Object.keys(next).sort()).toEqual(
-                        reverse ? ['k', 'r'] : ['k'],
+                        reverse ? ['k', 'r', 's'] : ['k', 's'],
                     );
+                    expect(next.s).toBe(handle);
+                    expect(next.k).not.toBe('k35');
                     if (reverse) expect(next.r).toBe(true);
+                    lengths.add(page.cursor.length);
                 }
                 cursor = page.cursor;
                 pages++;
@@ -761,6 +791,7 @@ describe('listing through a handle', () => {
 
             const order = reverse ? [...KEYS].reverse() : KEYS;
             expect(items).toEqual(shaped(as, order));
+            expect(lengths.size).toBe(1);
         },
     );
 
@@ -778,7 +809,7 @@ describe('listing through a handle', () => {
             reverse: true,
         })) as { items: string[]; cursor: string };
         expect(first.items).toEqual(['k7', 'k6']);
-        expect(decode(first.cursor)).toEqual({ k: 'k6', r: true });
+        expect(decode(first.cursor)).toEqual({ s: handle, k: 'k6', r: true });
 
         const next = (await list({
             as: 'keys',
