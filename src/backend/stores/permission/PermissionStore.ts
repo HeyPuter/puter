@@ -127,6 +127,12 @@ export interface UserUserAuditFilter {
     issuerUserId?: number;
     holderUserId?: number;
     permissions?: string[];
+    /**
+     * Rows under these roots are kept only where the component after the root
+     * is `ownerUuid`, for families whose grants name the owner of what they
+     * grant. Narrows the other fields; it is not a filter on its own.
+     */
+    ownedRoots?: { roots: readonly string[]; ownerUuid: string };
 }
 
 /** One entry in the flat KV view, as addressed by a delete. */
@@ -482,6 +488,74 @@ export class PermissionStore extends PuterStore {
     }
 
     /**
+     * {@link deleteUserUserPermByHolder} for several permissions in one
+     * statement. Returns the ones that were there to delete.
+     */
+    async deleteUserUserPermsByHolder(
+        holderUserId: number,
+        permissions: readonly string[],
+        issuerUserId: number,
+    ): Promise<string[]> {
+        const found = await this.findUserUserPermsByIssuer(
+            holderUserId,
+            issuerUserId,
+            permissions,
+        );
+        if (found.length === 0) return [];
+
+        const { scope, params } = this.#issuerHolderScope(
+            holderUserId,
+            issuerUserId,
+            permissions,
+        );
+        await this.clients.db.write(
+            `DELETE FROM \`user_to_user_permissions\` WHERE ${scope}`,
+            params,
+        );
+        await this.publishCacheKeys({
+            keys: [this.#u2uCacheKey(holderUserId)],
+            broadcast: true,
+        });
+        return found;
+    }
+
+    /**
+     * Which of `permissions` this issuer granted this holder, as the primary
+     * spells them. A point lookup on the table's key.
+     */
+    async findUserUserPermsByIssuer(
+        holderUserId: number,
+        issuerUserId: number,
+        permissions: readonly string[],
+    ): Promise<string[]> {
+        if (permissions.length === 0) return [];
+        const { scope, params } = this.#issuerHolderScope(
+            holderUserId,
+            issuerUserId,
+            permissions,
+        );
+        const rows = await this.clients.db.pread(
+            `SELECT \`permission\` FROM \`user_to_user_permissions\` WHERE ${scope}`,
+            params,
+        );
+        return rows.map((row) => String(row.permission));
+    }
+
+    #issuerHolderScope(
+        holderUserId: number,
+        issuerUserId: number,
+        permissions: readonly string[],
+    ): { scope: string; params: unknown[] } {
+        const unique = [...new Set(permissions)];
+        return {
+            scope:
+                '`holder_user_id` = ? AND `issuer_user_id` = ? AND ' +
+                `\`permission\` IN (${unique.map(() => '?').join(', ')})`,
+            params: [holderUserId, issuerUserId, ...unique],
+        };
+    }
+
+    /**
      * The grants an account issued, as flat-view refs. Read before the account
      * row goes: the SQL rows cascade with it, the holders' flat entries do
      * not.
@@ -588,33 +662,100 @@ export class PermissionStore extends PuterStore {
     async deleteUserUserPermSubtreeForHolder(
         holderUserId: number,
         issuerUserId: number,
-        permission: string,
+        permission: string | readonly string[],
     ): Promise<string[]> {
-        const { where, params } = subtreeClause([permission]);
+        const roots =
+            typeof permission === 'string' ? [permission] : [...permission];
+        if (roots.length === 0) return [];
+        const { where, params } = subtreeClause(roots);
         const scope = '`holder_user_id` = ? AND `issuer_user_id` = ?';
         const scoped = [holderUserId, issuerUserId, ...params];
 
-        const rows = (await this.clients.db.read(
-            'SELECT `permission` FROM `user_to_user_permissions` ' +
-                `WHERE ${scope} AND (${where})`,
-            scoped,
-        )) as Array<{ permission: string }>;
-        if (rows.length === 0) return [];
+        // The primary: a replica behind it misses a grant just made, whose
+        // flat entry would then outlive the revoke.
+        const removed = (
+            await this.clients.db.pread(
+                'SELECT `permission` FROM `user_to_user_permissions` ' +
+                    `WHERE ${scope} AND (${where})`,
+                scoped,
+            )
+        ).map((row) => String(row.permission));
+        if (removed.length > 0) {
+            await this.clients.db.write(
+                `DELETE FROM \`user_to_user_permissions\` WHERE ${scope} AND (${where})`,
+                scoped,
+            );
+            await this.publishCacheKeys({
+                keys: [this.#u2uCacheKey(holderUserId)],
+                broadcast: true,
+            });
+        }
 
-        await this.clients.db.write(
-            `DELETE FROM \`user_to_user_permissions\` WHERE ${scope} AND (${where})`,
-            scoped,
+        // The whole flat subtree, not only what SQL returned: an entry can
+        // outlive its row. An entry another issuer's row still backs is kept.
+        const candidates = [
+            ...new Set([
+                ...removed,
+                ...(await this.#flatPermsUnder(holderUserId, roots)),
+            ]),
+        ];
+        if (candidates.length === 0) return removed;
+        const remaining = new Set(
+            (
+                await this.readLinkedUserUserPermsFromPrimary(
+                    holderUserId,
+                    candidates,
+                )
+            ).map((row) => row.permission),
         );
-
-        const removed = rows.map((row) => String(row.permission));
         await this.delFlatUserPerms(
-            removed.map((perm) => ({ holderUserId, permission: perm })),
+            candidates
+                .filter((perm) => !remaining.has(perm))
+                .map((perm) => ({ holderUserId, permission: perm })),
         );
-        await this.publishCacheKeys({
-            keys: [this.#u2uCacheKey(holderUserId)],
-            broadcast: true,
-        });
         return removed;
+    }
+
+    /**
+     * The flat entries a holder has at or beneath any of `roots`, found by key
+     * prefix, so an entry with no SQL row behind it is found too.
+     */
+    async #flatPermsUnder(
+        holderUserId: number,
+        roots: readonly string[],
+    ): Promise<string[]> {
+        const holderKey = PermissionUtil.join(
+            PERM_KEY_PREFIX,
+            String(holderUserId),
+        );
+        const escapedSeparator =
+            PermissionUtil.escape_permission_component(':');
+        const found = await Promise.all(
+            roots.map(async (root) => {
+                const base = PermissionUtil.join(
+                    PERM_KEY_PREFIX,
+                    String(holderUserId),
+                    root,
+                );
+                const { res } = await this.stores.kv.list({
+                    as: 'keys',
+                    keyPrefix: base,
+                });
+                // The prefix also matches siblings that merely start the same.
+                return (res as string[])
+                    .filter(
+                        (key) =>
+                            key === base ||
+                            key.startsWith(`${base}${escapedSeparator}`),
+                    )
+                    .map((key) =>
+                        PermissionUtil.unescape_permission_component(
+                            key.slice(holderKey.length + 1),
+                        ),
+                    );
+            }),
+        );
+        return found.flat();
     }
 
     async auditUserUserPerm(
@@ -718,6 +859,16 @@ export class PermissionStore extends PuterStore {
         }
         if (clauses.length === 0) {
             throw new Error('listUserUserAudit requires a filter');
+        }
+        const owned = filter.ownedRoots;
+        for (const root of owned?.roots ?? []) {
+            clauses.push(
+                "NOT (`permission` LIKE ? ESCAPE '!' AND `permission` NOT LIKE ? ESCAPE '!')",
+            );
+            params.push(
+                `${escapeLike(root)}:%`,
+                `${escapeLike(`${root}:${owned?.ownerUuid}`)}:%`,
+            );
         }
         return { sql: clauses.join(' AND '), params };
     }

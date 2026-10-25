@@ -10,6 +10,7 @@ Set the expiration timestamp (in seconds) for a key in the key-value store.
 
 ```js
 puter.kv.expireAt(key, timestampSeconds)
+puter.kv.expireAt(key, timestampSeconds, optConfig)
 ```
 
 ## Parameters
@@ -22,9 +23,28 @@ A string containing the name of the key.
 
 The Unix timestamp (in seconds) at which the key will be removed from the key-value store. Use seconds, not the milliseconds `Date.now()` returns. A timestamp at or before now, including `0`, expires the key immediately.
 
+#### `optConfig` (Object) (optional)
+
+The last argument. It takes these properties:
+
+- `handle` (String): Work on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix. The share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
+- `appUuid` (String): Work on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+
 ## Return value
 
 A `Promise` that will resolve to `true` when the expiry time has been set.
+
+## Errors
+
+With `handle`, the promise can reject with these codes:
+
+| Code | Meaning |
+| -- | -- |
+| `kv_handle_not_found` | `handle` doesn't exist, the share stopped, or it isn't shared with you. |
+| `kv_handle_access_denied` | The share's access doesn't allow this method. |
+| `kv_handle_option_invalid` | `handle` was combined with `appUuid` or `disableSharing`. |
+| `kv_handle_key_invalid` | With `handle`, the key is empty or longer than 768 bytes. |
+| `kv_handles_disabled` | Shares can't be used this way on this deployment. |
 
 ## Keys That Don't Exist
 

@@ -198,13 +198,17 @@ Sizes are the same for every account:
 | Size                      | Limit                                     |
 | ------------------------- | ----------------------------------------- |
 | Key                       | 1 KB                                      |
+| Key, through a share handle | 768 bytes (UTF-8)                       |
+| `list()` pattern, through a share handle | 768 bytes (UTF-8)            |
 | Value                     | 400 KB                                    |
 | Any number inside a value | ±9,007,199,254,740,991 (2<sup>53</sup>−1) |
 | Path nesting (`add`/`update`/`incr`/`decr`/`remove`) | 31 levels |
 | Path segments in one call, all paths together | 1,500 |
 | Nesting depth of a value, counting its path | 32 levels |
 
-A key or value over its size limit is rejected. A number out of range is not rejected: it's stored clamped to the bound, and `NaN` is stored as `null` (as `JSON.stringify()` does). This applies at any depth inside an object or array. Store values that must stay exact past 2<sup>53</sup>, such as large ids or running totals, as strings.
+A key or value over its size limit is rejected. A key you pass with a share handle is relative to the handle, and its 768-byte limit stays the same whatever the length of the shared prefix. An empty key or a longer one is refused with `kv_handle_key_invalid`, and so is a longer `list()` pattern.
+
+A number out of range is not rejected: it's stored clamped to the bound, and `NaN` is stored as `null` (as `JSON.stringify()` does). This applies at any depth inside an object or array. Store values that must stay exact past 2<sup>53</sup>, such as large ids or running totals, as strings.
 
 A path such as `a.b.c` may chain at most 31 levels, and one call's paths at most 1,500 segments together. All of a call's paths go into one write of limited size, so in practice a call fits about 140 short paths (about 60 for `incr` and `decr`), fewer when the paths are long. A value nests at most 32 levels deep: the stored value is the first level, and each object or array inside it, or path segment above it, adds one, so `{ a: { b: 1 } }` stored with `set()` is 3 levels deep and written by `update()` at `x.y` is 5; `add()` counts the list it appends to as one more. Past any of these, the call rejects with `bad_request`.
 
@@ -430,6 +434,10 @@ See [Events](/Events/) for an overview, [`onLocal()`](/Events/subjects/#gaps) fo
 - Anonymous accounts get `events_durable_requires_account` for persistent subscriptions and `events_kv_handle_requires_account` for share handles.
 - Unsubscribing or revoking frees a slot immediately. Revoked handles stay listed but don't count.
 - A share handle minted without naming an app counts only toward the all-apps limit.
+- A share's key prefix has a length limit that depends on the app's uid and the access level. For an app uid of the usual form, `app-` and a uuid, the prefix without its trailing `:` can be at most 168 characters for `watch`, 163 for `read`, and 162 for `write`. In the store that belongs to no app, it can be at most 199, 194, and 193. A longer prefix is refused with `invalid_kv_share_prefix`.
+- The consent an app asks for with [`puter.perms.request('kvShare', …)`](/Perms/request/) names a prefix too. Its limit is 7 characters lower, so 161, 156, and 155 for an app uid of the usual form.
+- Calls through a share handle read the handle from a cache that keeps it for up to 60 seconds. When a share stops while a wider share of the same holder still covers its keys, calls through the stopped handle can keep working for up to 60 seconds. Without a wider share, access ends right away.
+- A share's label may be at most 128 characters and 512 bytes (UTF-8), with at most 3 combining marks on one character. A longer label is refused with `kv_share_label_invalid`.
 
 #### How many subscriptions one event reaches
 
@@ -454,13 +462,14 @@ Counted per event, per region:
 | `unsubscribe`                                     | 600/min  | Per user, all apps |
 | Acknowledgements                                  | 600/min  | Per user, all apps |
 | Share-handle mint / revoke                        | 60/min   | Per user, all apps |
+| `kv.share.received` notifications                 | 5/hour   | Per owner and holder |
 | Handler publish / remove                          | 60/min   | Per user, all apps |
 | Subscription and share-handle listings (combined) | 120/min  | Per user, per app  |
 | Handler listings                                  | 120/min  | Per user, per app  |
 | Events worker listings                            | 120/min  | Per user, per app  |
 | `fetch()`                                         | 120/min  | Per user, per app  |
 
-Over any of these: `too_many_requests`. Listing pages hold up to 200 items. A `fetch()` page defaults to 50 events and holds up to 200.
+Over any of these: `too_many_requests`, except `kv.share.received` notifications: a share past that limit is still made, and the holder isn't notified about it. Listing pages hold up to 200 items. A `fetch()` page defaults to 50 events and holds up to 200.
 
 Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one.
 

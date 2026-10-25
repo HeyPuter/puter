@@ -15,6 +15,9 @@ puter.kv.list()
 puter.kv.list(pattern)
 puter.kv.list(returnValues = false)
 puter.kv.list(pattern, returnValues = false)
+puter.kv.list(pattern, optConfig)
+puter.kv.list(pattern, returnValues, optConfig)
+puter.kv.list(returnValues, optConfig)
 puter.kv.list(options)
 ```
 
@@ -30,6 +33,13 @@ If set, only keys that match the given pattern will be returned. The pattern is 
 
 If set to `true`, the returned array will contain objects with both `key` and `value` properties. If set to `false`, the returned array will contain only the keys. Default is `false`.
 
+#### `optConfig` (Object) (optional)
+
+The last argument of the positional forms. It takes these properties:
+
+- `handle` (String): List data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The share needs `read` or `write` access. The `pattern` is relative to the shared prefix and can be at most 768 bytes, and the returned keys are relative to the prefix too. The results and `total` leave out private entries. Every page of a full listing or a stream is fetched through the handle. See [Sharing with other users](/KV/#sharing-with-other-users).
+- `appUuid` (String): List another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+
 #### `options` (Object) (optional)
 
 An object with the following optional properties:
@@ -42,6 +52,7 @@ An object with the following optional properties:
 - `offset` (Number): Skips the given number of items before the page starts. Not recommended — requests get slower and more expensive the larger the offset; prefer `cursor`. Maximum `5000`, and cannot be combined with `cursor`.
 - `includeTotal` (Boolean): If `true`, the result includes a `total` count of every item matching the query (across all pages). The count is metered and its cost grows with the size of your store — request it once (on the first page) and avoid it in hot paths. If you only need to know whether more pages exist, check for `cursor` instead of counting.
 - `fetchUntilFull` (Boolean): A page can come back with fewer than `limit` items even when more exist (for example when expired keys are excluded). If `true`, the page is filled up to `limit` items when possible. Requires `limit`.
+- `optConfig` (Object): Same as the `optConfig` parameter, as in `list({ pattern, optConfig: { handle } })`.
 - `stream` (Boolean): If `true`, the method returns an async iterator of [`KVListPage`](/Objects/kvlistpage) objects instead of a promise, for use with `for await ... of`. Combine with `limit` to control the page size, or `cursor` to resume from a previous page. Cannot be combined with `offset`. With `includeTotal`, only the first page carries `total`.
 
 ## Return value
@@ -59,6 +70,8 @@ When paginating, iterate until the result has no `cursor` — a page may hold fe
 Invalid options, such as a non-boolean `reverse` or `offset` combined with `stream`, reject the returned promise with an `invalid_request` error; `list()` never throws synchronously. With `stream: true`, the iterator's first `next()` rejects instead.
 
 Without pagination params, the full listing is returned as a plain array. It reads the entire store and is metered per page, so on large stores a bare `list()` gets slow and costly. The SDK logs a one-time console warning when a full listing spans multiple pages. Use `stream: true` or `limit` and `cursor` pages instead, and narrow the scan with a `pattern`.
+
+With `handle`, the promise can also reject with `kv_handle_not_found` (the handle doesn't exist, the share stopped, or it isn't shared with you), `kv_handle_access_denied` (the share is `watch` only), `kv_handle_option_invalid` (`handle` combined with `appUuid`), `kv_handle_key_invalid` (`pattern` is over 768 bytes), or `kv_handles_disabled` (shares can't be used this way on this deployment).
 
 With `stream: true`, the method returns an async iterator of [`KVListPage`](/Objects/kvlistpage) objects instead:
 

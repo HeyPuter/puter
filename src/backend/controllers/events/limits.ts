@@ -164,6 +164,16 @@ export const EVENTS_ACK_LIMIT = userWindow('events:ack', 600);
 export const EVENTS_KV_HANDLE_LIMIT = userWindow('events:kvHandles', 60);
 
 /**
+ * `kv.share.received` notices per hour, per owner and holder. A share past it
+ * is still made, without a notice.
+ */
+export const KV_SHARE_NOTICE_LIMIT = userWindow(
+    'kvShare:notices',
+    5,
+    60 * 60_000,
+);
+
+/**
  * Live share handles one account may hold out at a time, across every app.
  *
  * Each is a standing grant on part of the account's data, and revoking marks

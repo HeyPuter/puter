@@ -27,6 +27,7 @@ import { EventsController } from './events/EventsController.js';
 import { FSController } from './fs/FSController.js';
 import { HomepageController } from './homepage/HomepageController.js';
 import { HostingController } from './hosting/HostingController.js';
+import { KvShareController } from './kvShare/KvShareController.js';
 import { LegacyFSController } from './fs/LegacyFSController.js';
 import { NotificationController } from './notification/NotificationController.js';
 import { OIDCController } from './oidc/OIDCController.js';
@@ -58,6 +59,7 @@ export const puterControllers = {
     broadcast: BroadcastController,
     notification: NotificationController,
     events: EventsController,
+    kvShare: KvShareController,
     share: ShareController,
     webdav: WebDAVController,
     oidc: OIDCController,

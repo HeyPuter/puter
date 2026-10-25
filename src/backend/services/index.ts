@@ -33,6 +33,7 @@ import { EventForwardService } from './events/EventForwardService';
 import { EventsService } from './events/EventsService';
 import { AppFeedbackService } from './feedback/AppFeedbackService';
 import { FSService } from './fs/FSService';
+import { KvShareService } from './kvShare/KvShareService';
 import { ServerHealthService } from './health/ServerHealthService';
 import { PuterHomepageService } from './homepage/PuterHomepageService';
 import { LocalWorkerService } from './localworker/LocalWorkerService';
@@ -74,6 +75,7 @@ declare module './types' {
         suggestedApps: SuggestedAppsService;
         app: AppService;
         socket: SocketService;
+        kvShare: KvShareService;
         events: EventsService;
         eventForward: EventForwardService;
         notification: NotificationService;
@@ -134,6 +136,9 @@ export const puterServices = {
     // Reaches `auth` and `permission` at call time only.
     app: AppService,
     socket: SocketService,
+    // Registers the share-grant implicators with `permission`, and reaches
+    // `permission`, `metering` and `notification` at call time only.
+    kvShare: KvShareService,
     // Delivers through `socket` and resolves paths through `fs`, so it follows
     // both; `fs` reaches back for dispatch at call time only.
     events: EventsService,

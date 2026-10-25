@@ -17,6 +17,8 @@ None
 ## Return value
 A `Promise` that will resolve to `true` when the key-value store has been flushed (emptied), or reject with an error on failure.
 
+Flushing works only on your own store. Passing the `handle` of data another user shared with you is rejected with `kv_handle_option_invalid`. To clear a shared prefix, delete its keys with [`puter.kv.del()`](/KV/del/).
+
 ## Examples
 
 ```html;kv-flush

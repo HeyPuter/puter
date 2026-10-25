@@ -20,7 +20,9 @@
 import { describe, expect, it } from 'vitest';
 import {
     NOTIFICATION_TYPES,
+    OUTSIDE_ACCOUNT_MAILBOX_TYPES,
     findNotificationType,
+    inAccountMailbox,
     resolveNotificationWrite,
 } from './notificationTypes.js';
 
@@ -126,5 +128,30 @@ describe('resolveNotificationWrite', () => {
         expect(resolveNotificationWrite('app.events.ended', null).audience).toBe(
             'app-user',
         );
+    });
+});
+
+describe('types kept off the account mailbox', () => {
+    it('are only the ones an app alone has a use for', () => {
+        expect(OUTSIDE_ACCOUNT_MAILBOX_TYPES).toEqual(['kv.share.received']);
+        for (const entry of NOTIFICATION_TYPES)
+            expect(inAccountMailbox(entry.type)).toBe(
+                entry.type !== 'kv.share.received',
+            );
+        // An unclassified legacy row still belongs on the desktop.
+        expect(inAccountMailbox('')).toBe(true);
+        expect(inAccountMailbox(undefined)).toBe(true);
+    });
+
+    it('include the key-value share notice, which always names its app', () => {
+        expect(findNotificationType('kv.share.received')).toMatchObject({
+            audience: 'app-user',
+            appScoped: true,
+            groupable: false,
+            accountMailbox: false,
+        });
+        expect(() =>
+            resolveNotificationWrite('kv.share.received', null),
+        ).toThrow(/requires an app uid/);
     });
 });

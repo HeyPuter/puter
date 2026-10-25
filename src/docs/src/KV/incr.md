@@ -12,6 +12,7 @@ Increments the value of a key. A missing or expired key starts from 0 and loses 
 puter.kv.incr(key)
 puter.kv.incr(key, amount)
 puter.kv.incr(key, pathAndAmount)
+puter.kv.incr(key, amount, optConfig)
 ```
 
 ## Parameters
@@ -32,6 +33,15 @@ When `amount` is an object: Increments a property within an object value stored 
 `amount` must be within **±9,007,199,254,740,991** (`Number.MAX_SAFE_INTEGER`); a larger one is applied clamped to that bound. A counter stays exact only while its total is inside the same range — store anything that has to count past it as a string with [`puter.kv.set()`](/KV/set/).
 
 Paths support dot notation, array indexes at any level (`[0]`, `items[0]`, or `some.path[1].to.value`), and quoted property names (`["key.with.dots"]`). An empty path (`""`) targets the whole stored value. Use non-negative integer indexes in brackets to address arrays. When a path continues through an array element (for example, `[0].score`), that element must already exist. Missing object parents are created automatically; sparse array elements are not created. A path may chain at most 31 levels; a deeper one rejects with `bad_request`. Quoted names can't be empty. All of a call's paths go into one write, so a call fits at most 1,500 path segments and, with short field names, about 60 paths; split larger changes across calls. See [Rate Limits and Quotas](/rate-limits-and-quotas/).
+
+#### `optConfig` (Object) (optional)
+
+The last argument. It takes these properties:
+
+- `handle` (String): Work on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix. The share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
+- `appUuid` (String): Work on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+
+Pass `optConfig` after `amount`, as in `puter.kv.incr('stats', 1, { handle })`. An object in the place of `amount` is read as a path map.
 
 ## Return Value
 
@@ -55,6 +65,11 @@ A rejection carries an `Error` with a stable `code`:
 | `subject_does_not_exist` | `optConfig.appUuid` names an app that doesn't exist. |
 | `response_timeout` | Too many writers on the key right now — retry. |
 | `too_many_requests` | The rate limit was exceeded. See [Rate Limits and Quotas](/rate-limits-and-quotas/). |
+| `kv_handle_not_found` | `handle` doesn't exist, the share stopped, or it isn't shared with you. |
+| `kv_handle_access_denied` | The share's access doesn't allow this method. |
+| `kv_handle_option_invalid` | `handle` was combined with `appUuid` or `disableSharing`. |
+| `kv_handle_key_invalid` | With `handle`, the key is empty or longer than 768 bytes. |
+| `kv_handles_disabled` | Shares can't be used this way on this deployment. |
 
 ## Examples
 

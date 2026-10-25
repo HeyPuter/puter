@@ -1232,6 +1232,103 @@ describe('PermissionStore', () => {
             ).toHaveLength(2);
         });
 
+        it('takes several roots in one delete', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const roots = ['kv-share:owner:app:a', 'kv-share-read:owner:app:b'];
+            for (const permission of [...roots, `${roots[0]}:deep`])
+                await store.upsertUserUserPerm(
+                    holder.id,
+                    issuer.id,
+                    permission,
+                    {},
+                );
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                'kv-share:owner:app:c',
+                {},
+            );
+
+            const removed = await store.deleteUserUserPermSubtreeForHolder(
+                holder.id,
+                issuer.id,
+                roots,
+            );
+            expect(removed.sort()).toEqual(
+                [...roots, `${roots[0]}:deep`].sort(),
+            );
+            expect(
+                await store.readLinkedUserUserPerms(holder.id, [
+                    'kv-share:owner:app:c',
+                ]),
+            ).toHaveLength(1);
+        });
+
+        it('deletes several exact grants of one issuer in one statement, reporting the ones it found', async () => {
+            const issuer = await makeUser();
+            const other = await makeUser();
+            const holder = await makeUser();
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                'kv-share:o:a:x',
+                {},
+            );
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                'kv-share:o:a:x:deep',
+                {},
+            );
+            await store.upsertUserUserPerm(
+                holder.id,
+                other.id,
+                'kv-share-read:o:a:x',
+                {},
+            );
+
+            const write = vi.spyOn(server.clients.db, 'write');
+            let removed: string[];
+            try {
+                removed = await store.deleteUserUserPermsByHolder(
+                    holder.id,
+                    [
+                        'kv-share:o:a:x',
+                        'kv-share-read:o:a:x',
+                        'kv-share-write:o:a:x',
+                    ],
+                    issuer.id,
+                );
+                expect(
+                    write.mock.calls.filter(([sql]) =>
+                        String(sql).startsWith('DELETE'),
+                    ),
+                ).toHaveLength(1);
+            } finally {
+                write.mockRestore();
+            }
+            expect(removed).toEqual(['kv-share:o:a:x']);
+            // Exact, not a subtree, and never another issuer's grant.
+            expect(
+                (
+                    await store.readLinkedUserUserPerms(holder.id, [
+                        'kv-share:o:a:x:deep',
+                        'kv-share-read:o:a:x',
+                    ])
+                )
+                    .map((row) => row.permission)
+                    .sort(),
+            ).toEqual(['kv-share-read:o:a:x', 'kv-share:o:a:x:deep']);
+            expect(
+                await store.deleteUserUserPermsByHolder(
+                    holder.id,
+                    [],
+                    issuer.id,
+                ),
+            ).toEqual([]);
+        });
+
         it('leaves another issuer`s subtree grant standing', async () => {
             const issuerA = await makeUser();
             const issuerB = await makeUser();

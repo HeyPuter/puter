@@ -24,6 +24,7 @@ import {
     isSystemActor,
     SYSTEM_ACTOR,
     SYSTEM_ACTOR_UUID,
+    viaWorkerOf,
 } from '../../core/actor';
 import { HttpError } from '../../core/http';
 import {
@@ -130,6 +131,12 @@ export interface KVOpts {
      */
     namespaceAppUuid?: string;
     /**
+     * Namespace override that wins over the actor's own user — how a share
+     * holder addresses the owner's data. Set only by the KV driver, after its
+     * handle check has passed.
+     */
+    namespaceUser?: { uuid: string; id: number };
+    /**
      * Files system data under its own partition of the system namespace, so a
      * high-volume key family doesn't share one partition key with the rest of
      * the internal state. Honored only for the system actor; reads must name
@@ -149,7 +156,8 @@ export const KV_GLOBAL_APP_KEY = 'os-global';
 const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`;
 // The extra segment keeps a partition from parsing as a user's namespace.
 const SYSTEM_PARTITION_PREFIX = `${SYSTEM_NAMESPACE}:`;
-const MAX_KEY_BYTES = 1024;
+/** Longest key the store accepts, in UTF-8 bytes. */
+export const KV_MAX_KEY_BYTES = 1024;
 
 /**
  * Whether a write was refused because the condition it carried no longer held.
@@ -239,6 +247,31 @@ const expiredRowFilter = (now: number) => {
     return { ...live, expression: `NOT (${live.expression})` };
 };
 
+/** No item, or an expired one: where an `onlyIfAbsent` write may land. */
+const absentRowCondition = (now: number) => {
+    const expired = expiredRowFilter(now);
+    return {
+        expression: `attribute_not_exists(#key) OR (${expired.expression})`,
+        names: { ...expired.names, '#key': 'key' },
+        values: expired.values,
+    };
+};
+
+/** No live private entry: where a write into a foreign namespace may land. */
+const notPrivateCondition = (now: number) => {
+    const expired = expiredRowFilter(now);
+    return {
+        expression: `attribute_not_exists(#privAttr) OR (${expired.expression})`,
+        names: { ...expired.names, '#privAttr': KV_PRIVATE_ATTR },
+        values: expired.values,
+    };
+};
+
+const privateEntryError = (): HttpError =>
+    new HttpError(403, 'kv: this entry is private to the app that wrote it', {
+        legacyCode: 'forbidden',
+    });
+
 /**
  * A timestamp at or before now is stored as `floor(now)` rather than as-is, so
  * it still sweeps (never `0`, which reads as no expiry).
@@ -319,13 +352,14 @@ const isNestingTooDeep = (err: unknown): boolean =>
 const MAX_LIVE_WRITE_ATTEMPTS = 3;
 
 /**
- * Expired entries, plus private ones for a cross-app caller. Filtered in the
- * query rather than afterwards so `includeTotal`'s COUNT excludes them too — a
- * total counting rows the caller can't see would leak what the flag hides.
+ * Expired entries, plus private ones for a caller in a foreign namespace.
+ * Filtered in the query rather than afterwards so `includeTotal`'s COUNT
+ * excludes them too — a total counting rows the caller can't see would leak
+ * what the flag hides.
  */
-const listFilter = (now: number, crossApp: boolean) => {
+const listFilter = (now: number, foreign: boolean) => {
     const live = liveRowFilter(now);
-    if (!crossApp) return live;
+    if (!foreign) return live;
     return {
         expression: `(${live.expression}) AND attribute_not_exists(#privAttr)`,
         names: { ...live.names, '#privAttr': KV_PRIVATE_ATTR },
@@ -361,7 +395,12 @@ const addUsage = (a: KVUsage, b: KVUsage): KVUsage => ({
 
 const ensureActor = (opts?: KVOpts): Actor => opts?.actor ?? SYSTEM_ACTOR;
 
-const isCrossApp = (opts?: KVOpts): boolean => Boolean(opts?.namespaceAppUuid);
+/**
+ * Another app's namespace, or another user's: where private entries read as
+ * absent and refuse writes.
+ */
+const isForeignNamespace = (opts?: KVOpts): boolean =>
+    Boolean(opts?.namespaceAppUuid || opts?.namespaceUser);
 
 // `effectiveApp`, not `app`, so the namespace agrees with the gate the driver
 // applied: both read an access-token actor as the app that issued it, rather
@@ -378,7 +417,7 @@ const getNamespace = (actor: Actor, opts?: KVOpts): string => {
         actor.effectiveApp?.uid ??
         opts?.appUuid ??
         KV_GLOBAL_APP_KEY;
-    return kvNamespace(actor.user.uuid!, appUuid);
+    return kvNamespace(opts?.namespaceUser?.uuid ?? actor.user.uuid!, appUuid);
 };
 
 /** The namespace one user's data for one app lives in. */
@@ -405,10 +444,10 @@ const assertKey = (key: string): void => {
         throw new HttpError(400, 'kv: key is empty', {
             legacyCode: 'bad_request',
         });
-    if (Buffer.byteLength(key, 'utf8') > MAX_KEY_BYTES) {
+    if (Buffer.byteLength(key, 'utf8') > KV_MAX_KEY_BYTES) {
         throw new HttpError(
             400,
-            `kv: key exceeds ${MAX_KEY_BYTES} byte limit`,
+            `kv: key exceeds ${KV_MAX_KEY_BYTES} byte limit`,
             { legacyCode: 'bad_request' },
         );
     }
@@ -1413,7 +1452,7 @@ export class SystemKVStore extends PuterStore {
      * the change.
      */
     async #committed(
-        actor: Actor,
+        opts: KVOpts | undefined,
         namespace: string,
         keys: string[],
         op: KvMutation,
@@ -1421,7 +1460,7 @@ export class SystemKVStore extends PuterStore {
         noShareKeys?: string[],
     ): Promise<void> {
         await this.#invalidate(namespace, keys);
-        this.#emitMutation(actor, namespace, keys, op, values, noShareKeys);
+        this.#emitMutation(opts, namespace, keys, op, values, noShareKeys);
     }
 
     /**
@@ -1429,24 +1468,32 @@ export class SystemKVStore extends PuterStore {
      * large namespace doesn't turn into an unbounded event.
      */
     #emitMutation(
-        actor: Actor,
+        opts: KVOpts | undefined,
         namespace: string,
         keys: string[],
         op: KvMutation,
         values?: unknown[],
         noShareKeys?: string[],
     ): void {
+        const actor = ensureActor(opts);
         // Internal system data has no subscribable subject, and it is written
         // often enough that the emit itself would be the cost.
         if (isSystemActor(actor)) return;
-        const userId = actor.user?.id;
+        // Dispatch keys on the namespace's owner, who is not the writer when a
+        // share holder wrote it.
+        const userId = opts?.namespaceUser?.id ?? actor.user?.id;
         if (typeof userId !== 'number') return;
+        const actingUserId = actor.user?.id;
+        const writer = {
+            ...(typeof actingUserId === 'number' ? { actingUserId } : {}),
+            ...(viaWorkerOf(actor) ? { viaWorker: true as const } : {}),
+        };
 
         try {
             if (op === 'flush') {
                 this.clients.event.emit(
                     'kv.flushed',
-                    { namespace, userId },
+                    { namespace, userId, ...writer },
                     {},
                 );
                 return;
@@ -1471,6 +1518,7 @@ export class SystemKVStore extends PuterStore {
                     ...(actor.handlerDepth
                         ? { handlerDepth: actor.handlerDepth }
                         : {}),
+                    ...writer,
                 },
                 {},
             );
@@ -1713,16 +1761,17 @@ export class SystemKVStore extends PuterStore {
     // -- Public API ---------------------------------------------------
 
     /**
-     * Refuse a cross-app mutation against a private entry. Not atomic with the
-     * write that follows, so one in-flight write can still land on an entry the
-     * owner flags in between.
+     * Refuse a path write into a foreign namespace against a private entry. Not
+     * atomic with the write that follows, so one in-flight write can still land
+     * on an entry the owner flags in between; `set` and `del` carry the check
+     * in their own write instead.
      */
     async #assertNotPrivate(
         namespace: string,
         key: string,
         opts?: KVOpts,
     ): Promise<KVUsage> {
-        if (!isCrossApp(opts)) return emptyUsage();
+        if (!isForeignNamespace(opts)) return emptyUsage();
         let response = await this.clients.dynamo.get(this.tableName, {
             namespace,
             key,
@@ -1753,11 +1802,7 @@ export class SystemKVStore extends PuterStore {
             response.Item?.[KV_PRIVATE_ATTR] &&
             !isExpiredTtl(response.Item.ttl, Date.now() / 1000)
         ) {
-            throw new HttpError(
-                403,
-                'kv: this entry is private to the app that wrote it',
-                { legacyCode: 'forbidden' },
-            );
+            throw privateEntryError();
         }
         // Returned rather than swallowed: the probe is a real read, and a caller
         // that did not pay for it is under-billed for the operation.
@@ -1773,7 +1818,7 @@ export class SystemKVStore extends PuterStore {
         keys: string[],
         opts?: KVOpts,
     ): Promise<KVUsage> {
-        if (!isCrossApp(opts) || keys.length === 0) return emptyUsage();
+        if (!isForeignNamespace(opts) || keys.length === 0) return emptyUsage();
         const { entries, usage } = await this.getBatches(namespace, keys);
         const now = Date.now() / 1000;
 
@@ -1811,13 +1856,7 @@ export class SystemKVStore extends PuterStore {
         const isPrivate = confirmedEntries.some(
             (entry) => entry?.noShare && !isExpiredTtl(entry.ttl, now),
         );
-        if (isPrivate) {
-            throw new HttpError(
-                403,
-                'kv: this entry is private to the app that wrote it',
-                { legacyCode: 'forbidden' },
-            );
-        }
+        if (isPrivate) throw privateEntryError();
         return addUsage(usage, recheckUsage);
     }
 
@@ -1948,6 +1987,34 @@ export class SystemKVStore extends PuterStore {
         }
     }
 
+    /**
+     * A write whose condition may refuse it, retried once after settling a row
+     * the condition reads as live but reads treat as expired (a legacy text or
+     * boolean `ttl`). `response` is `null` when the condition still refuses.
+     */
+    async #writeUnlessRefused<R>(
+        namespace: string,
+        key: string,
+        write: () => Promise<R>,
+    ): Promise<{ response: R | null; usage: KVUsage }> {
+        try {
+            return { response: await write(), usage: emptyUsage() };
+        } catch (e) {
+            if (!isConditionRefused(e)) throw e;
+        }
+        // A refused conditional write still consumes capacity.
+        const usage = addUsage(
+            writeUsage(1),
+            await this.#dropIfExpired(namespace, key),
+        );
+        try {
+            return { response: await write(), usage };
+        } catch (e) {
+            if (!isConditionRefused(e)) throw e;
+            return { response: null, usage: addUsage(usage, writeUsage(1)) };
+        }
+    }
+
     async get(
         {
             key,
@@ -1957,7 +2024,7 @@ export class SystemKVStore extends PuterStore {
     ): Promise<KVResult<unknown | null | (unknown | null)[]>> {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
-        const crossApp = isCrossApp(opts);
+        const foreign = isForeignNamespace(opts);
         const multi = Array.isArray(key);
         const keys = multi ? key : [key];
 
@@ -2028,19 +2095,24 @@ export class SystemKVStore extends PuterStore {
             if (!entry) return null;
             if (isExpiredTtl(entry.ttl, now)) return null;
             // Absent rather than refused: the flag must not confirm the key.
-            if (crossApp && entry.noShare) return null;
+            if (foreign && entry.noShare) return null;
             return entry.value ?? null;
         });
 
         return { res: multi ? values : values[0], usage };
     }
 
+    /**
+     * `res` is `false` only for an `onlyIfAbsent` write that found a live
+     * entry, which is left as it was.
+     */
     async set(
         {
             key,
             value,
             expireAt,
             disableSharing,
+            onlyIfAbsent,
         }: {
             key: string;
             value: unknown;
@@ -2051,6 +2123,11 @@ export class SystemKVStore extends PuterStore {
              * on a later write is how the owner re-shares the entry.
              */
             disableSharing?: boolean;
+            /**
+             * Write only when no live entry holds the key; an expired one that
+             * hasn't been swept counts as absent.
+             */
+            onlyIfAbsent?: boolean;
         },
         opts?: KVOpts,
     ): Promise<KVResult<boolean>> {
@@ -2059,23 +2136,51 @@ export class SystemKVStore extends PuterStore {
         const ttl = coerceExpiry(expireAt, 'expireAt');
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
-        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
+        // The put carries the check rather than a read before it: any live
+        // entry refuses `onlyIfAbsent`, which covers a private one too.
+        const now = Date.now() / 1000;
+        const condition = onlyIfAbsent
+            ? absentRowCondition(now)
+            : isForeignNamespace(opts)
+              ? notPrivateCondition(now)
+              : undefined;
 
-        let response: Awaited<ReturnType<typeof this.clients.dynamo.put>>;
+        const put = () =>
+            this.clients.dynamo.put(
+                this.tableName,
+                {
+                    namespace,
+                    key,
+                    value,
+                    ...(ttl ? { ttl: storedExpiry(ttl) } : {}),
+                    ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
+                },
+                condition ? { condition } : undefined,
+            );
+        let response: Awaited<ReturnType<typeof put>> | null;
+        let settleUsage = emptyUsage();
         try {
-            response = await this.clients.dynamo.put(this.tableName, {
-                namespace,
-                key,
-                value,
-                ...(ttl ? { ttl: storedExpiry(ttl) } : {}),
-                ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
-            });
+            if (condition) {
+                const outcome = await this.#writeUnlessRefused(
+                    namespace,
+                    key,
+                    put,
+                );
+                response = outcome.response;
+                settleUsage = outcome.usage;
+            } else {
+                response = await put();
+            }
         } catch (e) {
             if (isNestingTooDeep(e)) throw tooDeeplyNestedError(undefined, e);
             throw e;
         }
+        if (response === null) {
+            if (onlyIfAbsent) return { res: false, usage: settleUsage };
+            throw privateEntryError();
+        }
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'set',
@@ -2086,10 +2191,11 @@ export class SystemKVStore extends PuterStore {
         return {
             res: true,
             usage: addUsage(
-                probeUsage,
+                settleUsage,
                 writeUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined,
+                        | number
+                        | undefined,
                 ),
             ),
         };
@@ -2163,7 +2269,7 @@ export class SystemKVStore extends PuterStore {
             throw e;
         }
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [...byKey.keys()],
             'set',
@@ -2189,17 +2295,28 @@ export class SystemKVStore extends PuterStore {
         assertKey(key);
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
-        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
+        // The delete carries the private-entry check rather than a read first.
+        const condition = isForeignNamespace(opts)
+            ? notPrivateCondition(Date.now() / 1000)
+            : undefined;
 
         // The old item is only worth reading back for the private-key check,
         // which a system write never needs an event for anyway.
-        const response = await this.clients.dynamo.del(
-            this.tableName,
-            { namespace, key },
-            { returnOld: !isSystemActor(actor) },
-        );
+        const del = () =>
+            this.clients.dynamo.del(
+                this.tableName,
+                { namespace, key },
+                {
+                    returnOld: !isSystemActor(actor),
+                    ...(condition ? { condition } : {}),
+                },
+            );
+        const { response, usage: settleUsage } = condition
+            ? await this.#writeUnlessRefused(namespace, key, del)
+            : { response: await del(), usage: emptyUsage() };
+        if (response === null) throw privateEntryError();
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'del',
@@ -2209,10 +2326,11 @@ export class SystemKVStore extends PuterStore {
         return {
             res: true,
             usage: addUsage(
-                probeUsage,
+                settleUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
         };
@@ -2238,7 +2356,7 @@ export class SystemKVStore extends PuterStore {
             { returnOld: true },
         );
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'del',
@@ -2300,15 +2418,15 @@ export class SystemKVStore extends PuterStore {
             })),
         );
         await this.#committed(
-            actor,
+            opts,
             namespace,
             uniqueKeys,
             'del',
             uniqueKeys.map((): unknown => null),
             // A batch delete reports no prior state, so a same-app batch is
-            // marked private wholesale; a cross-app caller was already
-            // refused any private key.
-            isCrossApp(opts) ? undefined : uniqueKeys,
+            // marked private wholesale; a foreign caller was already refused
+            // any private key.
+            isForeignNamespace(opts) ? undefined : uniqueKeys,
         );
         const units =
             response.ConsumedCapacity?.reduce(
@@ -2332,6 +2450,7 @@ export class SystemKVStore extends PuterStore {
             includeTotal,
             fetchUntilFull,
             reverse,
+            keyPrefix,
         }: {
             as?: 'keys' | 'values' | 'entries';
             limit?: number;
@@ -2341,6 +2460,12 @@ export class SystemKVStore extends PuterStore {
             includeTotal?: boolean;
             fetchUntilFull?: boolean;
             reverse?: boolean;
+            /**
+             * Confines the listing to keys under this prefix, with `pattern`
+             * read below it. Taken as-is, where `pattern` is trimmed, so no
+             * pattern can widen it.
+             */
+            keyPrefix?: string;
         },
         opts?: KVOpts,
     ): Promise<
@@ -2408,7 +2533,7 @@ export class SystemKVStore extends PuterStore {
             }
         }
         const effectiveReverse = reverse ?? cursorReverse;
-        const normalizedPattern = normalizePattern(pattern);
+        const scanPrefix = `${keyPrefix ?? ''}${normalizePattern(pattern) ?? ''}`;
 
         if (pageKey !== undefined && normalizedOffset !== undefined) {
             throw new HttpError(
@@ -2457,15 +2582,15 @@ export class SystemKVStore extends PuterStore {
                 false,
                 {
                     scanIndexForward: !effectiveReverse,
-                    ...(normalizedPattern
+                    ...(scanPrefix
                         ? {
                               beginsWith: {
                                   key: 'key',
-                                  value: normalizedPattern,
+                                  value: scanPrefix,
                               },
                           }
                         : {}),
-                    filter: listFilter(now, isCrossApp(opts)),
+                    filter: listFilter(now, isForeignNamespace(opts)),
                     ...(select ? { select } : {}),
                 },
             );
@@ -2630,7 +2755,7 @@ export class SystemKVStore extends PuterStore {
                     Record<string, unknown> | undefined;
             } while (pageKey);
         } finally {
-            this.#emitMutation(actor, namespace, [], 'flush');
+            this.#emitMutation(opts, namespace, [], 'flush');
         }
 
         return { res: true, usage };
@@ -2651,7 +2776,7 @@ export class SystemKVStore extends PuterStore {
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
         const { usage, isPrivate } = await this.rawExpireAt(namespace, key, ts);
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'expire',
@@ -2681,7 +2806,7 @@ export class SystemKVStore extends PuterStore {
             timestamp,
         );
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'expire',
@@ -2813,7 +2938,7 @@ export class SystemKVStore extends PuterStore {
             throw pathWriteError(e, 'incr', key, paths);
         }
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'set',
@@ -2949,7 +3074,7 @@ export class SystemKVStore extends PuterStore {
             throw pathWriteError(e, 'add', key, paths);
         }
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'set',
@@ -3028,7 +3153,7 @@ export class SystemKVStore extends PuterStore {
                 };
             }
             await this.#committed(
-                actor,
+                opts,
                 namespace,
                 [key],
                 'set',
@@ -3174,7 +3299,7 @@ export class SystemKVStore extends PuterStore {
         }
 
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'set',

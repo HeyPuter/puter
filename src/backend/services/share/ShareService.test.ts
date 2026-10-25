@@ -2469,6 +2469,52 @@ describe('ShareService', () => {
             );
         });
 
+        it('files a recipient leaving under the issuer, naming who acted', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+            await unshare(recipient.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+            });
+
+            const rows = await vi.waitFor(async () => {
+                const found = await server.clients.db.read(
+                    'SELECT `issuer_user_id`, `extra` FROM `audit_user_to_user_permissions` ' +
+                        'WHERE `holder_user_id` = ? AND `action` = ?',
+                    [recipient.user.id, 'revoke'],
+                );
+                expect(found.length).toBeGreaterThan(0);
+                return found;
+            });
+            for (const row of rows) {
+                expect(Number(row.issuer_user_id)).toBe(owner.user.id);
+                const extra =
+                    typeof row.extra === 'string'
+                        ? JSON.parse(row.extra)
+                        : row.extra;
+                expect(extra?.actingUserId).toBe(recipient.user.id);
+            }
+
+            const ownerTrail = await audit(owner.actor, { uid: file.uuid });
+            expect(
+                ownerTrail.items.some(
+                    (i) =>
+                        i.action === 'revoke' &&
+                        i.issuer.username === owner.user.username,
+                ),
+            ).toBe(true);
+            const recipientTrail = await audit(recipient.actor);
+            expect(
+                recipientTrail.items.some((i) => i.entryUid === file.uuid),
+            ).toBe(false);
+        });
+
         it('lists what the caller granted when no item is named', async () => {
             const owner = await makeUser();
             const other = await makeUser();
