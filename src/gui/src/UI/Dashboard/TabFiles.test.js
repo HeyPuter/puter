@@ -813,3 +813,36 @@ describe('TabFiles sorting', () => {
             .toEqual(['Beta', 'dir2', 'dir10', 'file2.txt', 'file10.txt', 'big.bin']);
     });
 });
+
+describe('TabFiles permanent delete', () => {
+    beforeEach(() => {
+        window.trash_path = TRASH;
+        window.delete_item = vi.fn(async () => {});
+        window.refresh_trash_state = vi.fn(async () => {});
+    });
+
+    it('asks about "this item" for one row and "these items" for several', async () => {
+        const { default: UIAlert } = await import('../UIAlert.js');
+        UIAlert.mockClear();
+        UIAlert.mockResolvedValue('delete');
+        mountListing(['a', 'b'], TRASH);
+        const rows = $('.files .row').toArray();
+
+        await TabFiles.deleteRowsPermanently([rows[0]]);
+        expect(UIAlert.mock.calls[0][0].message).toMatch(/this item/);
+        expect(window.delete_item).toHaveBeenCalledTimes(1);
+
+        await TabFiles.deleteRowsPermanently(rows);
+        expect(UIAlert.mock.calls[1][0].message).toMatch(/these items/);
+        expect(window.delete_item).toHaveBeenCalledTimes(3);
+    });
+
+    it('deletes nothing when cancelled', async () => {
+        const { default: UIAlert } = await import('../UIAlert.js');
+        UIAlert.mockResolvedValue('cancel');
+        mountListing(['a'], TRASH);
+
+        await TabFiles.deleteRowsPermanently($('.files .row').toArray());
+        expect(window.delete_item).not.toHaveBeenCalled();
+    });
+});

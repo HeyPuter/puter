@@ -981,20 +981,7 @@ const TabFiles = {
                     });
 
                     if ( trashedItems.length > 0 ) {
-                        // Permanent delete with confirmation
-                        const alert_resp = await UIAlert({
-                            message: i18n('confirm_delete_multiple_items', [], false),
-                            buttons: [
-                                { label: i18n('delete', [], false), value: 'delete', type: 'primary' },
-                                { label: i18n('cancel', [], false), value: 'cancel' },
-                            ],
-                        });
-                        if ( alert_resp === 'delete' ) {
-                            for ( const row of trashedItems.toArray() ) {
-                                await window.delete_item(row);
-                            }
-                            await window.refresh_trash_state();
-                        }
+                        await _this.deleteRowsPermanently(trashedItems.toArray());
                     } else {
                         // Trashing sends an item to its owner's trash, which a
                         // shared root or read-only share can't do (the server
@@ -1711,20 +1698,7 @@ const TabFiles = {
             });
 
             if ( anyTrashed ) {
-                const confirmed = await UIAlert({
-                    message: i18n('confirm_delete_multiple_items', [], false),
-                    buttons: [
-                        { label: i18n('delete', [], false), value: 'delete', type: 'primary' },
-                        { label: i18n('cancel', [], false), value: 'cancel' },
-                    ],
-                });
-                if ( confirmed === 'delete' ) {
-                    $actions.removeClass('visible');
-                    for ( const row of selectedRows ) {
-                        await window.delete_item(row);
-                    }
-                    await window.refresh_trash_state();
-                }
+                await _this.deleteRowsPermanently(selectedRows);
             } else {
                 const rows = await _this.restructurableRows(selectedRows);
                 if ( rows.length > 0 ) {
@@ -1792,6 +1766,30 @@ const TabFiles = {
                 $actions.find('.cut-btn, .delete-btn').toggle(rows.length === selectedRows.length);
             });
         }
+    },
+
+    /**
+     * Deletes Trash rows for good, once the user confirms.
+     *
+     * @param {NodeList|Array<HTMLElement>} rows
+     * @returns {Promise<void>}
+     */
+    async deleteRowsPermanently (rows) {
+        const list = Array.from(rows);
+        const confirmed = await UIAlert({
+            message: i18n(list.length === 1 ? 'confirm_delete_single_item' : 'confirm_delete_multiple_items', [], false),
+            buttons: [
+                { label: i18n('delete', [], false), value: 'delete', type: 'primary' },
+                { label: i18n('cancel', [], false), value: 'cancel' },
+            ],
+        });
+        if ( confirmed !== 'delete' ) return;
+        // The phone selection bar acts on rows that are going away.
+        this.$el_window.find('.files-selection-actions').removeClass('visible');
+        for ( const row of list ) {
+            await window.delete_item(row);
+        }
+        await window.refresh_trash_state();
     },
 
     /**
@@ -5011,21 +5009,7 @@ const TabFiles = {
             if ( items.length > 0 && items[items.length - 1] !== '-' ) items.push('-');
             items.push({
                 html: i18n('delete_permanently'),
-                onClick: async function () {
-                    const confirmed = await UIAlert({
-                        message: i18n('confirm_delete_multiple_items', [], false),
-                        buttons: [
-                            { label: i18n('delete', [], false), value: 'delete', type: 'primary' },
-                            { label: i18n('cancel', [], false), value: 'cancel' },
-                        ],
-                    });
-                    if ( confirmed === 'delete' ) {
-                        for ( const row of selectedRows ) {
-                            await window.delete_item(row);
-                        }
-                        await window.refresh_trash_state();
-                    }
-                },
+                onClick: () => _this.deleteRowsPermanently(selectedRows),
             });
         }
         else if ( mayRestructure ) {
