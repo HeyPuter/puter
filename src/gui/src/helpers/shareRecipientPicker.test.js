@@ -130,6 +130,16 @@ describe('opening the list', () => {
         expect(options()).not.toContain('me');
     });
 
+    it('marks people, not teams or addresses, for their pictures', async () => {
+        const { picker, $input } = mount();
+        picker.setTeams([ACME]);
+        $input.trigger('click');
+        await settle();
+
+        const marked = $('.share-suggest-avatar').toArray().map((el) => el.getAttribute('data-avatar-user'));
+        expect(marked).toEqual([null, null, 'bob', 'carol']);
+    });
+
     it('narrows to what is typed', async () => {
         const { picker, $input } = mount();
         picker.setTeams([ACME]);

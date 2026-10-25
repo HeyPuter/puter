@@ -48,6 +48,7 @@ describe('profilePicture', () => {
     it('looks each person up once, however many ask', async () => {
         const a = mod.profilePicture('ann');
         const b = mod.profilePicture('ann');
+        await tick();
         lookups.get('ann').resolve(PIC);
         expect(await a).toBe(PIC);
         expect(await b).toBe(PIC);
@@ -57,28 +58,39 @@ describe('profilePicture', () => {
 
     it('remembers that someone has no picture', async () => {
         const first = mod.profilePicture('bob');
+        await tick();
         lookups.get('bob').resolve(undefined);
         expect(await first).toBeNull();
         expect(await mod.profilePicture('bob')).toBeNull();
         expect(window.get_profile_picture).toHaveBeenCalledTimes(1);
     });
 
-    it('looks again once the cached answer is stale', async () => {
+    it('serves a stale answer while looking again', async () => {
         vi.useFakeTimers({ toFake: ['Date'] });
         const first = mod.profilePicture('ann');
+        await tick();
         lookups.get('ann').resolve(PIC);
         await first;
         vi.setSystemTime(Date.now() + 5 * 60 * 1000 + 1);
-        mod.profilePicture('ann');
+        expect(await mod.profilePicture('ann')).toBe(PIC);
+        await tick();
+        expect(window.get_profile_picture).toHaveBeenCalledTimes(2);
+
+        const NEW = 'data:image/png;base64,BBBB';
+        lookups.get('ann').resolve(NEW);
+        await tick();
+        expect(await mod.profilePicture('ann')).toBe(NEW);
         expect(window.get_profile_picture).toHaveBeenCalledTimes(2);
     });
 
     it('resolves null when the lookup fails or returns something other than an image', async () => {
         const failed = mod.profilePicture('ann');
+        await tick();
         lookups.get('ann').reject(new Error('offline'));
         expect(await failed).toBeNull();
 
         const odd = mod.profilePicture('bob');
+        await tick();
         lookups.get('bob').resolve('javascript:alert(1)');
         expect(await odd).toBeNull();
     });
@@ -105,6 +117,19 @@ describe('profilePicture', () => {
         await tick();
         lookups.get('f').resolve(PIC);
         expect(await Promise.all(all)).toEqual([PIC, null, null, null, null, PIC]);
+    });
+
+    it('frees a slot when a lookup throws before it starts', async () => {
+        window.get_profile_picture.mockImplementation((username) => {
+            if ( username.startsWith('bad') ) throw new Error('not ready');
+            return new Promise((resolve, reject) => lookups.set(username, { resolve, reject }));
+        });
+        const failed = ['bad1', 'bad2', 'bad3', 'bad4'].map((name) => mod.profilePicture(name));
+        expect(await Promise.all(failed)).toEqual([null, null, null, null]);
+        const ok = mod.profilePicture('ann');
+        await tick();
+        lookups.get('ann').resolve(PIC);
+        expect(await ok).toBe(PIC);
     });
 });
 

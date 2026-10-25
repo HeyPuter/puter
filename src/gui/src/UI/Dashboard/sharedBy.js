@@ -21,7 +21,7 @@
 // cell and the people filter above the listing.
 
 import { avatarHue, avatarInitial } from '../../helpers/shareAvatar.js';
-import { avatarUserAttr } from './profilePictures.js';
+import { avatarUserAttr } from '../../helpers/profilePictures.js';
 
 /**
  * @typedef {{ shared_by?: string | null, owner?: string | null }} SharedRow

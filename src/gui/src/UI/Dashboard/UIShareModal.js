@@ -25,7 +25,7 @@ import { icons } from '../../helpers/actionIcons.js';
 import { mode_label, options_for } from '../../helpers/shareModes.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { avatarHue, avatarInitial } from '../../helpers/shareAvatar.js';
-import { avatarUserAttr, paintAvatars } from './profilePictures.js';
+import { avatarUserAttr, paintAvatars } from '../../helpers/profilePictures.js';
 import {
     has_direct_share,
     mark_item_shared,

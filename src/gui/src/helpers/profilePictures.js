@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Profile pictures for the dashboard's people avatars. An avatar renders as
-// its initial; marked with avatarUserAttr, paintAvatars lays the person's
-// picture over it once one arrives, and leaves the initial when none does.
+// Profile pictures for people avatars. An avatar renders as its initial;
+// marked with avatarUserAttr, paintAvatars lays the person's picture over it
+// once one arrives, and leaves the initial when none does.
 
 // Pictures change rarely; long enough that re-rendering a listing is free.
 const TTL = 5 * 60 * 1000;
@@ -47,7 +47,8 @@ const waiting = [];
 const limited = (task) => new Promise((resolve, reject) => {
     const run = () => {
         active++;
-        task().then(resolve, reject).finally(() => {
+        // A task that throws before its promise exists must still free its slot.
+        Promise.resolve().then(task).then(resolve, reject).finally(() => {
             active--;
             waiting.shift()?.();
         });
@@ -59,7 +60,8 @@ const limited = (task) => new Promise((resolve, reject) => {
 /**
  * `username`'s profile picture as a data URL, or null when there is none to
  * show (no picture, not public to us, or the lookup failed). Lookups are
- * cached and shared between callers. Never rejects.
+ * cached and shared between callers; a stale answer is served while a fresh
+ * one loads. Never rejects.
  *
  * @param {string} username
  * @returns {Promise<string | null>}
@@ -74,9 +76,9 @@ export const profilePicture = (username) => {
 
     const now = Date.now();
     const hit = cache.get(username);
+    // Re-insert so eviction drops the least recently used first.
+    cache.delete(username);
     if ( hit && now - hit.at < TTL ) {
-        // Re-insert so eviction drops the least recently used first.
-        cache.delete(username);
         cache.set(username, hit);
         return hit.promise;
     }
@@ -84,10 +86,10 @@ export const profilePicture = (username) => {
     const promise = limited(() => window.get_profile_picture(username))
         .then((picture) => (typeof picture === 'string' && DATA_URL.test(picture) ? picture : null))
         .catch(() => null);
-    cache.delete(username);
     cache.set(username, { at: now, promise });
     while ( cache.size > MAX_ENTRIES ) cache.delete(cache.keys().next().value);
-    return promise;
+    // A stale answer still paints at once; the fresh one is for the next render.
+    return hit?.promise ?? promise;
 };
 
 /**

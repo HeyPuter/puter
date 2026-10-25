@@ -47,7 +47,7 @@ import resolve_shared_item from '../../helpers/resolveSharedItem.js';
 import { is_owned_by_me } from '../../helpers/pathOwner.js';
 import parse_item_metadata from '../../helpers/parseItemMetadata.js';
 import { compareSharers, filterBySharer, fitSharedByWidth, sharedByCellHtml, sharerFilterHtml, summarizeSharers } from './sharedBy.js';
-import { paintAvatars } from './profilePictures.js';
+import { paintAvatars } from '../../helpers/profilePictures.js';
 
 const { html_encode, SelectionArea } = window;
 

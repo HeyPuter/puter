@@ -23,7 +23,7 @@ import { isOverlayOnTop } from './dashboardOverlay.js';
 import { formatRelativeTime } from '../../i18n/formatTime.js';
 import { owner_of_path } from '../../helpers/pathOwner.js';
 import { avatarHue, avatarInitial } from '../../helpers/shareAvatar.js';
-import { avatarUserAttr, paintAvatars } from './profilePictures.js';
+import { avatarUserAttr, paintAvatars } from '../../helpers/profilePictures.js';
 
 const { html_encode } = window;
 
