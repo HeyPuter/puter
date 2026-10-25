@@ -1772,6 +1772,36 @@ const TabFiles = {
     },
 
     /**
+     * Keeps Back/Forward in step with a folder that moved to `newPath`, or
+     * went to the Trash or away for good (null): its entries, and those of
+     * what is inside it, follow it or are dropped. The entry on screen stays.
+     *
+     * @param {string} oldPath
+     * @param {string|null} newPath
+     * @returns {void}
+     */
+    folderMoved (oldPath, newPath) {
+        if ( newPath ) {
+            this.rebaseNavHistory(oldPath, newPath);
+            return;
+        }
+        const history = window.dashboard_nav_history ?? [];
+        const position = window.dashboard_nav_history_current_position;
+        const kept = [];
+        let keptPosition = 0;
+        history.forEach((entry, i) => {
+            const gone = i !== position && (entry === oldPath || entry?.startsWith(`${oldPath}/`));
+            if ( gone ) return;
+            // Dropping an entry can leave the same folder twice in a row.
+            if ( kept.at(-1) !== entry ) kept.push(entry);
+            if ( i === position ) keptPosition = kept.length - 1;
+        });
+        window.dashboard_nav_history = kept;
+        window.dashboard_nav_history_current_position = keptPosition;
+        this.updateNavButtonStates();
+    },
+
+    /**
      * Carries out a drop of rows on a folder: Ctrl copies, Alt makes
      * shortcuts (where enabled), anything else moves. The Trash only takes
      * items by trashing them; a copy or shortcut put there has nowhere to be
@@ -4312,6 +4342,7 @@ const TabFiles = {
                     // with "Keep Both" it differs from the source's name.
                     if ( resp?.moved?.path ) {
                         moved_item_paths.push(resp.moved.path);
+                        if ( resp.moved.is_dir && item.path ) this.folderMoved(item.path, resp.moved.path);
                         if ( item.path ) {
                             const { uid, path: movedPath, name, is_dir } = resp.moved;
                             moved_items.push({

@@ -398,6 +398,13 @@ async function UIDashboard (options) {
             });
         }
 
+        // Files' Back/Forward follows a folder moved elsewhere, and forgets
+        // one moved to the Trash.
+        if ( resp.is_dir && old_path && resp.path ) {
+            const trashed = resp.path.startsWith(`${window.trash_path}/`);
+            window.dashboard_object?.folderMoved?.(old_path, trashed ? null : resp.path);
+        }
+
         // Create new item at destination if user is viewing that directory
         if ( window.UIDashboardFileItem ) {
             window.UIDashboardFileItem(resp);
@@ -407,6 +414,7 @@ async function UIDashboard (options) {
     window.socket.on('item.removed', async (item) => {
         if ( item.original_client_socket_id === window.socket.id ) return;
         if ( item.descendants_only ) return;
+        if ( item.is_dir && item.path ) window.dashboard_object?.folderMoved?.(item.path, null);
 
         // Match by uid when present (O(1) attribute selector; uids are UUIDs,
         // safe to interpolate) and fall back to a path scan for minimal

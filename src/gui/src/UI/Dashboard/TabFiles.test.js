@@ -1111,3 +1111,37 @@ describe('TabFiles opening a folder being renamed', () => {
         expect(TabFiles.renderDirectory).toHaveBeenCalledWith('/alice/Documents/Photos');
     });
 });
+
+describe('TabFiles.folderMoved', () => {
+    beforeEach(() => {
+        TabFiles.$el_window = $('<div>');
+    });
+
+    it('points Back/Forward at a moved folder', () => {
+        window.dashboard_nav_history = ['/alice', '/alice/A', '/alice/A/sub'];
+        window.dashboard_nav_history_current_position = 0;
+        TabFiles.folderMoved('/alice/A', '/alice/Docs/A');
+        expect(window.dashboard_nav_history).toEqual(['/alice', '/alice/Docs/A', '/alice/Docs/A/sub']);
+    });
+
+    it('forgets a trashed folder, and what was inside it', () => {
+        window.dashboard_nav_history = ['/alice', '/alice/A', '/alice/A/sub', '/alice/B'];
+        window.dashboard_nav_history_current_position = 3;
+        TabFiles.folderMoved('/alice/A', null);
+        expect(window.dashboard_nav_history).toEqual(['/alice', '/alice/B']);
+        expect(window.dashboard_nav_history_current_position).toBe(1);
+    });
+
+    it('keeps the folder on screen, and folds the same folder twice in a row', () => {
+        window.dashboard_nav_history = ['/alice', '/alice/A', '/alice', '/alice/A'];
+        window.dashboard_nav_history_current_position = 2;
+        TabFiles.folderMoved('/alice/A', null);
+        expect(window.dashboard_nav_history).toEqual(['/alice']);
+        expect(window.dashboard_nav_history_current_position).toBe(0);
+
+        window.dashboard_nav_history = ['/alice', '/alice/A'];
+        window.dashboard_nav_history_current_position = 1;
+        TabFiles.folderMoved('/alice/A', null);
+        expect(window.dashboard_nav_history).toEqual(['/alice', '/alice/A']);
+    });
+});

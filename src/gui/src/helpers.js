@@ -1961,6 +1961,12 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     });
                 }
 
+                // The dashboard's Back/Forward follows a moved folder, and
+                // forgets a trashed one.
+                if ( $(el_item).attr('data-is_dir') === '1' ) {
+                    window.dashboard_object?.folderMoved?.($(el_item).attr('data-path'), is_trashing ? null : fsentry.path);
+                }
+
                 if ( is_trashing ) {
                     // if trashing dir...
                     if ( $(el_item).attr('data-is_dir') === '1' ) {
