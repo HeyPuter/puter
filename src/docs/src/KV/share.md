@@ -40,8 +40,8 @@ The user to share with, as a username, `{ username }`, or `{ uid }` with the use
 
 What the holder can do. Defaults to `'read'`. Each level includes the ones before it.
 
-- `'watch'`: receive [events](/Events/subjects/#sharing-key-value-data-with-another-user) when keys under the prefix change.
-- `'read'`: also read keys with [`puter.kv.get()`](/KV/get/) and [`puter.kv.list()`](/KV/list/).
+- `'watch'`: receive [events](/Events/subjects/#sharing-key-value-data-with-another-user) when keys under the prefix change, and list the keys without their values with [`puter.kv.list()`](/KV/list/).
+- `'read'`: also read values with [`puter.kv.get()`](/KV/get/) and [`puter.kv.list()`](/KV/list/).
 - `'write'`: also change and delete keys with every other [`puter.kv`](/KV/) method, such as [`puter.kv.set()`](/KV/set/), [`puter.kv.incr()`](/KV/incr/) and [`puter.kv.del()`](/KV/del/). Write access includes delete, so a holder can change or remove any key under the prefix.
 
 #### `options` (Object)
