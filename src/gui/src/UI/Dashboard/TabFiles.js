@@ -2547,10 +2547,12 @@ const TabFiles = {
         $row.attr('data-pending', '1');
         this.insertAtSortedPosition($row, placeholder);
         this.applyColumnWidths();
-        this.updateFooterStats();
 
         this.$el_window.find('.files-tab .row.selected').removeClass('selected');
         $row.addClass('selected');
+        window.latest_selected_item = $row[0];
+        window.active_element = $row[0];
+        this.updateFooterStats();
         window.activate_item_name_editor($row[0]);
 
         let detached = null;

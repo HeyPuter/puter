@@ -313,6 +313,19 @@ describe('TabFiles New Folder', () => {
         expect($(last.data).attr('data-path')).toBe('/alice/Documents/New Folder');
     });
 
+    it('becomes the selection the footer counts', async () => {
+        mountListing(['a.txt', 'b.txt'], '/alice/Documents');
+        $('.files .row').addClass('selected');
+        TabFiles.updateFooterStats();
+        TabFiles.renderingDirectory = false;
+        TabFiles._creatingItem = 0;
+
+        await TabFiles.createFolderInstant('/alice/Documents');
+
+        expect($('.files .row.selected')).toHaveLength(1);
+        expect($('.files-footer-selected-items').text()).toMatch(/^1 item selected/);
+    });
+
     it('says so when the network fails, rather than vanishing', async () => {
         const { default: UIAlert } = await import('../UIAlert.js');
         UIAlert.mockClear();
