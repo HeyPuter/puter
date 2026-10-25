@@ -1284,6 +1284,26 @@ const TabFiles = {
             return;
         }
 
+        // Open from here on, though the image is still to load: Space, Escape,
+        // opening a folder and the other ways out cancel it meanwhile, and
+        // the arrow keys move it on.
+        this.previewOpen = true;
+        this.previewCurrentUid = uid;
+
+        // Close on click outside the popover. Remove any prior handler first so
+        // repeated calls (image arrow-navigation) don't stack duplicate handlers.
+        const _this = this;
+        // A plain click on a row is left to the row's own handler, which
+        // switches the preview to it.
+        $(document).off('click.imagepreview').on('click.imagepreview', (e) => {
+            if ( $(e.target).closest('.image-preview-popover').length ) return;
+            const plainRowClick = ! (e.ctrlKey || e.metaKey || e.shiftKey)
+                && $(e.target).closest('.files-tab .files .row:not(.header)').length;
+            if ( ! plainRowClick ) {
+                _this.closeImagePreview();
+            }
+        });
+
         // Get read URL for the actual image. A later call, or a close, while
         // this one waits supersedes it.
         const seq = this.previewSeq = (this.previewSeq ?? 0) + 1;
@@ -1294,7 +1314,7 @@ const TabFiles = {
         if ( seq !== this.previewSeq ) return;
         // Nor may a failed one leave the previous image up.
         if ( ! imageUrl ) {
-            if ( this.previewOpen ) this.closeImagePreview();
+            this.closeImagePreview();
             return;
         }
 
@@ -1322,23 +1342,6 @@ const TabFiles = {
             left: `${containerOffset.left + (containerWidth / 2)}px`,
             top: `${containerOffset.top + ($filesContainer.height() / 2)}px`,
             transform: 'translate(-50%, -50%)',
-        });
-
-        this.previewOpen = true;
-        this.previewCurrentUid = uid;
-
-        // Close on click outside the popover. Remove any prior handler first so
-        // repeated calls (image arrow-navigation) don't stack duplicate handlers.
-        const _this = this;
-        // A plain click on a row is left to the row's own handler, which
-        // switches the preview to it.
-        $(document).off('click.imagepreview').on('click.imagepreview', (e) => {
-            if ( $(e.target).closest('.image-preview-popover').length ) return;
-            const plainRowClick = ! (e.ctrlKey || e.metaKey || e.shiftKey)
-                && $(e.target).closest('.files-tab .files .row:not(.header)').length;
-            if ( ! plainRowClick ) {
-                _this.closeImagePreview();
-            }
         });
     },
 

@@ -520,6 +520,32 @@ describe('TabFiles image preview', () => {
         expect(TabFiles.previewOpen).toBe(false);
     });
 
+    it('can be cancelled while its image is still loading', async () => {
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        TabFiles.trashedNames ??= new Map();
+        TabFiles.renderingDirectory = false;
+        mountListing(['a.png'], '/alice/Pictures');
+        $('.files .row').attr({ 'data-uid': 'u1', 'data-name': 'a.png', 'data-is_dir': '0' });
+        let finishUrl;
+        window.puter = { fs: {
+            getReadURL: vi.fn(() => new Promise(resolve => {
+                finishUrl = resolve;
+            })),
+            readdir: vi.fn(async () => []),
+        } };
+
+        const preview = TabFiles.showImagePreview($('.files .row'));
+        expect(TabFiles.previewOpen).toBe(true);
+        // Opening another folder meanwhile, as a double-click on one would.
+        await TabFiles.renderDirectory('/alice/Documents');
+        finishUrl('https://example.test/a.png');
+        await preview;
+
+        expect(TabFiles.previewOpen).toBe(false);
+        expect($('.image-preview-popover')).toHaveLength(0);
+    });
+
     it('closes, rather than showing the last image, when the next one fails to load', async () => {
         mountListing(['b.png'], '/alice/Pictures');
         $('.files .row').attr({ 'data-uid': 'u2', 'data-name': 'b.png', 'data-is_dir': '0' });
