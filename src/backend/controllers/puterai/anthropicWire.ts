@@ -430,7 +430,11 @@ export const parseAnthropicRequest = (
             ? { safeguards: body.safeguards as SafeguardRequest[] }
             : {}),
         ...(betas.length ? { anthropicBetas: betas } : {}),
-        provider: toStringOrEmpty(body.provider) || 'claude',
+        // The caller's provider is a hard pin; the route's own default is a
+        // soft preference, so a backend carrying Claude indirectly can serve.
+        ...(toStringOrEmpty(body.provider)
+            ? { provider: toStringOrEmpty(body.provider) }
+            : { preferredProvider: 'claude' }),
     };
     // Silently ignored: metadata, service_tier, inference_geo, container,
     // fallbacks, diagnostics.

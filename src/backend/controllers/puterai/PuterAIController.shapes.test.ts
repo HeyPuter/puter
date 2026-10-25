@@ -230,7 +230,7 @@ describe('PuterAIController.openaiResponses parameter forwarding', () => {
             store: false,
             truncation: 'auto',
             service_tier: 'default',
-            provider: 'openai-responses',
+            preferredProvider: 'openai-responses',
         });
         // `instructions` becomes a leading system message AND is forwarded.
         expect(args.instructions).toBe('be brief');

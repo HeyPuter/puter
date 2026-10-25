@@ -209,6 +209,7 @@ afterAll(async () => {
 const attemptsFor = async (
     model: string,
     thrown: unknown = new Error('upstream down'),
+    provider?: string,
 ) => {
     createMock.mockRejectedValue(thrown);
     let caught: HttpError | undefined;
@@ -216,6 +217,7 @@ const attemptsFor = async (
         await withTestActor(() =>
             driver.complete({
                 model,
+                ...(provider ? { provider } : {}),
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -483,6 +485,72 @@ describe('ChatCompletionDriver muse spark routing', () => {
     });
 });
 
+describe('ChatCompletionDriver pinned provider routing', () => {
+    it('never falls back to another provider when the caller pinned one', async () => {
+        for (const provider of ['meta', 'openrouter']) {
+            clearUnhealthyRoutes();
+            const attempts = await attemptsFor(
+                'muse-spark-1.2',
+                new Error('upstream down'),
+                provider,
+            );
+
+            // The pin confines the chain to that provider's routes: every
+            // route that could serve the model under a different vendor —
+            // and its pricing — is out of bounds.
+            expect(attempts.map((a) => a.provider)).toEqual([provider]);
+        }
+    });
+
+    it('rejects a model the pinned provider does not serve', async () => {
+        const callsBefore = createMock.mock.calls.length;
+
+        const err = await withTestActor(() =>
+            driver.complete({
+                model: 'gemini-2.5-flash',
+                provider: 'meta',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        ).catch((e: unknown) => e as HttpError);
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message:
+                "Model not available from provider 'meta': gemini-2.5-flash",
+        });
+        expect(createMock.mock.calls.length).toBe(callsBefore);
+    });
+
+    it('rejects a provider that is not configured', async () => {
+        const callsBefore = createMock.mock.calls.length;
+
+        const err = await withTestActor(() =>
+            driver.complete({
+                model: 'muse-spark-1.2',
+                provider: 'anthropic',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        ).catch((e: unknown) => e as HttpError);
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message: 'AI provider not available: anthropic',
+        });
+        expect(createMock.mock.calls.length).toBe(callsBefore);
+    });
+
+    it('still walks every provider when none is pinned', async () => {
+        const attempts = await attemptsFor('muse-spark-1.2');
+
+        expect(attempts.map((a) => a.provider)).toEqual([
+            'meta',
+            'openrouter',
+        ]);
+    });
+});
+
 describe('ChatCompletionDriver model-unavailable routes', () => {
     // Shaped like the OpenAI SDK's APIError for an OpenAI-convention body.
     const modelNotFound = () =>
@@ -536,16 +604,27 @@ describe('ChatCompletionDriver model-unavailable routes', () => {
         ).toBe(false);
     });
 
+    it('fails a pinned request instead of falling back to the vendor', async () => {
+        createMock.mockRejectedValueOnce(modelNotFound());
+
+        const err = await complete('muse-spark-1.2', 'openrouter');
+
+        // Only the pinned route is tried, and only it is marked: the vendor's
+        // healthy route is never a candidate, so the caller's provider pin
+        // decides which account the failure bills.
+        expect(statusesOf(err)).toEqual([403]);
+        expect(
+            isRouteUnhealthy('openrouter', 'openrouter:meta/muse-spark-1.2'),
+        ).toBe(true);
+        expect(isRouteUnhealthy('meta', 'muse-spark-1.2')).toBe(false);
+    });
+
     it('keeps serving a model from its vendor after the gateway route is gated', async () => {
         createMock
             .mockRejectedValueOnce(modelNotFound())
-            .mockResolvedValueOnce(reply)
             .mockResolvedValueOnce(reply);
 
-        await expect(
-            complete('muse-spark-1.2', 'openrouter'),
-        ).resolves.toMatchObject({ message: { content: 'hi' } });
-        expect(createMock.mock.calls.at(-1)![0].model).toBe('muse-spark-1.2');
+        await complete('muse-spark-1.2', 'openrouter');
         expect(
             isRouteUnhealthy('openrouter', 'openrouter:meta/muse-spark-1.2'),
         ).toBe(true);
@@ -717,26 +796,34 @@ describe('ChatCompletionDriver OpenRouter account policy block', () => {
         );
     });
 
-    it('falls back from a policy-blocked gateway route to the vendor, under the Anthropic route too', async () => {
+    it('surfaces the policy block on a gateway-pinned request, under the Anthropic route too', async () => {
         for (const strict of [false, true]) {
             clearUnhealthyRoutes();
-            createMock
-                .mockRejectedValueOnce(policyBlock())
-                .mockResolvedValueOnce(reply);
+            createMock.mockRejectedValueOnce(policyBlock());
 
-            const res = await withTestActor(() => {
+            const err = await withTestActor(() => {
                 if (strict) Context.set('strictUpstreamErrors', true);
                 return driver.complete({
                     model: 'muse-spark-1.2',
                     provider: 'openrouter',
                     messages: [{ role: 'user', content: 'hi' }],
                 });
-            });
+            }).catch((e: unknown) => e as HttpError);
 
-            expect(res).toMatchObject({ message: { content: 'hi' } });
-            expect(createMock.mock.calls.at(-1)![0].model).toBe(
-                'muse-spark-1.2',
-            );
+            // The pin confines the request to OpenRouter's own route; the
+            // vendor's identical model is never offered up as a fallback.
+            expect(attemptsOf(err)).toEqual([
+                expect.objectContaining({
+                    provider: 'openrouter',
+                    status: 403,
+                    code: 'model_not_found',
+                }),
+            ]);
+            expect(err).toMatchObject({
+                statusCode: 400,
+                legacyCode: 'upstream_bad_request',
+                message: 'Model not available: openrouter:meta/muse-spark-1.2',
+            });
             expect(
                 isRouteUnhealthy(
                     'openrouter',
@@ -747,16 +834,12 @@ describe('ChatCompletionDriver OpenRouter account policy block', () => {
         }
     });
 
-    it('renders a gated route beside a missing one as not found on both wire formats', async () => {
-        createMock
-            .mockRejectedValueOnce(policyBlock())
-            .mockRejectedValueOnce(
-                Object.assign(new Error('model not found'), { status: 404 }),
-            );
+    it('renders a gated pinned route as not found on both wire formats', async () => {
+        createMock.mockRejectedValueOnce(policyBlock());
 
         const err = await complete('muse-spark-1.2', 'openrouter');
 
-        expect(attemptsOf(err).map((a) => a.status)).toEqual([403, 404]);
+        expect(attemptsOf(err).map((a) => a.status)).toEqual([403]);
         const anthropic = renderAnthropicError(err, {} as Request);
         const openai = renderOpenAIError(err, {} as Request);
         expect(anthropic.status).toBe(404);
