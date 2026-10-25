@@ -545,8 +545,7 @@ export class PuterAIController extends PuterController {
                         }
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            | UsageDetails
-                            | undefined;
+                            UsageDetails | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -694,8 +693,7 @@ export class PuterAIController extends PuterController {
                         sendChunk(ev.text);
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            | UsageDetails
-                            | undefined;
+                            UsageDetails | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -749,8 +747,7 @@ export class PuterAIController extends PuterController {
                     text: extractTextContent(
                         (
                             messageResult.message as
-                                | Record<string, unknown>
-                                | undefined
+                                Record<string, unknown> | undefined
                         )?.content,
                     ),
                     index: 0,
@@ -868,7 +865,12 @@ export class PuterAIController extends PuterController {
                           body.service_tier as ICompleteArguments['service_tier'],
                   }
                 : {}),
-            provider: providerName,
+            // A caller-named provider is a hard pin — though validation above
+            // only ever lets it name this route's own provider. The route's
+            // default is a soft preference.
+            ...(body.provider
+                ? { provider: providerName }
+                : { preferredProvider: providerName }),
         };
 
         const responseId = generateId('resp');
@@ -1330,17 +1332,17 @@ const HIDDEN_MODELS = ['costly', 'fake', 'abuse'];
 
 /**
  * How the OpenAI-compat routes pin a provider. An explicit one is the caller's
- * choice; a named model is left unpinned so the driver picks the preferred
+ * hard pin; a named model is left unpinned so the driver picks the preferred
  * healthy route, as it does for puter.js callers. A request with no model has
- * no route to prefer, so it stays pinned and keeps taking its default model
- * from OpenAI rather than silently switching to another vendor's.
+ * no route to prefer, so it gets a soft preference and keeps taking its default
+ * model from OpenAI rather than silently switching to another vendor's.
  */
 const openaiCompatProvider = (
     body: Record<string, unknown>,
-): { provider?: string } => {
+): { provider?: string; preferredProvider?: string } => {
     if (body.provider) return { provider: toStringOrEmpty(body.provider) };
     if (toStringOrEmpty(body.model)) return {};
-    return { provider: DEFAULTS.openaiChat };
+    return { preferredProvider: DEFAULTS.openaiChat };
 };
 
 const randomId = (): string => crypto.randomUUID().replace(/-/g, '');

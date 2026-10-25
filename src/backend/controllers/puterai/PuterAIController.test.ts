@@ -531,7 +531,7 @@ describe('PuterAIController.openaiChatCompletions', () => {
 
         // With no model there is no route to prefer — unpinned, this would
         // take its default model from whichever provider the driver picks.
-        expect(completeSpy.mock.calls[0]![0].provider).toBe(
+        expect(completeSpy.mock.calls[0]![0].preferredProvider).toBe(
             'openai-completion',
         );
     });
@@ -930,7 +930,7 @@ describe('PuterAIController.openaiCompletions', () => {
             makeReq({ body: { prompt: 'hello' }, actor: makeUserActor() }),
             res,
         );
-        expect(completeSpy.mock.calls[0]![0].provider).toBe(
+        expect(completeSpy.mock.calls[0]![0].preferredProvider).toBe(
             'openai-completion',
         );
     });
@@ -1028,7 +1028,7 @@ describe('PuterAIController.openaiResponses', () => {
             role: 'user',
             content: 'hi',
         });
-        expect(completeArgs.provider).toBe('openai-responses');
+        expect(completeArgs.preferredProvider).toBe('openai-responses');
 
         const body = captured.body as Record<string, unknown>;
         expect(body.object).toBe('response');
@@ -1117,7 +1117,7 @@ describe('PuterAIController.anthropicMessages', () => {
             role: 'system',
             content: [{ type: 'text', text: 'be helpful' }],
         });
-        expect(completeArgs.provider).toBe('claude');
+        expect(completeArgs.preferredProvider).toBe('claude');
         expect(completeArgs.normalize).toBe(false);
 
         const body = captured.body as Record<string, unknown>;

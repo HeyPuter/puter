@@ -688,7 +688,13 @@ export class ChatCompletionDriver extends PuterDriver {
         // AI charges recorded in this request before the completion started.
         const priorCharges = requestAiCosts().length;
 
-        let intendedProvider = args.provider || '';
+        // A caller-supplied provider is a hard pin, not a hint: the request
+        // must be served by that provider or fail — silently rerouting to a
+        // reseller would bill an account the caller never chose.
+        // `preferredProvider` is the softer counterpart routes use to nudge
+        // resolution without signing the caller up for one vendor.
+        const providerPinned = !!args.provider;
+        let intendedProvider = args.provider || args.preferredProvider || '';
         if (!args.model && !intendedProvider) {
             intendedProvider = 'azure-openai'; // default provider
         }
@@ -699,15 +705,27 @@ export class ChatCompletionDriver extends PuterDriver {
         ) {
             args.model = this.#providers[intendedProvider].getDefaultModel();
         }
+        if (providerPinned && !this.#providers[intendedProvider]) {
+            throw new HttpError(
+                400,
+                `AI provider not available: ${args.provider}`,
+                { legacyCode: 'bad_request' },
+            );
+        }
 
         let model = await this.#resolveLoadedModel(
             args.model,
             intendedProvider,
+            providerPinned,
         );
         if (!model) {
-            throw new HttpError(400, `Model not found: ${args.model}`, {
-                legacyCode: 'bad_request',
-            });
+            throw new HttpError(
+                400,
+                providerPinned
+                    ? `Model not available from provider '${intendedProvider}': ${args.model}`
+                    : `Model not found: ${args.model}`,
+                { legacyCode: 'bad_request' },
+            );
         }
 
         args.messages = normalizeMediaParts(normalize_messages(args.messages));
@@ -935,13 +953,20 @@ export class ChatCompletionDriver extends PuterDriver {
 
             // Fallback loop — the bucket holds every provider that serves this
             // model, ranked by `compareModelPreference`, so each miss walks one
-            // step down that order.
+            // step down that order. A pinned provider never walks the order:
+            // its candidates stay on the caller's own provider, so a route
+            // failure surfaces instead of billing a different vendor.
             const bucketKey = model.id;
             const tried = new Set([routeId(model.provider!, model.id)]);
+            const onlyProvider = providerPinned ? model.provider : undefined;
             let lastError: Error | null = e as Error;
 
             while (lastError && attempts.length < MAX_ATTEMPTS) {
-                const fallback = this.#findFallback(bucketKey, tried);
+                const fallback = this.#findFallback(
+                    bucketKey,
+                    tried,
+                    onlyProvider,
+                );
                 if (!fallback) break;
 
                 const fbProvider = this.#providers[fallback.provider!];
@@ -1343,7 +1368,7 @@ export class ChatCompletionDriver extends PuterDriver {
     async [COUNT_TOKENS](
         args: ICompleteArguments,
     ): Promise<{ input_tokens: number }> {
-        let intendedProvider = args.provider || '';
+        let intendedProvider = args.provider || args.preferredProvider || '';
         if (!args.model && !intendedProvider) {
             intendedProvider = 'azure-openai';
         }
@@ -1354,15 +1379,28 @@ export class ChatCompletionDriver extends PuterDriver {
         ) {
             args.model = this.#providers[intendedProvider].getDefaultModel();
         }
+        const providerPinned = !!args.provider;
+        if (providerPinned && !this.#providers[intendedProvider]) {
+            throw new HttpError(
+                400,
+                `AI provider not available: ${args.provider}`,
+                { legacyCode: 'bad_request' },
+            );
+        }
 
         const model = await this.#resolveLoadedModel(
             args.model,
             intendedProvider,
+            providerPinned,
         );
         if (!model) {
-            throw new HttpError(400, `Model not found: ${args.model}`, {
-                legacyCode: 'bad_request',
-            });
+            throw new HttpError(
+                400,
+                providerPinned
+                    ? `Model not available from provider '${intendedProvider}': ${args.model}`
+                    : `Model not found: ${args.model}`,
+                { legacyCode: 'bad_request' },
+            );
         }
 
         args.messages = normalizeMediaParts(normalize_messages(args.messages));
@@ -1972,14 +2010,19 @@ export class ChatCompletionDriver extends PuterDriver {
     async #resolveLoadedModel(
         modelId: string,
         provider?: string,
+        requireProvider = false,
     ): Promise<IChatModel | null> {
-        const model = this.#resolveModel(modelId, provider);
+        const model = this.#resolveModel(modelId, provider, requireProvider);
         if (model && (!provider || model.provider === provider)) return model;
         await this.#modelMapBuilt;
-        return this.#resolveModel(modelId, provider);
+        return this.#resolveModel(modelId, provider, requireProvider);
     }
 
-    #resolveModel(modelId: string, provider?: string): IChatModel | null {
+    #resolveModel(
+        modelId: string,
+        provider?: string,
+        requireProvider = false,
+    ): IChatModel | null {
         const models = this.#modelIdMap[normalizeModelKey(modelId ?? '')];
         if (!models || models.length === 0) return null;
         // An explicitly requested provider is honoured even if its route is
@@ -1987,6 +2030,10 @@ export class ChatCompletionDriver extends PuterDriver {
         if (provider) {
             const pinned = models.find((m) => m.provider === provider);
             if (pinned) return pinned;
+            // The pinned provider answers for its own gap in the bucket:
+            // another vendor's route would bill an account the caller never
+            // chose, so a missing route fails rather than rerouting.
+            if (requireProvider) return null;
         }
         return this.#preferHealthy(models) ?? models[0];
     }
@@ -2012,11 +2059,17 @@ export class ChatCompletionDriver extends PuterDriver {
         );
     }
 
-    #findFallback(modelId: string, tried: Set<string>): IChatModel | null {
+    #findFallback(
+        modelId: string,
+        tried: Set<string>,
+        onlyProvider?: string,
+    ): IChatModel | null {
         const models = this.#modelIdMap[modelId];
         if (!models) return null;
         const untried = models.filter(
-            (m) => !tried.has(routeId(m.provider!, m.id)),
+            (m) =>
+                !tried.has(routeId(m.provider!, m.id)) &&
+                (!onlyProvider || m.provider === onlyProvider),
         );
         // Degrade to a marked route rather than to no route at all: the marks
         // are a hint about recent failures, not a quota.

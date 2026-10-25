@@ -318,10 +318,11 @@ describe('parseAnthropicRequest', () => {
         );
     });
 
-    it('defaults temperature to 1 and provider to claude', () => {
+    it('defaults temperature to 1 and prefers claude', () => {
         const args = parseAnthropicRequest({ messages: [] }, headers);
         expect(args.temperature).toBe(1);
-        expect(args.provider).toBe('claude');
+        expect(args.provider).toBeUndefined();
+        expect(args.preferredProvider).toBe('claude');
         expect(args.normalize).toBe(false);
         expect(args.streamToolInput).toBe(true);
     });

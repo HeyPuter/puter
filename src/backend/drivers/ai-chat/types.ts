@@ -174,7 +174,17 @@ export interface UsageDetails {
 
 export interface ICompleteArguments {
     messages: PuterMessage[];
+    /**
+     * Caller-requested provider: a hard pin the request must be served by or
+     * fail on — it never falls back to another vendor's route.
+     */
     provider?: string;
+    /**
+     * Internal: a route's soft provider preference (e.g. the Anthropic endpoint
+     * preferring `claude`). Picks the route when it can and leaves resolution
+     * and fallback unrestricted otherwise.
+     */
+    preferredProvider?: string;
     stream?: boolean;
     model: string;
     test_mode?: boolean;
