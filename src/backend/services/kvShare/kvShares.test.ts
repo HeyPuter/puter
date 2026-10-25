@@ -42,6 +42,7 @@ import {
     kvShareManageNamespaceRoots,
     kvShareManagePermission,
     kvShareOwnerImplicator,
+    kvHandleIdKind,
     kvSharePermission,
     mintKvHandleId,
     normalizeKeyPrefix,
@@ -58,6 +59,10 @@ const OWNER = '2a1b0c9d-0000-4000-8000-000000000001';
 const OTHER = '2a1b0c9d-0000-4000-8000-000000000002';
 const APP = 'app-1234';
 const OTHER_APP = 'app-5678';
+const SECRET = 'handle-test-secret';
+
+/** The app is still authorized by its user. */
+const appAuthorized = async (): Promise<boolean> => true;
 
 const userActor = (uuid: string): Actor =>
     ({ user: { uuid }, effectiveApp: null }) as unknown as Actor;
@@ -218,7 +223,7 @@ describe('granted namespaces', () => {
     });
 
     it('refuses a handle, which shares the slot but is not a namespace', () => {
-        expect(() => assertShareableAppUid(mintKvHandleId())).toThrow(
+        expect(() => assertShareableAppUid(mintKvHandleId(SECRET))).toThrow(
             HttpError,
         );
     });
@@ -298,20 +303,41 @@ describe('a delegation request', () => {
 
 describe('handle ids', () => {
     it('are told apart from an app uid in the same slot', () => {
-        const handle = mintKvHandleId();
+        const handle = mintKvHandleId(SECRET);
         expect(isKvHandleId(handle)).toBe(true);
         expect(isKvHandleId(APP)).toBe(false);
         expect(isKvHandleId('kvh-')).toBe(false);
     });
 
     it('carry nothing about the owner', () => {
-        const handle = mintKvHandleId();
+        const handle = mintKvHandleId(SECRET);
         expect(handle).not.toContain(OWNER);
-        expect(mintKvHandleId()).not.toBe(handle);
+        expect(mintKvHandleId(SECRET)).not.toBe(handle);
+    });
+
+    it('carry a mac that only the server secret verifies', () => {
+        const handle = mintKvHandleId(SECRET);
+        expect(handle).toMatch(/^kvh-[0-9a-f-]{36}\.[A-Za-z0-9_-]{22}$/);
+        expect(handle.length).toBeLessThanOrEqual(64);
+        expect(handle).not.toContain(':');
+        expect(kvHandleIdKind(handle, SECRET)).toBe('signed');
+        expect(kvHandleIdKind(handle, 'another-secret')).toBeNull();
+
+        const [id, mac] = handle.split('.');
+        const flipped = `${mac[0] === 'A' ? 'B' : 'A'}${mac.slice(1)}`;
+        expect(kvHandleIdKind(`${id}.${flipped}`, SECRET)).toBeNull();
+        expect(kvHandleIdKind(`${id}.`, SECRET)).toBeNull();
+        expect(kvHandleIdKind(`${id}.${mac}x`, SECRET)).toBeNull();
+    });
+
+    it('minted before ids were signed still read as handles', () => {
+        expect(kvHandleIdKind(`kvh-${uuidv4()}`, SECRET)).toBe('legacy');
+        expect(kvHandleIdKind('kvh-1', SECRET)).toBeNull();
+        expect(kvHandleIdKind(APP, SECRET)).toBeNull();
     });
 
     it('are recoverable from the subject a row stored', () => {
-        const handle = mintKvHandleId();
+        const handle = mintKvHandleId(SECRET);
         expect(kvHandleFromSubject(`kv:${handle}:messages:*`)).toBe(handle);
         expect(kvHandleFromSubject(`kv:${APP}:messages:*`)).toBeNull();
         expect(kvHandleFromSubject(`fs:${handle}:write`)).toBeNull();

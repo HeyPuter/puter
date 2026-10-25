@@ -3103,7 +3103,8 @@ export class EventsService extends PuterService {
             throw unknownKvShareHandle(handle);
 
         const owner = await this.stores.user.getById(share.ownerUserId);
-        if (!owner?.uuid) throw unknownKvShareHandle(handle);
+        if (!owner?.uuid || Boolean(Number(owner.suspended ?? 0)))
+            throw unknownKvShareHandle(handle);
 
         // Watching is the lowest level, so every level answers it; storing it
         // rather than the handle's own grant is what lets a level change leave
@@ -4071,6 +4072,7 @@ export class EventsService extends PuterService {
         }
         if (
             !live ||
+            live.ownerSuspended ||
             (live.row.granteeUserId !== row.holderUserId &&
                 live.row.ownerUserId !== row.holderUserId)
         )

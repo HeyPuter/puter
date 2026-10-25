@@ -665,6 +665,11 @@ export type EventMap = {
      * reason as the events generation bump: a per-process cache.
      */
     'outer.pubsub.share.ownerShared': { ownerUserId: number };
+    /**
+     * Share handles were retired or changed, so every process must drop its
+     * cached copy. `outer.pubsub.*` because the cache is a per-process map.
+     */
+    'outer.pubsub.kv.share.forget': { handles: string[] };
     'outer.fs.write-hash': { hash: string; uuid: string };
     /**
      * Cache keys the KV read cache must stop serving, because the entries
@@ -949,11 +954,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

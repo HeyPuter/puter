@@ -19,6 +19,7 @@
 
 import {
     KV_SHARE_ACCESS_LEVELS,
+    kvHandleIdKind,
     kvShareRoot,
     mintKvHandleId,
     type KvShareAccess,
@@ -122,6 +123,9 @@ const LIVE_CACHE_TTL_MS = 60_000;
 const MISS_CACHE_TTL_MS = 5_000;
 const LIVE_CACHE_MAX_ENTRIES = 10_000;
 
+/** Handles one cross-node forget carries. */
+const FORGET_BATCH = 500;
+
 /** Rows one app-deletion retire pass takes. */
 export const KV_HANDLE_RETIRE_BATCH = 500;
 
@@ -185,7 +189,7 @@ export class KvShareHandleStore extends PuterStore {
 
     async mint(input: MintKvShareHandleInput): Promise<KvShareHandle> {
         const row: KvShareHandle = {
-            handle: mintKvHandleId(),
+            handle: mintKvHandleId(this.config.jwt_secret_v2),
             ownerUserId: input.ownerUserId,
             granteeUserId: input.granteeUserId,
             appUid: input.appUid,
@@ -218,12 +222,32 @@ export class KvShareHandleStore extends PuterStore {
         return row;
     }
 
+    override onServerStart(): void {
+        // Our own emit already forgot locally before it went out.
+        this.clients.event.on(
+            'outer.pubsub.kv.share.forget',
+            (_key, data, meta) => {
+                if (!(meta as { from_outside?: boolean })?.from_outside) return;
+                const handles = (data as { handles?: unknown })?.handles;
+                if (!Array.isArray(handles)) return;
+                for (const handle of handles)
+                    if (typeof handle === 'string') this.#forget(handle);
+            },
+        );
+    }
+
     /**
      * A live handle and its owner's state, cached in-process (hits up to 60 s,
      * misses 5 s). Authority is the grant, checked on every call, so a stale
      * row only keeps an address alive a little longer, never widens it.
+     *
+     * A forged id is refused without a read. Only a signed id falls back to the
+     * primary on a replica miss: that is for read-after-mint, and legacy ids
+     * are no longer minted.
      */
     async getLive(handle: string): Promise<LiveKvShareHandle | null> {
+        const kind = kvHandleIdKind(handle, this.config.jwt_secret_v2);
+        if (kind === null) return null;
         const cached = this.#live.get(handle);
         if (cached) return cached;
         if (this.#missing.has(handle)) return null;
@@ -236,7 +260,7 @@ export class KvShareHandleStore extends PuterStore {
             `FROM \`${TABLE}\` h JOIN \`user\` u ON u.\`id\` = h.\`owner_user_id\` ` +
             'WHERE h.`handle` = ?';
         let rows = await this.clients.db.read(query, [handle]);
-        if (rows.length === 0)
+        if (rows.length === 0 && kind === 'signed')
             rows = await this.clients.db.pread(query, [handle]);
 
         const found = rows[0];
@@ -254,10 +278,25 @@ export class KvShareHandleStore extends PuterStore {
         return live;
     }
 
-    /** Drops this node's cached copy; other nodes converge within the TTL. */
     #forget(handle: string): void {
         this.#live.delete(handle);
         this.#missing.delete(handle);
+    }
+
+    /** Drops the cached copies on this node and every other one. */
+    #forgetEverywhere(handles: readonly string[]): void {
+        for (const handle of handles) this.#forget(handle);
+        for (let at = 0; at < handles.length; at += FORGET_BATCH) {
+            try {
+                this.clients.event.emit(
+                    'outer.pubsub.kv.share.forget',
+                    { handles: handles.slice(at, at + FORGET_BATCH) },
+                    {},
+                );
+            } catch {
+                // The cache's TTL covers a node the broadcast misses.
+            }
+        }
     }
 
     /**
@@ -359,6 +398,8 @@ export class KvShareHandleStore extends PuterStore {
      * as absent, or a revoked one as live.
      */
     async getByHandle(handle: string): Promise<KvShareHandle | null> {
+        if (kvHandleIdKind(handle, this.config.jwt_secret_v2) === null)
+            return null;
         const rows = await this.clients.db.pread(
             `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` WHERE \`handle\` = ?`,
             [handle],
@@ -425,7 +466,7 @@ export class KvShareHandleStore extends PuterStore {
                 `WHERE ${where.join(' AND ')}`,
             params,
         );
-        for (const handle of unique) this.#forget(handle);
+        this.#forgetEverywhere(unique);
     }
 
     /**
@@ -479,7 +520,7 @@ export class KvShareHandleStore extends PuterStore {
                 [...params, handle, ownerUserId],
             );
         }
-        this.#forget(handle);
+        this.#forgetEverywhere([handle]);
         const row = await this.getByHandle(handle);
         return row && row.ownerUserId === ownerUserId ? row : null;
     }
