@@ -4,6 +4,8 @@ description: List the key-value data other users have shared with you.
 platforms: [websites, apps, nodejs, workers]
 ---
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 Lists the live shares other users made with you, a page at a time. Each share comes with the `handle` you pass to the other [`puter.kv`](/KV/) methods to use it.
 
 A share tells you its level, its app, and the owner's label. It never says who shared it or what the prefix is. To tell shares apart, read the label, or read a key the owner keeps for that, such as `meta`, through the handle. Reading needs `read` or `write` access, so a `watch` share only has its label.

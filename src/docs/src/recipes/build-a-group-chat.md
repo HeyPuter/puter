@@ -5,6 +5,8 @@ tags: [kv, events, perms]
 order: 22
 ---
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 A group chat usually needs a server that stores the messages and sends each new
 one to everyone in the room. With [`puter.kv.share()`](/KV/share/), the room can
 live in the Puter account of the user who creates it instead. Each member gets

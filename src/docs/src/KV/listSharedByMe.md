@@ -4,6 +4,8 @@ description: List the key-value shares you made with other users, including ones
 platforms: [websites, apps, nodejs, workers]
 ---
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 Lists the shares you made with [`puter.kv.share()`](/KV/share/), a page at a time. Shares that stopped stay in the listing with `revokedAt` and `revokedBy` set, as a record of who had access and when it ended.
 
 In an app, the listing has only the shares of that app's data. Outside an app, it has every share you made.

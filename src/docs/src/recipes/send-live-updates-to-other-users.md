@@ -5,6 +5,8 @@ tags: [kv, events]
 order: 19
 ---
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 A scoreboard app keeps the score of a game in the scorekeeper's Puter account.
 Fans want to see each change as it happens. With a watch share, another Puter
 user gets an [event](/Events/) each time a key under a prefix changes, with the

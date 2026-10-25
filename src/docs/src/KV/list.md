@@ -35,6 +35,8 @@ If set to `true`, the returned array will contain objects with both `key` and `v
 
 #### `optConfig` (Object) (optional)
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 The last argument of the positional forms. It takes these properties:
 
 - `handle` (String): List data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The share needs `read` or `write` access. The `pattern` is relative to the shared prefix and can be at most 768 bytes, and the returned keys are relative to the prefix too. The results and `total` leave out private entries. Every page of a full listing or a stream is fetched through the handle. See [Sharing with other users](/KV/#sharing-with-other-users).

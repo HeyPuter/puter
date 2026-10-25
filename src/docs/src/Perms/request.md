@@ -40,6 +40,8 @@ What the request is about. The resource decides which details are accepted and w
 | `'backgroundEvents'` | `Resource.BACKGROUND_EVENTS` | None | `true` if granted |
 | `'kvShare'` | `Resource.KV_SHARE` | `{ prefix, access }` | `true` if granted |
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 #### `details` (object) (optional)
 
 The fields the resource takes:

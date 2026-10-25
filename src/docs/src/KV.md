@@ -232,6 +232,8 @@ These Key-Value Store features are supported out of the box when using Puter.js:
 
 ## Sharing with other users
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 A user can share the keys under a prefix with another Puter user. The user who shares is the share's owner, and the user it's shared with is its holder. The keys stay in the owner's store.
 
 Pick the tool by what you want to do:

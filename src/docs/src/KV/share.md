@@ -4,6 +4,8 @@ description: Share the keys under a prefix with another Puter user, so they can 
 platforms: [websites, apps, nodejs, workers]
 ---
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 Shares the keys under a prefix with another Puter user. The other user becomes the share's holder, and you stay its owner. The keys stay in your store, and the holder reaches them through the share.
 
 Each share has a `handle`. The holder finds it with [`puter.kv.listShared()`](/KV/listShared/) and passes it as `handle` to the other [`puter.kv`](/KV/) methods. [Sharing with other users](/KV/#sharing-with-other-users) shows how a holder uses a share.

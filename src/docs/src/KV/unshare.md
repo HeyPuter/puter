@@ -4,6 +4,8 @@ description: Stop sharing key-value data with another user, or remove your own a
 platforms: [websites, apps, nodejs, workers]
 ---
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 Stops a share made with [`puter.kv.share()`](/KV/share/). Either side can call it:
 
 - **The owner** revokes the share. The holder loses access, and any narrower share you made with the same holder inside the same prefix stops too.
