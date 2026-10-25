@@ -1262,7 +1262,8 @@ const TabFiles = {
                     _this.typeSearchTerm = '';
                 }, 700);
 
-                _this.typeSearchTerm += e.key.toLocaleLowerCase();
+                // Lower-cased as the names are: in a Turkish locale "I" would become "ı".
+                _this.typeSearchTerm += e.key.toLowerCase();
 
                 const names = $allRows.map((_, row) => (row.getAttribute('data-name') || '').toLowerCase()).get();
                 const target = typeSelectTarget(names, $allRows.index($selectedRows.first()), _this.typeSearchTerm);
