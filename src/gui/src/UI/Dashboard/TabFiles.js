@@ -888,12 +888,8 @@ const TabFiles = {
             // left focused (by a click, say): the listing takes the focus,
             // so Tab goes on from there too.
             const yieldFocusToRows = () => {
-                const files = $container[0];
-                if ( ! focused_el || focused_el === document.body || focused_el === files ) return;
-                if ( ! _this.$el_window[0].contains(focused_el) ) return;
-                files.setAttribute('tabindex', '-1');
-                files.addEventListener('blur', () => files.removeAttribute('tabindex'), { once: true });
-                files.focus({ preventScroll: true });
+                if ( ! focused_el || focused_el === document.body || focused_el === $container[0] ) return;
+                if ( _this.$el_window[0].contains(focused_el) ) _this.focusListing();
             };
 
             // F2 - Rename selected item
@@ -4860,6 +4856,30 @@ const TabFiles = {
         setDisabled(forwardBtn, window.dashboard_nav_history_current_position >= window.dashboard_nav_history.length - 1);
         // The Shared view has no parent either — it is a query, not a directory.
         setDisabled(upBtn, this.currentPath === '/' || this.currentPath === window.shared_path);
+
+        // Disabled under the keyboard's focus (Back pressed back to the first
+        // folder), the focus goes on to one that still works.
+        const buttons = [forwardBtn[0], backBtn[0], upBtn[0]];
+        const focused = document.activeElement;
+        if ( buttons.includes(focused) && focused.classList.contains('path-btn-disabled') ) {
+            const next = buttons.find(btn => btn && ! btn.classList.contains('path-btn-disabled'));
+            if ( next ) next.focus();
+            else this.focusListing();
+        }
+    },
+
+    /**
+     * Puts the keyboard focus on the listing, whose keys then move the row
+     * selection. It takes focus only while it holds it.
+     *
+     * @returns {void}
+     */
+    focusListing () {
+        const files = this.$el_window.find('.files-tab .files')[0];
+        if ( ! files ) return;
+        files.setAttribute('tabindex', '-1');
+        files.addEventListener('blur', () => files.removeAttribute('tabindex'), { once: true });
+        files.focus({ preventScroll: true });
     },
 
     /**

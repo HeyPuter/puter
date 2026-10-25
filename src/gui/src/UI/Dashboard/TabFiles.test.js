@@ -545,6 +545,25 @@ describe('TabFiles.updateNavButtonStates', () => {
         expect($('.path-btn-forward').attr('tabindex')).toBe('-1');
         expect($('.path-btn-forward').attr('aria-disabled')).toBe('true');
     });
+
+    it('moves the focus off an arrow it disables', () => {
+        document.body.innerHTML = `
+            <div class="window">
+                <img class="path-btn path-btn-back" tabindex="0">
+                <img class="path-btn path-btn-forward" tabindex="0">
+                <img class="path-btn path-btn-up" tabindex="0">
+            </div>`;
+        TabFiles.$el_window = $('.window');
+        TabFiles.currentPath = '/alice';
+        window.dashboard_nav_history = ['/alice', '/alice/Documents'];
+        // Back was pressed from Documents.
+        window.dashboard_nav_history_current_position = 0;
+        $('.path-btn-back')[0].focus();
+
+        TabFiles.updateNavButtonStates();
+
+        expect(document.activeElement).toBe($('.path-btn-forward')[0]);
+    });
 });
 
 describe('TabFiles cancelling a drag that opened a folder', () => {
