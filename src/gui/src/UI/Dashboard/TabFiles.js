@@ -586,6 +586,14 @@ const TabFiles = {
                     $(folderElement).removeClass('native-drop-target');
                 },
 
+                // The pointer says so where the files can't go.
+                over: function (_dragsterEvent, event) {
+                    const e = event.originalEvent;
+                    if ( e?.dataTransfer?.types?.includes('Files') && ! folderElement.classList.contains('native-drop-target') ) {
+                        e.dataTransfer.dropEffect = 'none';
+                    }
+                },
+
                 drop: async function (_dragsterEvent, event) {
                     const e = event.originalEvent;
                     $(folderElement).removeClass('native-drop-target');
@@ -4170,6 +4178,14 @@ const TabFiles = {
                     $(el_item).removeClass('native-drop-target');
                 },
 
+                // The pointer says so where the files can't go.
+                over: function (_dragsterEvent, event) {
+                    const e = event.originalEvent;
+                    if ( e?.dataTransfer?.types?.includes('Files') && ! el_item.classList.contains('native-drop-target') ) {
+                        e.dataTransfer.dropEffect = 'none';
+                    }
+                },
+
                 drop: async function (dragsterEvent, event) {
                     const e = event.originalEvent;
                     $(el_item).removeClass('native-drop-target');
@@ -5597,6 +5613,15 @@ const TabFiles = {
 
             leave: function (_dragsterEvent, _event) {
                 $filesContainer.removeClass('native-drop-active');
+            },
+
+            // The pointer says so where the files can't go. Over a folder
+            // row, the row decides.
+            over: function (_dragsterEvent, event) {
+                const e = event.originalEvent;
+                if ( ! e?.dataTransfer?.types?.includes('Files') ) return;
+                if ( $(e.target).closest('.row.folder').length ) return;
+                if ( ! $filesContainer.hasClass('native-drop-active') ) e.dataTransfer.dropEffect = 'none';
             },
 
             drop: async function (_dragsterEvent, event) {
