@@ -874,3 +874,23 @@ describe('TabFiles column widths that no longer fit', () => {
         expect(TabFiles.columnGridTemplate).toBe('24px auto 4px 100px 4px 900px 4px 20px');
     });
 });
+
+describe('TabFiles names in a narrow listing', () => {
+    it('are not cut to the name column a wider listing was given', () => {
+        const name = 'Quarterly financial report final version.pdf';
+        document.body.innerHTML = `
+            <div class="window"><div class="files-tab">
+                <div class="header"><div class="columns" style="display: none"></div></div>
+                <div class="files files-list-view">
+                    <div class="row item" data-name="${name}"><pre class="item-name"></pre></div>
+                </div>
+            </div></div>`;
+        TabFiles.$el_window = $('.window');
+        TabFiles.currentView = 'list';
+        TabFiles.appliedColumnWidths = { name: 120, sharedBy: 160, size: 60, modified: 80 };
+
+        TabFiles.fitItemNames($('.files .item-name'));
+
+        expect($('.files .item-name').text()).toBe(name);
+    });
+});

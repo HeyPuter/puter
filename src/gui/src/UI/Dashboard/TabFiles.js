@@ -2175,9 +2175,13 @@ const TabFiles = {
      * @returns {void}
      */
     fitItemNames ($names) {
-        const nameWidth = this.appliedColumnWidths ? this.appliedColumnWidths.name : this.columnWidths.name;
         const isList = this.currentView === 'list';
         if ( ! isList && ! this.isGridView() ) return;
+        // A narrow listing drops the columns for two-row rows, where a name
+        // has the row's width, not the name column's (see dashboard.css).
+        const columnsShown = this.$el_window.find('.files-tab .header .columns').css('display') !== 'none';
+        const nameWidth = ! columnsShown ? null
+            : this.appliedColumnWidths ? this.appliedColumnWidths.name : this.columnWidths.name;
         const names = $names.toArray();
         if ( ! names.length ) return;
         // Measure in the font the names render in (the compact grid's is smaller).
