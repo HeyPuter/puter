@@ -4250,6 +4250,11 @@ body.myapps-reordering .myapps-tile {
     outline-offset: -2px;
 }
 
+/* Holds the focus while the keys move the selection, which marks the place. */
+.dashboard-section-files .files-tab .files:focus {
+    outline: none;
+}
+
 .dashboard-section-files .header .path-btn-disabled {
     opacity: 0.1;
     pointer-events: none;

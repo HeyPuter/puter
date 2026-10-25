@@ -867,6 +867,19 @@ const TabFiles = {
             const $allRows = $container.find('.row:not(.place-row)');
             const $selectedRows = $container.find('.row.selected');
 
+            // Once these keys drive the row selection, Enter, Space and the
+            // menu key must reach the rows, not a folder, crumb or button
+            // left focused (by a click, say): the listing takes the focus,
+            // so Tab goes on from there too.
+            const yieldFocusToRows = () => {
+                const files = $container[0];
+                if ( ! focused_el || focused_el === document.body || focused_el === files ) return;
+                if ( ! _this.$el_window[0].contains(focused_el) ) return;
+                files.setAttribute('tabindex', '-1');
+                files.addEventListener('blur', () => files.removeAttribute('tabindex'), { once: true });
+                files.focus({ preventScroll: true });
+            };
+
             // F2 - Rename selected item
             if ( e.which === 113 ) {
                 const $selectedRow = $selectedRows.first();
@@ -886,7 +899,7 @@ const TabFiles = {
             if ( e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10') ) {
                 // A focused folder, crumb or button gets the browser's
                 // contextmenu event, and with it its own menu.
-                if ( $(focused_el).is('a[href], button, select, [tabindex]') ) return;
+                if ( focused_el !== $container[0] && $(focused_el).is('a[href], button, select, [tabindex]') ) return;
                 const row = $selectedRows.toArray().find(r => r === window.latest_selected_item) ?? $selectedRows[0];
                 if ( row ) {
                     e.preventDefault();
@@ -1079,6 +1092,7 @@ const TabFiles = {
                 e.stopPropagation();
 
                 if ( $allRows.length === 0 ) return false;
+                yieldFocusToRows();
 
                 // If nothing selected, select first item (End: the last)
                 if ( $selectedRows.length === 0 ) {
@@ -1231,6 +1245,7 @@ const TabFiles = {
                 const names = $allRows.map((_, row) => (row.getAttribute('data-name') || '').toLowerCase()).get();
                 const target = typeSelectTarget(names, $allRows.index($selectedRows.first()), _this.typeSearchTerm);
                 if ( target !== -1 ) {
+                    yieldFocusToRows();
                     const row = $allRows.get(target);
                     $allRows.removeClass('selected');
                     $(row).addClass('selected');
