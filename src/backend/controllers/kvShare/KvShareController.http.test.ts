@@ -293,6 +293,134 @@ describe('/kv/shares', () => {
         const res = await req('GET', '/kv/shares');
         expect(res.status).toBeGreaterThanOrEqual(400);
     });
+
+    describe('filtering a listing', () => {
+        type Page = { items: Array<Record<string, unknown>>; total?: number };
+        let appUid: string;
+        let inApp: Record<string, unknown>;
+        let global: Record<string, unknown>;
+
+        const page = async (path: string, token: string) => {
+            const res = await req('GET', path, token);
+            return { status: res.status, body: (await res.json()) as Page };
+        };
+        const handlesOf = (body: Page) => body.items.map((row) => row.handle);
+
+        const makeApp = async () => {
+            const owner = await env.server.stores.user.getByUsername(
+                env.users.user.username,
+            );
+            const name = `kv-http-${uuidv4().slice(0, 8)}`;
+            return env.server.stores.app.create(
+                {
+                    name,
+                    title: 'Listing App',
+                    index_url: `https://${name}.example.test/index.html`,
+                },
+                { ownerUserId: owner!.id },
+            );
+        };
+
+        /** The token the desktop launches the app with, for `token`'s user. */
+        const appToken = async (token: string, uid: string) => {
+            const res = await req('POST', '/auth/get-user-app-token', token, {
+                app_uid: uid,
+            });
+            expect(res.status).toBe(200);
+            return ((await res.json()) as { token: string }).token;
+        };
+
+        beforeAll(async () => {
+            await resetBudgets(env);
+            appUid = (await makeApp()).uid;
+            inApp = await shareWithOther({ appUid });
+            global = await shareWithOther();
+        });
+
+        it('lists every app`s shares for the account, or one app`s, or the app-less store`s with `null`', async () => {
+            for (const path of ['/kv/shares', '/kv/shares/with-me']) {
+                const token =
+                    path === '/kv/shares'
+                        ? env.users.user.token
+                        : env.users.other.token;
+                const all = await page(`${path}?limit=200`, token);
+                expect(handlesOf(all.body)).toEqual(
+                    expect.arrayContaining([inApp.handle, global.handle]),
+                );
+
+                const one = await page(
+                    `${path}?limit=200&appUid=${appUid}`,
+                    token,
+                );
+                expect(handlesOf(one.body)).toEqual([inApp.handle]);
+
+                const appLess = await page(
+                    `${path}?limit=200&appUid=null`,
+                    token,
+                );
+                expect(handlesOf(appLess.body)).toContain(global.handle);
+                expect(
+                    appLess.body.items.every((row) => row.appUid === null),
+                ).toBe(true);
+
+                const bad = await page(`${path}?appUid=not-an-app`, token);
+                expect(bad.status).toBe(400);
+            }
+        });
+
+        it('keeps an app to its own namespace, refusing any other it names', async () => {
+            const token = await appToken(env.users.other.token, appUid);
+            const own = await page('/kv/shares/with-me?limit=200', token);
+            expect(handlesOf(own.body)).toEqual([inApp.handle]);
+            const named = await page(
+                `/kv/shares/with-me?limit=200&appUid=${appUid}`,
+                token,
+            );
+            expect(handlesOf(named.body)).toEqual([inApp.handle]);
+
+            const otherApp = (await makeApp()).uid;
+            for (const appUidParam of ['null', otherApp]) {
+                const refused = await page(
+                    `/kv/shares/with-me?appUid=${appUidParam}`,
+                    token,
+                );
+                expect(refused.status).toBe(403);
+                expect(refused.body).toMatchObject({
+                    code: 'events_kv_handle_outside_namespace',
+                });
+            }
+        });
+
+        it('narrows what was shared out to live or revoked shares, all by default', async () => {
+            const gone = await shareWithOther({ appUid });
+            await req(
+                'DELETE',
+                `/kv/shares/${gone.handle}`,
+                env.users.user.token,
+            );
+            const at = async (state?: string) =>
+                page(
+                    `/kv/shares?limit=200&appUid=${appUid}` +
+                        (state ? `&state=${state}` : ''),
+                    env.users.user.token,
+                );
+
+            expect(handlesOf((await at()).body)).toEqual([
+                inApp.handle,
+                gone.handle,
+            ]);
+            expect(handlesOf((await at('all')).body)).toEqual([
+                inApp.handle,
+                gone.handle,
+            ]);
+            expect(handlesOf((await at('live')).body)).toEqual([inApp.handle]);
+            expect(handlesOf((await at('revoked')).body)).toEqual([
+                gone.handle,
+            ]);
+            const bad = await at('stopped');
+            expect(bad.status).toBe(400);
+        });
+    });
 });
 
 describe('/events/kv-handles beside /kv/shares', () => {

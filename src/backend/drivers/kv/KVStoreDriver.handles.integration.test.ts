@@ -1418,3 +1418,250 @@ describe('what a holder is ever shown', () => {
         }
     });
 });
+
+describe('a handle id', () => {
+    /** Statements against the handle table while `call` runs. */
+    const handleReads = async (call: () => Promise<unknown>) => {
+        const read = vi.spyOn(env.server.clients.db, 'read');
+        const pread = vi.spyOn(env.server.clients.db, 'pread');
+        const touches = (spy: typeof read) =>
+            spy.mock.calls.filter(([sql]) =>
+                String(sql).includes('kv_share_handles'),
+            ).length;
+        try {
+            await call();
+        } catch {
+            // The caller asserts on the answer separately.
+        }
+        const counts = { read: touches(read), pread: touches(pread) };
+        read.mockRestore();
+        pread.mockRestore();
+        return counts;
+    };
+
+    it('is refused without a store read when its mac does not verify', async () => {
+        const prefix = region('forged');
+        await ownerSet(`${prefix}k`, 'v');
+        const { handle } = await share(prefix, 'read');
+        const [id, mac] = handle.split('.');
+        const forged = `${id}.${mac[0] === 'A' ? 'B' : 'A'}${mac.slice(1)}`;
+
+        await expect(guestGet(forged, 'k')).rejects.toMatchObject({
+            legacyCode: 'kv_handle_not_found',
+        });
+        expect(await handleReads(() => guestGet(forged, 'k'))).toEqual({
+            read: 0,
+            pread: 0,
+        });
+        await expect(
+            events().subscribe(guest.actor, 'kv-forged-socket', {
+                subject: `kv:${forged}:*`,
+            }),
+        ).rejects.toMatchObject({ legacyCode: 'subject_does_not_exist' });
+        expect(await guestGet(handle, 'k')).toBe('v');
+    });
+
+    it('minted before ids were signed still works, and never falls back to the primary', async () => {
+        const prefix = region('legacy-id');
+        await ownerSet(`${prefix}k`, 'old');
+        const permission = kvSharePermission(
+            owner.uuid,
+            GLOBAL,
+            prefix,
+            'read',
+        );
+        await env.server.services.permission.grantUserUserPermission(
+            owner.actor,
+            guest.username,
+            permission,
+        );
+        const legacy = `kvh-${uuidv4()}`;
+        await env.server.clients.db.insert('kv_share_handles', {
+            handle: legacy,
+            owner_user_id: owner.id,
+            grantee_user_id: guest.id,
+            app_uid: GLOBAL,
+            key_prefix: prefix,
+            permission,
+            label: null,
+            created_at: Math.floor(Date.now() / 1000),
+            revoked_at: null,
+        });
+
+        expect(await guestGet(legacy, 'k')).toBe('old');
+        expect(
+            await handleReads(() => guestGet(`kvh-${uuidv4()}`, 'k')),
+        ).toEqual({ read: 1, pread: 0 });
+    });
+});
+
+describe('a handle used by an app its holder removed', () => {
+    const revokeAll = async (appUid: string) => {
+        const res = await fetch(
+            new URL('/auth/revoke-user-app', env.apiOrigin),
+            {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${guest.creds.token}`,
+                },
+                body: JSON.stringify({ app_uid: appUid, permission: '*' }),
+            },
+        );
+        expect(res.status, await res.text()).toBe(200);
+    };
+
+    it('is absent to the app until it is authorized again, and the holder keeps it', async () => {
+        const app = await makeApp();
+        const prefix = region('removed');
+        await as(appActorFor(owner, app), (d) =>
+            d.set({ key: `${prefix}k`, value: 'in app' }),
+        );
+        const { handle } = await share(prefix, 'read', { appUid: app.uid });
+        await authorizeApp(guest, app);
+        const appActor = appActorFor(guest, app);
+        expect(await guestGet(handle, 'k', appActor)).toBe('in app');
+
+        await revokeAll(app.uid);
+        await expect(guestGet(handle, 'k', appActor)).rejects.toMatchObject({
+            legacyCode: 'kv_handle_not_found',
+        });
+        expect(await guestGet(handle, 'k')).toBe('in app');
+        expect(await handles().getLive(handle)).not.toBeNull();
+
+        await authorizeApp(guest, app);
+        expect(await guestGet(handle, 'k', appActor)).toBe('in app');
+    });
+
+    it('stops delivering to the app`s live subscription', async () => {
+        const app = await makeApp();
+        const prefix = region('removed-sub');
+        const { handle } = await share(prefix, 'read', { appUid: app.uid });
+        await authorizeApp(guest, app);
+        const socket = 'kv-removed-socket';
+        const { sub } = await events().subscribe(
+            appActorFor(guest, app),
+            socket,
+            { subject: `kv:${handle}:*` },
+        );
+        const writes = (key: string) =>
+            as(appActorFor(owner, app), (d) =>
+                d.set({ key: `${prefix}${key}`, value: 1 }),
+            );
+
+        delivered.length = 0;
+        await writes('a');
+        await vi.waitFor(
+            () =>
+                expect(delivered.some((one) => one.subId === sub.subId)).toBe(
+                    true,
+                ),
+            { timeout: EVENTS_COALESCE_WINDOW_MS * 12, interval: 25 },
+        );
+
+        await revokeAll(app.uid);
+        delivered.length = 0;
+        await writes('b');
+        await new Promise((resolve) =>
+            setTimeout(resolve, EVENTS_COALESCE_WINDOW_MS * 3),
+        );
+        expect(delivered.some((one) => one.subId === sub.subId)).toBe(false);
+        await events().reapSocket(guest.id, socket);
+    });
+});
+
+describe('listing keys through a watch handle', () => {
+    it('returns keys relative to the handle, and refuses values', async () => {
+        const prefix = region('watch-keys');
+        await ownerSet(`${prefix}a`, 1);
+        await ownerSet(`${prefix}b:c`, 2);
+        const { handle } = await share(prefix, 'watch');
+
+        await expect(
+            as(guest.actor, (d) =>
+                d.list({ as: 'keys', includeTotal: true, ...via(handle) }),
+            ),
+        ).resolves.toEqual({ items: ['a', 'b:c'], total: 2 });
+        for (const as_ of ['entries', 'values', undefined] as const)
+            await expect(
+                as(guest.actor, (d) => d.list({ as: as_, ...via(handle) })),
+            ).rejects.toMatchObject({ legacyCode: 'kv_handle_access_denied' });
+        await expect(guestGet(handle, 'a')).rejects.toMatchObject({
+            legacyCode: 'kv_handle_access_denied',
+        });
+    });
+
+    it('works for the owner through their own handle', async () => {
+        const prefix = region('watch-owner');
+        await ownerSet(`${prefix}a`, 1);
+        const { handle } = await share(prefix, 'watch');
+        await expect(
+            as(owner.actor, (d) => d.list({ as: 'keys', ...via(handle) })),
+        ).resolves.toEqual(['a']);
+    });
+});
+
+describe('a handle whose owner is suspended', () => {
+    const suspendable = async () =>
+        userFor(
+            await createTestUser(env.server, {
+                username: `kv-susp-${uuidv4().slice(0, 8)}`,
+                password: 'pw-test-1234',
+            }),
+        );
+
+    it('cannot be subscribed to, answered as not found', async () => {
+        const suspendee = await suspendable();
+        const { handle } = await share(region('susp-sub'), 'read', {
+            actor: suspendee.actor,
+        });
+        await env.server.stores.user.update(suspendee.id, { suspended: 1 });
+
+        await expect(
+            events().subscribe(guest.actor, 'kv-susp-socket', {
+                subject: `kv:${handle}:*`,
+            }),
+        ).rejects.toMatchObject({ legacyCode: 'subject_does_not_exist' });
+    });
+
+    it('stops delivering to a subscription made before the suspension', async () => {
+        const suspendee = await suspendable();
+        const prefix = region('susp-deliver');
+        const { handle } = await share(prefix, 'read', {
+            actor: suspendee.actor,
+        });
+        const socket = 'kv-susp-deliver-socket';
+        const { sub } = await events().subscribe(guest.actor, socket, {
+            subject: `kv:${handle}:*`,
+        });
+        const writes = (key: string) =>
+            as(suspendee.actor, (d) =>
+                d.set({ key: `${prefix}${key}`, value: 1 }),
+            );
+        const reached = () => delivered.some((one) => one.subId === sub.subId);
+
+        delivered.length = 0;
+        await writes('a');
+        await vi.waitFor(() => expect(reached()).toBe(true), {
+            timeout: EVENTS_COALESCE_WINDOW_MS * 12,
+            interval: 25,
+        });
+
+        // The cached row once it refreshes after the suspension.
+        const live = await handles().getLive(handle);
+        const getLive = vi
+            .spyOn(handles(), 'getLive')
+            .mockResolvedValue({ ...live!, ownerSuspended: true });
+        try {
+            delivered.length = 0;
+            await writes('b');
+            await new Promise((resolve) =>
+                setTimeout(resolve, EVENTS_COALESCE_WINDOW_MS * 3),
+            );
+            expect(reached()).toBe(false);
+        } finally {
+            getLive.mockRestore();
+            await events().reapSocket(guest.id, socket);
+        }
+    });
+});

@@ -39,6 +39,7 @@ import {
     type HeldKvShareHandle,
     type KvShareHandle,
     type KvShareHandleListOptions,
+    type KvShareOwnerListOptions,
     type KvShareRevokedBy,
 } from '../../stores/events/KvShareHandleStore.js';
 import { KV_GLOBAL_APP_KEY } from '../../stores/systemKv/SystemKVStore.js';
@@ -184,6 +185,29 @@ const handleOutsideNamespace = (): HttpError =>
     new HttpError(403, 'An app may only share its own key-value data', {
         legacyCode: 'events_kv_handle_outside_namespace',
     });
+
+const handleListOutsideNamespace = (): HttpError =>
+    new HttpError(
+        403,
+        'An app may only list shares of its own key-value data',
+        {
+            legacyCode: 'events_kv_handle_outside_namespace',
+        },
+    );
+
+/**
+ * The namespace a listing covers. An app sees its own and is refused another;
+ * the account sees every app's unless it names one.
+ */
+const listingNamespace = (
+    app: NonNullable<Actor['effectiveApp']> | null,
+    named: string | null | undefined,
+): string | null => {
+    if (!app) return named ?? null;
+    if (named !== undefined && named !== null && named !== app.uid)
+        throw handleListOutsideNamespace();
+    return app.uid;
+};
 
 /**
  * A temporary account holds no share handles: the grant outlives the session
@@ -1000,12 +1024,11 @@ export class KvShareService extends PuterService {
      */
     async listKvHandles(
         actor: Actor,
-        options: KvShareHandleListOptions = {},
+        options: KvShareOwnerListOptions = {},
     ): Promise<PageResult<KvShareOwnerView>> {
         const owner = actor.user;
         if (owner?.id === undefined) throw handleOwnerOnly();
         this.#assertOwnerSurface(actor);
-        const app = actor.effectiveApp;
 
         // An app sees its own namespace and nothing else; an account session
         // sees across apps, which is what makes the account the surface for a
@@ -1015,7 +1038,11 @@ export class KvShareService extends PuterService {
             limit: options.limit,
             cursor: options.cursor,
             includeTotal: options.includeTotal,
-            appUid: app?.uid ?? null,
+            appUid: listingNamespace(
+                actor.effectiveApp ?? null,
+                options.appUid,
+            ),
+            state: options.state,
         });
         const holders = await this.stores.user.getByIds([
             ...new Set(page.items.map((row) => row.granteeUserId)),
@@ -1034,8 +1061,8 @@ export class KvShareService extends PuterService {
 
     /**
      * Live shares held by this account, by handle, level, app and label only.
-     * An app sees its own namespace; an unresolved app or a scoped token sees
-     * nothing.
+     * An app sees its own namespace, the account every app's; an unresolved app
+     * or a scoped token sees nothing.
      */
     async listKvSharesWithMe(
         actor: Actor,
@@ -1051,7 +1078,7 @@ export class KvShareService extends PuterService {
             limit: options.limit,
             cursor: options.cursor,
             includeTotal: options.includeTotal,
-            appUid: app?.uid ?? null,
+            appUid: listingNamespace(app, options.appUid),
         });
     }
 

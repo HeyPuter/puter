@@ -102,6 +102,15 @@ export interface KvShareHandleListOptions {
     appUid?: string | null;
 }
 
+/** Which of an owner's handles a listing returns. */
+export const KV_SHARE_OWNER_LIST_STATES = ['live', 'revoked', 'all'] as const;
+export type KvShareOwnerListState = (typeof KV_SHARE_OWNER_LIST_STATES)[number];
+
+export interface KvShareOwnerListOptions extends KvShareHandleListOptions {
+    /** Defaults to `all`. */
+    state?: KvShareOwnerListState;
+}
+
 export interface MintKvShareHandleInput {
     ownerUserId: number;
     granteeUserId: number;
@@ -588,7 +597,7 @@ export class KvShareHandleStore extends PuterStore {
      */
     async listForOwner(
         ownerUserId: number,
-        options: KvShareHandleListOptions = {},
+        options: KvShareOwnerListOptions = {},
     ): Promise<PageResult<KvShareHandle>> {
         const limit = clampLimit(options.limit);
         const after = openIdCursor(options.cursor, this.config.jwt_secret_v2);
@@ -599,6 +608,9 @@ export class KvShareHandleStore extends PuterStore {
             filter.push('`app_uid` = ?');
             filterParams.push(options.appUid);
         }
+        if (options.state === 'live') filter.push('`revoked_at` IS NULL');
+        if (options.state === 'revoked')
+            filter.push('`revoked_at` IS NOT NULL');
 
         const where = [...filter];
         const params = [...filterParams];

@@ -25,7 +25,7 @@
  * guard here means calling the store directly.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
@@ -257,5 +257,114 @@ describe('the holder listing', () => {
                 createdAt: row.createdAt,
             },
         ]);
+    });
+});
+
+describe('the live cache across nodes', () => {
+    const handleReads = (spy: ReturnType<typeof vi.spyOn>) =>
+        spy.mock.calls.filter(([sql]) =>
+            String(sql).includes('kv_share_handles'),
+        ).length;
+
+    it('tells other nodes to forget a handle it retires or changes', async () => {
+        const first = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-a:' }),
+        );
+        const second = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-b:' }),
+        );
+        const emit = vi.spyOn(env.server.clients.event, 'emit');
+        try {
+            await store().update(first.handle, ownerUserId, { label: 'x' });
+            await store().retireMany([first.handle, second.handle], 'owner');
+            const forgets = emit.mock.calls
+                .filter(([key]) => key === 'outer.pubsub.kv.share.forget')
+                .map(([, data]) => data);
+            expect(forgets).toEqual([
+                { handles: [first.handle] },
+                { handles: [first.handle, second.handle] },
+            ]);
+        } finally {
+            emit.mockRestore();
+        }
+    });
+
+    it('drops its cached row when another node says to', async () => {
+        const row = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-c:' }),
+        );
+        expect(await store().getLive(row.handle)).not.toBeNull();
+        // Retired behind this node's back, as another node would.
+        await env.server.clients.db.write(
+            'UPDATE `kv_share_handles` SET `revoked_at` = 1 WHERE `handle` = ?',
+            [row.handle],
+        );
+        expect(await store().getLive(row.handle)).not.toBeNull();
+
+        // A local emit is ignored: the sender already forgot.
+        env.server.clients.event.emit(
+            'outer.pubsub.kv.share.forget',
+            { handles: [row.handle] },
+            {},
+        );
+        expect(await store().getLive(row.handle)).not.toBeNull();
+
+        env.server.clients.event.emit(
+            'outer.pubsub.kv.share.forget',
+            { handles: [row.handle] },
+            { from_outside: true },
+        );
+        await vi.waitFor(async () =>
+            expect(await store().getLive(row.handle)).toBeNull(),
+        );
+    });
+
+    it('reads nothing for an id whose mac does not verify', async () => {
+        const row = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-d:' }),
+        );
+        const [id, mac] = row.handle.split('.');
+        const forged = `${id}.${mac[0] === 'A' ? 'B' : 'A'}${mac.slice(1)}`;
+        const read = vi.spyOn(env.server.clients.db, 'read');
+        const pread = vi.spyOn(env.server.clients.db, 'pread');
+        try {
+            expect(await store().getLive(forged)).toBeNull();
+            expect(await store().getByHandle(forged)).toBeNull();
+            expect(handleReads(read) + handleReads(pread)).toBe(0);
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+    });
+});
+
+describe('the owner listing by state', () => {
+    it('defaults to every handle, and narrows to live or revoked', async () => {
+        const appUid = 'app-listing-state';
+        const live = await store().mint(
+            input({ appUid, keyPrefix: 'state-live:' }),
+        );
+        const gone = await store().mint(
+            input({ appUid, keyPrefix: 'state-gone:' }),
+        );
+        await store().retireMany([gone.handle], 'owner');
+        const handlesIn = async (state?: 'live' | 'revoked' | 'all') =>
+            (
+                await store().listForOwner(ownerUserId, { appUid, state })
+            ).items.map((row) => row.handle);
+
+        expect(await handlesIn()).toEqual([live.handle, gone.handle]);
+        expect(await handlesIn('all')).toEqual([live.handle, gone.handle]);
+        expect(await handlesIn('live')).toEqual([live.handle]);
+        expect(await handlesIn('revoked')).toEqual([gone.handle]);
+        expect(
+            (
+                await store().listForOwner(ownerUserId, {
+                    appUid,
+                    state: 'live',
+                    includeTotal: true,
+                })
+            ).total,
+        ).toBe(1);
     });
 });
