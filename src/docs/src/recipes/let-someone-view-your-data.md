@@ -5,6 +5,8 @@ tags: [kv, perms]
 order: 18
 ---
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 A fitness app keeps each user's workouts in their own Puter account. A user who
 trains with a coach wants the coach to see the log, but not change it. With
 [`puter.kv.share()`](/KV/share/) and read access, the coach can read and list

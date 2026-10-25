@@ -186,6 +186,8 @@ Before the provider runs, the balance must cover every page the call can be bill
 
 ### Key-value store
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 | Limit                           | Paid | Free | Anonymous |
 | ------------------------------- | ---- | ---- | --------- |
 | `get` / `set` / etc. per 10 s   | 400  | 400  | 200       |
@@ -421,6 +423,8 @@ The mutation and read budgets are per user, per app, not per team: administering
 See [Events](/Events/) for an overview, [`onLocal()`](/Events/subjects/#gaps) for gap markers, and [`onPersistent()`](/Events/onPersistent/#suspended-subscriptions) for suspension.
 
 #### What an account can hold
+
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
 
 | Limit                                | Scope              | Paid | Free | Anonymous |
 | ------------------------------------ | ------------------ | ---- | ---- | --------- |

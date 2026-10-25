@@ -5,6 +5,8 @@ tags: [kv, perms]
 order: 17
 ---
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 [`puter.kv`](/KV/) keeps each user's data in their own Puter account, where only
 they can reach it. A shared grocery list or to-do list needs two people working
 on the same data. With [`puter.kv.share()`](/KV/share/), a user can give another

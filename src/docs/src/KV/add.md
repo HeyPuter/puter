@@ -38,6 +38,8 @@ A plain object is read as a path map, never appended as an element: to append an
 
 #### `optConfig` (Object) (optional)
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 The last argument. It takes these properties:
 
 - `handle` (String): Work on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix. The share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).

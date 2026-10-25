@@ -5,6 +5,8 @@ tags: [kv, perms, workers]
 order: 23
 ---
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 Some apps share data without the user clicking a share button. A team chat app
 can share each new room with the whole team as soon as it's created, or a
 backend can add a member to a room when your own rules say so. In both cases your app calls

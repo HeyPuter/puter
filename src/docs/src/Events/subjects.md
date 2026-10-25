@@ -102,6 +102,8 @@ Entries the other app wrote with `disableSharing` are never delivered. Marking a
 
 ## Sharing key-value data with another user
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 `kv:` always means your own data. When another user shares part of theirs with you using [`puter.kv.share()`](/KV/share/), you watch it through the share's **handle**, which goes where an app id would go. For a walkthrough, see [Send Live Updates to Other Users](/recipes/send-live-updates-to-other-users/).
 
 ```js

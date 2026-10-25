@@ -56,6 +56,8 @@ The batch form rejects it with `invalid_request`.
 
 #### `handle` (String) (optional)
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 Pass inside the trailing options object, as in `set(key, value, { handle })`, to write into data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users). The batch form takes it too. With `handle`, a key can be at most 768 bytes.
 
 #### `items` (Array) (batch only)

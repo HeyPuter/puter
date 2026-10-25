@@ -5,6 +5,8 @@ tags: [kv, perms]
 order: 21
 ---
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 Once users share data in your app, they need a way to see who has it and to
 take it back. This recipe builds two screens, a "People with access" panel for
 the data a user shared and a "Shared with me" list for the data other people
