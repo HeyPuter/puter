@@ -2426,8 +2426,8 @@ const TabFiles = {
             size: file.size,
             modified: file.modified,
         };
-        // Rows aren't keyed by sharer; the Shared view takes no added rows.
-        const sortColumn = this.activeSortColumn() === 'shared_by' ? 'name' : this.activeSortColumn();
+        const sortColumn = this.activeSortColumn();
+        const newSharer = { shared_by: $newRow.attr('data-shared_by') };
         const sign = this.sortDirection === 'asc' ? 1 : -1;
         let inserted = false;
 
@@ -2445,11 +2445,14 @@ const TabFiles = {
             }
 
             // Same type — compare by sort column
-            const comparison = sign * compareEntries(newKey, {
+            const key = {
                 name: this.getAttribute('data-name') || '',
                 size: parseInt(this.getAttribute('data-size')) || 0,
                 modified: parseInt(this.getAttribute('data-modified')) || 0,
-            }, sortColumn);
+            };
+            const comparison = sign * (sortColumn === 'shared_by'
+                ? compareSharers(newSharer, { shared_by: this.getAttribute('data-shared_by') }) || compareNames(newKey.name, key.name)
+                : compareEntries(newKey, key, sortColumn));
 
             if ( comparison < 0 ) {
                 $newRow.insertBefore(this);

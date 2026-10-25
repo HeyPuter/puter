@@ -879,6 +879,24 @@ describe('TabFiles sorting', () => {
         expect(TabFiles.sortFiles(trashed).map(e => e.name)).toEqual(['uid-a', 'uid-b']);
     });
 
+    it("keeps a renamed row among its sharer's in the Shared view", () => {
+        window.shared_path = 'puter://shared';
+        TabFiles.currentPath = 'puter://shared';
+        TabFiles.sortColumn = 'shared_by';
+        TabFiles.sortDirection = 'asc';
+        const row = (name, sharer) => `<div class="item row" data-name="${name}" data-is_dir="0" data-shared_by="${sharer}"></div>`;
+        document.body.innerHTML = `<div class="window"><div class="files-tab"><div class="files">
+            ${row('beta.txt', 'alice')}${row('zeta.txt', 'alice')}${row('alpha.txt', 'bob')}
+        </div></div></div>`;
+        TabFiles.$el_window = $('.window');
+        // beta.txt renamed to "zzz.txt": still Alice's, so still before Bob's.
+        const $renamed = $('.files .row').eq(0).attr('data-name', 'zzz.txt');
+
+        TabFiles.insertAtSortedPosition($renamed, { name: 'zzz.txt' });
+
+        expect($('.files .row').map((_, r) => r.getAttribute('data-name')).get()).toEqual(['zeta.txt', 'zzz.txt', 'alpha.txt']);
+    });
+
     it('puts an added row where a listing would', () => {
         TabFiles.sortColumn = 'size';
         TabFiles.sortDirection = 'asc';
