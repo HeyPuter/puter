@@ -82,6 +82,23 @@ const positiveLimit = (value: unknown): number | undefined =>
         ? value
         : undefined;
 
+const chatCapabilities = ['TG', 'Reasoning', 'VU'];
+
+const curatedPuterIds = new Set(ALIBABA_MODELS.map((model) => model.puterId));
+
+const inferPuterId = (id: string): string => {
+    if (id.includes('/')) return `alibaba:${id}`;
+    const family = id.split('-')[0];
+    const sibling = ALIBABA_MODELS.find(
+        (model) => model.puterId && model.id.split('-')[0] === family,
+    );
+    // Unprefixed feed ids are Model Studio's own family unless a curated
+    // sibling points at a third-party org.
+    const org =
+        sibling?.puterId?.slice('alibaba:'.length).split('/')[0] ?? 'qwen';
+    return `alibaba:${org}/${id}`;
+};
+
 export const mapAlibabaCatalogModel = (
     raw: AlibabaApiModel,
     previous?: IChatModel,
@@ -96,10 +113,17 @@ export const mapAlibabaCatalogModel = (
         !output &&
         !existing &&
         !raw.capabilities?.some((capability) =>
-            ['TG', 'Reasoning', 'VU'].includes(capability),
+            chatCapabilities.includes(capability),
         )
     )
         return null;
+    let puterId = existing?.puterId;
+    if (!puterId) {
+        puterId = inferPuterId(id);
+        // A feed entry spelling a curated model differently would duplicate
+        // the curated entry's puterId and list the model twice.
+        if (curatedPuterIds.has(puterId)) return null;
+    }
     const catalogPricing: AlibabaCatalogTier[] = (raw.prices ?? []).map(
         (tier) => {
             // Abbreviated ranges do not specify whether k means 1000 or 1024 tokens.
@@ -149,6 +173,7 @@ export const mapAlibabaCatalogModel = (
     return {
         ...existing,
         id,
+        puterId,
         name: raw.name ?? existing?.name ?? id,
         description: raw.description ?? existing?.description,
         aliases: existing?.aliases,
