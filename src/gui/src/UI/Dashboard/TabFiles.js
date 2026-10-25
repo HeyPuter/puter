@@ -2879,6 +2879,10 @@ const TabFiles = {
             // the rows already loaded.
             if ( isSharedView && options.filterChange && this.sharedRows ) {
                 directoryContents = this.sharedRows;
+            } else if ( isSameDirRefresh && (! err?.code || err.code === 'request_timeout') ) {
+                // The server wasn't reached (a laptop back from sleep before
+                // its Wi-Fi is): the rows on screen are the best there is.
+                directoryContents = null;
             } else {
                 readFailed = true;
                 directoryContents = [];

@@ -251,6 +251,35 @@ describe('TabFiles opening a folder that fails to list', () => {
         expect(TabFiles.acceptsNewItems('/alice/Documents')).toBe(true);
         expect(TabFiles.renderingDirectory).toBe(false);
     });
+
+    it('keeps the rows when a refresh of it can\'t reach the server', async () => {
+        mountListing(['a.txt'], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        // puter.js rejects with the XMLHttpRequest itself, which has no code.
+        window.puter.fs.readdir = vi.fn(async () => {
+            throw { status: 0 };
+        });
+
+        await TabFiles.renderDirectory('/alice/Documents');
+
+        expect($('.files .row')).toHaveLength(1);
+        expect(TabFiles.acceptsNewItems('/alice/Documents')).toBe(true);
+        expect(TabFiles.renderingDirectory).toBe(false);
+    });
+
+    it('says so when a refresh finds it gone', async () => {
+        mountListing(['a.txt'], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        window.puter.fs.readdir = vi.fn(async () => {
+            throw { code: 'subject_does_not_exist', message: 'Subject does not exist' };
+        });
+
+        await TabFiles.renderDirectory('/alice/Documents');
+
+        expect($('.files .row')).toHaveLength(0);
+        expect($('.files').text()).toContain("couldn't be opened");
+    });
 });
 
 describe('TabFiles opening a folder during a refresh', () => {
