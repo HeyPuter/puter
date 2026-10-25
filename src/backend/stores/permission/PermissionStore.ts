@@ -937,6 +937,16 @@ export class PermissionStore extends PuterStore {
     }
 
     /**
+     * Whether this user granted this app anything at all. Every way an app gets
+     * a token for a user leaves a row, and removing the app takes them all, so
+     * this is what "still installed" reads off.
+     */
+    async hasAnyUserAppPerm(userId: number, appId: number): Promise<boolean> {
+        const all = await this.#readAllUserAppPerms(userId, appId);
+        return all.length > 0;
+    }
+
+    /**
      * Every row this user granted this app, read from the primary past the row
      * cache — for a write that must see a grant made moments before.
      */

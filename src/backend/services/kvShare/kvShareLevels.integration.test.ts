@@ -186,6 +186,14 @@ const makeApp = async () => {
     return app;
 };
 
+/** What launching the app records: the user authorizing it. */
+const authorizeApp = (user: TestUser, app: { uid: string }) =>
+    permissions().grantUserAppPermission(
+        user.actor,
+        app.uid,
+        'flag:app-is-authenticated',
+    );
+
 const appActorFor = (user: TestUser, app: { uid: string; id: number }) =>
     makeActor({
         user: user.actor.user as never,
@@ -1404,6 +1412,7 @@ describe('an app checking a share through its user', () => {
 
     it('asks its user once, however deep the region', async () => {
         const app = await makeApp();
+        await authorizeApp(guest, app);
         const actor = appActorFor(guest, app);
         const permission = kvSharePermission(
             owner.uuid,
@@ -1423,6 +1432,7 @@ describe('an app checking a share through its user', () => {
 
     it('answers from the user`s grant on any ancestor, at its level or above, until it is revoked', async () => {
         const app = await makeApp();
+        await authorizeApp(guest, app);
         const actor = appActorFor(guest, app);
         const prefix = region('ancestor');
         const { handle } = await share(prefix, 'read', { appUid: app.uid });

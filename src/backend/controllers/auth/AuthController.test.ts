@@ -7716,6 +7716,12 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
                 grant,
             ),
         );
+        // What launching the app records for the holder.
+        await server.services.permission.grantUserAppPermission(
+            holderActor,
+            app.uid,
+            'flag:app-is-authenticated',
+        );
         const appActor = makeActor({
             user: holderActor.user,
             app: { id: app.id, uid: app.uid },

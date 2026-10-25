@@ -631,7 +631,8 @@ const kvShareCheckReaches = (asked: string, option: string): boolean => {
 
 /**
  * Letting an app-under-user actor exercise a share grant its user holds, at any
- * level, bounded to the app the grant's namespace names.
+ * level, bounded to the app the grant's namespace names, while the user still
+ * has the app authorized. Removing the app pauses its reach; the share stays.
  *
  * Only the grant itself is matched — never `manage:kv-share…` — because
  * answering the manage arm here would read as the unbounded namespace-root
@@ -641,6 +642,7 @@ const kvShareCheckReaches = (asked: string, option: string): boolean => {
  */
 export const kvShareAppDelegateImplicator = (deps: {
     userHolds: (actor: Actor, permission: string) => Promise<boolean>;
+    appAuthorized: (actor: Actor) => Promise<boolean>;
 }): PermissionImplicator => ({
     id: 'kv-share-app-delegate',
     shortcut: true,
@@ -661,6 +663,7 @@ export const kvShareAppDelegateImplicator = (deps: {
         const refused = memo?.get(DELEGATE_REFUSED) as string[] | undefined;
         if (refused?.some((asked) => kvShareCheckReaches(asked, permission)))
             return undefined;
+        if (!(await deps.appAuthorized(actor))) return undefined;
         if (await deps.userHolds(userRelatedActor(actor), permission))
             return {};
         memo?.set(DELEGATE_REFUSED, [...(refused ?? []), permission]);

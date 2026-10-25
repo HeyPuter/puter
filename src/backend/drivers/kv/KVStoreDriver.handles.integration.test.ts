@@ -182,6 +182,14 @@ const appActorFor = (user: TestUser, app: { uid: string; id: number }) =>
         app: { uid: app.uid, id: app.id },
     });
 
+/** What launching the app records: the user authorizing it. */
+const authorizeApp = (user: TestUser, app: { uid: string }) =>
+    env.server.services.permission.grantUserAppPermission(
+        user.actor,
+        app.uid,
+        'flag:app-is-authenticated',
+    );
+
 /** One `/drivers/call` to the KV driver, the way the SDK makes it. */
 const drive = async (
     token: string,
@@ -922,6 +930,8 @@ describe('an app using a handle', () => {
     beforeAll(async () => {
         app = await makeApp();
         otherApp = await makeApp();
+        await authorizeApp(guest, app);
+        await authorizeApp(guest, otherApp);
     });
 
     it('works in the app whose data it is, and in the holder`s own session', async () => {
@@ -1025,6 +1035,7 @@ describe('a token using a handle', () => {
         );
         const inApp = await share(appPrefix, 'read', { appUid: app.uid });
         await share(appElsewhere, 'read', { appUid: app.uid });
+        await authorizeApp(guest, app);
         const appActor = appActorFor(guest, app);
 
         const carrying = await tokenActor(

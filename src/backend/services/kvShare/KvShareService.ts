@@ -268,11 +268,13 @@ export class KvShareService extends PuterService {
         this.services.permission.registerImplicator(kvShareOwnerImplicator());
 
         // Lets an app-under-user actor exercise a share grant its user holds,
-        // scoped to the app the grant's namespace names.
+        // scoped to the app the grant's namespace names. The answer is cached
+        // under the app-under-user generation, which removing the app bumps.
         this.services.permission.registerImplicator(
             kvShareAppDelegateImplicator({
                 userHolds: (actor, permission) =>
                     this.services.permission.check(actor, permission),
+                appAuthorized: (actor) => this.#appAuthorized(actor),
             }),
         );
 
@@ -727,6 +729,16 @@ export class KvShareService extends PuterService {
         )
             return this.#unshareAsHolder(actor, share);
         throw unknownKvShareHandle(named);
+    }
+
+    /** Whether the actor's user still has its app authorized. */
+    async #appAuthorized(actor: Actor): Promise<boolean> {
+        const userId = actor.user?.id;
+        const app = actor.effectiveApp;
+        if (typeof userId !== 'number' || !app) return false;
+        const appId = app.id ?? (await this.stores.app.getByUid(app.uid))?.id;
+        if (typeof appId !== 'number') return false;
+        return this.stores.permission.hasAnyUserAppPerm(userId, appId);
     }
 
     /**
