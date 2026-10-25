@@ -729,6 +729,11 @@ const TabFiles = {
         // Refresh current directory when the user returns to this browser tab
         document.addEventListener('visibilitychange', async () => {
             if ( document.visibilityState !== 'visible' || !this.currentPath ) return;
+            // Another dashboard tab is showing: refresh when Files is next.
+            if ( ! this.isDashboardFilesActive() ) {
+                this.refreshOnActivate = true;
+                return;
+            }
 
             const $filesTab = this.$el_window.find('.files-tab');
 
@@ -796,6 +801,10 @@ const TabFiles = {
         // Update URL to show current path when Files tab becomes active
         if ( this.currentPath && window.is_dashboard_mode ) {
             this.updateDashboardUrl(this.currentPath);
+        }
+        if ( this.refreshOnActivate ) {
+            this.refreshOnActivate = false;
+            this.refreshKeepingSelection({ skipNavHistory: true, skipUrlUpdate: true });
         }
         // Crumbs rendered while the tab was hidden had no width to scroll,
         // and grid tiles had none to fit their names to.
