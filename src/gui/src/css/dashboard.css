@@ -9362,14 +9362,17 @@ body.dashboard-mode .notifications-close-all {
     gap: 2px;
 }
 
+/* Two lines, so a long file name keeps its extension in view. */
 .dashboard-transfer-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
     font-size: 13px;
     font-weight: 600;
     line-height: 1.45;
     color: var(--dashboard-text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
 }
 
 .dashboard-transfer-status {
