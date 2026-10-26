@@ -1490,8 +1490,10 @@ const ipc_listener = async (event, handled) => {
             return;
         }
 
-        // set options
-        event.data.options = event.data.options ?? {};
+        // set options; puter.js forwards a bare font name as-is
+        event.data.options = typeof event.data.options === 'string'
+            ? { defaultFont: event.data.options }
+            : (event.data.options ?? {});
 
         // clear window_options for security reasons
         event.data.options.window_options = {};

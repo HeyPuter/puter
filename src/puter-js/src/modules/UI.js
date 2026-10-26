@@ -178,6 +178,8 @@ import { checkPermissions } from './perms/lib/holds.js';
  *
  * @typedef {Object} FontPickerOptions
  * @property {string} [defaultFont] The font initially selected when the picker opens.
+ * @property {string} [defaultValue] Legacy alias for `defaultFont`.
+ * @property {string} [default] Legacy alias for `defaultFont`.
  */
 
 /**
@@ -1412,11 +1414,21 @@ export class UIModule extends EventListener {
     };
 
     /**
+     * @overload
+     * @param {string} [defaultFont]
+     * @returns {Promise<{ fontFamily: string }>}
+     */
+    /**
+     * @overload
+     * @param {FontPickerOptions} [options]
+     * @returns {Promise<{ fontFamily: string }>}
+     */
+    /**
      * Shows a font picker. Resolves to the chosen font. Accepts either a
-     * default font name or an options object. `default` is a legacy alias for
-     * `defaultFont`.
+     * default font name or an options object. `defaultValue` and `default` are
+     * legacy aliases for `defaultFont`.
      *
-     * @param {string | (FontPickerOptions & { default?: string })} [options]
+     * @param {string | FontPickerOptions} [options]
      * @returns {Promise<{ fontFamily: string }>}
      */
     showFontPicker (options) {
@@ -1429,7 +1441,7 @@ export class UIModule extends EventListener {
         return new Promise((resolve) => {
             const opts = typeof options === 'string' ? { defaultFont: options } : (options ?? {});
             const el = document.createElement('puter-font-picker');
-            const defaultFont = opts.defaultFont || opts.default || 'System UI';
+            const defaultFont = opts.defaultFont || opts.defaultValue || opts.default || 'System UI';
             el.setAttribute('default-font', defaultFont);
             el.addEventListener('response', (e) => resolve(e.detail));
             document.body.appendChild(el);

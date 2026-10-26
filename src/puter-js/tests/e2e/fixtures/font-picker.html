@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>puter-js test fixture: showFontPicker</title>
+    <style>
+        body { font-family: system-ui, sans-serif; padding: 16px; }
+        button { padding: 8px 12px; margin-right: 8px; font-size: 14px; }
+        #log { margin-top: 16px; padding: 8px; background: #f5f5f5; border: 1px solid #ddd; min-height: 60px; font-family: monospace; white-space: pre-wrap; }
+        .ready #status { color: green; }
+    </style>
+</head>
+<body>
+    <h1>puter-js showFontPicker fixture</h1>
+    <p id="status">Loading puter.js…</p>
+
+    <button id="pick-default-font" disabled>defaultFont</button>
+    <button id="pick-default-value" disabled>defaultValue</button>
+    <button id="pick-string" disabled>String</button>
+
+    <div id="log" data-testid="log"></div>
+
+    <script>
+        window.PUTER_ORIGIN = 'http://puter.localhost:4100';
+        // The SDK's credentialed CORS requests only succeed against the api host.
+        window.PUTER_API_ORIGIN = 'http://api.puter.localhost:4100';
+    </script>
+    <script src="/dist/puter.dev.js"></script>
+    <script>
+        const logEl = document.getElementById('log');
+        const statusEl = document.getElementById('status');
+
+        function log(entry) {
+            const line = document.createElement('div');
+            line.textContent = entry;
+            line.dataset.entry = entry;
+            logEl.appendChild(line);
+        }
+
+        const pickers = {
+            'pick-default-font': () => puter.ui.showFontPicker({ defaultFont: 'Verdana' }),
+            'pick-default-value': () => puter.ui.showFontPicker({ defaultValue: 'Verdana' }),
+            'pick-string': () => puter.ui.showFontPicker('Verdana'),
+        };
+
+        function ready() {
+            document.body.classList.add('ready');
+            statusEl.textContent = `Ready (env=${puter.env})`;
+            for ( const [id, open] of Object.entries(pickers) ) {
+                const button = document.getElementById(id);
+                button.disabled = false;
+                button.addEventListener('click', async () => {
+                    try {
+                        const font = await open();
+                        log(`font:${font ? font.fontFamily : font}`);
+                    } catch (e) {
+                        log(`font:error:${e?.message ?? e}`);
+                    }
+                });
+            }
+        }
+
+        function waitForPuter() {
+            if (window.puter && puter.ui) ready();
+            else setTimeout(waitForPuter, 50);
+        }
+        waitForPuter();
+    </script>
+</body>
+</html>
