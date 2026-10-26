@@ -60,6 +60,7 @@ describe('UIDashboardTransfer', () => {
         expect($('.dashboard-transfer-status').text()).toBe('preparing');
         expect($(transfer.element).attr('data-operation-id')).toBe('7');
         expect(summary()).toBe('tasks_in_progress_one:{"count":1}');
+        expect($('.dashboard-transfers-summary').attr('role')).toBe('status');
         const $bar = $('[role="progressbar"]');
         expect($bar.hasClass('dashboard-progress-indeterminate')).toBe(true);
         expect($bar.attr('aria-valuenow')).toBeUndefined();

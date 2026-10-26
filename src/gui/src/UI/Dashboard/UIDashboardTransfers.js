@@ -81,7 +81,8 @@ function mountTray () {
     const id = `dashboard-transfers-${window.uuidv4?.() ?? Date.now()}`;
     let h = `<section class="dashboard-transfers" aria-labelledby="${id}-summary">`;
     h += '<div class="dashboard-transfers-header">';
-    h += `<span class="dashboard-transfers-summary" id="${id}-summary"></span>`;
+    // Announces tasks starting and finishing; a failure's row is its own alert.
+    h += `<span class="dashboard-transfers-summary" id="${id}-summary" role="status"></span>`;
     h += `<button type="button" class="dashboard-transfers-btn dashboard-transfers-toggle" aria-controls="${id}-list">${TRAY_ICONS.chevron}</button>`;
     h += `<button type="button" class="dashboard-transfers-btn dashboard-transfers-close" aria-label="${i18n('close')}" title="${i18n('close')}" hidden>${ICONS.close}</button>`;
     h += '</div>';
