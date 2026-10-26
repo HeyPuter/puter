@@ -32,7 +32,7 @@ The options for the `copy` operation. The following options are supported:
 
 - `source` (String) - Path to the file or directory to copy. Required when passing options as the only argument.
 - `destination` (String) - Path to the destination. Required when passing options as the only argument.
-- `overwrite` (Boolean) - Whether to overwrite the destination file or directory if it already exists. Defaults to `false`. A directory that contains the item being copied is never overwritten: the call is refused instead.
+- `overwrite` (Boolean) - Whether to overwrite the destination file or directory if it already exists. Defaults to `false`.
 - `dedupeName` (Boolean) - Whether to deduplicate the file or directory name if it already exists. Defaults to `false`.
 - `newName` (String) - The new name to use for the copied file or directory. Defaults to `undefined`.
 
