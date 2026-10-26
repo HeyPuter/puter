@@ -511,6 +511,7 @@ export class AppConnection extends EventListener {
  *     localeChanged: { language: string },
  *     themeChanged: ThemeData,
  *     connection: ConnectionEvent,
+ *     notificationClick: unknown,
  * }>}
  */
 export class UIModule extends EventListener {
@@ -685,6 +686,8 @@ export class UIModule extends EventListener {
             'localeChanged',
             'themeChanged',
             'connection',
+            // Surfaced as `puter.notifications.on('click')`.
+            'notificationClick',
         ];
         super(eventNames);
         this.#eventNames = eventNames;

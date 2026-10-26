@@ -10,6 +10,7 @@ import hosting from './hosting.suite.ts';
 import kv from './kv.suite.ts';
 import kvShare from './kvShare.suite.ts';
 import net from './net.suite.ts';
+import notifications from './notifications.suite.ts';
 import os from './os.suite.ts';
 import perms from './perms.suite.ts';
 import sharing from './sharing.suite.ts';
@@ -34,6 +35,7 @@ export const suites: Suite[] = [
     kv,
     kvShare,
     net,
+    notifications,
     os,
     perms,
     sharing,
