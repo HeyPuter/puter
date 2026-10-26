@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import {
     type Actor,
     isAppActor,
@@ -40,6 +40,7 @@ import type {
     PermissionImplicator,
 } from '../permission/permissionUtil.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
+import { secretsEqual } from '../../util/secureCompare.js';
 import {
     isKvHandleId,
     KV_HANDLE_PREFIX,
@@ -113,8 +114,48 @@ export const KV_HANDLE_KEY_MAX_BYTES =
 /** Width of the `app_uid` column the handle row stores its namespace in. */
 export const KV_SHARE_APP_UID_MAX_LENGTH = KV_SHARE_HANDLE_WIDTHS.appUid.max;
 
-export const mintKvHandleId = (): string =>
-    `${KV_HANDLE_PREFIX}${randomUUID()}`;
+/** Bytes of HMAC a minted handle id carries after its uuid. */
+const KV_HANDLE_MAC_BYTES = 16;
+
+/** Handles minted before ids were signed: `kvh-<uuid>`. */
+const LEGACY_KV_HANDLE_ID =
+    /^kvh-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+const SIGNED_KV_HANDLE_ID =
+    /^(kvh-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([A-Za-z0-9_-]{22})$/;
+
+const kvHandleMac = (id: string, secret: string): string =>
+    createHmac('sha256', secret)
+        .update(`kv-share-handle:${id}`)
+        .digest()
+        .subarray(0, KV_HANDLE_MAC_BYTES)
+        .toString('base64url');
+
+/**
+ * `kvh-<uuid>.<mac>`: the mac lets a forged id be refused before any lookup.
+ * Never contains `:`, since a handle sits in one segment of a `kv:` subject.
+ */
+export const mintKvHandleId = (secret: string): string => {
+    const id = `${KV_HANDLE_PREFIX}${randomUUID()}`;
+    return `${id}.${kvHandleMac(id, secret)}`;
+};
+
+/**
+ * Whether `handle` could name a handle: `signed` for a minted id whose mac
+ * verifies, `legacy` for an unsigned one minted before ids were signed, and
+ * `null` for anything else.
+ */
+export const kvHandleIdKind = (
+    handle: string,
+    secret: string,
+): 'signed' | 'legacy' | null => {
+    if (LEGACY_KV_HANDLE_ID.test(handle)) return 'legacy';
+    const signed = SIGNED_KV_HANDLE_ID.exec(handle);
+    if (!signed) return null;
+    return secretsEqual(signed[2], kvHandleMac(signed[1], secret))
+        ? 'signed'
+        : null;
+};
 
 /** The key segments a prefix contributes to a permission string. */
 export const keyPrefixSegments = (keyPrefix: string): string[] =>
@@ -195,13 +236,18 @@ export const kvShareGrantCovers = (revoked: string, held: string): boolean => {
 /**
  * The level a key-value driver method needs through a share, or `null` for a
  * method no share reaches. Derived from the cross-app op table, so a method
- * missing from it fails closed.
+ * missing from it fails closed. Listing keys alone needs only `watch`, which
+ * already learns every key written in the region.
  */
-export const kvShareLevelForMethod = (method: string): KvShareAccess | null => {
+export const kvShareLevelForMethod = (
+    method: string,
+    args: { as?: unknown } = {},
+): KvShareAccess | null => {
     if (!Object.prototype.hasOwnProperty.call(APP_DATA_KV_METHOD_OPS, method))
         return null;
     const op = APP_DATA_KV_METHOD_OPS[method];
     if (op === null) return null;
+    if (op === 'list' && args.as === 'keys') return 'watch';
     return op === 'get' || op === 'list' ? 'read' : 'write';
 };
 
@@ -590,7 +636,8 @@ const kvShareCheckReaches = (asked: string, option: string): boolean => {
 
 /**
  * Letting an app-under-user actor exercise a share grant its user holds, at any
- * level, bounded to the app the grant's namespace names.
+ * level, bounded to the app the grant's namespace names, while the user still
+ * has the app authorized. Removing the app pauses its reach; the share stays.
  *
  * Only the grant itself is matched — never `manage:kv-share…` — because
  * answering the manage arm here would read as the unbounded namespace-root
@@ -600,6 +647,7 @@ const kvShareCheckReaches = (asked: string, option: string): boolean => {
  */
 export const kvShareAppDelegateImplicator = (deps: {
     userHolds: (actor: Actor, permission: string) => Promise<boolean>;
+    appAuthorized: (actor: Actor) => Promise<boolean>;
 }): PermissionImplicator => ({
     id: 'kv-share-app-delegate',
     shortcut: true,
@@ -620,6 +668,7 @@ export const kvShareAppDelegateImplicator = (deps: {
         const refused = memo?.get(DELEGATE_REFUSED) as string[] | undefined;
         if (refused?.some((asked) => kvShareCheckReaches(asked, permission)))
             return undefined;
+        if (!(await deps.appAuthorized(actor))) return undefined;
         if (await deps.userHolds(userRelatedActor(actor), permission))
             return {};
         memo?.set(DELEGATE_REFUSED, [...(refused ?? []), permission]);

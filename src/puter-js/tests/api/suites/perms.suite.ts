@@ -70,6 +70,47 @@ export default suite('perms', {
         t.assert.ok(!revoked.error, `revoke failed: ${JSON.stringify(revoked)}`);
     },
 
+    'revokeApp with "*" and deleteData deletes the app\'s data': async (t) => {
+        const app = await t.puter.apps.create(
+            t.puter.randName(),
+            'https://example.com/perms-delete-data',
+        );
+        await asApp(t, app.uid, () => t.puter.kv.set('perms-suite-key', 'x'));
+
+        const revoked = await t.puter.perms.revokeApp(app.uid, '*', {
+            deleteData: true,
+        });
+        t.assert.ok(!revoked.error, `revoke failed: ${JSON.stringify(revoked)}`);
+
+        // The data is deleted in the background after the call returns.
+        let value: unknown = 'x';
+        for (let i = 0; i < 50 && value !== null; i++) {
+            value = await asApp(t, app.uid, () =>
+                t.puter.kv.get('perms-suite-key'),
+            );
+            if (value !== null) await new Promise((r) => setTimeout(r, 100));
+        }
+        t.assert.equal(value, null);
+    },
+
+    'revokeApp refuses deleteData without "*"': async (t) => {
+        const app = await t.puter.apps.create(
+            t.puter.randName(),
+            'https://example.com/perms-delete-data-narrow',
+        );
+        const path = `${home(t)}/perms-suite-delete-data-narrow.txt`;
+        await t.puter.fs.write(path, 'x');
+        await t.puter.perms.grantApp(app.uid, `fs:${path}:read`);
+
+        const result = await t.puter.perms.revokeApp(
+            app.uid,
+            `fs:${path}:read`,
+            { deleteData: true },
+        );
+        t.assert.equal(result.error, true);
+        t.assert.equal(result.code, 'bad_request');
+    },
+
     // A third-party site is identified by origin rather than app uid, which
     // the backend resolves back to the app registered at that origin.
     'grantOrigin and revokeOrigin address the app registered at that origin': async (

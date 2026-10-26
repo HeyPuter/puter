@@ -426,6 +426,10 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
             <div class="myapps-modal" role="dialog" aria-modal="true" aria-label="${i18n('uninstall_app', { name: displayName })}">
                 <h3>${i18n('uninstall_app', { name: displayName })}</h3>
                 <p>${i18n('uninstall_app_body')}</p>
+                <label class="myapps-modal-option">
+                    <input type="checkbox" class="myapps-modal-delete-data">
+                    <span>${i18n('uninstall_delete_data')}</span>
+                </label>
                 <div class="myapps-modal-buttons">
                     <button class="myapps-modal-btn myapps-modal-cancel">${i18n('cancel')}</button>
                     <button class="myapps-modal-btn myapps-modal-confirm">${i18n('uninstall')}</button>
@@ -470,6 +474,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         // The saved order intentionally keeps the app's name:
         // reconcileAppOrder ignores it while the app is gone and
         // restores its position if it comes back.
+        const deleteData = $overlay.find('.myapps-modal-delete-data').is(':checked');
         const removedIndex = self._apps.findIndex(a => a.name === appName);
         const removedApp = removedIndex === -1 ? null : self._apps[removedIndex];
         // A running instance would be stranded: the tile is a headless
@@ -558,7 +563,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
             finishRemoval();
         }
 
-        puter.perms.revokeApp(appUid, '*').then(async (result) => {
+        puter.perms.revokeApp(appUid, '*', { deleteData }).then(async (result) => {
             // revokeApp resolves (never rejects) with `error` set on failure.
             if ( result?.error ) throw result;
             // Clearing the grants is only half of it. An app the user already
