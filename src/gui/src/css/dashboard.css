@@ -2229,9 +2229,12 @@ p.myapps-add-error {
     opacity: 0;
     transition: opacity 200ms ease;
     z-index: 1000;
+    /* Fading out after a close, it must not take the next click. */
+    pointer-events: none;
 }
 .item-props-overlay.item-props-show {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .item-props-modal {
@@ -2556,9 +2559,12 @@ p.myapps-add-error {
     opacity: 0;
     transition: opacity 200ms ease;
     z-index: 1000;
+    /* Fading out after a close, it must not take the next click. */
+    pointer-events: none;
 }
 .share-modal-overlay.share-modal-show {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .share-modal {
@@ -8942,10 +8948,13 @@ body.dashboard-mode .notifications-close-all {
     opacity: 0;
     transition: opacity 200ms ease;
     z-index: 1000;
+    /* Fading out after a close, it must not take the next click. */
+    pointer-events: none;
 }
 
 .dashboard-dialog-overlay.dashboard-dialog-show {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .dashboard-dialog {
