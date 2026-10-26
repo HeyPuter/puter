@@ -39,8 +39,8 @@ const LEAVE_MS = 200;
  * @property {(html: string) => void} set_status HTML the caller has already encoded.
  * @property {(percent: number|string) => void} set_progress The first call
  *   turns the bar from indeterminate to a percentage with an estimate of the time left.
- * @property {(html?: string) => void} complete Fills the bar and shows a done
- *   state until `close`; `html` (already encoded) replaces the status.
+ * @property {(title?: string) => void} complete Fills the bar and shows a done
+ *   state until `close`; `title` (plain text) replaces the row's title.
  * @property {(title: string, message: string) => void} show_error Plain text;
  *   the row stays until the user dismisses it.
  * @property {() => void} close Removes the row.
@@ -225,13 +225,13 @@ export default function UIDashboardTransfer ({ title, status, operation_id, on_c
             else if ( seconds === null ) $eta.text('');
             else $eta.text(time_left(seconds));
         },
-        complete (html) {
+        complete (done_title) {
             if ( settled || isClosed() ) return;
             settled = true;
             fill_to(100);
             $row.addClass('dashboard-transfer-done');
             $eta.html(`${TRAY_ICONS.done}<span>${i18n('done')}</span>`);
-            if ( html !== undefined ) (title ? $status : $title).html(html);
+            if ( done_title ) $title.text(done_title);
             $row.find('.dashboard-transfer-cancel').remove();
             refreshHeader();
         },

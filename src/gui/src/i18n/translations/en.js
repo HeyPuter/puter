@@ -737,6 +737,8 @@ const en = {
         uploading: 'Uploading',
         uploading_file: 'Uploading %%',
         uploading_items: 'Uploading {{count}} items',
+        uploaded_file: 'Uploaded %%',
+        uploaded_items: 'Uploaded {{count}} items',
         upload_here: 'Upload here',
         uptime: 'Uptime',
         used_of: '{{used}} used of {{available}}',

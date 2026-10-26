@@ -5510,9 +5510,9 @@ const TabFiles = {
         }
 
         const { count, name } = summarizeUpload(items);
-        const title = count === 1 && name
-            ? i18n('uploading_file', [name], false)
-            : i18n('uploading_items', { count }, false);
+        const single = count === 1 && name;
+        const title = single ? i18n('uploading_file', [name], false) : i18n('uploading_items', { count }, false);
+        const doneTitle = single ? i18n('uploaded_file', [name], false) : i18n('uploaded_items', { count }, false);
         const status = i18n('progress_destination', [this.historyLabel(destPath)]);
 
         puter.fs.upload(items, destPath, {
@@ -5556,7 +5556,7 @@ const TabFiles = {
                 });
                 // The tray doesn't block anything, so the done state can
                 // stay long enough to be noticed.
-                upload_progress_window.complete();
+                upload_progress_window.complete(doneTitle);
                 setTimeout(() => {
                     upload_progress_window.close();
                 }, 4000);

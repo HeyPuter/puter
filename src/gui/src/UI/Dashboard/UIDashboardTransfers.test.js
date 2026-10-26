@@ -166,6 +166,12 @@ describe('UIDashboardTransfer', () => {
         expect($('.dashboard-transfers-close').prop('hidden')).toBe(false);
     });
 
+    it('retitles a finished task as plain text', () => {
+        UIDashboardTransfer({ title: 'Uploading a.txt', status: 'To <strong>Home</strong>' }).complete('Uploaded <a>.txt');
+        expect($('.dashboard-transfer-title').text()).toBe('Uploaded <a>.txt');
+        expect($('.dashboard-transfer-status strong').text()).toBe('Home');
+    });
+
     it('keeps a failure until it is dismissed, and opens a collapsed tray for it', async () => {
         const transfer = UIDashboardTransfer({ title: 'Uploading', on_cancel: () => {} });
         $('.dashboard-transfers-toggle').trigger('click');
