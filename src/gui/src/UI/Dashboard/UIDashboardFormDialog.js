@@ -28,6 +28,8 @@ import { ICONS, SVG } from './UIDashboardDialog.js';
 
 const FORM_ICONS = {
     done: SVG('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>'),
+    copy: SVG('<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'),
+    copied: SVG('<path d="M20 6L9 17l-5-5"/>'),
     show: SVG('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
     hide: SVG('<path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.4 0-10-7-10-7a18.5 18.5 0 0 1 5.1-5.9"/><path d="M9.9 5.2A9.1 9.1 0 0 1 12 5c6.4 0 10 7 10 7a18.6 18.6 0 0 1-2.2 3.2"/><path d="M14.1 14.1a3 3 0 1 1-4.2-4.2"/><path d="M2 2l20 20"/>'),
 };
@@ -36,8 +38,11 @@ const FORM_ICONS = {
  * @typedef {object} FormDialogField
  * @property {string} name Key in `values()`.
  * @property {string} label HTML the caller has already encoded.
- * @property {'text'|'email'|'password'|'textarea'|'select'} [type] Defaults to text.
+ * @property {'text'|'email'|'password'|'textarea'|'select'|'switch'} [type] Defaults to text.
  * @property {string} [value]
+ * @property {boolean} [checked] A switch's initial state.
+ * @property {string} [suffix] Plain text shown at the end of a text field, as
+ *   in a domain after the name typed into it.
  * @property {string} [placeholder] Already encoded.
  * @property {string} [hint] HTML the caller has already encoded, shown under the field.
  * @property {boolean} [hidden] Rendered but not shown; see `showField`.
@@ -51,17 +56,20 @@ const FORM_ICONS = {
  * @typedef {object} FormDialog
  * @property {jQuery} $dialog
  * @property {() => void} close
- * @property {() => Record<string, string>} values Every field's current value.
+ * @property {() => Record<string, string|boolean>} values Every field's
+ *   current value; a switch's is a boolean.
  * @property {(name: string) => jQuery} field A field's control.
  * @property {(name: string, show: boolean) => void} showField
  * @property {(text: string, opts?: { kind?: 'error'|'info', field?: string }) => void} setStatus
  *   Plain text; an empty string clears it. Naming a field marks it invalid and focuses it.
  * @property {(opts: { message?: string, html?: string, describe?: string, keepOnBackdrop?: boolean }) => void} finish
- *   Swaps the form for a done state (a plain-text `message`, or the caller's
- *   encoded `html`) with a single Done button. `describe` selects the part of
+ *   Swaps the form for a done state (a plain-text `message`, then the
+ *   caller's encoded `html`, either or both) with a single Done button. `describe` selects the part of
  *   `html` the focused Done button reads out. `keepOnBackdrop` stops a stray
  *   click outside the card from closing it, for content shown only once.
  */
+
+const COPIED_RESET_MS = 2000;
 
 const attrs_html = (attrs) => Object.entries(attrs ?? {})
     .filter(([, value]) => value !== undefined && value !== null && value !== false)
@@ -71,10 +79,27 @@ const attrs_html = (attrs) => Object.entries(attrs ?? {})
 const field_html = (field, id) => {
     const control_id = `${id}-${field.name}`;
     const hint_id = `${control_id}-hint`;
+    const suffix_id = `${control_id}-suffix`;
     const type = field.type ?? 'text';
-    const common = ` id="${control_id}" name="${html_encode(field.name)}" class="dashboard-dialog-input dashboard-form-input"`
-        + (field.hint ? ` aria-describedby="${hint_id}"` : '')
+    // A switch is drawn by its slider, not the text-box style.
+    const control_class = type === 'switch' ? 'dashboard-form-input' : 'dashboard-dialog-input dashboard-form-input';
+    const described_by = [field.suffix && suffix_id, field.hint && hint_id].filter(Boolean).join(' ');
+    const common = ` id="${control_id}" name="${html_encode(field.name)}" class="${control_class}"`
+        + (described_by ? ` aria-describedby="${described_by}"` : '')
         + attrs_html(field.attrs);
+
+    if ( type === 'switch' ) {
+        return `<div class="dashboard-form-field dashboard-form-switch-field" data-field="${html_encode(field.name)}"${field.hidden ? ' hidden' : ''}>`
+            + '<div class="dashboard-form-switch-text">'
+            + `<label class="dashboard-form-label" for="${control_id}">${field.label}</label>`
+            + (field.hint ? `<p class="dashboard-form-hint" id="${hint_id}">${field.hint}</p>` : '')
+            + '</div>'
+            + '<label class="dashboard-switch">'
+            + `<input type="checkbox" role="switch"${common}${field.checked ? ' checked' : ''}>`
+            + '<span class="dashboard-switch-slider"></span>'
+            + '</label>'
+            + '</div>';
+    }
 
     let control;
     if ( type === 'textarea' ) {
@@ -85,7 +110,9 @@ const field_html = (field, id) => {
     } else {
         control = `<input type="${type}"${common} placeholder="${field.placeholder ?? ''}" value="${html_encode(field.value ?? '')}">`;
     }
-    if ( type === 'password' ) {
+    if ( field.suffix ) {
+        control = `<div class="dashboard-form-affix">${control}<span class="dashboard-form-suffix" id="${suffix_id}">${html_encode(field.suffix)}</span></div>`;
+    } else if ( type === 'password' ) {
         control = '<div class="dashboard-form-secret">'
             + control
             + `<button type="button" class="dashboard-form-reveal" aria-controls="${control_id}"`
@@ -99,6 +126,29 @@ const field_html = (field, id) => {
         + (field.hint ? `<p class="dashboard-form-hint" id="${hint_id}">${field.hint}</p>` : '')
         + '</div>';
 };
+
+/**
+ * A read-only value with a Copy button, for a `finish` screen. The dialog
+ * wires the button.
+ *
+ * @param {object} opts
+ * @param {string} opts.value Plain text.
+ * @param {string} opts.label Plain text naming the value for screen readers.
+ * @param {string} [opts.copiedLabel] Plain text the button shows once copied.
+ * @param {boolean} [opts.compact] Icon buttons, leaving the value the width;
+ *   `after` should hold `dashboard-icon-btn`s too.
+ * @param {string} [opts.after] HTML the caller has already encoded, after the button.
+ * @returns {string}
+ */
+export const copyRowHtml = ({ value, label, copiedLabel, compact = false, after = '' }) =>
+    `<div class="dashboard-copy-row${compact ? ' dashboard-copy-row-compact' : ''}">`
+    + `<input type="text" class="dashboard-dialog-input dashboard-copy-value" readonly value="${html_encode(value)}" aria-label="${html_encode(label)}" spellcheck="false">`
+    + `<button type="button" class="dashboard-dialog-btn dashboard-dialog-btn-quiet dashboard-copy-btn${compact ? ' dashboard-icon-btn' : ''}"`
+    + ` data-copied="${html_encode(copiedLabel ?? i18n('copied', [], false))}"`
+    + (compact ? ` aria-label="${i18n('copy')}" title="${i18n('copy')}">${FORM_ICONS.copy}` : `>${i18n('copy')}`)
+    + '</button>'
+    + after
+    + '</div>';
 
 /**
  * @param {object} opts
@@ -164,7 +214,7 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
         values () {
             const out = {};
             $controls().each(function () {
-                out[this.name] = String($(this).val() ?? '');
+                out[this.name] = this.type === 'checkbox' ? this.checked : String($(this).val() ?? '');
             });
             return out;
         },
@@ -196,10 +246,12 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
         },
         finish ({ message, html, describe, keepOnBackdrop = false }) {
             keep_on_backdrop = keepOnBackdrop;
-            const content = html ?? `<div class="dashboard-form-done">${FORM_ICONS.done}<p id="${id}-done">${html_encode(message ?? '')}</p></div>`;
+            const content = (message === undefined ? '' : `<div class="dashboard-form-done">${FORM_ICONS.done}<p id="${id}-done">${html_encode(message)}</p></div>`)
+                + (html ?? '');
             $dialog.attr('aria-describedby', null);
             $dialog.find('.dashboard-dialog-body').html(`<div class="dashboard-dialog-content" role="status">${content}</div>`);
-            const described = ! html || (describe && $dialog.find('.dashboard-dialog-body').find(describe).first().attr('id', `${id}-done`).length > 0);
+            const described = message !== undefined
+                || (describe && $dialog.find('.dashboard-dialog-body').find(describe).first().attr('id', `${id}-done`).length > 0);
             // A status region that arrives with its text isn't announced;
             // the focused Done button reads the message out instead.
             $dialog.find('.dashboard-dialog-footer').html(
@@ -218,6 +270,52 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
     });
 
     $dialog.on('click', '.dashboard-form-cancel, .dashboard-form-done-btn', () => close());
+
+    let copied_timer = null;
+    $dialog.on('click', '.dashboard-copy-btn', function () {
+        const $btn = $(this);
+        const $value = $btn.siblings('.dashboard-copy-value');
+        const show = (done) => {
+            const text = done ? $btn.attr('data-copied') : i18n('copy', [], false);
+            if ( $btn.hasClass('dashboard-icon-btn') ) {
+                $btn.attr({ 'aria-label': text, title: text }).html(done ? FORM_ICONS.copied : FORM_ICONS.copy);
+            } else {
+                $btn.text(text);
+            }
+        };
+        const copied = () => {
+            show(true);
+            clearTimeout(copied_timer);
+            copied_timer = setTimeout(() => show(false), COPIED_RESET_MS);
+        };
+        // No clipboard access (an insecure origin has no navigator.clipboard
+        // at all): select it, try the legacy copy, and leave it selected so
+        // the user can copy it by hand.
+        const by_hand = () => {
+            $value.get(0)?.select();
+            try {
+                if ( document.execCommand('copy') ) copied();
+            } catch { /* stays selected */ }
+        };
+        if ( navigator.clipboard?.writeText ) {
+            navigator.clipboard.writeText(String($value.val())).then(copied, by_hand);
+        } else {
+            by_hand();
+        }
+    });
+    $dialog.on('focus', '.dashboard-copy-value', function () {
+        this.select();
+    });
+
+    // The suffix is drawn inside the field's box, so a press on it types into
+    // the field, at the end of the name.
+    $dialog.on('mousedown', '.dashboard-form-suffix', function (e) {
+        const input = $(this).siblings('.dashboard-form-input').get(0);
+        if ( ! input || input.disabled ) return;
+        e.preventDefault();
+        input.focus({ preventScroll: true });
+        input.setSelectionRange(input.value.length, input.value.length);
+    });
 
     // Keep the field focused (and a phone's keyboard up) while toggling. The
     // label names the action, so the button carries no aria-pressed as well.

@@ -275,12 +275,12 @@ describe('create API token', () => {
 
         expect(String(fetch.mock.calls[0][0])).toBe('https://api.puter.test/auth/create-access-token');
         expect(bodyOf(0)).toMatchObject({ label: 'CLI', expiresIn: '30d' });
-        expect($('.dashboard-token-value').val()).toBe('tok-abc');
+        expect($('.dashboard-copy-value').val()).toBe('tok-abc');
 
-        $('.dashboard-token-copy').trigger('click');
+        $('.dashboard-copy-btn').trigger('click');
         await settle();
         expect(writeText).toHaveBeenCalledWith('tok-abc');
-        expect($('.dashboard-token-copy').text()).toBe('token_copied');
+        expect($('.dashboard-copy-btn').text()).toBe('token_copied');
     });
 
     it('shows why minting failed', async () => {
