@@ -63,15 +63,9 @@ If any part of the upload fails, the promise is rejected — it never resolves t
 
 When every failed item failed the same way, that `code` and `status` are also set on the rejection value itself, because the cause belongs to the request rather than to any one file. An upload that exceeds the account's storage quota is the common case: it rejects with `code: 'storage_limit_reached'` and `status: 413` however many files were in it.
 
-When the signed batch-write endpoint is unavailable and the SDK falls back to the older batch endpoint, the rejection value also carries a stable `code`:
-
-- `batch_upload_failed` — every operation failed, so nothing was written.
-- `batch_upload_partially_failed` — some operations succeeded and others didn't. `failedCount` and `totalCount` say how many, and `results` holds every operation's result in the order they were sent.
-- `batch_upload_no_results` — the request succeeded but the server didn't report what it wrote.
-
 ## Uploading directories
 
-Directory uploads (dropped directory entries, or `createFileParent`) work on every platform: nested paths are recreated under the destination, and files sharing a name stay apart in the directories they came from. They rely on the signed batch-write endpoint, so against a backend that doesn't have one the SDK falls back to the older batch endpoint, which cannot create directories — the upload rejects with `batch_upload_failed`, and the directories have to be created with [`puter.fs.mkdir()`](/FS/mkdir/) and the files uploaded into them.
+Directory uploads (dropped directory entries, or `createFileParent`) work on every platform: nested paths are recreated under the destination, and files sharing a name stay apart in the directories they came from.
 
 ## Thumbnails
 
