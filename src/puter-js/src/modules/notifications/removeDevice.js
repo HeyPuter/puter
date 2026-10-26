@@ -2,7 +2,8 @@ import { PuterJSError } from '../../lib/PuterJSError.js';
 import { request } from './lib/api.js';
 
 /**
- * Stops pushes to one of the user's devices. For Puter's own apps.
+ * Stops pushes to one of the user's devices. For Puter's own apps. Rejects with
+ * `push_unavailable` where the deployment doesn't send pushes.
  *
  * @this {import('./index.js').NotificationsModule}
  * @param {string} uid The device's `uid`, from `listDevices()`.

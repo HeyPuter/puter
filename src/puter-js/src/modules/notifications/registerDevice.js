@@ -3,7 +3,8 @@ import { request } from './lib/api.js';
 import { toDevice } from './lib/shapes.js';
 
 /**
- * Registers this device for the user's pushes. For Puter's own apps.
+ * Registers this device for the user's pushes. For Puter's own apps. Rejects
+ * with `push_unavailable` where the deployment doesn't send pushes.
  *
  * @this {import('./index.js').NotificationsModule}
  * @param {import('./types.js').PushDeviceRegistration} registration

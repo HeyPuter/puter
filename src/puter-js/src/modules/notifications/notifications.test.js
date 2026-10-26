@@ -952,6 +952,57 @@ describe('devices', () => {
         expect(error.message).toContain('502');
     });
 
+    const coreNotFound = () =>
+        jsonResponse(
+            { error: 'Not Found', message: 'Not Found', code: 'not_found' },
+            404,
+        );
+
+    it.each([
+        [
+            'registerDevice',
+            (m) => m.registerDevice({ platform: 'web', token: 't' }),
+        ],
+        ['listDevices', (m) => m.listDevices()],
+        ['removeDevice', (m) => m.removeDevice('d-1')],
+    ])(
+        '%s rejects with push_unavailable when no route answers',
+        async (_name, call) => {
+            mockFetchUrl.mockResolvedValue(coreNotFound());
+            const error = await rejects(() => call(makeModule()));
+            expect(error).toBeInstanceOf(PuterJSError);
+            expect(error.code).toBe('push_unavailable');
+            expect(error.message).toBe(
+                "Push notifications aren't available on this deployment",
+            );
+        },
+    );
+
+    it('treats a 404 with no JSON body as push_unavailable', async () => {
+        mockFetchUrl.mockResolvedValue({
+            status: 404,
+            headers: { get: () => 'text/html' },
+        });
+        const error = await rejects(() => makeModule().listDevices());
+        expect(error.code).toBe('push_unavailable');
+    });
+
+    it('passes a missing device through as device_not_found', async () => {
+        mockFetchUrl.mockResolvedValue(
+            jsonResponse(
+                {
+                    error: 'Device not found',
+                    message: 'Device not found',
+                    code: 'device_not_found',
+                },
+                404,
+            ),
+        );
+        const error = await rejects(() => makeModule().removeDevice('d-1'));
+        expect(error.code).toBe('device_not_found');
+        expect(error.message).toBe('Device not found');
+    });
+
     it('rejects a missing uid before calling the server', async () => {
         const error = await rejects(() => makeModule().removeDevice(''));
         expect(error.code).toBe('invalid_argument');

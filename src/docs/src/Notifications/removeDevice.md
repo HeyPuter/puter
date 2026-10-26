@@ -20,4 +20,4 @@ The device's `uid`, from [`listDevices()`](/Notifications/listDevices/).
 
 ## Return value
 
-A `Promise` that resolves once the device is removed. It rejects with `not_found` if the user has no device with that `uid`.
+A `Promise` that resolves once the device is removed. It rejects with `device_not_found` if the user has no device with that `uid`, and with `push_unavailable` if this deployment has no push notification service, as on most self-hosted servers.

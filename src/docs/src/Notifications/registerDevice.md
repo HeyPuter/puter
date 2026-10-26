@@ -43,3 +43,4 @@ It rejects with an error carrying `message` and `code`:
 | `forbidden` | Not called from a signed-in Puter session. |
 | `push_device_conflict` | The token is registered to another account. |
 | `push_disabled` | This server doesn't send push notifications. |
+| `push_unavailable` | This deployment has no push notification service, as on most self-hosted servers. |

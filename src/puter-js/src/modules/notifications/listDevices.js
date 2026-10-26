@@ -2,7 +2,8 @@ import { request } from './lib/api.js';
 import { toDevice } from './lib/shapes.js';
 
 /**
- * The user's devices registered for pushes. For Puter's own apps.
+ * The user's devices registered for pushes. For Puter's own apps. Rejects with
+ * `push_unavailable` where the deployment doesn't send pushes.
  *
  * @this {import('./index.js').NotificationsModule}
  * @returns {Promise<import('./types.js').PushDevice[]>}

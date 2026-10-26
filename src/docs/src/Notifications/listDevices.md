@@ -19,3 +19,5 @@ None.
 ## Return value
 
 A `Promise` that resolves to an array of devices, each shaped as [`registerDevice()`](/Notifications/registerDevice/#return-value) returns it. `current` marks the device registered from this session.
+
+It rejects with `push_unavailable` if this deployment has no push notification service, as on most self-hosted servers.
