@@ -9592,10 +9592,6 @@ body.dashboard-mode .notifications-close-all {
     .dashboard-copy-row:not(.dashboard-copy-row-compact) {
         flex-direction: column;
     }
-
-    .dashboard-copy-row-compact .dashboard-dialog-btn.dashboard-icon-btn {
-        width: 44px;
-    }
 }
 
 @media (prefers-reduced-motion: reduce) {
