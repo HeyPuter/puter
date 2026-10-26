@@ -409,6 +409,37 @@ describe('the live cache across nodes', () => {
         }
     });
 
+    it('drops an owner\'s cached rows when the user store suspends or unsuspends them', async () => {
+        const row = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-store:' }),
+        );
+        expect((await store().getLive(row.handle))?.ownerSuspended).toBe(
+            false,
+        );
+        try {
+            await env.server.stores.user.update(ownerUserId, {
+                suspended: true,
+            });
+            await vi.waitFor(async () =>
+                expect(
+                    (await store().getLive(row.handle))?.ownerSuspended,
+                ).toBe(true),
+            );
+            await env.server.stores.user.update(ownerUserId, {
+                suspended: false,
+            });
+            await vi.waitFor(async () =>
+                expect(
+                    (await store().getLive(row.handle))?.ownerSuspended,
+                ).toBe(false),
+            );
+        } finally {
+            await env.server.stores.user.update(ownerUserId, {
+                suspended: false,
+            });
+        }
+    });
+
     it('reads nothing for an id whose mac does not verify', async () => {
         const row = await store().mint(
             input({ appUid: 'app-forget', keyPrefix: 'forget-d:' }),
