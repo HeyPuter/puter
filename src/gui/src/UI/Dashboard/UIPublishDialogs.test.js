@@ -113,7 +113,16 @@ describe('publish website', () => {
         expect(nameField().val()).toBe('my-site-2');
     });
 
-    it('asks for an address when nothing usable was typed', async () => {
+    it('leaves text being composed alone and shapes it once composed', async () => {
+        await openPublishWebsiteDialog({ name: 'Site', path: '/alice/Site' });
+        nameField().val('caf\u00B4');
+        nameField().get(0).dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
+        expect(nameField().val()).toBe('caf\u00B4');
+        nameField().val('café').trigger('compositionend');
+        expect(nameField().val()).toBe('cafe');
+    });
+
+        it('asks for an address when nothing usable was typed', async () => {
         await openPublishWebsiteDialog({ name: 'Site', path: '/alice/Site' });
         await submitWith('---');
         expect(status()).toBe('publish_name_required');

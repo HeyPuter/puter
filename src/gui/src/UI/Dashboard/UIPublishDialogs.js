@@ -165,13 +165,18 @@ const open_publish_dialog = async (kind_name, { name, path, ...opts }) => {
     // Shape the name as it's typed, keeping the caret where it was.
     const el_name = dialog.field('name').get(0);
     if ( document.activeElement === el_name ) el_name.select();
-    $(el_name).on('input', function () {
-        const next = normalizePublishName(this.value, kind.rule);
-        if ( next === this.value ) return;
-        const caret = normalizePublishName(this.value.slice(0, this.selectionStart ?? this.value.length), kind.rule).length;
-        this.value = next;
-        this.setSelectionRange(caret, caret);
-    });
+    const shape = () => {
+        const next = normalizePublishName(el_name.value, kind.rule);
+        if ( next === el_name.value ) return;
+        const caret = normalizePublishName(el_name.value.slice(0, el_name.selectionStart ?? el_name.value.length), kind.rule).length;
+        el_name.value = next;
+        el_name.setSelectionRange(caret, caret);
+    };
+    // Rewriting the text mid-composition (an IME, or a dead key's accent)
+    // breaks it; the composed text is shaped once it's in.
+    $(el_name).on('input', (e) => {
+        if ( ! e.originalEvent?.isComposing ) shape();
+    }).on('compositionend', shape);
     return dialog;
 };
 
