@@ -501,6 +501,7 @@ export class NotificationDriver extends PuterDriver {
         return {
             uid: row.uid,
             value: row.value,
+            app_uid: row.app_uid ?? null,
             shown: row.shown ?? null,
             acknowledged: row.acknowledged ?? null,
             created_at: row.created_at ?? null,

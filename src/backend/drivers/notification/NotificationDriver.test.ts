@@ -689,6 +689,16 @@ describe('NotificationDriver — read per token type', () => {
         }
     });
 
+    it('returns the app a row is about, and null for a row naming none', async () => {
+        const box = await mailbox();
+        expect(await readUid(box.holder.actor, box.rows.appUser)).toMatchObject(
+            { app_uid: box.ownApp.uid },
+        );
+        expect(await readUid(box.holder.actor, box.rows.account)).toMatchObject(
+            { app_uid: null },
+        );
+    });
+
     it('an app reads only what it is the subject of', async () => {
         const box = await mailbox();
         expect(await readUid(box.ownAppActor, box.rows.appUser)).toMatchObject({

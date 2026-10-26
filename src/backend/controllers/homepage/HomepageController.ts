@@ -198,6 +198,20 @@ export class HomepageController extends PuterController {
             return sendShell(req, res, {}, launch);
         });
 
+        // -- /sw.js - the service worker, scoped to the whole origin --
+
+        router.get('/sw.js', { subdomain: '' }, async (_req, res) => {
+            const source = await homepage.serviceWorkerSource();
+            if (source === null) {
+                res.status(404).send('Not found');
+                return;
+            }
+            res.set('Content-Type', 'text/javascript; charset=utf-8');
+            res.set('Cache-Control', 'no-cache');
+            res.set('Service-Worker-Allowed', '/');
+            res.send(source);
+        });
+
         // -- Fallback static mount -----------------------------------
         // Serves lingering GUI assets (images, fonts, lib files, etc.)
         // out of <gui_assets_root>/src. Falls through to the 404 handler
