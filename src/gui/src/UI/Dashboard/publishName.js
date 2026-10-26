@@ -28,12 +28,15 @@
  * @property {number} maxLength
  */
 
+// Either name becomes a hostname label, which DNS caps at 63; the backend
+// takes a 64-character website name, but nothing can reach it.
+const LABEL_MAX_LENGTH = 63;
+
 /** @type {{ website: PublishNameRule, worker: PublishNameRule }} */
 export const PUBLISH_NAME_RULES = {
     // A website name can't hold an underscore, so it separates words too.
-    website: { separators: /[\s_]+/g, invalid: /[^a-z0-9-]/g, maxLength: 64 },
-    // The name becomes a hostname label, which DNS caps at 63.
-    worker: { separators: /\s+/g, invalid: /[^a-z0-9_-]/g, maxLength: 63 },
+    website: { separators: /[\s_]+/g, invalid: /[^a-z0-9-]/g, maxLength: LABEL_MAX_LENGTH },
+    worker: { separators: /\s+/g, invalid: /[^a-z0-9_-]/g, maxLength: LABEL_MAX_LENGTH },
 };
 
 /**

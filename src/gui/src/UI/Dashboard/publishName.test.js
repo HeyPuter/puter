@@ -57,8 +57,8 @@ describe('finalizePublishName', () => {
         expect(finalizePublishName('!!! ', website)).toBe('');
     });
 
-    it('caps the length', () => {
-        expect(finalizePublishName('a'.repeat(80), website)).toHaveLength(64);
+    it('caps the length at a hostname label\'s 63', () => {
+        expect(finalizePublishName('a'.repeat(80), website)).toHaveLength(63);
         expect(finalizePublishName('a'.repeat(80), worker)).toHaveLength(63);
     });
 });
