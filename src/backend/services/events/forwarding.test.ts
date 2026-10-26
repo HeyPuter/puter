@@ -2044,6 +2044,34 @@ describe('a kv value crossing to another region', () => {
 
         expect(eventsIn(west)[0].kv).toMatchObject({ value: { items: 3 } });
     });
+
+    it('carries who wrote it, so `self` and `viaWorker` hold on the far side', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        await subscribeKv(east, 'socket-writer');
+        await announced(east);
+
+        await west.events.dispatchKv(
+            {
+                userId,
+                namespace: `v1:user-${userId}:${APP}`,
+                keys: ['cart'],
+                op: 'set',
+            },
+            { actingUserId: userId + 1, viaWorker: true },
+        );
+        await posted(west);
+        await arrived(east);
+
+        expect(eventsIn(west)[0]).toMatchObject({
+            actingUserId: userId + 1,
+            viaWorker: true,
+        });
+        expect(east.sent[0].event).toMatchObject({
+            self: false,
+            viaWorker: true,
+        });
+    });
 });
 
 describe('a session subscription in another region', () => {
@@ -2058,8 +2086,31 @@ describe('a session subscription in another region', () => {
         await dispatch(west);
 
         await arrived(east);
-        expect(east.sent[0].event).toMatchObject({ op: 'write', self: true });
+        expect(east.sent[0].event).toMatchObject({
+            op: 'write',
+            self: true,
+            viaWorker: false,
+        });
         expect(west.sent).toEqual([]);
+    });
+
+    it('carries a server-side write as one on the far side', async () => {
+        const west = makeRegion('west', ['east'], forwardCfg);
+        const east = makeRegion('east', ['west'], forwardCfg);
+        await subscribeSession(east);
+        await posted(east);
+
+        await west.events.dispatchFs('fs.write.file', entry(), {
+            actingUserId: userId,
+            viaWorker: true,
+            ancestors: async () => ancestors(),
+        });
+
+        await arrived(east);
+        expect(east.sent[0].event).toMatchObject({
+            self: true,
+            viaWorker: true,
+        });
     });
 
     it('delivers to a subscriber who is not the writer', async () => {

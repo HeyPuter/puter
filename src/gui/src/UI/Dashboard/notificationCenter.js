@@ -140,6 +140,22 @@ export const toEntry = (raw, now) => {
 };
 
 /**
+ * The entries a listing contributes: its newest `limit` the center shows,
+ * and every unread one past them, so the badge and "Mark all as read" cover
+ * them all. Hidden rows are dropped before counting, so a run of them (a
+ * developer's deploy results) can't take the places of the rest.
+ *
+ * @param {Object[]} rows - Driver rows, newest first
+ * @param {number} now - Epoch ms
+ * @param {number} limit
+ * @returns {NotificationEntry[]}
+ */
+export const listedEntries = (rows, now, limit) => rows
+    .map((row) => toEntry(row, now))
+    .filter(Boolean)
+    .filter((entry, i) => i < limit || isUnread(entry));
+
+/**
  * Newest first; entries without a time sort as newest (they are the ones
  * just pushed), ties keep their order.
  *
@@ -317,80 +333,6 @@ export const titleWithBadge = (title, count) => {
     const base = String(title ?? '').replace(TITLE_BADGE, '');
     const label = badgeLabel(count);
     return label ? `(${label}) ${base}` : base;
-};
-
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-
-/**
- * How long ago `at` was, in the reader's language: "now", "5 minutes ago",
- * "yesterday", then a short date once it's more than a week old. Uses the
- * platform's formatters so nothing here needs translating; falls back to a
- * plain date where they're missing.
- *
- * @param {number} at - Epoch ms
- * @param {number} now - Epoch ms
- * @param {string} [locale]
- * @returns {string}
- */
-export const formatRelativeTime = (at, now, locale = 'en') => {
-    const diff = Math.max(0, now - at);
-    const rtf = relativeFormatter(locale);
-    if ( diff < 45_000 ) return rtf ? rtf.format(0, 'second') : 'now';
-    if ( diff < 45 * MINUTE ) {
-        const minutes = Math.max(1, Math.round(diff / MINUTE));
-        return rtf ? rtf.format(-minutes, 'minute') : `${minutes}m`;
-    }
-    if ( diff < 22 * HOUR ) {
-        const hours = Math.max(1, Math.round(diff / HOUR));
-        return rtf ? rtf.format(-hours, 'hour') : `${hours}h`;
-    }
-    if ( diff < 7 * DAY ) {
-        const days = Math.max(1, Math.round(diff / DAY));
-        return rtf ? rtf.format(-days, 'day') : `${days}d`;
-    }
-    const then = new Date(at);
-    const sameYear = then.getFullYear() === new Date(now).getFullYear();
-    const dtf = dateFormatter(locale, {
-        month: 'short',
-        day: 'numeric',
-        ...(sameYear ? {} : { year: 'numeric' }),
-    });
-    return dtf ? dtf.format(then) : then.toLocaleDateString();
-};
-
-/**
- * The full moment, for a tooltip behind the relative form.
- *
- * @param {number} at - Epoch ms
- * @param {string} [locale]
- * @returns {string}
- */
-export const formatAbsoluteTime = (at, locale = 'en') => {
-    const dtf = dateFormatter(locale, { dateStyle: 'medium', timeStyle: 'short' });
-    return dtf ? dtf.format(new Date(at)) : new Date(at).toLocaleString();
-};
-
-const tryMake = (make) => {
-    try {
-        return make();
-    } catch {
-        return null;
-    }
-};
-
-// An unknown locale tag throws; the English formatter beats none at all.
-const relativeFormatter = (locale) => {
-    if ( typeof Intl === 'undefined' || ! Intl.RelativeTimeFormat ) return null;
-    return tryMake(() => new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }))
-        ?? tryMake(() => new Intl.RelativeTimeFormat('en', { numeric: 'auto' }));
-};
-
-const dateFormatter = (locale, options) => {
-    if ( typeof Intl === 'undefined' || ! Intl.DateTimeFormat ) return null;
-    return tryMake(() => new Intl.DateTimeFormat(locale, options))
-        ?? tryMake(() => new Intl.DateTimeFormat('en', options));
 };
 
 /**

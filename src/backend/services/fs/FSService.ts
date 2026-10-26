@@ -41,6 +41,7 @@ import {
     isAccountContext,
     isAppActor,
     isPlainUserActor,
+    viaWorkerOf,
 } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -3672,18 +3673,17 @@ export class FSService extends PuterService {
                 updates.filter(isValid),
             );
         let next = 0;
-        return updates.map(
-            (update): PromiseSettledResult<FSEntry> =>
-                isValid(update)
-                    ? stored[next++]
-                    : {
-                          status: 'rejected',
-                          reason: new HttpError(
-                              400,
-                              'Invalid file entry identifier for thumbnail update',
-                              { legacyCode: 'bad_request' },
-                          ),
-                      },
+        return updates.map((update): PromiseSettledResult<FSEntry> =>
+            isValid(update)
+                ? stored[next++]
+                : {
+                      status: 'rejected',
+                      reason: new HttpError(
+                          400,
+                          'Invalid file entry identifier for thumbnail update',
+                          { legacyCode: 'bad_request' },
+                      ),
+                  },
         );
     }
 
@@ -4794,6 +4794,7 @@ export class FSService extends PuterService {
         const actor = Context.get('actor') as Actor | undefined;
         const actingUserId = actor?.user?.id;
         const handlerDepth = handlerDepthOf(actor);
+        const viaWorker = viaWorkerOf(actor);
         const movedFromChain = movedFrom && {
             path: movedFrom.path,
             ancestors: () => fsEntry.getAncestorChain(movedFrom.path),
@@ -4807,6 +4808,7 @@ export class FSService extends PuterService {
                         events.dispatchFs(key, entry, {
                             actingUserId,
                             handlerDepth,
+                            viaWorker,
                             ancestors: () => ancestors(entry),
                             ...(movedFromChain
                                 ? { movedFrom: movedFromChain }
@@ -4987,6 +4989,7 @@ export class FSService extends PuterService {
         if (collision && collision.uuid !== source.uuid) {
             name = await this.#resolveMoveCollision(
                 userId,
+                source,
                 collision,
                 destinationParent,
                 name,
@@ -5039,6 +5042,7 @@ export class FSService extends PuterService {
             if (raced && raced.uuid !== source.uuid) {
                 name = await this.#resolveMoveCollision(
                     userId,
+                    source,
                     raced,
                     destinationParent,
                     name,
@@ -5101,6 +5105,7 @@ export class FSService extends PuterService {
      */
     async #resolveMoveCollision(
         userId: number,
+        source: FSEntry,
         occupant: FSEntry,
         destinationParent: FSEntry,
         name: string,
@@ -5112,6 +5117,7 @@ export class FSService extends PuterService {
             return this.#findDedupedName(destinationParent, name);
         }
         if (input.overwrite) {
+            this.#assertNotReplacingAncestor(source, occupant);
             await this.remove(userId, { entry: occupant, recursive: true });
             return name;
         }
@@ -5125,6 +5131,20 @@ export class FSService extends PuterService {
             legacyCode: 'item_with_same_name_exists',
             fields: { entry_name: name },
         });
+    }
+
+    /**
+     * Refuse to overwrite a directory the source sits inside: removing it would
+     * take the source down with it.
+     */
+    #assertNotReplacingAncestor(source: FSEntry, occupant: FSEntry): void {
+        if (occupant.isDir && source.path.startsWith(`${occupant.path}/`)) {
+            throw new HttpError(
+                400,
+                `Cannot replace \`${occupant.name}\`: it contains the item being moved or copied`,
+                { legacyCode: 'bad_request' },
+            );
+        }
     }
 
     /**
@@ -5196,6 +5216,7 @@ export class FSService extends PuterService {
 
         if (collision) {
             if (input.overwrite) {
+                this.#assertNotReplacingAncestor(source, collision);
                 await this.remove(userId, {
                     entry: collision,
                     recursive: true,

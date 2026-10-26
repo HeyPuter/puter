@@ -433,6 +433,8 @@
         "mistral": { "apiKey": "" },
         "xai": { "apiKey": "" },
         "moonshot": { "apiKey": "" },
+        // MiniMax. One key powers chat and video generation (H3, Hailuo);
+        // video calls go to the same host, beside the chat API's `/v1`.
         "minimax": {
             "apiKey": "",
             "apiBaseUrl": "https://api.minimax.io/v1"

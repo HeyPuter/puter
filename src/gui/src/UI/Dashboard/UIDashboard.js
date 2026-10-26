@@ -215,6 +215,10 @@ async function UIDashboard (options) {
     // Set initial file path BEFORE tabs are initialized (so TabFiles.init() can use it)
     if ( window.dashboard_initial_route?.tab === 'files' && window.dashboard_initial_route?.path ) {
         window.dashboard_initial_file_path = window.dashboard_initial_route.path;
+        // Consumed here like a share link: Files doesn't keep its folder in
+        // the URL, so a path left there would be stale after the first move,
+        // and Back or a reload would jump to it.
+        window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}#files`);
     } else if ( window.dashboard_initial_route?.tab === 'files' && window.dashboard_initial_route?.shared ) {
         // A share link: open Shared, and pick out the items it names once
         // the listing is up. Consumed here, so a reload shows Files plainly.
@@ -233,7 +237,10 @@ async function UIDashboard (options) {
     // Account and Security decide some cards from the account's state when
     // they render (password and email for a temporary user, the token
     // button and 2FA for an unconfirmed email).
+    const account_state = () => JSON.stringify([window.user?.email, window.user?.email_confirmed, window.user?.is_temp]);
+    let rendered_account_state = account_state();
     const rerender_account_tabs = () => {
+        rendered_account_state = account_state();
         for ( const tab of tabs ) {
             if ( tab.id !== 'account' && tab.id !== 'security' ) continue;
             $el_window.find(`.dashboard-section-${tab.id}`).html(tab.html());
@@ -245,6 +252,16 @@ async function UIDashboard (options) {
     window.addEventListener('account-saved', () => {
         $el_window.find('.bento-save-account-warning').remove();
         rerender_account_tabs();
+    });
+
+    // Returning to the browser tab re-reads the account and then sends this
+    // (see TabHome). An email change confirmed from its link in another tab
+    // sends no socket event of its own, so it shows here; so does a temporary
+    // account saved in another tab.
+    window.addEventListener('puter:subscription:changed', () => {
+        // Saved from another tab: Home's "Save session" has nothing left to save.
+        if ( ! window.user?.is_temp ) $el_window.find('.bento-save-account-warning').remove();
+        if ( account_state() !== rendered_account_state ) rerender_account_tabs();
     });
 
     // Dispatch 'dashboard-ready' event for extensions
@@ -383,6 +400,13 @@ async function UIDashboard (options) {
             });
         }
 
+        // Files' Back/Forward follows a folder moved elsewhere, and forgets
+        // one moved to the Trash.
+        if ( resp.is_dir && old_path && resp.path ) {
+            const trashed = resp.path.startsWith(`${window.trash_path}/`);
+            window.dashboard_object?.folderMoved?.(old_path, trashed ? null : resp.path);
+        }
+
         // Create new item at destination if user is viewing that directory
         if ( window.UIDashboardFileItem ) {
             window.UIDashboardFileItem(resp);
@@ -392,6 +416,7 @@ async function UIDashboard (options) {
     window.socket.on('item.removed', async (item) => {
         if ( item.original_client_socket_id === window.socket.id ) return;
         if ( item.descendants_only ) return;
+        if ( item.is_dir && item.path ) window.dashboard_object?.folderMoved?.(item.path, null);
 
         // Match by uid when present (O(1) attribute selector; uids are UUIDs,
         // safe to interpolate) and fall back to a path scan for minimal
@@ -516,6 +541,14 @@ async function UIDashboard (options) {
         const tab = route.tab;
         const filePath = route.path;
         notifications.close({ restoreFocus: false });
+        // What was open over the tab being left goes with it, as on a
+        // sidebar click: the phone drawer, a menu, and Files' Share and
+        // Properties, which act on its rows (their changes are already saved),
+        // and its image preview.
+        setMobileSidebar(false);
+        $('.context-menu').remove();
+        $el_window.find('.share-modal-close, .item-props-close').trigger('click');
+        if ( tab !== 'files' && TabFiles.previewOpen ) TabFiles.closeImagePreview();
 
         // Switch to correct tab
         const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tab}"]`);
@@ -544,12 +577,16 @@ async function UIDashboard (options) {
         // Scroll content area to top
         $el_window.find('.dashboard-content').scrollTop(0);
 
-        // If files tab with path, navigate without adding to history
+        // A files link with a path opens that folder, as a step in Files' own
+        // Back/Forward, and leaves the URL (see the initial route above).
         if ( tab === 'files' && filePath ) {
             const filesTab = tabs.find(t => t.id === 'files');
             if ( filesTab?.renderDirectory ) {
-                filesTab.renderDirectory(filePath, { skipUrlUpdate: true, skipNavHistory: true });
+                filesTab.pushNavHistory?.(filePath);
+                filesTab.renderDirectory(filePath, { skipUrlUpdate: true });
             }
+            window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}#files`);
+            lastHandledHref = window.location.href;
         }
     };
 
@@ -609,10 +646,10 @@ async function UIDashboard (options) {
     const $scrim = $el_window.find('.dashboard-sidebar-scrim');
     const $sidebar_toggle = $el_window.find('.dashboard-sidebar-toggle');
     const drawerFocusables = () => $sidebar.find('a[href], button').filter(':visible:not(:disabled)');
-    const setMobileSidebar = (open) => {
+    const setMobileSidebar = (open, { keepFocus = false } = {}) => {
         // Focus left inside a closing drawer would sit on hidden controls
         // (and fall to <body>); the toggle that reopens it takes it instead.
-        const focusInside = ! open && $sidebar.hasClass('open') && $sidebar[0].contains(document.activeElement);
+        const focusInside = ! open && ! keepFocus && $sidebar.hasClass('open') && $sidebar[0].contains(document.activeElement);
         const opening = open && ! $sidebar.hasClass('open');
         $sidebar.toggleClass('open', open);
         $scrim.toggleClass('open', open);
@@ -624,6 +661,13 @@ async function UIDashboard (options) {
             (current ?? drawerFocusables()[0])?.focus({ preventScroll: true });
         }
     };
+
+    // Widened past the breakpoint (a tablet turned to landscape), the drawer
+    // is the desktop sidebar again, shown and no longer modal; focus in it
+    // can stay where it is.
+    window.matchMedia('(max-width: 768px)').addEventListener('change', (e) => {
+        if ( ! e.matches && $sidebar.hasClass('open') ) setMobileSidebar(false, { keepFocus: true });
+    });
 
     // Tab cycles inside the open drawer instead of reaching the content
     // behind the scrim.
@@ -729,9 +773,10 @@ async function UIDashboard (options) {
             .attr('aria-expanded', collapsed ? 'false' : 'true');
     });
 
-    // Sidebar collapsed tooltips
+    // Sidebar collapsed tooltips, for the keyboard as well as the pointer:
+    // collapsed, an item shows its icon only.
     const $tooltip = $('<div class="dashboard-sidebar-tooltip"></div>').appendTo('body');
-    $el_window.on('mouseenter', '.dashboard-sidebar-item[data-tooltip]', function () {
+    $el_window.on('mouseenter focusin', '.dashboard-sidebar-item[data-tooltip]', function () {
         if ( ! $el_window.find('.dashboard-sidebar').hasClass('collapsed') ) return;
         // The drawer ignores the collapse and shows its labels.
         if ( window.matchMedia('(max-width: 768px)').matches ) return;
@@ -743,7 +788,7 @@ async function UIDashboard (options) {
         });
         $tooltip.addClass('visible');
     });
-    $el_window.on('mouseleave', '.dashboard-sidebar-item[data-tooltip]', function () {
+    $el_window.on('mouseleave focusout', '.dashboard-sidebar-item[data-tooltip]', function () {
         $tooltip.removeClass('visible');
     });
 
@@ -880,15 +925,15 @@ async function UIDashboard (options) {
                     // Check for open windows
                     if ( $('.window-app').length > 0 ) {
                         const alert_resp = await UIAlert({
-                            message: `<p>${i18n('confirm_open_apps_log_out')}</p>`,
+                            message: `<p>${i18n('confirm_open_apps_log_out', [], false)}</p>`,
                             buttons: [
                                 {
-                                    label: i18n('close_all_windows_and_log_out'),
+                                    label: i18n('close_all_windows_and_log_out', [], false),
                                     value: 'close_and_log_out',
                                     type: 'primary',
                                 },
                                 {
-                                    label: i18n('cancel'),
+                                    label: i18n('cancel', [], false),
                                 },
                             ],
                         });

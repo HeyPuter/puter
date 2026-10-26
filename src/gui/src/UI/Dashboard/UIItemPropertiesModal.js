@@ -20,6 +20,10 @@
 import item_icon from '../../helpers/itemIcon.js';
 import UIAlert from '../UIAlert.js';
 import { isOverlayOnTop } from './dashboardOverlay.js';
+import { formatRelativeTime } from '../../i18n/formatTime.js';
+import { owner_of_path } from '../../helpers/pathOwner.js';
+import { avatarHue, avatarInitial } from '../../helpers/shareAvatar.js';
+import { avatarUserAttr, paintAvatars } from '../../helpers/profilePictures.js';
 
 const { html_encode } = window;
 
@@ -46,6 +50,17 @@ function addRow ($list, labelHtml, valueHtml) {
         </div>
     `);
 }
+
+/**
+ * A person's avatar and username, for a value cell.
+ *
+ * @param {string} username
+ * @returns {string} markup
+ */
+const person_html = (username) => '<span class="item-props-person">'
+    + `<span class="item-props-avatar" style="--share-avatar-hue: ${avatarHue(username)}"${avatarUserAttr(username)} aria-hidden="true">${html_encode(avatarInitial(username))}</span>`
+    + `<span class="enable-user-select">${html_encode(username)}</span>`
+    + '</span>';
 
 /**
  * A responsive, from-scratch item-properties modal for the Dashboard's Files
@@ -202,6 +217,12 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
             addRow($list, i18n('name'), html_encode(fsentry.name));
             addRow($list, i18n('path'), html_encode(item_path));
 
+            // Only worth a row when the item is someone else's.
+            const owner = owner_of_path(fsentry.path ?? item_path);
+            if ( owner && owner !== window.user?.username ) {
+                addRow($list, i18n('share_owner'), person_html(owner));
+            }
+
             if ( fsentry.metadata ) {
                 try {
                     const metadata = JSON.parse(fsentry.metadata);
@@ -224,9 +245,9 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
             addRow($list, i18n('size'),
                 (fsentry.size === null || fsentry.size === undefined) ? '-' : html_encode(window.byte_format(fsentry.size)));
             addRow($list, i18n('modified'),
-                fsentry.modified === 0 ? '-' : html_encode(timeago.format(fsentry.modified * 1000)));
+                fsentry.modified === 0 ? '-' : html_encode(formatRelativeTime(fsentry.modified * 1000, Date.now(), window.locale)));
             addRow($list, i18n('created'),
-                fsentry.created === 0 ? '-' : html_encode(timeago.format(fsentry.created * 1000)));
+                fsentry.created === 0 ? '-' : html_encode(formatRelativeTime(fsentry.created * 1000, Date.now(), window.locale)));
 
             // Worker (published .js files)
             if ( fsentry.path?.endsWith('.js') && fsentry.workers?.length > 0 ) {
@@ -252,15 +273,17 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
                     fsentry.versions.slice().reverse().forEach(version => {
                         $versions.append(`
                             <div class="item-props-version-entry">
-                                <span class="item-props-version-meta">${html_encode(version.user ? version.user.username : '')} &bull; ${html_encode(timeago.format(version.timestamp * 1000))}</span>
+                                <span class="item-props-version-meta">${version.user?.username ? `${person_html(version.user.username)} &bull; ` : ''}${html_encode(formatRelativeTime(version.timestamp * 1000, Date.now(), window.locale))}</span>
                                 <span class="item-props-version-id">${html_encode(version.id)}</span>
                             </div>
                         `);
                     });
+                    paintAvatars($versions[0]);
                 } else {
                     $versions.html(`<div class="item-props-empty">-</div>`);
                 }
             }
+            paintAvatars($list[0]);
 
             // Disassociate handler
             $overlay.on('click', '.item-props-disassociate', function () {

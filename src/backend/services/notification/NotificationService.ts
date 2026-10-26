@@ -28,6 +28,8 @@ import {
 } from './notificationSocket.js';
 import {
     findNotificationType,
+    inAccountMailbox,
+    OUTSIDE_ACCOUNT_MAILBOX_TYPES,
     resolveNotificationWrite,
 } from './notificationTypes.js';
 import type { NotificationTypeName } from './notificationTypes.js';
@@ -266,6 +268,7 @@ export class NotificationService extends PuterService {
      * message the GUI has always listened for.
      */
     deliverOverSocket(context: NotifEventContext): void {
+        if (!inAccountMailbox(context.type)) return;
         this.#socket().message(
             context.userId,
             context.uid,
@@ -322,7 +325,9 @@ export class NotificationService extends PuterService {
         payload: Record<string, unknown>,
         scope: { type: string; audience: string; appUid: string | null },
     ): Promise<void> {
+        const desktop = inAccountMailbox(scope.type);
         if (!notificationsFoldInEnabled(this.config)) {
+            if (!desktop) return;
             this.#socket().message(userId, uid, payload);
             this.#markDelivered(uid, userId);
             return;
@@ -332,6 +337,7 @@ export class NotificationService extends PuterService {
         // looked up only on this path, and user rows are cached.
         const user = await this.stores.user.getById(userId);
         if (!user?.uuid) {
+            if (!desktop) return;
             this.#socket().message(userId, uid, payload);
             this.#markDelivered(uid, userId);
             return;
@@ -355,7 +361,7 @@ export class NotificationService extends PuterService {
             },
             {},
         );
-        this.#markDelivered(uid, userId);
+        if (desktop) this.#markDelivered(uid, userId);
     }
 
     /**
@@ -395,6 +401,7 @@ export class NotificationService extends PuterService {
         const rows = await this.stores.notification.listByUserId(userId, {
             filter: 'unseen',
             limit: UNREAD_REPLAY_LIMIT,
+            excludeTypes: OUTSIDE_ACCOUNT_MAILBOX_TYPES,
         });
         if (rows.length === 0) return;
 

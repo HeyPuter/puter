@@ -188,6 +188,47 @@ describe('DDBClient — item operations', () => {
         ).toBeUndefined();
     });
 
+    it('puts only while its condition holds', async () => {
+        const absent = {
+            expression: 'attribute_not_exists(#pk)',
+            names: { '#pk': 'pk' },
+        };
+        await client.put(
+            TABLE,
+            { pk: 'u7', sk: 'once', v: 1 },
+            {
+                condition: absent,
+            },
+        );
+        await expect(
+            client.put(
+                TABLE,
+                { pk: 'u7', sk: 'once', v: 2 },
+                {
+                    condition: absent,
+                },
+            ),
+        ).rejects.toMatchObject({ name: 'ConditionalCheckFailedException' });
+        expect(
+            (await client.get(TABLE, { pk: 'u7', sk: 'once' })).Item?.v,
+        ).toBe(1);
+
+        await client.put(
+            TABLE,
+            { pk: 'u7', sk: 'once', v: 3 },
+            {
+                condition: {
+                    expression: '#v = :held',
+                    names: { '#v': 'v' },
+                    values: { ':held': 1 },
+                },
+            },
+        );
+        expect(
+            (await client.get(TABLE, { pk: 'u7', sk: 'once' })).Item?.v,
+        ).toBe(3);
+    });
+
     it('fetches keys from several tables in one batch', async () => {
         await client.put(TABLE, { pk: 'b1', sk: 'a', v: 1 });
         await client.put(TABLE, { pk: 'b1', sk: 'b', v: 2 });

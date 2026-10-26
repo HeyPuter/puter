@@ -140,7 +140,7 @@ async function fetchPage (folder, limit, position) {
  *
  * Each item is an {@link EmailSummary} built from the mailbox listing alone,
  * so listing never downloads a message. Reading the inbox of an app's user
- * requires the `fs:/{username}/.mail:read` permission.
+ * requires read access to `~/.mail`.
  *
  * @this {import('./Email.js').EmailModule}
  * @param {EmailListOptions & { stream?: boolean, offset?: unknown, includeTotal?: unknown }} [options]

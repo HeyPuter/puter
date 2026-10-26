@@ -4749,6 +4749,25 @@ describe('FSService move', () => {
         expect(await readBack(overwritten)).toBe('winner');
     });
 
+    it('refuses to overwrite a directory the moved entry sits inside', async () => {
+        const outer = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/nest/photos/photos`,
+            createMissingParents: true,
+        });
+        await writeFile(user, `${user.home}/Documents/nest/photos/photos/a.txt`, 'keep');
+        const nest = (await entryAt(user, '/Documents/nest'))!;
+
+        const refused = await caught(() =>
+            fs.move(user.userId, {
+                source: outer,
+                destinationParent: nest,
+                overwrite: true,
+            }),
+        );
+        expect(refused.statusCode).toBe(400);
+        expect(await entryAt(user, '/Documents/nest/photos/photos/a.txt')).toBeTruthy();
+    });
+
     /**
      * Reproduce an occupant arriving after the collision probe: the probe
      * misses it (a concurrent move, or a replica that hasn't caught up) and the
@@ -5036,6 +5055,25 @@ describe('FSService copy', () => {
                 )
             ).legacyCode,
         ).toBe('cannot_copy_directory_into_itself');
+    });
+
+    it('refuses to overwrite a directory the copied entry sits inside', async () => {
+        const inner = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/cp-nest/photos/photos`,
+            createMissingParents: true,
+        });
+        await writeFile(user, `${user.home}/Documents/cp-nest/photos/photos/a.txt`, 'keep');
+        const nest = (await entryAt(user, '/Documents/cp-nest'))!;
+
+        const refused = await caught(() =>
+            fs.copy(user.userId, {
+                source: inner,
+                destinationParent: nest,
+                overwrite: true,
+            }),
+        );
+        expect(refused.statusCode).toBe(400);
+        expect(await entryAt(user, '/Documents/cp-nest/photos/photos/a.txt')).toBeTruthy();
     });
 
     it('handles a destination collision by conflict, overwrite or dedupe', async () => {

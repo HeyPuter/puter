@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 Reads one message by the `id` a listing returned. The whole raw message is downloaded and parsed, so the result carries the full subject, sender and recipients, the text and HTML bodies, every header, and each attachment with its bytes. Pass `raw: true` to get the unparsed `message/rfc822` bytes as a `Blob` instead.
 
-Reading the mailbox requires the `fs:/{username}/.mail:read` permission, the same grant [`puter.email.list()`](/Email/list/) needs.
+Reading the mailbox requires read access to the `~/.mail` folder, the same grant [`puter.email.list()`](/Email/list/) needs.
 
 ## Syntax
 

@@ -1,15 +1,8 @@
-import { fetchUrl } from '../../../lib/networkUtils.js';
 import { PuterJSError } from '../../../lib/PuterJSError.js';
+import { routeRequest } from '../../../lib/routeRequest.js';
 
-/** Fallback codes for a failure the backend did not name itself. */
-const STATUS_CODES = {
-    400: 'bad_request',
-    401: 'unauthorized',
-    403: 'permission_denied',
-    404: 'not_found',
-    409: 'conflict',
-    429: 'too_many_requests',
-};
+/** `puter.teams` has always named an unnamed 403 this way. */
+const STATUS_CODES = { 403: 'permission_denied' };
 
 /**
  * Request helper for the `/teams` routes. Unlike `perms/lib/req.js` these
@@ -23,42 +16,11 @@ const STATUS_CODES = {
  * @returns {Promise<unknown>}
  */
 export async function req (puter, method, route, opts = {}) {
-    const { body, query, operation } = opts;
-
-    const search = new URLSearchParams();
-    for ( const [key, value] of Object.entries(query ?? {}) ) {
-        if ( value !== undefined && value !== null ) search.set(key, String(value));
-    }
-    const qs = search.toString();
-
-    let resp;
-    try {
-        resp = await fetchUrl(puter.APIOrigin + route + (qs ? `?${qs}` : ''), {
-            method,
-            includePuterAuth: true,
-            headers: { 'Content-Type': 'application/json' },
-            ...(body ? { body: JSON.stringify(body) } : {}),
-            logContext: { service: 'teams', operation: operation ?? `${method} ${route}`, params: {} },
-        });
-    } catch (e) {
-        throw PuterJSError.from(e);
-    }
-
-    const isJSON = resp.headers.get('content-type')?.includes('application/json');
-    const payload = isJSON ? await resp.json() : await resp.text();
-
-    if ( resp.status < 200 || resp.status >= 300 ) {
-        const fallback = STATUS_CODES[resp.status] ?? 'unknown_error';
-        if ( isJSON && payload !== null && typeof payload === 'object' ) {
-            // Backend errors pass through unchanged; only a missing code is filled in.
-            const error = PuterJSError.from(payload);
-            if ( error.code === undefined ) error.code = fallback;
-            throw error;
-        }
-        throw new PuterJSError(typeof payload === 'string' && payload ? payload : `Request failed with status ${resp.status}`, fallback);
-    }
-
-    return payload;
+    return await routeRequest(puter, method, route, {
+        ...opts,
+        service: 'teams',
+        statusCodes: STATUS_CODES,
+    });
 }
 
 /**

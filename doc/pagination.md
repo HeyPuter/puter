@@ -51,7 +51,10 @@ two pages can't be decoded into how fast the table grows; `openCursor` still
 reads a plain cursor. What a cursor wraps is an implementation detail per
 store:
 
-- DynamoDB-backed lists wrap `LastEvaluatedKey`.
+- DynamoDB-backed lists wrap `LastEvaluatedKey`. A kv listing of another
+  namespace (cross-app or through a share handle) resumes after the last entry
+  it returned instead, since the scan can stop on a private one, and its cursor
+  is sealed to that listing and padded to one length.
 - SQL-backed lists wrap a keyset position — `(sortValue, id)` of the last
   row — and the query seeks past it (`WHERE (col, id) > (?, ?) ORDER BY col,
   id`). Any SQL list gaining a cursor must have a deterministic `ORDER BY`
