@@ -6089,6 +6089,13 @@ body.myapps-reordering .myapps-tile {
         padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
     }
 
+    /* The grids keep their own padding and clear the footer with a margin,
+       which has to grow with the footer as well. (Select mode makes room
+       for its bar, safe area included, below.) */
+    .dashboard-section-files .files-tab:not(.select-mode-active) .files.files-grid-view {
+        margin-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+    }
+
     /* Mobile: Floating selection actions - icon-only, full width */
     .dashboard-section-files .files-selection-actions {
         left: 0;
