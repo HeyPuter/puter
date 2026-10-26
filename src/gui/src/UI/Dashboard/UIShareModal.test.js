@@ -83,3 +83,27 @@ describe('UIShareModal general access', () => {
         expect(puter.fs.getShares).toHaveBeenCalledTimes(2);
     });
 });
+
+describe('UIShareModal extending a grant', () => {
+    const bob = (mode) => ({ holder: 'bob', mode, issuer: 'alice' });
+
+    it('offers it on the items listed, not on one whose listing failed', async () => {
+        puter.fs.getShares = vi.fn(async (target) => {
+            if ( target === '/alice/b.txt' ) throw new Error('Network hiccup');
+            return [bob('read')];
+        });
+        UIShareModal({ items: [{ path: '/alice/a.txt' }, { path: '/alice/b.txt' }] });
+        await settle();
+        expect($('.share-modal-row-mode').length).toBe(1);
+        expect($('.share-modal-row-link').length).toBe(0);
+    });
+
+    it('offers it on the items bob is missing', async () => {
+        puter.fs.getShares = vi.fn(async (target) => (target === '/alice/a.txt' ? [bob('read')] : []));
+        UIShareModal({ items: [{ path: '/alice/a.txt' }, { path: '/alice/b.txt' }] });
+        await settle();
+        $('.share-modal-row-link').trigger('click');
+        await settle();
+        expect(puter.fs.share).toHaveBeenCalledWith({ paths: ['/alice/b.txt'], recipient: 'bob', mode: 'read' });
+    });
+});

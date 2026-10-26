@@ -271,6 +271,10 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     // The last successfully aggregated access list, so canceling an inline
     // revoke confirmation can restore the row without another round-trip.
     let last_groups = [];
+    // The items whose access that list was read from. An item whose listing
+    // failed may well be shared already: "add to all" granting it the group's
+    // mode could take a stronger grant down.
+    let listed_paths = target_paths;
     const group_for = (key) => last_groups.find((group) => group.key === key);
 
     // Re-rendering the list replaces its nodes wholesale, and disabling a
@@ -361,7 +365,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             || (is_self && group.directPaths.length > 0);
         // Extending someone needs a mode to extend; a person whose grants
         // disagree levels them with the select first.
-        const missing = missingPathsFor(target_paths, group).length;
+        const missing = missingPathsFor(listed_paths, group).length;
         const can_add_to_all = can_change && missing > 0 && group.mode !== null;
 
         // The clauses read as one muted line; the action keeps its own box on
@@ -485,6 +489,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             show_error(failure?.message ? html_encode(failure.message) : i18n('share_load_failed'));
             return;
         }
+        listed_paths = target_paths.filter((target) => by_path.has(target));
         render(aggregateShares(target_paths, by_path));
         link_state = linkShareState(target_paths, by_path);
         render_link_access();
@@ -809,7 +814,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         const key = $(this).attr('data-key');
         const group = group_for(key);
         if ( ! group || group.mode === null ) return;
-        const missing = missingPathsFor(target_paths, group);
+        const missing = missingPathsFor(listed_paths, group);
         if ( ! missing.length ) return;
         $(this).prop('disabled', true);
         try {
