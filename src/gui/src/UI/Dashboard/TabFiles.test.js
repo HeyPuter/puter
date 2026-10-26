@@ -1260,6 +1260,9 @@ describe('TabFiles keyboard', () => {
     /** Files listing `names`, its shortcuts bound as on the dashboard. */
     const mountKeyboard = (names) => {
         mountListing(names, '/alice/Documents');
+        $('.files .row').each((i, row) => row.setAttribute('data-name', names[i]));
+        TabFiles.typeSearchTerm = '';
+        Element.prototype.scrollIntoView ??= () => {};
         vi.spyOn(TabFiles, 'isDashboardFilesActive').mockReturnValue(true);
         TabFiles.setupKeyboardShortcuts();
     };
@@ -1268,6 +1271,7 @@ describe('TabFiles keyboard', () => {
 
     afterEach(() => {
         $(document).off('keydown.tabfiles');
+        clearTimeout(TabFiles.typeSearchTimeout);
         vi.restoreAllMocks();
     });
 
@@ -1282,5 +1286,11 @@ describe('TabFiles keyboard', () => {
         press(button, 'a', { which: 65, keyCode: 65, metaKey: true });
 
         expect(selected()).toEqual(['/alice/Documents/a.txt']);
+    });
+
+    it('takes a space typed into a name as part of it', () => {
+        mountKeyboard(['my notes.txt', 'my zebra.txt']);
+        for ( const key of ['m', 'y', ' ', 'z'] ) press(document.body, key, { which: key.toUpperCase().charCodeAt(0) });
+        expect(selected()).toEqual(['/alice/Documents/my zebra.txt']);
     });
 });

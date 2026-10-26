@@ -1227,8 +1227,9 @@ const TabFiles = {
                 return false;
             }
 
-            // Space - Toggle image preview
-            if ( e.which === 32 ) {
+            // Space - Toggle image preview. Typed into a name being
+            // type-selected ("my notes"), it is part of the name.
+            if ( e.which === 32 && _this.typeSearchTerm === '' ) {
                 e.preventDefault();
                 e.stopPropagation();
 
