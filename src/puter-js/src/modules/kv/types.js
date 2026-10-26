@@ -138,17 +138,117 @@
  * Per-call configuration accepted by every `puter.kv` operation.
  *
  * @typedef {Object} KVOptConfig
- * @property {string} [appUuid] Address another app's namespace instead of this app's own. Requires an
- * `app-data:<appUuid>:kv:<op>` permission, which `puter.perms.requestAppData()` asks the user for.
+ * @property {string} [appUuid] Address another app's namespace instead of this app's own. Requires
+ * access to that app's data, which `puter.perms.request('appData', { app, scopes })` asks the user for.
+ * @property {string} [handle] Address a region another user shared with you, by the `handle` from
+ * `listShared()`. Keys and list patterns are then relative to the shared prefix. Needs `read` access
+ * for `get` and `list`, and `write` for every other method; `flush` is refused. Rejected when
+ * combined with `appUuid` or `disableSharing`.
+ * @property {boolean} [onlyIfAbsent] `set()` only: write the key only when it has no live entry.
+ * `set()` then resolves to `false` instead of overwriting. Two writes at nearly the same time can
+ * both succeed. Rejected on the batch form.
  * @property {boolean} [disableSharing] Mark the entry private to this app: invisible and untouchable
- * to any other app the user later grants access to this namespace.
+ * to any other app the user later grants access to this namespace, and to users it is shared with.
  *
  * Honoured by both forms of `set()` — one key, or a batch, where it marks every entry in the batch.
  * `set` writes the whole entry, so writing the key again without the flag makes it shareable.
- * Rejected when combined with `appUuid`, since only an entry's owner may mark it private.
+ * Rejected when combined with `appUuid` or `handle`, since only an entry's owner may mark it private.
  *
  * Use it for anything another app should never read, such as a cached OAuth token, since a user
  * granting access cannot see what a namespace holds.
+ */
+
+/**
+ * What a share lets its holder do. Each level includes the ones before it: `watch` delivers change
+ * events, `read` adds `get` and `list`, and `write` adds every method that changes or deletes keys.
+ *
+ * @typedef {'watch' | 'read' | 'write'} KVShareAccess
+ */
+
+/**
+ * Who a share is for: a username, `{ username }`, or `{ uid }` with the user's uuid. A string that
+ * contains `@` is refused with `invalid_recipient`.
+ *
+ * @typedef {string | { username: string } | { uid: string }} KVShareRecipient
+ */
+
+/**
+ * Options form of `share()`.
+ *
+ * @typedef {Object} KVShareOptions
+ * @property {string} prefix The key prefix to share, such as `'list:42:'`. Its segments use only
+ * lowercase letters, digits, `_`, `.` and `-`. The trailing `:` is optional.
+ * @property {KVShareRecipient} recipient Who to share it with.
+ * @property {KVShareAccess} [access] Defaults to `'read'`.
+ * @property {string | null} [label] Plain text the holder is shown, up to 128 characters. Omit it to
+ * keep the current label when sharing again, or pass `null` to clear it.
+ * @property {string} [appUuid] The app whose data to share. Outside an app it can name any app, and
+ * defaults to the app-less store. An app always shares its own data.
+ */
+
+/**
+ * A share as `share()` returns it to the owner.
+ *
+ * @typedef {Object} KVShare
+ * @property {string} handle The share's id. The holder passes it as `optConfig.handle`.
+ * @property {string} prefix The shared key prefix, always ending in `:`.
+ * @property {KVShareAccess} access What the holder can do.
+ * @property {string | null} appUid The app whose data is shared, or `null` for the app-less store.
+ * @property {string} holder The holder's username.
+ * @property {string | null} label The label the holder is shown.
+ * @property {number} createdAt When the share was made, in Unix seconds.
+ */
+
+/**
+ * Who stopped a share: its owner, its holder, or Puter (when the app whose data it was is deleted).
+ *
+ * @typedef {'owner' | 'holder' | 'system'} KVShareRevokedBy
+ */
+
+/**
+ * A share in the owner's `listSharedByMe()` listing. Stopped shares stay in it.
+ *
+ * @typedef {Object} KVSharedByMe
+ * @property {string} handle The share's id.
+ * @property {string} prefix The shared key prefix, always ending in `:`.
+ * @property {KVShareAccess} access What the holder can do.
+ * @property {string | null} appUid The app whose data is shared, or `null` for the app-less store.
+ * @property {string | null} holder The holder's username. A share is deleted with its holder's
+ * account.
+ * @property {string | null} label The label the holder is shown.
+ * @property {number} createdAt When the share was made, in Unix seconds.
+ * @property {number | null} revokedAt When the share stopped, in Unix seconds, or `null` while it's
+ * live.
+ * @property {KVShareRevokedBy | null} revokedBy Who stopped it. `null` while it's live, and on some
+ * shares that stopped before who stopped them was recorded.
+ */
+
+/**
+ * A share in the holder's `listShared()` listing. It never names the owner or the prefix.
+ *
+ * @typedef {Object} KVSharedWithMe
+ * @property {string} handle Pass it as `optConfig.handle` to use the share.
+ * @property {KVShareAccess} access What you can do.
+ * @property {string | null} appUid The app whose data it is, or `null` for the app-less store.
+ * @property {string | null} label Plain text the owner set. Render it as text, never as HTML.
+ * @property {number} createdAt When the share was made, in Unix seconds.
+ */
+
+/**
+ * Options for `listShared()` and `listSharedByMe()`.
+ *
+ * @typedef {Object} KVShareListOptions
+ * @property {number} [limit] Shares per page. Defaults to `50`, at most `200`.
+ * @property {string} [cursor] The `cursor` from the previous page.
+ * @property {boolean} [includeTotal] Add `total`, the number of shares across every page.
+ */
+
+/**
+ * What `unshare()` resolves to.
+ *
+ * @typedef {Object} KVUnshareResult
+ * @property {string} handle The share that stopped.
+ * @property {number} revokedAt When it stopped, in Unix seconds.
  */
 
 export {};

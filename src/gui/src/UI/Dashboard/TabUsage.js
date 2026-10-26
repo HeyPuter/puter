@@ -55,9 +55,9 @@ const TabUsage = {
                 <div class="driver-usage-header">
                     <h3 style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('Storage')}</h3>
                     <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
-                        <span id="storage-used-percent"></span>
+                        <span id="storage-used-percent">--%</span>
                         <span> &middot; </span>
-                        ${i18n('used_of', { used: '<span id="storage-used"></span>', available: '<span id="storage-capacity"></span>' }, false)}
+                        ${i18n('used_of', { used: '<span id="storage-used">--</span>', available: '<span id="storage-capacity">--</span>' }, false)}
                         <span id="storage-puter-used-w" style="display:none;">&nbsp;(<span id="storage-puter-used"></span> ${i18n('storage_puter_used')})</span>
                     </div>
                 </div>
@@ -69,9 +69,9 @@ const TabUsage = {
                     <div class="driver-usage-header">
                         <h3 style="margin:0; font-size: 14px; flex-grow: 1; font-weight: 500;">${i18n('Resources')}</h3>
                         <div style="font-size: 13px; margin-bottom: 3px; opacity:0.85;">
-                            <span class="usage-progbar-percent"></span>
+                            <span class="usage-progbar-percent">--%</span>
                             <span> &middot; </span>
-                            ${i18n('used_of', { used: '<span id="total-usage"></span>', available: '<span id="total-capacity"></span>' }, false)}
+                            ${i18n('used_of', { used: '<span id="total-usage">--</span>', available: '<span id="total-capacity">--</span>' }, false)}
                         </div>
                     </div>
                     <div class="usage-progbar-wrapper">

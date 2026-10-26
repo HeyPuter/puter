@@ -397,6 +397,8 @@ export type EventMap = {
         user_id: number;
         user_uuid?: string;
         stripe_customer_id?: string | null;
+        /** Apps the account owned, which cascaded away with it. */
+        appUids?: string[];
     };
 
     // ---- Team billing ---- the trigger, never the charge ----
@@ -490,13 +492,33 @@ export type EventMap = {
         noShareKeys?: string[];
         /** Events handler runs behind the write; see `Actor.handlerDepth`. */
         handlerDepth?: number;
+        /**
+         * The user who made the change. Differs from `userId` when a share
+         * holder wrote into the owner's namespace.
+         */
+        actingUserId?: number;
+        /** Made by a worker session or an events handler; see `viaWorkerOf`. */
+        viaWorker?: true;
     };
     /**
      * A whole namespace was emptied. Namespace-level on purpose: `flush`'s own
      * key enumeration is truncated for a large namespace, so the keys it saw
      * are not the keys it removed.
      */
-    'kv.flushed': { namespace: string; userId: number };
+    'kv.flushed': {
+        namespace: string;
+        userId: number;
+        actingUserId?: number;
+        viaWorker?: true;
+    };
+    /**
+     * Share handles stopped being addresses, whoever retired them. `userId` is
+     * one user who could have subscribed through them, their owner or their
+     * holder. Listeners end what was made through them even where another grant
+     * still covers the region. Local, like `permission.revoked`: one region
+     * settling covers every other.
+     */
+    'kv.share.retired': { handles: string[]; userId: number };
 
     // ---- Notifications ----
     /**

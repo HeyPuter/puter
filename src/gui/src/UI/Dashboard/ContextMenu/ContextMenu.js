@@ -38,6 +38,12 @@ function isTouchPrimaryDevice () {
 /** Widest the touch menu gets, so phones (90% of up to ~440px) are unaffected. */
 const MAX_TOUCH_MENU_WIDTH = 400;
 
+/**
+ * The menu on screen. A long-press fires both contextmenu and taphold, and
+ * the second must not stack another sheet over the first.
+ */
+let openMenu = null;
+
 /** Labels of the destructive file actions, in the current language. */
 const dangerLabels = () => new Set([i18n('delete'), i18n('delete_permanently')]);
 
@@ -67,6 +73,8 @@ export default class ContextMenuModal {
      */
     show (menuItems, targetRect, options = {}) {
         if ( this.backdrop ) return; // Already showing
+        if ( openMenu && document.contains(openMenu.backdrop) ) return;
+        openMenu = this;
 
         this.menuItems = menuItems;
         // Stack of parent menus for submenu drill-in, and the anchor rect so we
@@ -348,6 +356,7 @@ export default class ContextMenuModal {
      */
     close () {
         if ( ! this.backdrop ) return;
+        if ( openMenu === this ) openMenu = null;
 
         // Remove event listeners
         if ( this.backdropClickHandler ) {

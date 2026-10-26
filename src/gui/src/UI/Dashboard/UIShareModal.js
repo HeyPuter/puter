@@ -25,6 +25,7 @@ import { icons } from '../../helpers/actionIcons.js';
 import { mode_label, options_for } from '../../helpers/shareModes.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { avatarHue, avatarInitial } from '../../helpers/shareAvatar.js';
+import { avatarUserAttr, paintAvatars } from '../../helpers/profilePictures.js';
 import {
     has_direct_share,
     mark_item_shared,
@@ -74,8 +75,16 @@ const chunk = (values, size) => {
     return out;
 };
 
-const avatar_html = (name) => {
-    return `<span class="share-modal-avatar" style="--share-avatar-hue: ${avatarHue(name)}" aria-hidden="true">${html_encode(avatarInitial(name))}</span>`;
+/**
+ * A row's avatar. `username` marks it for the person's picture; teams,
+ * invited emails and link shares have none.
+ *
+ * @param {string} name
+ * @param {string} [username]
+ * @returns {string} markup
+ */
+const avatar_html = (name, username) => {
+    return `<span class="share-modal-avatar" style="--share-avatar-hue: ${avatarHue(name)}"${avatarUserAttr(username)} aria-hidden="true">${html_encode(avatarInitial(name))}</span>`;
 };
 
 // Distinguishes one open dialog from another: the disclosure button points at
@@ -274,6 +283,14 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     const focus_dialog = () => {
         $overlay.find('.share-modal').get(0)?.focus({ preventScroll: true });
     };
+    // Focus a round-trip lost (a disabled control drops it on <body>, a
+    // re-render removes it) goes back; focus the user took elsewhere while
+    // waiting, into the add-people field say, stays where they put it.
+    const focus_moved_on = () => {
+        const el = document.activeElement;
+        return !! el && el !== document.body && el !== $overlay.find('.share-modal').get(0)
+            && ! $list.get(0).contains(el);
+    };
 
     // Both take HTML-safe text; `error_html` encodes the one raw source.
     const show_error = (html) => {
@@ -361,7 +378,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         }
 
         let row = `<div class="share-modal-row${group.pending ? ' share-modal-row-pending' : ''}${can_change || group.pending ? '' : ' share-modal-row-inherited'}">`;
-        row += avatar_html(group.name);
+        row += avatar_html(group.name, group.key.startsWith('user:') ? group.name : undefined);
         row += '<span class="share-modal-row-who">';
         row += `<span class="share-modal-row-name enable-user-select">${who}${you}</span>`;
         row += via;
@@ -398,7 +415,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         // A selection made in the Shared view can span owners.
         for ( const item_owner of aggregateOwners(targets.map((item) => item.owner)) ) {
             rows += '<div class="share-modal-row">';
-            rows += avatar_html(item_owner.name);
+            rows += avatar_html(item_owner.name, item_owner.name);
             rows += '<span class="share-modal-row-who">';
             rows += `<span class="share-modal-row-name enable-user-select">${html_encode(item_owner.name)}${item_owner.name === window.user.username ? ` (${i18n('share_you')})` : ''}</span>`;
             if ( item_owner.count < total ) {
@@ -416,6 +433,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             rows += `<p class="share-modal-empty">${is_multi ? i18n('share_no_one_items') : i18n('share_no_one')}</p>`;
         }
         $list.attr('aria-busy', 'false').html(rows);
+        paintAvatars($list[0]);
     };
 
     // Actions on different rows can overlap, each ending in a refresh; only
@@ -458,7 +476,8 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
 
         if ( by_path.size === 0 ) {
             $list.attr('aria-busy', 'false').empty();
-            show_error(error_html(failure));
+            // Nothing was being shared: share_failed would say otherwise.
+            show_error(failure?.message ? html_encode(failure.message) : i18n('share_load_failed'));
             return;
         }
         render(aggregateShares(target_paths, by_path));
@@ -746,7 +765,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             picker.remember(chosen, created);
             invalidate_shared_roots();
             await refresh();
-            $recipient.get(0)?.focus({ preventScroll: true });
+            if ( ! focus_moved_on() ) $recipient.get(0)?.focus({ preventScroll: true });
         } catch (err) {
             show_error(error_html(err));
             $submit.prop('disabled', false);
@@ -775,7 +794,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         }
         invalidate_shared_roots();
         await refresh();
-        focus_list_control('.share-modal-row-mode', key) || focus_dialog();
+        if ( ! focus_moved_on() ) focus_list_control('.share-modal-row-mode', key) || focus_dialog();
     });
 
     // -- Extend a partial grant to the rest of the selection --
@@ -799,7 +818,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         await refresh();
         // The link is gone once they hold everything; the mode select is the
         // nearest surviving control for the same person.
-        focus_list_control('.share-modal-row-mode', key) || focus_dialog();
+        if ( ! focus_moved_on() ) focus_list_control('.share-modal-row-mode', key) || focus_dialog();
     });
 
     // -- Revoke, confirmed inline in the row --
@@ -862,6 +881,15 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         $(this).closest('.share-modal-row-confirm').find('button').prop('disabled', true);
         try {
             await revoke_access(recipient_of(group), revoke_paths);
+            // Leaving takes away the access this list is read with, and the
+            // items may leave the listing behind it (the Shared view) too.
+            if ( ! group.teamUid && ! group.pending && group.name === window.user.username ) {
+                invalidate_shared_roots();
+                close();
+                const files = window.dashboard_object;
+                files?.renderDirectory?.(files.currentPath, { consistency: 'strong' });
+                return;
+            }
             if ( group.pending ) {
                 show_success(i18n('share_invite_cancelled', { recipient: group.name }));
             } else {
@@ -873,7 +901,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             await refresh();
             // The focused row is gone; the dialog itself takes focus (the
             // input would pop the on-screen keyboard on touch devices).
-            focus_dialog();
+            if ( ! focus_moved_on() ) focus_dialog();
         } catch (err) {
             show_error(error_html(err));
             render(last_groups);

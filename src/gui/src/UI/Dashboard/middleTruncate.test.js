@@ -14,9 +14,6 @@
  * GNU Affero General Public License for more details.
  */
 
-import { describe, it, expect } from 'vitest';
-import { dedupedName } from './dedupedName.js';
-
 import { describe, expect, it } from 'vitest';
 import { middleTruncate } from './middleTruncate.js';
 

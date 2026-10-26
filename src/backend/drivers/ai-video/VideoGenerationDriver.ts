@@ -41,6 +41,7 @@ import { readProviderKey } from '../util/providerRegistry.js';
 import { BytePlusVideoProvider } from './providers/byteplus/BytePlusVideoProvider.js';
 import { GeminiVideoProvider } from './providers/gemini/GeminiVideoProvider.js';
 import { KlingVideoProvider } from './providers/kling/KlingVideoProvider.js';
+import { MiniMaxVideoProvider } from './providers/minimax/MiniMaxVideoProvider.js';
 import { TogetherVideoProvider } from './providers/together/TogetherVideoProvider.js';
 import type {
     IGenerateVideoParams,
@@ -50,7 +51,9 @@ import type {
 
 const DEFAULT_PROVIDER = 'together-video-generation';
 
-const isResolutionTier = (value: string): boolean => /^\d{3,4}p$/i.test(value);
+/** A resolution tier such as `720p`, `2k` or `4k`, as opposed to pixels. */
+const isResolutionTier = (value: string): boolean =>
+    /^(\d{3,4}p|\dk)$/i.test(value);
 
 const parsePixelSize = (
     value: string | undefined,
@@ -63,14 +66,15 @@ const parsePixelSize = (
 };
 
 /** Resolution tier of the shorter side, e.g. 1920x1080 and 1080x1920 → 1080p. */
-const tierForPixels = ({
-    width,
-    height,
-}: {
-    width: number;
-    height: number;
-}) => {
+const tierForPixels = (
+    { width, height }: { width: number; height: number },
+    dimensions: readonly string[],
+) => {
     const shortSide = Math.min(width, height);
+    const exactTier = dimensions.find(
+        (tier) => tier.toLowerCase() === `${shortSide}p`,
+    );
+    if (exactTier) return exactTier;
     if (shortSide <= 480) return '480p';
     if (shortSide <= 720) return '720p';
     if (shortSide <= 1080) return '1080p';
@@ -81,7 +85,7 @@ const tierForPixels = ({
  * Driver implementing the `puter-video-generation` interface.
  *
  * Manages multiple upstream providers (Together, BytePlus/Seedance, Gemini,
- * Kling) and handles model resolution, provider routing, and parameter
+ * Kling, MiniMax) and handles model resolution, provider routing, and parameter
  * normalisation. Each provider is a plain `IVideoProvider` -- the driver
  * instantiates them from config on boot.
  *
@@ -98,6 +102,7 @@ export class VideoGenerationDriver extends PuterDriver {
         'byteplus-video-generation',
         'gemini-video-generation',
         'kling-video-generation',
+        'minimax-video-generation',
     ];
     readonly isDefault = true;
 
@@ -293,7 +298,7 @@ export class VideoGenerationDriver extends PuterDriver {
             const catalogIsTiers = model.dimensions.every(isResolutionTier);
             const wanted =
                 catalogIsTiers && requestedPixels
-                    ? tierForPixels(requestedPixels)
+                    ? tierForPixels(requestedPixels, model.dimensions)
                     : requestedResolution;
 
             // Case-insensitive so '4K' matches a catalog entry spelled '4k';
@@ -467,6 +472,26 @@ export class VideoGenerationDriver extends PuterDriver {
                 m,
                 { stores: this.stores, fs: this.services.fs },
             );
+        }
+
+        // Falls back to the shared `minimax` (ai-chat) key. The chat block's
+        // `apiBaseUrl` names the chat API under `/v1`; the provider keeps its
+        // host, since the video API lives beside it.
+        const minimaxVideoCfg = providers['minimax-video-generation'] as
+            Record<string, unknown> | undefined;
+        const minimaxSharedCfg = providers['minimax'] as
+            Record<string, unknown> | undefined;
+        const minimaxKey = readProviderKey(minimaxVideoCfg, minimaxSharedCfg);
+        if (minimaxKey) {
+            this.#providers['minimax-video-generation'] =
+                new MiniMaxVideoProvider(
+                    {
+                        apiKey: minimaxKey,
+                        apiBaseUrl: (minimaxVideoCfg?.apiBaseUrl ??
+                            minimaxSharedCfg?.apiBaseUrl) as string | undefined,
+                    },
+                    m,
+                );
         }
     }
 

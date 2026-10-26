@@ -211,6 +211,11 @@ export interface ImplicatorCheckInput {
     actor: Actor;
     permission: string;
     recurse?: (actor: Actor, permission: string) => Promise<ReadingNode[]>;
+    /**
+     * Shared by every implicator call of one scan, so a rule can answer the
+     * options of one check from a single lookup. Never outlives the scan.
+     */
+    memo?: Map<string, unknown>;
 }
 
 export interface PermissionImplicator {

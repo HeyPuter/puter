@@ -33,7 +33,7 @@ import {
     hasVerifiedPhone,
 } from '../../core/http/middleware/gates.js';
 import type { Actor } from '../../core/actor.js';
-import { isPlainUserActor, makeActor } from '../../core/actor.js';
+import { isAppActor, isPlainUserActor, makeActor } from '../../core/actor.js';
 import {
     checkRateLimit,
     consumeRouteRateLimit,
@@ -88,13 +88,16 @@ import {
 import { promoteToVerifiedGroup } from '../../util/userProvisioning.js';
 import {
     assertBoundedManageGrant,
+    assertNewShareSegments,
+    assertPrefixFitsAccess,
     isKvSharePermission,
-} from '../../services/events/kvShares.js';
+} from '../../services/kvShare/kvShares.js';
 import {
     APP_DATA_PERMISSION_PREFIX,
     appDataSharingAllowed,
     parseAppDataPermission,
 } from '../../services/permission/appDataScopes.js';
+import { parseAppGrantablePermission } from '../../services/permission/appGrantable.js';
 import {
     assertCreatablePath,
     isOwnHomePath,
@@ -2998,6 +3001,45 @@ export class AuthController extends PuterController {
     }
 
     /**
+     * Refuses any entry outside the families an app can be granted. Anything
+     * else is a row the backend never checks for an app, or one wider than the
+     * consent prompt can describe.
+     */
+    async #assertAppGrantable(
+        actor: Actor,
+        appIdentifier: string,
+        list: string[],
+    ): Promise<void> {
+        const refuse = (entry: string) =>
+            new HttpError(
+                400,
+                `Permission cannot be granted to an app: ${entry}`,
+                { legacyCode: 'permission_not_grantable' },
+            );
+        let appUid: string | undefined;
+        for (const entry of list) {
+            // A delegation over a whole key-value namespace has no bounded
+            // description; refused with its own code.
+            assertBoundedManageGrant(entry);
+            const parsed = parseAppGrantablePermission(entry, actor.user!.uuid);
+            if (!parsed) throw refuse(entry);
+            if (parsed.family !== 'kvShare') continue;
+            // Held to what a new share's prefix may be, so a consent never
+            // covers shares that could not be made.
+            assertNewShareSegments(parsed.segments);
+            assertPrefixFitsAccess(
+                parsed.ownerUuid,
+                parsed.appUid,
+                parsed.segments.join(':'),
+                parsed.level,
+            );
+            // An app shares regions of its own namespace only.
+            appUid ??= (await this.stores.app.resolveApp(appIdentifier))?.uid;
+            if (parsed.appUid !== appUid) throw refuse(entry);
+        }
+    }
+
+    /**
      * Gate a cross-app data grant: the target must exist, must not have opted
      * out of sharing, and must be named. Also creates the target's AppData
      * directory for an `fs` scope, since it is only created lazily when the app
@@ -3175,6 +3217,7 @@ export class AuthController extends PuterController {
         }
         // 400 on a bad value, before anything else runs. Absent means create.
         const create = parseCreateFlag(req.body?.create);
+        await this.#assertAppGrantable(req.actor!, app_uid, list);
 
         // Validate every entry before writing or creating anything, so a bad
         // one in the list cannot leave a partially-granted set behind: the
@@ -3187,10 +3230,6 @@ export class AuthController extends PuterController {
             kind: FsCreateKind;
         }> = [];
         for (const entry of list) {
-            // A delegation over a whole key-value namespace has no bounded
-            // description, so it is refused where it is asked for rather than
-            // prompted for and then refused at use.
-            assertBoundedManageGrant(entry);
             await this.#prepareAppDataGrant(req.actor!, entry);
             const plan = await this.#planFsPathCreate(
                 req.actor!,
@@ -3397,11 +3436,28 @@ export class AuthController extends PuterController {
         const unique = [...new Set(permissions)] as string[];
         const result: Record<string, boolean> = {};
 
-        // `fs:` reaches down a tree, and only ACL walks that.
+        // A share grant names its owner and prefix, which its holder is never
+        // told, so asking about one would confirm a guess. `manage:` arms are
+        // the app's own consent and stay answerable.
+        const answerable: string[] = [];
+        for (const permission of unique) {
+            if (
+                typeof permission === 'string' &&
+                isKvSharePermission(permission)
+            )
+                result[permission] = false;
+            else answerable.push(permission);
+        }
+
+        // `fs:` reaches down a tree, and only ACL walks that. An app asking
+        // about itself gets the same answer, so a grant on a parent folder
+        // doesn't read as missing and prompt again.
         const viaAcl = new Set(
-            app_uid ? unique.filter((p) => aclAnswerableFsPermission(p)) : [],
+            app_uid || isAppActor(actor)
+                ? answerable.filter((p) => aclAnswerableFsPermission(p))
+                : [],
         );
-        const viaScan = unique.filter((p) => !viaAcl.has(p));
+        const viaScan = answerable.filter((p) => !viaAcl.has(p));
 
         let granted: Map<string, boolean>;
         try {
