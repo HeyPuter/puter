@@ -345,6 +345,50 @@ export default suite('kvShare', {
             await t.puter.kv.unshare(share.handle);
         },
 
+    'share with several recipients reports each one on its own item': async (
+        t,
+    ) => {
+        const prefix = unique('many');
+        const items = await t.puter.kv.share(
+            prefix,
+            [
+                t.env.users.other.username,
+                { username: t.env.users.admin.username },
+                'kvshare-nobody-by-this-name',
+                'someone@example.com',
+            ],
+            'write',
+        );
+        t.assert.equal(items.length, 4);
+        const [other, admin, nobody, address] = items;
+        t.assert.ok('handle' in other && other.holder === t.env.users.other.username);
+        t.assert.ok('handle' in admin && admin.holder === t.env.users.admin.username);
+        t.assert.equal(other.recipient, t.env.users.other.username);
+        t.assert.equal('error' in nobody && nobody.error.code, 'subject_does_not_exist');
+        t.assert.equal('error' in address && address.error.code, 'invalid_recipient');
+
+        // Sharing again changes the same shares in place.
+        const again = await t.puter.kv.share({
+            prefix,
+            recipients: [t.env.users.other.username],
+            access: 'read',
+            label: 'Team',
+        });
+        t.assert.ok('handle' in again[0] && 'handle' in other);
+        if ('handle' in again[0] && 'handle' in other && 'handle' in admin) {
+            t.assert.equal(again[0].handle, other.handle);
+            t.assert.equal(again[0].access, 'read');
+            t.assert.equal(again[0].label, 'Team');
+            await t.puter.kv.unshare(other.handle);
+            await t.puter.kv.unshare(admin.handle);
+        }
+
+        const tooMany = await t.assert.rejects(() =>
+            t.puter.kv.share(prefix, []),
+        );
+        t.assert.equal(codeOf(tooMany), 'bad_request');
+    },
+
     'share refuses bad input with the documented codes': async (t) => {
         const address = await t.assert.rejects(() =>
             t.puter.kv.share(unique('email'), 'someone@example.com'),
@@ -619,6 +663,118 @@ export default suite('kvShare', {
             });
         } finally {
             await t.puter.kv.unshare(watch);
+        }
+    },
+
+    'a watch share lists keys but not values': async (t) => {
+        const prefix = unique('watch-keys');
+        await t.puter.kv.set(`${prefix}a`, 1);
+        await t.puter.kv.set(`${prefix}b:c`, 2);
+        const watch = await shareWithOther(t, prefix, 'watch');
+
+        try {
+            await as(t, 'other', async () => {
+                t.assert.deepEqual(
+                    await t.puter.kv.list({ optConfig: { handle: watch } }),
+                    ['a', 'b:c'],
+                );
+                const counted = await t.puter.kv.list({
+                    limit: 1,
+                    includeTotal: true,
+                    optConfig: { handle: watch },
+                });
+                t.assert.deepEqual(counted.items, ['a']);
+                t.assert.equal(counted.total, 2);
+                const values = await t.assert.rejects(() =>
+                    t.puter.kv.list(true, { handle: watch }),
+                );
+                t.assert.equal(codeOf(values), 'kv_handle_access_denied');
+            });
+            // The owner reaches every level through their own handle.
+            t.assert.deepEqual(
+                await t.puter.kv.list({ optConfig: { handle: watch } }),
+                ['a', 'b:c'],
+            );
+        } finally {
+            await t.puter.kv.unshare(watch);
+        }
+    },
+
+    'listings filter by app and by state': async (t) => {
+        const name = `kvshare-filter-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+        const app = await t.puter.apps.create(
+            name,
+            `https://example.com/${name}`,
+        );
+        const appUid = (app as unknown as { uid: string }).uid;
+        const inApp = await t.puter.kv.share({
+            prefix: unique('filter-app'),
+            recipient: t.env.users.other.username,
+            appUuid: appUid,
+        });
+        const stopped = await t.puter.kv.share({
+            prefix: unique('filter-stopped'),
+            recipient: t.env.users.other.username,
+            appUuid: appUid,
+        });
+        await t.puter.kv.unshare(stopped.handle);
+        const appLess = await shareWithOther(t, unique('filter-global'));
+        const handlesOf = (page: { items: Array<{ handle: string }> }) =>
+            page.items.map((one) => one.handle);
+
+        try {
+            t.assert.deepEqual(
+                handlesOf(await t.puter.kv.listSharedByMe({ appUid })),
+                [inApp.handle, stopped.handle],
+            );
+            t.assert.deepEqual(
+                handlesOf(
+                    await t.puter.kv.listSharedByMe({ appUid, state: 'live' }),
+                ),
+                [inApp.handle],
+            );
+            t.assert.deepEqual(
+                handlesOf(
+                    await t.puter.kv.listSharedByMe({
+                        appUid,
+                        state: 'revoked',
+                    }),
+                ),
+                [stopped.handle],
+            );
+            const global = await t.puter.kv.listSharedByMe({
+                appUid: null,
+                limit: 200,
+            });
+            t.assert.ok(handlesOf(global).includes(appLess));
+            t.assert.ok(global.items.every((one) => one.appUid === null));
+            const badState = await t.assert.rejects(() =>
+                t.puter.kv.listSharedByMe({ state: 'gone' as never }),
+            );
+            t.assert.equal(codeOf(badState), 'bad_request');
+
+            await as(t, 'other', async () => {
+                t.assert.deepEqual(
+                    handlesOf(await t.puter.kv.listShared({ appUid })),
+                    [inApp.handle],
+                );
+            });
+            await asOtherInApp(t, appUid, async () => {
+                t.assert.deepEqual(
+                    handlesOf(await t.puter.kv.listShared({ appUid })),
+                    [inApp.handle],
+                );
+                const outside = await t.assert.rejects(() =>
+                    t.puter.kv.listShared({ appUid: null }),
+                );
+                t.assert.equal(
+                    codeOf(outside),
+                    'events_kv_handle_outside_namespace',
+                );
+            });
+        } finally {
+            await t.puter.kv.unshare(inApp.handle);
+            await t.puter.kv.unshare(appLess);
         }
     },
 

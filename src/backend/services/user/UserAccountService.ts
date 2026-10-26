@@ -143,6 +143,17 @@ export class UserAccountService extends PuterService {
             }
         }
 
+        // Grants the account held live in the flat view under its id, which
+        // nothing else removes.
+        try {
+            await this.stores.permission.purgeFlatUserPermsHeldBy(userId);
+        } catch (e) {
+            console.warn(
+                '[cascade-delete-user] held-grant flat purge failed:',
+                e,
+            );
+        }
+
         // Fire-and-forget: let listeners purge external state tied to the
         // account (Stripe subscriptions are cancelled immediately, without
         // proration). Emitted after the row delete — listeners key off the
