@@ -238,7 +238,7 @@ export interface ICompleteArguments {
         'auto' | 'default' | 'flex' | 'scale' | 'priority' | undefined;
     max_tokens?: number;
     temperature?: number;
-    reasoning?: { effort: 'low' | 'medium' | 'high' } | undefined;
+    reasoning?: { effort: ReasoningEffort } | undefined;
     text?: { verbosity?: 'low' | 'medium' | 'high' | undefined } | undefined;
     reasoning_effort?: ReasoningEffort | undefined;
     verbosity?: 'low' | 'medium' | 'high' | undefined;
@@ -345,6 +345,8 @@ export interface IChatProvider {
         inputKey?: string;
         outputKey?: string;
         extraCost?: number;
+        /** Provider-specific prompt tokens outside message.content. */
+        additionalPromptTokens?: number;
         maxTokens?: number;
     };
     /**
