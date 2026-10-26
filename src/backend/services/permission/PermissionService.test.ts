@@ -1267,6 +1267,93 @@ describe('PermissionService (integration)', () => {
             expect(flat.filter((v) => !v.deleted)).toHaveLength(0);
         });
 
+        it('revokeUserUserPermissions removes several grants with one delete and one generation bump, announcing each', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const tag = uuidv4();
+            const granted = [
+                `zztest:rvk-many-${tag}:a:read`,
+                `zztest:rvk-many-${tag}:b:read`,
+            ];
+            const absent = `zztest:rvk-many-${tag}:c:read`;
+            for (const permission of [...granted, absent])
+                await grantManage(issuer, permission);
+            for (const permission of granted)
+                await runWithContext({ actor: issuerActor }, () =>
+                    permService.grantUserUserPermission(
+                        issuerActor,
+                        target.username,
+                        permission,
+                    ),
+                );
+
+            const store = server.stores.permission;
+            const single = vi.spyOn(store, 'deleteUserUserPermByHolder');
+            const bump = vi.spyOn(store, 'bumpCacheGeneration');
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            let removed: string[];
+            try {
+                removed = await runWithContext({ actor: issuerActor }, () =>
+                    permService.revokeUserUserPermissions(
+                        issuerActor,
+                        target.username,
+                        [...granted, absent],
+                    ),
+                );
+                expect(single).not.toHaveBeenCalled();
+                expect(bump).toHaveBeenCalledTimes(1);
+                expect(
+                    emit.mock.calls
+                        .filter(([key]) => key === 'permission.revoked')
+                        .map(
+                            ([, data]) =>
+                                (data as { permission: string }).permission,
+                        )
+                        .sort(),
+                ).toEqual([...granted].sort());
+            } finally {
+                single.mockRestore();
+                bump.mockRestore();
+                emit.mockRestore();
+            }
+            expect(removed.sort()).toEqual([...granted].sort());
+            expect(
+                await store.readLinkedUserUserPerms(target.id, granted),
+            ).toHaveLength(0);
+            const flat = await store.getFlatUserPerms(target.id, granted);
+            expect(flat.filter((v) => !v.deleted)).toHaveLength(0);
+        });
+
+        it('revokeUserUserPermissions refuses an issuer who may not manage one of them, removing nothing', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const managed = `zztest:rvk-auth-${uuidv4()}:ii:read`;
+            const unmanaged = `zztest:rvk-auth-${uuidv4()}:ii:read`;
+            await grantManage(issuer, managed);
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    managed,
+                ),
+            );
+            await expect(
+                runWithContext({ actor: issuerActor }, () =>
+                    permService.revokeUserUserPermissions(
+                        issuerActor,
+                        target.username,
+                        [managed, unmanaged],
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            expect(
+                await server.stores.permission.readLinkedUserUserPerms(
+                    target.id,
+                    [managed],
+                ),
+            ).toHaveLength(1);
+        });
+
         it('grantUserUserPermission persists the linked SQL row before resolving', async () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target } = await makeUserActor();

@@ -224,6 +224,7 @@ describe('an app connection', () => {
             'subject',
             'ts',
             'uid',
+            'viaWorker',
         ]);
     });
 

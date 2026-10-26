@@ -252,7 +252,19 @@ export class DDBClient extends PuterClient {
     }
 
     @Span('ddb.put', (table: string) => ({ 'db.table': table }))
-    async put<T extends Record<string, unknown>>(table: string, item: T) {
+    async put<T extends Record<string, unknown>>(
+        table: string,
+        item: T,
+        opts?: {
+            /** Refused (`ConditionalCheckFailedException`) unless it holds. */
+            condition?: {
+                expression: string;
+                names?: Record<string, string>;
+                values?: Record<string, unknown>;
+            };
+        },
+    ) {
+        const condition = opts?.condition;
         const client = await this.#getDocumentClient();
         return sendRepairingValues(
             item,
@@ -262,6 +274,23 @@ export class DDBClient extends PuterClient {
                         TableName: table,
                         Item: itemToWrite,
                         ReturnConsumedCapacity: 'TOTAL',
+                        ...(condition
+                            ? {
+                                  ConditionExpression: condition.expression,
+                                  ...(condition.names
+                                      ? {
+                                            ExpressionAttributeNames:
+                                                condition.names,
+                                        }
+                                      : {}),
+                                  ...(condition.values
+                                      ? {
+                                            ExpressionAttributeValues:
+                                                condition.values,
+                                        }
+                                      : {}),
+                              }
+                            : {}),
                     }),
                 ),
             () => `a put to ${table}`,

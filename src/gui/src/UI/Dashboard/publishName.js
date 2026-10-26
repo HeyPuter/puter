@@ -1,0 +1,68 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// The names a website or worker can be published under, as the backend
+// checks them: a website's is a DNS label (SubdomainDriver), and a worker's
+// also allows underscores (WorkerDriver).
+
+/**
+ * @typedef {object} PublishNameRule
+ * @property {RegExp} separators Runs that become one hyphen, as between words.
+ * @property {RegExp} invalid Characters the name can't hold.
+ * @property {number} maxLength
+ */
+
+// Either name becomes a hostname label, which DNS caps at 63; the backend
+// takes a 64-character website name, but nothing can reach it.
+const LABEL_MAX_LENGTH = 63;
+
+/** @type {{ website: PublishNameRule, worker: PublishNameRule }} */
+export const PUBLISH_NAME_RULES = {
+    // A website name can't hold an underscore, so it separates words too.
+    website: { separators: /[\s_]+/g, invalid: /[^a-z0-9-]/g, maxLength: LABEL_MAX_LENGTH },
+    worker: { separators: /\s+/g, invalid: /[^a-z0-9_-]/g, maxLength: LABEL_MAX_LENGTH },
+};
+
+/**
+ * What a typed name becomes as the user types: lowercase, accents taken off
+ * their letters, separator runs turned into a hyphen, and anything else the
+ * rule refuses dropped.
+ *
+ * @param {string} value
+ * @param {PublishNameRule} rule
+ * @returns {string}
+ */
+export const normalizePublishName = (value, rule) => String(value ?? '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .replace(rule.separators, '-')
+    .replace(rule.invalid, '');
+
+/**
+ * The name to submit: normalized, without the leading or trailing hyphens a
+ * hostname can't start or end with. Empty when nothing usable is left.
+ *
+ * @param {string} value
+ * @param {PublishNameRule} rule
+ * @returns {string}
+ */
+export const finalizePublishName = (value, rule) => normalizePublishName(value, rule)
+    .slice(0, rule.maxLength)
+    .replace(/^-+|-+$/g, '');

@@ -20,11 +20,10 @@
 import { describe, it, expect } from 'vitest';
 import {
     badgeLabel,
-    formatAbsoluteTime,
-    formatRelativeTime,
     glyphKey,
     isShareNotification,
     isUnread,
+    listedEntries,
     mergeEntries,
     notificationTarget,
     parseCreatedAt,
@@ -138,6 +137,24 @@ describe('toEntry', () => {
         expect(toEntry({ uid: 'a', value: worker, created_at: '2026-08-27 12:00:00' }, NOW)).toBeNull();
         expect(toEntry({ uid: 'b', notification: worker }, NOW)).toBeNull();
         expect(toEntry({ uid: 'c', notification: { ...worker, source: 'sharing' } }, NOW)).not.toBeNull();
+    });
+});
+
+describe('listedEntries', () => {
+    const row = (uid, type) => ({ uid, value: { type, title: uid }, created_at: null });
+
+    it("doesn't let hidden rows take the places of shown ones", () => {
+        const rows = [
+            ...Array.from({ length: 40 }, (_, i) => row(`deploy${i}`, 'app.worker.deployed')),
+            row('share', 'fs.share.granted'),
+            row('older', 'fs.share.granted'),
+        ];
+        expect(listedEntries(rows, NOW, 30).map((e) => e.uid)).toEqual(['share', 'older']);
+    });
+
+    it('keeps the newest `limit`, and every unread one past them', () => {
+        const rows = Array.from({ length: 6 }, (_, i) => ({ ...row(`n${i}`), acknowledged: i === 4 ? null : NOW / 1000 }));
+        expect(listedEntries(rows, NOW, 3).map((e) => e.uid)).toEqual(['n0', 'n1', 'n2', 'n4']);
     });
 });
 
@@ -394,42 +411,6 @@ describe('titleWithBadge', () => {
     it('copes with an empty title', () => {
         expect(titleWithBadge('', 2)).toBe('(2) ');
         expect(titleWithBadge(undefined, 0)).toBe('');
-    });
-});
-
-describe('formatRelativeTime', () => {
-    it('describes the recent past in words', () => {
-        expect(formatRelativeTime(NOW, NOW)).toBe('now');
-        expect(formatRelativeTime(NOW - 30_000, NOW)).toBe('now');
-        expect(formatRelativeTime(NOW - 5 * MIN, NOW)).toBe('5 minutes ago');
-        expect(formatRelativeTime(NOW - 1 * MIN, NOW)).toBe('1 minute ago');
-        expect(formatRelativeTime(NOW - 3 * HOUR, NOW)).toBe('3 hours ago');
-        expect(formatRelativeTime(NOW - DAY, NOW)).toBe('yesterday');
-        expect(formatRelativeTime(NOW - 3 * DAY, NOW)).toBe('3 days ago');
-    });
-
-    it('falls back to a short date past a week', () => {
-        expect(formatRelativeTime(NOW - 10 * DAY, NOW)).toBe('Aug 17');
-        expect(formatRelativeTime(NOW - 400 * DAY, NOW)).toBe('Jul 23, 2025');
-    });
-
-    it('never reports the future', () => {
-        expect(formatRelativeTime(NOW + HOUR, NOW)).toBe('now');
-    });
-
-    it('localises', () => {
-        expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'fr')).toBe('il y a 5 minutes');
-    });
-
-    it('survives an unknown locale', () => {
-        expect(formatRelativeTime(NOW - 5 * MIN, NOW, 'not-a-locale-!!')).toBe('5 minutes ago');
-        expect(formatRelativeTime(NOW - 10 * DAY, NOW, 'not-a-locale-!!')).toBe('Aug 17');
-    });
-});
-
-describe('formatAbsoluteTime', () => {
-    it('spells out the moment', () => {
-        expect(formatAbsoluteTime(NOW, 'en')).toMatch(/Aug 27, 2026/);
     });
 });
 
