@@ -132,9 +132,7 @@ function UIAlert (options) {
             is_resizable: false,
             is_droppable: false,
             has_head: false,
-            // A dashboard overlay (z-index 1000) outranks ordinary windows; a
-            // conflict prompt raised under a progress card must still be reachable.
-            stay_on_top: options.stay_on_top ?? document.querySelector('.dashboard-dialog-overlay') !== null,
+            stay_on_top: options.stay_on_top ?? false,
             selectable_body: false,
             draggable_body: options.draggable_body ?? true,
             allow_context_menu: false,

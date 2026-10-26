@@ -34,7 +34,7 @@ import publish_as_website from '../../helpers/publishAsWebsite.js';
 import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import UIShareModal from './UIShareModal.js';
-import UIDashboardProgressModal from './UIDashboardProgressModal.js';
+import UIDashboardTransfer from './UIDashboardTransfers.js';
 import { summarizeUpload } from './transferProgress.js';
 import { dedupedName } from './dedupedName.js';
 import { middleTruncate } from './middleTruncate.js';
@@ -5491,7 +5491,7 @@ const TabFiles = {
     },
 
     /**
-     * Uploads files to a folder behind a progress card, then refreshes the
+     * Uploads files to a folder with a row in the transfer tray, then refreshes the
      * listing and highlights what arrived.
      *
      * @param {DataTransferItemList|FileList|File[]} items - The files to upload;
@@ -5521,7 +5521,7 @@ const TabFiles = {
             init: (operation_id, xhr) => {
                 opid = operation_id;
                 window.active_uploads[opid] = 0;
-                upload_progress_window = UIDashboardProgressModal({
+                upload_progress_window = UIDashboardTransfer({
                     title,
                     status,
                     operation_id,
@@ -5554,10 +5554,12 @@ const TabFiles = {
                     operation: 'upload',
                     data: files,
                 });
+                // The tray doesn't block anything, so the done state can
+                // stay long enough to be noticed.
                 upload_progress_window.complete();
                 setTimeout(() => {
                     upload_progress_window.close();
-                }, 1000);
+                }, 4000);
                 window.show_save_account_notice_if_needed();
                 delete window.active_uploads[opid];
                 // Refresh directory to show uploaded files, then highlight
