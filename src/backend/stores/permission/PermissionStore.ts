@@ -208,7 +208,7 @@ export class PermissionStore extends PuterStore {
     #subscribeRemoteFlatInvalidations(): void {
         this.clients.event.on(
             'outer.permission.flatInvalidated',
-            (_key, data, meta) => {
+            async (_key, data, meta) => {
                 if (!(meta as { from_outside?: boolean })?.from_outside) return;
                 const raw = (data as { entries?: unknown })?.entries;
                 if (!Array.isArray(raw)) return;
@@ -224,12 +224,14 @@ export class PermissionStore extends PuterStore {
                 // Guarded: a transient KV error applying a peer's delete must
                 // not become an unhandled rejection. The entry stays until the
                 // next invalidation or its TTL — same as a lost event.
-                this.#applyFlatUserPermDeletes(entries).catch((err) => {
+                try {
+                    await this.#applyFlatUserPermDeletes(entries);
+                } catch (err) {
                     console.warn(
                         '[PermissionStore] failed to apply remote flat-perm deletes:',
                         err,
                     );
-                });
+                }
             },
         );
     }
