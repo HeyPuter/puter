@@ -139,3 +139,62 @@ export async function getNotification (uid) {
         return null;
     }
 }
+
+/** @typedef {{ uid: string, platform: 'web'|'ios'|'android', label: string|null, user_agent: string|null, created_at: number, last_seen_at: number, current: boolean }} PushDevice */
+
+/** @typedef {{ uid: string, name: string, title: string, icon: string|null }} PushApp */
+
+/** Rejects with the server's `code` and `status` on a failed call. */
+const pushCall = async (method, path, body) => {
+    const res = await fetch(`${window.api_origin}${path}`, {
+        method,
+        headers: authHeaders(),
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if ( ! res.ok ) {
+        const error = new Error(data?.message ?? `${path} failed (${res.status})`);
+        error.status = res.status;
+        error.code = data?.code;
+        throw error;
+    }
+    return data;
+};
+
+/** @returns {Promise<PushDevice[]>} */
+export async function listPushDevices () {
+    const { devices } = await pushCall('GET', '/push/devices');
+    return Array.isArray(devices) ? devices : [];
+}
+
+/** @param {string} uid */
+export async function removePushDevice (uid) {
+    await pushCall('DELETE', `/push/devices/${encodeURIComponent(uid)}`);
+}
+
+/** @param {string} uid */
+export async function sendTestPush (uid) {
+    await pushCall('POST', `/push/devices/${encodeURIComponent(uid)}/test`);
+}
+
+/** @returns {Promise<PushApp[]>} */
+export async function listPushApps () {
+    const { apps } = await pushCall('GET', '/push/apps');
+    return Array.isArray(apps) ? apps : [];
+}
+
+/** @param {string} appUid */
+export async function revokePushApp (appUid) {
+    await pushCall('POST', '/auth/revoke-user-app', { app_uid: appUid, permission: 'notifications:push' });
+}
+
+/** @returns {Promise<boolean>} Whether Puter's own notifications are pushed */
+export async function getPuterPushPreference () {
+    const { puter } = await pushCall('GET', '/push/preferences');
+    return puter !== false;
+}
+
+/** @param {boolean} enabled */
+export async function setPuterPushPreference (enabled) {
+    await pushCall('POST', '/push/preferences', { puter: enabled });
+}

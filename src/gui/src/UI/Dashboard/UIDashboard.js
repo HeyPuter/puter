@@ -52,10 +52,11 @@ import TabApps from './TabApps.js';
 import TabUsage from './TabUsage.js';
 import TabAccount from './TabAccount.js';
 import TabSecurity from './TabSecurity.js';
+import TabNotifications, { notificationsTabEnabled } from './TabNotifications.js';
 import teamBadgeHtml from './teamBadge.js';
 
 // Registry of built-in tabs
-const builtinTabs = [
+const builtinTabs = () => [
     TabHome,
     TabApps,
     TabFiles,
@@ -63,6 +64,7 @@ const builtinTabs = [
     TabUsage,
     TabAccount,
     TabSecurity,
+    ...(notificationsTabEnabled(window.gui_params) ? [TabNotifications] : []),
 ];
 
 async function UIDashboard (options) {
@@ -74,7 +76,7 @@ async function UIDashboard (options) {
     $('body').addClass('dashboard-mode');
 
     // Create mutable tabs array from built-in tabs
-    const tabs = [...builtinTabs];
+    const tabs = builtinTabs();
 
     // Dispatch 'dashboard-will-open' event to allow extensions to add tabs
     window.dispatchEvent(new CustomEvent('dashboard-will-open', { detail: { tabs } }));

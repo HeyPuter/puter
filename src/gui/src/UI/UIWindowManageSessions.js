@@ -24,38 +24,7 @@
 
 import { fetchAllEventsWorkers, eventsWorkerLabel } from '../helpers/eventsWorkers.js';
 import { forgetGodmodeTokens } from '../helpers/godmodeTokens.js';
-
-// Hand-rolled UA → {browser, os} extractor. Covers Chrome/Edge/Firefox/
-// Safari/Opera + Windows/macOS/iOS/Android/Linux. The backend already
-// has `ua-parser-js`; pulling it into the GUI bundle just for this
-// label wasn't worth the bytes.
-const parseUserAgent = (ua) => {
-    if ( ! ua || typeof ua !== 'string' ) return { browser: null, os: null };
-    let browser = null;
-    if ( /Edg\//i.test(ua) ) browser = 'Edge';
-    else if ( /OPR\/|Opera/i.test(ua) ) browser = 'Opera';
-    else if ( /Chrome\//i.test(ua) && !/Chromium/i.test(ua) ) browser = 'Chrome';
-    else if ( /Firefox\//i.test(ua) ) browser = 'Firefox';
-    else if ( /Safari\//i.test(ua) && !/Chrome\//i.test(ua) ) browser = 'Safari';
-
-    let os = null;
-    if ( /Windows NT/i.test(ua) ) os = 'Windows';
-    // iOS Safari/Chrome UAs include "like Mac OS X", so the iOS device
-    // check has to win against the macOS regex — otherwise iPhones get
-    // mislabeled as macOS. Android similarly fakes a "Linux" token, so
-    // it has to precede the Linux check below.
-    else if ( /iPhone|iPad|iPod/i.test(ua) ) os = 'iOS';
-    else if ( /Android/i.test(ua) ) os = 'Android';
-    else if ( /Mac OS X|Macintosh/i.test(ua) ) os = 'macOS';
-    else if ( /Linux/i.test(ua) ) os = 'Linux';
-
-    return { browser, os };
-};
-
-const formatBrowserOs = ({ browser, os }) => {
-    if ( browser && os ) return `${browser} on ${os}`;
-    return browser || os || null;
-};
+import { formatBrowserOs, parseUserAgent } from '../helpers/userAgent.js';
 
 // Inline line-icons (stroke, currentColor) so the list is scannable at a
 // glance without pulling an icon font into the bundle.
