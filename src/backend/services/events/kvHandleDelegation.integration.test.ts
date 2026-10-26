@@ -42,7 +42,10 @@ import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import type { DeliveryEnvelope } from './EventsService.js';
-import { kvShareManagePermission, kvSharePermission } from './kvShares.js';
+import {
+    kvShareManagePermission,
+    kvSharePermission,
+} from '../kvShare/kvShares.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 const SOCKET_ID = 'kv-delegate-socket';
@@ -64,6 +67,7 @@ let appId: number;
 let appActor: Actor;
 
 const events = () => env.server.services.events;
+const shares = () => env.server.services.kvShare;
 const permissions = () => env.server.services.permission;
 
 const settled = (count = 1) =>
@@ -111,11 +115,15 @@ const undelegate = (prefix = PREFIX) =>
     );
 
 const mint = (request: Record<string, unknown> = {}, actor = appActor) =>
-    events().mintKvHandle(actor, {
-        granteeUsername: guest.username,
-        prefix: PREFIX,
-        ...request,
-    });
+    shares().mintKvHandle(
+        actor,
+        {
+            prefix: PREFIX,
+            ...request,
+            recipient: { username: guest.username },
+        },
+        { defaultAccess: 'watch' },
+    );
 
 const clearRows = async () => {
     await env.server.clients.db.write(`DELETE FROM \`${TABLE}\``, []);
@@ -191,7 +199,7 @@ describe('an app minting without consent', () => {
             legacyCode: 'events_kv_handle_not_delegated',
         });
         // The share itself is untouched: what was refused is the app asking.
-        const page = await events().listKvHandles(owner.actor, { limit: 100 });
+        const page = await shares().listKvHandles(owner.actor, { limit: 100 });
         expect(page.items).toContainEqual(
             expect.objectContaining({ handle, revokedAt: null }),
         );
@@ -405,14 +413,14 @@ describe('an app minting with consent', () => {
 
     it('shows up in the owner`s listing of what they have shared out', async () => {
         const { handle } = await mint();
-        const page = await events().listKvHandles(owner.actor, { limit: 100 });
+        const page = await shares().listKvHandles(owner.actor, { limit: 100 });
 
         expect(page.items).toContainEqual(
             expect.objectContaining({
                 handle,
                 prefix: PREFIX,
                 appUid,
-                granteeUsername: guest.username,
+                holderUsername: guest.username,
                 revokedAt: null,
             }),
         );
@@ -454,7 +462,7 @@ describe('a handle an app minted', () => {
             handlerName: 'onChange',
         });
 
-        await events().revokeKvHandle(owner.actor, handle);
+        await shares().revokeKvHandle(owner.actor, handle);
         await vi.waitFor(
             async () => {
                 const [row] = (await env.server.clients.db.pread(
@@ -540,7 +548,7 @@ describe('a grantee subscribing through their own app actor', () => {
         await settled();
         expect(delivered[0].subId).toBe(sub.subId);
 
-        await events().revokeKvHandle(owner.actor, handle);
+        await shares().revokeKvHandle(owner.actor, handle);
         delivered.length = 0;
 
         await appWrites(`${PREFIX}live:2`, 2);
@@ -573,7 +581,7 @@ describe('an app managing what it minted', () => {
             handlerName: 'onChange',
         });
 
-        await events().revokeKvHandle(appActor, handle);
+        await shares().revokeKvHandle(appActor, handle);
         await vi.waitFor(
             async () => {
                 const [row] = (await env.server.clients.db.pread(
@@ -592,7 +600,7 @@ describe('an app managing what it minted', () => {
             ),
         ).resolves.toBe(false);
 
-        const page = await events().listKvHandles(owner.actor, { limit: 100 });
+        const page = await shares().listKvHandles(owner.actor, { limit: 100 });
         expect(
             page.items.find((one) => one.handle === handle)?.revokedAt,
         ).toBeTypeOf('number');
@@ -607,10 +615,10 @@ describe('an app managing what it minted', () => {
         const prefix = `${PREFIX}session-in-app-${uuidv4().slice(0, 8)}:`;
         const { handle } = await mint({ appUid, prefix }, owner.actor);
 
-        const revoked = await events().revokeKvHandle(appActor, handle);
+        const revoked = await shares().revokeKvHandle(appActor, handle);
         expect(revoked.handle).toBe(handle);
 
-        const page = await events().listKvHandles(owner.actor, { limit: 100 });
+        const page = await shares().listKvHandles(owner.actor, { limit: 100 });
         expect(
             page.items.find((one) => one.handle === handle)?.revokedAt,
         ).toBeTypeOf('number');
@@ -624,7 +632,7 @@ describe('an app managing what it minted', () => {
         );
 
         await expect(
-            events().revokeKvHandle(appActor, handle),
+            shares().revokeKvHandle(appActor, handle),
         ).rejects.toMatchObject({ legacyCode: 'events_kv_handle_owner_only' });
     });
 
@@ -647,7 +655,7 @@ describe('an app managing what it minted', () => {
         });
 
         await expect(
-            events().revokeKvHandle(siblingActor, handle),
+            shares().revokeKvHandle(siblingActor, handle),
         ).rejects.toMatchObject({ legacyCode: 'events_kv_handle_owner_only' });
     });
 
@@ -665,7 +673,7 @@ describe('an app managing what it minted', () => {
         });
 
         await expect(
-            events().revokeKvHandle(tokenActor, handle),
+            shares().revokeKvHandle(tokenActor, handle),
         ).rejects.toMatchObject({ legacyCode: 'events_kv_handle_owner_only' });
     });
 
@@ -679,12 +687,12 @@ describe('an app managing what it minted', () => {
         await undelegate(prefix);
 
         await expect(
-            events().revokeKvHandle(appActor, handle),
+            shares().revokeKvHandle(appActor, handle),
         ).rejects.toMatchObject({
             legacyCode: 'events_kv_handle_not_delegated',
         });
 
-        const page = await events().listKvHandles(owner.actor, {
+        const page = await shares().listKvHandles(owner.actor, {
             limit: 100,
         });
         expect(
@@ -698,7 +706,7 @@ describe('an app managing what it minted', () => {
         await mint({ appUid: 'os-global', prefix: sessionPrefix }, owner.actor);
         await mint({ prefix: appPrefix });
 
-        const appPage = await events().listKvHandles(appActor, {
+        const appPage = await shares().listKvHandles(appActor, {
             limit: 100,
             includeTotal: true,
         });
@@ -708,7 +716,7 @@ describe('an app managing what it minted', () => {
             false,
         );
 
-        const ownerPage = await events().listKvHandles(owner.actor, {
+        const ownerPage = await shares().listKvHandles(owner.actor, {
             limit: 100,
             includeTotal: true,
         });
@@ -721,7 +729,7 @@ describe('an app managing what it minted', () => {
         const key = `rate:${EVENTS_KV_HANDLE_LIMIT.scope}:${owner.id}`;
 
         const before = await env.server.clients.redis.zcard(key);
-        await events().revokeKvHandle(appActor, handle);
+        await shares().revokeKvHandle(appActor, handle);
         const after = await env.server.clients.redis.zcard(key);
 
         expect(after).toBe(before + 1);
@@ -729,14 +737,14 @@ describe('an app managing what it minted', () => {
 
     it('answers another user`s handle in the same namespace as absent, not as forbidden', async () => {
         const prefix = `cross-user-${uuidv4().slice(0, 8)}:`;
-        const { handle } = await events().mintKvHandle(guest.actor, {
-            granteeUsername: owner.username,
-            appUid,
-            prefix,
-        });
+        const { handle } = await shares().mintKvHandle(
+            guest.actor,
+            { recipient: { username: owner.username }, appUid, prefix },
+            { defaultAccess: 'watch' },
+        );
 
         await expect(
-            events().revokeKvHandle(appActor, handle),
+            shares().revokeKvHandle(appActor, handle),
         ).rejects.toMatchObject({ legacyCode: 'subject_does_not_exist' });
     });
 
@@ -744,7 +752,7 @@ describe('an app managing what it minted', () => {
         const prefix = `${PREFIX}revoke-audit-probe-${uuidv4().slice(0, 8)}:`;
         const { handle } = await mint({ prefix });
 
-        await events().revokeKvHandle(appActor, handle);
+        await shares().revokeKvHandle(appActor, handle);
 
         const row = await vi.waitFor(async () => {
             const [found] = (await env.server.clients.db.pread(

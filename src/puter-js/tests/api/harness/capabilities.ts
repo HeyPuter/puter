@@ -122,9 +122,13 @@ export const loadPuterJsTestOptions = (
         unlimitedMetering: true,
         // `puter.events` is a socket surface, so the suite needs the server
         // half switched on. Off, every subscribe answers `events_disabled` and
-        // the suite would only ever cover that one branch. The fold-in routes
-        // notifications through events, which `onNotification` reads.
-        events: { enabled: true, notificationsFoldIn: true },
+        // the suite would only ever cover that one branch. Share handles are
+        // on too: `watch` shares and `kv:<handle>` subjects need `kvHandles`,
+        // and `read`/`write` shares and handle-addressed KV calls need
+        // `kv.shareHandles`. The fold-in routes notifications through events,
+        // which `onNotification` reads.
+        events: { enabled: true, kvHandles: true, notificationsFoldIn: true },
+        kv: { shareHandles: true },
         // `puter.notifications` device routes answer `push_disabled` without it.
         push: { enabled: true },
     };

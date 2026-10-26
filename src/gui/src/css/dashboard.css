@@ -36,6 +36,10 @@
     --select-tint: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.1);
     --select-tint-strong: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.2);
     --select-ring: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.4);
+    /* --select-color is 3.7:1 on white, short of the 4.5:1 text needs: the
+       same hue, darker, for text in it (5.3:1) and fills under white text. */
+    --select-text: hsl(var(--select-hue), var(--select-saturation), 45%);
+    --select-fill: hsl(var(--select-hue), var(--select-saturation), 45%);
 
     --dashboard-text: #444;
     --dashboard-border: #e0e0e0;
@@ -164,6 +168,8 @@ body {
         --select-tint: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.16);
         --select-tint-strong: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.28);
         --select-ring: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.5);
+        /* Lighter on dark surfaces (5.5:1 on the cards); fills keep theirs. */
+        --select-text: hsl(var(--select-hue), var(--select-saturation), 65%);
 
         --dashboard-text: #d4d4d4;
         --dashboard-border: #3d3d3d;
@@ -575,15 +581,17 @@ body {
 }
 
 /* Keyboard focus on the sidebar's controls: swap the UA's default blue
-   ring for the dashboard's own selection ring, hugging the control's
+   ring for the dashboard's own selection color, hugging the control's
    rounded corners from the inside. :focus-visible only, so a mouse click
-   (which also focuses these) never paints it. */
+   (which also focuses these) never paints it. A 2px ring is the only sign
+   of focus here, so it is the solid color: --select-ring's translucent
+   one is 1.6:1 against the surfaces, under the 3:1 a focus ring needs. */
 .dashboard-sidebar-item:focus-visible,
 .dashboard-user-btn:focus-visible,
 .dashboard-sidebar-toggle:focus-visible,
 .dashboard-sidebar-collapse-toggle:focus-visible,
 .dashboard-sidebar-close:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: -2px;
 }
 
@@ -693,6 +701,17 @@ body {
 @media (prefers-color-scheme: dark) {
     .usage-table-fade-overlay {
         background: linear-gradient(to bottom, rgba(30, 30, 30, 0) 0%, rgba(30, 30, 30, 0.85) 40%, rgba(30, 30, 30, 1) 100%);
+    }
+
+    .usage-table-show-less {
+        color: #9ca3af;
+        border-color: #4b5563;
+    }
+
+    .usage-table-show-less:hover {
+        background: #374151;
+        border-color: #6b7280;
+        color: #d1d5db;
     }
 
     .dashboard-section-billing .billing-card {
@@ -860,6 +879,34 @@ body {
 .myapps-icon-clear {
     pointer-events: auto;
     cursor: pointer;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+}
+
+.myapps-icon-clear svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.myapps-icon-clear:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+    /* Keeps its 16px look and hit-tests at 44x44. */
+    .myapps-icon-clear::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 
 @media (hover: hover) {
@@ -1096,6 +1143,17 @@ input.myapps-search:disabled {
     opacity: 0.85;
 }
 
+/* Touch: the same 7px dot, in a 24px target; at 17px apiece, side by side,
+   a tap easily lands on the neighbor. */
+@media (pointer: coarse) {
+    .myapps-pager-dot,
+    .myapps-group-dot {
+        width: 24px;
+        height: 24px;
+        padding: 8.5px;
+    }
+}
+
 @media (hover: hover) {
     .myapps-pager-dot:not(.active):hover,
     .myapps-group-dot:not(.active):hover {
@@ -1229,7 +1287,7 @@ input.myapps-search:disabled {
 
 /* The enlargement alone is easy to miss; a ring says which tile has focus. */
 .myapps-tile:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: 2px;
     border-radius: 14px;
 }
@@ -2110,8 +2168,8 @@ p.myapps-add-error {
     color: var(--dashboard-error-text);
 }
 .myapps-add-send {
-    background: var(--select-color);
-    border-color: var(--select-color);
+    background: var(--select-fill);
+    border-color: var(--select-fill);
     color: #fff;
 }
 @media (hover: hover) {
@@ -2167,7 +2225,9 @@ p.myapps-add-error {
     display: flex;
     flex-direction: column;
     width: min(460px, 100%);
-    max-height: min(600px, 85vh);
+    /* 100%: within the overlay, which is the visible height; vh is the
+       largest one, and with the browser's bars showing overflows it. */
+    max-height: min(600px, 85vh, 100%);
     background: var(--dashboard-card-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 14px;
@@ -2390,6 +2450,33 @@ p.myapps-add-error {
     font-size: 13px;
     color: var(--dashboard-text-primary);
 }
+.item-props-person {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    vertical-align: middle;
+}
+.item-props-avatar {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
+}
+@media (prefers-color-scheme: dark) {
+    .item-props-avatar {
+        background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 76%);
+    }
+}
 .item-props-version-id {
     font-size: 11px;
     font-family: monospace;
@@ -2411,7 +2498,7 @@ p.myapps-add-error {
     .item-props-modal {
         width: 100%;
         max-width: none;
-        max-height: 88vh;
+        max-height: min(88vh, 100%);
         border-radius: 16px 16px 0 0;
         border-bottom: none;
         transform: translateY(24px);
@@ -2465,7 +2552,8 @@ p.myapps-add-error {
     display: flex;
     flex-direction: column;
     width: min(440px, 100%);
-    max-height: min(620px, 85vh);
+    /* 100%: within the overlay (see .item-props-modal). */
+    max-height: min(620px, 85vh, 100%);
     background: var(--dashboard-card-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 14px;
@@ -2947,7 +3035,7 @@ select.share-modal-link-access {
     font-size: 13px;
     font-weight: 600;
     background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
-    color: hsl(var(--share-avatar-hue, 213), 45%, 38%);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
 }
 .share-modal-row-who {
     flex: 1 1 auto;
@@ -2986,7 +3074,7 @@ select.share-modal-link-access {
     font-family: inherit;
     font-size: 12px;
     font-weight: 600;
-    color: var(--select-color);
+    color: var(--select-text);
     cursor: pointer;
 }
 @media (hover: hover) {
@@ -3190,7 +3278,7 @@ select.share-modal-row-mode:focus {
     .share-modal-avatar,
     .share-modal .share-suggest-avatar {
         background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
-        color: hsl(var(--share-avatar-hue, 213), 55%, 72%);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 76%);
     }
     /* Restated after the rule above, which would otherwise repaint the glyph
        variant with a hue it does not carry. */
@@ -3216,7 +3304,7 @@ select.share-modal-row-mode:focus {
     .share-modal {
         width: 100%;
         max-width: none;
-        max-height: 88vh;
+        max-height: min(88vh, 100%);
         border-radius: 16px 16px 0 0;
         border-bottom: none;
         transform: translateY(24px);
@@ -3992,7 +4080,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .directories li.active {
-    color: var(--select-color);
+    color: var(--select-text);
     font-weight: 500;
 }
 
@@ -4091,6 +4179,10 @@ body.myapps-reordering .myapps-tile {
     .path-btn {
         filter: invert(1) hue-rotate(180deg);
     }
+    /* A black chevron; uninverted it disappears into the dark header. */
+    .dashboard-section-files .path-seperator {
+        filter: invert(1);
+    }
     @media (hover: hover) {
         /* The hover chip is light (#EEE) even in dark mode, so the icon must
            drop its dark-mode inversion to stay readable on it. */
@@ -4154,8 +4246,13 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files .row.place-row:focus-visible,
 .dashboard-section-files .header .path .dirname:focus-visible,
 .dashboard-section-files .header .path-btn:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: -2px;
+}
+
+/* Holds the focus while the keys move the selection, which marks the place. */
+.dashboard-section-files .files-tab .files:focus {
+    outline: none;
 }
 
 .dashboard-section-files .header .path-btn-disabled {
@@ -4211,9 +4308,9 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .header .path .dirname.context-menu-active {
-    color: var(--dashboard-background);
-    background-color: var(--select-color);
-    border: 1px solid var(--select-color);
+    color: #fff;
+    background-color: var(--select-fill);
+    border: 1px solid var(--select-fill);
 }
 
 .dashboard-section-files .header .columns {
@@ -4514,7 +4611,7 @@ body.myapps-reordering .myapps-tile {
     padding: 0 6px;
     box-sizing: border-box;
     border-radius: 10px;
-    background: var(--select-color);
+    background: var(--select-fill);
     color: #fff;
     font-size: 11px;
     font-weight: 600;
@@ -4835,6 +4932,189 @@ body.myapps-reordering .myapps-tile {
     color: inherit;
 }
 
+/* -- Shared view: who shared each item --
+   The "Shared by" column, a sharer line on grid tiles, and the people filter.
+   TabFiles.js sets .shared-view on the Shared view only. */
+.dashboard-section-files .files-tab:not(.shared-view) .header .columns .item-shared-by,
+.dashboard-section-files .files-tab:not(.shared-view) .header .columns [data-resize="sharedBy"] {
+    display: none;
+}
+
+/* Its two-word label fits on one line, ending in an ellipsis once narrowed. */
+.dashboard-section-files .header .columns .item-shared-by .sortable-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-section-files .row .item-shared-by {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 0 10px;
+    color: var(--dashboard-text-tertiary);
+}
+
+.dashboard-section-files .row.selected .item-shared-by {
+    color: inherit;
+}
+
+.dashboard-section-files .item-shared-by-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The share modal's initial-and-color avatar, at row size. */
+.dashboard-section-files .item-shared-by-avatar,
+.dashboard-section-files .sharer-chip-avatar {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
+}
+
+@media (prefers-color-scheme: dark) {
+    .dashboard-section-files .item-shared-by-avatar,
+    .dashboard-section-files .sharer-chip-avatar {
+        background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 76%);
+    }
+}
+
+/* Grid tiles: the sharer on a line under the name. */
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-metadata {
+    max-width: 100%;
+    min-width: 0;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-shared-by {
+    justify-content: center;
+    gap: 5px;
+    margin-top: -4px;
+    padding: 0;
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-shared-by-avatar {
+    width: 16px;
+    height: 16px;
+    font-size: 9px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-shared-by {
+    font-size: 11px;
+}
+
+/* People filter: one chip per person, scrolling sideways when they don't fit.
+   The edges fade inside the bar's own padding, so a chip at rest never does. */
+.dashboard-section-files .shared-people-filter {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+}
+
+.dashboard-section-files .shared-people-filter[hidden] {
+    display: none;
+}
+
+.dashboard-section-files .shared-people-filter::-webkit-scrollbar {
+    display: none;
+}
+
+.dashboard-section-files .sharer-chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 220px;
+    height: 30px;
+    padding: 0 10px;
+    box-sizing: border-box;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 999px;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+/* The avatar sits in the chip's rounded end, as an input chip's does. */
+.dashboard-section-files .sharer-chip-avatar {
+    margin-left: -6px;
+}
+
+.dashboard-section-files .sharer-chip-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-section-files .sharer-chip-count {
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--dashboard-text-muted);
+}
+
+@media (hover: hover) {
+    .dashboard-section-files .sharer-chip:hover {
+        background: var(--select-tint-weak);
+        border-color: var(--select-tint-strong);
+    }
+}
+
+.dashboard-section-files .sharer-chip.active {
+    background: var(--select-tint);
+    border-color: var(--select-ring);
+    color: var(--select-text);
+}
+
+.dashboard-section-files .sharer-chip.active .sharer-chip-count {
+    color: inherit;
+}
+
+/* Inset, so the bar's scroll box doesn't clip the ring. */
+.dashboard-section-files .sharer-chip:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -2px;
+}
+
+@media (pointer: coarse) {
+    .dashboard-section-files .sharer-chip {
+        height: 36px;
+        font-size: 13px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-section-files .sharer-chip {
+        transition: none;
+    }
+}
+
 .dashboard-section-files .files-tab .files.files-grid-view {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -4885,6 +5165,14 @@ body.myapps-reordering .myapps-tile {
     /* the desktop UI's .item-badge drop-shadow filters look muddy on the
        dashboard's flat tiles */
     filter: none;
+}
+
+@media (prefers-color-scheme: dark) {
+    /* A black glyph, lost on a dark disc; it gets the white one the shortcut
+       and worker badges carry. */
+    .dashboard-section-files .files-tab .files.files-grid-view .row img.item-has-website-url-badge {
+        background: #ffffff;
+    }
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row {
@@ -5639,6 +5927,40 @@ body.myapps-reordering .myapps-tile {
         margin: 0 6px;
     }
 
+    /* Shared view: the sharer leads the second line. */
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-shared-by {
+        flex: 0 1 auto;
+        gap: 4px;
+        padding: 0;
+        font-size: 11px;
+        line-height: 24px;
+        color: var(--dashboard-text-muted);
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-shared-by-avatar {
+        width: 16px;
+        height: 16px;
+        font-size: 9px;
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-shared-by:not(:empty)::after {
+        content: '•';
+        flex: none;
+        margin: 0 6px 0 2px;
+    }
+
+    /* A long sharer name ends in an ellipsis instead of pushing the date off
+       the row and under the ⋯ button, which the name line keeps clear too. */
+    .dashboard-section-files .files-tab.shared-view .files.files-list-view .row .item-metadata {
+        min-width: 0;
+        padding-right: 40px;
+    }
+
+    .dashboard-section-files .files-tab.shared-view .files.files-list-view .row .item-size,
+    .dashboard-section-files .files-tab.shared-view .files.files-list-view .row .item-modified {
+        flex: none;
+    }
+
     /* Hide outer spacers */
     .dashboard-section-files .files-tab .files.files-list-view .row > .col-spacer {
         display: none;
@@ -6014,7 +6336,7 @@ body.myapps-reordering .myapps-tile {
 
 /* Inset: the card's rounded overflow clip would cut an outer ring. */
 .dashboard .bento-card-fancy-header:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: -2px;
 }
 
@@ -6154,7 +6476,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard .bento-recent-app:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: 2px;
 }
 
@@ -6924,6 +7246,12 @@ body.myapps-reordering .myapps-tile {
     transition: transform 0.2s ease;
 }
 
+/* Off, the track is barely darker than the card it sits on (1.2:1 on the
+   2FA warning card); its outline is what shows the control is there. */
+.dashboard-switch input:not(:checked) + .dashboard-switch-slider {
+    box-shadow: inset 0 0 0 1px var(--dashboard-text-hint);
+}
+
 .dashboard-switch input:checked + .dashboard-switch-slider {
     background-color: var(--dashboard-success-border);
 }
@@ -7001,6 +7329,20 @@ body.myapps-reordering .myapps-tile {
    rule drops the outline. */
 .dashboard-danger-card .button:focus-visible {
     box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+/* style.css's red puts the white label at 4.4:1; this is the dashboard
+   dialogs' danger red, at 5.3:1. */
+.dashboard-danger-card .button-danger {
+    border-color: #d90707;
+    background: #d90707;
+}
+
+@media (hover: hover) {
+    .dashboard-danger-card .button-danger:hover {
+        border-color: #b80606;
+        background: #b80606;
+    }
 }
 
 /* Responsive styles for Account tab */
@@ -7765,7 +8107,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     height: 20px;
     padding: 0 6px;
     border-radius: 10px;
-    background: var(--select-color);
+    background: var(--select-fill);
     color: #fff;
     font-size: 11px;
     font-weight: 600;
@@ -8229,7 +8571,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 .dashboard-notifications-mark-all:focus-visible,
 .dashboard-notifications-close:focus-visible,
 .dashboard-notifications-retry:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: -2px;
 }
 
@@ -8342,9 +8684,11 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     margin-bottom: 10px;
 }
 
-/* Screen-reader-only: the live region for arrivals, and a row's unread state */
+/* Screen-reader-only: the live region for arrivals, a row's unread state,
+   and what the Apps search found */
 .dashboard-notifications-live,
-.dashboard-notification-sr {
+.dashboard-notification-sr,
+.myapps-search-status {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -8953,6 +9297,95 @@ body.dashboard-mode .notifications-close-all {
     }
 }
 
+/* A text field with fixed text after it (a domain), drawn as one box. */
+.dashboard-form-affix {
+    display: flex;
+    align-items: center;
+    height: 38px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-input-background);
+    box-sizing: border-box;
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.dashboard-form-affix:focus-within {
+    border-color: var(--select-color);
+    background: var(--dashboard-card-background);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-form-affix:has([aria-invalid='true']) {
+    border-color: var(--dashboard-danger-text);
+}
+
+.dashboard-dialog .dashboard-form-affix .dashboard-dialog-input,
+.dashboard-dialog .dashboard-form-affix .dashboard-dialog-input:focus {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0 2px 0 12px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    text-align: right;
+}
+
+/* Locked while the form submits: dim the whole box, suffix included, as
+   one field rather than the input alone. */
+.dashboard-form-affix:has(:disabled) {
+    opacity: 0.6;
+}
+
+.dashboard-dialog .dashboard-form-affix .dashboard-dialog-input:disabled {
+    opacity: 1;
+}
+
+.dashboard-form-suffix {
+    flex-shrink: 0;
+    max-width: 60%;
+    padding-right: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    color: var(--dashboard-text-muted);
+    cursor: text;
+}
+
+@media (pointer: coarse) {
+    .dashboard-form-affix {
+        height: 44px;
+    }
+
+    .dashboard-form-suffix {
+        font-size: 16px;
+    }
+}
+
+/* A switch sits beside its label and hint, as on the settings cards. */
+.dashboard-form-switch-field {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.dashboard-form-switch-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.dashboard-form-switch-field .dashboard-form-label {
+    font-size: 13px;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+}
+
 /* Password fields carry a show/hide toggle inside the box. */
 .dashboard-form-secret {
     position: relative;
@@ -9012,6 +9445,7 @@ body.dashboard-mode .notifications-close-all {
    the content column's gap it would otherwise still claim. */
 .dashboard-form-status {
     padding: 9px 12px;
+    white-space: pre-line;
     border: 1px solid transparent;
     border-radius: 8px;
     font-size: 13px;
@@ -9099,12 +9533,13 @@ body.dashboard-mode .notifications-close-all {
     line-height: 1.45;
 }
 
-.dashboard-token-row {
+/* A value to copy: the API token, a published address. */
+.dashboard-copy-row {
     display: flex;
     gap: 8px;
 }
 
-.dashboard-dialog .dashboard-dialog-input.dashboard-token-value {
+.dashboard-dialog .dashboard-dialog-input.dashboard-copy-value {
     flex: 1 1 auto;
     min-width: 0;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -9113,13 +9548,35 @@ body.dashboard-mode .notifications-close-all {
 
 /* 16px, like the other dialog inputs on touch, so iOS doesn't zoom on focus. */
 @media (pointer: coarse) {
-    .dashboard-dialog .dashboard-dialog-input.dashboard-token-value {
+    .dashboard-dialog .dashboard-dialog-input.dashboard-copy-value {
         font-size: 16px;
     }
 }
 
-.dashboard-token-copy {
+.dashboard-copy-row .dashboard-dialog-btn {
     flex-shrink: 0;
+}
+
+/* A square button holding only an icon, as in a compact copy row. */
+.dashboard-dialog-btn.dashboard-icon-btn {
+    min-width: 36px;
+    width: 36px;
+    padding: 0;
+    color: var(--dashboard-text-secondary);
+    text-decoration: none;
+}
+
+.dashboard-icon-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+@media (pointer: coarse) {
+    .dashboard-dialog-btn.dashboard-icon-btn {
+        min-width: 44px;
+        width: 44px;
+        padding: 0;
+    }
 }
 
 .dashboard-token-sessions {
@@ -9145,7 +9602,7 @@ body.dashboard-mode .notifications-close-all {
 }
 
 @media (max-width: 600px) {
-    .dashboard-token-row {
+    .dashboard-copy-row:not(.dashboard-copy-row-compact) {
         flex-direction: column;
     }
 }
@@ -9154,4 +9611,21 @@ body.dashboard-mode .notifications-close-all {
     .dashboard-form-spinner {
         animation-duration: 1.6s;
     }
+}
+
+/* A person's profile picture, laid over their initial once it loads. The
+   element selector outranks each avatar's own color, dark mode included. */
+span[data-avatar-user].has-picture {
+    position: relative;
+    overflow: hidden;
+    color: transparent;
+}
+span[data-avatar-user] > .avatar-picture {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: inherit;
+    pointer-events: none;
 }

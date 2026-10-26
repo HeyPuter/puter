@@ -3312,12 +3312,68 @@ describe('SystemKVStore', () => {
         it('bills the probe as a read', async () => {
             // The probe is a real round trip; metering runs off the usage the
             // store reports, so swallowing it under-bills the caller.
-            const { usage } = await target.set(
-                { key: 'metered', value: 'v' },
+            const { usage } = await target.update(
+                { key: 'metered', pathAndValueMap: { a: 1 } },
                 crossOpts,
             );
             expect(usage.read).toBeGreaterThan(0);
             expect(usage.write).toBeGreaterThan(0);
+        });
+
+        it('checks set and del in the write itself, with no read before it', async () => {
+            const get = vi.spyOn(server.clients.dynamo, 'get');
+            try {
+                const written = await target.set(
+                    { key: 'one-trip', value: 'v' },
+                    crossOpts,
+                );
+                expect(written.usage.read).toBe(0);
+                expect(written.usage.write).toBeGreaterThan(0);
+                const deleted = await target.del(
+                    { key: 'one-trip' },
+                    crossOpts,
+                );
+                expect(deleted.usage.read).toBe(0);
+                expect(get).not.toHaveBeenCalled();
+            } finally {
+                get.mockRestore();
+            }
+        });
+
+        it('refuses set and del on a private entry, leaving it as it was', async () => {
+            const own = { actor, appUuid: 'app-other' };
+            await target.set(
+                { key: 'kept-secret', value: 's', disableSharing: true },
+                own,
+            );
+            await expect(
+                target.set({ key: 'kept-secret', value: 'x' }, crossOpts),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+                target.del({ key: 'kept-secret' }, crossOpts),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            expect((await target.get({ key: 'kept-secret' }, own)).res).toBe(
+                's',
+            );
+        });
+
+        it('writes over a private entry whose expiry has passed', async () => {
+            const own = { actor, appUuid: 'app-other' };
+            await target.set(
+                {
+                    key: 'lapsed-secret',
+                    value: 's',
+                    disableSharing: true,
+                    expireAt: Math.floor(Date.now() / 1000) - 10,
+                },
+                own,
+            );
+            await expect(
+                target.set({ key: 'lapsed-secret', value: 'x' }, crossOpts),
+            ).resolves.toMatchObject({ res: true });
+            expect((await target.get({ key: 'lapsed-secret' }, own)).res).toBe(
+                'x',
+            );
         });
 
         it('still refuses a private entry through the batch probe', async () => {
@@ -3460,6 +3516,188 @@ describe('SystemKVStore', () => {
             } finally {
                 batchGet.mockRestore();
             }
+        });
+    });
+
+    // -- Another user's namespace -------------------------------------
+    //
+    // Reached only through `namespaceUser`, which the KV driver sets after a
+    // share handle's check has passed.
+    describe('another user`s namespace', () => {
+        let owner: Actor;
+        let holderOpts: {
+            actor: Actor;
+            namespaceUser: { uuid: string; id: number };
+            namespaceAppUuid: string;
+        };
+        beforeEach(() => {
+            owner = {
+                user: {
+                    id: 7001,
+                    uuid: `owner-${Math.random().toString(36).slice(2)}`,
+                },
+                effectiveApp: null,
+            };
+            holderOpts = {
+                actor,
+                namespaceUser: {
+                    uuid: owner.user.uuid!,
+                    id: owner.user.id!,
+                },
+                namespaceAppUuid: KV_GLOBAL_APP_KEY,
+            };
+        });
+
+        it('reads and writes the owner`s data, not the caller`s', async () => {
+            await target.set(
+                { key: 'shared', value: 'mine' },
+                { actor: owner },
+            );
+            expect((await target.get({ key: 'shared' }, holderOpts)).res).toBe(
+                'mine',
+            );
+            await target.set({ key: 'shared', value: 'theirs' }, holderOpts);
+            expect(
+                (await target.get({ key: 'shared' }, { actor: owner })).res,
+            ).toBe('theirs');
+            expect((await target.get({ key: 'shared' }, opts)).res).toBeNull();
+        });
+
+        it('hides private entries from get, list and total, and refuses writes to them', async () => {
+            await target.set({ key: 'p:open', value: 1 }, { actor: owner });
+            await target.set(
+                { key: 'p:hidden', value: 2, disableSharing: true },
+                { actor: owner },
+            );
+            expect(
+                (await target.get({ key: 'p:hidden' }, holderOpts)).res,
+            ).toBeNull();
+            const listed = await target.list(
+                { as: 'keys', limit: 10, includeTotal: true, pattern: 'p:*' },
+                holderOpts,
+            );
+            expect(listed.res).toEqual({ items: ['p:open'], total: 1 });
+            await expect(
+                target.incr(
+                    { key: 'p:hidden', pathAndAmountMap: { '': 1 } },
+                    holderOpts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+                target.set({ key: 'p:hidden', value: 3 }, holderOpts),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+    });
+
+    describe('onlyIfAbsent', () => {
+        it('writes once, then leaves a live entry alone', async () => {
+            const first = await target.set(
+                { key: 'claim', value: 'a', onlyIfAbsent: true },
+                opts,
+            );
+            const second = await target.set(
+                { key: 'claim', value: 'b', onlyIfAbsent: true },
+                opts,
+            );
+            expect(first.res).toBe(true);
+            expect(second.res).toBe(false);
+            expect(second.usage.write).toBeGreaterThan(0);
+            expect((await target.get({ key: 'claim' }, opts)).res).toBe('a');
+        });
+
+        it('treats an expired row that has not been swept as absent', async () => {
+            await target.set(
+                {
+                    key: 'lapsed',
+                    value: 'old',
+                    expireAt: Math.floor(Date.now() / 1000) - 10,
+                },
+                opts,
+            );
+            const res = await target.set(
+                { key: 'lapsed', value: 'new', onlyIfAbsent: true },
+                opts,
+            );
+            expect(res.res).toBe(true);
+            expect((await target.get({ key: 'lapsed' }, opts)).res).toBe('new');
+        });
+
+        it('announces only the write that landed', async () => {
+            // A user row id is what a mutation event keys on.
+            const withId = {
+                actor: { ...actor, user: { ...actor.user, id: 9 } },
+            };
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                await target.set(
+                    { key: 'once', value: 1, onlyIfAbsent: true },
+                    withId,
+                );
+                await target.set(
+                    { key: 'once', value: 2, onlyIfAbsent: true },
+                    withId,
+                );
+                const mutations = emit.mock.calls.filter(
+                    ([key]) => key === 'kv.mutated',
+                );
+                expect(mutations).toHaveLength(1);
+            } finally {
+                emit.mockRestore();
+            }
+        });
+
+        it('answers false for a live private entry in a foreign namespace', async () => {
+            const own = { actor, appUuid: 'app-other' };
+            await target.set(
+                { key: 'private-claim', value: 's', disableSharing: true },
+                own,
+            );
+            const res = await target.set(
+                { key: 'private-claim', value: 'x', onlyIfAbsent: true },
+                { actor, namespaceAppUuid: 'app-other' },
+            );
+            expect(res.res).toBe(false);
+            expect((await target.get({ key: 'private-claim' }, own)).res).toBe(
+                's',
+            );
+        });
+    });
+
+    describe('list within a key prefix', () => {
+        beforeEach(async () => {
+            for (const key of [' room:a', ' room:b', 'room:c', ' roomy'])
+                await target.set({ key, value: key }, opts);
+        });
+
+        it('lists only under the prefix, reading the pattern below it', async () => {
+            const all = await target.list(
+                { as: 'keys', keyPrefix: ' room:' },
+                opts,
+            );
+            expect(all.res).toEqual([' room:a', ' room:b']);
+            const narrowed = await target.list(
+                { as: 'keys', keyPrefix: ' room:', pattern: 'b*' },
+                opts,
+            );
+            expect(narrowed.res).toEqual([' room:b']);
+        });
+
+        it('keeps a prefix that starts with whitespace, where a pattern is trimmed', async () => {
+            // Trimmed as a pattern, ` room:` would widen to `room:`.
+            const res = await target.list(
+                {
+                    as: 'keys',
+                    keyPrefix: ' room:',
+                    pattern: '  ',
+                    limit: 10,
+                    includeTotal: true,
+                },
+                opts,
+            );
+            expect(res.res).toEqual({
+                items: [' room:a', ' room:b'],
+                total: 2,
+            });
         });
     });
 
@@ -3954,6 +4192,85 @@ describe('SystemKVStore', () => {
             expect(got.res).toBeNull();
             const listed = await target.list({ as: 'keys' }, opts);
             expect(listed.res).not.toContain('legacyStringPast');
+        });
+
+        it('onlyIfAbsent writes over a legacy expired string-ttl row', async () => {
+            const namespace = namespaceOf(actor);
+            const past = String(Math.floor(Date.now() / 1000) - 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringClaim',
+                value: 'old',
+                ttl: past,
+            });
+            const res = await target.set(
+                { key: 'legacyStringClaim', value: 'new', onlyIfAbsent: true },
+                opts,
+            );
+            expect(res.res).toBe(true);
+            expect(
+                (await target.get({ key: 'legacyStringClaim' }, opts)).res,
+            ).toBe('new');
+        });
+
+        it('onlyIfAbsent still answers false over a legacy future string-ttl row', async () => {
+            const namespace = namespaceOf(actor);
+            const future = String(Math.floor(Date.now() / 1000) + 3600);
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyStringHeld',
+                value: 'old',
+                ttl: future,
+            });
+            const res = await target.set(
+                { key: 'legacyStringHeld', value: 'new', onlyIfAbsent: true },
+                opts,
+            );
+            expect(res.res).toBe(false);
+            expect(
+                (await target.get({ key: 'legacyStringHeld' }, opts)).res,
+            ).toBe('old');
+        });
+
+        it('a foreign set and del go through a private entry whose legacy string ttl has passed', async () => {
+            const namespace = kvNamespace(actor.user.uuid!, 'app-other');
+            const foreign = { actor, namespaceAppUuid: 'app-other' };
+            const past = String(Math.floor(Date.now() / 1000) - 3600);
+            for (const key of ['legacyPrivateSet', 'legacyPrivateDel'])
+                await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                    namespace,
+                    key,
+                    value: 'hidden',
+                    ttl: past,
+                    noShare: true,
+                });
+
+            await expect(
+                target.set({ key: 'legacyPrivateSet', value: 'mine' }, foreign),
+            ).resolves.toMatchObject({ res: true });
+            expect(
+                (await target.get({ key: 'legacyPrivateSet' }, foreign)).res,
+            ).toBe('mine');
+            await expect(
+                target.del({ key: 'legacyPrivateDel' }, foreign),
+            ).resolves.toMatchObject({ res: true });
+        });
+
+        it('a foreign set still refuses a private entry whose legacy string ttl is in the future', async () => {
+            const namespace = kvNamespace(actor.user.uuid!, 'app-other');
+            await server.clients.dynamo.put(PUTER_KV_STORE_TABLE_NAME, {
+                namespace,
+                key: 'legacyPrivateLive',
+                value: 'hidden',
+                ttl: String(Math.floor(Date.now() / 1000) + 3600),
+                noShare: true,
+            });
+            await expect(
+                target.set(
+                    { key: 'legacyPrivateLive', value: 'mine' },
+                    { actor, namespaceAppUuid: 'app-other' },
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
         });
 
         it('a legacy row with a non-numeric string ttl is readable by get and list', async () => {

@@ -1,0 +1,21 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-fs">Request Access to notes.txt</button>
+    <script>
+        document.getElementById('request-fs').addEventListener('click', async () => {
+            // `~` is the user's home folder. The file is created if it's missing.
+            const granted = await puter.perms.request(puter.perms.Resource.FS, {
+                path: '~/Documents/notes.txt',
+                access: puter.perms.Access.WRITE,
+            });
+            if (granted) {
+                await puter.fs.write('~/Documents/notes.txt', 'Hello!');
+                puter.print('Wrote notes.txt');
+            } else {
+                puter.print('Access denied');
+            }
+        });
+    </script>
+</body>
+</html>

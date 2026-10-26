@@ -81,6 +81,8 @@ export interface ForwardEvent {
     ownerUserId: number;
     /** Who caused it, so `self` is right on the far side. */
     actingUserId?: number;
+    /** Made by server-side code, so `viaWorker` is right on the far side. */
+    viaWorker?: true;
     /** The emitter's event id and timestamp, kept so the two copies match. */
     id: string;
     ts: number;

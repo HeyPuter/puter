@@ -18,6 +18,7 @@
  */
 
 import { createUploadThumbnailGenerator } from './services/pdfThumbnails/index.js';
+import { dedupedName } from './helpers/dedupedName.js';
 import { archiveEntryPath } from './helpers/archiveEntryPath.js';
 import get_html_element_from_options from './helpers/getHtmlElementFromOptions.js';
 import globToRegExp from './helpers/globToRegExp.js';
@@ -1695,7 +1696,7 @@ window.refresh_trash_state = async function () {
     // 'strong' consistency: an 'eventual' stat can be served from the SDK
     // cache, which is stale right after a trash mutation and — when seeded
     // by readdir — lacks the `is_empty` field entirely.
-    const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'eventual' });
+    const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'strong' });
     if ( window.socket ) {
         window.socket.emit('trash.is_empty', { is_empty: trash.is_empty });
     }
@@ -1959,6 +1960,12 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     $(`.window[data-path^="${html_encode($(el_item).attr('data-path'))}/"], .window[data-path="${html_encode($(el_item).attr('data-path'))}" i]`).each(function () {
                         window.update_window_path(this, $(this).attr('data-path').replace($(el_item).attr('data-path'), path.join(item_dest_path, fsentry.name)));
                     });
+                }
+
+                // The dashboard's Back/Forward follows a moved folder, and
+                // forgets a trashed one.
+                if ( $(el_item).attr('data-is_dir') === '1' ) {
+                    window.dashboard_object?.folderMoved?.($(el_item).attr('data-path'), is_trashing ? null : fsentry.path);
                 }
 
                 if ( is_trashing ) {
@@ -2631,7 +2638,10 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
         progwin?.set_status(i18n('zip', 'Selection(s)'));
     }, 500);
 
-    let toBeZipped = {};
+    const toBeZipped = {};
+    // Shared items from different people can share a name; each keeps its
+    // own entry rather than overwriting the other.
+    const topNames = [];
 
     let perItemAdditionProgress = window.zippingProgressConfig.SEQUENCING / el_items.length;
     let currentProgress = 0;
@@ -2639,6 +2649,8 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
         const el_item = el_items[idx];
         if ( window.operation_cancelled[zip_operation_id] ) return;
         let targetPath = $(el_item).attr('data-path');
+        const topName = dedupedName(path.basename(targetPath), topNames);
+        topNames.push(topName);
 
         // if directory, zip the directory
         if ( $(el_item).attr('data-is_dir') === '1' ) {
@@ -2650,12 +2662,10 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
             for ( let cIdx = 0; cIdx < children.length; cIdx++ ) {
                 const child = children[cIdx];
 
-                if ( ! child.relativePath ) {
-                    // Add empty directiories to the zip
-                    toBeZipped = {
-                        ...toBeZipped,
-                        [`${path.basename(child.path)}/`]: [await blobToUint8Array(new Blob()), { level: 9 }],
-                    };
+                if ( child.emptyDirPath !== undefined ) {
+                    // Add empty directories to the zip, where they sit
+                    const dirPath = el_items.length === 1 ? child.emptyDirPath : `${topName}/${child.emptyDirPath}`;
+                    toBeZipped[dirPath || `${topName}/`] = [await blobToUint8Array(new Blob()), { level: 9 }];
                 } else {
                     // Add files from directory to the zip
                     let relativePath;
@@ -2665,17 +2675,14 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
                     }
                     else
                     {
-                        relativePath = `${path.basename(targetPath) }/${ child.relativePath}`;
+                        relativePath = `${topName}/${child.relativePath}`;
                     }
 
                     // read file content
                     progwin?.set_status(i18n('sequencing', child.relativePath));
                     let content = await puter.fs.read(child.path);
                     try {
-                        toBeZipped = {
-                            ...toBeZipped,
-                            [relativePath]: [await blobToUint8Array(content), { level: 9 }],
-                        };
+                        toBeZipped[relativePath] = [await blobToUint8Array(content), { level: 9 }];
                     } catch (e) {
                         console.error(e);
                     }
@@ -2688,10 +2695,7 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
         else {
             progwin?.set_status(i18n('reading', path.basename($(el_items[0]).attr('data-path'))));
             let content = await puter.fs.read(targetPath);
-            toBeZipped = {
-                ...toBeZipped,
-                [path.basename(targetPath)]: [await blobToUint8Array(content), { level: 9 }],
-            };
+            toBeZipped[topName] = [await blobToUint8Array(content), { level: 9 }];
             currentProgress += perItemAdditionProgress;
             progwin?.set_progress(currentProgress.toPrecision(2));
         }
@@ -2762,7 +2766,8 @@ async function readDirectoryRecursive (path, baseDir = '') {
     const entries = await puter.fs.readdir(path, { consistency: 'eventual' });
 
     if ( entries.length === 0 ) {
-        allFiles.push({ path });
+        // An empty folder, by where it sits in the folder being read.
+        allFiles.push({ path, emptyDirPath: baseDir });
     } else {
         // Process each entry
         for ( const entry of entries ) {

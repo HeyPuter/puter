@@ -425,6 +425,7 @@ describe('the call an owed delivery makes', () => {
             'subject',
             'ts',
             'uid',
+            'viaWorker',
         ]);
         expect(call.body.event).toMatchObject({
             path: `${anchor}/note.txt`,

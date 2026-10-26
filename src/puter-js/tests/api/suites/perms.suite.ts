@@ -6,6 +6,34 @@ const home = (t: TestContext) => `/${t.env.users.user.username}`;
 /** A permission string nothing grants, so asking for it is always a denial. */
 const UNHELD_PERMISSION = 'nonexistent-namespace:nothing:read';
 
+/** Run as the app rather than as the account, then put the session back. */
+const asApp = async <T>(
+    t: TestContext,
+    appUid: string,
+    run: () => Promise<T>,
+): Promise<T> => {
+    const response = await fetch(`${t.env.apiOrigin}/auth/get-user-app-token`, {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${t.env.users.user.token}`,
+        },
+        body: JSON.stringify({ app_uid: appUid }),
+    });
+    const { token } = (await response.json()) as { token: string };
+    // setAuthToken adopts the app from an app token and never drops it.
+    const sdk = t.puter as unknown as { appID?: string; appDataPath?: string };
+    const { appID, appDataPath } = sdk;
+    t.puter.setAuthToken(token);
+    try {
+        return await run();
+    } finally {
+        t.puter.setAuthToken(t.env.users.user.token);
+        sdk.appID = appID;
+        sdk.appDataPath = appDataPath;
+    }
+};
+
 export default suite('perms', {
     // -- Grant / revoke against an app --
 
@@ -71,6 +99,21 @@ export default suite('perms', {
         t.assert.equal(result.code, 'subject_does_not_exist');
     },
 
+    'grantApp refuses a permission no app can be granted': async (t) => {
+        const app = await t.puter.apps.create(
+            t.puter.randName(),
+            'https://example.com/perms-not-grantable',
+        );
+        for (const permission of [
+            'driver:puter-image-generation:generate',
+            UNHELD_PERMISSION,
+        ]) {
+            const result = await t.puter.perms.grantApp(app.uid, permission);
+            t.assert.equal(result.error, true);
+            t.assert.equal(result.code, 'permission_not_grantable');
+        }
+    },
+
     'grantAppAnyUser and revokeAppAnyUser round-trip': async (t) => {
         const app = await t.puter.apps.create(
             t.puter.randName(),
@@ -97,6 +140,38 @@ export default suite('perms', {
             `${home(t)}/Desktop`,
         );
         t.assert.equal(await t.puter.perms.request('email'), whoami.email);
+    },
+
+    'fs and backgroundEvents answer from what the account already holds': async (
+        t,
+    ) => {
+        const { Resource, Access } = t.puter.perms;
+        t.assert.equal(Resource.FS, 'fs');
+        t.assert.equal(Access.WRITE, 'write');
+
+        // The account owns its home, so nothing needs asking.
+        const path = `${home(t)}/perms-suite-fs-${t.puter.randName()}.txt`;
+        await t.puter.fs.write(path, 'x');
+        t.assert.equal(
+            await t.puter.perms.check(Resource.FS, {
+                path: path.replace(home(t), '~'),
+                access: Access.WRITE,
+            }),
+            true,
+        );
+        t.assert.equal(
+            await t.puter.perms.request(Resource.FS, { path, access: 'read' }),
+            true,
+        );
+        t.assert.equal(
+            await t.puter.perms.check(Resource.BACKGROUND_EVENTS),
+            true,
+        );
+
+        const bad = (await t.assert.rejects(() =>
+            t.puter.perms.request('fs', { path: 'relative.txt' }),
+        )) as Error & { code?: string };
+        t.assert.equal(bad.code, 'invalid_argument');
     },
 
     'request rejects a folder it does not cover and an unknown access level': async (
@@ -372,6 +447,62 @@ export default suite('perms', {
                 false,
             );
         },
+    },
+
+    // -- KV share delegation --
+
+    'kvShare checks a delegation at each level, and a higher level covers the lower ones': async (
+        t,
+    ) => {
+        const { uuid } = await t.puter.auth.whoami();
+        const app = await t.puter.apps.create(
+            t.puter.randName(),
+            'https://example.com/perms-kv-share',
+        );
+        const region = `rooms:${t.puter.randName()}`;
+        try {
+            const granted = await t.puter.perms.grantApp(
+                app.uid,
+                `manage:kv-share-read:${uuid}:${app.uid}:${region}`,
+            );
+            t.assert.ok(!granted.error, `grant failed: ${JSON.stringify(granted)}`);
+
+            const held = await asApp(t, app.uid, () =>
+                t.puter.perms.check([
+                    { resource: 'kvShare', prefix: `${region}:` },
+                    { resource: 'kvShare', prefix: `${region}:a:`, access: 'read' },
+                    { resource: 'kvShare', prefix: `${region}:`, access: 'write' },
+                    { resource: 'kvShare', prefix: 'elsewhere:', access: 'read' },
+                ]),
+            );
+            t.assert.deepEqual(held, [true, true, false, false]);
+        } finally {
+            await t.puter.perms.revokeApp(app.uid, '*');
+        }
+    },
+
+    'kvShare delegations name a region at every level': async (t) => {
+        const { uuid } = await t.puter.auth.whoami();
+        const app = await t.puter.apps.create(
+            t.puter.randName(),
+            'https://example.com/perms-kv-share-namespace',
+        );
+        for (const root of ['kv-share', 'kv-share-read', 'kv-share-write']) {
+            const result = await t.puter.perms.grantApp(
+                app.uid,
+                `manage:${root}:${uuid}:${app.uid}`,
+            );
+            t.assert.equal(result.error, true);
+            t.assert.equal(result.code, 'invalid_kv_share_prefix');
+        }
+
+        const error = (await t.assert.rejects(() =>
+            t.puter.perms.request('kvShare', {
+                prefix: 'rooms:',
+                access: 'delete' as unknown as 'write',
+            }),
+        )) as Error & { code?: string };
+        t.assert.equal(error.code, 'invalid_argument');
     },
 
     // -- App root directory --

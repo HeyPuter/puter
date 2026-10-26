@@ -17,6 +17,7 @@ type Delivered = {
     path?: string;
     key?: string;
     self?: boolean;
+    viaWorker?: boolean;
     ts: number;
     seq?: number;
     reason?: string;
@@ -322,10 +323,11 @@ export default suite('events', {
             t.assert.ok(event, `no delivery for ${file}; saw ${JSON.stringify(seen)}`);
             t.assert.deepEqual(
                 Object.keys(event as Delivered).sort(),
-                ['id', 'op', 'path', 'self', 'seq', 'subject', 'ts', 'uid'],
+                ['id', 'op', 'path', 'self', 'seq', 'subject', 'ts', 'uid', 'viaWorker'],
                 'the delivered event carries exactly the projected fields',
             );
             t.assert.equal(event?.self, true, 'the writer is the subscriber');
+            t.assert.equal(event?.viaWorker, false, 'a write from the SDK is not a worker\'s');
             t.assert.ok(event?.uid, 'the event names the node');
             t.assert.ok(
                 ['add', 'write'].includes(event?.op as string),
@@ -599,12 +601,13 @@ export default suite('events', {
             t.assert.ok(event, `no delivery for ${exact}`);
             t.assert.deepEqual(
                 Object.keys(event as Delivered).sort(),
-                ['id', 'key', 'op', 'self', 'seq', 'subject', 'ts'],
+                ['id', 'key', 'op', 'self', 'seq', 'subject', 'ts', 'viaWorker'],
                 'a kv delivery carries a key, not a uid and path',
             );
             t.assert.equal(event?.key, exact);
             t.assert.equal(event?.op, 'set');
             t.assert.equal(event?.self, true);
+            t.assert.equal(event?.viaWorker, false);
 
             t.assert.deepEqual(
                 exactSeen.map((one) => one.key),

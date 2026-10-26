@@ -202,7 +202,7 @@ These AI features are supported out of the box when using Puter.js:
 - **[`puter.ai.txt2speech.listEngines()`](/AI/txt2speech.listEngines/)** - List available TTS engines/models
 - **[`puter.ai.txt2speech.listVoices()`](/AI/txt2speech.listVoices/)** - List available TTS voices
 - **[`puter.ai.speech2speech()`](/AI/speech2speech/)** - Convert speech in one voice to another voice
-- **[`puter.ai.txt2vid()`](/AI/txt2vid/)** - Generate short video clips from text or a reference image with Wan, Seedance, Veo, Kling and other models, or edit a video you supply with Gemini Omni, FLUX 3 or Kling Omni
+- **[`puter.ai.txt2vid()`](/AI/txt2vid/)** - Generate short video clips from text or a reference image with Wan, Seedance, Veo, Kling, MiniMax H3 and other models, or edit a video you supply with Gemini Omni, FLUX 3 or Kling Omni
 - **[`puter.ai.speech2txt()`](/AI/speech2txt/)** - Transcribe audio recordings into text
 
 ## Examples

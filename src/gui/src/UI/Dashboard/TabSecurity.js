@@ -183,8 +183,20 @@ const TabSecurity = {
             // After the dialog has gone, which can trail its answer.
             setTimeout(() => returnFocus(this), 250);
 
+            const showState = (on) => {
+                $toggle.prop('checked', on);
+                const $card = $el_window.find('.dashboard-section-security .dashboard-settings-card-2fa');
+                $el_window.find('.dashboard-section-security .user-otp-state').text(i18n(on ? 'two_factor_enabled' : 'two_factor_disabled'));
+                $card.toggleClass('dashboard-settings-card-success', on).toggleClass('dashboard-settings-card-warning', ! on);
+            };
+
             if ( ! succeeded ) {
                 $toggle.prop('checked', ! enabling);
+                // 2FA may have changed regardless: turned on in another tab
+                // (setup then refuses, "already enabled"), or by a code the
+                // server accepted after the dialog was closed.
+                await window.refresh_user_data?.(window.auth_token);
+                if ( typeof window.user?.otp === 'boolean' ) showState(window.user.otp);
                 return;
             }
 
@@ -192,15 +204,7 @@ const TabSecurity = {
             // real 2FA state. The disable dialog already clears window.user.otp;
             // the enable path never set it, so the two directions disagreed.
             if ( window.user ) window.user.otp = enabling;
-
-            const $card = $el_window.find('.dashboard-section-security .dashboard-settings-card-2fa');
-            if ( enabling ) {
-                $el_window.find('.dashboard-section-security .user-otp-state').text(i18n('two_factor_enabled'));
-                $card.removeClass('dashboard-settings-card-warning').addClass('dashboard-settings-card-success');
-            } else {
-                $el_window.find('.dashboard-section-security .user-otp-state').text(i18n('two_factor_disabled'));
-                $card.removeClass('dashboard-settings-card-success').addClass('dashboard-settings-card-warning');
-            }
+            showState(enabling);
         });
     },
 };

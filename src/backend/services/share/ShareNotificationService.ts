@@ -43,7 +43,8 @@ import {
 } from './shareDeepLink';
 import { NOTIFY_FANOUT_CAP } from '../../core/teams.js';
 import { abuseKey, cleanEmail, isBlockedEmail } from '../../util/email.js';
-import { blocksAllShares, type ResolvedShare } from './ShareService';
+import { blocksAllShares } from './shareBlocks.js';
+import type { ResolvedShare } from './ShareService';
 import { withRedisLock } from '../../util/redisLock.js';
 
 /**

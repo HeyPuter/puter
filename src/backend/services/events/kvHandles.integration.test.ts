@@ -46,7 +46,7 @@ import {
 import type { IConfig } from '../../types.js';
 import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import type { DeliveryEnvelope } from './EventsService.js';
-import { kvSharePermission } from './kvShares.js';
+import { kvSharePermission } from '../kvShare/kvShares.js';
 import { isKvHandleId, kvAnchorToken } from './subjects.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
@@ -68,6 +68,7 @@ let stranger: TestUser;
 let delivered: DeliveryEnvelope[];
 
 const events = () => env.server.services.events;
+const shares = () => env.server.services.kvShare;
 
 const settled = (count = 1) =>
     vi.waitFor(() => expect(delivered.length).toBeGreaterThanOrEqual(count), {
@@ -97,14 +98,34 @@ const ownerWrites = (key: string, value: unknown): Promise<unknown> =>
     );
 
 const mint = (
-    request: Record<string, unknown> = {},
+    {
+        granteeUsername = guest.username,
+        ...request
+    }: Record<string, unknown> = {},
     actor: Actor = owner.actor,
 ) =>
-    events().mintKvHandle(actor, {
-        granteeUsername: guest.username,
-        prefix: PREFIX,
-        ...request,
-    });
+    shares().mintKvHandle(
+        actor,
+        {
+            prefix: PREFIX,
+            ...request,
+            recipient: { username: granteeUsername as string },
+        },
+        { defaultAccess: 'watch' },
+    );
+
+/** An app row under a fresh uid, since a share may only name an app that exists. */
+const registerApp = async (
+    on: PuterTestEnv = env,
+    ownerUserId: number = owner.id,
+): Promise<string> => {
+    const uid = `app-${uuidv4()}`;
+    await on.server.clients.db.write(
+        'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+        [uid, uid, uid, `https://${uid}.example/`, ownerUserId],
+    );
+    return uid;
+};
 
 const clearRows = async () => {
     await env.server.clients.db.write(`DELETE FROM \`${TABLE}\``, []);
@@ -148,7 +169,12 @@ describe('minting a handle', () => {
         const minted = await mint();
 
         expect(isKvHandleId(minted.handle)).toBe(true);
-        expect(minted).toEqual({ handle: minted.handle, prefix: PREFIX });
+        expect(minted).toMatchObject({
+            handle: minted.handle,
+            prefix: PREFIX,
+            access: 'watch',
+            holderUsername: guest.username,
+        });
         const wire = JSON.stringify(minted);
         expect(wire).not.toContain(owner.uuid);
         expect(wire).not.toContain(owner.username);
@@ -299,7 +325,8 @@ describe('minting a handle', () => {
     });
 
     it('lets a paid namespace fill the account cap and then refuses other namespaces', async () => {
-        const namespace = 'app-perapp-probe';
+        const namespace = await registerApp();
+        const another = await registerApp();
         try {
             for (let i = 0; i < EVENTS_KV_HANDLES_PER_APP.limit; i++) {
                 const prefix = `perapp:${i}:`;
@@ -318,20 +345,20 @@ describe('minting a handle', () => {
                 legacyCode: 'events_kv_handle_limit_reached',
             });
             await expect(
-                mint({ appUid: 'app-another-probe', prefix: 'still:room:' }),
+                mint({ appUid: another, prefix: 'still:room:' }),
             ).rejects.toMatchObject({
                 legacyCode: 'events_kv_handle_limit_reached',
             });
         } finally {
             await env.server.clients.db.write(
                 'DELETE FROM `kv_share_handles` WHERE `owner_user_id` = ? AND `app_uid` IN (?, ?)',
-                [owner.id, namespace, 'app-another-probe'],
+                [owner.id, namespace, another],
             );
         }
     });
 
     it('hands back an existing handle at the cap, taking no slot', async () => {
-        const namespace = 'app-idempotent-probe';
+        const namespace = await registerApp();
         const prefix = 'idempotent:cap:';
         try {
             const first = await mint({ appUid: namespace, prefix });
@@ -749,7 +776,7 @@ describe('what a plan lets an account hold', () => {
 
     it('holds a free account to the free per-app cap, with room left in the account cap', async () => {
         await setEmail(`${tiered.users.user.username}@example.invalid`);
-        const namespace = 'app-tiered-free-probe';
+        const namespace = await registerApp(tiered, tieredUserId);
         const cap =
             EVENTS_KV_HANDLES_PER_APP.bySubscription[DEFAULT_FREE_SUBSCRIPTION];
         const grantee = await tiered.server.stores.user.getByUsername(
@@ -783,7 +810,7 @@ describe('what a plan lets an account hold', () => {
         // another namespace still succeeds.
         const accepted = await mintTiered(
             'still:room:',
-            'app-tiered-free-other',
+            await registerApp(tiered, tieredUserId),
         );
         expect(accepted.status).toBe(200);
     });

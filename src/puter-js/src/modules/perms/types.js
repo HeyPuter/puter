@@ -16,13 +16,17 @@
 
 /**
  * What a `request`/`check` call is about; decides the details and the result.
+ * `puter.perms.Resource` names each one. `'permission'` is deprecated.
  *
- * @typedef {'email'
+ * @typedef {'fs'
  *     | 'folder'
+ *     | 'email'
  *     | 'apps'
  *     | 'subdomains'
  *     | 'appData'
  *     | 'appRootDir'
+ *     | 'backgroundEvents'
+ *     | 'kvShare'
  *     | 'permission'} PermsResource
  */
 
@@ -40,6 +44,37 @@
  * @typedef {Object} PermsFolderRequest
  * @property {PermsFolderName} name - Desktop, Documents, Pictures, or Videos.
  * @property {PermsAccess} [access] - Defaults to `'read'`.
+ */
+
+/**
+ * Details for `'fs'`: one file or folder, by `path` or by `uid`. Access to a
+ * folder covers everything inside it.
+ *
+ * @typedef {Object} PermsFsRequest
+ * @property {string} [path] - An absolute path, or one starting with `~/` for
+ *   the user's home folder.
+ * @property {string} [uid] - The file or folder's uid, instead of `path`.
+ * @property {PermsAccess} [access] - Defaults to `'read'`. `write` implies read.
+ * @property {PermsCreateKind} [create] - Create a missing `path` after the user
+ *   allows it. Defaults to `true`.
+ */
+
+/**
+ * The level of share a `'kvShare'` request lets the app create. `'watch'`
+ * shares change events for the region, `'read'` adds reads, and `'write'` adds
+ * writes and deletes. Each level covers the ones before it.
+ *
+ * @typedef {'watch' | 'read' | 'write'} PermsKvShareAccess
+ */
+
+/**
+ * Details for `'kvShare'`: let this app share a region of the key-value data it
+ * keeps for the user with other people it picks.
+ *
+ * @typedef {Object} PermsKvShareRequest
+ * @property {string} prefix - The key prefix of the region, such as
+ *   `'workspace:abc:'`. Not the whole namespace, and not a pattern.
+ * @property {PermsKvShareAccess} [access] - Defaults to `'watch'`.
  */
 
 /**
@@ -71,6 +106,10 @@
  * Details for `'permission'`, the raw-permission-string escape hatch. Several
  * at once go under a single prompt.
  *
+ * @deprecated Use the resource the string names: `'fs'`, `'email'`, `'apps'`,
+ *   `'subdomains'`, `'appData'`, `'appRootDir'`, `'backgroundEvents'`, or
+ *   `'kvShare'`.
+ *
  * @typedef {Object} PermsPermissionRequest
  * @property {string} [permission] - One permission string.
  * @property {string[]} [permissions] - Several, instead of `permission`.
@@ -84,7 +123,9 @@
  * which one applies — see the per-resource overloads.
  *
  * @typedef {PermsAccessRequest
+ *     | PermsFsRequest
  *     | PermsFolderRequest
+ *     | PermsKvShareRequest
  *     | PermsAppDataRequest
  *     | PermsAppRootDirRequest
  *     | PermsPermissionRequest} PermsRequestDetails
@@ -94,8 +135,10 @@
  * One batch entry: the resource, with its own details in the same object, so
  * one array can carry entries that each take different fields.
  *
- * @typedef {{ resource: 'email' }
+ * @typedef {{ resource: 'email' | 'backgroundEvents' }
+ *     | ({ resource: 'fs' } & PermsFsRequest)
  *     | ({ resource: 'folder' } & PermsFolderRequest)
+ *     | ({ resource: 'kvShare' } & PermsKvShareRequest)
  *     | ({ resource: 'apps' | 'subdomains' } & PermsAccessRequest)
  *     | ({ resource: 'appData' } & PermsAppDataRequest)
  *     | ({ resource: 'appRootDir' } & PermsAppRootDirRequest)

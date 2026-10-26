@@ -7,7 +7,7 @@
  * @property {string} user The user's username.
  * @property {string} user_uuid The user's unique identifier.
  * @property {string | null} [user_email] The user's email address. Only present when the user granted
- * this app the `user:<uuid>:email:read` permission (e.g. via `puter.perms.requestEmail()`); omitted
+ * this app access to their email (via `puter.perms.request('email')`); omitted
  * otherwise. May be `null` if the user granted access but has no email on file.
  */
 

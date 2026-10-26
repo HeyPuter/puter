@@ -21,6 +21,7 @@ import UINotification from '../UINotification.js';
 import { reveal_dashboard } from '../UIWindow.js';
 import { getNotification, listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
 import { applyToastMark, createNotificationFeed } from '../../helpers/notificationFeed.js';
+import { formatAbsoluteTime, formatRelativeTime } from '../../i18n/formatTime.js';
 import {
     handleNotificationTap,
     openAppForTap,
@@ -33,11 +34,10 @@ import { get_app_by_uid } from '../../helpers/getAppByUid.js';
 import launch_app from '../../helpers/launchApp.js';
 import {
     badgeLabel,
-    formatAbsoluteTime,
-    formatRelativeTime,
     glyphKey,
     httpsIconFor,
     isUnread,
+    listedEntries,
     mergeEntries,
     notificationTarget,
     planBurstToasts,
@@ -65,6 +65,12 @@ const ACK_CONCURRENCY = 6;
 
 /** How many of the most recent notifications the panel lists, read or not. */
 const HISTORY_LIMIT = 30;
+
+/**
+ * Rows a listing asks for: past HISTORY_LIMIT for the ones the panel hides
+ * and for older unread ones, which it lists too. The driver's maximum.
+ */
+const LISTING_LIMIT = 200;
 
 /** Matches the panel's CSS transition; `hidden` is set once it has run. */
 const CLOSE_ANIMATION_MS = 180;
@@ -389,10 +395,10 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         loadFailed = false;
         if ( ! loaded ) render();
         listingRequestedAt = Date.now();
-        loading = listNotifications({ predicate: 'all', limit: HISTORY_LIMIT })
+        loading = listNotifications({ predicate: 'all', limit: LISTING_LIMIT })
             .then((rows) => {
                 const now = Date.now();
-                const server = rows.map((row) => toEntry(row, now)).filter(Boolean);
+                const server = listedEntries(rows, now, HISTORY_LIMIT);
                 // Acked since this listing was requested: unread in its snapshot.
                 // Anything acked before it is settled and can be forgotten.
                 const readSince = new Set();

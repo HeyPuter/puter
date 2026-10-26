@@ -340,8 +340,9 @@
  * @typedef {Object} Txt2VidOptions
  * @property {string} [prompt] Text description of the clip.
  * @property {string} [provider] Pin the request to one provider: `'together-video-generation'`,
- * `'byteplus-video-generation'`, `'gemini-video-generation'` or `'kling-video-generation'`. Defaults to the provider that owns
- * `model`, or Together AI when neither is given.
+ * `'byteplus-video-generation'`, `'gemini-video-generation'`, `'kling-video-generation'` or
+ * `'minimax-video-generation'`. Defaults to the provider that owns `model`, or Together AI when
+ * neither is given.
  * @property {string} [driver] Same effect as `provider`.
  * @property {string} [model] Video model id (provider-specific). Defaults to
  * `'togetherai:wan-ai/wan2.7-t2v'` (Wan 2.7 text-to-video). `'gemini-omni-1.1-flash'` selects
