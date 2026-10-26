@@ -676,6 +676,38 @@ describe('push test route and push settings over HTTP', () => {
         expect(provider.calls).toHaveLength(0);
     });
 
+    it.each([
+        ['expired', 'UPDATE `sessions` SET `expires_at` = 1 WHERE `uuid` = ?'],
+        ['revoked', 'UPDATE `sessions` SET `revoked_at` = 1 WHERE `uuid` = ?'],
+    ])(
+        'answers 404 for a device whose session is %s, leaving it untouched',
+        async (_state, statement) => {
+            const user = await freshUser(env);
+            const row = await userRow(user);
+            const { token: other, session } =
+                await env.server.services.auth.createSessionToken(row, {
+                    user_agent: 'stale-session',
+                });
+            const device = await register(other, {
+                platform: 'web',
+                token: `stale-${crypto.randomUUID()}`,
+            });
+            await env.server.clients.db.write(statement, [session.uuid]);
+            const before = await env.server.stores.pushDevice.getByUid(
+                device.uid,
+            );
+            provider.calls.length = 0;
+
+            const res = await sendTest(user.token, device.uid);
+
+            expect(res.status).toBe(404);
+            expect(provider.calls).toHaveLength(0);
+            expect(
+                await env.server.stores.pushDevice.getByUid(device.uid),
+            ).toEqual(before);
+        },
+    );
+
     it('answers 503 when no provider carries the device’s platform', async () => {
         const user = await freshUser(env);
         const device = await register(user.token, {
@@ -828,6 +860,36 @@ describe('push test route and push settings over HTTP', () => {
             puter: true,
         });
         expect(await read()).toBe(true);
+    });
+
+    it('keeps other metadata written since the account was last read', async () => {
+        const user = await freshUser(env);
+        const row = await userRow(user);
+        await env.server.stores.user.getById(row.id);
+        await env.server.clients.db.write(
+            'UPDATE `user` SET `metadata` = ? WHERE `id` = ?',
+            [JSON.stringify({ blockAllShares: true }), row.id],
+        );
+
+        const res = await call(env, 'POST', '/push/preferences', user.token, {
+            puter: false,
+        });
+
+        expect(res.status).toBe(200);
+        const [stored] = await env.server.clients.db.pread(
+            'SELECT `metadata` FROM `user` WHERE `id` = ?',
+            [row.id],
+        );
+        const metadata =
+            typeof stored?.metadata === 'string'
+                ? JSON.parse(stored.metadata)
+                : stored?.metadata;
+        expect(metadata).toEqual({
+            blockAllShares: true,
+            [PUTER_PUSH_PREFERENCE_KEY]: false,
+        });
+        const cached = await env.server.stores.user.getById(row.id);
+        expect(cached?.metadata).toEqual(metadata);
     });
 
     it('rejects a preference that is not a boolean with 400', async () => {

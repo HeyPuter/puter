@@ -87,6 +87,12 @@ const REFRESHED_COLUMNS = [
     'failure_count',
 ];
 
+/** No session, or a live one; binds the current time. */
+const ACTIVE_SESSION_CLAUSE =
+    '(d.`session_uid` IS NULL OR (s.`uuid` IS NOT NULL ' +
+    'AND s.`revoked_at` IS NULL ' +
+    'AND (s.`expires_at` IS NULL OR s.`expires_at` > ?)))';
+
 /** How a provider address is looked up; the address itself is never a key. */
 export const hashPushToken = (token: string): string =>
     createHash('sha256').update(token, 'utf8').digest('hex');
@@ -140,16 +146,20 @@ export class PushDeviceStore extends PuterStore {
         return rows[0] ? toDevice(rows[0]) : null;
     }
 
-    /** One of `userId`'s devices with its provider address, from the primary. */
+    /** A device `listForDelivery` would return, read from the primary. */
     async getDeliveryTarget(
         userId: number,
         uid: string,
     ): Promise<PushDeliveryTarget | null> {
         if (!uid) return null;
         const rows = await this.clients.db.pread(
-            `SELECT ${DEVICE_COLUMNS}, \`token\` FROM \`push_device\` ` +
-                'WHERE `uid` = ? AND `user_id` = ? LIMIT 1',
-            [uid, userId],
+            `SELECT ${PREFIXED_DEVICE_COLUMNS}, d.\`token\` ` +
+                'FROM `push_device` d LEFT JOIN `sessions` s ' +
+                'ON s.`uuid` = d.`session_uid` AND s.`user_id` = d.`user_id` ' +
+                'WHERE d.`uid` = ? AND d.`user_id` = ? AND ' +
+                ACTIVE_SESSION_CLAUSE +
+                ' LIMIT 1',
+            [uid, userId, nowSeconds()],
         );
         return rows[0]
             ? { ...toDevice(rows[0]), token: String(rows[0].token) }
@@ -188,9 +198,7 @@ export class PushDeviceStore extends PuterStore {
                 'FROM `push_device` d LEFT JOIN `sessions` s ' +
                 'ON s.`uuid` = d.`session_uid` AND s.`user_id` = d.`user_id` ' +
                 `WHERE d.\`user_id\` = ? AND (d.\`app_uid\` IS NULL${appClause}) ` +
-                'AND (d.`session_uid` IS NULL OR (s.`uuid` IS NOT NULL ' +
-                'AND s.`revoked_at` IS NULL ' +
-                'AND (s.`expires_at` IS NULL OR s.`expires_at` > ?))) ' +
+                `AND ${ACTIVE_SESSION_CLAUSE} ` +
                 'ORDER BY d.`id` DESC LIMIT ?',
             params,
         );

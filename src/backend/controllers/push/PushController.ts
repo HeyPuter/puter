@@ -236,12 +236,13 @@ export class PushController extends PuterController {
     })
     async listApps(req: Request, res: Response): Promise<void> {
         const { userId } = this.#signedIn(req.actor);
+        const apiBaseUrl = this.config.api_base_url as string | undefined;
         const rows = await this.stores.permission.listAppsWithUserAppPerm(
             userId,
             NOTIFICATIONS_PUSH_PERMISSION,
-            { limit: APP_LIST_LIMIT },
+            // The icon URL is built from the uid unless there's no API base URL.
+            { limit: APP_LIST_LIMIT, withIcon: !apiBaseUrl },
         );
-        const apiBaseUrl = this.config.api_base_url as string | undefined;
         const apps: PushApp[] = rows.map((row) => ({
             uid: row.uid,
             name: row.name,

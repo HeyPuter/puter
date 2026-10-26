@@ -159,9 +159,11 @@ export class PushService extends PuterService {
     }
 
     async setPuterPushEnabled(userId: number, enabled: boolean): Promise<void> {
-        await this.stores.user.updateMetadata(userId, {
-            [PUTER_PUSH_PREFERENCE_KEY]: enabled,
-        });
+        await this.stores.user.setMetadataKey(
+            userId,
+            PUTER_PUSH_PREFERENCE_KEY,
+            enabled,
+        );
     }
 
     /** A fixed push to one device, ignoring presence and preference. */

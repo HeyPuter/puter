@@ -809,6 +809,34 @@ export class UserStore extends PuterStore {
         return true;
     }
 
+    /** Sets one key in place; other keys written meanwhile stay. */
+    async setMetadataKey(
+        userId: number,
+        key: string,
+        value: string | number | boolean | null,
+    ): Promise<void> {
+        if (!/^[A-Za-z0-9_]+$/.test(key)) {
+            throw new Error(`invalid metadata key: ${key}`);
+        }
+        const set = this.clients.db.case({
+            mysql: 'JSON_SET(COALESCE(`metadata`, JSON_OBJECT()), ?, CAST(? AS JSON))',
+            postgres:
+                "COALESCE(`metadata`, '{}'::jsonb) || jsonb_build_object(?::text, ?::jsonb)",
+            otherwise: "json_set(COALESCE(`metadata`, '{}'), ?, json(?))",
+        });
+        const path = this.clients.db.case({
+            postgres: key,
+            otherwise: `$.${key}`,
+        });
+        await this.clients.db.write(
+            `UPDATE \`user\` SET \`metadata\` = ${set} WHERE \`id\` = ?`,
+            [path, JSON.stringify(value), userId],
+        );
+        const fresh = await this.getByProperty('id', userId, { force: true });
+        if (fresh) await this.#cache.refresh(fresh);
+        else await this.invalidateById(userId);
+    }
+
     async updateMetadata(
         userId: number,
         patch: Record<string, unknown>,

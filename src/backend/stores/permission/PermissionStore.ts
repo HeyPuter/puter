@@ -58,7 +58,7 @@ export interface GrantedAppRow {
     uid: string;
     name: string;
     title: string;
-    icon: unknown;
+    icon?: unknown;
 }
 
 export type InstalledAppsOrder = keyof typeof INSTALLED_APPS_ORDER_COLUMNS;
@@ -847,14 +847,14 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    /** Apps this user granted exactly `permission`, by title, from the primary. */
+    /** Apps this user granted exactly `permission`, by title. */
     async listAppsWithUserAppPerm(
         userId: number,
         permission: string,
-        { limit }: { limit: number },
+        { limit, withIcon = false }: { limit: number; withIcon?: boolean },
     ): Promise<GrantedAppRow[]> {
-        return (await this.clients.db.pread(
-            `SELECT apps.uid, apps.name, apps.title, apps.icon
+        return (await this.clients.db.read(
+            `SELECT apps.uid, apps.name, apps.title${withIcon ? ', apps.icon' : ''}
             FROM user_to_app_permissions AS perm
             JOIN apps ON apps.id = perm.app_id
             WHERE perm.user_id = ? AND perm.permission = ?
