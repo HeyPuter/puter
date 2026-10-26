@@ -205,6 +205,8 @@ export default function UIDashboardTransfer ({ title, status, operation_id, on_c
     };
 
     $row.on('click', '.dashboard-transfer-cancel', () => {
+        // The row stays clickable while it fades out; a double-click cancels once.
+        if ( isClosed() ) return;
         close();
         on_cancel();
     });

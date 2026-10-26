@@ -162,6 +162,13 @@ describe('UIDashboardTransfer', () => {
         expect($('.dashboard-transfers')).toHaveLength(0);
     });
 
+    it('cancels once when Cancel is clicked twice', () => {
+        const on_cancel = vi.fn();
+        UIDashboardTransfer({ title: 'Uploading', on_cancel });
+        $('.dashboard-transfer-cancel').trigger('click').trigger('click');
+        expect(on_cancel).toHaveBeenCalledOnce();
+    });
+
     it('has no Cancel button without on_cancel', () => {
         UIDashboardTransfer({ title: 'Deleting' });
         expect($('.dashboard-transfer-cancel')).toHaveLength(0);
