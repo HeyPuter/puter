@@ -98,6 +98,9 @@ const KINDS = {
                 if ( item_path !== path ) return;
                 $item.attr({ 'data-is_worker': '1', 'data-worker_url': url })
                     .find('.item-is-worker').show();
+                // The listing draws the badge, and the menu its state, from here.
+                const fsentry = $item.data('fsentry');
+                if ( fsentry ) fsentry.workers = [{ address: url }];
             });
         },
     },

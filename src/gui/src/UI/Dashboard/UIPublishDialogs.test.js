@@ -168,6 +168,8 @@ describe('publish worker', () => {
 
     it('deploys sandboxed by default and badges the file', async () => {
         const $file = addRow('/alice/api.js');
+        const fsentry = { path: '/alice/api.js', workers: [] };
+        $file.data('fsentry', fsentry);
         await openPublishWorkerDialog({ name: 'api.js', path: '/alice/api.js' });
         expect($('.dashboard-form-suffix').text()).toBe('.puter.work');
 
@@ -177,6 +179,8 @@ describe('publish worker', () => {
         expect($('.dashboard-copy-value').val()).toBe('https://my_api.puter.work');
         expect($file.attr('data-is_worker')).toBe('1');
         expect($file.attr('data-worker_url')).toBe('https://my_api.puter.work');
+        // What the next listing of the folder draws the row from.
+        expect(fsentry.workers).toEqual([{ address: 'https://my_api.puter.work' }]);
     });
 
     it('deploys unsandboxed when the switch is off', async () => {
