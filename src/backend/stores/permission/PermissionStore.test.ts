@@ -128,6 +128,31 @@ describe('PermissionStore', () => {
             expect(values).toEqual([{ permission: present }]);
         });
 
+        it("purges every one of a holder's entries across pages, and only theirs", async () => {
+            const holder = await makeUser();
+            const other = await makeUser();
+            const perms = Array.from(
+                { length: 520 },
+                (_, i) => `fs:${uuidv4()}:p${i}:read`,
+            );
+            await server.stores.kv.batchPut({
+                items: perms.map((permission) => ({
+                    key: PermissionUtil.join('perm', String(holder.id), permission),
+                    value: { permission },
+                })),
+            });
+            await store.setFlatUserPerm(other.id, perms[0], {
+                permission: perms[0],
+            });
+
+            expect(await store.purgeFlatUserPermsHeldBy(holder.id)).toBe(520);
+            expect(await store.getFlatUserPerms(holder.id, perms)).toEqual([]);
+            expect(await store.getFlatUserPerms(other.id, [perms[0]])).toEqual([
+                { permission: perms[0] },
+            ]);
+            expect(await store.purgeFlatUserPermsHeldBy(holder.id)).toBe(0);
+        });
+
         it('scopes entries per holder', async () => {
             const a = await makeUser();
             const b = await makeUser();

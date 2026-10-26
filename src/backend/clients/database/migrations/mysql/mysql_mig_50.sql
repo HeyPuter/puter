@@ -15,32 +15,58 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Devices that can receive pushes for a user. See sqlite/0096_push-device.sql
--- for the rationale. Timestamps are unix seconds.
---
--- Idempotent: `CREATE TABLE IF NOT EXISTS` with the indexes declared inline,
--- so the directory can replay safely.
+-- Share-handle quota, listing and purge indexes. See
+-- sqlite/0096_kv-share-handle-quota-indexes.sql for what each serves. No
+-- per-file applied-state tracking, so every index is guarded and a replay does
+-- nothing.
 
-CREATE TABLE IF NOT EXISTS `push_device` (
-    `id` INT NOT NULL AUTO_INCREMENT,
-    `uid` VARCHAR(40) NOT NULL,
-    `user_id` INT UNSIGNED NOT NULL,
-    `session_uid` VARCHAR(40) DEFAULT NULL,
-    `platform` VARCHAR(16) NOT NULL,
-    `token` TEXT NOT NULL,
-    `token_hash` CHAR(64) NOT NULL,
-    `app_uid` VARCHAR(40) DEFAULT NULL,
-    `user_agent` VARCHAR(512) DEFAULT NULL,
-    `label` VARCHAR(64) DEFAULT NULL,
-    `created_at` BIGINT NOT NULL,
-    `last_seen_at` BIGINT NOT NULL,
-    `failure_count` INT NOT NULL DEFAULT 0,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `idx_push_device_token_hash` (`token_hash`),
-    UNIQUE KEY `idx_push_device_uid` (`uid`),
-    KEY `idx_push_device_user_app` (`user_id`, `app_uid`),
-    KEY `idx_push_device_session` (`session_uid`),
-    KEY `idx_push_device_last_seen` (`last_seen_at`),
-    CONSTRAINT `fk_push_device_user` FOREIGN KEY (`user_id`)
-        REFERENCES `user` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+DROP PROCEDURE IF EXISTS _puter_add_kv_share_handle_quota_indexes;
+DELIMITER //
+CREATE PROCEDURE _puter_add_kv_share_handle_quota_indexes()
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'kv_share_handles'
+      AND INDEX_NAME = 'idx_kv_share_handles_owner_live'
+  ) THEN
+    ALTER TABLE `kv_share_handles` ADD INDEX `idx_kv_share_handles_owner_live` (`owner_user_id`, `revoked_at`, `app_uid`);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'kv_share_handles'
+      AND INDEX_NAME = 'idx_kv_share_handles_owner_app'
+  ) THEN
+    ALTER TABLE `kv_share_handles` ADD INDEX `idx_kv_share_handles_owner_app` (`owner_user_id`, `app_uid`, `id`);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'kv_share_handles'
+      AND INDEX_NAME = 'idx_kv_share_handles_grantee_app'
+  ) THEN
+    ALTER TABLE `kv_share_handles` ADD INDEX `idx_kv_share_handles_grantee_app` (`grantee_user_id`, `app_uid`, `id`);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'kv_share_handles'
+      AND INDEX_NAME = 'idx_kv_share_handles_pair'
+  ) THEN
+    ALTER TABLE `kv_share_handles` ADD INDEX `idx_kv_share_handles_pair` (`owner_user_id`, `grantee_user_id`, `revoked_at`);
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'kv_share_handles'
+      AND INDEX_NAME = 'idx_kv_share_handles_revoked'
+  ) THEN
+    ALTER TABLE `kv_share_handles` ADD INDEX `idx_kv_share_handles_revoked` (`revoked_at`);
+  END IF;
+END//
+DELIMITER ;
+
+CALL _puter_add_kv_share_handle_quota_indexes();
+
+DROP PROCEDURE IF EXISTS _puter_add_kv_share_handle_quota_indexes;

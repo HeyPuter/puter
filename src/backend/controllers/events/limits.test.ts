@@ -139,14 +139,14 @@ describe('the delivery budgets', () => {
     });
 
     it('pins the share-handle quotas by plan', () => {
-        expect(EVENTS_KV_HANDLES_PER_USER.limit).toBe(512);
-        expect(EVENTS_KV_HANDLES_PER_APP.limit).toBe(512);
+        expect(EVENTS_KV_HANDLES_PER_USER.limit).toBe(25_000);
+        expect(EVENTS_KV_HANDLES_PER_APP.limit).toBe(10_000);
         expect(
             limitFor(EVENTS_KV_HANDLES_PER_USER, DEFAULT_FREE_SUBSCRIPTION),
-        ).toBe(200);
+        ).toBe(5_000);
         expect(
             limitFor(EVENTS_KV_HANDLES_PER_APP, DEFAULT_FREE_SUBSCRIPTION),
-        ).toBe(128);
+        ).toBe(2_000);
     });
 
     it('keeps `single` well under broadcast — each one costs far more', () => {
