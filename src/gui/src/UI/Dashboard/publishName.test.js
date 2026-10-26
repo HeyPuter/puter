@@ -27,7 +27,11 @@ describe('normalizePublishName', () => {
     });
 
     it('drops characters a website name cannot hold', () => {
-        expect(normalizePublishName('café_site!.v2', website)).toBe('cafsitev2');
+        expect(normalizePublishName('café site!.v2', website)).toBe('caf-sitev2');
+    });
+
+    it('turns underscores into hyphens in a website name', () => {
+        expect(normalizePublishName('My_Cool _Site', website)).toBe('my-cool-site');
     });
 
     it('keeps underscores in a worker name', () => {

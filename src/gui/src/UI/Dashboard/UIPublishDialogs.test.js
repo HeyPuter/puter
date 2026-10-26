@@ -109,8 +109,8 @@ describe('publish website', () => {
 
     it('shapes the address as it is typed', async () => {
         await openPublishWebsiteDialog({ name: 'Site', path: '/alice/Site' });
-        nameField().val('My_Site 2').trigger('input');
-        expect(nameField().val()).toBe('mysite-2');
+        nameField().val('My_Site 2!').trigger('input');
+        expect(nameField().val()).toBe('my-site-2');
     });
 
     it('asks for an address when nothing usable was typed', async () => {

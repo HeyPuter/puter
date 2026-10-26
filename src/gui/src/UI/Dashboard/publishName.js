@@ -23,19 +23,21 @@
 
 /**
  * @typedef {object} PublishNameRule
+ * @property {RegExp} separators Runs that become one hyphen, as between words.
  * @property {RegExp} invalid Characters the name can't hold.
  * @property {number} maxLength
  */
 
 /** @type {{ website: PublishNameRule, worker: PublishNameRule }} */
 export const PUBLISH_NAME_RULES = {
-    website: { invalid: /[^a-z0-9-]/g, maxLength: 64 },
+    // A website name can't hold an underscore, so it separates words too.
+    website: { separators: /[\s_]+/g, invalid: /[^a-z0-9-]/g, maxLength: 64 },
     // The name becomes a hostname label, which DNS caps at 63.
-    worker: { invalid: /[^a-z0-9_-]/g, maxLength: 63 },
+    worker: { separators: /\s+/g, invalid: /[^a-z0-9_-]/g, maxLength: 63 },
 };
 
 /**
- * What a typed name becomes as the user types: lowercase, with whitespace
+ * What a typed name becomes as the user types: lowercase, with separator
  * runs turned into a hyphen and anything else the rule refuses dropped.
  *
  * @param {string} value
@@ -44,7 +46,7 @@ export const PUBLISH_NAME_RULES = {
  */
 export const normalizePublishName = (value, rule) => String(value ?? '')
     .toLowerCase()
-    .replace(/\s+/g, '-')
+    .replace(rule.separators, '-')
     .replace(rule.invalid, '');
 
 /**
