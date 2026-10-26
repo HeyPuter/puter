@@ -29,7 +29,7 @@ window.html_encode = globalThis.html_encode;
 window.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 window.matchMedia = () => ({ matches: false });
 
-const { default: UIDashboardFormDialog } = await import('./UIDashboardFormDialog.js');
+const { default: UIDashboardFormDialog, copyRowHtml } = await import('./UIDashboardFormDialog.js');
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const submit = () => $('.dashboard-form-dialog').trigger('submit');
@@ -205,6 +205,41 @@ describe('UIDashboardFormDialog', () => {
         expect($(`#${described_by}`).text()).toBe('All <good>');
         $('.dashboard-form-done-btn').trigger('click');
         expect($('.dashboard-dialog-overlay').hasClass('dashboard-dialog-show')).toBe(false);
+    });
+
+    it('shows a message and the caller\'s html together, with a working copy row', async () => {
+        const writeText = vi.fn(async () => {});
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+        open({ onSubmit: (dialog) => dialog.finish({
+            message: 'Live',
+            html: copyRowHtml({ value: 'https://a.example', label: 'Address' }),
+        }) });
+        submit();
+        await tick();
+
+        expect($('.dashboard-form-done p').text()).toBe('Live');
+        expect($(`#${$('.dashboard-form-done-btn').attr('aria-describedby')}`).text()).toBe('Live');
+        expect($('.dashboard-copy-value').val()).toBe('https://a.example');
+        $('.dashboard-copy-btn').trigger('click');
+        await tick();
+        expect(writeText).toHaveBeenCalledWith('https://a.example');
+        expect($('.dashboard-copy-btn').text()).toBe('copied');
+    });
+
+    it('draws a suffix inside the field and has it read with the field', () => {
+        open({ fields: [{ name: 'name', label: 'Address', suffix: '.puter.site <b>' }] });
+        const $input = $('.dashboard-form-input[name="name"]');
+        expect($input.closest('.dashboard-form-affix')).toHaveLength(1);
+        expect($(`#${$input.attr('aria-describedby')}`).text()).toBe('.puter.site <b>');
+    });
+
+    it('reads a switch back as a boolean', () => {
+        const dialog = open({ fields: [
+            { name: 'on', type: 'switch', label: 'On', checked: true },
+            { name: 'off', type: 'switch', label: 'Off' },
+        ] });
+        expect($('.dashboard-form-input[name="on"]').attr('role')).toBe('switch');
+        expect(dialog.values()).toEqual({ on: true, off: false });
     });
 
     it('toggles a password between hidden and shown', () => {

@@ -9284,6 +9284,84 @@ body.dashboard-mode .notifications-close-all {
     }
 }
 
+/* A text field with fixed text after it (a domain), drawn as one box. */
+.dashboard-form-affix {
+    display: flex;
+    align-items: center;
+    height: 38px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-input-background);
+    box-sizing: border-box;
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.dashboard-form-affix:focus-within {
+    border-color: var(--select-color);
+    background: var(--dashboard-card-background);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-form-affix:has([aria-invalid='true']) {
+    border-color: var(--dashboard-danger-text);
+}
+
+.dashboard-dialog .dashboard-form-affix .dashboard-dialog-input,
+.dashboard-dialog .dashboard-form-affix .dashboard-dialog-input:focus {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0 2px 0 12px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    text-align: right;
+}
+
+.dashboard-form-suffix {
+    flex-shrink: 0;
+    max-width: 60%;
+    padding-right: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    color: var(--dashboard-text-muted);
+}
+
+@media (pointer: coarse) {
+    .dashboard-form-affix {
+        height: 44px;
+    }
+
+    .dashboard-form-suffix {
+        font-size: 16px;
+    }
+}
+
+/* A switch sits beside its label and hint, as on the settings cards. */
+.dashboard-form-switch-field {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.dashboard-form-switch-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.dashboard-form-switch-field .dashboard-form-label {
+    font-size: 13px;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+}
+
 /* Password fields carry a show/hide toggle inside the box. */
 .dashboard-form-secret {
     position: relative;
@@ -9343,6 +9421,7 @@ body.dashboard-mode .notifications-close-all {
    the content column's gap it would otherwise still claim. */
 .dashboard-form-status {
     padding: 9px 12px;
+    white-space: pre-line;
     border: 1px solid transparent;
     border-radius: 8px;
     font-size: 13px;
@@ -9430,12 +9509,13 @@ body.dashboard-mode .notifications-close-all {
     line-height: 1.45;
 }
 
-.dashboard-token-row {
+/* A value to copy: the API token, a published address. */
+.dashboard-copy-row {
     display: flex;
     gap: 8px;
 }
 
-.dashboard-dialog .dashboard-dialog-input.dashboard-token-value {
+.dashboard-dialog .dashboard-dialog-input.dashboard-copy-value {
     flex: 1 1 auto;
     min-width: 0;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -9444,13 +9524,35 @@ body.dashboard-mode .notifications-close-all {
 
 /* 16px, like the other dialog inputs on touch, so iOS doesn't zoom on focus. */
 @media (pointer: coarse) {
-    .dashboard-dialog .dashboard-dialog-input.dashboard-token-value {
+    .dashboard-dialog .dashboard-dialog-input.dashboard-copy-value {
         font-size: 16px;
     }
 }
 
-.dashboard-token-copy {
+.dashboard-copy-row .dashboard-dialog-btn {
     flex-shrink: 0;
+}
+
+/* A square button holding only an icon, as in a compact copy row. */
+.dashboard-dialog-btn.dashboard-icon-btn {
+    min-width: 36px;
+    width: 36px;
+    padding: 0;
+    color: var(--dashboard-text-secondary);
+    text-decoration: none;
+}
+
+.dashboard-icon-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+@media (pointer: coarse) {
+    .dashboard-dialog-btn.dashboard-icon-btn {
+        min-width: 44px;
+        width: 44px;
+        padding: 0;
+    }
 }
 
 .dashboard-token-sessions {
@@ -9476,8 +9578,12 @@ body.dashboard-mode .notifications-close-all {
 }
 
 @media (max-width: 600px) {
-    .dashboard-token-row {
+    .dashboard-copy-row:not(.dashboard-copy-row-compact) {
         flex-direction: column;
+    }
+
+    .dashboard-copy-row-compact .dashboard-dialog-btn.dashboard-icon-btn {
+        width: 44px;
     }
 }
 

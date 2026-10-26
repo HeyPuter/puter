@@ -32,10 +32,10 @@ import mime from '../../lib/mime.js';
 import { formatRelativeTime } from '../../i18n/formatTime.js';
 import { is_window_on_screen, user_facing_windows } from '../../helpers/windowVisibility.js';
 import new_context_menu_item from '../../helpers/newContextMenuItem.js';
-import publish_as_website from '../../helpers/publishAsWebsite.js';
 import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import UIShareModal from './UIShareModal.js';
+import { openPublishWebsiteDialog, openPublishWorkerDialog } from './UIPublishDialogs.js';
 import { dedupedName } from '../../helpers/dedupedName.js';
 import { compareEntries, compareNames } from './sortEntries.js';
 import { middleTruncate } from './middleTruncate.js';
@@ -5040,6 +5040,12 @@ const TabFiles = {
                     $container: _this.$el_window,
                 });
             },
+            onPublishWebsite: ({ name, path: item_path }) => {
+                openPublishWebsiteDialog({ name, path: item_path, $container: _this.$el_window });
+            },
+            onPublishWorker: ({ name, path: item_path }) => {
+                openPublishWorkerDialog({ name, path: item_path, $container: _this.$el_window });
+            },
             onShare: ({ name, path: item_path }) => {
                 // Dashboard uses a responsive modal instead of the desktop UIWindow.
                 UIShareModal({
@@ -5371,17 +5377,8 @@ const TabFiles = {
                     // The right sharing takes, as on the folder's own menu: the
                     // folder is yours, or shared with you to manage.
                     disabled: ! is_owned_by_me(targetPath) && shared_root_for(targetPath)?.mode !== 'manage',
-                    onClick: async function () {
-                        // Publishing works off the path, but the uid is what
-                        // refreshes the folder's website badge if its row is on
-                        // screen — the dashboard tracks paths, so look it up.
-                        let uid;
-                        try {
-                            uid = (await puter.fs.stat({ path: targetPath, consistency: 'eventual' }))?.uid;
-                        } catch ( err ) {
-                            // Badge refresh is best-effort; publish still works.
-                        }
-                        await publish_as_website({ uid, name: targetName, path: targetPath });
+                    onClick: function () {
+                        openPublishWebsiteDialog({ name: targetName, path: targetPath, $container: _this.$el_window });
                     },
                 });
             }

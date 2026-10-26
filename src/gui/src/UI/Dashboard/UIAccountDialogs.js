@@ -26,13 +26,12 @@ import create_access_token from '../../helpers/createAccessToken.js';
 import postUserProtected from '../../helpers/postUserProtected.js';
 import update_username_in_gui from '../../helpers/updateUsernameInGui.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
-import UIDashboardFormDialog from './UIDashboardFormDialog.js';
+import UIDashboardFormDialog, { copyRowHtml } from './UIDashboardFormDialog.js';
 
 // Keep in sync with ProfileService on the backend.
 const DISPLAY_NAME_MAX_LENGTH = 64;
 const BIO_MAX_LENGTH = 280;
 const TOKEN_LABEL_MAX_LENGTH = 64;
-const TOKEN_COPIED_RESET_MS = 2000;
 
 /**
  * @typedef {object} AccountDialogOptions
@@ -343,43 +342,13 @@ export function openCreateTokenDialog ({ $sessionsParent, ...opts } = {}) {
             const token = await create_access_token({ label: label.trim(), expiresIn: expiresIn || null });
 
             let h = `<div class="dashboard-token-warning">${i18n('token_shown_once_warning')}</div>`;
-            h += '<div class="dashboard-token-row">';
-            h += `<input type="text" class="dashboard-dialog-input dashboard-token-value" readonly value="${html_encode(token)}" aria-label="${i18n('api_token')}" spellcheck="false">`;
-            h += `<button type="button" class="dashboard-dialog-btn dashboard-dialog-btn-quiet dashboard-token-copy">${i18n('copy')}</button>`;
-            h += '</div>';
+            h += copyRowHtml({ value: token, label: t('api_token'), copiedLabel: t('token_copied') });
             h += `<p class="dashboard-form-hint">${i18n('token_manage_hint')} <button type="button" class="dashboard-token-sessions">${i18n('ui_manage_sessions')}</button>.</p>`;
             // The token is shown only once; only Done, ✕ or Escape put it away.
             dialog.finish({ html: h, describe: '.dashboard-token-warning', keepOnBackdrop: true });
         },
     });
 
-    let copied_timer = null;
-    dialog.$dialog.on('click', '.dashboard-token-copy', function () {
-        const $btn = $(this);
-        const $value = dialog.$dialog.find('.dashboard-token-value');
-        const copied = () => {
-            $btn.text(t('token_copied'));
-            clearTimeout(copied_timer);
-            copied_timer = setTimeout(() => $btn.text(t('copy')), TOKEN_COPIED_RESET_MS);
-        };
-        // No clipboard access (an insecure origin has no navigator.clipboard
-        // at all): select it, try the legacy copy, and leave it selected so
-        // the user can copy it by hand.
-        const by_hand = () => {
-            $value.get(0)?.select();
-            try {
-                if ( document.execCommand('copy') ) copied();
-            } catch { /* stays selected */ }
-        };
-        if ( navigator.clipboard?.writeText ) {
-            navigator.clipboard.writeText(String($value.val())).then(copied, by_hand);
-        } else {
-            by_hand();
-        }
-    });
-    dialog.$dialog.on('focus', '.dashboard-token-value', function () {
-        this.select();
-    });
     dialog.$dialog.on('click', '.dashboard-token-sessions', () => {
         UIWindowManageSessions({
             window_options: {
