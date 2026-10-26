@@ -111,6 +111,17 @@ async function UIWindowAttachCustomDomain (options) {
                             <label class="custom-domain-label" for="${modal_id}-hostname">${i18n('custom_domain_hostname_label')}</label>
                             <input type="text" class="custom-domain-input" id="${modal_id}-hostname" placeholder="www.example.com" autocomplete="off" autocapitalize="off" spellcheck="false">
                             <p class="app-feedback-note custom-domain-price" style="display:none;"></p>
+                            <div class="custom-domain-claim" style="display:none;">
+                                <p class="app-feedback-note">${i18n('custom_domain_claim_c2a')}</p>
+                                <table class="custom-domain-records">
+                                    <thead><tr><th>${i18n('custom_domain_record_type')}</th><th>${i18n('name')}</th><th>${i18n('custom_domain_record_value')}</th></tr></thead>
+                                    <tbody><tr>
+                                        <td>TXT</td>
+                                        <td><code class="custom-domain-copy custom-domain-claim-name"></code></td>
+                                        <td><code class="custom-domain-copy custom-domain-claim-value"></code></td>
+                                    </tr></tbody>
+                                </table>
+                            </div>
                             <p class="app-feedback-error" role="alert" style="display:none;"></p>
                             <div class="app-feedback-actions">
                                 <button type="button" class="app-feedback-btn custom-domain-back">${i18n('back')}</button>
@@ -287,7 +298,26 @@ async function UIWindowAttachCustomDomain (options) {
         const updateAddButton = () => {
             $overlay.find('.custom-domain-add').prop('disabled', busy || String($input.val() || '').trim() === '');
         };
-        $input.on('input', updateAddButton);
+        // A claim is for one hostname; editing it starts over.
+        const hideClaim = () => {
+            $overlay.find('.custom-domain-claim').hide();
+            $overlay.find('.custom-domain-add').text(text('custom_domain_add'));
+        };
+        const showClaim = (record) => {
+            $overlay.find('.custom-domain-claim-name').text(record.name);
+            $overlay.find('.custom-domain-claim-value').text(record.value);
+            $overlay.find('.custom-domain-claim').show();
+            $overlay.find('.custom-domain-add').text(text('custom_domain_verify_and_add'));
+        };
+        $input.on('input', () => {
+            hideClaim();
+            updateAddButton();
+        });
+        $overlay.find('.custom-domain-claim .custom-domain-copy')
+            .attr('title', text('copy'))
+            .on('click', function () {
+                navigator.clipboard?.writeText($(this).text()).catch(() => {});
+            });
 
         $overlay.find('.custom-domain-to-add').on('click', () => {
             showPane('add');
@@ -304,10 +334,19 @@ async function UIWindowAttachCustomDomain (options) {
             setBusy(true);
             try {
                 const res = await api('POST', '', { site: subdomain, hostname });
+                if ( res.data?.code === 'custom_domain_claim_required' && res.data.verification ) {
+                    // Shown the first time; a retry that still can't see the
+                    // record says so.
+                    const retry = $overlay.find('.custom-domain-claim').is(':visible');
+                    showClaim(res.data.verification);
+                    if ( retry ) showError('add', text('custom_domain_claim_not_found'));
+                    return;
+                }
                 if ( ! res.ok ) {
                     showError('add', errorFor(res));
                     return;
                 }
+                hideClaim();
                 chosen = res.data;
                 renderRecords(res.data);
                 showPane('records');
