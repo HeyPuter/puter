@@ -338,6 +338,79 @@ describe('NotificationService.notifyUpdate', () => {
     });
 });
 
+describe("NotificationService — 'notif.written'", () => {
+    it('fires once per recipient whose row was written', async () => {
+        const a = await makeUser();
+        const b = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const written = collect('notif.written');
+
+        await notifications.notify(
+            [a.id, b.id],
+            { title: 'ended' },
+            { type: 'app.events.ended', appUid },
+        );
+        await waitFor(() => written.seen.length === 2);
+
+        const rows = await Promise.all(
+            [a, b].map((u) =>
+                server.stores.notification.listByUserId(u.id, {}),
+            ),
+        );
+        const expected = [a, b].map((u, i) => ({
+            userId: u.id,
+            uid: rows[i][0].uid,
+            type: 'app.events.ended',
+            appUid,
+            value: { title: 'ended', type: 'app.events.ended' },
+        }));
+        expect(written.seen).toEqual(expect.arrayContaining(expected));
+        written.stop();
+    });
+
+    it('stays quiet for a silent write', async () => {
+        const user = await makeUser();
+        const written = collect('notif.written');
+
+        await notifications.notify(
+            [user.id],
+            { title: 'quiet' },
+            { type: 'share.received', silent: true },
+        );
+        await new Promise((r) => setTimeout(r, 50));
+
+        expect(written.seen).toEqual([]);
+        written.stop();
+    });
+
+    it('marks a rewrite in place as updated', async () => {
+        const user = await makeUser();
+        const uid = await notifications.notify(
+            [user.id],
+            { title: 'one share' },
+            { type: 'share.received' },
+        );
+        const written = collect('notif.written');
+
+        await notifications.notifyUpdate(
+            uid!,
+            user.id,
+            { title: 'two shares' },
+            { type: 'share.received' },
+        );
+        await waitFor(() => written.seen.length === 1);
+
+        expect(written.seen[0]).toEqual({
+            userId: user.id,
+            uid,
+            type: 'share.received',
+            value: { title: 'two shares', type: 'share.received' },
+            updated: true,
+        });
+        written.stop();
+    });
+});
+
 describe('NotificationService.markAcknowledged', () => {
     it("acknowledges the row and pushes an ack to the user's other tabs", async () => {
         const user = await makeUser();

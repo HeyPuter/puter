@@ -169,12 +169,24 @@ export class NotificationService extends PuterService {
                     return null;
                 }
 
-                if (!opts.silent)
+                if (!opts.silent) {
+                    this.clients.event.emit(
+                        'notif.written',
+                        {
+                            userId,
+                            uid,
+                            type: registered.type,
+                            appUid,
+                            value: payload,
+                        },
+                        {},
+                    );
                     await this.#push(userId, uid, payload, {
                         type: registered.type,
                         audience: registered.audience,
                         appUid,
                     });
+                }
                 return uid;
             }),
         );
@@ -217,6 +229,17 @@ export class NotificationService extends PuterService {
             // to anything deduplicating on `event.id`.
             this.#socket().message(userId, uid, payload);
             this.#markDelivered(uid, userId);
+            this.clients.event.emit(
+                'notif.written',
+                {
+                    userId,
+                    uid,
+                    type: registered.type,
+                    value: payload,
+                    updated: true,
+                },
+                {},
+            );
         }
         return true;
     }
