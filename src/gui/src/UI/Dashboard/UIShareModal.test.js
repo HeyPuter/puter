@@ -23,8 +23,13 @@ import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 vi.mock('./ContextMenu/ContextMenu.js', () => ({ isTouchPrimaryDevice: () => false }));
 vi.mock('../../helpers/itemIcon.js', () => ({ default: vi.fn(async () => ({ image: 'icon.svg' })) }));
 vi.mock('../../helpers/shareTeams.js', () => ({ teams_for_sharing: vi.fn(async () => []) }));
+// The field's choice, and the dialog's hook into it, for tests to drive.
+const picked = { recipient: null, onChange: null };
 vi.mock('../../helpers/shareRecipientPicker.js', () => ({
-    default: () => ({ destroy () {}, recipient: () => null, setTeams () {}, clear () {}, remember () {} }),
+    default: ({ onChange }) => {
+        picked.onChange = onChange;
+        return { destroy () {}, recipient: () => picked.recipient, setTeams () {}, clear () {}, remember () {} };
+    },
 }));
 
 globalThis.$ = jQuery;
@@ -44,6 +49,7 @@ const settle = async () => {
 };
 
 beforeEach(() => {
+    picked.recipient = null;
     window.user = { username: 'alice' };
     globalThis.puter = {
         fs: {
@@ -126,5 +132,30 @@ describe('UIShareModal removing access', () => {
         expect($('.share-modal-overlay').length).toBe(1);
         finish();
         await settle();
+    });
+});
+
+describe('UIShareModal adding people', () => {
+    it('keeps Share down while a share is on its way, though the name is edited', async () => {
+        let finish;
+        puter.fs.share = vi.fn(() => new Promise((resolve) => {
+            finish = resolve;
+        }));
+        UIShareModal({ path: '/alice/a.txt' });
+        await settle();
+        picked.recipient = { value: 'bob', label: 'bob' };
+        picked.onChange();
+        expect($('.share-modal-submit').prop('disabled')).toBe(false);
+
+        $('.share-modal-add').trigger('submit');
+        picked.recipient = { value: 'bobby', label: 'bobby' };
+        picked.onChange();
+        expect($('.share-modal-submit').prop('disabled')).toBe(true);
+        $('.share-modal-add').trigger('submit');
+        expect(puter.fs.share).toHaveBeenCalledTimes(1);
+
+        finish([{ path: '/alice/a.txt' }]);
+        await settle();
+        expect($('.share-modal-submit').prop('disabled')).toBe(false);
     });
 });

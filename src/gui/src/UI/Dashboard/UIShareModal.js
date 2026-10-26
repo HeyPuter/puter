@@ -703,6 +703,9 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     /** A team is named by uid; a person by the name the row already shows. */
     const recipient_of = (group) => (group.teamUid ? { team: group.teamUid } : group.name);
 
+    // A share on its way keeps the button down, though the field is edited.
+    let sharing = false;
+
     // One field for every kind of recipient: a colleague, a whole team, someone
     // shared with before, or an address typed from scratch.
     const picker = shareRecipientPicker({
@@ -712,7 +715,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         // re-grant what their row already shows.
         excluded: () => last_groups.map((group) => group.key),
         onChange: () => {
-            $submit.prop('disabled', ! picker.recipient());
+            $submit.prop('disabled', sharing || ! picker.recipient());
             // Choosing again retires a stale success/error message.
             clear_status();
         },
@@ -740,9 +743,10 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         // A team is named by uid; anything typed goes as-is, since a bare
         // string is what the backend reads as an email or a username.
         const chosen = picker.recipient();
-        if ( ! chosen ) return;
+        if ( ! chosen || sharing ) return;
         const recipient = chosen.label;
 
+        sharing = true;
         $submit.prop('disabled', true).addClass('share-modal-btn-busy');
         try {
             const created = await grant_access(
@@ -750,6 +754,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                 $overlay.find('.share-modal-mode').val(),
                 target_paths,
             );
+            sharing = false;
             // Clear only what we sent; a name typed mid-flight shouldn't vanish.
             if ( $recipient.val().trim() === recipient ) picker.clear();
             $submit.prop('disabled', ! picker.recipient());
@@ -781,8 +786,9 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             await refresh();
             if ( ! focus_moved_on() ) $recipient.get(0)?.focus({ preventScroll: true });
         } catch (err) {
+            sharing = false;
             show_error(error_html(err));
-            $submit.prop('disabled', false);
+            $submit.prop('disabled', ! picker.recipient());
             // Disabling the clicked button dropped focus to <body>; put it
             // where the correction happens.
             $recipient.get(0)?.focus({ preventScroll: true });
