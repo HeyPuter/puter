@@ -25,14 +25,14 @@ const SETTLE_MS = 2000;
 const SMOOTHING = 0.3;
 
 /**
- * Clamps a caller's progress to an integer percentage. Callers pass numbers
- * and strings alike, some from `toPrecision()` (`"1.0e+2"` for 100).
+ * Clamps a caller's progress to a percentage. Callers pass numbers and
+ * strings alike, some from `toPrecision()` (`"1.0e+2"` for 100).
  *
  * @param {number|string} percent
  * @returns {number} 0 to 100
  */
-export function normalizePercent (percent) {
-    const pct = Math.round(Number(percent));
+export function clampPercent (percent) {
+    const pct = Number(percent);
     if ( ! Number.isFinite(pct) ) return 0;
     return Math.min(100, Math.max(0, pct));
 }

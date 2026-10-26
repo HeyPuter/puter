@@ -18,19 +18,19 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createRemainingEstimator, normalizePercent, roundSecondsLeft, summarizeUpload } from './transferProgress.js';
+import { clampPercent, createRemainingEstimator, roundSecondsLeft, summarizeUpload } from './transferProgress.js';
 
-describe('normalizePercent', () => {
-    it('clamps to a whole percentage', () => {
-        expect(normalizePercent(42.6)).toBe(43);
-        expect(normalizePercent(-5)).toBe(0);
-        expect(normalizePercent(140)).toBe(100);
+describe('clampPercent', () => {
+    it('clamps to 0-100, keeping fractions', () => {
+        expect(clampPercent(42.6)).toBe(42.6);
+        expect(clampPercent(-5)).toBe(0);
+        expect(clampPercent(140)).toBe(100);
     });
 
     it('reads strings, including toPrecision output', () => {
-        expect(normalizePercent('37')).toBe(37);
-        expect(normalizePercent((100).toPrecision(2))).toBe(100);
-        expect(normalizePercent('nope')).toBe(0);
+        expect(clampPercent('37.25')).toBe(37.25);
+        expect(clampPercent((100).toPrecision(2))).toBe(100);
+        expect(clampPercent('nope')).toBe(0);
     });
 });
 

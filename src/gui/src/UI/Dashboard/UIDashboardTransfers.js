@@ -23,7 +23,7 @@
 // drive either.
 
 import { ICONS, SVG } from './UIDashboardDialog.js';
-import { createRemainingEstimator, normalizePercent, roundSecondsLeft } from './transferProgress.js';
+import { clampPercent, createRemainingEstimator, roundSecondsLeft } from './transferProgress.js';
 
 const TRAY_ICONS = {
     done: SVG('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>'),
@@ -215,8 +215,10 @@ export default function UIDashboardTransfer ({ title, status, operation_id, on_c
         },
         set_progress (percent) {
             if ( settled || isClosed() ) return;
-            const pct = normalizePercent(percent);
-            const seconds = estimator.push(pct);
+            // Rounding first would hide a slow transfer's progress from the estimate.
+            const exact = clampPercent(percent);
+            const pct = Math.round(exact);
+            const seconds = estimator.push(exact);
             fill_to(pct);
             // Every byte is sent, but the server hasn't confirmed the write yet.
             if ( pct >= 100 ) $eta.text(i18n('progress_finishing', [], false));

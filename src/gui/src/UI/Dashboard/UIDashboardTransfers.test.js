@@ -118,6 +118,19 @@ describe('UIDashboardTransfer', () => {
         expect($('.dashboard-progress-fill').get(0).style.transform).toBe('scaleX(0.42)');
     });
 
+    it('keeps a time-left estimate for a slow transfer', async () => {
+        // The uploader reports to the hundredth every 100ms; at 0.15%/s the
+        // whole percentage can stand still for longer than the rate window.
+        const transfer = UIDashboardTransfer({ title: 'Uploading' });
+        let blank = 0;
+        for ( let t = 0; t <= 60_000; t += 100 ) {
+            transfer.set_progress((0.15 * t / 1000).toFixed(2));
+            if ( t >= 3000 && $('.dashboard-progress-eta').text() === '' ) blank++;
+            await vi.advanceTimersByTimeAsync(100);
+        }
+        expect(blank).toBe(0);
+    });
+
     it('takes the caller\'s encoded status as HTML', () => {
         const transfer = UIDashboardTransfer({ title: 'Moving' });
         transfer.set_status('Moving <strong>a&amp;b</strong>');
