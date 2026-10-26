@@ -443,4 +443,22 @@ describe('retired handle retention', () => {
         expect(await exists(recent)).toBe(true);
         expect(await exists(live)).toBe(true);
     });
+
+    it('purges once per day across nodes, keeping live and recent rows', async () => {
+        const kvShare = env.server.services.kvShare;
+        await env.server.clients.redis.del('kvShare:purge:gate');
+        const old = await retiredAt('purge-old:', now() - 31 * DAY);
+        const recent = await retiredAt('purge-recent:', now() - 29 * DAY);
+        const live = await retiredAt('purge-live:', null);
+
+        expect(await kvShare.purgeRevokedHandles()).toBeGreaterThanOrEqual(1);
+        expect(await exists(old)).toBe(false);
+        expect(await exists(recent)).toBe(true);
+        expect(await exists(live)).toBe(true);
+
+        // Another node checking the same day finds the gate held.
+        const again = await retiredAt('purge-again:', now() - 31 * DAY);
+        expect(await kvShare.purgeRevokedHandles()).toBeNull();
+        expect(await exists(again)).toBe(true);
+    });
 });

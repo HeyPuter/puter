@@ -306,6 +306,18 @@ const SHARE_CHANGE_LOCK_MS = 10_000;
 const SHARE_CHANGE_LOCK_ATTEMPTS = 20;
 const SHARE_CHANGE_LOCK_RETRY_MS = 50;
 
+/** Retired handles are kept this long for their owner's listing, then deleted. */
+export const KV_SHARE_REVOKED_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+// Every node checks hourly; the gate lets one node through per day.
+const PURGE_CHECK_MS = 60 * 60 * 1000;
+const PURGE_INITIAL_DELAY_MS = 5 * 60 * 1000;
+const PURGE_GATE_KEY = 'kvShare:purge:gate';
+const PURGE_GATE_SECONDS = 24 * 60 * 60;
+// Rows per delete, with a pause between, so replicas keep up.
+const PURGE_BATCH = 500;
+const PURGE_PAUSE_MS = 50;
+const PURGE_MAX_BATCHES = 2_000;
+
 /** Passes one app deletion takes, so a huge namespace cannot pin a node. */
 const APP_RETIRE_MAX_PASSES = 200;
 
@@ -328,7 +340,12 @@ const ownerView = (
 });
 
 export class KvShareService extends PuterService {
+    #purgeTimers: ReturnType<typeof setTimeout>[] = [];
+    #stopping = false;
+
     override onServerStart(): void {
+        this.#armPurge();
+
         // A check at one level is answered by a grant at any level above it.
         this.services.permission.registerExploder(kvShareLevelsExploder());
 
@@ -372,6 +389,83 @@ export class KvShareService extends PuterService {
                 console.warn('[kvShare] deleted-account retire failed', err);
             }
         });
+    }
+
+    override onServerPrepareShutdown(): void {
+        this.#stopping = true;
+        for (const timer of this.#purgeTimers) clearTimeout(timer);
+        this.#purgeTimers = [];
+    }
+
+    // -- Retention purge ---------------------------------------------
+
+    /**
+     * Delete handles retired longer ago than the retention, in batches. Returns
+     * the rows deleted, or null when another node holds today's gate. A missing
+     * row reads like a retired one everywhere a handle is resolved.
+     */
+    async purgeRevokedHandles(): Promise<number | null> {
+        const claimed = await this.clients.redis.set(
+            PURGE_GATE_KEY,
+            String(Date.now()),
+            'EX',
+            PURGE_GATE_SECONDS,
+            'NX',
+        );
+        if (claimed !== 'OK') return null;
+
+        const cutoff =
+            Math.floor(Date.now() / 1000) - KV_SHARE_REVOKED_RETENTION_SECONDS;
+        let purged = 0;
+        let finished = false;
+        try {
+            for (let i = 0; i < PURGE_MAX_BATCHES; i++) {
+                if (this.#stopping) return purged;
+                const batch =
+                    await this.stores.kvShareHandle.deleteRevokedBefore(
+                        cutoff,
+                        PURGE_BATCH,
+                    );
+                purged += batch;
+                if (batch < PURGE_BATCH) break;
+                await new Promise((resolve) =>
+                    setTimeout(resolve, PURGE_PAUSE_MS),
+                );
+            }
+            finished = true;
+            return purged;
+        } finally {
+            // A run cut short frees the gate, so another node picks it up on
+            // its next check instead of tomorrow.
+            if (!finished) {
+                try {
+                    await this.clients.redis.del(PURGE_GATE_KEY);
+                } catch {
+                    // The gate expires on its own.
+                }
+            }
+        }
+    }
+
+    #armPurge(): void {
+        const run = async () => {
+            try {
+                const purged = await this.purgeRevokedHandles();
+                if (purged)
+                    console.log(`[kvShare] purged ${purged} retired handles`);
+            } catch (err) {
+                console.warn('[kvShare] retired-handle purge failed', err);
+            }
+        };
+        // Jittered so a deploy does not have every node check at once.
+        const kick = setTimeout(
+            () => void run(),
+            PURGE_INITIAL_DELAY_MS * (0.5 + Math.random()),
+        );
+        kick.unref?.();
+        const timer = setInterval(() => void run(), PURGE_CHECK_MS);
+        timer.unref?.();
+        this.#purgeTimers = [kick, timer];
     }
 
     /** Whether the level a mint asks for is available on this server. */
