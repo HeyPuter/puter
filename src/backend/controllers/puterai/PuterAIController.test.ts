@@ -511,6 +511,31 @@ describe('PuterAIController.openaiChatCompletions', () => {
 
         const completeArgs = completeSpy.mock.calls[0]![0];
         expect(completeArgs.provider).toBe('openai-completion');
+        expect(completeArgs.fallback).toBeUndefined();
+    });
+
+    it('forwards fallback: false so the driver stops at the first route', async () => {
+        const completeSpy = stubChatComplete({
+            message: { role: 'assistant', content: 'hi there' },
+            finish_reason: 'stop',
+            usage: { prompt_tokens: 4, completion_tokens: 2 },
+        });
+
+        const { res } = makeRes();
+        await controller.openaiChatCompletions(
+            makeReq({
+                body: {
+                    model: 'gpt-test',
+                    provider: 'openai-completion',
+                    fallback: false,
+                    messages: [{ role: 'user', content: 'hi' }],
+                },
+                actor: makeUserActor(),
+            }),
+            res,
+        );
+
+        expect(completeSpy.mock.calls[0]![0].fallback).toBe(false);
     });
 
     it('still pins OpenAI when the caller names no model, so the default model does not move', async () => {

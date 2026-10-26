@@ -19,6 +19,7 @@ const PARAMS_TO_PASS = [
     'text',
     'verbosity',
     'provider',
+    'fallback',
     'image_config',
     'compaction',
     'context_management',

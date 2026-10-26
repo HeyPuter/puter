@@ -107,6 +107,16 @@ export default suite('ai', {
         t.assert.ok(textOf(result).length > 0, 'message should contain text');
     },
 
+    'chat with fallback: false still reaches the only route for a model': async (t) => {
+        useApiToken(t);
+        const result = await t.puter.ai.chat('Hello there', {
+            model: 'fake',
+            fallback: false,
+        });
+        t.assert.equal(result.message.role, 'assistant');
+        t.assert.ok(textOf(result).length > 0, 'message should contain text');
+    },
+
     'chat testMode returns a sample without using the selected model': async (t) => {
         useApiToken(t);
         const result = await t.puter.ai.chat('Hello there', {
