@@ -1178,6 +1178,26 @@ describe('kv sharing routes', () => {
         expect(FakeXHR.requests).toHaveLength(0);
     });
 
+    it('share(prefix, recipients) posts every recipient and resolves to the items', async () => {
+        const items = [
+            { recipient: 'alice', ...SHARE },
+            { recipient: 'nobody', error: { message: 'user_does_not_exist', code: 'subject_does_not_exist' } },
+        ];
+        FakeXHR.respondWith = () => ({ items });
+        await expect(kv.share('list:1:', ['alice', 'nobody'], 'write')).resolves.toEqual(items);
+        expect(lastBody()).toEqual({ prefix: 'list:1:', recipients: ['alice', 'nobody'], access: 'write' });
+    });
+
+    it('share({ recipients }) leaves each recipient for the server to check', async () => {
+        FakeXHR.respondWith = () => ({ items: [] });
+        await kv.share({ prefix: 'list:1:', recipients: ['a@b.c', { uid: 'u-1' }], label: 'Team' });
+        expect(lastBody()).toEqual({
+            prefix: 'list:1:',
+            recipients: ['a@b.c', { uid: 'u-1' }],
+            label: 'Team',
+        });
+    });
+
     it('share passes the server\'s { message, code } through', async () => {
         FakeXHR.status = 403;
         FakeXHR.respondWith = () => ({ message: 'Not accepting shares', code: 'recipient_not_accepting_shares' });

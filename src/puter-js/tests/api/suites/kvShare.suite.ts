@@ -345,6 +345,50 @@ export default suite('kvShare', {
             await t.puter.kv.unshare(share.handle);
         },
 
+    'share with several recipients reports each one on its own item': async (
+        t,
+    ) => {
+        const prefix = unique('many');
+        const items = await t.puter.kv.share(
+            prefix,
+            [
+                t.env.users.other.username,
+                { username: t.env.users.admin.username },
+                'kvshare-nobody-by-this-name',
+                'someone@example.com',
+            ],
+            'write',
+        );
+        t.assert.equal(items.length, 4);
+        const [other, admin, nobody, address] = items;
+        t.assert.ok('handle' in other && other.holder === t.env.users.other.username);
+        t.assert.ok('handle' in admin && admin.holder === t.env.users.admin.username);
+        t.assert.equal(other.recipient, t.env.users.other.username);
+        t.assert.equal('error' in nobody && nobody.error.code, 'subject_does_not_exist');
+        t.assert.equal('error' in address && address.error.code, 'invalid_recipient');
+
+        // Sharing again changes the same shares in place.
+        const again = await t.puter.kv.share({
+            prefix,
+            recipients: [t.env.users.other.username],
+            access: 'read',
+            label: 'Team',
+        });
+        t.assert.ok('handle' in again[0] && 'handle' in other);
+        if ('handle' in again[0] && 'handle' in other && 'handle' in admin) {
+            t.assert.equal(again[0].handle, other.handle);
+            t.assert.equal(again[0].access, 'read');
+            t.assert.equal(again[0].label, 'Team');
+            await t.puter.kv.unshare(other.handle);
+            await t.puter.kv.unshare(admin.handle);
+        }
+
+        const tooMany = await t.assert.rejects(() =>
+            t.puter.kv.share(prefix, []),
+        );
+        t.assert.equal(codeOf(tooMany), 'bad_request');
+    },
+
     'share refuses bad input with the documented codes': async (t) => {
         const address = await t.assert.rejects(() =>
             t.puter.kv.share(unique('email'), 'someone@example.com'),
