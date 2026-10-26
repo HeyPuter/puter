@@ -398,6 +398,13 @@ async function UIDashboard (options) {
             });
         }
 
+        // Files' Back/Forward follows a folder moved elsewhere, and forgets
+        // one moved to the Trash.
+        if ( resp.is_dir && old_path && resp.path ) {
+            const trashed = resp.path.startsWith(`${window.trash_path}/`);
+            window.dashboard_object?.folderMoved?.(old_path, trashed ? null : resp.path);
+        }
+
         // Create new item at destination if user is viewing that directory
         if ( window.UIDashboardFileItem ) {
             window.UIDashboardFileItem(resp);
@@ -407,6 +414,7 @@ async function UIDashboard (options) {
     window.socket.on('item.removed', async (item) => {
         if ( item.original_client_socket_id === window.socket.id ) return;
         if ( item.descendants_only ) return;
+        if ( item.is_dir && item.path ) window.dashboard_object?.folderMoved?.(item.path, null);
 
         // Match by uid when present (O(1) attribute selector; uids are UUIDs,
         // safe to interpolate) and fall back to a path scan for minimal
@@ -533,10 +541,12 @@ async function UIDashboard (options) {
         notifications.close({ restoreFocus: false });
         // What was open over the tab being left goes with it, as on a
         // sidebar click: the phone drawer, a menu, and Files' Share and
-        // Properties, which act on its rows (their changes are already saved).
+        // Properties, which act on its rows (their changes are already saved),
+        // and its image preview.
         setMobileSidebar(false);
         $('.context-menu').remove();
         $el_window.find('.share-modal-close, .item-props-close').trigger('click');
+        if ( tab !== 'files' && TabFiles.previewOpen ) TabFiles.closeImagePreview();
 
         // Switch to correct tab
         const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tab}"]`);

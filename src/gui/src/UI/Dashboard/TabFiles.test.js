@@ -27,6 +27,10 @@ vi.mock('../UIAlert.js', () => ({ default: vi.fn() }));
 vi.mock('../UIWindowProgress.js', () => ({ default: vi.fn() }));
 vi.mock('../UIContextMenu.js', () => ({ default: vi.fn() }));
 vi.mock('../../helpers/generateFileContextMenu.js', () => ({ default: vi.fn(async () => []) }));
+vi.mock('../../helpers/itemIcon.js', async (importOriginal) => {
+    const actual = await importOriginal();
+    return { default: vi.fn(actual.default) };
+});
 
 globalThis.$ = jQuery;
 globalThis.jQuery = jQuery;
@@ -38,6 +42,7 @@ window.icons = {};
 
 const { default: TabFiles, failedUploadsMessage, rebasePath, typeSelectTarget } = await import('./TabFiles.js');
 const { default: generateFileContextMenu } = await import('../../helpers/generateFileContextMenu.js');
+const { default: itemIcon } = await import('../../helpers/itemIcon.js');
 
 const TRASH = '/alice/Trash';
 
@@ -246,6 +251,35 @@ describe('TabFiles opening a folder that fails to list', () => {
         expect(TabFiles.acceptsNewItems('/alice/Documents')).toBe(true);
         expect(TabFiles.renderingDirectory).toBe(false);
     });
+
+    it('keeps the rows when a refresh of it can\'t reach the server', async () => {
+        mountListing(['a.txt'], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        // puter.js rejects with the XMLHttpRequest itself, which has no code.
+        window.puter.fs.readdir = vi.fn(async () => {
+            throw { status: 0 };
+        });
+
+        await TabFiles.renderDirectory('/alice/Documents');
+
+        expect($('.files .row')).toHaveLength(1);
+        expect(TabFiles.acceptsNewItems('/alice/Documents')).toBe(true);
+        expect(TabFiles.renderingDirectory).toBe(false);
+    });
+
+    it('says so when a refresh finds it gone', async () => {
+        mountListing(['a.txt'], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        window.puter.fs.readdir = vi.fn(async () => {
+            throw { code: 'subject_does_not_exist', message: 'Subject does not exist' };
+        });
+
+        await TabFiles.renderDirectory('/alice/Documents');
+
+        expect($('.files .row')).toHaveLength(0);
+        expect($('.files').text()).toContain("couldn't be opened");
+    });
 });
 
 describe('TabFiles opening a folder during a refresh', () => {
@@ -294,6 +328,7 @@ describe('TabFiles New Folder', () => {
         });
         vi.spyOn(TabFiles, 'insertAtSortedPosition').mockImplementation(() => {});
         vi.spyOn(TabFiles, 'applyColumnWidths').mockImplementation(() => {});
+        TabFiles.deferredAdds = [];
     });
 
     it('is what Undo takes back, not the upload before it', async () => {
@@ -306,6 +341,62 @@ describe('TabFiles New Folder', () => {
         const last = window.actions_history.at(-1);
         expect(last.operation).toBe('create_folder');
         expect($(last.data).attr('data-path')).toBe('/alice/Documents/New Folder');
+    });
+
+    it('becomes the selection the footer counts', async () => {
+        mountListing(['a.txt', 'b.txt'], '/alice/Documents');
+        $('.files .row').addClass('selected');
+        TabFiles.updateFooterStats();
+        TabFiles.renderingDirectory = false;
+        TabFiles._creatingItem = 0;
+
+        await TabFiles.createFolderInstant('/alice/Documents');
+
+        expect($('.files .row.selected')).toHaveLength(1);
+        expect($('.files-footer-selected-items').text()).toMatch(/^1 item selected/);
+    });
+
+    it('lets items added meanwhile in, once it is made', async () => {
+        mountListing([], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles._creatingItem = 0;
+        let finishMkdir;
+        window.puter.fs.mkdir = vi.fn(() => new Promise((resolve) => {
+            finishMkdir = resolve;
+        }));
+        const added = vi.fn();
+        const previous = window.UIDashboardFileItem;
+        window.UIDashboardFileItem = (file) => {
+            if ( TabFiles._creatingItem ) TabFiles.deferredAdds.push(file);
+            else added(file);
+        };
+
+        const creating = TabFiles.createFolderInstant('/alice/Documents');
+        await vi.waitFor(() => expect(finishMkdir).toBeTypeOf('function'));
+        window.UIDashboardFileItem({ uid: 'u2', path: '/alice/Documents/from-elsewhere.txt' });
+        expect(added).not.toHaveBeenCalled();
+        finishMkdir({ uid: 'f1', name: 'New Folder', path: '/alice/Documents/New Folder', is_dir: true });
+        await creating;
+
+        expect(added).toHaveBeenCalledWith({ uid: 'u2', path: '/alice/Documents/from-elsewhere.txt' });
+        window.UIDashboardFileItem = previous;
+    });
+
+    it('says so when the network fails, rather than vanishing', async () => {
+        const { default: UIAlert } = await import('../UIAlert.js');
+        UIAlert.mockClear();
+        mountListing([], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles._creatingItem = 0;
+        // puter.js rejects with the XMLHttpRequest itself, which has no message.
+        window.puter.fs.mkdir = vi.fn(async () => {
+            throw { status: 0 };
+        });
+
+        await TabFiles.createFolderInstant('/alice/Documents');
+
+        expect($('.files .row')).toHaveLength(0);
+        expect(UIAlert).toHaveBeenCalledWith('An unknown error occurred.');
     });
 
     it('is made, not dropped, while the folder is refreshing', async () => {
@@ -454,6 +545,25 @@ describe('TabFiles.updateNavButtonStates', () => {
         expect($('.path-btn-forward').attr('tabindex')).toBe('-1');
         expect($('.path-btn-forward').attr('aria-disabled')).toBe('true');
     });
+
+    it('moves the focus off an arrow it disables', () => {
+        document.body.innerHTML = `
+            <div class="window">
+                <img class="path-btn path-btn-back" tabindex="0">
+                <img class="path-btn path-btn-forward" tabindex="0">
+                <img class="path-btn path-btn-up" tabindex="0">
+            </div>`;
+        TabFiles.$el_window = $('.window');
+        TabFiles.currentPath = '/alice';
+        window.dashboard_nav_history = ['/alice', '/alice/Documents'];
+        // Back was pressed from Documents.
+        window.dashboard_nav_history_current_position = 0;
+        $('.path-btn-back')[0].focus();
+
+        TabFiles.updateNavButtonStates();
+
+        expect(document.activeElement).toBe($('.path-btn-forward')[0]);
+    });
 });
 
 describe('TabFiles cancelling a drag that opened a folder', () => {
@@ -501,6 +611,81 @@ describe('TabFiles image preview', () => {
         TabFiles.updateFooterStats();
         expect(TabFiles.previewOpen).toBe(false);
         expect($('.image-preview-popover')).toHaveLength(0);
+    });
+
+    it('is not offered for a file named after an image type', async () => {
+        mountListing(['png'], '/alice/Pictures');
+        $('.files .row').attr({ 'data-uid': 'u1', 'data-name': 'png', 'data-is_dir': '0' });
+        window.puter = { fs: { read: vi.fn(async () => new Blob(['x'])) } };
+        TabFiles.previewOpen = false;
+
+        await TabFiles.showImagePreview($('.files .row'));
+
+        expect(window.puter.fs.read).not.toHaveBeenCalled();
+        expect(TabFiles.previewOpen).toBe(false);
+    });
+
+    it('can be cancelled while its image is still loading', async () => {
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        TabFiles.trashedNames ??= new Map();
+        TabFiles.renderingDirectory = false;
+        mountListing(['a.png'], '/alice/Pictures');
+        $('.files .row').attr({ 'data-uid': 'u1', 'data-name': 'a.png', 'data-is_dir': '0' });
+        let finishUrl;
+        window.puter = { fs: {
+            read: vi.fn(() => new Promise(resolve => {
+                finishUrl = resolve;
+            })),
+            readdir: vi.fn(async () => []),
+        } };
+
+        const preview = TabFiles.showImagePreview($('.files .row'));
+        expect(TabFiles.previewOpen).toBe(true);
+        // Opening another folder meanwhile, as a double-click on one would.
+        await TabFiles.renderDirectory('/alice/Documents');
+        finishUrl(new Blob(['x']));
+        await preview;
+
+        expect(TabFiles.previewOpen).toBe(false);
+        expect($('.image-preview-popover')).toHaveLength(0);
+    });
+
+    it('reads the image rather than spending an access token on it, typed so an SVG shows', async () => {
+        mountListing(['logo.svg'], '/alice/Pictures');
+        $('.files .row').attr({ 'data-uid': 'u1', 'data-name': 'logo.svg', 'data-is_dir': '0' });
+        window.puter = { fs: { read: vi.fn(async () => new Blob(['<svg/>'])), getReadURL: vi.fn() } };
+        const created = [];
+        URL.createObjectURL = vi.fn((blob) => {
+            created.push(blob);
+            return 'blob:preview';
+        });
+        URL.revokeObjectURL = vi.fn();
+
+        await TabFiles.showImagePreview($('.files .row'));
+
+        expect(window.puter.fs.getReadURL).not.toHaveBeenCalled();
+        expect(created[0].type).toBe('image/svg+xml');
+        expect($('.image-preview-popover img').attr('src')).toBe('blob:preview');
+
+        TabFiles.closeImagePreview();
+        expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
+    });
+
+    it('closes, rather than showing the last image, when the next one fails to load', async () => {
+        mountListing(['b.png'], '/alice/Pictures');
+        $('.files .row').attr({ 'data-uid': 'u2', 'data-name': 'b.png', 'data-is_dir': '0' });
+        $('body').append('<div class="image-preview-popover" data-uid="u1"></div>');
+        TabFiles.previewOpen = true;
+        TabFiles.previewCurrentUid = 'u1';
+        window.puter = { fs: { read: vi.fn(async () => { throw new Error('gone'); }) } };
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        await TabFiles.showImagePreview($('.files .row'));
+
+        expect(TabFiles.previewOpen).toBe(false);
+        expect($('.image-preview-popover')).toHaveLength(0);
+        vi.restoreAllMocks();
     });
 });
 
@@ -727,5 +912,346 @@ describe('TabFiles Remove from Shared', () => {
         mountListing(['a'], '/alice/Documents');
         await removeFromShared();
         expect(TabFiles.refreshKeepingSelection).not.toHaveBeenCalled();
+    });
+});
+
+describe('TabFiles sorting', () => {
+    const entries = [
+        { name: 'file10.txt', size: 5, modified: 3 },
+        { name: 'dir10', is_dir: true, size: 0, modified: 1 },
+        { name: 'file2.txt', size: 5, modified: 3 },
+        { name: 'Beta', is_dir: true, size: 0, modified: 1 },
+        { name: 'dir2', is_dir: true, size: 0, modified: 1 },
+        { name: 'big.bin', size: 50, modified: 2 },
+    ];
+    const sorted = (column, direction) => {
+        TabFiles.sortColumn = column;
+        TabFiles.sortDirection = direction;
+        return TabFiles.sortFiles(entries).map(e => e.name);
+    };
+
+    beforeEach(() => {
+        TabFiles.currentPath = '/alice/Documents';
+        window.shared_path = '/alice/Shared';
+    });
+
+    it('orders names with numbers by value, folders first', () => {
+        expect(sorted('name', 'asc')).toEqual(['Beta', 'dir2', 'dir10', 'big.bin', 'file2.txt', 'file10.txt']);
+    });
+
+    it('breaks ties in size by name', () => {
+        expect(sorted('size', 'asc')).toEqual(['Beta', 'dir2', 'dir10', 'file2.txt', 'file10.txt', 'big.bin']);
+        expect(sorted('size', 'desc')).toEqual(['dir10', 'dir2', 'Beta', 'big.bin', 'file10.txt', 'file2.txt']);
+    });
+
+    it('shows trashed items by the name they had', () => {
+        TabFiles.sortColumn = 'name';
+        TabFiles.sortDirection = 'asc';
+        const trashed = [
+            { name: 'uid-b', metadata: JSON.stringify({ original_name: 'b.txt' }) },
+            { name: 'uid-a', metadata: JSON.stringify({ original_name: 'a.txt' }) },
+        ];
+        expect(TabFiles.sortFiles(trashed).map(e => e.name)).toEqual(['uid-a', 'uid-b']);
+    });
+
+    it("keeps a renamed row among its sharer's in the Shared view", () => {
+        window.shared_path = 'puter://shared';
+        TabFiles.currentPath = 'puter://shared';
+        TabFiles.sortColumn = 'shared_by';
+        TabFiles.sortDirection = 'asc';
+        const row = (name, sharer) => `<div class="item row" data-name="${name}" data-is_dir="0" data-shared_by="${sharer}"></div>`;
+        document.body.innerHTML = `<div class="window"><div class="files-tab"><div class="files">
+            ${row('beta.txt', 'alice')}${row('zeta.txt', 'alice')}${row('alpha.txt', 'bob')}
+        </div></div></div>`;
+        TabFiles.$el_window = $('.window');
+        // beta.txt renamed to "zzz.txt": still Alice's, so still before Bob's.
+        const $renamed = $('.files .row').eq(0).attr('data-name', 'zzz.txt');
+
+        TabFiles.insertAtSortedPosition($renamed, { name: 'zzz.txt' });
+
+        expect($('.files .row').map((_, r) => r.getAttribute('data-name')).get()).toEqual(['zeta.txt', 'zzz.txt', 'alpha.txt']);
+    });
+
+    it('puts an added row where a listing would', () => {
+        TabFiles.sortColumn = 'size';
+        TabFiles.sortDirection = 'asc';
+        const listed = TabFiles.sortFiles(entries.filter(e => e.name !== 'file2.txt'));
+        document.body.innerHTML = `<div class="window"><div class="files-tab"><div class="files">${listed.map(e => (
+            `<div class="item row" data-name="${e.name}" data-is_dir="${e.is_dir ? 1 : 0}" data-size="${e.size}" data-modified="${e.modified}"></div>`
+        )).join('')}</div></div></div>`;
+        TabFiles.$el_window = $('.window');
+        const $row = $('<div class="item row" data-name="file2.txt" data-is_dir="0"></div>').appendTo('.files');
+
+        TabFiles.insertAtSortedPosition($row, { name: 'file2.txt', size: 5, modified: 3 });
+
+        expect($('.files .row').map((_, r) => r.getAttribute('data-name')).get())
+            .toEqual(['Beta', 'dir2', 'dir10', 'file2.txt', 'file10.txt', 'big.bin']);
+    });
+});
+
+describe('TabFiles permanent delete', () => {
+    beforeEach(() => {
+        window.trash_path = TRASH;
+        window.delete_item = vi.fn(async () => {});
+        window.refresh_trash_state = vi.fn(async () => {});
+    });
+
+    it('asks about "this item" for one row and "these items" for several', async () => {
+        const { default: UIAlert } = await import('../UIAlert.js');
+        UIAlert.mockClear();
+        UIAlert.mockResolvedValue('delete');
+        mountListing(['a', 'b'], TRASH);
+        const rows = $('.files .row').toArray();
+
+        await TabFiles.deleteRowsPermanently([rows[0]]);
+        expect(UIAlert.mock.calls[0][0].message).toMatch(/this item/);
+        expect(window.delete_item).toHaveBeenCalledTimes(1);
+
+        await TabFiles.deleteRowsPermanently(rows);
+        expect(UIAlert.mock.calls[1][0].message).toMatch(/these items/);
+        expect(window.delete_item).toHaveBeenCalledTimes(3);
+    });
+
+    it('deletes nothing when cancelled', async () => {
+        const { default: UIAlert } = await import('../UIAlert.js');
+        UIAlert.mockResolvedValue('cancel');
+        mountListing(['a'], TRASH);
+
+        await TabFiles.deleteRowsPermanently($('.files .row').toArray());
+        expect(window.delete_item).not.toHaveBeenCalled();
+    });
+});
+
+describe('TabFiles column widths that no longer fit', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        window.shared_path = 'puter://shared';
+        window.trash_path = TRASH;
+        mountListing([], '/alice/Documents');
+        vi.spyOn($.fn, 'width').mockImplementation(function () {
+            return this.hasClass('files') ? 1200 : 0;
+        });
+        vi.spyOn(TabFiles, 'fitItemNames').mockImplementation(() => {});
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('lay out at the defaults beside an auto-width name', () => {
+        TabFiles.columnWidths = { name: null, sharedBy: 160, size: 100, modified: 1800 };
+        TabFiles.applyColumnWidths();
+        expect(TabFiles.columnGridTemplate).toBe('24px auto 4px 100px 4px 120px 4px 20px');
+        expect(TabFiles.columnWidths.modified).toBe(1800);
+    });
+
+    it('stay as saved while they fit', () => {
+        TabFiles.columnWidths = { name: null, sharedBy: 160, size: 100, modified: 900 };
+        TabFiles.applyColumnWidths();
+        expect(TabFiles.columnGridTemplate).toBe('24px auto 4px 100px 4px 900px 4px 20px');
+    });
+});
+
+describe('TabFiles names in a narrow listing', () => {
+    it('are not cut to the name column a wider listing was given', () => {
+        const name = 'Quarterly financial report final version.pdf';
+        document.body.innerHTML = `
+            <div class="window"><div class="files-tab">
+                <div class="header"><div class="columns" style="display: none"></div></div>
+                <div class="files files-list-view">
+                    <div class="row item" data-name="${name}"><pre class="item-name"></pre></div>
+                </div>
+            </div></div>`;
+        TabFiles.$el_window = $('.window');
+        TabFiles.currentView = 'list';
+        TabFiles.appliedColumnWidths = { name: 120, sharedBy: 160, size: 60, modified: 80 };
+
+        TabFiles.fitItemNames($('.files .item-name'));
+
+        expect($('.files .item-name').text()).toBe(name);
+    });
+});
+
+describe('TabFiles uploads', () => {
+    beforeEach(async () => {
+        vi.restoreAllMocks();
+        window.trash_path = TRASH;
+        window.active_uploads = {};
+        window.actions_history = [];
+        window.show_save_account_notice_if_needed = vi.fn();
+        const { default: UIWindowProgress } = await import('../UIWindowProgress.js');
+        UIWindowProgress.mockResolvedValue({ set_status: vi.fn(), set_progress: vi.fn(), close: vi.fn(), show_error: vi.fn() });
+        window.puter = { fs: { upload: vi.fn(async (items, dest, callbacks) => {
+            await callbacks.init('op1', { abort: vi.fn() });
+            await callbacks.success([{ path: `${dest}/new.txt` }]);
+        }) } };
+        vi.spyOn(TabFiles, 'renderDirectory').mockImplementation(async () => {});
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('into another folder leave the listing and its selection alone', async () => {
+        mountListing(['a.txt', 'b.txt'], '/alice/Documents');
+        $('.files .row').addClass('selected');
+
+        TabFiles.uploadFiles([new File(['x'], 'new.txt')], '/alice/Documents/sub');
+        await vi.waitFor(() => expect(window.actions_history).toHaveLength(1));
+
+        expect(TabFiles.renderDirectory).not.toHaveBeenCalled();
+        expect($('.files .row.selected')).toHaveLength(2);
+    });
+
+    it('into the folder on screen list it again', async () => {
+        mountListing(['a.txt'], '/alice/Documents');
+
+        TabFiles.uploadFiles([new File(['x'], 'new.txt')], '/alice/Documents');
+        await vi.waitFor(() => expect(TabFiles.renderDirectory).toHaveBeenCalledWith('/alice/Documents', { consistency: 'strong' }));
+    });
+});
+
+describe('TabFiles refreshing a folder whose icons are slow to read', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        window.user = { username: 'alice', directories: {} };
+        window.home_path = '/alice';
+        window.trash_path = TRASH;
+        window.byte_format = bytes => `${bytes} B`;
+        vi.spyOn(TabFiles, 'renderItem').mockImplementation(async (file) => {
+            $('.files').append(`<div class="row item" data-uid="${file.uid}" data-path="${file.path}" data-name="${file.name}"></div>`);
+        });
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('keeps the rows up until the new ones can be drawn', async () => {
+        mountListing(['old.txt'], '/alice/Documents');
+        TabFiles.renderingDirectory = false;
+        TabFiles.trashedNames ??= new Map();
+        window.puter = { fs: { readdir: vi.fn(async () => [
+            { uid: 'w', name: 'site.weblink', path: '/alice/Documents/site.weblink', is_dir: false, size: 1, modified: 0 },
+        ]) } };
+        let finishIcon;
+        itemIcon.mockImplementationOnce(() => new Promise(resolve => {
+            finishIcon = resolve;
+        }));
+
+        const refresh = TabFiles.renderDirectory('/alice/Documents');
+        await vi.waitFor(() => expect(finishIcon).toBeTypeOf('function'));
+        expect($('.files .row').map((_, r) => r.getAttribute('data-path')).get()).toEqual(['/alice/Documents/old.txt']);
+
+        finishIcon({ image: 'icon.svg', type: 'icon' });
+        await refresh;
+        expect($('.files .row').map((_, r) => r.getAttribute('data-name')).get()).toEqual(['site.weblink']);
+    });
+});
+
+describe('TabFiles rows still waiting on their mkdir', () => {
+    it('are not moved, cut or trashed', async () => {
+        window.user = { username: 'alice', directories: {} };
+        window.trash_path = TRASH;
+        mountListing(['a.txt', 'New Folder'], '/alice/Documents');
+        const [file, pending] = $('.files .row').toArray();
+        pending.setAttribute('data-pending', '1');
+
+        expect(await TabFiles.restructurableRows([file, pending])).toEqual([file]);
+    });
+});
+
+describe('TabFiles folder menu', () => {
+    const publishItem = items => items.find(item => item?.html === i18n('publish_as_website'));
+
+    it("doesn't offer to publish a folder shared with the user to view", async () => {
+        const { remember_shared_root } = await import('../../helpers/sharedAccess.js');
+        window.user = { username: 'alice', directories: {} };
+        window.trash_path = TRASH;
+        window.shared_path = 'puter://shared';
+        TabFiles.trashedNames ??= new Map();
+        const viewOnly = '/bob/0e98/Photos';
+        remember_shared_root({ path: viewOnly, mode: 'read', name: 'Photos' });
+        TabFiles.currentPath = viewOnly;
+
+        expect(publishItem(TabFiles.generateFolderContextMenu(viewOnly)).disabled).toBe(true);
+    });
+
+    it('offers to publish your own folder', () => {
+        window.user = { username: 'alice', directories: {} };
+        window.trash_path = TRASH;
+        window.shared_path = 'puter://shared';
+        TabFiles.trashedNames ??= new Map();
+        TabFiles.unreadablePath = '/alice/Documents';
+
+        expect(publishItem(TabFiles.generateFolderContextMenu('/alice/Documents')).disabled).toBe(false);
+    });
+});
+
+describe('TabFiles opening a folder being renamed', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('opens it under its new name', async () => {
+        mountListing(['New Folder'], '/alice/Documents');
+        const row = $('.files .row')[0];
+        row.setAttribute('data-is_dir', '1');
+        let finishRename;
+        row._pendingRename = new Promise((resolve) => {
+            finishRename = resolve;
+        });
+        vi.spyOn(TabFiles, 'pushNavHistory').mockImplementation(() => {});
+        vi.spyOn(TabFiles, 'renderDirectory').mockImplementation(async () => {});
+
+        const opening = TabFiles.openRow(row);
+        row.setAttribute('data-path', '/alice/Documents/Photos');
+        finishRename();
+        await opening;
+
+        expect(TabFiles.renderDirectory).toHaveBeenCalledWith('/alice/Documents/Photos');
+    });
+
+    it('opens it anyway when the rename never reports back', async () => {
+        vi.useFakeTimers();
+        mountListing(['Photos'], '/alice/Documents');
+        const row = $('.files .row')[0];
+        row.setAttribute('data-is_dir', '1');
+        row._pendingRename = new Promise(() => {});
+        vi.spyOn(TabFiles, 'pushNavHistory').mockImplementation(() => {});
+        vi.spyOn(TabFiles, 'renderDirectory').mockImplementation(async () => {});
+
+        const opening = TabFiles.openRow(row);
+        await vi.advanceTimersByTimeAsync(5000);
+        await opening;
+        vi.useRealTimers();
+
+        expect(TabFiles.renderDirectory).toHaveBeenCalledWith('/alice/Documents/Photos');
+    });
+});
+
+describe('TabFiles.folderMoved', () => {
+    beforeEach(() => {
+        TabFiles.$el_window = $('<div>');
+    });
+
+    it('points Back/Forward at a moved folder', () => {
+        window.dashboard_nav_history = ['/alice', '/alice/A', '/alice/A/sub'];
+        window.dashboard_nav_history_current_position = 0;
+        TabFiles.folderMoved('/alice/A', '/alice/Docs/A');
+        expect(window.dashboard_nav_history).toEqual(['/alice', '/alice/Docs/A', '/alice/Docs/A/sub']);
+    });
+
+    it('forgets a trashed folder, and what was inside it', () => {
+        window.dashboard_nav_history = ['/alice', '/alice/A', '/alice/A/sub', '/alice/B'];
+        window.dashboard_nav_history_current_position = 3;
+        TabFiles.folderMoved('/alice/A', null);
+        expect(window.dashboard_nav_history).toEqual(['/alice', '/alice/B']);
+        expect(window.dashboard_nav_history_current_position).toBe(1);
+    });
+
+    it('keeps the folder on screen, and folds the same folder twice in a row', () => {
+        window.dashboard_nav_history = ['/alice', '/alice/A', '/alice', '/alice/A'];
+        window.dashboard_nav_history_current_position = 2;
+        TabFiles.folderMoved('/alice/A', null);
+        expect(window.dashboard_nav_history).toEqual(['/alice']);
+        expect(window.dashboard_nav_history_current_position).toBe(0);
+
+        window.dashboard_nav_history = ['/alice', '/alice/A'];
+        window.dashboard_nav_history_current_position = 1;
+        TabFiles.folderMoved('/alice/A', null);
+        expect(window.dashboard_nav_history).toEqual(['/alice', '/alice/A']);
     });
 });
