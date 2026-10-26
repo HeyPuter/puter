@@ -1255,3 +1255,32 @@ describe('TabFiles.folderMoved', () => {
         expect(window.dashboard_nav_history).toEqual(['/alice', '/alice/A']);
     });
 });
+
+describe('TabFiles keyboard', () => {
+    /** Files listing `names`, its shortcuts bound as on the dashboard. */
+    const mountKeyboard = (names) => {
+        mountListing(names, '/alice/Documents');
+        vi.spyOn(TabFiles, 'isDashboardFilesActive').mockReturnValue(true);
+        TabFiles.setupKeyboardShortcuts();
+    };
+    const press = (el, key, init = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init }));
+    const selected = () => $('.files .row.selected').toArray().map(r => r.getAttribute('data-path'));
+
+    afterEach(() => {
+        $(document).off('keydown.tabfiles');
+        vi.restoreAllMocks();
+    });
+
+    it('leaves the rows alone while a dashboard dialog is open over them', () => {
+        mountKeyboard(['a.txt', 'b.txt']);
+        $('.files .row').first().addClass('selected');
+        $('.window').append('<div class="dashboard-dialog-overlay"><button class="ok">OK</button></div>');
+        const button = $('.dashboard-dialog-overlay .ok')[0];
+        button.focus();
+
+        press(button, 'ArrowDown', { which: 40, keyCode: 40 });
+        press(button, 'a', { which: 65, keyCode: 65, metaKey: true });
+
+        expect(selected()).toEqual(['/alice/Documents/a.txt']);
+    });
+});

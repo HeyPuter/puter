@@ -856,11 +856,11 @@ const TabFiles = {
             // Only handle if Dashboard Files tab is active
             if ( ! _this.isDashboardFilesActive() ) return;
 
-            // A Files-tab modal (share, item properties) owns the keyboard
-            // while open: Enter/Space must reach its buttons, arrows its
-            // selects, and typing must not retarget row selection — nor may
-            // Enter/Delete open or trash the rows behind the overlay.
-            if ( $('.share-modal-overlay, .item-props-overlay, .dashboard-notifications-panel.open, .context-menu-modal-backdrop').length > 0 ) return;
+            // A Files-tab modal (share, item properties, publish) owns the
+            // keyboard while open: Enter/Space must reach its buttons, arrows
+            // its selects, and typing must not retarget row selection — nor
+            // may Enter/Delete open or trash the rows behind the overlay.
+            if ( $('.share-modal-overlay, .item-props-overlay, .dashboard-dialog-overlay, .dashboard-notifications-panel.open, .context-menu-modal-backdrop').length > 0 ) return;
 
             const focused_el = document.activeElement;
 
