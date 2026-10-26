@@ -244,6 +244,41 @@ export class KvShareHandleStore extends PuterStore {
                     if (typeof handle === 'string') this.#forget(handle);
             },
         );
+
+        // Cached rows carry their owner's suspension, so a change to it drops
+        // them here and on every other node.
+        const ownerChanged = (_key: string, data: { userId?: unknown }) => {
+            const ownerUserId = Number(data?.userId);
+            if (!Number.isInteger(ownerUserId) || ownerUserId <= 0) return;
+            this.#forgetOwner(ownerUserId);
+            try {
+                this.clients.event.emit(
+                    'outer.pubsub.kv.share.forgetOwner',
+                    { ownerUserId },
+                    {},
+                );
+            } catch {
+                // The cache's TTL covers a node the broadcast misses.
+            }
+        };
+        this.clients.event.on('user.suspended', ownerChanged);
+        this.clients.event.on('user.unsuspended', ownerChanged);
+        this.clients.event.on(
+            'outer.pubsub.kv.share.forgetOwner',
+            (_key, data, meta) => {
+                if (!(meta as { from_outside?: boolean })?.from_outside) return;
+                const ownerUserId = Number(
+                    (data as { ownerUserId?: unknown })?.ownerUserId,
+                );
+                if (Number.isInteger(ownerUserId) && ownerUserId > 0)
+                    this.#forgetOwner(ownerUserId);
+            },
+        );
+    }
+
+    /** Drop this node's cached live rows owned by one user. */
+    #forgetOwner(ownerUserId: number): void {
+        this.#live.deleteWhere(({ row }) => row.ownerUserId === ownerUserId);
     }
 
     /**
@@ -533,6 +568,25 @@ export class KvShareHandleStore extends PuterStore {
                 `WHERE \`app_uid\` IN (${unique.map(() => '?').join(', ')}) ` +
                 'AND `revoked_at` IS NULL ORDER BY `id` LIMIT ?',
             [...unique, limit],
+        );
+        return rows.map(toRow);
+    }
+
+    /**
+     * One batch of live handles one owner holds out in one app's namespace,
+     * oldest first, over the `(owner_user_id, app_uid, id)` index. The caller
+     * repeats until a batch comes back short.
+     */
+    async listLiveForOwnerApp(
+        ownerUserId: number,
+        appUid: string,
+        limit = KV_HANDLE_RETIRE_BATCH,
+    ): Promise<KvShareHandle[]> {
+        const rows = await this.clients.db.pread(
+            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                'WHERE `owner_user_id` = ? AND `app_uid` = ? ' +
+                'AND `revoked_at` IS NULL ORDER BY `id` LIMIT ?',
+            [ownerUserId, appUid, limit],
         );
         return rows.map(toRow);
     }

@@ -48,7 +48,10 @@ import {
     type KvShareOwnerListOptions,
     type KvShareRevokedBy,
 } from '../../stores/events/KvShareHandleStore.js';
-import { KV_GLOBAL_APP_KEY } from '../../stores/systemKv/SystemKVStore.js';
+import {
+    KV_GLOBAL_APP_KEY,
+    kvNamespace,
+} from '../../stores/systemKv/SystemKVStore.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import type { PageResult } from '../../util/pagination.js';
@@ -321,6 +324,10 @@ const PURGE_MAX_BATCHES = 2_000;
 /** Passes one app deletion takes, so a huge namespace cannot pin a node. */
 const APP_RETIRE_MAX_PASSES = 200;
 
+/** Items one app-data purge step deletes, and the steps one purge takes. */
+const APP_DATA_PURGE_STEP = 5_000;
+const APP_DATA_PURGE_MAX_STEPS = 2_000;
+
 /** Deleted apps whose handles one query looks up. */
 const APP_RETIRE_UID_CHUNK = 200;
 
@@ -378,6 +385,19 @@ export class KvShareService extends PuterService {
             } catch (err) {
                 console.warn('[kvShare] deleted-app retire failed', err);
             }
+        });
+
+        // Removing an app with its data takes back what the user shared out of
+        // it first, so no holder reads the namespace while it empties.
+        this.clients.event.on('app.uninstalled', async (_key, data) => {
+            if (!data?.deleteData || data.appUid === KV_GLOBAL_APP_KEY) return;
+            try {
+                await this.#retireOwnedInApp(data.userId, data.appUid);
+            } catch (err) {
+                console.warn('[kvShare] uninstall retire failed', err);
+                return;
+            }
+            void this.#purgeAppData(kvNamespace(data.userUuid, data.appUid));
         });
 
         // A developer's apps go with their account, without `app.changed`.
@@ -444,6 +464,29 @@ export class KvShareService extends PuterService {
                     // The gate expires on its own.
                 }
             }
+        }
+    }
+
+    /**
+     * Empty one namespace in bounded steps, pausing between them, until it is
+     * empty or the server stops. A failure is logged, not retried.
+     */
+    async #purgeAppData(namespace: string): Promise<void> {
+        try {
+            for (let step = 0; step < APP_DATA_PURGE_MAX_STEPS; step++) {
+                if (this.#stopping) return;
+                const { done } = await this.stores.kv.purgeNamespace(
+                    namespace,
+                    { maxItems: APP_DATA_PURGE_STEP },
+                );
+                if (done) return;
+                await new Promise((resolve) =>
+                    setTimeout(resolve, PURGE_PAUSE_MS),
+                );
+            }
+            console.warn('[kvShare] app data purge hit its step cap');
+        } catch (err) {
+            console.warn('[kvShare] app data purge failed', err);
         }
     }
 
@@ -1234,9 +1277,7 @@ export class KvShareService extends PuterService {
 
     /**
      * Retire every live handle in deleted apps' namespaces as the platform's,
-     * in bounded passes. Grants go before handles, so a retry after a failure
-     * still finds them, and a later share of the same region can't inherit
-     * them.
+     * in bounded passes.
      */
     async retireForDeletedApps(appUids: readonly string[]): Promise<number> {
         const uids = [...new Set(appUids)].filter(
@@ -1245,18 +1286,52 @@ export class KvShareService extends PuterService {
         let retired = 0;
         for (let at = 0; at < uids.length; at += APP_RETIRE_UID_CHUNK) {
             const chunk = uids.slice(at, at + APP_RETIRE_UID_CHUNK);
-            for (let pass = 0; pass < APP_RETIRE_MAX_PASSES; pass++) {
-                const batch =
-                    await this.stores.kvShareHandle.listLiveForApps(chunk);
-                await this.#withdrawRetiredGrants(batch);
-                await this.stores.kvShareHandle.retireMany(
-                    batch.map((row) => row.handle),
-                    'system',
-                );
-                await this.#announceRetired(batch);
-                retired += batch.length;
-                if (batch.length < KV_HANDLE_RETIRE_BATCH) break;
-            }
+            retired += await this.#retireAsSystem(
+                () => this.stores.kvShareHandle.listLiveForApps(chunk),
+                'kv share app deleted',
+            );
+        }
+        return retired;
+    }
+
+    /**
+     * Retire the live handles one user holds out in one app's namespace, as the
+     * platform's. Handles shared with the user are left alone.
+     */
+    async #retireOwnedInApp(
+        ownerUserId: number,
+        appUid: string,
+    ): Promise<number> {
+        return this.#retireAsSystem(
+            () =>
+                this.stores.kvShareHandle.listLiveForOwnerApp(
+                    ownerUserId,
+                    appUid,
+                ),
+            'kv share app data deleted',
+        );
+    }
+
+    /**
+     * Retire what `nextBatch` lists until a batch comes back short. Grants go
+     * before handles, so a retry after a failure still finds them, and a later
+     * share of the same region can't inherit them.
+     */
+    async #retireAsSystem(
+        nextBatch: () => Promise<KvShareHandle[]>,
+        reason: string,
+    ): Promise<number> {
+        let retired = 0;
+        for (let pass = 0; pass < APP_RETIRE_MAX_PASSES; pass++) {
+            const batch = await nextBatch();
+            await this.#withdrawRetiredGrants(batch, reason);
+            await this.stores.kvShareHandle.retireMany(
+                batch.map((row) => row.handle),
+                'system',
+            );
+            await this.#announceRetired(batch);
+            retired += batch.length;
+            if (batch.length < KV_HANDLE_RETIRE_BATCH) break;
         }
         return retired;
     }
@@ -1267,6 +1342,7 @@ export class KvShareService extends PuterService {
      */
     async #withdrawRetiredGrants(
         rows: readonly KvShareHandle[],
+        reason: string,
     ): Promise<void> {
         const groups = new Map<string, KvShareHandle[]>();
         for (const row of rows) {
@@ -1293,7 +1369,7 @@ export class KvShareService extends PuterService {
                     group.flatMap((row) =>
                         kvShareGrantAtEveryLevel(row.permission),
                     ),
-                    { reason: 'kv share app deleted', appUid: group[0].appUid },
+                    { reason, appUid: group[0].appUid },
                 );
             },
         );

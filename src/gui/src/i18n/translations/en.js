@@ -328,6 +328,7 @@ const en = {
         uninstall: 'Uninstall',
         uninstall_app: 'Uninstall {{name}}?',
         uninstall_app_body: 'This will revoke all permissions for this app.',
+        uninstall_delete_data: 'Also delete this app\'s data',
         uninstall_failed: 'Couldn\'t uninstall {{name}}. Please try again.',
         uninstall_named: 'Uninstall {{name}}',
         open_in_new_window: 'Open in New Window',

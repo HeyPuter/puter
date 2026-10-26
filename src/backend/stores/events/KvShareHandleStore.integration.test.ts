@@ -257,6 +257,44 @@ describe('the holder listing', () => {
     });
 });
 
+describe('live handles by owner and app', () => {
+    it('lists only the owner\'s live handles in that app, oldest first', async () => {
+        const appUid = 'app-owner-listing';
+        const first = await store().mint(
+            input({ appUid, keyPrefix: 'owned-a:' }),
+        );
+        const second = await store().mint(
+            input({ appUid, keyPrefix: 'owned-b:' }),
+        );
+        const retired = await store().mint(
+            input({ appUid, keyPrefix: 'owned-c:' }),
+        );
+        await store().retireMany([retired.handle], 'owner');
+        await store().mint(
+            input({ appUid: 'app-owner-listing-other', keyPrefix: 'x:' }),
+        );
+        const theirs = await store().mint(
+            input({
+                appUid,
+                keyPrefix: 'theirs:',
+                ownerUserId: granteeUserId,
+                granteeUserId: ownerUserId,
+            }),
+        );
+
+        const rows = await store().listLiveForOwnerApp(ownerUserId, appUid);
+        expect(rows.map((row) => row.handle)).toEqual([
+            first.handle,
+            second.handle,
+        ]);
+        expect(
+            await store().listLiveForOwnerApp(ownerUserId, appUid, 1),
+        ).toHaveLength(1);
+        // Other tests count the other account's live handles from zero.
+        await store().retireMany([theirs.handle], 'owner');
+    });
+});
+
 describe('the live cache across nodes', () => {
     const handleReads = (spy: ReturnType<typeof vi.spyOn>) =>
         spy.mock.calls.filter(([sql]) =>
@@ -314,6 +352,61 @@ describe('the live cache across nodes', () => {
         await vi.waitFor(async () =>
             expect(await store().getLive(row.handle)).toBeNull(),
         );
+    });
+
+    it('drops an owner\'s cached rows when the owner is suspended, here and on other nodes', async () => {
+        const row = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-owner:' }),
+        );
+        expect((await store().getLive(row.handle))?.ownerSuspended).toBe(
+            false,
+        );
+        const setSuspended = (value: number) =>
+            env.server.clients.db.write(
+                'UPDATE `user` SET `suspended` = ? WHERE `id` = ?',
+                [value, ownerUserId],
+            );
+        const emit = vi.spyOn(env.server.clients.event, 'emit');
+        try {
+            await setSuspended(1);
+            expect((await store().getLive(row.handle))?.ownerSuspended).toBe(
+                false,
+            );
+
+            env.server.clients.event.emit(
+                'user.suspended',
+                { userId: ownerUserId },
+                {},
+            );
+            expect((await store().getLive(row.handle))?.ownerSuspended).toBe(
+                true,
+            );
+            expect(
+                emit.mock.calls.filter(
+                    ([key]) => key === 'outer.pubsub.kv.share.forgetOwner',
+                ),
+            ).toEqual([
+                [
+                    'outer.pubsub.kv.share.forgetOwner',
+                    { ownerUserId },
+                    {},
+                ],
+            ]);
+
+            // Another node lifting the suspension reaches this one's cache.
+            await setSuspended(0);
+            env.server.clients.event.emit(
+                'outer.pubsub.kv.share.forgetOwner',
+                { ownerUserId },
+                { from_outside: true },
+            );
+            expect((await store().getLive(row.handle))?.ownerSuspended).toBe(
+                false,
+            );
+        } finally {
+            emit.mockRestore();
+            await setSuspended(0);
+        }
     });
 
     it('reads nothing for an id whose mac does not verify', async () => {

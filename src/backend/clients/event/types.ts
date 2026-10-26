@@ -137,6 +137,17 @@ export type EventMap = {
     };
     'app.new-icon': { app_uid: string; data_url: string };
     'app.opened': { app_uid: string; user_id: number; ts: number };
+    /**
+     * A user removed an app: its grants and worker sessions are gone. With
+     * `deleteData`, the user asked for the app's data in their account to go
+     * too. Awaited by the emitter.
+     */
+    'app.uninstalled': {
+        userId: number;
+        userUuid: string;
+        appUid: string;
+        deleteData: boolean;
+    };
     'app.rename': {
         app_uid: string;
         old_name: string;
@@ -389,6 +400,9 @@ export type EventMap = {
         new_username: string;
     };
     'user.email-changed': { user_id: number; new_email: string };
+    /** An account was suspended, or its suspension lifted. Local events. */
+    'user.suspended': { userId: number };
+    'user.unsuspended': { userId: number };
     // Fired after an account is torn down (self-serve, admin, or temp-user
     // logout cleanup). Listeners purge external state tied to the account —
     // e.g. the marketplace extension cancels the user's Stripe subscriptions.
@@ -670,6 +684,8 @@ export type EventMap = {
      * cached copy. `outer.pubsub.*` because the cache is a per-process map.
      */
     'outer.pubsub.kv.share.forget': { handles: string[] };
+    /** The same, for every cached handle one owner holds out. */
+    'outer.pubsub.kv.share.forgetOwner': { ownerUserId: number };
     'outer.fs.write-hash': { hash: string; uuid: string };
     /**
      * Cache keys the KV read cache must stop serving, because the entries

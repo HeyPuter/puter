@@ -92,7 +92,10 @@ import {
 } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { parseKvNamespace } from '../../stores/systemKv/SystemKVStore.js';
-import { awaitLater } from '../../util/concurrency.js';
+import {
+    awaitLater,
+    runWithConcurrencyLimitSettled,
+} from '../../util/concurrency.js';
 import {
     openCursor,
     sealCursor,
@@ -654,6 +657,8 @@ const UNSUBSCRIBE_READS = 3;
  * takes. Bounded low: the sweep is a safety net for sessions no API path could
  * reach any more, not a bulk cleanup, and it runs every hour.
  */
+/** A deleted account's apps settled at once. */
+const DELETED_ACCOUNT_SETTLE_CONCURRENCY = 4;
 const WORKER_SESSION_SWEEP_BATCH = 500;
 const WORKER_SESSION_SWEEP_MAX_PAGES = 2;
 
@@ -1407,6 +1412,28 @@ export class EventsService extends PuterService {
                 );
             } catch (err) {
                 console.warn('[events] deleted-app settle failed', err);
+            }
+        });
+
+        // A deleted account's apps cascade away without `app.changed`, so the
+        // same settle runs for each here, then the owner's subscription keys go.
+        this.clients.event.on('user.delete', async (_key, data) => {
+            if (!this.enabled) return;
+            const settled = await runWithConcurrencyLimitSettled(
+                [...new Set(data?.appUids ?? [])],
+                DELETED_ACCOUNT_SETTLE_CONCURRENCY,
+                (appUid) => this.settleDeletedApp(appUid, data.user_id),
+            );
+            for (const outcome of settled)
+                if (outcome.status === 'rejected')
+                    console.warn(
+                        '[events] deleted-account app settle failed',
+                        outcome.reason,
+                    );
+            try {
+                await this.stores.eventSubscription.dropOwner(data.user_id);
+            } catch (err) {
+                console.warn('[events] deleted-account key drop failed', err);
             }
         });
 
