@@ -5352,8 +5352,10 @@ const TabFiles = {
                 items.push({
                     html: i18n('publish_as_website'),
                     // The right sharing takes, as on the folder's own menu: the
-                    // folder is yours, or shared with you to manage.
-                    disabled: ! is_owned_by_me(targetPath) && shared_root_for(targetPath)?.mode !== 'manage',
+                    // folder is yours, or shared with you to manage. Nor, as
+                    // there, a second site for a folder that has one.
+                    disabled: (! is_owned_by_me(targetPath) && shared_root_for(targetPath)?.mode !== 'manage')
+                        || (window.sites ?? []).some(site => site.root_dir?.path === targetPath),
                     onClick: function () {
                         openPublishWebsiteDialog({ name: targetName, path: targetPath, $container: _this.$el_window });
                     },

@@ -1294,3 +1294,25 @@ describe('TabFiles keyboard', () => {
         expect(selected()).toEqual(['/alice/Documents/my zebra.txt']);
     });
 });
+
+describe('TabFiles folder menu', () => {
+    const publishItem = (folderPath) => TabFiles.generateFolderContextMenu(folderPath)
+        .find(item => item?.html === i18n('publish_as_website'));
+
+    beforeEach(() => {
+        mountListing([], '/alice/Documents');
+        window.user = { username: 'alice' };
+        window.trash_path = TRASH;
+        window.shared_path = '/alice/Shared';
+        window.file_templates = [];
+        window.sites = [];
+        TabFiles.trashedNames = new Map();
+    });
+
+    it('offers no second website for a folder that has one', () => {
+        expect(publishItem('/alice/Documents/site').disabled).toBe(false);
+        window.sites = [{ subdomain: 'mine', root_dir: { path: '/alice/Documents/site' } }];
+        expect(publishItem('/alice/Documents/site').disabled).toBe(true);
+        expect(publishItem('/alice/Documents/other').disabled).toBe(false);
+    });
+});
