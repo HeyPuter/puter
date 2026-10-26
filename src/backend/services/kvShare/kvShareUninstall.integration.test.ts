@@ -161,4 +161,37 @@ describe('uninstalling an app', () => {
         expect(await keysIn(owner, otherApp.uid)).toEqual(['elsewhere']);
         expect(await keysIn(guest, app.uid)).toEqual(['theirs']);
     });
+
+    it('stops deleting once the user authorizes the app again', async () => {
+        const app = await makeApp();
+        await env.server.stores.kv.set(
+            { key: 'after-reinstall', value: 1 },
+            kvOpts(owner, app.uid),
+        );
+        await env.server.stores.permission.upsertUserAppPerm(
+            owner.id,
+            app.id as number,
+            'flag:app-is-authenticated',
+            {},
+        );
+        const purge = vi.spyOn(env.server.stores.kv, 'purgeNamespace');
+        try {
+            await env.server.clients.event.emitAndWait(
+                'app.uninstalled',
+                {
+                    userId: owner.id,
+                    userUuid: owner.uuid,
+                    appUid: app.uid,
+                    deleteData: true,
+                },
+                {},
+            );
+            // The purge runs in the background; give it a turn to act.
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(purge).not.toHaveBeenCalled();
+        } finally {
+            purge.mockRestore();
+        }
+        expect(await keysIn(owner, app.uid)).toEqual(['after-reinstall']);
+    });
 });

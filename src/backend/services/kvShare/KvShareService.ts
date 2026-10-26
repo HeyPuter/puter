@@ -397,7 +397,7 @@ export class KvShareService extends PuterService {
                 console.warn('[kvShare] uninstall retire failed', err);
                 return;
             }
-            void this.#purgeAppData(kvNamespace(data.userUuid, data.appUid));
+            void this.#purgeAppData(data.userId, data.userUuid, data.appUid);
         });
 
         // A developer's apps go with their account, without `app.changed`.
@@ -468,13 +468,31 @@ export class KvShareService extends PuterService {
     }
 
     /**
-     * Empty one namespace in bounded steps, pausing between them, until it is
-     * empty or the server stops. A failure is logged, not retried.
+     * Empty one app's namespace for a user in bounded steps, pausing between
+     * them, until it is empty or the server stops. Stops if the user authorizes
+     * the app again, so data written after that is kept. A failure is logged,
+     * not retried.
      */
-    async #purgeAppData(namespace: string): Promise<void> {
+    async #purgeAppData(
+        userId: number,
+        userUuid: string,
+        appUid: string,
+    ): Promise<void> {
+        const namespace = kvNamespace(userUuid, appUid);
         try {
+            const appId = (await this.stores.app.getByUid(appUid))?.id;
             for (let step = 0; step < APP_DATA_PURGE_MAX_STEPS; step++) {
                 if (this.#stopping) return;
+                if (
+                    typeof appId === 'number' &&
+                    (
+                        await this.stores.permission.listUserAppPermsFromPrimary(
+                            userId,
+                            appId,
+                        )
+                    ).length > 0
+                )
+                    return;
                 const { done } = await this.stores.kv.purgeNamespace(
                     namespace,
                     { maxItems: APP_DATA_PURGE_STEP },

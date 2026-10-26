@@ -861,6 +861,23 @@ describe('SystemKVStore', () => {
             }
         });
 
+        it('reads its pages with strong consistency', async () => {
+            await seed(2);
+            const query = vi.spyOn(server.clients.dynamo, 'query');
+            try {
+                await target.purgeNamespace(namespaceOf(), { maxItems: 10 });
+                const pageReads = query.mock.calls.filter(
+                    ([, keys]) =>
+                        (keys as { namespace?: string }).namespace ===
+                        namespaceOf(),
+                );
+                expect(pageReads.length).toBeGreaterThan(0);
+                for (const call of pageReads) expect(call[5]).toBe(true);
+            } finally {
+                query.mockRestore();
+            }
+        });
+
         it('refuses a maxItems that is not a positive integer', async () => {
             for (const maxItems of [0, -1, 1.5, Number.NaN]) {
                 await expect(

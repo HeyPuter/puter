@@ -2779,7 +2779,8 @@ export class SystemKVStore extends PuterStore {
 
     /**
      * One page of `namespace` deleted, starting after `pageKey`. Reads only the
-     * keys; `pageKey` comes back while more items may remain.
+     * keys; `pageKey` comes back while more items may remain. Strongly
+     * consistent, so a stale empty page can't end a purge early.
      */
     async #deletePage(
         namespace: string,
@@ -2796,7 +2797,7 @@ export class SystemKVStore extends PuterStore {
             limit,
             pageKey,
             '',
-            false,
+            true,
             { projection: ['namespace', 'key'] },
         );
         let usage = readUsage(
