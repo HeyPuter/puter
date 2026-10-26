@@ -77,7 +77,7 @@
  * shape. Streaming responses are unaffected (chunks are already provider-uniform).
  * @property {unknown} [response]
  * @property {string} [reasoning_effort] Controls how much effort reasoning models spend thinking. Flat
- * form. Accepted values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` (availability varies by
+ * form. Accepted values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` (availability varies by
  * model; default `medium` on newer GPT-5.x models). Reasoning models only.
  * @property {{ effort: string }} [reasoning] Nested form of `reasoning_effort`. The `effort` value
  * accepts the same values as `reasoning_effort`. Reasoning models only.

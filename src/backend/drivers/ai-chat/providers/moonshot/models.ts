@@ -20,6 +20,53 @@
 import type { IChatModel } from '../../types.js';
 
 export const MOONSHOT_MODELS: IChatModel[] = [
+    // -- Kimi K3.1 Pro ------------------------------------------------
+    {
+        puterId: 'moonshotai:moonshotai/kimi-k3.1-pro',
+        id: 'kimi-k3.1-pro',
+        name: 'Kimi K3.1 Pro',
+        aliases: ['moonshotai/kimi-k3.1-pro', 'moonshot/kimi-k3.1-pro'],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 200, // $2.00 per 1M
+            completion_tokens: 1000, // $10.00 per 1M
+            cached_tokens: 20, // $0.20 per 1M
+            cache_write_tokens: 200, // $2.00 per 1M
+        },
+        context: 1_048_576,
+        max_tokens: 1_048_576,
+        tool_call: true,
+        release_date: '2026-10-24',
+    },
+    {
+        puterId: 'moonshotai:moonshotai/kimi-k3.1-pro-highspeed',
+        id: 'kimi-k3.1-pro-highspeed',
+        name: 'Kimi K3.1 Pro Highspeed',
+        aliases: [
+            'moonshotai/kimi-k3.1-pro-highspeed',
+            'moonshot/kimi-k3.1-pro-highspeed',
+        ],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 400, // $4.00 per 1M
+            completion_tokens: 2000, // $20.00 per 1M
+            cached_tokens: 20, // $0.20 per 1M
+            cache_write_tokens: 400, // $4.00 per 1M
+        },
+        context: 1_048_576,
+        max_tokens: 1_048_576,
+        tool_call: true,
+        release_date: '2026-10-24',
+    },
+
     // -- Flagship ----------------------------------------------------
     {
         puterId: 'moonshotai:moonshotai/kimi-k3',
@@ -35,6 +82,7 @@ export const MOONSHOT_MODELS: IChatModel[] = [
             prompt_tokens: 300, // $3.00 per 1M
             completion_tokens: 1500, // $15.00 per 1M
             cached_tokens: 30, // $0.30 per 1M
+            cache_write_tokens: 300, // $3.00 per 1M
         },
         context: 1_048_576,
         max_tokens: 1_048_576,
