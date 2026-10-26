@@ -31,9 +31,6 @@ import {
     EVENTS_HANDLER_DEPTH,
     EVENTS_HANDLER_PUBLISH_BATCH,
     EVENTS_HANDLER_PUBLISH_LIMIT,
-    EVENTS_KV_HANDLE_LIMIT,
-    EVENTS_KV_HANDLES_PER_APP,
-    EVENTS_KV_HANDLES_PER_USER,
     EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
     EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_KV_VALUE_MAX_BYTES,
@@ -53,7 +50,6 @@ import {
     isAccessTokenActor,
     isAccountContext,
     makeActor,
-    userRelatedActor,
     type Actor,
 } from '../../core/actor.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
@@ -62,15 +58,12 @@ import type {
     ReanchorInput,
     SuspendedReason,
 } from '../../stores/events/DurableSubscriptionStore.js';
+import type { LiveKvShareHandle } from '../../stores/events/KvShareHandleStore.js';
 import {
     DurableQuotaRaceLost,
     HANDLER_SETTLE_BATCH,
     isSuspendedReason,
 } from '../../stores/events/DurableSubscriptionStore.js';
-import type {
-    KvShareHandle,
-    KvShareHandleListOptions,
-} from '../../stores/events/KvShareHandleStore.js';
 import {
     HANDLER_NAME_MAX_LENGTH,
     hashContent,
@@ -98,10 +91,7 @@ import {
     type SubscriptionTarget,
 } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
-import {
-    KV_GLOBAL_APP_KEY,
-    parseKvNamespace,
-} from '../../stores/systemKv/SystemKVStore.js';
+import { parseKvNamespace } from '../../stores/systemKv/SystemKVStore.js';
 import { awaitLater } from '../../util/concurrency.js';
 import {
     openCursor,
@@ -111,13 +101,17 @@ import {
 import type { AclMode, ResourceDescriptor } from '../acl/ACLService.js';
 import { resolveNode } from '../fs/resolveNode.js';
 import { maskUnderAnchor } from '../fs/sharePathMask.js';
-import { assertActorHasCredits } from '../metering/enforcement.js';
+import { actorPlanId, assertActorHasCredits } from '../metering/enforcement.js';
 import {
     canViewNotification,
     notificationRowScope,
     ownedAppUids,
 } from '../notification/notificationAudience.js';
 import { notificationsFoldInEnabled } from '../notification/notificationSocket.js';
+import {
+    inAccountMailbox,
+    OUTSIDE_ACCOUNT_MAILBOX_TYPES,
+} from '../notification/notificationTypes.js';
 import {
     appSocketRoom,
     type SocketSpecifier,
@@ -196,18 +190,10 @@ import {
 } from './registry.js';
 import { SubscriptionCache } from './subscriptionCache.js';
 import {
-    assertBoundedManageGrant,
-    assertShareableAppUid,
-    assertShareablePermission,
-    assertShareablePrefix,
-    kvShareAppDelegateImplicator,
     kvShareGrantCovers,
-    kvShareManageNamespaceRoot,
-    kvShareManagePermission,
-    kvShareOwnerImplicator,
     kvSharePermission,
     relativeToKvShareRoot,
-} from './kvShares.js';
+} from '../kvShare/kvShares.js';
 import {
     KV_MATCH_SEPARATOR,
     NOTIF_MATCH_SEPARATOR,
@@ -216,6 +202,7 @@ import {
     isKvToken,
     isNotifToken,
     kvHandleFromSubject,
+    notifMatchSpansEveryApp,
     parseSubject,
     type FsOp,
     type ParsedSubject,
@@ -432,35 +419,6 @@ export interface DurableSubscriptionView extends SubscriptionView {
     suspendedReason: string | null;
 }
 
-/** Body of the handle-minting surface. The grantee is named either way. */
-export interface MintKvHandleRequest {
-    granteeUsername?: unknown;
-    granteeUid?: unknown;
-    appUid?: unknown;
-    prefix?: unknown;
-}
-
-/**
- * What minting returns. Only the handle and the region it covers: the owner
- * already knows the rest, and the grantee is handed this verbatim, so anything
- * else here would be something the handle exists to not say.
- */
-export interface MintedKvHandle {
-    handle: string;
-    prefix: string;
-}
-
-/**
- * One handle as its owner sees it, revoked ones included — they are the record
- * of what was shared and when it stopped.
- */
-export interface KvShareHandleView extends MintedKvHandle {
-    appUid: string;
-    granteeUsername: string | null;
-    createdAt: number;
-    revokedAt: number | null;
-}
-
 export type VerbAck<T extends object> =
     | ({ ok: true } & T)
     | { ok: false; error: { code: string; message: string } };
@@ -576,6 +534,8 @@ export interface FsDispatchOptions {
     actingUserId?: number;
     /** Handler runs behind the write; see `Actor.handlerDepth`. */
     handlerDepth?: number;
+    /** The write was made by server-side code; see `viaWorkerOf`. */
+    viaWorker?: boolean;
     /** Present only for a move: where the entry lived before it, lazily. */
     movedFrom?: {
         path: string;
@@ -596,6 +556,8 @@ export interface FsDispatchOptions {
 export interface KvDispatchOptions {
     /** Who performed the write, for the `self` flag. */
     actingUserId?: number;
+    /** The write was made by server-side code; see `viaWorkerOf`. */
+    viaWorker?: boolean;
     /** See {@link FsDispatchOptions.forwarded}. */
     forwarded?: true;
     /** Carried over from the emitting region so both copies share one id/ts. */
@@ -633,6 +595,9 @@ export interface KvDispatchInput {
     noShareKeys?: readonly string[];
     /** Handler runs behind the write; see `Actor.handlerDepth`. */
     handlerDepth?: number;
+    /** Who made the change; the listener hands it on as an option. */
+    actingUserId?: number;
+    viaWorker?: true;
 }
 
 interface RouteLimits {
@@ -831,81 +796,12 @@ const handlerAppRequired = (): HttpError =>
         legacyCode: 'events_handler_app_required',
     });
 
-/**
- * Listing and revoking are the owner's, and an app's only where the handle is
- * the app's own: its namespace, its user, and a delegation it still holds.
- * Anything else — another app, a token an app issued, a handle outside the
- * namespace — reads as somebody else's surface.
- */
-const handleOwnerOnly = (): HttpError =>
-    new HttpError(
-        403,
-        'Only the account, or the app whose namespace this is, may manage share handles',
-        { legacyCode: 'events_kv_handle_owner_only' },
-    );
-
 /** A scoped token, whoever issued it: neither the account nor the app. */
 const eventsWorkerOwnerOnly = (): HttpError =>
     new HttpError(
         403,
         'Listing events workers requires an account, or an app acting for one',
         { legacyCode: 'events_worker_owner_only' },
-    );
-
-/**
- * An app minting is delegation, and the `manage:` grant on the region is the
- * consent for it. Without one there is nothing authorizing the app to dispose
- * of its user's data, whatever the user themselves could do here.
- */
-const handleNotDelegated = (): HttpError =>
-    new HttpError(
-        403,
-        'This app has not been given permission to share this data',
-        { legacyCode: 'events_kv_handle_not_delegated' },
-    );
-
-/**
- * A delegation is the app's to hold, not to pass on: a token it minted may
- * carry the `manage:` permission and still not mint through it. The user's own
- * token is not this case — it acts for the user, who needs no delegation.
- */
-const handleAccessTokenForbidden = (): HttpError =>
-    new HttpError(403, 'An access token may not mint a share handle', {
-        legacyCode: 'forbidden',
-    });
-
-/**
- * An app addresses exactly one key-value namespace — its own, under its user —
- * so that is the only one it can hand a region of out.
- */
-const handleOutsideNamespace = (): HttpError =>
-    new HttpError(403, 'An app may only share its own key-value data', {
-        legacyCode: 'events_kv_handle_outside_namespace',
-    });
-
-/**
- * A temporary account holds no share handles: the grant outlives the session
- * that made it, and there is no account left behind it to take one back.
- */
-const kvHandleNeedsAccount = (): HttpError =>
-    new HttpError(403, 'A temporary account may not share its key-value data', {
-        legacyCode: 'events_kv_handle_requires_account',
-    });
-
-/**
- * Past a handle ceiling. One code for both of them — the remedy is the same,
- * revoke something — with the message saying which one it was.
- */
-const handleQuotaReached = (
-    limit: number,
-    scope: 'account' | 'app',
-): HttpError =>
-    new HttpError(
-        409,
-        scope === 'app'
-            ? `An app may hold out ${limit} share handles for one account`
-            : `An account may hold out ${limit} share handles at a time`,
-        { legacyCode: 'events_kv_handle_limit_reached' },
     );
 
 /**
@@ -1474,6 +1370,17 @@ export class EventsService extends PuterService {
             });
         });
 
+        // A retired handle is a dead address: what was made through it ends,
+        // even where another grant still covers the region. Awaited by the
+        // emitter, so a revoke returns once its subscriptions are settled.
+        this.clients.event.on('kv.share.retired', async (_key, data) => {
+            try {
+                await this.settleRetiredKvHandles(data);
+            } catch (err) {
+                console.warn('[events] retired-handle settle failed', err);
+            }
+        });
+
         // A deleted app's rows can never deliver again — the grant identity
         // they are re-checked under no longer resolves — so they are torn
         // down rather than left to cost their holder an anchor slot forever.
@@ -1507,9 +1414,17 @@ export class EventsService extends PuterService {
         // a service. Same posture as the FS hook: post-commit, and nothing here
         // can fail the write that produced it.
         this.clients.event.on('kv.mutated', (_key, data) => {
-            void this.dispatchKv(data as KvDispatchInput).catch((err) => {
-                console.warn('[events] kv dispatch failed', err);
-            });
+            const input = data as KvDispatchInput;
+            void (async () => {
+                try {
+                    await this.dispatchKv(input, {
+                        actingUserId: input.actingUserId,
+                        viaWorker: input.viaWorker === true,
+                    });
+                } catch (err) {
+                    console.warn('[events] kv dispatch failed', err);
+                }
+            })();
         });
 
         // Emitted once the row is written, so a delivery never names a
@@ -1519,19 +1434,6 @@ export class EventsService extends PuterService {
                 console.warn('[events] notification dispatch failed', err);
             });
         });
-
-        // Owning a key-value namespace is holding every share grant over it,
-        // which is what lets its owner mint a handle on their own data.
-        this.services.permission.registerImplicator(kvShareOwnerImplicator());
-
-        // Lets an app-under-user actor exercise a share grant its user holds,
-        // scoped to the app the grant's namespace names.
-        this.services.permission.registerImplicator(
-            kvShareAppDelegateImplicator({
-                userHolds: (actor, permission) =>
-                    this.services.permission.check(actor, permission),
-            }),
-        );
 
         this.#armExpirySweep();
         this.#armPendingSweep();
@@ -1934,15 +1836,8 @@ export class EventsService extends PuterService {
     }
 
     /** The plan this actor is on, or `null` where there are no plans. */
-    async #planId(actor: Actor): Promise<string | null> {
-        const metering = this.services.metering;
-        if (!metering) return null;
-        try {
-            return (await metering.getActorSubscription(actor)).id;
-        } catch (err) {
-            console.warn('[events] could not resolve a plan', err);
-            return null;
-        }
+    #planId(actor: Actor): Promise<string | null> {
+        return actorPlanId(this.services.metering, actor);
     }
 
     /**
@@ -2047,11 +1942,16 @@ export class EventsService extends PuterService {
         );
 
         // One extra row answers "is there another page" without a count.
+        // The generic slice is the desktop's view of the mailbox, so it leaves
+        // out the types kept off the desktop, as the live delivery does.
         const rows = await this.stores.notification.listScoped(user.id, {
             audience: scope.audience,
             appUid: scope.appUid,
             after: Number.isFinite(cursored) ? cursored : null,
             limit: limit + 1,
+            ...(scope.appUid === undefined
+                ? { excludeTypes: OUTSIDE_ACCOUNT_MAILBOX_TYPES }
+                : {}),
         });
 
         const page = rows.slice(0, limit);
@@ -2397,373 +2297,6 @@ export class EventsService extends PuterService {
             }
         }
         return { appUid, removed, suspended };
-    }
-
-    // -- Cross-user key-value handles --------------------------------
-
-    /**
-     * Hand another user a watchable region of this account's key-value data.
-     *
-     * Two writes, in this order: the grant, which is the authorization and
-     * carries its own `manage:` check and its own refusal to grant to yourself,
-     * and then the handle, which is only a name for it. A handle whose grant
-     * never landed would be a name for nothing; a grant whose handle never
-     * landed is unaddressable, since a handle is the only thing that can name
-     * this family.
-     *
-     * An app may mint too, bounded the way sharing bounds an app handing out
-     * its user's files: authority is the user's, asked of the user behind the
-     * actor and never of the app, and reach is what the credential itself
-     * holds. Here reach is structural — an app addresses one namespace — so it
-     * is asserted rather than worked out, and the app's own consent to delegate
-     * is a `manage:` grant on the region.
-     */
-    async mintKvHandle(
-        actor: Actor,
-        request: MintKvHandleRequest,
-    ): Promise<MintedKvHandle> {
-        if (!this.enabled) throw disabled();
-        if (!this.kvHandlesEnabled) throw kvShareHandleDisabled();
-
-        const owner = actor.user;
-        if (!owner?.uuid || owner.id === undefined) throw disabled();
-        // `undefined` is an app that could not be resolved, not the absence of
-        // one — reading it as an account session is what would hand an app a
-        // surface bounded on the app it is acting as.
-        const app = actor.effectiveApp;
-        if (app === undefined) throw handleOwnerOnly();
-        // An account's surface is the account's, and a token scoped to less
-        // than its issuer holds is not the account. A token an app issued is
-        // refused by the delegation check below, which has its own answer.
-        if (app === null && !isAccountContext(actor)) throw handleOwnerOnly();
-
-        // The budget is the user's, so an app spends its user's slots rather
-        // than a machine-rate allowance of its own.
-        await this.#spendHandleBudget(owner.id);
-
-        const keyPrefix = assertShareablePrefix(request?.prefix);
-        const appUid = this.#mintNamespace(app, request);
-        const grantee = await this.#resolveGrantee(request);
-
-        const permission = assertShareablePermission(
-            kvSharePermission(owner.uuid, appUid, keyPrefix),
-        );
-        // Before the idempotent answer below, or an app that lost its
-        // delegation could read back a handle it may no longer hand out.
-        if (app) await this.#assertKvShareDelegated(actor, permission);
-
-        // Resolved before the idempotent answer below, so a plan that holds
-        // none is refused whatever it asks for. Kept behind the delegation
-        // check above: an app with no delegation must not learn anything
-        // about the account's plan.
-        const quota = await this.#handleQuota(actor);
-
-        // The same region minted again for the same grantee is the same
-        // capability, not a second one — handing back what already exists is
-        // what keeps two handles from ever sharing one permission row. The
-        // ceiling counts slots, and this takes none, so it is not asked.
-        const existing = await this.stores.kvShareHandle.findLive({
-            ownerUserId: owner.id,
-            granteeUserId: grantee.id,
-            appUid,
-            keyPrefix,
-        });
-        if (existing)
-            return { handle: existing.handle, prefix: existing.keyPrefix };
-
-        await this.#assertHandleCeiling(owner.id, appUid, quota);
-
-        // The user behind the app, so the authority checked is theirs and the
-        // issuer recorded is them. Which app acted is carried separately: it
-        // belongs on the audit row, not in the grant's authority.
-        await this.services.permission.grantUserUserPermission(
-            userRelatedActor(actor),
-            grantee.username,
-            permission,
-            {},
-            { reason: 'kv share handle', appUid: app?.uid },
-        );
-
-        const row = await this.stores.kvShareHandle.mint({
-            ownerUserId: owner.id,
-            granteeUserId: grantee.id,
-            appUid,
-            keyPrefix,
-            permission,
-        });
-        return { handle: row.handle, prefix: row.keyPrefix };
-    }
-
-    /**
-     * Which namespace a mint may name. An app reaches `v1:<user>:<its own app>`
-     * and nothing else, so a request naming another one is refused rather than
-     * quietly minted somewhere the app cannot even write.
-     */
-    #mintNamespace(
-        app: Actor['effectiveApp'],
-        request: MintKvHandleRequest,
-    ): string {
-        const named = parseAppUid(request?.appUid);
-        if (!app) return assertShareableAppUid(named ?? KV_GLOBAL_APP_KEY);
-        if (named !== null && named !== app.uid) throw handleOutsideNamespace();
-        return app.uid;
-    }
-
-    /**
-     * Whether this app was given the region to hand out. The `manage:` grant is
-     * the user's consent, and prefix implication makes one taken on a region
-     * cover the keys beneath it — so a handle deeper than the consent is still
-     * inside it, and one above it is not.
-     */
-    async #assertKvShareDelegated(
-        actor: Actor,
-        permission: string,
-    ): Promise<void> {
-        // Consequential enough to require the app's own session, whatever a
-        // token it minted happens to carry.
-        if (isAccessTokenActor(actor)) throw handleAccessTokenForbidden();
-        // The consent surface refuses a namespace-root delegation because no
-        // prompt can describe it; refused here too, so a row written any other
-        // way cannot authorize a mint.
-        assertBoundedManageGrant(kvShareManagePermission(permission));
-        const delegated = await this.services.permission.canManagePermission(
-            actor,
-            permission,
-        );
-        if (!delegated) throw handleNotDelegated();
-        // `canManagePermission` walks ancestors, so a namespace-root grant
-        // written by any path other than the consent surface would otherwise
-        // authorize a mint anywhere in the namespace, bounded region or not.
-        const unbounded = await this.services.permission.check(
-            actor,
-            kvShareManageNamespaceRoot(permission),
-        );
-        if (unbounded) throw handleNotDelegated();
-    }
-
-    /**
-     * Take a shared region back.
-     *
-     * The grant goes first — the subtree with it, since a deeper grant would
-     * leave access to part of a region that has just been withdrawn — and the
-     * handle is retired after. Removing the grant is what actually settles the
-     * subscriptions, and it is the only half that stops delivery, so it is the
-     * half that must not be able to fail after the other has succeeded. In that
-     * order both steps are idempotent and a failure anywhere is a retry: the
-     * reverse leaves a handle nothing can address standing on a grant
-     * everything still passes, and no way to try again.
-     *
-     * Not gated on the feature flag. Withdrawing access only ever narrows, and
-     * an install that turned handles off must still be able to retire the ones
-     * it has.
-     */
-    async revokeKvHandle(
-        actor: Actor,
-        handle: unknown,
-    ): Promise<{ handle: string; revokedAt: number }> {
-        if (!this.enabled) throw disabled();
-        const owner = actor.user;
-        if (owner?.id === undefined) throw disabled();
-        // `undefined` is an app that could not be resolved, not the absence of
-        // one — reading it as an account session is what would hand an app the
-        // account's whole surface.
-        const app = actor.effectiveApp;
-        if (app === undefined) throw handleOwnerOnly();
-        // A delegation is the app's to hold, not to pass on, so a token an app
-        // issued is refused here as it is on the mint path — and a user's own
-        // token acts for the user only when it carries the user's whole reach.
-        if (isAccessTokenActor(actor) && !isAccountContext(actor))
-            throw handleOwnerOnly();
-
-        await this.#spendHandleBudget(owner.id);
-
-        const named = typeof handle === 'string' ? handle : '';
-        const share = await this.stores.kvShareHandle.getByHandle(named);
-        // Unknown and somebody else's read the same way, so revoking cannot be
-        // used to find out that a handle exists.
-        if (!share || share.ownerUserId !== owner.id)
-            throw unknownKvShareHandle(named);
-        // An app reaches one namespace, so a handle outside it is not its to
-        // take back — checked after the owner test, which must answer first.
-        if (app && share.appUid !== app.uid) throw handleOwnerOnly();
-        // The same consent the mint took: a withdrawn delegation withdraws the
-        // app's surface on the region with it.
-        if (app) await this.#assertKvShareDelegated(actor, share.permission);
-
-        const grantee = await this.stores.user.getById(share.granteeUserId);
-        if (!grantee?.username)
-            throw new HttpError(500, 'The grantee of this handle is gone', {
-                legacyCode: 'internal_error',
-            });
-        await this.services.permission.revokeUserUserPermissionSubtree(
-            userRelatedActor(actor),
-            grantee.username,
-            share.permission,
-            { reason: 'kv share handle revoked', appUid: app?.uid },
-        );
-
-        const revoked = await this.stores.kvShareHandle.retire(named, owner.id);
-        if (!revoked?.revokedAt) throw unknownKvShareHandle(named);
-
-        // A narrower handle to the same grantee shares this one's permission
-        // row whenever its region nests under it, and the subtree revoke
-        // above just withdrew that row — so its grant is already gone even
-        // though its own row still reads live.
-        await this.#retireCoveredHandles(revoked);
-
-        return { handle: revoked.handle, revokedAt: revoked.revokedAt };
-    }
-
-    /**
-     * Every other live handle to this grantee that the just-withdrawn grant
-     * covered. Coverage runs on the permission string, whose third component is
-     * the namespace app uid, so a covered handle is always inside the same
-     * one.
-     */
-    async #retireCoveredHandles(revoked: KvShareHandle): Promise<void> {
-        const siblings =
-            await this.stores.kvShareHandle.listLiveForOwnerAndGrantee(
-                revoked.ownerUserId,
-                revoked.granteeUserId,
-            );
-        await Promise.all(
-            siblings
-                .filter((row) =>
-                    kvShareGrantCovers(revoked.permission, row.permission),
-                )
-                .map((row) =>
-                    this.stores.kvShareHandle.retire(
-                        row.handle,
-                        revoked.ownerUserId,
-                    ),
-                ),
-        );
-    }
-
-    /**
-     * What this account has shared out of its key-value data, retired handles
-     * included: they are the only record of what was shared and when it
-     * stopped. The grantee has no listing of their own — what they hold is the
-     * handle they were given.
-     */
-    async listKvHandles(
-        actor: Actor,
-        options: KvShareHandleListOptions = {},
-    ): Promise<PageResult<KvShareHandleView>> {
-        if (!this.enabled) throw disabled();
-        const owner = actor.user;
-        if (owner?.id === undefined) throw disabled();
-        const app = actor.effectiveApp;
-        if (app === undefined) throw handleOwnerOnly();
-        if (isAccessTokenActor(actor) && !isAccountContext(actor))
-            throw handleOwnerOnly();
-
-        // An app sees its own namespace and nothing else; an account session
-        // sees across apps, which is what makes the account the surface for a
-        // row whose app is long gone. Listing disposes of nothing, so the gate
-        // is app-ness and the namespace rather than the region's delegation.
-        const page = await this.stores.kvShareHandle.listForOwner(owner.id, {
-            limit: options.limit,
-            cursor: options.cursor,
-            includeTotal: options.includeTotal,
-            appUid: app?.uid ?? null,
-        });
-        const grantees = await this.stores.user.getByIds([
-            ...new Set(page.items.map((row) => row.granteeUserId)),
-        ]);
-
-        return {
-            ...page,
-            items: page.items.map((row) => ({
-                handle: row.handle,
-                prefix: row.keyPrefix,
-                appUid: row.appUid,
-                granteeUsername:
-                    grantees.get(row.granteeUserId)?.username ?? null,
-                createdAt: row.createdAt,
-                revokedAt: row.revokedAt,
-            })),
-        };
-    }
-
-    /** Who a mint is for. Named by username or uuid; unknown reads as absent. */
-    async #resolveGrantee(
-        request: MintKvHandleRequest,
-    ): Promise<{ id: number; username: string }> {
-        const username =
-            typeof request?.granteeUsername === 'string'
-                ? request.granteeUsername.trim()
-                : '';
-        const uid =
-            typeof request?.granteeUid === 'string'
-                ? request.granteeUid.trim()
-                : '';
-        if (!username && !uid)
-            throw badRequest(
-                'Name the grantee with `granteeUsername` or `granteeUid`',
-                'bad_request',
-            );
-
-        const user = username
-            ? await this.stores.user.getByUsername(username)
-            : await this.stores.user.getByUuid(uid);
-        if (!user?.username || user.id === undefined)
-            throw new HttpError(404, 'user_does_not_exist', {
-                legacyCode: 'subject_does_not_exist',
-            });
-        return { id: user.id, username: user.username };
-    }
-
-    /**
-     * How many handles this caller's plan lets the account hold out, in total
-     * and in one namespace. Resolved before the idempotent answer on the mint
-     * path, so a plan that may hold none is refused whatever it asks for.
-     *
-     * A deployment with no metering has no plans to read, and is held to the
-     * paid caps.
-     */
-    async #handleQuota(actor: Actor): Promise<TieredQuota> {
-        const plan = await this.#planId(actor);
-        if (plan !== null && limitFor(EVENTS_KV_HANDLES_PER_USER, plan) === 0)
-            throw kvHandleNeedsAccount();
-        return {
-            perUser: limitFor(EVENTS_KV_HANDLES_PER_USER, plan),
-            perApp: limitFor(EVENTS_KV_HANDLES_PER_APP, plan),
-        };
-    }
-
-    /**
-     * Whether this account may hold out another share handle, in total and in
-     * the namespace this mint names. Retired ones do not count: the row stays
-     * as the record of what was shared, not as a slot. Check-then-act: two
-     * mints racing past it can both proceed, which the mint budget bounds well
-     * enough for an abuse backstop.
-     */
-    async #assertHandleCeiling(
-        userId: number,
-        appUid: string,
-        quota: TieredQuota,
-    ): Promise<void> {
-        const live = await this.stores.kvShareHandle.countLiveForOwner(
-            userId,
-            appUid,
-        );
-        if (live.total >= quota.perUser)
-            throw handleQuotaReached(quota.perUser, 'account');
-        // The global namespace is the account's own shelf rather than an
-        // app's, so the account cap is its only bound — which is also what
-        // keeps that cap reachable without naming a namespace.
-        if (appUid !== KV_GLOBAL_APP_KEY && live.forApp >= quota.perApp)
-            throw handleQuotaReached(quota.perApp, 'app');
-    }
-
-    async #spendHandleBudget(userId: number): Promise<void> {
-        const ok = await checkRateLimit(
-            `${EVENTS_KV_HANDLE_LIMIT.scope}:${userId}`,
-            EVENTS_KV_HANDLE_LIMIT.limit,
-            EVENTS_KV_HANDLE_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
     }
 
     // -- Suspension --------------------------------------------------
@@ -3547,9 +3080,11 @@ export class EventsService extends PuterService {
      * keyspace that is matters: the row is indexed under the **owner**, because
      * a write only ever knows whose namespace it touched.
      *
-     * Authority is the grant, never the handle: an actor holding the mirrored
-     * permission may subscribe, and one who does not is told the handle is not
-     * there rather than that it is theirs to want.
+     * Authority is the grant, never the handle: an actor holding the grant at
+     * any level may subscribe, and one who does not is told the handle is not
+     * there rather than that it is theirs to want. The handle is also bound to
+     * its holder, so another user whose own grant overlaps the region cannot
+     * use it.
      */
     async #resolveKvHandleSubscribe(
         actor: Actor,
@@ -3561,16 +3096,30 @@ export class EventsService extends PuterService {
         const share = await this.stores.kvShareHandle.getByHandle(handle);
         if (!share || share.revokedAt !== null)
             throw unknownKvShareHandle(handle);
-
-        const held = await kvSharedRegionAuthorized(
-            actor,
-            share.permission,
-            this.#kvShareDeps(),
-        );
-        if (!held) throw unknownKvShareHandle(handle);
+        if (
+            actor.user?.id !== share.granteeUserId &&
+            actor.user?.id !== share.ownerUserId
+        )
+            throw unknownKvShareHandle(handle);
 
         const owner = await this.stores.user.getById(share.ownerUserId);
         if (!owner?.uuid) throw unknownKvShareHandle(handle);
+
+        // Watching is the lowest level, so every level answers it; storing it
+        // rather than the handle's own grant is what lets a level change leave
+        // the subscription alone.
+        const watch = kvSharePermission(
+            owner.uuid,
+            share.appUid,
+            share.keyPrefix,
+            'watch',
+        );
+        const held = await kvSharedRegionAuthorized(
+            actor,
+            watch,
+            this.#kvShareDeps(),
+        );
+        if (!held) throw unknownKvShareHandle(handle);
 
         const anchor = resolveKvHandleAnchor(parsed, {
             ownerUserUuid: owner.uuid,
@@ -3590,7 +3139,7 @@ export class EventsService extends PuterService {
             ownerUserId: share.ownerUserId,
             // The grant string rather than a mode: it is what a revoke names,
             // and what the delivery re-check asks again.
-            permission: share.permission,
+            permission: watch,
             subject: anchor.subject,
         };
     }
@@ -3716,6 +3265,7 @@ export class EventsService extends PuterService {
             id: options.id ?? randomUUID(),
             ts: options.ts ?? Date.now(),
             handlerDepth: options.handlerDepth,
+            viaWorker: options.viaWorker === true,
         };
 
         const { local, remote } =
@@ -3733,6 +3283,7 @@ export class EventsService extends PuterService {
                 family: 'fs',
                 ownerUserId,
                 actingUserId: options.actingUserId,
+                ...(context.viaWorker ? { viaWorker: true as const } : {}),
                 id: context.id,
                 ts: context.ts,
                 fs: {
@@ -3823,6 +3374,7 @@ export class EventsService extends PuterService {
             id: options.forwarded && options.id ? options.id : randomUUID(),
             ts,
             handlerDepth: input.handlerDepth,
+            viaWorker: options.viaWorker === true,
             ...(noShareKeys.has(kvKey) ? { noShare: true as const } : {}),
         }));
         const carried: Array<{ value: unknown } | undefined> = [];
@@ -3865,6 +3417,9 @@ export class EventsService extends PuterService {
                         family: 'kv',
                         ownerUserId,
                         actingUserId: options.actingUserId,
+                        ...(context.viaWorker
+                            ? { viaWorker: true as const }
+                            : {}),
                         id: context.id,
                         ts: context.ts,
                         kv: {
@@ -3931,7 +3486,7 @@ export class EventsService extends PuterService {
                 subject,
                 context,
                 forKey,
-                ownerUserId,
+                options.actingUserId,
                 (matched) =>
                     this.#kvStillAuthorized(
                         matched,
@@ -4032,6 +3587,7 @@ export class EventsService extends PuterService {
                         ancestors: async () => item.fs!.movedFrom!.ancestors,
                     },
                     actingUserId: item.actingUserId,
+                    viaWorker: item.viaWorker === true,
                     forwarded: true,
                     id: item.id,
                     ts: item.ts,
@@ -4068,6 +3624,7 @@ export class EventsService extends PuterService {
                 },
                 {
                     actingUserId: item.actingUserId,
+                    viaWorker: item.viaWorker === true,
                     forwarded: true,
                     id: item.id,
                     ts: item.ts,
@@ -4123,10 +3680,14 @@ export class EventsService extends PuterService {
         );
         if (watched.length === 0) return;
 
-        const rows = await this.stores.eventSubscription.getForTokens(
+        const fetched = await this.stores.eventSubscription.getForTokens(
             userId,
             watched,
         );
+        // A subscription naming no app is the desktop's view of the mailbox.
+        const rows = inAccountMailbox(context.type)
+            ? fetched
+            : fetched.filter((row) => !notifMatchSpansEveryApp(row.match));
         if (rows.length === 0) return;
 
         await this.#route(subject, context, rows, userId, (matched) =>
@@ -4494,14 +4055,27 @@ export class EventsService extends PuterService {
     }
 
     /**
-     * Whether one row's holder may still watch the region it was made on.
-     *
-     * Held in the cross-event cache under the row's anchor, which for a shared
-     * region is the whole of what it can address: nothing above the handle is
-     * nameable, so the answer does not vary by key and one evaluation covers
-     * every event under it until a grant or a revoke moves the generation.
+     * Whether one row's holder may still watch the region it was made on. The
+     * handle must be live and theirs, so a retired one goes silent within the
+     * handle cache's lifetime even where a wider grant covers the region. The
+     * grant check doesn't vary by key, so it's cached under the row's anchor.
      */
     async #kvShareHolds(row: DispatchSubscription): Promise<boolean> {
+        const handle = kvHandleFromSubject(row.subject);
+        if (handle === null) return false;
+        let live: LiveKvShareHandle | null;
+        try {
+            live = await this.stores.kvShareHandle.getLive(handle);
+        } catch {
+            return false;
+        }
+        if (
+            !live ||
+            (live.row.granteeUserId !== row.holderUserId &&
+                live.row.ownerUserId !== row.holderUserId)
+        )
+            return false;
+
         const identity = await this.#grantIdentity(row);
         if (!identity) return false;
 
@@ -4666,6 +4240,37 @@ export class EventsService extends PuterService {
         // at once: it holds the paths of a resource its holder has just lost
         // the right to see, and keeping it for a resume that by design never
         // comes turns a revocation into a delayed disclosure.
+        const suspended = await this.#suspend(settling, 'permission_revoked', {
+            override: RESUMABLE_REASONS,
+        });
+        await this.#notifyEnded(suspended, 'permission_revoked');
+        return suspended.length;
+    }
+
+    /**
+     * Take out of service every durable subscription one user, the share's
+     * owner or its holder, made through these share handles, with their
+     * backlogs. One holder-index read, bounded by the user's subscription cap.
+     * Session rows are left to the delivery re-check, which reads the handle's
+     * liveness.
+     */
+    async settleRetiredKvHandles(retired: {
+        handles: readonly string[];
+        userId: number;
+    }): Promise<number> {
+        if (!this.enabled || retired.handles.length === 0) return 0;
+        const held = await this.stores.durableSubscription.listActiveForHolder(
+            retired.userId,
+            null,
+            { includeSuspended: true },
+        );
+        const handles = new Set(retired.handles);
+        const settling = held.filter((row) => {
+            const handle = kvHandleFromSubject(row.subject);
+            return handle !== null && handles.has(handle);
+        });
+        if (settling.length === 0) return 0;
+
         const suspended = await this.#suspend(settling, 'permission_revoked', {
             override: RESUMABLE_REASONS,
         });

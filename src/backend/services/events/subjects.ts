@@ -194,6 +194,10 @@ export const notifMatchOn = (
     audience: NotificationAudience | string,
 ): string => `${ref}${NOTIF_MATCH_SEPARATOR}${audience}`;
 
+/** Whether a notif filter spans every app: a session's generic slice. */
+export const notifMatchSpansEveryApp = (match: string | null): boolean =>
+    match?.startsWith(`*${NOTIF_MATCH_SEPARATOR}`) === true;
+
 /** Which family a stored row belongs to, without re-parsing its subject. */
 export const isKvToken = (token: string): boolean =>
     token.startsWith(KV_TOKEN_PREFIX);

@@ -103,6 +103,11 @@ beforeAll(async () => {
             // block, so this one alone must not register a provider.
             'gemini-video-generation': { apiKey: 'gem-key' },
             kling: { apiKey: 'kling-key' },
+            // The chat block's base URL ends in `/v1`; video must drop it.
+            minimax: {
+                apiKey: 'mm-key',
+                apiBaseUrl: 'https://api.minimax.io/v1',
+            },
         },
     } as never);
     driver = server.drivers.aiVideo as unknown as VideoGenerationDriver;
@@ -504,6 +509,54 @@ describe('VideoGenerationDriver.generate provider routing', () => {
             'kling-3.0-omni',
             'kling-3.0-turbo',
             'kling-o1',
+        ]);
+    });
+
+    it.each([
+        'minimax-h3',
+        'minimax/minimax-h3',
+        'minimax:minimax/minimax-h3',
+    ])('routes %s to the MiniMax provider from the shared minimax key', async (model) => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValueOnce(
+            new Response(JSON.stringify({ task_id: 'mm-task' })),
+        );
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    task: {
+                        id: 'mm-task',
+                        status: 'succeeded',
+                        content: { url: 'https://minimax/out.mp4' },
+                        usage: { output_seconds: 5 },
+                    },
+                }),
+            ),
+        );
+
+        const result = await withActor(() =>
+            driver.generate({ prompt: 'hi', model } as never),
+        );
+
+        expect(result).toBe('https://minimax/out.mp4');
+        expect(String(fetchSpy.mock.calls[0]![0])).toBe(
+            'https://api.minimax.io/v2/video_generation',
+        );
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('lists the MiniMax models under the minimax-video-generation provider', async () => {
+        const minimax = (await driver.models()).filter(
+            (m) => m.provider === 'minimax-video-generation',
+        );
+        expect(minimax.map((m) => m.id).sort()).toEqual([
+            'minimax-h3',
+            'minimax-h3-highspeed',
+            'minimax-h3-lite',
+            'minimax-h3-max',
+            'minimax-hailuo-02',
+            'minimax-hailuo-2.3',
+            'minimax-hailuo-2.3-fast',
         ]);
     });
 
@@ -948,6 +1001,49 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
 // ── Size unification ───────────────────────────────────────────────
 
 describe('VideoGenerationDriver.generate size unification', () => {
+    it.each(['912x512', '512x912'])(
+        'selects and bills Hailuo 02 at 512p for %s',
+        async (size) => {
+            const fetchSpy = vi.spyOn(globalThis, 'fetch');
+            const incrementUsageSpy = vi.spyOn(
+                server.services.metering,
+                'incrementUsage',
+            );
+            fetchSpy.mockResolvedValueOnce(
+                new Response(JSON.stringify({ task_id: 'mm-task' })),
+            );
+            fetchSpy.mockResolvedValueOnce(
+                new Response(JSON.stringify({
+                    status: 'Success',
+                    file_id: 'file-1',
+                })),
+            );
+            fetchSpy.mockResolvedValueOnce(
+                new Response(JSON.stringify({
+                    file: { download_url: 'https://minimax/out.mp4' },
+                })),
+            );
+
+            await withActor(() => driver.generate({
+                prompt: 'a ball rolls',
+                model: 'minimax-hailuo-02',
+                size,
+                input_reference: 'https://example.com/first.png',
+            } as never));
+
+            const body = JSON.parse(
+                fetchSpy.mock.calls[0]![1]!.body as string,
+            );
+            expect(body.resolution).toBe('512P');
+            expect(incrementUsageSpy).toHaveBeenCalledWith(
+                SYSTEM_ACTOR,
+                'minimax-video-generation:minimax-hailuo-02:per-video:512p:6',
+                1,
+                10 * 1_000_000,
+            );
+        },
+    );
+
     it('maps a WIDTHxHEIGHT size onto a tier plus aspect ratio for tier-based models', async () => {
         completeTogetherJob();
 
@@ -979,6 +1075,77 @@ describe('VideoGenerationDriver.generate size unification', () => {
         const sent = togetherSent();
         expect(sent.resolution).toBe('480p');
         expect('ratio' in sent).toBe(false);
+    });
+
+    it('treats a catalog with a 2k or 4k tier as tier-based', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    code: 0,
+                    data: { id: 'kl-task', status: 'submitted' },
+                }),
+            ),
+        );
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    code: 0,
+                    data: [
+                        {
+                            id: 'kl-task',
+                            status: 'succeeded',
+                            outputs: [
+                                {
+                                    type: 'video',
+                                    url: 'https://kling/out.mp4',
+                                    duration: '5',
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            ),
+        );
+        await withActor(() =>
+            driver.generate({
+                prompt: 'hi',
+                model: 'kling-3.0',
+                size: '1080x1920',
+            } as never),
+        );
+        const sent = JSON.parse(
+            (fetchSpy.mock.calls[0]![1] as RequestInit).body as string,
+        );
+        expect(sent.settings.resolution).toBe('1080p');
+        expect(sent.settings.aspect_ratio).toBe('9:16');
+
+        fetchSpy.mockResolvedValueOnce(
+            new Response(JSON.stringify({ task_id: 'mm-task' })),
+        );
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    task: {
+                        id: 'mm-task',
+                        status: 'succeeded',
+                        content: { url: 'https://minimax/out.mp4' },
+                    },
+                }),
+            ),
+        );
+        await withActor(() =>
+            driver.generate({
+                prompt: 'hi',
+                model: 'minimax-h3-lite',
+                size: '854x480',
+            } as never),
+        );
+        const sentToMiniMax = JSON.parse(
+            (fetchSpy.mock.calls[2]![1] as RequestInit).body as string,
+        );
+        expect(sentToMiniMax.resolution).toBe('480P');
+        expect(sentToMiniMax.ratio).toBe('16:9');
     });
 
     it('fills width/height from a WIDTHxHEIGHT size for pixel-sized models', async () => {

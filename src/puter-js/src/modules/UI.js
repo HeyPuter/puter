@@ -1896,6 +1896,8 @@ export class UIModule extends EventListener {
      * @returns {Promise<boolean>} `true` only if the permission was granted.
      * @throws {{ message: string, code: 'invalid_argument' }} if `create` is
      *   set to anything but `true`, `false`, `'dir'`, or `'file'`.
+     * @deprecated Use `puter.perms.request()` with a resource, such as
+     *   `puter.perms.request('fs', { path, access })`.
      */
     async requestPermission (options) {
         const create = options?.create;

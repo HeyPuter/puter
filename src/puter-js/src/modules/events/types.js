@@ -30,7 +30,10 @@
  * @property {string} [from] On a `move`, the path the node left — present only
  *   when the subscription was watching that side.
  * @property {boolean} self `true` when the change was made by the account
- *   holding the subscription — the flag to check to ignore your own writes.
+ *   holding the subscription.
+ * @property {boolean} viaWorker `true` when the change came from server-side
+ *   code running as an account, such as a worker using `me.puter`, rather than
+ *   from the account directly. Skip your own writes with `self && !viaWorker`.
  * @property {number} ts Milliseconds since the epoch.
  * @property {number} seq Position within one dispatch, for events that fan out
  *   to several subscriptions at once.
@@ -43,7 +46,8 @@
  *
  * @typedef {Object} PuterKvEvent
  * @property {string} id Unique id for this event.
- * @property {string} subject `kv:<appId>:<key>`, naming the key that changed.
+ * @property {string} subject `kv:<appId>:<key>`, naming the key that changed,
+ *   or `kv:<handle>:<key>` with the key relative to the share handle.
  * @property {'set' | 'del' | 'expire'} op `set` for a write, `del` for a
  *   removal, `expire` when only the key's lifetime changed.
  * @property {string} key The key the event is about.
@@ -55,6 +59,7 @@
  *   check. Read the key when it's absent. An `expire` never carries one.
  * @property {boolean} self `true` when the change was made by the account
  *   holding the subscription.
+ * @property {boolean} viaWorker As on {@link PuterEvent}.
  * @property {number} ts Milliseconds since the epoch.
  * @property {number} seq Position within one dispatch, for events that fan out
  *   to several subscriptions at once.

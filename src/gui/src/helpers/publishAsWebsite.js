@@ -18,8 +18,7 @@
  */
 
 import UIWindowPublishWebsite from '../UI/UIWindowPublishWebsite.js';
-import UIWindowSaveAccount from '../UI/UIWindowSaveAccount.js';
-import UIWindowEmailConfirmationRequired from '../UI/UIWindowEmailConfirmationRequired.js';
+import ensure_can_publish from './ensureCanPublish.js';
 
 /**
  * Opens the "Publish as website" flow for a directory, first walking the user
@@ -34,25 +33,7 @@ import UIWindowEmailConfirmationRequired from '../UI/UIWindowEmailConfirmationRe
  * @returns {Promise<void>}
  */
 const publish_as_website = async function ({ uid, name, path }) {
-    if ( window.require_email_verification_to_publish_website ) {
-        if ( window.user.is_temp &&
-            !await UIWindowSaveAccount({
-                send_confirmation_code: true,
-                message: i18n('save_account_to_publish'),
-                window_options: {
-                    backdrop: true,
-                    close_on_backdrop_click: false,
-                },
-            }) )
-        {
-            return;
-        }
-        else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() )
-        {
-            return;
-        }
-    }
-
+    if ( ! await ensure_can_publish(window.require_email_verification_to_publish_website) ) return;
     await UIWindowPublishWebsite(uid, name, path);
 };
 

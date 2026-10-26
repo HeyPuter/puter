@@ -93,20 +93,29 @@ const sealKey = (secret: string): Buffer => {
  * A cursor its holder cannot read, for keysets over a global sequence: a plain
  * one would let two pages show how fast the whole table grows. Encrypted and
  * authenticated, so an altered cursor is refused like any malformed one.
- * Without a secret it is a plain `encodeCursor` cursor.
+ * Without a secret it is a plain `encodeCursor` cursor. `padTo` rounds the
+ * plaintext up to a multiple of that many bytes, so the length hides the size.
  */
 export const sealCursor = (
     payload: Record<string, unknown> | undefined,
     secret: string | undefined,
+    { padTo }: { padTo?: number } = {},
 ): string | undefined => {
     if (!payload || Object.keys(payload).length === 0) return undefined;
     if (!secret) return encodeCursor(payload);
+    let plain = Buffer.from(JSON.stringify(payload), 'utf8');
+    if (padTo) {
+        // Trailing spaces, which JSON.parse skips.
+        const padded = Buffer.alloc(
+            Math.ceil(plain.length / padTo) * padTo,
+            ' ',
+        );
+        plain.copy(padded);
+        plain = padded;
+    }
     const iv = randomBytes(SEAL_IV_BYTES);
     const cipher = createCipheriv('aes-256-gcm', sealKey(secret), iv);
-    const body = Buffer.concat([
-        cipher.update(JSON.stringify(payload), 'utf8'),
-        cipher.final(),
-    ]);
+    const body = Buffer.concat([cipher.update(plain), cipher.final()]);
     return Buffer.concat([
         Buffer.from([SEALED_CURSOR_VERSION]),
         iv,
@@ -115,7 +124,8 @@ export const sealCursor = (
     ]).toString('base64url');
 };
 
-const unsealCursor = (
+/** What `sealCursor` sealed under `secret`, or null if `cursor` is not that. */
+export const unsealCursor = (
     cursor: string,
     secret: string,
 ): Record<string, unknown> | null => {

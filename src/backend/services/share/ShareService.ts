@@ -59,7 +59,14 @@ import { carriesClosedAppData } from '../permission/appDataScopes';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { SubscriptionCache } from '../events/subscriptionCache.js';
+import { KV_SHARE_ACCESS_LEVELS, kvShareRoot } from '../kvShare/kvShares.js';
 import { PuterService } from '../types';
+import {
+    BLOCK_ALL_SHARES_KEY,
+    blocksAllShares,
+    recipientNotAcceptingShares,
+    refusesSharesFrom,
+} from './shareBlocks.js';
 
 // -- Types ------------------------------------------------------------
 
@@ -287,21 +294,6 @@ const RETIRE_CHUNK_SIZE = 100;
 
 /** Shares one user may create per UTC day, absent a config override. */
 export const DEFAULT_DAILY_SHARE_LIMIT = 200;
-
-/**
- * Where "refuse shares from everyone" lives on the user row.
- *
- * A key in the existing `metadata` blob rather than a column of its own: the
- * share path already holds the recipient's row by the time it asks, so reading
- * it costs nothing either way, and a one-bit preference doesn't earn a
- * migration per dialect.
- */
-const BLOCK_ALL_SHARES_KEY = 'blockAllShares';
-
-/** Whether this account refuses shares from everyone. */
-export const blocksAllShares = (
-    user: Pick<UserRow, 'metadata'> | null,
-): boolean => Boolean(user?.metadata?.[BLOCK_ALL_SHARES_KEY]);
 
 /**
  * What a share recipient's browser is told about someone else's entry.
@@ -2317,13 +2309,19 @@ export class ShareService extends PuterService {
     }> {
         const userId = this.#requireUserId(actor);
 
+        // A key-value share's grant names its owner and prefix, which its
+        // holder is never told, so only the owner sees those rows.
+        const ownedRoots = {
+            roots: KV_SHARE_ACCESS_LEVELS.map(kvShareRoot),
+            ownerUuid: actor.user.uuid ?? '',
+        };
         let filter: UserUserAuditFilter;
         if (target.uid || target.path) {
             const entry = await this.#resolveEntry(target, actor);
             await this.#assertCanManage(actor, entry);
-            filter = { permissions: entryPermissions(entry.uuid) };
+            filter = { permissions: entryPermissions(entry.uuid), ownedRoots };
         } else {
-            filter = { issuerUserId: userId };
+            filter = { issuerUserId: userId, ownedRoots };
         }
 
         const page = await this.stores.permission.listUserUserAudit(filter, {
@@ -2727,13 +2725,8 @@ export class ShareService extends PuterService {
      * switch is free; only a caller who cleared it pays for the pair lookup.
      */
     async #assertNotBlocked(issuer: number, holder: UserRow): Promise<void> {
-        const blocked =
-            blocksAllShares(holder) ||
-            (await this.stores.userBlock.isBlocked(holder.id, issuer));
-        if (!blocked) return;
-        throw new HttpError(403, 'recipient is not accepting shares', {
-            legacyCode: 'recipient_not_accepting_shares',
-        });
+        if (await refusesSharesFrom(this.stores.userBlock, holder, issuer))
+            throw recipientNotAcceptingShares();
     }
 
     // -- Internals ----------------------------------------------------
@@ -2801,11 +2794,11 @@ export class ShareService extends PuterService {
                 // stopped accepting shares — from this sender, or from anyone
                 // — since it was sent.
                 if (
-                    blocksAllShares(holder) ||
-                    (await this.stores.userBlock.isBlocked(
-                        holderUserId,
+                    await refusesSharesFrom(
+                        this.stores.userBlock,
+                        holder,
                         Number(row.issuer_user_id),
-                    ))
+                    )
                 ) {
                     await this.stores.share.deleteByUid(row.uid);
                     continue;

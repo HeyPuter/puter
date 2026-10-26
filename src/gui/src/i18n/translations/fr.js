@@ -526,19 +526,12 @@ const fr = {
         'set_as_background': 'Définir comme arrière-plan',
 
         // Permission Descriptions
-        'perm_fs_file_access': 'utiliser {{name}} situé à {{path}} avec un accès {{access}}.',
-        'perm_fs_resource_access': 'accéder à {{resource_id}} avec un accès {{access}}.',
-        'perm_folder_access': '{{access}} {{folder}}.',
-        'perm_thread_post': 'publier sur le fil {{thread}}.',
-        'perm_service_invoke': 'utiliser {{service}} pour invoquer {{interface}}.',
-        'perm_driver_use': 'utiliser {{driver}} pour {{action}}.',
         'perm_email_read': 'voir votre adresse e-mail',
         'perm_folder_desktop': 'votre dossier Bureau',
         'perm_folder_documents': 'votre dossier Documents',
         'perm_folder_pictures': 'votre dossier Images',
         'perm_folder_videos': 'votre dossier Vidéos',
         'perm_apps_read': 'voir vos applications',
-        'perm_apps_write': 'gérer vos applications',
         'perm_subdomains_read': 'voir vos sous-domaines',
         'perm_subdomains_write': 'gérer vos sous-domaines',
 

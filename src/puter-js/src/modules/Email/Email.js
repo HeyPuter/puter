@@ -111,7 +111,8 @@ const preprocessSendArgs = (args) => {
  * `{username}@puter.email`, stored as `message/rfc822` objects under the
  * user's `~/.mail`. `list()` pages through a folder newest first without
  * downloading anything, and `get()` fetches and parses one message. An app
- * needs the `fs:/{username}/.mail:read` permission to read its user's mail.
+ * needs read access to `~/.mail` to read its user's mail, which
+ * `puter.perms.request('fs', { path: '~/.mail' })` asks for.
  */
 export class EmailModule extends PuterModule {
     // The fields hold the unbound functions so they keep the full overloaded

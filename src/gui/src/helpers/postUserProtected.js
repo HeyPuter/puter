@@ -29,6 +29,14 @@ import { fetchWithSessionCookieRetry, isSessionAuthError } from '../util/session
  *   sign-in flow has been started and the user has to try again after it.
  */
 
+// Refusals whose server message is English and, for the password, reads
+// like the new and confirmed passwords disagreeing ("Password mismatch").
+const CODE_MESSAGES = {
+    password_mismatch: 'incorrect_password',
+    code_mismatch: 'confirm_code_generic_incorrect',
+    too_many_requests: 'confirm_code_generic_too_many_requests',
+};
+
 /**
  * POSTs an account change to `/user-protected/<route>`, the way every
  * account dialog has to. Those routes authenticate with the session cookie
@@ -62,7 +70,8 @@ export default async function postUserProtected (route, body, { password, onReva
             return { ok: false, data, reauth: true, message: i18n('reauth_required_message', [], false) };
         }
         if ( res.ok ) return { ok: true, data };
-        return { ok: false, data, message: data.message || res.statusText || i18n('error_unknown_cause', [], false) };
+        const known = CODE_MESSAGES[data.code];
+        return { ok: false, data, message: known ? i18n(known, [], false) : data.message || res.statusText || i18n('error_unknown_cause', [], false) };
     };
 
     const revalidate = async (url) => {
