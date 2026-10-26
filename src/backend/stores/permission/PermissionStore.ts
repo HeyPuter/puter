@@ -46,6 +46,9 @@ const AUDIT_PAGE_SIZE = 50;
 const MAX_AUDIT_PAGE_SIZE = 200;
 /** Flat-entry prefix scans one subtree revoke keeps in flight. */
 export const FLAT_PERM_SCAN_CONCURRENCY = 4;
+/** Flat entries one page of a deleted holder's purge lists, and the pages. */
+const HELD_FLAT_PURGE_PAGE = 500;
+const HELD_FLAT_PURGE_MAX_PAGES = 200;
 
 /** The user-to-app grant a user's first sign-in to an app records. */
 export const APP_AUTHENTICATED_FLAG = 'flag:app-is-authenticated';
@@ -205,7 +208,7 @@ export class PermissionStore extends PuterStore {
     #subscribeRemoteFlatInvalidations(): void {
         this.clients.event.on(
             'outer.permission.flatInvalidated',
-            (_key, data, meta) => {
+            async (_key, data, meta) => {
                 if (!(meta as { from_outside?: boolean })?.from_outside) return;
                 const raw = (data as { entries?: unknown })?.entries;
                 if (!Array.isArray(raw)) return;
@@ -221,12 +224,14 @@ export class PermissionStore extends PuterStore {
                 // Guarded: a transient KV error applying a peer's delete must
                 // not become an unhandled rejection. The entry stays until the
                 // next invalidation or its TTL — same as a lost event.
-                this.#applyFlatUserPermDeletes(entries).catch((err) => {
+                try {
+                    await this.#applyFlatUserPermDeletes(entries);
+                } catch (err) {
                     console.warn(
                         '[PermissionStore] failed to apply remote flat-perm deletes:',
                         err,
                     );
-                });
+                }
             },
         );
     }
@@ -331,6 +336,40 @@ export class PermissionStore extends PuterStore {
         } catch {
             // Peer regions keep the entries until their KV replicates.
         }
+    }
+
+    /**
+     * Delete every flat entry one holder has, a page at a time. For an account
+     * that is gone: its SQL rows cascaded, these are keyed on its id.
+     */
+    async purgeFlatUserPermsHeldBy(holderUserId: number): Promise<number> {
+        const prefix = `${PermissionUtil.join(PERM_KEY_PREFIX, String(holderUserId))}:`;
+        let purged = 0;
+        let cursor: string | undefined;
+        for (let page = 0; page < HELD_FLAT_PURGE_MAX_PAGES; page++) {
+            const { res } = await this.stores.kv.list({
+                as: 'keys',
+                keyPrefix: prefix,
+                limit: HELD_FLAT_PURGE_PAGE,
+                ...(cursor ? { cursor } : {}),
+            });
+            const { items, cursor: next } = res as {
+                items: string[];
+                cursor?: string;
+            };
+            await this.delFlatUserPerms(
+                items.map((key) => ({
+                    holderUserId,
+                    permission: PermissionUtil.unescape_permission_component(
+                        key.slice(prefix.length),
+                    ),
+                })),
+            );
+            purged += items.length;
+            if (!next) break;
+            cursor = next;
+        }
+        return purged;
     }
 
     /** Local half of a flat delete. Never emits, so a remote one can't loop. */
@@ -934,6 +973,16 @@ export class PermissionStore extends PuterStore {
     ): Promise<boolean> {
         const all = await this.#readAllUserAppPerms(userId, appId);
         return all.some((row) => row.permission === permission);
+    }
+
+    /**
+     * Whether this user granted this app anything at all. Every way an app gets
+     * a token for a user leaves a row, and removing the app takes them all, so
+     * this is what "still installed" reads off.
+     */
+    async hasAnyUserAppPerm(userId: number, appId: number): Promise<boolean> {
+        const all = await this.#readAllUserAppPerms(userId, appId);
+        return all.length > 0;
     }
 
     /**

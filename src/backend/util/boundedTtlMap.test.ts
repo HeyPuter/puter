@@ -130,4 +130,17 @@ describe('BoundedTtlMap', () => {
             expect(map.shouldEmit('k')).toBe(true);
         });
     });
+
+    describe('deleteWhere', () => {
+        it('deletes only the matching entries and reports how many', () => {
+            const map = new BoundedTtlMap<string, number>({ maxEntries: 10 });
+            map.set('a', 1).set('b', 2).set('c', 3);
+
+            expect(map.deleteWhere((value) => value % 2 === 1)).toBe(2);
+            expect(map.has('a')).toBe(false);
+            expect(map.get('b')).toBe(2);
+            expect(map.has('c')).toBe(false);
+            expect(map.size).toBe(1);
+        });
+    });
 });

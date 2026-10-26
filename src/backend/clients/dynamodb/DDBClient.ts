@@ -534,6 +534,8 @@ export class DDBClient extends PuterClient {
             scanIndexForward?: boolean;
             beginsWith?: { key: string; value: string };
             select?: 'COUNT';
+            /** Attributes to return instead of the whole item. */
+            projection?: string[];
             filter?: {
                 expression: string;
                 values?: Record<string, unknown>;
@@ -574,6 +576,10 @@ export class DDBClient extends PuterClient {
             Object.assign(expressionAttributeValues, options.filter.values);
             Object.assign(expressionAttributeNames, options.filter.names);
         }
+        const projection = (options?.projection ?? []).map((name) => {
+            expressionAttributeNames[`#p_${name}`] = name;
+            return `#p_${name}`;
+        });
 
         const command = new QueryCommand({
             TableName: table,
@@ -588,6 +594,9 @@ export class DDBClient extends PuterClient {
                 ? { FilterExpression: options.filter.expression }
                 : {}),
             ...(options?.select ? { Select: options.select } : {}),
+            ...(projection.length > 0
+                ? { ProjectionExpression: projection.join(', ') }
+                : {}),
             ...(options?.scanIndexForward !== undefined
                 ? { ScanIndexForward: options.scanIndexForward }
                 : {}),

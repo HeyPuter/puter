@@ -1,6 +1,6 @@
 import { shareListQuery, sharesRequest } from './lib/shares.js';
 
-/** @typedef {import('./types.js').KVShareListOptions} KVShareListOptions */
+/** @typedef {import('./types.js').KVSharedByMeListOptions} KVSharedByMeListOptions */
 /** @typedef {import('./types.js').KVSharedByMe} KVSharedByMe */
 /**
  * @template [T=unknown]
@@ -9,15 +9,15 @@ import { shareListQuery, sharesRequest } from './lib/shares.js';
 
 /**
  * @overload
- * @param {KVShareListOptions} [options]
+ * @param {KVSharedByMeListOptions} [options]
  * @returns {Promise<ListPage<KVSharedByMe>>}
  */
 /**
- * Lists the shares you made, a page at a time, including ones that stopped.
- * In an app, only the shares of that app's data.
+ * Lists the shares you made, a page at a time, including ones that stopped
+ * unless `state` narrows it. In an app, only the shares of that app's data.
  *
  * @this {import('./index.js').KVModule}
- * @param {KVShareListOptions} [options]
+ * @param {KVSharedByMeListOptions} [options]
  * @returns {Promise<ListPage<KVSharedByMe>>}
  */
 export async function listSharedByMe (options) {

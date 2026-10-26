@@ -22,17 +22,83 @@ import type { Actor } from '../../core/actor.js';
 import { Controller, Delete, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { bodyRecord } from '../../core/http/requestBody.js';
-import { parseKvShareRecipient } from '../../services/kvShare/kvShares.js';
-import type { KvShareHandleListOptions } from '../../stores/events/KvShareHandleStore.js';
-import { KV_HANDLE_LIST_LIMIT_CAP } from '../../stores/events/KvShareHandleStore.js';
+import {
+    assertShareableAppUid,
+    parseKvShareRecipient,
+} from '../../services/kvShare/kvShares.js';
+import type {
+    KvShareHandleListOptions,
+    KvShareOwnerListOptions,
+    KvShareOwnerListState,
+} from '../../stores/events/KvShareHandleStore.js';
+import {
+    KV_HANDLE_LIST_LIMIT_CAP,
+    KV_SHARE_OWNER_LIST_STATES,
+} from '../../stores/events/KvShareHandleStore.js';
 import { KV_GLOBAL_APP_KEY } from '../../stores/systemKv/SystemKVStore.js';
 import { normalizeLimit } from '../../util/pagination.js';
-import { EVENTS_LIST_LIMIT } from '../events/limits.js';
+import type { KvShareView } from '../../services/kvShare/KvShareService.js';
+import { EVENTS_LIST_LIMIT, KV_SHARE_BATCH_MAX } from '../events/limits.js';
 import { PuterController } from '../types.js';
 
 /** The app-less namespace is no app, so the wire says `null` for it. */
 const publicAppUid = (appUid: string): string | null =>
     appUid === KV_GLOBAL_APP_KEY ? null : appUid;
+
+/**
+ * The namespace a listing's `appUid` names, in the form responses use: an app
+ * uid, or `null` for the app-less namespace.
+ */
+const listAppUid = (value: unknown): string | undefined => {
+    if (value === undefined || value === '') return undefined;
+    if (typeof value !== 'string')
+        throw new HttpError(400, '`appUid` must be a string', {
+            legacyCode: 'bad_request',
+        });
+    return value === 'null' ? KV_GLOBAL_APP_KEY : assertShareableAppUid(value);
+};
+
+const badRequest = (message: string): HttpError =>
+    new HttpError(400, message, { legacyCode: 'bad_request' });
+
+/** A share as `POST /kv/shares` reports it. */
+const shareBody = (share: KvShareView) => ({
+    handle: share.handle,
+    prefix: share.prefix,
+    access: share.access,
+    appUid: publicAppUid(share.appUid),
+    holder: share.holderUsername,
+    label: share.label,
+    createdAt: share.createdAt,
+});
+
+/** `recipients` when the body names it: 1 to `KV_SHARE_BATCH_MAX` entries. */
+const batchRecipients = (
+    body: Record<string, unknown>,
+): unknown[] | undefined => {
+    const { recipient, recipients } = body;
+    if (recipients === undefined) return undefined;
+    if (recipient !== undefined)
+        throw badRequest('Send either `recipient` or `recipients`, not both');
+    if (
+        !Array.isArray(recipients) ||
+        recipients.length === 0 ||
+        recipients.length > KV_SHARE_BATCH_MAX
+    )
+        throw badRequest(
+            `\`recipients\` must be an array of 1 to ${KV_SHARE_BATCH_MAX} recipients`,
+        );
+    return recipients;
+};
+
+const listState = (value: unknown): KvShareOwnerListState | undefined => {
+    if (value === undefined || value === '') return undefined;
+    if (!(KV_SHARE_OWNER_LIST_STATES as readonly unknown[]).includes(value))
+        throw new HttpError(400, '`state` must be `live`, `revoked` or `all`', {
+            legacyCode: 'bad_request',
+        });
+    return value as KvShareOwnerListState;
+};
 
 const pageOptions = (req: Request): KvShareHandleListOptions => {
     const query = (req.query ?? {}) as Record<string, unknown>;
@@ -40,8 +106,14 @@ const pageOptions = (req: Request): KvShareHandleListOptions => {
         limit: normalizeLimit(query.limit, { cap: KV_HANDLE_LIST_LIMIT_CAP }),
         cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
         includeTotal: query.includeTotal === 'true',
+        appUid: listAppUid(query.appUid),
     };
 };
+
+const ownerPageOptions = (req: Request): KvShareOwnerListOptions => ({
+    ...pageOptions(req),
+    state: listState((req.query ?? {}).state),
+});
 
 /**
  * Sharing a region of one account's key-value data with another account.
@@ -56,7 +128,8 @@ export class KvShareController extends PuterController {
     /**
      * POST /kv/shares — share a region with another account, `read` unless the
      * body asks otherwise. Sharing the same region with the same account again
-     * changes its level or label in place.
+     * changes its level or label in place. `recipients` shares it with several
+     * at once and reports each one on its own item.
      */
     @Post('/shares', {
         subdomain: 'api',
@@ -67,29 +140,52 @@ export class KvShareController extends PuterController {
     async share(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
         const body = bodyRecord(req);
+        const fields = {
+            prefix: body.prefix,
+            access: body.access,
+            appUid: body.appUid,
+            label: body.label,
+        };
+        const recipients = batchRecipients(body);
+        if (recipients) {
+            const items = await this.services.kvShare.mintKvHandles(
+                actor,
+                { ...fields, recipients },
+                { defaultAccess: 'read' },
+            );
+            res.json({
+                items: items.map((item) =>
+                    item.share
+                        ? {
+                              recipient: item.recipient,
+                              ...shareBody(item.share),
+                          }
+                        : {
+                              recipient: item.recipient,
+                              error: {
+                                  message: item.error?.message ?? 'Not shared',
+                                  code:
+                                      item.error?.legacyCode ??
+                                      item.error?.code ??
+                                      'internal_error',
+                              },
+                          },
+                ),
+            });
+            return;
+        }
         const share = await this.services.kvShare.mintKvHandle(
             actor,
-            {
-                prefix: body.prefix,
-                recipient: parseKvShareRecipient(body.recipient),
-                access: body.access,
-                appUid: body.appUid,
-                label: body.label,
-            },
+            { ...fields, recipient: parseKvShareRecipient(body.recipient) },
             { defaultAccess: 'read' },
         );
-        res.json({
-            handle: share.handle,
-            prefix: share.prefix,
-            access: share.access,
-            appUid: publicAppUid(share.appUid),
-            holder: share.holderUsername,
-            label: share.label,
-            createdAt: share.createdAt,
-        });
+        res.json(shareBody(share));
     }
 
-    /** GET /kv/shares — what this account has shared out, retired included. */
+    /**
+     * GET /kv/shares — what this account has shared out, retired included
+     * unless `state` narrows it.
+     */
     @Get('/shares', {
         subdomain: 'api',
         requireAuth: true,
@@ -100,7 +196,7 @@ export class KvShareController extends PuterController {
         const actor = this.#requireActor(req);
         const page = await this.services.kvShare.listKvHandles(
             actor,
-            pageOptions(req),
+            ownerPageOptions(req),
         );
         res.json({
             items: page.items.map((row) => ({

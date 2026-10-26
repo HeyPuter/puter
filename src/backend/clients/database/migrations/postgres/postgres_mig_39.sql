@@ -15,35 +15,21 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Devices that can receive pushes for a user. See sqlite/0096_push-device.sql
--- for the rationale. Timestamps are unix seconds.
---
--- Idempotent via IF NOT EXISTS.
+-- Share-handle quota, listing and purge indexes. See
+-- sqlite/0096_kv-share-handle-quota-indexes.sql for what each serves.
+-- Idempotent via IF NOT EXISTS; there is no per-file applied-state tracking.
 
-CREATE TABLE IF NOT EXISTS push_device (
-    id BIGSERIAL PRIMARY KEY,
-    uid VARCHAR(40) NOT NULL,
-    user_id integer NOT NULL
-        REFERENCES "user" (id) ON DELETE CASCADE ON UPDATE CASCADE,
-    session_uid VARCHAR(40) DEFAULT NULL,
-    platform VARCHAR(16) NOT NULL,
-    token TEXT NOT NULL,
-    token_hash CHAR(64) NOT NULL,
-    app_uid VARCHAR(40) DEFAULT NULL,
-    user_agent VARCHAR(512) DEFAULT NULL,
-    label VARCHAR(64) DEFAULT NULL,
-    created_at BIGINT NOT NULL,
-    last_seen_at BIGINT NOT NULL,
-    failure_count INTEGER NOT NULL DEFAULT 0
-);
+CREATE INDEX IF NOT EXISTS idx_kv_share_handles_owner_live
+    ON kv_share_handles (owner_user_id, revoked_at, app_uid);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_push_device_token_hash
-    ON push_device (token_hash);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_push_device_uid
-    ON push_device (uid);
-CREATE INDEX IF NOT EXISTS idx_push_device_user_app
-    ON push_device (user_id, app_uid);
-CREATE INDEX IF NOT EXISTS idx_push_device_session
-    ON push_device (session_uid);
-CREATE INDEX IF NOT EXISTS idx_push_device_last_seen
-    ON push_device (last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_kv_share_handles_owner_app
+    ON kv_share_handles (owner_user_id, app_uid, id);
+
+CREATE INDEX IF NOT EXISTS idx_kv_share_handles_grantee_app
+    ON kv_share_handles (grantee_user_id, app_uid, id);
+
+CREATE INDEX IF NOT EXISTS idx_kv_share_handles_pair
+    ON kv_share_handles (owner_user_id, grantee_user_id, revoked_at);
+
+CREATE INDEX IF NOT EXISTS idx_kv_share_handles_revoked
+    ON kv_share_handles (revoked_at);
