@@ -27,6 +27,9 @@ import { PuterService } from '../types.js';
  */
 const PROVISIONED_FSENTRY_COUNT = 8;
 
+/** Apps read per page when listing the ones an account owns. */
+const OWNED_APPS_PAGE = 500;
+
 /**
  * Account-lifecycle operations that more than one caller needs: deleting an
  * account and everything hanging off it, and measuring whether an account has
@@ -101,8 +104,16 @@ export class UserAccountService extends PuterService {
             console.warn('[cascade-delete-user] subdomain cleanup failed:', e);
         }
 
-        // The user's apps cascade away with the row; record them first so a
-        // hosted origin doesn't hand their uids to the subdomain's next owner.
+        // The user's apps cascade away with the row, with no `app.changed`, so
+        // `user.delete` names them for what was tied to them.
+        let appUids: string[] = [];
+        try {
+            appUids = await this.#ownedAppUids(userId);
+        } catch (e) {
+            console.warn('[cascade-delete-user] owned-app lookup failed:', e);
+        }
+        // Record them first so a hosted origin doesn't hand their uids to the
+        // subdomain's next owner.
         await this.stores.app.recordDeletedForOwner(userId);
         // Other users' sites and workers tied to those apps cascade too.
         const appSites = await this.stores.subdomain.listAppCascade({
@@ -143,6 +154,7 @@ export class UserAccountService extends PuterService {
                     user_id: userId,
                     user_uuid: userUuid,
                     stripe_customer_id: stripeCustomerId,
+                    appUids,
                 },
                 {},
             );
@@ -161,6 +173,22 @@ export class UserAccountService extends PuterService {
                     e,
                 );
             }
+        }
+    }
+
+    /** The uids of every app this user owns, a page at a time. */
+    async #ownedAppUids(userId: number): Promise<string[]> {
+        const uids: string[] = [];
+        let afterId: number | undefined;
+        for (;;) {
+            const apps = (await this.stores.app.list({
+                ownerUserId: userId,
+                afterId,
+                limit: OWNED_APPS_PAGE,
+            })) as Array<{ id: number; uid: string }>;
+            uids.push(...apps.map((app) => app.uid));
+            if (apps.length < OWNED_APPS_PAGE) return uids;
+            afterId = apps[apps.length - 1]!.id;
         }
     }
 

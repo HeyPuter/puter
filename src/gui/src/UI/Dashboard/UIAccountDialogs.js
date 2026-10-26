@@ -26,13 +26,12 @@ import create_access_token from '../../helpers/createAccessToken.js';
 import postUserProtected from '../../helpers/postUserProtected.js';
 import update_username_in_gui from '../../helpers/updateUsernameInGui.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
-import UIDashboardFormDialog from './UIDashboardFormDialog.js';
+import UIDashboardFormDialog, { copyRowHtml } from './UIDashboardFormDialog.js';
 
 // Keep in sync with ProfileService on the backend.
 const DISPLAY_NAME_MAX_LENGTH = 64;
 const BIO_MAX_LENGTH = 280;
 const TOKEN_LABEL_MAX_LENGTH = 64;
-const TOKEN_COPIED_RESET_MS = 2000;
 
 /**
  * @typedef {object} AccountDialogOptions
@@ -53,6 +52,9 @@ const passwordField = (label) => ({
     hidden: isOidcOnly(),
     attrs: { autocomplete: 'current-password' },
 });
+
+/** Puts a refused password's status on the field, to be typed again. */
+const wrongPassword = (result, field) => (result.data?.code === 'password_mismatch' ? { field } : undefined);
 
 /** Text that tells a provider-only account what will happen instead of a password. */
 const oidcNotice = () => (isOidcOnly() ? `<p>${i18n('revalidate_flow_notice')}</p>` : '');
@@ -143,6 +145,11 @@ export function openChangeUsernameDialog (opts = {}) {
                 dialog.setStatus(t('all_fields_required'), { field: 'username' });
                 return;
             }
+            // The server would call it taken, and count the password try.
+            if ( new_username.toLowerCase() === String(window.user?.username).toLowerCase() ) {
+                dialog.setStatus(t('username_unchanged'), { field: 'username' });
+                return;
+            }
             if ( ! isOidcOnly() && ! password ) {
                 dialog.setStatus(t('all_fields_required'), { field: 'password' });
                 return;
@@ -152,7 +159,7 @@ export function openChangeUsernameDialog (opts = {}) {
                 onRevalidate: revalidating(dialog),
             });
             if ( ! result.ok ) {
-                dialog.setStatus(result.message);
+                dialog.setStatus(result.message, wrongPassword(result, 'password'));
                 return;
             }
             update_username_in_gui(new_username);
@@ -206,6 +213,11 @@ export function openChangePasswordDialog (opts = {}) {
                 dialog.setStatus(t('passwords_do_not_match'), { field: 'confirm' });
                 return;
             }
+            // It would go through, and sign every other session out for nothing.
+            if ( current && next === current ) {
+                dialog.setStatus(t('password_unchanged'), { field: 'next' });
+                return;
+            }
             if ( ! check_password_strength(next).overallPass ) {
                 dialog.setStatus(t('password_strength_error'), { field: 'next' });
                 return;
@@ -215,9 +227,12 @@ export function openChangePasswordDialog (opts = {}) {
                 onRevalidate: revalidating(dialog),
             });
             if ( ! result.ok ) {
-                dialog.setStatus(result.message);
+                dialog.setStatus(result.message, wrongPassword(result, 'current'));
                 return;
             }
+            // A provider-only account now has a password, and the other
+            // dialogs ask for it instead of the provider's sign-in.
+            if ( window.user ) window.user.oidc_only = false;
             dialog.finish({ message: t('password_changed') });
         },
     });
@@ -257,6 +272,12 @@ export function openChangeEmailDialog (opts = {}) {
                 dialog.setStatus(t('all_fields_required'), { field: 'email' });
                 return;
             }
+            // The server would accept it: mail the same inbox, and unlink any
+            // sign-in provider once confirmed.
+            if ( new_email.toLowerCase() === String(window.user?.email).toLowerCase() ) {
+                dialog.setStatus(t('email_unchanged'), { field: 'email' });
+                return;
+            }
             if ( ! isOidcOnly() && ! password ) {
                 dialog.setStatus(t('all_fields_required'), { field: 'password' });
                 return;
@@ -270,7 +291,7 @@ export function openChangeEmailDialog (opts = {}) {
                 // Accounts with 2FA turned on since the page loaded learn about it here.
                 const needs_code = result.data.factor === 'otp';
                 if ( needs_code ) dialog.showField('code', true);
-                dialog.setStatus(result.message, needs_code ? { field: 'code' } : undefined);
+                dialog.setStatus(result.message, needs_code ? { field: 'code' } : wrongPassword(result, 'password'));
                 return;
             }
             // The address is the account's once the emailed link is followed, not yet.
@@ -321,43 +342,13 @@ export function openCreateTokenDialog ({ $sessionsParent, ...opts } = {}) {
             const token = await create_access_token({ label: label.trim(), expiresIn: expiresIn || null });
 
             let h = `<div class="dashboard-token-warning">${i18n('token_shown_once_warning')}</div>`;
-            h += '<div class="dashboard-token-row">';
-            h += `<input type="text" class="dashboard-dialog-input dashboard-token-value" readonly value="${html_encode(token)}" aria-label="${i18n('api_token')}" spellcheck="false">`;
-            h += `<button type="button" class="dashboard-dialog-btn dashboard-dialog-btn-quiet dashboard-token-copy">${i18n('copy')}</button>`;
-            h += '</div>';
+            h += copyRowHtml({ value: token, label: t('api_token'), copiedLabel: t('token_copied') });
             h += `<p class="dashboard-form-hint">${i18n('token_manage_hint')} <button type="button" class="dashboard-token-sessions">${i18n('ui_manage_sessions')}</button>.</p>`;
             // The token is shown only once; only Done, ✕ or Escape put it away.
-            dialog.finish({ html: h, keepOnBackdrop: true });
+            dialog.finish({ html: h, describe: '.dashboard-token-warning', keepOnBackdrop: true });
         },
     });
 
-    let copied_timer = null;
-    dialog.$dialog.on('click', '.dashboard-token-copy', function () {
-        const $btn = $(this);
-        const $value = dialog.$dialog.find('.dashboard-token-value');
-        const copied = () => {
-            $btn.text(t('token_copied'));
-            clearTimeout(copied_timer);
-            copied_timer = setTimeout(() => $btn.text(t('copy')), TOKEN_COPIED_RESET_MS);
-        };
-        // No clipboard access (an insecure origin has no navigator.clipboard
-        // at all): select it, try the legacy copy, and leave it selected so
-        // the user can copy it by hand.
-        const by_hand = () => {
-            $value.get(0)?.select();
-            try {
-                if ( document.execCommand('copy') ) copied();
-            } catch { /* stays selected */ }
-        };
-        if ( navigator.clipboard?.writeText ) {
-            navigator.clipboard.writeText(String($value.val())).then(copied, by_hand);
-        } else {
-            by_hand();
-        }
-    });
-    dialog.$dialog.on('focus', '.dashboard-token-value', function () {
-        this.select();
-    });
     dialog.$dialog.on('click', '.dashboard-token-sessions', () => {
         UIWindowManageSessions({
             window_options: {
@@ -418,7 +409,7 @@ export function openDeleteAccountDialog (opts = {}) {
                 onRevalidate: revalidating(dialog),
             });
             if ( ! result.ok || ! result.data.success ) {
-                dialog.setStatus(result.message ?? t('error_unknown_cause'));
+                dialog.setStatus(result.message ?? t('error_unknown_cause'), wrongPassword(result, 'password'));
                 return;
             }
             window.user.deleted = true;

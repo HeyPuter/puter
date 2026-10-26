@@ -22,7 +22,7 @@ What you watch is written as a subject string:
 | `kv:cart` | One key in your app's key-value store (`kv:cart*` for a prefix) |
 | `notif:app-user` | Notifications about the user's use of your app |
 
-See [Subjects and events](/Events/subjects/) for the full subject syntax, the event shape, and how to share key-value events with another user.
+See [Subjects and events](/Events/subjects/) for the full subject syntax, the event shape, and how to watch key-value data another user shared with you.
 
 With the [User-Pays Model](/user-pays-model/), deliveries are billed to the user holding the subscription, not to you. See [Rate Limits and Quotas](/rate-limits-and-quotas/#events) for limits and costs.
 

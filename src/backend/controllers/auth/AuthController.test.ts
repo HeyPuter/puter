@@ -49,7 +49,7 @@ import {
 } from '../../core/http/types.js';
 import { PuterServer } from '../../server.js';
 import { createSecret as otpCreateSecret } from '../../services/auth/OTPUtil.js';
-import { kvSharePermission } from '../../services/events/kvShares.js';
+import { kvSharePermission } from '../../services/kvShare/kvShares.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
 import { resetCardVerificationStatusCache } from '../../util/cardFallback.js';
@@ -2151,7 +2151,7 @@ describe('AuthController grant flows', () => {
             },
             { ownerUserId: issuer.id },
         );
-        const permission = `service:tg-app:ii:read`;
+        const permission = `events:background`;
         // The controller's grant call delegates through PermissionService
         // (which uses ALS Context.set), so wrap in runWithContext.
         const res = makeRes();
@@ -2192,7 +2192,7 @@ describe('AuthController grant flows', () => {
             },
             { ownerUserId: issuer.id },
         );
-        const permission = `service:tg-origin-app:ii:read`;
+        const permission = `events:background`;
         const res = makeRes();
         await inCtx(issuerActor, () =>
             controller.handleGrantUserApp(
@@ -2229,7 +2229,7 @@ describe('AuthController grant flows', () => {
             },
             { ownerUserId: issuer.id },
         );
-        const permission = `service:tr-origin-app:ii:read`;
+        const permission = `events:background`;
         await inCtx(issuerActor, () =>
             controller.handleGrantUserApp(
                 makeReq(
@@ -2294,7 +2294,7 @@ describe('AuthController grant flows', () => {
         await inCtx(issuerActor, () =>
             controller.handleRevokeUserApp(
                 makeReq(
-                    { app_uid: app.uid, permission: 'service:x:ii:read' },
+                    { app_uid: app.uid, permission: 'events:background' },
                     { actor: issuerActor },
                 ),
                 makeRes(),
@@ -2318,12 +2318,12 @@ describe('AuthController grant flows', () => {
 
     it('grant-user-app: 400 on non-string or oversized origin/app_uid/permission', async () => {
         const cases = [
-            { origin: { host: 'evil' }, permission: 'service:x:ii:read' },
-            { origin: 'https://a.test', permission: ['service:x:ii:read'] },
-            { app_uid: 12345, permission: 'service:x:ii:read' },
+            { origin: { host: 'evil' }, permission: 'events:background' },
+            { origin: 'https://a.test', permission: ['events:background'] },
+            { app_uid: 12345, permission: 'events:background' },
             {
                 origin: `https://${'a'.repeat(5000)}.test`,
-                permission: 'service:x:ii:read',
+                permission: 'events:background',
             },
         ];
         for (const body of cases) {
@@ -2354,7 +2354,7 @@ describe('AuthController grant flows', () => {
             { ownerUserId: target.id },
         );
 
-        const permission = 'service:squat:ii:read';
+        const permission = 'events:background';
         for (const handler of [
             'handleGrantUserApp',
             'handleRevokeUserApp',
@@ -2398,7 +2398,7 @@ describe('AuthController grant flows', () => {
             { ownerUserId: target.id },
         );
 
-        const permission = 'service:squat-beside:ii:read';
+        const permission = 'events:background';
         for (const handler of [
             'handleGrantUserApp',
             'handleRevokeUserApp',
@@ -2451,7 +2451,7 @@ describe('AuthController grant flows', () => {
             { ownerUserId: issuer.id },
         );
 
-        const permission = 'service:tp-origin:ii:read';
+        const permission = 'events:background';
         await inCtx(issuerActor, () =>
             controller.handleGrantUserApp(
                 makeReq(
@@ -2487,7 +2487,7 @@ describe('AuthController grant flows', () => {
             },
             { ownerUserId: issuer.id },
         );
-        const permission = 'service:tm-app:ii:read';
+        const permission = 'events:background';
         for (const body of [
             { app_uid: app.uid, permission, meta: 'nope' },
             { app_uid: app.uid, permission, meta: [1, 2] },
@@ -2528,7 +2528,7 @@ describe('AuthController grant flows', () => {
             },
             { ownerUserId: issuer.id },
         );
-        const permission = 'service:tb-app:ii:read';
+        const permission = 'events:background';
         const oversized = { blob: 'z'.repeat(5000) };
         for (const body of [
             { app_uid: app.uid, permission, extra: oversized },
@@ -2605,26 +2605,278 @@ describe('AuthController grant flows', () => {
         expect(res.body).toEqual({});
     });
 
-    it('grant-user-app: 400 on a `permission` wider than the column it lands in', async () => {
-        // 300 chars is under the 4096 input cap but over `varchar(255)`, so it
-        // used to reach the INSERT and fault on MySQL/Postgres. The check runs
-        // after the rewrite, so this has to be a permission no rewriter
-        // shortens — and it has to reject before the app is resolved, since
-        // this uid names no app.
-        await expect(
+    it('grant-user-app: grants read and write share delegations on a region, never on the namespace', async () => {
+        const appName = `tkvl-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestKvShareLevelsApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        for (const root of ['kv-share-read', 'kv-share-write']) {
+            const namespace = `manage:${root}:${issuer.uuid}:${app.uid}`;
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller.handleGrantUserApp(
+                        makeReq(
+                            { app_uid: app.uid, permission: namespace },
+                            { actor: issuerActor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ legacyCode: 'invalid_kv_share_prefix' });
+
+            const res = makeRes();
+            await inCtx(issuerActor, () =>
+                controller.handleGrantUserApp(
+                    makeReq(
+                        { app_uid: app.uid, permission: `${namespace}:team` },
+                        { actor: issuerActor },
+                    ),
+                    res,
+                ),
+            );
+            expect(res.body).toEqual({});
+        }
+        const rows = await server.clients.db.read(
+            'SELECT `permission` FROM `user_to_app_permissions` WHERE `user_id` = ? AND `app_id` = ? ORDER BY `permission`',
+            [issuer.id, app.id],
+        );
+        expect(rows.map((r: { permission: string }) => r.permission)).toEqual([
+            `manage:kv-share-read:${issuer.uuid}:${app.uid}:team`,
+            `manage:kv-share-write:${issuer.uuid}:${app.uid}:team`,
+        ]);
+    });
+
+    it('grant-user-app: refuses a share delegation whose region a new share could not name, writing nothing', async () => {
+        const appName = `tkvc-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestKvShareCharsApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        for (const region of ['Team', 'team:Abc', 'caf\u00E9', 'a b'])
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller.handleGrantUserApp(
+                        makeReq(
+                            {
+                                app_uid: app.uid,
+                                permission: `manage:kv-share-read:${issuer.uuid}:${app.uid}:${region}`,
+                            },
+                            { actor: issuerActor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ legacyCode: 'invalid_kv_share_prefix' });
+        const rows = await server.clients.db.read(
+            'SELECT `permission` FROM `user_to_app_permissions` WHERE `user_id` = ? AND `app_id` = ?',
+            [issuer.id, app.id],
+        );
+        expect(rows).toEqual([]);
+    });
+
+    it('grant-user-app: refuses a permission outside the app-grantable families, writing nothing', async () => {
+        const appName = `tng-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestNotGrantableApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const other = await server.stores.app.create(
+            {
+                name: `tng-other-${uuidv4()}`,
+                title: 'TestNotGrantableOther',
+                index_url: `https://tng-other-${uuidv4()}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const refused = [
+            ['driver:puter-image-generation:generate'],
+            [`user:${target.uuid}:email:read`],
+            // One bad entry refuses the batch.
+            ['events:background', 'random-string'],
+            // A share delegation names the app's own namespace only.
+            [`manage:kv-share:${issuer.uuid}:${other.uid}:rooms`],
+        ];
+        for (const permissions of refused) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller.handleGrantUserApp(
+                        makeReq(
+                            { app_uid: app.uid, permissions },
+                            { actor: issuerActor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'permission_not_grantable',
+            });
+        }
+        const rows = await server.clients.db.read(
+            'SELECT 1 FROM `user_to_app_permissions` WHERE `user_id` = ? AND `app_id` = ?',
+            [issuer.id, app.id],
+        );
+        expect(rows).toEqual([]);
+    });
+
+    it('grant-user-app: refuses a non-canonical spelling of a grantable permission', async () => {
+        const appName = `tnc-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestNonCanonicalApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        for (const permission of [
+            `f\\s:/${issuer.username}/Documents:read`,
+            `app-root-di\\r:${app.uid}:read`,
+            `manag\\e:kv-share:${issuer.uuid}:${app.uid}:rooms`,
+        ]) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller.handleGrantUserApp(
+                        makeReq(
+                            { app_uid: app.uid, permission },
+                            { actor: issuerActor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ legacyCode: 'permission_not_grantable' });
+        }
+    });
+
+    it('grant-user-app: refuses a share delegation over a prefix no share could be made of, as a share would be', async () => {
+        const appName = `tkvp-${uuidv4().slice(0, 8)}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestKvSharePrefixApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        for (const root of ['kv-share', 'kv-share-read', 'kv-share-write']) {
+            // A share grant one character wider than the column.
+            const head = `${root}:${issuer.uuid}:${app.uid}:`;
+            const region = 'a'.repeat(256 - head.length);
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller.handleGrantUserApp(
+                        makeReq(
+                            {
+                                app_uid: app.uid,
+                                permission: `manage:${head}${region}`,
+                            },
+                            { actor: issuerActor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ legacyCode: 'invalid_kv_share_prefix' });
+        }
+    });
+
+    it('grant-user-app: a share delegation must name the app the request names, by uid, name or origin', async () => {
+        const appName = `tkvn-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestKvShareNamedApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const other = await server.stores.app.create(
+            {
+                name: `tkvn-other-${uuidv4()}`,
+                title: 'TestKvShareNamedOther',
+                index_url: `https://tkvn-other-${uuidv4()}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const grant = (requester: Record<string, string>, namespace: string) =>
             inCtx(issuerActor, () =>
                 controller.handleGrantUserApp(
                     makeReq(
                         {
-                            app_uid: `app-${uuidv4()}`,
-                            permission: `service:${'a'.repeat(300)}:ii:read`,
+                            ...requester,
+                            permission: `manage:kv-share:${issuer.uuid}:${namespace}:rooms`,
                         },
                         { actor: issuerActor },
                     ),
                     makeRes(),
                 ),
+            );
+
+        for (const requester of [{ app_uid: app.name }, { origin }]) {
+            await grant(requester, app.uid);
+            await expect(grant(requester, other.uid)).rejects.toMatchObject({
+                legacyCode: 'permission_not_grantable',
+            });
+        }
+        // The app's name is not its namespace.
+        await expect(
+            grant({ app_uid: app.uid }, app.name),
+        ).rejects.toMatchObject({ legacyCode: 'permission_not_grantable' });
+        const rows = await server.clients.db.read(
+            'SELECT `permission` FROM `user_to_app_permissions` WHERE `user_id` = ? AND `app_id` = ?',
+            [issuer.id, app.id],
+        );
+        expect(rows.map((r: { permission: string }) => r.permission)).toEqual([
+            `manage:kv-share:${issuer.uuid}:${app.uid}:rooms`,
+        ]);
+    });
+
+    it('grant-user-app: 400 on a `permission` wider than the column it lands in', async () => {
+        // Under the 4096 input cap but over `varchar(255)`, so it would reach
+        // the INSERT and fault on MySQL/Postgres. The check runs after the
+        // rewrite, so this has to be a grantable permission no rewriter
+        // shortens.
+        const appName = `tw-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestWidthApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        // The shares it delegates fit, at 255 characters; the consent's own
+        // `manage:` arm takes it past the column.
+        const head = `kv-share:${issuer.uuid}:${app.uid}:`;
+        const permission = `manage:${head}${'a'.repeat(255 - head.length)}`;
+        await expect(
+            inCtx(issuerActor, () =>
+                controller.handleGrantUserApp(
+                    makeReq(
+                        { app_uid: app.uid, permission },
+                        { actor: issuerActor },
+                    ),
+                    makeRes(),
+                ),
             ),
-        ).rejects.toMatchObject({ statusCode: 400 });
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+            message: 'Invalid `permission`',
+        });
     });
 
     it('grant-user-app: an oversized permission that a rewriter shortens is accepted', async () => {
@@ -2636,6 +2888,8 @@ describe('AuthController grant flows', () => {
         // on "please try again" for any deeply nested file. Exercised here
         // through a rewriter of our own, since the real fs rewriter resolves
         // the path through the fsentry store and this suite has no entries.
+        // It rewrites a share delegation only because that is a grantable
+        // shape no production rewriter touches.
         const appName = `tlp-${uuidv4()}`;
         const app = await server.stores.app.create(
             {
@@ -2646,13 +2900,15 @@ describe('AuthController grant flows', () => {
             { ownerUserId: issuer.id },
         );
 
-        const prefix = `tlprw-${uuidv4()}`;
-        const longPermission = `${prefix}:${'a'.repeat(300)}:read`;
-        const shortPermission = `${prefix}:${uuidv4()}:read`;
+        // Over the column only by its `manage:` arm, so the shares it
+        // delegates still fit.
+        const head = `kv-share:${issuer.uuid}:${app.uid}:`;
+        const longPermission = `manage:${head}${'a'.repeat(255 - head.length)}`;
+        const shortPermission = `manage:${head}${uuidv4()}`;
         expect(longPermission.length).toBeGreaterThan(255);
         expect(shortPermission.length).toBeLessThanOrEqual(255);
         server.services.permission.registerRewriter({
-            id: `test-shorten-${prefix}`,
+            id: `test-shorten-${app.uid}`,
             matches: (permission: string) => permission === longPermission,
             rewrite: async () => shortPermission,
         });
@@ -2712,7 +2968,8 @@ describe('AuthController grant flows', () => {
             { ownerUserId: issuer.id },
         );
 
-        const prefix = `conc-${uuidv4()}`;
+        // A grantable shape no production rewriter touches.
+        const prefix = `manage:kv-share:${issuer.uuid}:${app.uid}:conc-${uuidv4()}`;
         let release: () => void;
         let entered: () => void;
         const held = new Promise<void>((r) => {
@@ -2740,7 +2997,7 @@ describe('AuthController grant flows', () => {
                 makeReq(
                     {
                         app_uid: app.uid,
-                        permission: `${prefix}:${app.uid}:write`,
+                        permission: `${prefix}:write`,
                     },
                     { actor: issuerActor },
                 ),
@@ -2781,8 +3038,8 @@ describe('AuthController grant flows', () => {
             { ownerUserId: issuer.id },
         );
 
-        const prefix = `tardrw-${uuidv4()}`;
-        const pseudoPermission = `${prefix}:${app.uid}:write`;
+        const prefix = `manage:kv-share:${issuer.uuid}:${app.uid}:tardrw-${uuidv4()}`;
+        const pseudoPermission = `${prefix}:write`;
         const resolvedPermission = `fs:${uuidv4()}:write`;
         const NOTHING = 'nothing-in-particular';
         server.services.permission.registerRewriter({
@@ -3023,7 +3280,7 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         // phase A's pre-flight passes, phase C's re-check then fails, so the
         // leaf (and its auto-created parent) already exist by the time the
         // request unwinds.
-        const prefix = `rbparent-${uuidv4()}`;
+        const prefix = `manage:kv-share:${user.uuid}:${appUid}:rbparent-${uuidv4()}`;
         let calls = 0;
         server.services.permission.registerRewriter({
             id: prefix,
@@ -3189,13 +3446,13 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
     });
 
-    it('does not apply `create` to a `manage:` grant — 404 unchanged, nothing created', async () => {
+    it('refuses a `manage:` grant outright, creating nothing', async () => {
         const p = path(`manage-missing-${rand()}`);
         await expect(
             grant({ permission: `manage:fs:${p}:write` }),
         ).rejects.toMatchObject({
-            statusCode: 404,
-            legacyCode: 'subject_does_not_exist',
+            statusCode: 400,
+            legacyCode: 'permission_not_grantable',
         });
         expect(await server.stores.fsEntry.getEntryByPath(p)).toBeFalsy();
     });
@@ -3285,7 +3542,7 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         // (so nothing is rejected before anything is created) but has grown
         // too wide by the time phase C re-runs it — modelling a grant that
         // only fails once the fs path from the same batch already exists.
-        const prefix = `rbtest-${uuidv4()}`;
+        const prefix = `manage:kv-share:${user.uuid}:${appUid}:rbtest-${uuidv4()}`;
         let calls = 0;
         server.services.permission.registerRewriter({
             id: `test-rollback-${prefix}`,
@@ -3324,6 +3581,37 @@ describe('AuthController.handleGrantUserApp `create` flag', () => {
         expect(await grantedPermissions()).not.toContain(
             `fs:${entry!.uuid}:write`,
         );
+    });
+
+    it('check-permissions answers an app asking about itself through ACL, so a folder grant covers what is inside', async () => {
+        const dir = path(`acl-self-${rand()}`);
+        const child = `${dir}/inner`;
+        await server.services.fs.mkdir(user.id, {
+            path: child,
+            createMissingParents: true,
+        });
+        expect(await checkAsApp(`fs:${child}:read`)).toBe(false);
+
+        await grant({ permission: `fs:${dir}:write`, create: false });
+        expect(await checkAsApp(`fs:${child}:read`)).toBe(true);
+        expect(await checkAsApp(`fs:${child}:write`)).toBe(true);
+        // Another user's home stays out of reach.
+        expect(await checkAsApp(`fs:/${target.username}/Documents:read`)).toBe(
+            false,
+        );
+    });
+
+    it('check-permissions answers an app asking about itself through ACL for a uid too', async () => {
+        const dir = path(`acl-self-uid-${rand()}`);
+        const child = await server.services.fs.mkdir(user.id, {
+            path: `${dir}/inner`,
+            createMissingParents: true,
+        });
+        expect(await checkAsApp(`fs:${child.uuid}:read`)).toBe(false);
+
+        await grant({ permission: `fs:${dir}:read`, create: false });
+        expect(await checkAsApp(`fs:${child.uuid}:read`)).toBe(true);
+        expect(await checkAsApp(`fs:${child.uuid}:write`)).toBe(false);
     });
 
     it('check-permissions on a missing fs path answers false rather than 404ing, without poisoning a mixed batch', async () => {
@@ -4152,9 +4440,9 @@ describe('AuthController.handleCreateAccessToken + handleRevokeAccessToken', () 
         ['an oversized permission string', ['x'.repeat(4097)]],
         [
             'an oversized `extra`',
-            [['service:x:ii:read', { a: 'y'.repeat(5000) }]],
+            [['events:background', { a: 'y'.repeat(5000) }]],
         ],
-        ['a non-object `extra`', [['service:x:ii:read', 'nope']]],
+        ['a non-object `extra`', [['events:background', 'nope']]],
         ['an empty permission string', ['']],
     ])('rejects %s with 400', async (_label, permissions) => {
         await expect(
@@ -7365,6 +7653,88 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         ]);
     });
 
+    it('check-permissions: answers false for share grants, which name what a holder is never told, but not for their manage arm', async () => {
+        const { user: owner, actor: ownerActor } = await makeUserAndActor();
+        const { user: holder, actor: holderActor } = await makeUserAndActor();
+        const region = `notes-${uuidv4().slice(0, 8)}`;
+        const grant = `kv-share-read:${owner.uuid}:os-global:${region}`;
+        await inCtx(ownerActor, () =>
+            server.services.permission.grantUserUserPermission(
+                ownerActor,
+                holder.username,
+                grant,
+            ),
+        );
+        expect(await server.services.permission.check(holderActor, grant)).toBe(
+            true,
+        );
+
+        const asked = [
+            grant,
+            `kv-share:${owner.uuid}:os-global:${region}:inner`,
+            `kv-share-write:${owner.uuid}:os-global:${region}`,
+        ];
+        const res = makeRes();
+        await inCtx(holderActor, () =>
+            controller.handleCheckPermissions(
+                makeReq({ permissions: asked }, { actor: holderActor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({
+            permissions: Object.fromEntries(asked.map((p) => [p, false])),
+        });
+
+        // What `puter.perms.check('kvShare', …)` asks.
+        const manage = `manage:kv-share-read:${owner.uuid}:os-global:${region}`;
+        const ownerRes = makeRes();
+        await inCtx(ownerActor, () =>
+            controller.handleCheckPermissions(
+                makeReq({ permissions: [manage] }, { actor: ownerActor }),
+                ownerRes,
+            ),
+        );
+        expect(ownerRes.body).toEqual({ permissions: { [manage]: true } });
+    });
+
+    it('check-permissions: answers false for share grants asked by an app actor too', async () => {
+        const { user: owner, actor: ownerActor } = await makeUserAndActor();
+        const { user: holder, actor: holderActor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `cpk-${uuidv4()}`,
+                title: 'TestCheckPermsKvApp',
+                index_url: 'https://check-perms-kv.example.test/index.html',
+            },
+            { ownerUserId: holder.id },
+        );
+        const grant = `kv-share-read:${owner.uuid}:${app.uid}:notes-${uuidv4().slice(0, 8)}`;
+        await inCtx(ownerActor, () =>
+            server.services.permission.grantUserUserPermission(
+                ownerActor,
+                holder.username,
+                grant,
+            ),
+        );
+        const appActor = makeActor({
+            user: holderActor.user,
+            app: { id: app.id, uid: app.uid },
+        });
+        // The holder's app in the share's namespace holds it.
+        expect(await server.services.permission.check(appActor, grant)).toBe(
+            true,
+        );
+
+        const res = makeRes();
+        await inCtx(appActor, () =>
+            controller.handleCheckPermissions(
+                makeReq({ permissions: [grant] }, { actor: appActor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({ permissions: { [grant]: false } });
+    });
+
     // What lets a permission request settle without a prompt. The second string
     // is a consent scope nothing implies, so the first's `true` is the grant.
     it('check-permissions: an app-under-user actor sees a grant made to that app', async () => {
@@ -7579,7 +7949,7 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
             },
             { ownerUserId: user.id },
         );
-        const permission = 'service:tl-app:ii:read';
+        const permission = 'events:background';
         await inCtx(actor, () =>
             controller.handleGrantUserApp(
                 makeReq({ app_uid: app.uid, permission, extra: {} }, { actor }),
@@ -10215,7 +10585,7 @@ describe('AuthController — app-data grants', () => {
         await expect(
             post('handleGrantUserApp', {
                 app_uid: grantee.uid,
-                permission: 'app-data:app-nope/:kv:read',
+                permission: `app-data:app-${uuidv4()}:kv:read`,
             }),
         ).rejects.toMatchObject({ statusCode: 404 });
     });
@@ -10282,7 +10652,7 @@ describe('AuthController — app-data grants', () => {
 
     it('leaves unrelated permissions untouched by the new validation', async () => {
         const grantee = await makeAppRow();
-        const permission = 'service:unrelated:ii:read';
+        const permission = 'events:background';
         await post('handleGrantUserApp', {
             app_uid: grantee.uid,
             permission,

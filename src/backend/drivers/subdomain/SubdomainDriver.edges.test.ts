@@ -573,6 +573,24 @@ describe('SubdomainDriver.update field handling', () => {
         expect(cleared.associated_app).toBeNull();
     });
 
+    it('disconnects the directory when root_dir is null', async () => {
+        const { actor } = await makeUser();
+        const name = uniqueName('unlink');
+        await createSubdomain(actor, name);
+
+        // The shape `puter.hosting.update(name, null)` sends.
+        const updated = (await withActor(actor, () =>
+            driver.update({
+                id: { subdomain: name },
+                object: { root_dir: null },
+            }),
+        )) as Record<string, unknown>;
+
+        expect(updated.root_dir).toBeNull();
+        const row = await server.stores.subdomain.getBySubdomain(name);
+        expect(row?.root_dir_id ?? null).toBeNull();
+    });
+
     it('rejects repointing root_dir at a path that does not exist', async () => {
         const { actor } = await makeUser();
         const created = await createSubdomain(actor, uniqueName('badroot'));

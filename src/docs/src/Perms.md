@@ -4,15 +4,23 @@ description: Request permissions to access user data and resources with Puter.js
 platforms: [websites, apps]
 ---
 
-The Permissions API enables your application to request access to user data and resources such as email addresses, special folders (Desktop, Documents, Pictures, Videos), apps, subdomains, and other apps' saved data.
+The Permissions API enables your application to request access to user data and resources such as email addresses, files and folders, apps, subdomains, and other apps' saved data.
 
 Each request names a resource and the details that resource needs:
 
 ```js
 await puter.perms.request('email');
+await puter.perms.request('fs', { path: '~/Documents/notes.txt', access: 'write' });
 await puter.perms.request('folder', { name: 'Documents', access: 'write' });
 await puter.perms.request('apps', { access: 'read' });
 await puter.perms.request('appData', { app: 'contacts', scopes: 'read' });
+```
+
+The accepted values are also constants on `puter.perms.Resource`, `puter.perms.Access`, and `puter.perms.Folder`:
+
+```js
+const { Resource, Access } = puter.perms;
+await puter.perms.request(Resource.FS, { path: '~/Documents', access: Access.READ });
 ```
 
 ## Features

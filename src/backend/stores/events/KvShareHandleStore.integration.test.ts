@@ -20,9 +20,9 @@
 /**
  * The store's own guard against a row wider than the column that holds it.
  *
- * `EventsService.mintKvHandle` already bounds `keyPrefix` and `permission` well
- * under these widths before the store ever sees them, so reaching the guard
- * here means calling the store directly.
+ * `KvShareService.mintKvHandle` already bounds `keyPrefix` and `permission`
+ * well under these widths before the store ever sees them, so reaching the
+ * guard here means calling the store directly.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -126,5 +126,136 @@ describe('the owner listing', () => {
         });
         expect(second.items.map((row) => row.keyPrefix)).toEqual(['cursor-2:']);
         expect(second.cursor).toBeUndefined();
+    });
+});
+
+describe('retiring an app`s handles', () => {
+    it('works through them a batch at a time, as the platform', async () => {
+        const appUid = 'app-retire-batches';
+        const minted = [];
+        for (let i = 0; i < 3; i++)
+            minted.push(
+                await store().mint(
+                    input({
+                        appUid,
+                        keyPrefix: `batch-${i}:`,
+                        permission: `kv-share:owner-uuid:${appUid}:batch-${i}`,
+                    }),
+                ),
+            );
+
+        const batches: number[] = [];
+        for (;;) {
+            const batch = await store().listLiveForApps([appUid], 2);
+            batches.push(batch.length);
+            if (batch.length === 0) break;
+            await store().retireMany(
+                batch.map((row) => row.handle),
+                'system',
+            );
+        }
+        expect(batches).toEqual([2, 1, 0]);
+        for (const { handle } of minted)
+            expect(await store().getByHandle(handle)).toMatchObject({
+                revokedBy: 'system',
+                revokedAt: expect.any(Number),
+            });
+    });
+});
+
+describe('changing a live handle', () => {
+    it('never brings a retired one back', async () => {
+        const row = await store().mint(input({ keyPrefix: 'cas:' }));
+        await store().retire(row.handle, ownerUserId);
+        const after = await store().update(row.handle, ownerUserId, {
+            permission: 'kv-share-write:owner-uuid:app-column-widths:cas',
+            label: 'late',
+        });
+        expect(after).toMatchObject({
+            revokedAt: expect.any(Number),
+            permission: row.permission,
+            label: null,
+        });
+    });
+
+    it('is scoped to the owner', async () => {
+        const row = await store().mint(input({ keyPrefix: 'scoped:' }));
+        expect(
+            await store().update(row.handle, granteeUserId, { label: 'x' }),
+        ).toBeNull();
+        expect((await store().getByHandle(row.handle))?.label).toBeNull();
+    });
+});
+
+describe('finding the live handle on a region', () => {
+    it('matches the prefix byte for byte, and reports one that differs only in case', async () => {
+        const appUid = `app-case-${Date.now().toString(36)}`;
+        const region = { ownerUserId, granteeUserId, appUid };
+        const minted = await store().mint(
+            input({
+                appUid,
+                keyPrefix: 'Notes:',
+                permission: `kv-share:o:${appUid}:Notes`,
+            }),
+        );
+
+        expect(
+            await store().findLive({ ...region, keyPrefix: 'Notes:' }),
+        ).toMatchObject({ handle: minted.handle });
+        expect(
+            await store().findLive({ ...region, keyPrefix: 'notes:' }),
+        ).toBeNull();
+        expect(
+            await store().hasLiveCaseVariant({
+                ...region,
+                keyPrefix: 'notes:',
+            }),
+        ).toBe(true);
+        expect(
+            await store().hasLiveCaseVariant({
+                ...region,
+                keyPrefix: 'Notes:',
+            }),
+        ).toBe(false);
+        expect(
+            await store().hasLiveCaseVariant({
+                ...region,
+                keyPrefix: 'other:',
+            }),
+        ).toBe(false);
+
+        await store().retire(minted.handle, ownerUserId);
+        expect(
+            await store().hasLiveCaseVariant({
+                ...region,
+                keyPrefix: 'notes:',
+            }),
+        ).toBe(false);
+    });
+});
+
+describe('the holder listing', () => {
+    it('carries no owner, prefix or grant string', async () => {
+        const row = await store().mint(
+            input({
+                appUid: 'app-holder-listing',
+                keyPrefix: 'secret-prefix:',
+                permission:
+                    'kv-share-read:owner-uuid:app-holder-listing:secret-prefix',
+                label: 'Shown',
+            }),
+        );
+        const page = await store().listLiveForGrantee(granteeUserId, {
+            appUid: 'app-holder-listing',
+        });
+        expect(page.items).toEqual([
+            {
+                handle: row.handle,
+                appUid: 'app-holder-listing',
+                access: 'read',
+                label: 'Shown',
+                createdAt: row.createdAt,
+            },
+        ]);
     });
 });
