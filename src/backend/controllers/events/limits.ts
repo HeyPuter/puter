@@ -176,20 +176,37 @@ export const KV_SHARE_NOTICE_LIMIT = userWindow(
 /**
  * Live share handles one account may hold out at a time, across every app.
  *
- * Each is a standing grant on part of the account's data, and revoking marks
- * rather than deletes, so without a ceiling the rate limit alone lets the rows
- * grow forever. A temporary account holds none: the grant outlives the session
- * that made it, and no account is left to take it back.
+ * A backstop above the per-app cap: every count reads a covering index, so the
+ * bound is on standing grants, not query cost. A temporary account holds none:
+ * the grant outlives the session that made it, and no account is left to take
+ * it back.
  */
-export const EVENTS_KV_HANDLES_PER_USER = tiered(512, 200, 0);
+export const EVENTS_KV_HANDLES_PER_USER = tiered(25_000, 5_000, 0);
 
 /**
- * Live share handles one app may hold out for one account.
- *
- * Separately bounded from the account cap so one namespace cannot consume the
- * whole budget on free accounts.
+ * Live share handles one app may hold out for one account, so one namespace
+ * cannot consume the whole account budget.
  */
-export const EVENTS_KV_HANDLES_PER_APP = tiered(512, 128, 0);
+export const EVENTS_KV_HANDLES_PER_APP = tiered(10_000, 2_000, 0);
+
+/**
+ * Live share handles one owner may hold out to one holder, on every plan.
+ * Bounds the rows a revoke or unshare walks to find the narrower handles inside
+ * one.
+ */
+export const EVENTS_KV_HANDLES_PER_HOLDER = 256;
+
+/**
+ * Recipients one account may share with, per minute and per hour. A batch
+ * spends one per recipient, on top of the per-call mint budget.
+ */
+export const KV_SHARE_GRANT_LIMITS = [
+    userWindow('kvShare:grants:minute', 300),
+    userWindow('kvShare:grants:hour', 2_000, 60 * 60_000),
+] as const;
+
+/** Recipients one `POST /kv/shares` call may name. */
+export const KV_SHARE_BATCH_MAX = 50;
 
 // -- Handler surface -------------------------------------------------
 

@@ -11,7 +11,7 @@ Stops a share made with [`puter.kv.share()`](/KV/share/). Either side can call i
 - **The owner** revokes the share. The holder loses access, and any narrower share you made with the same holder inside the same prefix stops too.
 - **The holder** removes their own access. Any narrower share they hold from the same owner inside the same prefix stops too.
 
-The handle stops working right away for every [`puter.kv`](/KV/) call, and persistent subscriptions on it are suspended with `permission_revoked`. If a wider share the holder still has covers the same keys, calls through the stopped handle can keep working for up to 60 seconds. A stopped share stays in the owner's [`listSharedByMe()`](/KV/listSharedByMe/) listing with `revokedAt` and `revokedBy` set. The keys themselves stay in the owner's store.
+The handle stops working right away for every [`puter.kv`](/KV/) call, and persistent subscriptions on it are suspended with `permission_revoked`. If a wider share the holder still has covers the same keys, calls through the stopped handle can keep working for up to 60 seconds. A stopped share stays in the owner's [`listSharedByMe()`](/KV/listSharedByMe/) listing for 30 days with `revokedAt` and `revokedBy` set. The keys themselves stay in the owner's store.
 
 ## Syntax
 

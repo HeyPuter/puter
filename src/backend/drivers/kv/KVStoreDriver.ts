@@ -83,6 +83,8 @@ interface KvOptConfig {
  */
 type KvCallArgs = {
     optConfig?: KvOptConfig;
+    /** `list` only: what the listing returns. */
+    as?: unknown;
     expireAt?: unknown;
     ttl?: unknown;
 };
@@ -94,8 +96,7 @@ type KvCallArgs = {
 type DriverKvOpts = KVOpts & { handle?: string; handlePrefix?: string };
 
 type KvListResult =
-    | unknown[]
-    | { items: unknown[]; cursor?: string; total?: number };
+    unknown[] | { items: unknown[]; cursor?: string; total?: number };
 
 /**
  * A listing of another namespace, cross-app or through a handle: what its
@@ -404,7 +405,7 @@ export class KVStoreDriver extends PuterDriver {
         if (this.config.kv?.shareHandles !== true) throw kvHandlesDisabled();
 
         const optConfig = args.optConfig ?? {};
-        const level = kvShareLevelForMethod(method);
+        const level = kvShareLevelForMethod(method, args);
         if (optConfig.appUuid || optConfig.disableSharing)
             throw handleOptionInvalid(
                 'kv: `handle` cannot be combined with `appUuid` or `disableSharing`',
@@ -553,8 +554,7 @@ export class KVStoreDriver extends PuterDriver {
         const decoded = decodeCursor(cursor);
         const reverse = decoded?.reverse === true;
         const position = (reverse ? decoded?.key : decoded) as
-            | { namespace?: unknown; key?: unknown }
-            | undefined;
+            { namespace?: unknown; key?: unknown } | undefined;
         if (position?.namespace !== listing.namespace) throw outsideRegion();
         const key = this.#relativeKey(position.key, listing.prefix);
         return sealCursor(

@@ -3327,7 +3327,8 @@ export class AuthController extends PuterController {
     })
     async handleRevokeUserApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body ?? {};
-        const { origin, permission, permissions, meta } = req.body ?? {};
+        const { origin, permission, permissions, meta, deleteData } =
+            req.body ?? {};
         this.#validateAppPermissionParams({
             app_uid,
             origin,
@@ -3343,20 +3344,25 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
+        if (deleteData !== undefined && typeof deleteData !== 'boolean') {
+            throw new HttpError(400, '`deleteData` must be a boolean', {
+                legacyCode: 'bad_request',
+            });
+        }
+        if (deleteData && permission !== '*') {
+            throw new HttpError(
+                400,
+                '`deleteData` only applies when `permission` is "*"',
+                { legacyCode: 'bad_request' },
+            );
+        }
         // Deliberately not gated by the target's sharing flag: a user must
         // always be able to withdraw a grant, whatever the target now says.
         if (permission === '*') {
-            await this.services.permission.revokeUserAppAll(
-                req.actor!,
-                app_uid,
-                meta ?? undefined,
-            );
-            // Withdrawing everything also retires the workers the app deployed
-            // under this user; their tokens would otherwise act as the app.
-            await this.services.auth.deleteWorkerSessionsForApp(
-                req.actor!.user!.id as number,
-                app_uid,
-            );
+            await this.services.auth.uninstallApp(req.actor!, app_uid, {
+                deleteData: deleteData === true,
+                meta: meta ?? undefined,
+            });
         } else {
             for (const entry of list) {
                 await this.services.permission.revokeUserAppPermission(

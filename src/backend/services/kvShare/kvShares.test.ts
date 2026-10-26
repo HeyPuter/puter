@@ -42,6 +42,7 @@ import {
     kvShareManageNamespaceRoots,
     kvShareManagePermission,
     kvShareOwnerImplicator,
+    kvHandleIdKind,
     kvSharePermission,
     mintKvHandleId,
     normalizeKeyPrefix,
@@ -58,6 +59,10 @@ const OWNER = '2a1b0c9d-0000-4000-8000-000000000001';
 const OTHER = '2a1b0c9d-0000-4000-8000-000000000002';
 const APP = 'app-1234';
 const OTHER_APP = 'app-5678';
+const SECRET = 'handle-test-secret';
+
+/** The app is still authorized by its user. */
+const appAuthorized = async (): Promise<boolean> => true;
 
 const userActor = (uuid: string): Actor =>
     ({ user: { uuid }, effectiveApp: null }) as unknown as Actor;
@@ -218,7 +223,7 @@ describe('granted namespaces', () => {
     });
 
     it('refuses a handle, which shares the slot but is not a namespace', () => {
-        expect(() => assertShareableAppUid(mintKvHandleId())).toThrow(
+        expect(() => assertShareableAppUid(mintKvHandleId(SECRET))).toThrow(
             HttpError,
         );
     });
@@ -298,20 +303,41 @@ describe('a delegation request', () => {
 
 describe('handle ids', () => {
     it('are told apart from an app uid in the same slot', () => {
-        const handle = mintKvHandleId();
+        const handle = mintKvHandleId(SECRET);
         expect(isKvHandleId(handle)).toBe(true);
         expect(isKvHandleId(APP)).toBe(false);
         expect(isKvHandleId('kvh-')).toBe(false);
     });
 
     it('carry nothing about the owner', () => {
-        const handle = mintKvHandleId();
+        const handle = mintKvHandleId(SECRET);
         expect(handle).not.toContain(OWNER);
-        expect(mintKvHandleId()).not.toBe(handle);
+        expect(mintKvHandleId(SECRET)).not.toBe(handle);
+    });
+
+    it('carry a mac that only the server secret verifies', () => {
+        const handle = mintKvHandleId(SECRET);
+        expect(handle).toMatch(/^kvh-[0-9a-f-]{36}\.[A-Za-z0-9_-]{22}$/);
+        expect(handle.length).toBeLessThanOrEqual(64);
+        expect(handle).not.toContain(':');
+        expect(kvHandleIdKind(handle, SECRET)).toBe('signed');
+        expect(kvHandleIdKind(handle, 'another-secret')).toBeNull();
+
+        const [id, mac] = handle.split('.');
+        const flipped = `${mac[0] === 'A' ? 'B' : 'A'}${mac.slice(1)}`;
+        expect(kvHandleIdKind(`${id}.${flipped}`, SECRET)).toBeNull();
+        expect(kvHandleIdKind(`${id}.`, SECRET)).toBeNull();
+        expect(kvHandleIdKind(`${id}.${mac}x`, SECRET)).toBeNull();
+    });
+
+    it('minted before ids were signed still read as handles', () => {
+        expect(kvHandleIdKind(`kvh-${uuidv4()}`, SECRET)).toBe('legacy');
+        expect(kvHandleIdKind('kvh-1', SECRET)).toBeNull();
+        expect(kvHandleIdKind(APP, SECRET)).toBeNull();
     });
 
     it('are recoverable from the subject a row stored', () => {
-        const handle = mintKvHandleId();
+        const handle = mintKvHandleId(SECRET);
         expect(kvHandleFromSubject(`kv:${handle}:messages:*`)).toBe(handle);
         expect(kvHandleFromSubject(`kv:${APP}:messages:*`)).toBeNull();
         expect(kvHandleFromSubject(`fs:${handle}:write`)).toBeNull();
@@ -373,6 +399,7 @@ describe('the app delegate implicator', () => {
     it('answers the share family, never its manage arm, nor other families', () => {
         const implicator = kvShareAppDelegateImplicator({
             userHolds: vi.fn(),
+            appAuthorized,
         });
         expect(implicator.matches(permission)).toBe(true);
         expect(implicator.matches(`manage:${permission}`)).toBe(false);
@@ -381,7 +408,10 @@ describe('the app delegate implicator', () => {
 
     it("grants when the actor's own app matches the namespace app and the user holds the grant", async () => {
         const userHolds = vi.fn().mockResolvedValue(true);
-        const implicator = kvShareAppDelegateImplicator({ userHolds });
+        const implicator = kvShareAppDelegateImplicator({
+            userHolds,
+            appAuthorized,
+        });
         const actor = appActor(OWNER, APP);
 
         await expect(implicator.check({ actor, permission })).resolves.toEqual(
@@ -396,9 +426,22 @@ describe('the app delegate implicator', () => {
         expect(calledPermission).toBe(permission);
     });
 
+    it('refuses an app its user no longer has authorized, without asking the user', async () => {
+        const userHolds = vi.fn().mockResolvedValue(true);
+        const implicator = kvShareAppDelegateImplicator({
+            userHolds,
+            appAuthorized: async () => false,
+        });
+        await expect(
+            implicator.check({ actor: appActor(OWNER, APP), permission }),
+        ).resolves.toBeUndefined();
+        expect(userHolds).not.toHaveBeenCalled();
+    });
+
     it('refuses when the user does not hold the grant', async () => {
         const implicator = kvShareAppDelegateImplicator({
             userHolds: vi.fn().mockResolvedValue(false),
+            appAuthorized,
         });
         await expect(
             implicator.check({ actor: appActor(OWNER, APP), permission }),
@@ -407,7 +450,10 @@ describe('the app delegate implicator', () => {
 
     it("refuses when the actor's app differs from the namespace app", async () => {
         const userHolds = vi.fn().mockResolvedValue(true);
-        const implicator = kvShareAppDelegateImplicator({ userHolds });
+        const implicator = kvShareAppDelegateImplicator({
+            userHolds,
+            appAuthorized,
+        });
 
         await expect(
             implicator.check({
@@ -420,7 +466,10 @@ describe('the app delegate implicator', () => {
 
     it('refuses a plain user actor with no app', async () => {
         const userHolds = vi.fn().mockResolvedValue(true);
-        const implicator = kvShareAppDelegateImplicator({ userHolds });
+        const implicator = kvShareAppDelegateImplicator({
+            userHolds,
+            appAuthorized,
+        });
 
         await expect(
             implicator.check({ actor: userActor(OWNER), permission }),
@@ -430,7 +479,10 @@ describe('the app delegate implicator', () => {
 
     it('refuses an access-token actor', async () => {
         const userHolds = vi.fn().mockResolvedValue(true);
-        const implicator = kvShareAppDelegateImplicator({ userHolds });
+        const implicator = kvShareAppDelegateImplicator({
+            userHolds,
+            appAuthorized,
+        });
         const actor = {
             user: { uuid: OWNER },
             app: { uid: APP },
@@ -445,7 +497,10 @@ describe('the app delegate implicator', () => {
 
     it('asks the user once for a deep option and the ancestors its check already asked', async () => {
         const userHolds = vi.fn().mockResolvedValue(false);
-        const implicator = kvShareAppDelegateImplicator({ userHolds });
+        const implicator = kvShareAppDelegateImplicator({
+            userHolds,
+            appAuthorized,
+        });
         const actor = appActor(OWNER, APP);
         const memo = new Map<string, unknown>();
         const deep = kvSharePermission(OWNER, APP, 'a:b:c:', 'read');
@@ -480,7 +535,10 @@ describe('the app delegate implicator', () => {
 
     it('refuses a permission with no key segments or no app', async () => {
         const userHolds = vi.fn().mockResolvedValue(true);
-        const implicator = kvShareAppDelegateImplicator({ userHolds });
+        const implicator = kvShareAppDelegateImplicator({
+            userHolds,
+            appAuthorized,
+        });
         const actor = appActor(OWNER, APP);
 
         await expect(
@@ -618,9 +676,17 @@ describe('the level ladder exploder', () => {
 });
 
 describe('the level a driver method needs', () => {
+    it('is watch for a listing of keys alone', () => {
+        expect(kvShareLevelForMethod('list', { as: 'keys' })).toBe('watch');
+    });
+
     it('is read for get and list, and write for every other mapped op', () => {
         expect(kvShareLevelForMethod('get')).toBe('read');
         expect(kvShareLevelForMethod('list')).toBe('read');
+        expect(kvShareLevelForMethod('list', { as: 'entries' })).toBe('read');
+        expect(kvShareLevelForMethod('list', { as: 'values' })).toBe('read');
+        expect(kvShareLevelForMethod('get', { as: 'keys' })).toBe('read');
+        expect(kvShareLevelForMethod('set', { as: 'keys' })).toBe('write');
         for (const method of [
             'set',
             'batchPut',
@@ -817,7 +883,10 @@ describe('delegations at every level', () => {
 
     it('are answered for the owner at every level, and never by the app delegate', () => {
         const owner = kvShareOwnerImplicator();
-        const delegate = kvShareAppDelegateImplicator({ userHolds: vi.fn() });
+        const delegate = kvShareAppDelegateImplicator({
+            userHolds: vi.fn(),
+            appAuthorized,
+        });
         for (const access of ['read', 'write'] as const) {
             const permission = kvSharePermission(
                 OWNER,
@@ -840,7 +909,10 @@ describe('delegations at every level', () => {
 
     it('let a holder`s app use a read or write grant only in its own namespace', async () => {
         const userHolds = vi.fn().mockResolvedValue(true);
-        const delegate = kvShareAppDelegateImplicator({ userHolds });
+        const delegate = kvShareAppDelegateImplicator({
+            userHolds,
+            appAuthorized,
+        });
         const permission = kvSharePermission(
             OWNER,
             APP,

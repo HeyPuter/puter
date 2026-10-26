@@ -1728,11 +1728,12 @@ export class PermissionService extends PuterService {
             this.#announceRevoked(userId, app.uid, removedPermission);
     }
 
+    /** Returns the uid of the app `appIdentifier` resolved to. */
     async revokeUserAppAll(
         actor: Actor,
         appIdentifier: string,
         meta: GrantMeta = {},
-    ): Promise<void> {
+    ): Promise<string> {
         this.#refuseAppActor(actor);
         const app = await this.#requireApp(appIdentifier);
         const userId = this.#requireUserId(actor);
@@ -1755,6 +1756,7 @@ export class PermissionService extends PuterService {
             );
         }
         this.#announceRevoked(userId, app.uid, null);
+        return app.uid;
     }
 
     async grantDevAppPermission(

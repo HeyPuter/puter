@@ -226,6 +226,47 @@ describe('UserAccountService', () => {
             expect(flat?.permission).toBeUndefined();
         });
 
+        it('clears the flat entries for grants the account held', async () => {
+            const holder = await seedUser();
+            const issuer = await seedUser();
+            const otherHolder = await seedUser();
+            const permissions = [
+                `zztest:held-${uuidv4()}:a:read`,
+                `zztest:held-${uuidv4()}:b:write`,
+            ];
+            const value = (permission: string) => ({
+                permission,
+                deleted: false,
+                issuer_user_id: issuer.id,
+            });
+            for (const permission of permissions)
+                await server.stores.permission.setFlatUserPerm(
+                    holder.id,
+                    permission,
+                    value(permission),
+                );
+            await server.stores.permission.setFlatUserPerm(
+                otherHolder.id,
+                permissions[0],
+                value(permissions[0]),
+            );
+
+            await server.services.userAccount.cascadeDelete(holder.id);
+
+            expect(
+                await server.stores.permission.getFlatUserPerms(
+                    holder.id,
+                    permissions,
+                ),
+            ).toEqual([]);
+            expect(
+                await server.stores.permission.getFlatUserPerms(
+                    otherHolder.id,
+                    [permissions[0]],
+                ),
+            ).toHaveLength(1);
+        });
+
         it('deletes the account’s sites, announcing each one', async () => {
             const user = await seedUser();
             const slug = Math.random().toString(36).slice(2, 10);
