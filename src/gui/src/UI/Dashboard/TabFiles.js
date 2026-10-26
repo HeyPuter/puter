@@ -2547,19 +2547,7 @@ const TabFiles = {
         // in here too, and treating that as "already showing something" would
         // leave the pane blank once the spinner is taken away.
         if ( $files.find('.files-empty-notice').length > 0 ) return;
-        $files.append(`<div class="files-empty-notice" style="
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            pointer-events: none;
-        ">
-            ${i18n('folder_empty')}
-        </div>`);
+        $files.append(`<div class="files-notice files-empty-notice">${i18n('folder_empty')}</div>`);
     },
 
     /**
@@ -3110,19 +3098,7 @@ const TabFiles = {
             // stale rows during a same-directory refresh) with a message
             // rather than leaving it unexplained.
             clearListing();
-            $files.html(`<div style="
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                pointer-events: none;
-                text-align: center;
-                padding: 0 16px;
-            ">${i18n('folder_open_failed')}</div>`);
+            $files.html(`<div class="files-notice">${i18n('folder_open_failed')}</div>`);
             // The list was emptied above; without this the footer keeps the
             // previous directory's item count over a pane with zero rows.
             this.updateFooterStats();

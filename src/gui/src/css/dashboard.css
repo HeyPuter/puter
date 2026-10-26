@@ -7632,6 +7632,19 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* "No files in this directory." and "couldn't be opened", in place of rows */
+.files-notice {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0 16px;
+    text-align: center;
+    color: var(--dashboard-text-tertiary);
+    pointer-events: none;
+}
+
 /* ======================================
    Files Loading Spinner
    ====================================== */
