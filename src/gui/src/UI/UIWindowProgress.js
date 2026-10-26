@@ -20,9 +20,11 @@
 import UIWindow from './UIWindow.js';
 import Placeholder from '../util/Placeholder.js';
 import Button from './Components/Button.js';
+import UIDashboardProgressModal from './Dashboard/UIDashboardProgressModal.js';
 
 /**
- * General purpose progress dialog.
+ * General purpose progress dialog. The dashboard shows its own overlay card instead.
+ * @param title Shown as the dashboard card's header; the desktop window has none.
  * @param operation_id If provided, is saved in the data-operation-id attribute, for later lookup.
  * @param show_progress Enable a progress bar, and display `(foo%)` after the status message
  * @param on_cancel A callback run when the Cancel button is clicked. Without it, no Cancel button will appear.
@@ -31,10 +33,15 @@ import Button from './Components/Button.js';
  * TODO: Debouncing logic (show only after a delay, then hide only after a delay)
  */
 async function UIWindowProgress ({
+    title,
     operation_id = null,
     show_progress = false,
     on_cancel = null,
 } = {}) {
+    if ( window.is_dashboard_mode ) {
+        return UIDashboardProgressModal({ title, operation_id, on_cancel });
+    }
+
     const placeholder_cancel_btn = Placeholder();
     const placeholder_ok_btn = Placeholder();
 

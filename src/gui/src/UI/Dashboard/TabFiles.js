@@ -23,7 +23,6 @@ import { createUploadThumbnailGenerator } from '../../services/pdfThumbnails/ind
 import path from '../../lib/path.js';
 import open_item from '../../helpers/openItem.js';
 import UIContextMenu from '../UIContextMenu.js';
-import UIWindowProgress from '../UIWindowProgress.js';
 import UIAlert from '../UIAlert.js';
 import generate_file_context_menu from '../../helpers/generateFileContextMenu.js';
 import update_title_based_on_uploads from '../../helpers/updateTitleBasedOnUploads.js';
@@ -35,6 +34,8 @@ import publish_as_website from '../../helpers/publishAsWebsite.js';
 import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import UIShareModal from './UIShareModal.js';
+import UIDashboardProgressModal from './UIDashboardProgressModal.js';
+import { summarizeUpload } from './transferProgress.js';
 import { dedupedName } from './dedupedName.js';
 import { middleTruncate } from './middleTruncate.js';
 import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
@@ -1512,87 +1513,7 @@ const TabFiles = {
             _this.uploadTargetPath = null;
             if ( files.length === 0 ) return;
             if ( ! _this.acceptsNewItems(destination) ) return;
-
-            let upload_progress_window;
-            let opid;
-
-            puter.fs.upload(files, destination, {
-                generateThumbnails: true,
-                thumbnailGenerator: createUploadThumbnailGenerator(),
-                init: async (operation_id, xhr) => {
-                    opid = operation_id;
-                    // register before the first await, so a failure while the progress
-                    // window is still opening can't delete the entry before it exists
-                    window.active_uploads[opid] = 0;
-                    // create upload progress window
-                    upload_progress_window = await UIWindowProgress({
-                        title: i18n('upload'),
-                        icon: window.icons['app-icon-uploader.svg'],
-                        operation_id: operation_id,
-                        show_progress: true,
-                        on_cancel: () => {
-                            window.show_save_account_notice_if_needed();
-                            xhr.abort();
-                        },
-                    });
-                },
-                // start
-                start: async function () {
-                    // change upload progress window message to uploading
-                    upload_progress_window.set_status(i18n('uploading'));
-                    upload_progress_window.set_progress(0);
-                },
-                // progress
-                progress: async function (operation_id, op_progress) {
-                    upload_progress_window.set_progress(op_progress);
-                    // update active_uploads
-                    window.active_uploads[opid] = op_progress;
-                    // update title if window is not visible
-                    if ( document.visibilityState !== 'visible' ) {
-                        update_title_based_on_uploads();
-                    }
-                },
-                // success
-                success: async function (items) {
-                    // Add action to actions_history for undo ability
-                    const files = [];
-                    if ( typeof items[Symbol.iterator] === 'function' ) {
-                        for ( const item of items ) {
-                            files.push(item.path);
-                        }
-                    } else {
-                        files.push(items.path);
-                    }
-                    window.actions_history.push({
-                        operation: 'upload',
-                        data: files,
-                    });
-                    setTimeout(() => {
-                        upload_progress_window.close();
-                    }, 1000);
-                    window.show_save_account_notice_if_needed();
-                    // remove from active_uploads
-                    delete window.active_uploads[opid];
-                    // refresh, then highlight the uploaded items
-                    await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
-                    _this.selectUploadedRows(files);
-                },
-                // error
-                error: async function (err) {
-                    const failedMessage = failedUploadsMessage(err);
-                    if ( failedMessage ) UIAlert(failedMessage);
-                    upload_progress_window.show_error(i18n('error_uploading_files', [], false), err.message);
-                    // remove from active_uploads
-                    delete window.active_uploads[opid];
-                    _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
-                },
-                // abort
-                // eslint-disable-next-line no-unused-vars
-                abort: async function (operation_id) {
-                    // remove from active_uploads
-                    delete window.active_uploads[opid];
-                },
-            });
+            _this.uploadFiles(files, destination);
         };
 
         // Upload button
@@ -5570,13 +5491,11 @@ const TabFiles = {
     },
 
     /**
-     * Uploads files to the specified destination path.
+     * Uploads files to a folder behind a progress card, then refreshes the
+     * listing and highlights what arrived.
      *
-     * This method handles the complete upload flow including progress modal,
-     * error handling, and directory refresh on completion. Used by drag-drop
-     * upload handlers to ensure the Dashboard view updates after uploads.
-     *
-     * @param {DataTransferItemList|FileList} items - The files to upload
+     * @param {DataTransferItemList|FileList|File[]} items - The files to upload;
+     *     a drop's list must be passed while its event is still dispatching
      * @param {string} destPath - The destination directory path
      * @returns {void}
      */
@@ -5590,19 +5509,22 @@ const TabFiles = {
             return;
         }
 
+        const { count, name } = summarizeUpload(items);
+        const title = count === 1 && name
+            ? i18n('uploading_file', [name], false)
+            : i18n('uploading_items', { count }, false);
+        const status = i18n('progress_destination', [this.historyLabel(destPath)]);
+
         puter.fs.upload(items, destPath, {
             generateThumbnails: true,
             thumbnailGenerator: createUploadThumbnailGenerator(),
-            init: async (operation_id, xhr) => {
+            init: (operation_id, xhr) => {
                 opid = operation_id;
-                // register before the first await, so a failure while the progress
-                // window is still opening can't delete the entry before it exists
                 window.active_uploads[opid] = 0;
-                upload_progress_window = await UIWindowProgress({
-                    title: i18n('upload'),
-                    icon: window.icons['app-icon-uploader.svg'],
-                    operation_id: operation_id,
-                    show_progress: true,
+                upload_progress_window = UIDashboardProgressModal({
+                    title,
+                    status,
+                    operation_id,
                     on_cancel: () => {
                         window.show_save_account_notice_if_needed();
                         xhr.abort();
@@ -5610,7 +5532,6 @@ const TabFiles = {
                 });
             },
             start: async function () {
-                upload_progress_window.set_status(i18n('uploading'));
                 upload_progress_window.set_progress(0);
             },
             progress: async function (_operation_id, op_progress) {
@@ -5633,6 +5554,7 @@ const TabFiles = {
                     operation: 'upload',
                     data: files,
                 });
+                upload_progress_window.complete();
                 setTimeout(() => {
                     upload_progress_window.close();
                 }, 1000);

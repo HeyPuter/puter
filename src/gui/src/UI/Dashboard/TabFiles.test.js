@@ -24,7 +24,6 @@ import jQuery from '../../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 // The tab's window and dialog plumbing isn't what these tests exercise.
 vi.mock('../UIWindow.js', () => ({ default: vi.fn() }));
 vi.mock('../UIAlert.js', () => ({ default: vi.fn() }));
-vi.mock('../UIWindowProgress.js', () => ({ default: vi.fn() }));
 vi.mock('../UIContextMenu.js', () => ({ default: vi.fn() }));
 vi.mock('../../helpers/generateFileContextMenu.js', () => ({ default: vi.fn(async () => []) }));
 

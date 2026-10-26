@@ -1255,6 +1255,7 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
         let latest_status;
         const arm_progwin = () => setTimeout(async () => {
             progwin = await UIWindowProgress({
+                title: i18n('copying', [], false),
                 operation_id: copy_op_id,
                 on_cancel: () => {
                     window.operation_cancelled[copy_op_id] = true;
@@ -1397,6 +1398,7 @@ window.copy_items = function (el_items, dest_path) {
         let latest_status;
         const arm_progwin = () => setTimeout(async () => {
             progwin = await UIWindowProgress({
+                title: i18n('copying', [], false),
                 operation_id: copy_op_id,
                 on_cancel: () => {
                     window.operation_cancelled[copy_op_id] = true;
@@ -1748,6 +1750,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
     let latest_status;
     const arm_progwin = () => setTimeout(async () => {
         progwin = await UIWindowProgress({
+            title: i18n(dest_path === window.trash_path ? 'deleting' : 'moving', [], false),
             operation_id: move_op_id,
             on_cancel: () => {
                 window.operation_cancelled[move_op_id] = true;

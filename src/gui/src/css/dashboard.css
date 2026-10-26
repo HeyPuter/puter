@@ -9213,6 +9213,120 @@ body.dashboard-mode .notifications-close-all {
 
 
 /* ======================================
+   Dashboard progress dialog (upload / copy / move)
+   ====================================== */
+
+.dashboard-progress-content {
+    gap: 10px;
+}
+
+.dashboard-progress-status {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--dashboard-text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.dashboard-progress-status strong {
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+
+.dashboard-progress-track {
+    position: relative;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--dashboard-hover);
+    overflow: hidden;
+}
+
+/* Scaled rather than resized, so each update is a composited animation. */
+.dashboard-progress-fill {
+    width: 100%;
+    height: 100%;
+    background: var(--select-color);
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 250ms ease, background-color 200ms ease;
+}
+
+.dashboard-progress-indeterminate .dashboard-progress-fill {
+    width: 40%;
+    border-radius: 999px;
+    transition: none;
+    animation: dashboard-progress-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes dashboard-progress-slide {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(250%); }
+}
+
+.dashboard-progress-complete .dashboard-progress-fill {
+    background: var(--dashboard-success-border);
+}
+
+.dashboard-progress-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 18px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--dashboard-text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.dashboard-progress-meta[hidden] {
+    display: none;
+}
+
+.dashboard-progress-eta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.dashboard-progress-complete .dashboard-progress-eta {
+    color: var(--dashboard-success-text);
+    font-weight: 600;
+}
+
+.dashboard-progress-eta svg {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+}
+
+.dashboard-progress-percent {
+    flex-shrink: 0;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+
+.dashboard-progress-cancel:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-progress-fill {
+        transition: none;
+    }
+
+    .dashboard-progress-indeterminate .dashboard-progress-fill {
+        animation-duration: 3s;
+    }
+}
+
+
+/* ======================================
    Dashboard form dialog (account changes)
    ====================================== */
 
