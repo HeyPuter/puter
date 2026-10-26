@@ -3309,11 +3309,12 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
 
             onDone?.(null);
 
-            //show error
-            if ( err.message ) {
-                UIAlert(err.message);
-            }
+            // A network failure rejects with no message, and the name going
+            // back on its own would look like the rename was ignored.
+            UIAlert(err?.message || i18n('error_unknown_cause', [], false));
         },
+    }).catch(() => {
+        // Handled by the error callback above.
     });
 };
 
