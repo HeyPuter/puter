@@ -5513,6 +5513,7 @@ const TabFiles = {
         const single = count === 1 && name;
         const title = single ? i18n('uploading_file', [name], false) : i18n('uploading_items', { count }, false);
         const doneTitle = single ? i18n('uploaded_file', [name], false) : i18n('uploaded_items', { count }, false);
+        const failedTitle = single ? i18n('upload_failed_file', [name], false) : i18n('upload_failed_items', { count }, false);
         const status = i18n('progress_destination', [this.historyLabel(destPath)]);
 
         puter.fs.upload(items, destPath, {
@@ -5571,7 +5572,7 @@ const TabFiles = {
             error: async function (err) {
                 const failedMessage = failedUploadsMessage(err);
                 if ( failedMessage ) UIAlert(failedMessage);
-                upload_progress_window.show_error(i18n('error_uploading_files', [], false), err.message);
+                upload_progress_window.show_error(failedTitle, err.message);
                 delete window.active_uploads[opid];
                 _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
             },
