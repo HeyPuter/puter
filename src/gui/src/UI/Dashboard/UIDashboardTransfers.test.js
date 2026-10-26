@@ -132,6 +132,20 @@ describe('UIDashboardTransfer', () => {
         expect(blank).toBe(0);
     });
 
+    it('words the time left in the user\'s language, Puter codes included', async () => {
+        window.locale = 'zhtw';
+        try {
+            const transfer = UIDashboardTransfer({ title: 'Uploading' });
+            for ( let pct = 0; pct <= 10; pct++ ) {
+                transfer.set_progress(pct / 5);
+                await vi.advanceTimersByTimeAsync(1000);
+            }
+            expect($('.dashboard-progress-eta').text()).toMatch(/分鐘/);
+        } finally {
+            window.locale = undefined;
+        }
+    });
+
     it('takes the caller\'s encoded status as HTML', () => {
         const transfer = UIDashboardTransfer({ title: 'Moving' });
         transfer.set_status('Moving <strong>a&amp;b</strong>');

@@ -24,6 +24,7 @@
 
 import { ICONS, SVG } from './UIDashboardDialog.js';
 import { clampPercent, createRemainingEstimator, roundSecondsLeft } from './transferProgress.js';
+import { intlLocale } from '../../i18n/intlLocale.js';
 
 const TRAY_ICONS = {
     done: SVG('<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>'),
@@ -189,7 +190,7 @@ export default function UIDashboardTransfer ({ title, status, operation_id, on_c
         if ( ! rounded ) return i18n('progress_few_seconds_left', [], false);
         let time;
         try {
-            time = new Intl.NumberFormat(window.locale, { style: 'unit', unit: rounded.unit, unitDisplay: 'long' }).format(rounded.value);
+            time = new Intl.NumberFormat(intlLocale(window.locale), { style: 'unit', unit: rounded.unit, unitDisplay: 'long' }).format(rounded.value);
         } catch {
             time = String(rounded.value);
         }
