@@ -10,7 +10,7 @@ Lists the live shares other users made with you, a page at a time. Each share co
 
 A share tells you its level, its app, and the owner's label. It never says who shared it or what the prefix is. To tell shares apart, read the label, or read a key the owner keeps for that, such as `meta`, through the handle. Reading needs `read` or `write` access, so a `watch` share only has its label.
 
-In an app, the listing has only the shares of that app's data. Outside an app, it has every share made with you.
+In an app, the listing has only the shares of that app's data. Outside an app, it has every share made with you, and `appUid` narrows it to one app.
 
 ## Syntax
 
@@ -26,6 +26,7 @@ puter.kv.listShared(options)
 - `limit` (Number): Shares per page. Defaults to `50`, at most `200`.
 - `cursor` (String): The `cursor` from the previous page.
 - `includeTotal` (Boolean): Add `total` to the result. Defaults to `false`.
+- `appUid` (String | null): List only the shares of this app's data. Pass `null` for the store that belongs to no app. In an app, the only uid you can pass is the app's own.
 
 ## Return value
 
@@ -44,7 +45,13 @@ Shares that stopped aren't listed. An access token scoped to less than the accou
 
 ## Errors
 
-The promise rejects with `{ message, code }`. A `limit` that isn't a positive number is rejected with `bad_request`, and going over the rate limit with `too_many_requests`. See [Rate Limits and Quotas](/rate-limits-and-quotas/#events).
+The promise rejects with `{ message, code }`:
+
+| Code | Meaning |
+| -- | -- |
+| `events_kv_handle_outside_namespace` | The call came from an app and `appUid` names a different app, or `null`. |
+| `bad_request` | `limit` isn't a positive number, or `appUid` isn't an app uid. |
+| `too_many_requests` | Over the rate limit. See [Rate Limits and Quotas](/rate-limits-and-quotas/#events). |
 
 ## Examples
 

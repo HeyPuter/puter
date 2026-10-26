@@ -484,6 +484,12 @@ describe('a handle an app minted', () => {
 describe('a grantee subscribing through their own app actor', () => {
     beforeAll(async () => {
         await delegate();
+        // What launching the app records for the grantee.
+        await permissions().grantUserAppPermission(
+            guest.actor,
+            appUid,
+            'flag:app-is-authenticated',
+        );
     });
 
     it('receives the writes when it runs as the region’s own app', async () => {

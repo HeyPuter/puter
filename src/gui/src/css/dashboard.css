@@ -1658,6 +1658,19 @@ input.myapps-group-name:focus {
     font-size: 14px;
     color: var(--dashboard-text-secondary);
 }
+.myapps-modal-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 16px;
+    font-size: 14px;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+}
+.myapps-modal-option input {
+    margin: 0;
+    cursor: pointer;
+}
 .myapps-modal-buttons {
     display: flex;
     justify-content: flex-end;

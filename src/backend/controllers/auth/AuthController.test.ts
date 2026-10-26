@@ -7716,6 +7716,12 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
                 grant,
             ),
         );
+        // What launching the app records for the holder.
+        await server.services.permission.grantUserAppPermission(
+            holderActor,
+            app.uid,
+            'flag:app-is-authenticated',
+        );
         const appActor = makeActor({
             user: holderActor.user,
             app: { id: app.id, uid: app.uid },
@@ -9656,6 +9662,70 @@ describe('AuthController grant/revoke additional branches', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('revoke-user-app: 400 on `deleteData` without "*" or as a non-boolean', async () => {
+        const { actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `tr-delete-data-${uuidv4()}`,
+                title: 'TestDeleteDataApp',
+                index_url: `https://tr-delete-data-${uuidv4()}.example.test/`,
+            },
+            { ownerUserId: actor.user.id },
+        );
+        for (const body of [
+            { permission: 'events:background', deleteData: true },
+            { permission: '*', deleteData: 'yes' },
+        ]) {
+            await expect(
+                controller.handleRevokeUserApp(
+                    makeReq({ app_uid: app.uid, ...body }, { actor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
+    it('revoke-user-app `*`: announces the uninstall, with `deleteData` as sent', async () => {
+        const { actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `tr-uninstall-${uuidv4()}`,
+                title: 'TestUninstallApp',
+                index_url: `https://tr-uninstall-${uuidv4()}.example.test/`,
+            },
+            { ownerUserId: actor.user.id },
+        );
+        const seen: unknown[] = [];
+        const listener = (_key: string, data: unknown) => {
+            seen.push(data);
+        };
+        server.clients.event.on('app.uninstalled', listener);
+        try {
+            for (const deleteData of [undefined, true]) {
+                await inCtx(actor, () =>
+                    controller.handleRevokeUserApp(
+                        makeReq(
+                            { app_uid: app.uid, permission: '*', deleteData },
+                            { actor },
+                        ),
+                        makeRes(),
+                    ),
+                );
+            }
+        } finally {
+            server.clients.event.off('app.uninstalled', listener);
+        }
+        const expected = {
+            userId: actor.user.id,
+            userUuid: actor.user.uuid,
+            appUid: app.uid,
+        };
+        expect(seen).toEqual([
+            { ...expected, deleteData: false },
+            { ...expected, deleteData: true },
+        ]);
     });
 
     it('revoke-user-app: 400 when permission is "*" but app_uid is missing', async () => {

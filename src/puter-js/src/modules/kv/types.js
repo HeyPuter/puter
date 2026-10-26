@@ -200,6 +200,38 @@
  */
 
 /**
+ * Options form of `share()` for several recipients at once.
+ *
+ * @typedef {Object} KVShareManyOptions
+ * @property {string} prefix The key prefix to share, as in `KVShareOptions`.
+ * @property {KVShareRecipient[]} recipients Who to share it with, 1 to 50 users.
+ * @property {KVShareAccess} [access] Defaults to `'read'`.
+ * @property {string | null} [label] As in `KVShareOptions`, the same for every recipient.
+ * @property {string} [appUuid] As in `KVShareOptions`.
+ */
+
+/**
+ * One recipient's share in a `share()` call with several recipients.
+ *
+ * @typedef {KVShare & { recipient: KVShareRecipient }} KVShareManyShared
+ */
+
+/**
+ * One recipient `share()` couldn't share with, in a call with several recipients.
+ *
+ * @typedef {Object} KVShareManyFailed
+ * @property {KVShareRecipient} recipient The recipient as you passed it.
+ * @property {{ message: string, code: string }} error Why it wasn't shared, with the same codes a
+ * single `share()` rejects with.
+ */
+
+/**
+ * One recipient's outcome in a `share()` call with several recipients: a share, or an `error`.
+ *
+ * @typedef {KVShareManyShared | KVShareManyFailed} KVShareManyItem
+ */
+
+/**
  * Who stopped a share: its owner, its holder, or Puter (when the app whose data it was is deleted).
  *
  * @typedef {'owner' | 'holder' | 'system'} KVShareRevokedBy
@@ -235,12 +267,32 @@
  */
 
 /**
- * Options for `listShared()` and `listSharedByMe()`.
+ * Options for `listShared()`.
  *
  * @typedef {Object} KVShareListOptions
  * @property {number} [limit] Shares per page. Defaults to `50`, at most `200`.
  * @property {string} [cursor] The `cursor` from the previous page.
  * @property {boolean} [includeTotal] Add `total`, the number of shares across every page.
+ * @property {string | null} [appUid] Only the shares of this app's data, or `null` for the app-less
+ * store. In an app, only that app's own uid is accepted.
+ */
+
+/**
+ * Which shares `listSharedByMe()` returns: live ones, stopped ones, or both.
+ *
+ * @typedef {'live' | 'revoked' | 'all'} KVShareState
+ */
+
+/**
+ * Options for `listSharedByMe()`.
+ *
+ * @typedef {Object} KVSharedByMeListOptions
+ * @property {number} [limit] Shares per page. Defaults to `50`, at most `200`.
+ * @property {string} [cursor] The `cursor` from the previous page.
+ * @property {boolean} [includeTotal] Add `total`, the number of shares across every page.
+ * @property {string | null} [appUid] Only the shares of this app's data, or `null` for the app-less
+ * store. In an app, only that app's own uid is accepted.
+ * @property {KVShareState} [state] Defaults to `'all'`.
  */
 
 /**
