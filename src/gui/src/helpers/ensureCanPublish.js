@@ -30,16 +30,18 @@ import UIWindowEmailConfirmationRequired from '../UI/UIWindowEmailConfirmationRe
  */
 const ensure_can_publish = async function (required) {
     if ( ! required ) return true;
-    if ( window.user.is_temp ) {
-        return !! await UIWindowSaveAccount({
-            send_confirmation_code: true,
-            message: i18n('save_account_to_publish'),
-            window_options: {
-                backdrop: true,
-                close_on_backdrop_click: false,
-            },
-        });
+    if ( window.user.is_temp && ! await UIWindowSaveAccount({
+        send_confirmation_code: true,
+        message: i18n('save_account_to_publish'),
+        window_options: {
+            backdrop: true,
+            close_on_backdrop_click: false,
+        },
+    }) ) {
+        return false;
     }
+    // Saving refreshes window.user; a deployment that doesn't confirm at
+    // signup leaves the new account unconfirmed, and it still has to confirm.
     if ( ! window.user.email_confirmed ) {
         return !! await UIWindowEmailConfirmationRequired();
     }

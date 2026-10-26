@@ -44,8 +44,26 @@ describe('ensure_can_publish', () => {
         window.user = { is_temp: true };
         UIWindowSaveAccount.mockResolvedValueOnce(false);
         expect(await ensure_can_publish(true)).toBe(false);
-        UIWindowSaveAccount.mockResolvedValueOnce({ username: 'alice' });
+        expect(UIWindowEmailConfirmationRequired).not.toHaveBeenCalled();
+
+        // Saving replaces window.user with the saved, confirmed account.
+        UIWindowSaveAccount.mockImplementationOnce(async () => {
+            window.user = { is_temp: false, email_confirmed: true };
+            return true;
+        });
         expect(await ensure_can_publish(true)).toBe(true);
+        expect(UIWindowEmailConfirmationRequired).not.toHaveBeenCalled();
+    });
+
+    it('still has a just-saved account confirm its email when saving left it unconfirmed', async () => {
+        window.user = { is_temp: true };
+        UIWindowSaveAccount.mockImplementationOnce(async () => {
+            window.user = { is_temp: false, email_confirmed: false };
+            return true;
+        });
+        UIWindowEmailConfirmationRequired.mockResolvedValueOnce(false);
+        expect(await ensure_can_publish(true)).toBe(false);
+        expect(UIWindowEmailConfirmationRequired).toHaveBeenCalledTimes(1);
     });
 
     it('has an unconfirmed email confirmed first', async () => {
