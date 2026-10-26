@@ -982,10 +982,10 @@ const examples = [
                 source: '/playground/examples/perms-request-app-data.html',
             },
             {
-                title: 'Request a raw permission string',
-                description: 'Request a specific permission string with Puter.js permissions API. Run and modify this example directly in your browser.',
-                slug: 'perms-request-permission',
-                source: '/playground/examples/perms-request-permission.html',
+                title: 'Request access to a file',
+                description: 'Request write access to one file in the user\'s home folder with Puter.js permissions API. Run and modify this example directly in your browser.',
+                slug: 'perms-request-fs',
+                source: '/playground/examples/perms-request-fs.html',
             },
             {
                 title: 'Check before you prompt',

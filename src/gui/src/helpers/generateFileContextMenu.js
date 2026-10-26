@@ -20,11 +20,10 @@
 import UIAlert from '../UI/UIAlert.js';
 
 import UIWindowItemProperties from '../UI/UIWindowItemProperties.js';
-import UIWindowSaveAccount from '../UI/UIWindowSaveAccount.js';
-import UIWindowEmailConfirmationRequired from '../UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowPublishWorker from '../UI/UIWindowPublishWorker.js';
 import UIWindowShare from '../UI/UIWindowShare.js';
 import publish_as_website from './publishAsWebsite.js';
+import ensure_can_publish from './ensureCanPublish.js';
 import open_item from './openItem.js';
 import openWithAI from './openWithAI.js';
 import launch_app from './launchApp.js';
@@ -47,7 +46,10 @@ import { is_default_app } from './defaultApp.js';
  * @param {Function} options.onOpen - Optional custom open handler (used by Dashboard)
  * @param {Function} options.onShowProperties - Optional custom properties handler (used by Dashboard); receives {name, path, uid, element}
  * @param {Function} options.onShare - Optional custom share handler (used by Dashboard); receives {name, path, uid, element}
+ * @param {Function} options.onPublishWebsite - Optional custom publish-as-website handler (used by Dashboard); receives {uid, name, path}
+ * @param {Function} options.onPublishWorker - Optional custom publish-as-worker handler (used by Dashboard); receives {uid, name, path}
  * @param {Function} options.onPasteInto - Optional custom paste handler (used by Dashboard); receives the folder's path
+ * @param {Function} options.onRemovedFromShared - Optional, called once Remove from Shared has taken the item's row away (used by Dashboard)
  * @returns {Promise<Array>} Array of context menu items
  */
 const generate_file_context_menu = async function (options) {
@@ -141,11 +143,16 @@ const generate_file_context_menu = async function (options) {
             // enforces that). `write` on someone else's folder is not enough.
             disabled: !fsentry.is_dir || fsentry.has_website || !may_share,
             onClick: async function () {
-                await publish_as_website({
+                const target = {
                     uid: fsentry.uid,
                     name: $(el_item).attr('data-name'),
                     path: $(el_item).attr('data-path'),
-                });
+                };
+                if ( options.onPublishWebsite ) {
+                    options.onPublishWebsite(target);
+                } else {
+                    await publish_as_website(target);
+                }
             },
         });
     }
@@ -159,22 +166,17 @@ const generate_file_context_menu = async function (options) {
             html: i18n('publish_as_serverless_worker'),
             disabled: is_worker,
             onClick: async function () {
-                if ( window.user.is_temp &&
-                    !await UIWindowSaveAccount({
-                        send_confirmation_code: true,
-                        message: i18n('save_account_to_publish'),
-                        window_options: {
-                            backdrop: true,
-                            close_on_backdrop_click: false,
-                        },
-                    }) ) {
+                const target = {
+                    uid: fsentry.uid,
+                    name: $(el_item).attr('data-name'),
+                    path: $(el_item).attr('data-path'),
+                };
+                if ( options.onPublishWorker ) {
+                    options.onPublishWorker(target);
                     return;
                 }
-                else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() ) {
-                    return;
-                }
-
-                UIWindowPublishWorker(fsentry.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'));
+                if ( ! await ensure_can_publish(true) ) return;
+                UIWindowPublishWorker(target.uid, target.name, target.path);
             },
         });
     }
@@ -383,6 +385,7 @@ const generate_file_context_menu = async function (options) {
                     // walked away from.
                     invalidate_shared_roots();
                     $(el_item).remove();
+                    options.onRemovedFromShared?.();
                 } catch (e) {
                     UIAlert({ message: e?.message ?? i18n('error_unknown_cause') });
                 }
