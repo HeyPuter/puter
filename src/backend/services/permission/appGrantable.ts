@@ -24,6 +24,7 @@ import {
     type KvShareAccess,
     kvShareRoot,
 } from '../kvShare/kvShares.js';
+import { NOTIFICATIONS_PUSH_PERMISSION } from '../push/pushConsent.js';
 import {
     APP_DATA_CLASSES,
     APP_DATA_KV_OPS,
@@ -62,7 +63,8 @@ export type AppGrantablePermission =
           appUid: string;
           segments: string[];
       }
-    | { family: 'backgroundEvents' };
+    | { family: 'backgroundEvents' }
+    | { family: 'pushNotifications' };
 
 /** One component as it is written canonically: `\` as `\\`, `:` as `\C`. */
 const escapeComponent = (component: string): string =>
@@ -116,6 +118,9 @@ export const parseAppGrantablePermission = (
 ): AppGrantablePermission | null => {
     if (permission === 'events:background') {
         return { family: 'backgroundEvents' };
+    }
+    if (permission === NOTIFICATIONS_PUSH_PERMISSION) {
+        return { family: 'pushNotifications' };
     }
 
     const parts = PermissionUtil.split(permission);
