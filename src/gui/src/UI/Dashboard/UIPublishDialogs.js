@@ -49,6 +49,8 @@ const KINDS = {
         intro: 'publish_website_intro',
         published: 'website_published',
         rule: PUBLISH_NAME_RULES.website,
+        // Rejections that mean "pick another name" (SubdomainDriver).
+        nameErrors: new Set(['conflict', 'subdomain_reserved']),
         suffix: () => `.${window.hosting_domain}`,
         requiresVerification: () => !! window.require_email_verification_to_publish_website,
         async publish (name, path) {
@@ -77,6 +79,7 @@ const KINDS = {
         intro: 'publish_worker_intro',
         published: 'worker_published',
         rule: PUBLISH_NAME_RULES.worker,
+        nameErrors: new Set(['conflict']),
         suffix: () => '.puter.work',
         requiresVerification: () => true,
         extraFields: () => [{
@@ -145,7 +148,8 @@ const open_publish_dialog = async (kind_name, { name, path, ...opts }) => {
             try {
                 url = await kind.publish(subdomain, path, values);
             } catch ( err ) {
-                dialog.setStatus(error_message(err));
+                const code = err?.error?.code ?? err?.code;
+                dialog.setStatus(error_message(err), kind.nameErrors.has(code) ? { field: 'name' } : undefined);
                 return;
             }
             kind.markPublished(path, url);

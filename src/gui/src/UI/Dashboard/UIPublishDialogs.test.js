@@ -122,11 +122,24 @@ describe('publish website', () => {
     });
 
     it('shows why publishing failed and lets the user try again', async () => {
-        puter.hosting.create.mockRejectedValueOnce({ success: false, error: { code: 'already_in_use', message: 'That name is taken' } });
+        puter.hosting.create.mockRejectedValueOnce({ error: { code: 'internal_error', message: 'Something broke' } });
         await openPublishWebsiteDialog({ name: 'Site', path: '/alice/Site' });
-        await submitWith('taken');
-        expect(status()).toBe('That name is taken');
+        await submitWith('fine');
+        expect(status()).toBe('Something broke');
         expect(nameField().prop('disabled')).toBe(false);
+        expect(nameField().attr('aria-invalid')).toBeUndefined();
+    });
+
+    it.each([
+        ['conflict', 'A site with this subdomain already exists'],
+        ['subdomain_reserved', "Subdomain 'www' is reserved"],
+    ])('points a %s rejection at the address field', async (code, message) => {
+        puter.hosting.create.mockRejectedValueOnce({ error: { code, message }, code, message });
+        await openPublishWebsiteDialog({ name: 'Site', path: '/alice/Site' });
+        await submitWith('www');
+        expect(status()).toBe(message);
+        expect(nameField().attr('aria-invalid')).toBe('true');
+        expect(document.activeElement).toBe(nameField().get(0));
     });
 
     it('asks for verification only when the deployment needs it', async () => {
@@ -169,5 +182,14 @@ describe('publish worker', () => {
         await openPublishWorkerDialog({ name: 'api.js', path: '/alice/api.js' });
         await submitWith('api');
         expect(status()).toBe('SyntaxError: Unexpected token');
+        expect(nameField().attr('aria-invalid')).toBeUndefined();
+    });
+
+    it('points a taken worker name at the address field', async () => {
+        puter.workers.create.mockRejectedValueOnce({ error: { code: 'conflict', message: 'Worker name is already in use' } });
+        await openPublishWorkerDialog({ name: 'api.js', path: '/alice/api.js' });
+        await submitWith('api');
+        expect(status()).toBe('Worker name is already in use');
+        expect(nameField().attr('aria-invalid')).toBe('true');
     });
 });
