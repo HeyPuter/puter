@@ -233,6 +233,17 @@ describe('UIDashboardFormDialog', () => {
         expect($(`#${$input.attr('aria-describedby')}`).text()).toBe('.puter.site <b>');
     });
 
+    it('types into a suffixed field when its suffix is pressed', () => {
+        open({ fields: [{ name: 'name', label: 'Address', value: 'my-site', suffix: '.puter.site' }] });
+        const $input = $('.dashboard-form-input[name="name"]');
+        $input.get(0).blur();
+        const down = $.Event('mousedown');
+        $('.dashboard-form-suffix').trigger(down);
+        expect(down.isDefaultPrevented()).toBe(true);
+        expect(document.activeElement).toBe($input.get(0));
+        expect($input.get(0).selectionStart).toBe('my-site'.length);
+    });
+
     it('reads a switch back as a boolean', () => {
         const dialog = open({ fields: [
             { name: 'on', type: 'switch', label: 'On', checked: true },

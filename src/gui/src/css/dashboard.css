@@ -9339,6 +9339,7 @@ body.dashboard-mode .notifications-close-all {
     white-space: nowrap;
     font-size: 14px;
     color: var(--dashboard-text-muted);
+    cursor: text;
 }
 
 @media (pointer: coarse) {

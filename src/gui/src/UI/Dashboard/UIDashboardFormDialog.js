@@ -307,6 +307,16 @@ export default function UIDashboardFormDialog ({ title, intro, tone, fields = []
         this.select();
     });
 
+    // The suffix is drawn inside the field's box, so a press on it types into
+    // the field, at the end of the name.
+    $dialog.on('mousedown', '.dashboard-form-suffix', function (e) {
+        const input = $(this).siblings('.dashboard-form-input').get(0);
+        if ( ! input || input.disabled ) return;
+        e.preventDefault();
+        input.focus({ preventScroll: true });
+        input.setSelectionRange(input.value.length, input.value.length);
+    });
+
     // Keep the field focused (and a phone's keyboard up) while toggling. The
     // label names the action, so the button carries no aria-pressed as well.
     $dialog.on('pointerdown mousedown', '.dashboard-form-reveal', (e) => e.preventDefault());
