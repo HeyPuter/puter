@@ -8,6 +8,7 @@ import {
     openCursor,
     openIdCursor,
     sealCursor,
+    unsealCursor,
 } from './pagination';
 import { HttpError } from '../core/http';
 
@@ -106,6 +107,30 @@ describe('pagination util', () => {
             const plain = sealCursor({ id: 3 }, undefined);
             expect(plain).toBe(encodeCursor({ id: 3 }));
             expect(openCursor(plain, undefined)).toEqual({ id: 3 });
+        });
+
+        it('pads to one length whatever the payload holds', () => {
+            const short = sealCursor({ k: 'a' }, SECRET, { padTo: 256 })!;
+            const long = sealCursor({ k: 'a'.repeat(200) }, SECRET, {
+                padTo: 256,
+            })!;
+            expect(short.length).toBe(long.length);
+            expect(unsealCursor(short, SECRET)).toEqual({ k: 'a' });
+            expect(openCursor(long, SECRET)).toEqual({ k: 'a'.repeat(200) });
+            // Past the size, the next multiple rather than a cut.
+            const over = sealCursor({ k: 'a'.repeat(300) }, SECRET, {
+                padTo: 256,
+            })!;
+            expect(Buffer.from(over, 'base64url').length).toBe(
+                Buffer.from(short, 'base64url').length + 256,
+            );
+        });
+
+        it('opens only what it sealed with unsealCursor', () => {
+            expect(unsealCursor(encodeCursor({ id: 7 })!, SECRET)).toBeNull();
+            expect(
+                unsealCursor(sealCursor({ id: 7 }, 'other-secret')!, SECRET),
+            ).toBeNull();
         });
     });
 

@@ -357,7 +357,10 @@ export class SubdomainDriver extends PuterDriver {
 
         // Subdomain name is immutable — strip if provided
         const patch: Record<string, unknown> = {};
-        if (object.root_dir !== undefined) {
+        // A null root_dir disconnects the directory; the site stays reserved.
+        if (object.root_dir === null) {
+            patch.root_dir_id = null;
+        } else if (object.root_dir !== undefined) {
             const rootDirPath = expandTildePath(
                 String(object.root_dir),
                 actor.user.username,

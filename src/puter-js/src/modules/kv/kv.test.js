@@ -12,6 +12,10 @@ class FakeXHR {
     // Set per test: (parsedRequestBody) => driver-layer response object.
     static respondWith = null;
     static requests = [];
+    // The `/kv/shares` routes read the status and content type; driver calls
+    // ignore both.
+    static status = 200;
+    static contentType = null;
 
     _listeners = {};
     responseType = '';
@@ -30,8 +34,8 @@ class FakeXHR {
         (this._listeners[type] ??= []).push(fn);
     }
 
-    getResponseHeader () {
-        return null;
+    getResponseHeader (name) {
+        return String(name).toLowerCase() === 'content-type' ? FakeXHR.contentType : null;
     }
 
     send (body) {
@@ -40,6 +44,7 @@ class FakeXHR {
         const respObj = FakeXHR.respondWith
             ? FakeXHR.respondWith(body === null ? null : JSON.parse(body))
             : { success: true, result: true };
+        this.status = FakeXHR.status;
         queueMicrotask(() => {
             this.responseText = JSON.stringify(respObj);
             for ( const fn of this._listeners.load ?? [] ) {
@@ -68,6 +73,8 @@ let warnSpy;
 beforeEach(() => {
     FakeXHR.requests = [];
     FakeXHR.respondWith = null;
+    FakeXHR.status = 200;
+    FakeXHR.contentType = null;
     globalThis.XMLHttpRequest = FakeXHR;
     fakePuter = makeFakePuter();
     globalThis.puter = fakePuter;
@@ -993,5 +1000,226 @@ describe('module surface', () => {
         await kv.set('k', 'v');
         expect(lastBody().auth_token).toBe('rotated-token');
         expect(FakeXHR.requests.at(-1).url).toBe('https://api.rotated/drivers/call');
+    });
+});
+
+describe('optConfig.handle and onlyIfAbsent reach the driver', () => {
+    const HANDLE = 'kvh-1';
+
+    it('every single-key method forwards the handle in its optConfig', async () => {
+        const calls = [
+            ['get', () => kv.get('k', { handle: HANDLE }), { key: 'k' }],
+            ['set', () => kv.set('k', 'v', { handle: HANDLE }), { key: 'k', value: 'v' }],
+            ['del', () => kv.del('k', { handle: HANDLE }), { key: 'k' }],
+            ['incr', () => kv.incr('k', 2, { handle: HANDLE }), { key: 'k', pathAndAmountMap: { '': 2 } }],
+            ['decr', () => kv.decr('k', 2, { handle: HANDLE }), { key: 'k', pathAndAmountMap: { '': 2 } }],
+            ['add', () => kv.add('k', 'x', { handle: HANDLE }), { key: 'k', pathAndValueMap: { '': 'x' } }],
+            ['remove', () => kv.remove('k', 'a.b', { handle: HANDLE }), { key: 'k', paths: ['a.b'] }],
+            ['update', () => kv.update('k', { a: 1 }, { handle: HANDLE }), { key: 'k', pathAndValueMap: { a: 1 } }],
+            ['expire', () => kv.expire('k', 60, { handle: HANDLE }), { key: 'k', ttl: 60 }],
+            ['expireAt', () => kv.expireAt('k', 99, { handle: HANDLE }), { key: 'k', timestamp: 99 }],
+        ];
+        for ( const [method, call, args] of calls ) {
+            await call();
+            const body = lastBody();
+            expect(body.method).toBe(method);
+            expect(body.args).toEqual({ ...args, optConfig: { handle: HANDLE } });
+        }
+    });
+
+    it('the object forms carry it through', async () => {
+        await kv.get({ key: 'k', optConfig: { handle: HANDLE } });
+        expect(lastBody().args).toEqual({ key: 'k', optConfig: { handle: HANDLE } });
+        await kv.set({ key: 'k', value: 'v', optConfig: { handle: HANDLE } });
+        expect(lastBody().args).toEqual({ key: 'k', value: 'v', optConfig: { handle: HANDLE } });
+        await kv.set([{ key: 'a', value: 1 }], { handle: HANDLE });
+        expect(lastBody()).toMatchObject({ method: 'batchPut', args: { optConfig: { handle: HANDLE } } });
+    });
+
+    it('a { handle } object in the amount slot stays a path map', async () => {
+        await kv.incr('k', { handle: 1 });
+        expect(lastBody().args).toEqual({ key: 'k', pathAndAmountMap: { handle: 1 } });
+        await kv.add('k', { handle: 'x' });
+        expect(lastBody().args).toEqual({ key: 'k', pathAndValueMap: { handle: 'x' } });
+    });
+
+    it('set sends onlyIfAbsent and resolves to the driver\'s false', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: false });
+        await expect(kv.set('k', 'v', { onlyIfAbsent: true })).resolves.toBe(false);
+        expect(lastBody().args).toEqual({ key: 'k', value: 'v', optConfig: { onlyIfAbsent: true } });
+
+        await kv.set({ key: 'k', value: 'v', optConfig: { onlyIfAbsent: true, handle: HANDLE } });
+        expect(lastBody().args).toEqual({
+            key: 'k',
+            value: 'v',
+            optConfig: { onlyIfAbsent: true, handle: HANDLE },
+        });
+    });
+});
+
+describe('kv.list with a handle', () => {
+    const HANDLE = 'kvh-1';
+    const pagedResponses = (body) =>
+        body.args.cursor === null || body.args.cursor === undefined
+            ? { success: true, result: { items: ['a'], cursor: 'c2' } }
+            : { success: true, result: { items: ['b'] } };
+    const sentArgs = () => FakeXHR.requests.map((xhr) => JSON.parse(xhr.requestBody).args);
+
+    it('list(pattern, true, { handle }) sends it on every page', async () => {
+        FakeXHR.respondWith = pagedResponses;
+        await expect(kv.list('msg:*', true, { handle: HANDLE })).resolves.toEqual(['a', 'b']);
+        expect(sentArgs()).toEqual([
+            { pattern: 'msg:', optConfig: { handle: HANDLE }, limit: 1000, fetchUntilFull: true, cursor: null },
+            { pattern: 'msg:', optConfig: { handle: HANDLE }, limit: 1000, fetchUntilFull: true, cursor: 'c2' },
+        ]);
+    });
+
+    it('list({ optConfig: { handle } }) sends it on a single page', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { items: [] } });
+        await kv.list({ pattern: 'msg:*', reverse: true, limit: 2, cursor: 'c1', optConfig: { handle: HANDLE } });
+        expect(lastBody().args).toEqual({
+            as: 'keys',
+            pattern: 'msg:',
+            reverse: true,
+            limit: 2,
+            cursor: 'c1',
+            optConfig: { handle: HANDLE },
+        });
+    });
+
+    it('list({ stream: true, optConfig: { handle } }) sends it on every page', async () => {
+        FakeXHR.respondWith = pagedResponses;
+        for await ( const _page of kv.list({ stream: true, limit: 1, optConfig: { handle: HANDLE } }) ) {
+            // drain
+        }
+        expect(sentArgs().map((args) => args.optConfig)).toEqual([{ handle: HANDLE }, { handle: HANDLE }]);
+    });
+
+    it('the legacy list({ pattern, handle }) form doubles as optConfig on every page', async () => {
+        FakeXHR.respondWith = pagedResponses;
+        await kv.list({ pattern: 'msg:*', handle: HANDLE });
+        expect(sentArgs().map((args) => args.optConfig)).toEqual([
+            { pattern: 'msg:*', handle: HANDLE },
+            { pattern: 'msg:*', handle: HANDLE },
+        ]);
+    });
+
+    it('the legacy list({ pattern, handle }) form leaves a handle that is not a string alone', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: [] });
+        for ( const handle of [{ id: 1 }, 7, null, undefined] ) {
+            await kv.list({ pattern: 'msg:*', handle });
+            expect(lastBody().args).not.toHaveProperty('optConfig');
+        }
+    });
+
+    it('the legacy list({ handle, stream }) form strips stream from the optConfig', async () => {
+        FakeXHR.respondWith = pagedResponses;
+        for await ( const _page of kv.list({ handle: HANDLE, stream: true }) ) {
+            // drain
+        }
+        expect(sentArgs().map((args) => args.optConfig)).toEqual([{ handle: HANDLE }, { handle: HANDLE }]);
+    });
+});
+
+describe('kv sharing routes', () => {
+    const lastRequest = () => FakeXHR.requests.at(-1);
+    const SHARE = {
+        handle: 'kvh-1',
+        prefix: 'list:1:',
+        access: 'read',
+        appUid: null,
+        holder: 'alice',
+        label: null,
+        createdAt: 1700000000,
+    };
+
+    beforeEach(() => {
+        FakeXHR.contentType = 'application/json';
+    });
+
+    it('share(prefix, recipient) posts the share and resolves to it', async () => {
+        FakeXHR.respondWith = () => SHARE;
+        await expect(kv.share('list:1:', 'alice')).resolves.toEqual(SHARE);
+        const xhr = lastRequest();
+        expect(xhr.method).toBe('POST');
+        expect(xhr.url).toBe('https://api.test/kv/shares');
+        expect(xhr.requestHeaders.Authorization).toBe('Bearer test-token');
+        expect(lastBody()).toEqual({ prefix: 'list:1:', recipient: 'alice' });
+    });
+
+    it('share(prefix, recipient, access) sends the level', async () => {
+        FakeXHR.respondWith = () => SHARE;
+        await kv.share('list:1:', { username: 'alice' }, 'write');
+        expect(lastBody()).toEqual({ prefix: 'list:1:', recipient: { username: 'alice' }, access: 'write' });
+    });
+
+    it('share(options) sends appUuid as appUid, and a null label to clear it', async () => {
+        FakeXHR.respondWith = () => SHARE;
+        await kv.share({
+            prefix: 'list:1:',
+            recipient: { uid: 'user-uuid' },
+            access: 'watch',
+            label: null,
+            appUuid: 'app-1',
+        });
+        expect(lastBody()).toEqual({
+            prefix: 'list:1:',
+            recipient: { uid: 'user-uuid' },
+            access: 'watch',
+            label: null,
+            appUid: 'app-1',
+        });
+    });
+
+    it('share refuses an email address without a request', async () => {
+        await expect(kv.share('list:1:', 'alice@example.com')).rejects.toMatchObject({ code: 'invalid_recipient' });
+        await expect(kv.share({ prefix: 'list:1:', recipient: { username: 'a@b.c' } }))
+            .rejects.toMatchObject({ code: 'invalid_recipient' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
+
+    it('share passes the server\'s { message, code } through', async () => {
+        FakeXHR.status = 403;
+        FakeXHR.respondWith = () => ({ message: 'Not accepting shares', code: 'recipient_not_accepting_shares' });
+        await expect(kv.share('list:1:', 'alice')).rejects.toMatchObject({
+            message: 'Not accepting shares',
+            code: 'recipient_not_accepting_shares',
+        });
+    });
+
+    it('unshare(handle) deletes the share by its handle', async () => {
+        FakeXHR.respondWith = () => ({ handle: 'kvh-1', revokedAt: 1700000001 });
+        await expect(kv.unshare('kvh-1')).resolves.toEqual({ handle: 'kvh-1', revokedAt: 1700000001 });
+        expect(lastRequest().method).toBe('DELETE');
+        expect(lastRequest().url).toBe('https://api.test/kv/shares/kvh-1');
+    });
+
+    it('unshare without a handle rejects without a request', async () => {
+        await expect(kv.unshare('')).rejects.toMatchObject({ code: 'invalid_request' });
+        await expect(kv.unshare(undefined)).rejects.toMatchObject({ code: 'invalid_request' });
+        expect(FakeXHR.requests).toHaveLength(0);
+    });
+
+    it('listShared() reads the holder listing', async () => {
+        const page = { items: [{ handle: 'kvh-1', access: 'read', appUid: null, label: null, createdAt: 1 }] };
+        FakeXHR.respondWith = () => page;
+        await expect(kv.listShared()).resolves.toEqual(page);
+        expect(lastRequest().method).toBe('GET');
+        expect(lastRequest().url).toBe('https://api.test/kv/shares/with-me');
+    });
+
+    it('listSharedByMe(options) sends the page options', async () => {
+        FakeXHR.respondWith = () => ({ items: [], total: 0 });
+        await kv.listSharedByMe({ limit: 5, cursor: 'c1', includeTotal: true });
+        expect(lastRequest().url).toBe('https://api.test/kv/shares?limit=5&cursor=c1&includeTotal=true');
+        await kv.listSharedByMe({ includeTotal: false });
+        expect(lastRequest().url).toBe('https://api.test/kv/shares');
+    });
+
+    it('the sharing methods keep working when destructured', async () => {
+        FakeXHR.respondWith = () => ({ items: [] });
+        const { listShared } = kv;
+        await listShared();
+        expect(lastRequest().url).toBe('https://api.test/kv/shares/with-me');
     });
 });

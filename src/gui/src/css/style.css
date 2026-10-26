@@ -5042,16 +5042,6 @@ html.dark-mode .usage-table-fade-overlay {
     color: #374151;
 }
 
-html.dark-mode .usage-table-show-less {
-    color: #9ca3af;
-    border-color: #4b5563;
-}
-
-html.dark-mode .usage-table-show-less:hover {
-    background: #374151;
-    border-color: #6b7280;
-    color: #d1d5db;
-}
 
 
 .driver-usage-details-content-table {
@@ -5110,7 +5100,7 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .driver-usage-details-content-table thead th .usage-sort-btn:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: 2px;
     border-radius: 2px;
 }
@@ -6896,7 +6886,7 @@ html.dark-mode .usage-table-show-less:hover {
     font-size: 12.5px;
     font-weight: 600;
     background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
-    color: hsl(var(--share-avatar-hue, 213), 45%, 38%);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
 }
 
 /* A team is not a person, so it gets a glyph rather than an initial. */

@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import path from '../../lib/path.js';
+import path from '../lib/path.js';
 
 /** Matches the backend's cap in FSService#findDedupedName. */
 const MAX_SUFFIX = 100_000;

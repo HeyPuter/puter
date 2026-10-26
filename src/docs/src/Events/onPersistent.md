@@ -35,10 +35,10 @@ puter.events.onPersistent(options)
 
 ## Background delivery needs consent
 
-Running your handler while the user isn't there needs its own per-app permission, **`events:background`**. Subscribing with `worker` among the `targets` (the default for an app) without it fails with `events_background_consent_required`. Request it like any other permission:
+Running your handler while the user isn't there needs its own per-app permission, **`events:background`**. Subscribing with `worker` among the `targets` (the default for an app) without it fails with `events_background_consent_required`. To ask for it, call [`puter.perms.request()`](/Perms/request/) with the `'backgroundEvents'` resource:
 
 ```js
-await puter.perms.request(['events:background']);
+await puter.perms.request('backgroundEvents');
 ```
 
 The user can revoke it wherever they manage the app's access. That suspends every worker-target subscription the app holds for them with `permission_revoked`, and granting it again doesn't resume them: subscribe again. A subscription that only wants deliveries while your app is open needs no consent: pass `targets: ['socket']`.

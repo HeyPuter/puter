@@ -950,7 +950,8 @@ describe('resolvePrivateIdentity', () => {
         expect(out.userUid).toBeUndefined();
     });
 
-    it('accepts an app-issued access token minted for the target app', async () => {
+    it('ignores an app-issued access token even for the target app', async () => {
+        // A scoped token (e.g. a read URL) is not the account, whoever issued it.
         const user = await makeUser();
         const targetUid = `app-target-${uuidv4()}`;
         const issuer = makeActor({
@@ -970,11 +971,11 @@ describe('resolvePrivateIdentity', () => {
             sessionCookieName: 'puter_auth_token',
             expectedAppUid: targetUid,
         });
-        expect(out.source).toBe('session-cookie');
-        expect(out.userUid).toBe(user.uuid);
+        expect(out.source).toBe('none');
+        expect(out.userUid).toBeUndefined();
     });
 
-    it('still accepts a user-issued access token, which is portable', async () => {
+    it('ignores a user-issued scoped access token', async () => {
         const user = await makeUser();
         const issuer = makeActor({ user: { uuid: user.uuid } });
         const out = await resolvePrivateIdentity({
@@ -983,7 +984,46 @@ describe('resolvePrivateIdentity', () => {
                 actor: makeActor({
                     user: { uuid: user.uuid },
                     accessToken: { uid: `tok-${uuidv4()}`, issuer },
-                    session: { uid: 'sess-1' },
+                }),
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+            expectedAppUid: `app-target-${uuidv4()}`,
+        });
+        expect(out.source).toBe('none');
+        expect(out.userUid).toBeUndefined();
+    });
+
+    it('ignores a scoped access token when the host has no app', async () => {
+        const user = await makeUser();
+        const issuer = makeActor({ user: { uuid: user.uuid } });
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                actor: makeActor({
+                    user: { uuid: user.uuid },
+                    accessToken: { uid: `tok-${uuidv4()}`, issuer },
+                }),
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+        });
+        expect(out.source).toBe('none');
+    });
+
+    it('accepts a full-access token, which holds the account', async () => {
+        const user = await makeUser();
+        const issuer = makeActor({ user: { uuid: user.uuid } });
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                actor: makeActor({
+                    user: { uuid: user.uuid },
+                    accessToken: {
+                        uid: `tok-${uuidv4()}`,
+                        issuer,
+                        fullAccess: true,
+                    },
                 }),
             }),
             authService,

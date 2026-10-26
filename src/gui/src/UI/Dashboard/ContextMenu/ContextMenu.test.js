@@ -125,3 +125,24 @@ describe('ContextMenuModal accessibility', () => {
         expect(label()).toBe('New');
     });
 });
+
+describe('ContextMenuModal stacking', () => {
+    it("doesn't open a second sheet over one already up", () => {
+        setTouchViewport(390);
+        openMenu();
+        openMenu();
+        expect(document.querySelectorAll('.context-menu-modal-backdrop')).toHaveLength(1);
+    });
+
+    it('opens again once the first is closed', () => {
+        vi.useFakeTimers();
+        setTouchViewport(390);
+        const first = new ContextMenuModal();
+        first.show([{ label: 'Open', action: () => {} }], { left: 0, top: 0, width: 10, height: 10 });
+        first.close();
+        openMenu();
+        vi.runAllTimers();
+        vi.useRealTimers();
+        expect(document.querySelectorAll('.context-menu-modal-backdrop')).toHaveLength(1);
+    });
+});

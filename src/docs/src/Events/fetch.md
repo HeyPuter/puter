@@ -48,7 +48,7 @@ Each item is a notification event:
 | `type` | String | The kind of notification, from the published catalog: `share.received`, `app.worker.deployed`, and so on. |
 | `audience` | String | `account`, `developer`, or `app-user`. |
 | `appUid` | String \| null | The app it's about, or `null` for platform notifications. |
-| `notification` | Object | The stored payload. It always has `type`, and everything Puter sends has a `title`; other fields depend on `type` (below). |
+| `notification` | Object | The stored payload. It always has `type`, and every type except `kv.share.received` has a `title`. Other fields depend on `type` (below). |
 | `self` | Boolean | Always `true`: a mailbox is your own. |
 | `ts` | Number | When it was created, in milliseconds since the epoch. |
 | `seq` | Number | Position within the page. |
@@ -60,6 +60,7 @@ Besides `type` and `title`, `notification` carries:
 - `app.worker.deployed`, `app.worker.deployFailed`: nothing else.
 - `app.events.ended`: `reason` (`anchor_deleted`, `permission_revoked`, or `no_credit`); `anchor_deleted` and `permission_revoked` also add `subject`, `subjects` (up to 20) and `count`.
 - `app.events.suspended`: `handler` and `subscriptions`.
+- `kv.share.received`: `handle`, `access`, `label`, and `createdAt` (in Unix seconds) of a key-value share another user made with you (see [`puter.kv.listShared()`](/KV/listShared/)). It arrives on `notif:app-user` in the app whose data was shared, and the Puter desktop doesn't show it. Outside that app, `notif:app-user` leaves it out. `notif:<appId>:app-user` returns it to the account itself and to that app, and not to other apps.
 
 Other notifications can carry other fields, so read them defensively.
 
