@@ -1254,6 +1254,8 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
         let progwin;
         let latest_status;
         const arm_progwin = () => setTimeout(async () => {
+            // Re-armed after a prompt: an open progress window carries on.
+            if ( progwin ) return;
             progwin = await UIWindowProgress({
                 title: i18n('copying', [], false),
                 operation_id: copy_op_id,
@@ -1397,6 +1399,8 @@ window.copy_items = function (el_items, dest_path) {
         let progwin;
         let latest_status;
         const arm_progwin = () => setTimeout(async () => {
+            // Re-armed after a prompt: an open progress window carries on.
+            if ( progwin ) return;
             progwin = await UIWindowProgress({
                 title: i18n('copying', [], false),
                 operation_id: copy_op_id,
@@ -1749,6 +1753,8 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
     let progwin;
     let latest_status;
     const arm_progwin = () => setTimeout(async () => {
+        // Re-armed after a prompt: an open progress window carries on.
+        if ( progwin ) return;
         progwin = await UIWindowProgress({
             title: i18n(dest_path === window.trash_path ? 'deleting' : 'moving', [], false),
             operation_id: move_op_id,
