@@ -5180,6 +5180,13 @@ body.myapps-reordering .myapps-tile {
     filter: none;
 }
 
+@media (prefers-color-scheme: dark) {
+    /* A black glyph, lost on the dark row: drawn light instead. */
+    .dashboard-section-files .files-tab .files.files-list-view .row img.item-has-website-url-badge {
+        filter: invert(1);
+    }
+}
+
 /* Badges live top-LEFT in grid view; the top-right corner belongs to the
    hover '⋯' button (.item-more) and they must not overlap. */
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-badges {
