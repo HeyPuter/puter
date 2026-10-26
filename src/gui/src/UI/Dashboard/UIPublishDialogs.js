@@ -52,8 +52,11 @@ const KINDS = {
         suffix: () => `.${window.hosting_domain}`,
         requiresVerification: () => !! window.require_email_verification_to_publish_website,
         async publish (name, path) {
-            await puter.hosting.create(name, path);
-            return `https://${name}.${window.hosting_domain}`;
+            const site = await puter.hosting.create(name, path);
+            // The server's address carries the deployment's real scheme (a
+            // self-hosted instance may serve sites over http).
+            return site?.root_dir?.subdomains?.find((entry) => entry.subdomain === name)?.address
+                ?? `https://${name}.${window.hosting_domain}`;
         },
         markPublished (path, url) {
             each_item_at(path, ($item, item_path) => {

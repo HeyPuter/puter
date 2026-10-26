@@ -96,6 +96,17 @@ describe('publish website', () => {
         expect(window.update_sites_cache).toHaveBeenCalled();
     });
 
+    it("links to the server's address for the site when it sends one", async () => {
+        puter.hosting.create.mockResolvedValueOnce({
+            subdomain: 'docs',
+            root_dir: { subdomains: [{ subdomain: 'docs', address: 'http://docs.site.example.test' }] },
+        });
+        await openPublishWebsiteDialog({ name: 'Site', path: '/alice/Site' });
+        await submitWith('docs');
+        expect($('.dashboard-copy-value').val()).toBe('http://docs.site.example.test');
+        expect($('.dashboard-publish-open').attr('href')).toBe('http://docs.site.example.test');
+    });
+
     it('shapes the address as it is typed', async () => {
         await openPublishWebsiteDialog({ name: 'Site', path: '/alice/Site' });
         nameField().val('My_Site 2').trigger('input');
