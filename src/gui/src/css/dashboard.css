@@ -6053,9 +6053,20 @@ body.myapps-reordering .myapps-tile {
         margin-bottom: 12px;
     }
 
-    /* Clear the fixed menu button beside the crumbs */
+    /* Clear the fixed menu button beside the crumbs, and match its height:
+       a shorter row put the arrows below under the button's tap area, so
+       the top of Back opened the menu. */
     .dashboard-section-files .header .path-breadcrumbs {
         margin-left: 50px;
+        box-sizing: content-box;
+        min-height: 40px;
+    }
+
+    /* Finger-sized crumbs, in that row */
+    @media (pointer: coarse) {
+        .dashboard-section-files .header .path .dirname {
+            padding: 8px 6px;
+        }
     }
 
     /* Adjust footer position - full width since sidebar is hidden. It sits
