@@ -130,7 +130,8 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [88, ['0093_fsentries-parent-uid-index.sql']],
     [89, ['0094_deleted-apps.sql']],
     [90, ['0095_kv-share-handle-levels.sql']],
-    [91, ['0096_push-device.sql']],
+    [91, ['0096_kv-share-handle-quota-indexes.sql']],
+    [92, ['0097_push-device.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {

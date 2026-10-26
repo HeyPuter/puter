@@ -78,6 +78,17 @@ export class BoundedTtlMap<K, V> {
         this.#entries.clear();
     }
 
+    /** Delete every entry whose value matches, in one pass. Returns how many. */
+    deleteWhere(matches: (value: V, key: K) => boolean): number {
+        let deleted = 0;
+        for (const [key, entry] of this.#entries) {
+            if (!matches(entry.value, key)) continue;
+            this.#entries.delete(key);
+            deleted++;
+        }
+        return deleted;
+    }
+
     /**
      * True at most once per TTL window for `key`, for "log/post this at most
      * once a window" throttles. Calls inside the window return false.
