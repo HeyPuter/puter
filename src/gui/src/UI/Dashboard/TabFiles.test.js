@@ -1326,3 +1326,30 @@ describe('TabFiles folder menu', () => {
         expect(publishItem('/alice/Documents/other').disabled).toBe(false);
     });
 });
+
+describe('TabFiles.followRename', () => {
+    beforeEach(() => {
+        mountListing(['a.txt', 'b.txt', 'c.txt'], '/alice/Documents');
+        $('.files .row').each((_, row) => {
+            row.setAttribute('data-name', row.getAttribute('data-path').split('/').pop());
+            row.setAttribute('data-is_dir', '0');
+        });
+        TabFiles.sortColumn = 'name';
+        TabFiles.sortDirection = 'asc';
+    });
+
+    it('puts a row renamed elsewhere where its new name sorts', () => {
+        const $row = $('.files .row').first();
+        $row.attr({ 'data-name': 'z.txt', 'data-path': '/alice/Documents/z.txt' });
+        TabFiles.followRename($row, { name: 'z.txt', path: '/alice/Documents/z.txt', is_dir: false }, '/alice/Documents/a.txt');
+        expect($('.files .row').toArray().map(row => row.getAttribute('data-name'))).toEqual(['b.txt', 'c.txt', 'z.txt']);
+    });
+
+    it('points Back/Forward at a folder renamed elsewhere', () => {
+        window.dashboard_nav_history = ['/alice/Documents', '/alice/Documents/old/sub'];
+        window.dashboard_nav_history_current_position = 0;
+        const $row = $('.files .row').first();
+        TabFiles.followRename($row, { name: 'new', path: '/alice/Documents/new', is_dir: true }, '/alice/Documents/old');
+        expect(window.dashboard_nav_history).toEqual(['/alice/Documents', '/alice/Documents/new/sub']);
+    });
+});

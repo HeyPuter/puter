@@ -234,6 +234,8 @@ const TabFiles = {
         // drift — e.g. trashed items must show metadata.original_name, not
         // the UID that is their raw name (matching renderItem).
         window.UIDashboardFileItemUpdate = function ($row, file) {
+            const oldName = $row.attr('data-name');
+            const oldPath = $row.attr('data-path');
             // Minimal update payloads may omit fields — only write what the
             // event actually carries, so it can't blank a correct name/path
             // (or zero a size) that is already on screen. A metadata-only
@@ -289,6 +291,7 @@ const TabFiles = {
             ) {
                 $row.find('.item-icon img').attr('src', file.thumbnail);
             }
+            if ( displayName && displayName !== oldName && fsentry ) _this.followRename($row, fsentry, oldPath);
             // The footer's item-count/total-size line is computed from the
             // rows' data-size attributes — keep it in step with the cell.
             _this.updateFooterStats();
@@ -1777,6 +1780,26 @@ const TabFiles = {
             ? false
             : can_restructure($(row).attr('data-path')))));
         return list.filter((_row, i) => answers[i]);
+    },
+
+    /**
+     * Puts a row renamed elsewhere where its new name sorts, with the icon its
+     * new type takes, and Back/Forward on a renamed folder's new path, as a
+     * rename made here does.
+     *
+     * @param {jQuery} $row
+     * @param {Object} fsentry - The row's entry, renamed
+     * @param {string} oldPath - The row's path before the rename
+     * @returns {void}
+     */
+    followRename ($row, fsentry, oldPath) {
+        this.insertAtSortedPosition($row, fsentry);
+        item_icon(fsentry).then(({ image }) => {
+            $row.find('.item-icon > img').first().attr('src', image);
+        });
+        if ( fsentry.is_dir && oldPath && fsentry.path && fsentry.path !== oldPath ) {
+            this.folderMoved(oldPath, fsentry.path);
+        }
     },
 
     /**
