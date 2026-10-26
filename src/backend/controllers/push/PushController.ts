@@ -22,12 +22,14 @@ import type { Actor } from '../../core/actor.js';
 import { Controller, Delete, Get, Post } from '../../core/http/decorators.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { bodyRecord } from '../../core/http/requestBody.js';
+import { NOTIFICATIONS_PUSH_PERMISSION } from '../../services/push/pushConsent.js';
 import {
     PUSH_DEVICE_LABEL_MAX_LENGTH,
     PUSH_DEVICE_USER_AGENT_MAX_LENGTH,
     type PushDevice,
     type PushPlatform,
 } from '../../stores/push/PushDeviceStore.js';
+import { getAppIconUrl } from '../../util/appIcon.js';
 import { PuterController } from '../types.js';
 
 const PLATFORMS: ReadonlySet<string> = new Set<PushPlatform>([
@@ -37,6 +39,8 @@ const PLATFORMS: ReadonlySet<string> = new Set<PushPlatform>([
 ]);
 const TOKEN_MAX_LENGTH = 4096;
 const LIST_LIMIT = 50;
+const APP_LIST_LIMIT = 200;
+const APP_ICON_SIZE = 64;
 const WHITESPACE_OR_CONTROL = /[\s\p{Cc}]/u;
 
 /** A device as the routes return it; the provider token never leaves. */
@@ -49,6 +53,14 @@ export interface PublicPushDevice {
     last_seen_at: number;
     /** Registered from the session making this request. */
     current: boolean;
+}
+
+/** An app the user lets send pushes. */
+export interface PushApp {
+    uid: string;
+    name: string;
+    title: string;
+    icon: string | null;
 }
 
 const badRequest = (message: string) =>
@@ -84,11 +96,7 @@ export class PushController extends PuterController {
     })
     async register(req: Request, res: Response): Promise<void> {
         const { userId, sessionUid } = this.#signedIn(req.actor);
-        if (this.config.push?.enabled !== true) {
-            throw new HttpError(503, 'Push notifications are not enabled', {
-                legacyCode: 'push_disabled',
-            });
-        }
+        this.#requireEnabled();
 
         const body = bodyRecord(req);
         const { platform, token, label } = body;
@@ -170,6 +178,123 @@ export class PushController extends PuterController {
             });
         }
         res.json({ removed: true });
+    }
+
+    /** POST /push/devices/:uid/test — one fixed push to the caller's device. */
+    @Post('/devices/:uid/test', {
+        subdomain: 'api',
+        requireUserActor: true,
+        rateLimit: {
+            scope: 'push-device-test',
+            limit: 3,
+            window: 10 * 60_000,
+            key: 'user',
+        },
+    })
+    async test(req: Request, res: Response): Promise<void> {
+        const { userId } = this.#signedIn(req.actor);
+        this.#requireEnabled();
+        const uid = String(req.params.uid ?? '');
+        const result = await this.services.push.sendTest(userId, uid);
+        switch (result) {
+            case 'delivered':
+                res.json({ sent: true });
+                return;
+            case 'not_found':
+                throw new HttpError(404, 'Device not found', {
+                    legacyCode: 'not_found',
+                });
+            case 'no_provider':
+                throw new HttpError(
+                    503,
+                    'Push notifications are not available for this device',
+                    { legacyCode: 'push_unavailable' },
+                );
+            case 'unregistered':
+                throw new HttpError(
+                    410,
+                    'This device no longer receives push notifications',
+                    { legacyCode: 'push_device_unregistered' },
+                );
+            default:
+                throw new HttpError(502, 'The test notification was not sent', {
+                    legacyCode: 'push_test_failed',
+                });
+        }
+    }
+
+    /** GET /push/apps — apps the caller lets send pushes, by title. */
+    @Get('/apps', {
+        subdomain: 'api',
+        requireUserActor: true,
+        rateLimit: {
+            scope: 'push-app-list',
+            limit: 60,
+            window: 60_000,
+            key: 'user',
+        },
+    })
+    async listApps(req: Request, res: Response): Promise<void> {
+        const { userId } = this.#signedIn(req.actor);
+        const rows = await this.stores.permission.listAppsWithUserAppPerm(
+            userId,
+            NOTIFICATIONS_PUSH_PERMISSION,
+            { limit: APP_LIST_LIMIT },
+        );
+        const apiBaseUrl = this.config.api_base_url as string | undefined;
+        const apps: PushApp[] = rows.map((row) => ({
+            uid: row.uid,
+            name: row.name,
+            title: row.title,
+            icon: getAppIconUrl(row, { apiBaseUrl }, APP_ICON_SIZE),
+        }));
+        res.json({ apps });
+    }
+
+    /** GET /push/preferences — `{ puter }`: pushes of Puter's own notifications. */
+    @Get('/preferences', {
+        subdomain: 'api',
+        requireUserActor: true,
+        rateLimit: {
+            scope: 'push-preferences-read',
+            limit: 60,
+            window: 60_000,
+            key: 'user',
+        },
+    })
+    async getPreferences(req: Request, res: Response): Promise<void> {
+        const { userId } = this.#signedIn(req.actor);
+        res.json({ puter: await this.services.push.puterPushEnabled(userId) });
+    }
+
+    /** POST /push/preferences `{ puter: boolean }`. */
+    @Post('/preferences', {
+        subdomain: 'api',
+        requireUserActor: true,
+        bodyJson: { limit: '1kb' },
+        rateLimit: {
+            scope: 'push-preferences-write',
+            limit: 30,
+            window: 60_000,
+            key: 'user',
+        },
+    })
+    async setPreferences(req: Request, res: Response): Promise<void> {
+        const { userId } = this.#signedIn(req.actor);
+        const { puter } = bodyRecord(req);
+        if (typeof puter !== 'boolean') {
+            throw badRequest('`puter` must be a boolean');
+        }
+        await this.services.push.setPuterPushEnabled(userId, puter);
+        res.json({ puter });
+    }
+
+    #requireEnabled(): void {
+        if (this.config.push?.enabled !== true) {
+            throw new HttpError(503, 'Push notifications are not enabled', {
+                legacyCode: 'push_disabled',
+            });
+        }
     }
 
     #signedIn(actor: Actor | undefined): {

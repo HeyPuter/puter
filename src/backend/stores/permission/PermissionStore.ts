@@ -54,6 +54,13 @@ const INSTALLED_APPS_ORDER_COLUMNS = {
     title: 'apps.title',
     installed_at: 'installed_at',
 } as const;
+export interface GrantedAppRow {
+    uid: string;
+    name: string;
+    title: string;
+    icon: unknown;
+}
+
 export type InstalledAppsOrder = keyof typeof INSTALLED_APPS_ORDER_COLUMNS;
 export const INSTALLED_APPS_ORDERS = Object.keys(
     INSTALLED_APPS_ORDER_COLUMNS,
@@ -838,6 +845,23 @@ export class PermissionStore extends PuterStore {
             OFFSET ?`,
             [userId, limit, offset],
         );
+    }
+
+    /** Apps this user granted exactly `permission`, by title, from the primary. */
+    async listAppsWithUserAppPerm(
+        userId: number,
+        permission: string,
+        { limit }: { limit: number },
+    ): Promise<GrantedAppRow[]> {
+        return (await this.clients.db.pread(
+            `SELECT apps.uid, apps.name, apps.title, apps.icon
+            FROM user_to_app_permissions AS perm
+            JOIN apps ON apps.id = perm.app_id
+            WHERE perm.user_id = ? AND perm.permission = ?
+            ORDER BY apps.title, apps.id
+            LIMIT ?`,
+            [userId, permission, limit],
+        )) as GrantedAppRow[];
     }
 
     /**

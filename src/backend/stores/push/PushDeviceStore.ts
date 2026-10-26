@@ -140,6 +140,22 @@ export class PushDeviceStore extends PuterStore {
         return rows[0] ? toDevice(rows[0]) : null;
     }
 
+    /** One of `userId`'s devices with its provider address, from the primary. */
+    async getDeliveryTarget(
+        userId: number,
+        uid: string,
+    ): Promise<PushDeliveryTarget | null> {
+        if (!uid) return null;
+        const rows = await this.clients.db.pread(
+            `SELECT ${DEVICE_COLUMNS}, \`token\` FROM \`push_device\` ` +
+                'WHERE `uid` = ? AND `user_id` = ? LIMIT 1',
+            [uid, userId],
+        );
+        return rows[0]
+            ? { ...toDevice(rows[0]), token: String(rows[0].token) }
+            : null;
+    }
+
     /** A user's devices, newest first. */
     async listByUser(
         userId: number,

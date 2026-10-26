@@ -613,14 +613,18 @@ An account can also hold at most **150** open connections from one origin, so a 
 
 The Puter desktop and the Puter mobile apps register the devices that receive an account's push notifications. These routes only accept a signed-in Puter session, so apps and API tokens can't call them.
 
-| Limit                                         | Value            |
-| --------------------------------------------- | ---------------- |
-| Device registrations (`POST /push/devices`)   | 30/min           |
-| Device list reads (`GET /push/devices`)       | 60/min           |
-| Device removals (`DELETE /push/devices/:uid`) | 30/min           |
-| Devices per account                           | 20               |
-| Device token                                  | 4,096 characters |
-| Device label                                  | 64 characters    |
+| Limit                                              | Value            |
+| -------------------------------------------------- | ---------------- |
+| Device registrations (`POST /push/devices`)        | 30/min           |
+| Device list reads (`GET /push/devices`)            | 60/min           |
+| Device removals (`DELETE /push/devices/:uid`)      | 30/min           |
+| Test pushes (`POST /push/devices/:uid/test`)       | 3 per 10 minutes |
+| Push app list reads (`GET /push/apps`)             | 60/min           |
+| Push preference reads (`GET /push/preferences`)    | 60/min           |
+| Push preference changes (`POST /push/preferences`) | 30/min           |
+| Devices per account                                | 20               |
+| Device token                                       | 4,096 characters |
+| Device label                                       | 64 characters    |
 
 Registering a new device when the account already has 20 removes the device that was seen least recently.
 

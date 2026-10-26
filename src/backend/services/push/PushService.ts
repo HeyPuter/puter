@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { randomUUID } from 'node:crypto';
 import type { EventMap } from '../../clients/event/types.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
@@ -60,6 +61,20 @@ const MINUTE_MS = 60_000;
 
 /** User metadata key for pushes of Puter's own notifications; absent is on. */
 export const PUTER_PUSH_PREFERENCE_KEY = 'pushPuter';
+
+/** A later test push replaces an earlier one still on screen. */
+export const PUSH_TEST_GROUP = 'puter-push-test';
+const PUSH_TEST_TTL_SECONDS = 60;
+
+export type PushTestResult =
+    'delivered' | 'not_found' | 'no_provider' | 'unregistered' | 'failed';
+
+/** Which devices a send reached, by device uid. */
+interface PushSendOutcome {
+    delivered: string[];
+    unregistered: string[];
+    failed: string[];
+}
 
 type WrittenNotification = EventMap['notif.written'];
 
@@ -134,6 +149,41 @@ export class PushService extends PuterService {
             MAX_DEVICES_PER_USER,
         );
         return device;
+    }
+
+    /** Whether Puter's own notifications go out as pushes; false for no user. */
+    async puterPushEnabled(userId: number): Promise<boolean> {
+        const user = await this.stores.user.getById(userId);
+        if (!user) return false;
+        return user.metadata?.[PUTER_PUSH_PREFERENCE_KEY] !== false;
+    }
+
+    async setPuterPushEnabled(userId: number, enabled: boolean): Promise<void> {
+        await this.stores.user.updateMetadata(userId, {
+            [PUTER_PUSH_PREFERENCE_KEY]: enabled,
+        });
+    }
+
+    /** A fixed push to one device, ignoring presence and preference. */
+    async sendTest(userId: number, deviceUid: string): Promise<PushTestResult> {
+        const device = await this.stores.pushDevice.getDeliveryTarget(
+            userId,
+            deviceUid,
+        );
+        if (!device) return 'not_found';
+        if (!this.#providers.has(device.platform)) return 'no_provider';
+
+        const outcome = await this.#send(userId, [device], {
+            uid: randomUUID(),
+            title: 'Push is on for this browser',
+            body: 'Notifications from Puter will show up here.',
+            group: PUSH_TEST_GROUP,
+            ttl: PUSH_TEST_TTL_SECONDS,
+            priority: 'normal',
+        });
+        if (outcome.delivered.length > 0) return 'delivered';
+        if (outcome.unregistered.length > 0) return 'unregistered';
+        return 'failed';
     }
 
     // -- Extension hooks ----------------------------------------------
@@ -252,9 +302,7 @@ export class PushService extends PuterService {
                 appUid,
             );
         }
-        const user = await this.stores.user.getById(userId);
-        if (!user) return false;
-        return user.metadata?.[PUTER_PUSH_PREFERENCE_KEY] !== false;
+        return this.puterPushEnabled(userId);
     }
 
     /** One call per platform batch; each device's result is recorded once. */
@@ -262,7 +310,7 @@ export class PushService extends PuterService {
         userId: number,
         devices: PushDeliveryTarget[],
         message: PushMessage,
-    ): Promise<void> {
+    ): Promise<PushSendOutcome> {
         const byPlatform = new Map<PushPlatform, PushDeliveryTarget[]>();
         for (const device of devices) {
             const list = byPlatform.get(device.platform) ?? [];
@@ -297,7 +345,7 @@ export class PushService extends PuterService {
 
         const delivered: string[] = [];
         const failed: string[] = [];
-        const unregistered: string[] = [];
+        const unregistered: PushDeliveryTarget[] = [];
         const codes: Partial<Record<PushFailureCode, number>> = {};
         settled.forEach((outcome, index) => {
             let results: Array<PushResult | undefined> = [];
@@ -315,7 +363,7 @@ export class PushService extends PuterService {
                 if (result?.status === 'delivered') {
                     delivered.push(device.uid);
                 } else if (result?.status === 'unregistered') {
-                    unregistered.push(hashPushToken(device.token));
+                    unregistered.push(device);
                 } else {
                     failed.push(device.uid);
                     const code = failureCode(result, batchCode);
@@ -335,8 +383,15 @@ export class PushService extends PuterService {
         await Promise.all([
             this.stores.pushDevice.touch(userId, delivered),
             this.stores.pushDevice.recordFailure(userId, failed),
-            this.stores.pushDevice.removeByTokenHashes(unregistered),
+            this.stores.pushDevice.removeByTokenHashes(
+                unregistered.map((device) => hashPushToken(device.token)),
+            ),
         ]);
+        return {
+            delivered,
+            unregistered: unregistered.map((device) => device.uid),
+            failed,
+        };
     }
 
     /** Every node sweeps; an overlap costs only empty indexed batches. */

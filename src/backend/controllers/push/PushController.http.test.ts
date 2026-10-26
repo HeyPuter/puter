@@ -17,8 +17,24 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { io as ioClient, type Socket as ClientSocket } from 'socket.io-client';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor } from '../../core/actor.js';
+import type { PermissionService } from '../../services/permission/PermissionService.js';
+import {
+    hasPushConsent,
+    NOTIFICATIONS_PUSH_PERMISSION,
+} from '../../services/push/pushConsent.js';
+import {
+    PUSH_TEST_GROUP,
+    PUTER_PUSH_PREFERENCE_KEY,
+} from '../../services/push/PushService.js';
+import { isConnectedHere } from '../../services/push/pushPresence.js';
+import type {
+    PushBatch,
+    PushProvider,
+    PushResult,
+} from '../../services/push/types.js';
 import type { IConfig } from '../../types.js';
 import {
     createTestUser,
@@ -26,7 +42,7 @@ import {
     type PuterTestEnv,
     type TestUserCredentials,
 } from '../../testUtil.js';
-import type { PublicPushDevice } from './PushController.js';
+import type { PublicPushDevice, PushApp } from './PushController.js';
 
 type DeviceBody = { device: PublicPushDevice };
 type ListBody = { devices: PublicPushDevice[] };
@@ -471,6 +487,31 @@ describe('push device routes with push disabled', () => {
         expect(await res.json()).toMatchObject({ code: 'push_disabled' });
     });
 
+    it('refuses a test push with 503 push_disabled', async () => {
+        const row = await env.server.stores.user.getByUsername(
+            env.users.user.username,
+        );
+        const device = await env.server.services.push.registerDevice({
+            userId: row!.id,
+            sessionUid: 'session-for-test',
+            platform: 'web',
+            token: 'disabled-test-token',
+            label: null,
+            userAgent: null,
+        });
+
+        const res = await call(
+            env,
+            'POST',
+            `/push/devices/${device.uid}/test`,
+            env.users.user.token,
+        );
+
+        expect(res.status).toBe(503);
+        expect(await res.json()).toMatchObject({ code: 'push_disabled' });
+        await env.server.stores.pushDevice.removeByUid(row!.id, device.uid);
+    });
+
     it('still lists and removes devices', async () => {
         const row = await env.server.stores.user.getByUsername(
             env.users.user.username,
@@ -502,5 +543,298 @@ describe('push device routes with push disabled', () => {
             env.users.user.token,
         );
         expect(removed.status).toBe(200);
+    });
+});
+
+/** Records each call; a token's text decides its result. */
+class FakeProvider implements PushProvider {
+    readonly platforms = ['web'] as const;
+    readonly calls: PushBatch[] = [];
+    async send(batch: PushBatch): Promise<PushResult[]> {
+        this.calls.push(batch);
+        return batch.tokens.map((token) => {
+            if (token.includes('gone')) return { status: 'unregistered' };
+            if (token.includes('bad')) {
+                return { status: 'failed', code: 'invalid_token' };
+            }
+            return { status: 'delivered' };
+        });
+    }
+}
+
+describe('push test route and push settings over HTTP', () => {
+    let env: PuterTestEnv;
+    const provider = new FakeProvider();
+    const sockets: ClientSocket[] = [];
+
+    beforeAll(async () => {
+        env = await setupPuterTestEnv({
+            events: { enabled: true },
+            push: { enabled: true },
+        } as IConfig);
+        env.server.services.push.registerProvider(provider);
+    }, 120_000);
+
+    afterAll(async () => {
+        while (sockets.length) sockets.pop()?.disconnect();
+        await env?.shutdown();
+    });
+
+    const register = async (
+        token: string,
+        body: Record<string, unknown>,
+    ): Promise<PublicPushDevice> => {
+        const res = await call(env, 'POST', '/push/devices', token, body);
+        expect(res.status).toBe(200);
+        return ((await res.json()) as DeviceBody).device;
+    };
+
+    const sendTest = (token: string, uid: string) =>
+        call(env, 'POST', `/push/devices/${uid}/test`, token);
+
+    const connect = (token: string): Promise<void> =>
+        new Promise((resolve, reject) => {
+            const socket = ioClient(env.origin, {
+                auth: { auth_token: token },
+                transports: ['websocket'],
+                reconnection: false,
+            });
+            sockets.push(socket);
+            socket.on('connect', () => resolve());
+            socket.on('connect_error', (err: Error) => reject(err));
+        });
+
+    const userRow = async (user: TestUserCredentials) =>
+        (await env.server.stores.user.getByUsername(user.username))!;
+
+    const makeApp = async (ownerId: number, title: string) =>
+        env.server.stores.app.create(
+            {
+                name: `push-app-${crypto.randomUUID()}`,
+                title,
+                index_url: `https://push-${crypto.randomUUID()}.test/`,
+            },
+            { ownerUserId: ownerId },
+        );
+
+    const grant = async (
+        user: TestUserCredentials,
+        appUid: string,
+        permission: string,
+    ) =>
+        (
+            env.server.services.permission as unknown as PermissionService
+        ).grantUserAppPermission(
+            makeActor({ user: await userRow(user) }),
+            appUid,
+            permission,
+        );
+
+    it('sends one fixed push to the caller’s device while they are connected', async () => {
+        const user = await freshUser(env);
+        const row = await userRow(user);
+        await env.server.stores.user.updateMetadata(row.id, {
+            [PUTER_PUSH_PREFERENCE_KEY]: false,
+        });
+        const device = await register(user.token, {
+            platform: 'web',
+            token: 'test-route-token',
+        });
+        await register(user.token, { platform: 'web', token: 'other-token' });
+        await connect(user.token);
+        expect(isConnectedHere(env.server.services.socket, row.id, null)).toBe(
+            true,
+        );
+        provider.calls.length = 0;
+
+        const res = await sendTest(user.token, device.uid);
+
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ sent: true });
+        expect(provider.calls).toHaveLength(1);
+        expect(provider.calls[0]?.tokens).toEqual(['test-route-token']);
+        expect(provider.calls[0]?.message).toMatchObject({
+            title: 'Push is on for this browser',
+            group: PUSH_TEST_GROUP,
+        });
+    });
+
+    it('answers 404 for another user’s device without sending', async () => {
+        const owner = await freshUser(env);
+        const stranger = await freshUser(env);
+        const device = await register(owner.token, {
+            platform: 'web',
+            token: 'not-yours-token',
+        });
+        provider.calls.length = 0;
+
+        const res = await sendTest(stranger.token, device.uid);
+        const missing = await sendTest(stranger.token, 'no-such-uid');
+
+        expect(res.status).toBe(404);
+        expect(missing.status).toBe(404);
+        expect(provider.calls).toHaveLength(0);
+    });
+
+    it('answers 503 when no provider carries the device’s platform', async () => {
+        const user = await freshUser(env);
+        const device = await register(user.token, {
+            platform: 'ios',
+            token: 'ios-token',
+        });
+
+        const res = await sendTest(user.token, device.uid);
+
+        expect(res.status).toBe(503);
+        expect(await res.json()).toMatchObject({ code: 'push_unavailable' });
+    });
+
+    it('answers 502 when the provider reports a failure', async () => {
+        const user = await freshUser(env);
+        const device = await register(user.token, {
+            platform: 'web',
+            token: 'bad-token',
+        });
+
+        const res = await sendTest(user.token, device.uid);
+
+        expect(res.status).toBe(502);
+        expect(await res.json()).toMatchObject({ code: 'push_test_failed' });
+    });
+
+    it('removes a device the provider no longer knows and answers 410', async () => {
+        const user = await freshUser(env);
+        const device = await register(user.token, {
+            platform: 'web',
+            token: 'gone-token',
+        });
+
+        const res = await sendTest(user.token, device.uid);
+
+        expect(res.status).toBe(410);
+        expect(await res.json()).toMatchObject({
+            code: 'push_device_unregistered',
+        });
+        const listed = await call(env, 'GET', '/push/devices', user.token);
+        expect(((await listed.json()) as ListBody).devices).toEqual([]);
+    });
+
+    it('answers 429 past 3 test pushes in 10 minutes', async () => {
+        const user = await freshUser(env);
+        const device = await register(user.token, {
+            platform: 'web',
+            token: 'rate-test-token',
+        });
+        for (let i = 0; i < 3; i++) {
+            expect((await sendTest(user.token, device.uid)).status).toBe(200);
+        }
+        expect((await sendTest(user.token, device.uid)).status).toBe(429);
+    });
+
+    it('refuses access tokens and app tokens with 403', async () => {
+        const user = await freshUser(env);
+        const row = await userRow(user);
+        const app = await makeApp(row.id, 'Token app');
+        const appToken = await env.server.services.auth.getUserAppToken(
+            makeActor({ user: row }),
+            app.uid,
+        );
+        for (const token of [user.apiToken, appToken]) {
+            for (const [method, path] of [
+                ['POST', '/push/devices/some-uid/test'],
+                ['GET', '/push/apps'],
+                ['GET', '/push/preferences'],
+                ['POST', '/push/preferences'],
+            ] as const) {
+                const res = await call(env, method, path, token, {
+                    puter: false,
+                });
+                expect(res.status).toBe(403);
+            }
+        }
+    });
+
+    it('lists only the apps granted push, and a revoke ends their consent', async () => {
+        const user = await freshUser(env);
+        const other = await freshUser(env);
+        const row = await userRow(user);
+        const pushing = await makeApp(row.id, 'B pushing app');
+        const second = await makeApp(row.id, 'A second app');
+        const quiet = await makeApp(row.id, 'Quiet app');
+        await grant(user, pushing.uid, NOTIFICATIONS_PUSH_PERMISSION);
+        await grant(user, second.uid, NOTIFICATIONS_PUSH_PERMISSION);
+        await grant(user, quiet.uid, 'notifications:send');
+        await grant(other, quiet.uid, NOTIFICATIONS_PUSH_PERMISSION);
+
+        const res = await call(env, 'GET', '/push/apps', user.token);
+        expect(res.status).toBe(200);
+        const { apps } = (await res.json()) as { apps: PushApp[] };
+        expect(apps.map((app) => app.uid)).toEqual([second.uid, pushing.uid]);
+        expect(Object.keys(apps[0]!).sort()).toEqual(
+            ['icon', 'name', 'title', 'uid'].sort(),
+        );
+        expect(apps[0]).toMatchObject({
+            name: second.name,
+            title: 'A second app',
+        });
+
+        const consentDeps = {
+            stores: env.server.stores,
+            services: env.server.services,
+        } as unknown as Parameters<typeof hasPushConsent>[0];
+        expect(await hasPushConsent(consentDeps, row.id, pushing.uid)).toBe(
+            true,
+        );
+        const revoked = await call(
+            env,
+            'POST',
+            '/auth/revoke-user-app',
+            user.token,
+            { app_uid: pushing.uid, permission: NOTIFICATIONS_PUSH_PERMISSION },
+        );
+        expect(revoked.status).toBe(200);
+
+        expect(await hasPushConsent(consentDeps, row.id, pushing.uid)).toBe(
+            false,
+        );
+        const after = await call(env, 'GET', '/push/apps', user.token);
+        expect(
+            ((await after.json()) as { apps: PushApp[] }).apps.map(
+                (app) => app.uid,
+            ),
+        ).toEqual([second.uid]);
+    });
+
+    it('reads and sets the preference for Puter’s own pushes', async () => {
+        const user = await freshUser(env);
+        const read = async () =>
+            (
+                await (
+                    await call(env, 'GET', '/push/preferences', user.token)
+                ).json()
+            ).puter;
+
+        expect(await read()).toBe(true);
+        const off = await call(env, 'POST', '/push/preferences', user.token, {
+            puter: false,
+        });
+        expect(off.status).toBe(200);
+        expect(await off.json()).toEqual({ puter: false });
+        expect(await read()).toBe(false);
+        const row = await userRow(user);
+        expect(row.metadata?.[PUTER_PUSH_PREFERENCE_KEY]).toBe(false);
+
+        await call(env, 'POST', '/push/preferences', user.token, {
+            puter: true,
+        });
+        expect(await read()).toBe(true);
+    });
+
+    it('rejects a preference that is not a boolean with 400', async () => {
+        const user = await freshUser(env);
+        const res = await call(env, 'POST', '/push/preferences', user.token, {
+            puter: 'no',
+        });
+        expect(res.status).toBe(400);
     });
 });
