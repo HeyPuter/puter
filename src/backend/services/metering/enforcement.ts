@@ -224,6 +224,23 @@ export const actorOnPaidPlan = async (
 };
 
 /**
+ * The actor's plan id, for tiered limits. `null` with no metering to ask, or
+ * when the lookup fails, which the tier tables read as their default.
+ */
+export const actorPlanId = async (
+    metering: SubscriptionMetering | undefined,
+    actor: Actor,
+): Promise<string | null> => {
+    if (!metering) return null;
+    try {
+        return (await metering.getActorSubscription(actor)).id;
+    } catch (err) {
+        console.warn('[metering] could not resolve a plan', err);
+        return null;
+    }
+};
+
+/**
  * Where a plan gate sits, so a `subscription.gate.<surface>` listener can waive
  * it for a call it recognizes. `surface` is the key segment after
  * `subscription.gate.`, e.g. `route.post.puterai.openai.v1.chat.completions`.

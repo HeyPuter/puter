@@ -759,6 +759,12 @@ function showAddAppModal ({ $el_window }) {
         })();
     };
 
+    // Enter held on the "+" tile opens this with the first option focused;
+    // its repeats must not pick that option.
+    $overlay.on('keydown', '.myapps-add-option', function (e) {
+        if ( e.key === 'Enter' && e.originalEvent?.repeat ) e.preventDefault();
+    });
+
     $overlay.on('click', '.myapps-add-option', function (e) {
         // The second click of a double-click on the "+" tile lands on
         // whichever option opened under the pointer; that isn't a choice.
@@ -938,11 +944,15 @@ const TabApps = {
         h += '<div class="myapps-search-wrap">';
         h += '<div class="myapps-search-inner">';
         h += '<svg class="myapps-search-icon myapps-icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
-        h += '<svg class="myapps-search-icon myapps-icon-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
         // type="search" (plus autocomplete/autofill opt-outs) keeps Chrome from
         // offering email/contact autofill suggestions on focus.
         h += `<input type="search" name="myapps-search" class="myapps-search" placeholder="${i18n('search_apps')}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-lpignore="true" data-1p-ignore>`;
+        // After the field, so Tab reaches it from there.
+        h += `<button type="button" class="myapps-search-icon myapps-icon-clear" aria-label="${i18n('clear_search')}" title="${i18n('clear_search')}" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`;
         h += '</div>';
+        // Says when a search finds nothing; the grid itself is re-rendered
+        // silently.
+        h += '<div class="myapps-search-status" role="status" aria-live="polite"></div>';
         // Touch devices' way into drag-to-reorder (CSS shows it only there);
         // toggles the reorder mode — see _setReorderMode.
         h += `<button type="button" class="myapps-reorder-btn" aria-pressed="false" aria-label="${i18n('edit_apps')}">${REORDER_BTN_ICON}</button>`;
@@ -1018,6 +1028,15 @@ const TabApps = {
         // Tiles double as the app switcher for headless in-page apps: a
         // dot marks tiles whose app has an open (or minimized) window.
         // UIWindow fires this event on every window open/close.
+        // Another browser tab may have rearranged the grid or its folders
+        // meanwhile; this tab's copy would otherwise be what its next change
+        // writes back over them.
+        document.addEventListener('visibilitychange', () => {
+            if ( document.visibilityState !== 'visible' ) return;
+            if ( ! $el_window.find('.dashboard-section-apps').hasClass('active') ) return;
+            self.loadApps($el_window);
+        });
+
         document.addEventListener('dashboard-app-windows-changed', () => {
             self.updateRunningDots($el_window);
         });
@@ -1315,6 +1334,9 @@ const TabApps = {
         // take over from there. While a folder is open the same arrows walk
         // ITS tiles: the grid behind is inert, so focus must not be there.
         $(document).off('keydown.myapps-keyboard').on('keydown.myapps-keyboard', function (e) {
+            // Keys typed into an IME (choosing a CJK candidate) are its own.
+            // jQuery's event doesn't carry isComposing; the browser's does.
+            if ( e.originalEvent?.isComposing || e.keyCode === 229 ) return;
             // The Menu key or Shift+F10 on a focused tile opens its menu
             // (Open, Uninstall, a folder's Ungroup) at the tile; browsers
             // don't all send a contextmenu event for them.
@@ -1337,8 +1359,8 @@ const TabApps = {
             // An open context menu owns arrows and Enter (keyboard.js).
             if ( $('.context-menu').length ) return;
             // So does a dialog over the grid: the notifications panel, an
-            // account dialog, or the touch action sheet.
-            if ( $('.dashboard-notifications-panel.open, .dashboard-dialog-overlay, .context-menu-modal-backdrop').length ) return;
+            // account dialog, the touch action sheet, or the phone drawer.
+            if ( $('.dashboard-notifications-panel.open, .dashboard-dialog-overlay, .context-menu-modal-backdrop, .dashboard-sidebar.open').length ) return;
 
             const $panelGrid = $el_window.find('.myapps-group-panel-grid');
             const pageTiles = ($panelGrid.length
@@ -1358,7 +1380,8 @@ const TabApps = {
                 if ( ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable) ) {
                     const emptySearch = $(ae).hasClass('myapps-search') && ae.value === '';
                     // Enter in a search opens the first match, as in any launcher.
-                    if ( e.key === 'Enter' && $(ae).hasClass('myapps-search') && ! emptySearch && ! e.isComposing ) {
+                    if ( e.key === 'Enter' && $(ae).hasClass('myapps-search') && ! emptySearch ) {
+                        if ( e.originalEvent?.repeat ) return;
                         const first = pageTiles.find(el => ! el.classList.contains('myapps-add-tile'));
                         if ( first ) {
                             e.preventDefault();
@@ -1377,7 +1400,9 @@ const TabApps = {
 
             if ( e.key === 'Enter' || e.key === ' ' ) {
                 e.preventDefault();
-                $(ae).trigger('click');
+                // A held key acts once: opening a folder moves focus to its
+                // first app, which a repeat would then launch.
+                if ( ! e.originalEvent?.repeat ) $(ae).trigger('click');
                 return;
             }
 
@@ -1422,7 +1447,11 @@ const TabApps = {
                     self.goToPage($el_window, self._page, false);
                     return;
                 }
-                self.renderApps($el_window, { preservePage: true });
+                // A grid already on screen re-flows at once rather than
+                // blinking back through the load fade (see _spliceDeepLinkApp).
+                const revealed = $el_window.find('.myapps-pager').length > 0
+                    && $el_window.find('.myapps-pager-loading').length === 0;
+                self.renderApps($el_window, { preservePage: true, instant: revealed });
             }, 100);
         });
         self._resizeObserver.observe($el_window.find('.myapps-container')[0]);
@@ -1509,6 +1538,9 @@ const TabApps = {
         const emptyNotice = items.length === 0
             ? (query ? buildNoMatchesHtml() : buildNoAppsHtml())
             : '';
+        const status = query && items.length === 0 ? i18n('no_apps_match', [], false) : '';
+        const $status = $el_window.find('.myapps-search-status');
+        if ( $status.text() !== status ) $status.text(status);
 
         // The add-an-app tile rides at the tail of the grid: after every app,
         // on the last page, and nowhere else — a drag can't place an app past
@@ -1535,7 +1567,17 @@ const TabApps = {
         this._pageCount = Math.ceil(items.length / layout.perPage);
         this._page = Math.min(Math.floor(anchorIndex / layout.perPage), this._pageCount - 1);
 
+        // Every tile is replaced; a keyboard user on one stays on it.
+        const focused = document.activeElement;
+        const focusedTile = focused?.classList.contains('myapps-tile') && $container[0].contains(focused)
+            ? tileIdentity(focused)
+            : null;
         $container.html(emptyNotice + buildPagerHtml(items, layout, instant));
+        if ( focusedTile ) {
+            $container.find('.myapps-tile').toArray()
+                .find(el => tileIdentity(el) === focusedTile)
+                ?.focus({ preventScroll: true });
+        }
         // A tile mid-arrival (a deep-link landing installing its app — see
         // _spliceDeepLinkApp) stays parked invisible across re-renders; the
         // intro's arrival beat, not the render, is what reveals it.
@@ -1936,6 +1978,9 @@ const TabApps = {
         // Enter commits (and gets out of the way); blur commits too, so a
         // click straight onto an app in the folder keeps the new name.
         $name.on('keydown', function (e) {
+            // Enter and Escape that confirm or cancel an IME conversion
+            // aren't the name's.
+            if ( e.originalEvent?.isComposing || e.keyCode === 229 ) return;
             if ( e.key === 'Enter' ) {
                 e.preventDefault();
                 // The name box owns this Enter: the grid's document-level key
@@ -2451,6 +2496,9 @@ const TabApps = {
     // the drag saves only the final position.
     _ejectToGrid (d) {
         const appName = d.tileEl.dataset.appName;
+        // The eject is saved now, mid-drag; a drag cancelled after it puts
+        // this back (see _endDrag).
+        const preEject = { groups: JSON.parse(JSON.stringify(this._groups)), apps: this._apps.slice() };
         if ( ! this._ejectApp(d.$el_window, d.groupId, appName) ) return;
         this._closeGroup(d.$el_window);
         this.renderApps(d.$el_window, { preservePage: true, instant: true, duringDrag: true });
@@ -2463,6 +2511,7 @@ const TabApps = {
             this._endDrag(false);
             return;
         }
+        d.preEject = preEject;
 
         // A folder-page flip armed just before the icon left the card must
         // not fire into the grid drag this has become.
@@ -2911,6 +2960,16 @@ const TabApps = {
         // The click this drop synthesizes may land on empty grid space (the
         // drop spot) — it is the tail of the drag, not an exit-the-mode tap.
         this._suppressEmptyTapBriefly();
+
+        // Cancelled (Escape, the window losing focus) after the app had been
+        // carried out of its folder: the folder, a two-app one included, and
+        // the order go back to what they were.
+        if ( ! commit && d.preEject ) {
+            this._groups = d.preEject.groups;
+            this._apps = reconcileAppOrder(this._apps, d.preEject.apps.map(a => a.name));
+            this.saveGroups();
+            this.saveOrder();
+        }
 
         let changed = false;
         if ( mergeEl ) {
@@ -3709,6 +3768,9 @@ const TabApps = {
                 const tiles = $el_window.find('.dashboard-section-apps.active .myapps-tile').toArray();
                 const candidate = tiles.find(el => el.dataset.appName === appName)
                     || tiles.find(el => el.dataset.groupId && parseTileGroupApps(el).includes(appName));
+                // A search that leaves the app out keeps its tile off the
+                // grid however long this waits.
+                if ( ! candidate && String($el_window.find('.myapps-search').val() || '').trim() !== '' ) return null;
                 if ( candidate ) {
                     const revealed = ! $el_window.find('.myapps-pager').hasClass('myapps-pager-loading');
                     const img = candidate.querySelector('.myapps-tile-icon img');

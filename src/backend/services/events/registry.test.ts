@@ -43,10 +43,20 @@ const PROJECTED_KEYS = [
     'subject',
     'ts',
     'uid',
+    'viaWorker',
 ];
 
 /** A KV event names a key where an FS event names a node. */
-const PROJECTED_KV_KEYS = ['id', 'key', 'op', 'self', 'seq', 'subject', 'ts'];
+const PROJECTED_KV_KEYS = [
+    'id',
+    'key',
+    'op',
+    'self',
+    'seq',
+    'subject',
+    'ts',
+    'viaWorker',
+];
 
 const entry = {
     id: 42,
@@ -195,9 +205,22 @@ describe('the kv subject', () => {
             op: 'set',
             key: 'cart:items',
             self: true,
+            viaWorker: false,
             ts: 1_700_000_002,
             seq: 0,
         });
+    });
+
+    it('says whether server-side code made the change, on kv and fs alike', () => {
+        expect(
+            subject().project({ ...kvDelivery, viaWorker: true }),
+        ).toMatchObject({ viaWorker: true });
+        expect(
+            lookupFsSubject('fs.write.file')!.project({
+                ...delivery,
+                viaWorker: true,
+            }),
+        ).toMatchObject({ viaWorker: true });
     });
 
     it('names the namespace app, never the namespace itself', () => {

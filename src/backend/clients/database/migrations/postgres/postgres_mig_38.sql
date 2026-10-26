@@ -15,35 +15,15 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Devices that can receive pushes for a user. See sqlite/0095_push-device.sql
--- for the rationale. Timestamps are unix seconds.
---
--- Idempotent via IF NOT EXISTS.
+-- Share levels on kv_share_handles. See
+-- sqlite/0095_kv-share-handle-levels.sql for the rationale. Idempotent via
+-- IF NOT EXISTS; there is no per-file applied-state tracking.
 
-CREATE TABLE IF NOT EXISTS push_device (
-    id BIGSERIAL PRIMARY KEY,
-    uid VARCHAR(40) NOT NULL,
-    user_id integer NOT NULL
-        REFERENCES "user" (id) ON DELETE CASCADE ON UPDATE CASCADE,
-    session_uid VARCHAR(40) DEFAULT NULL,
-    platform VARCHAR(16) NOT NULL,
-    token TEXT NOT NULL,
-    token_hash CHAR(64) NOT NULL,
-    app_uid VARCHAR(40) DEFAULT NULL,
-    user_agent VARCHAR(512) DEFAULT NULL,
-    label VARCHAR(64) DEFAULT NULL,
-    created_at BIGINT NOT NULL,
-    last_seen_at BIGINT NOT NULL,
-    failure_count INTEGER NOT NULL DEFAULT 0
-);
+ALTER TABLE kv_share_handles ADD COLUMN IF NOT EXISTS revoked_by VARCHAR(8) DEFAULT NULL;
+ALTER TABLE kv_share_handles ADD COLUMN IF NOT EXISTS label VARCHAR(512) DEFAULT NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_push_device_token_hash
-    ON push_device (token_hash);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_push_device_uid
-    ON push_device (uid);
-CREATE INDEX IF NOT EXISTS idx_push_device_user_app
-    ON push_device (user_id, app_uid);
-CREATE INDEX IF NOT EXISTS idx_push_device_session
-    ON push_device (session_uid);
-CREATE INDEX IF NOT EXISTS idx_push_device_last_seen
-    ON push_device (last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_kv_share_handles_grantee
+    ON kv_share_handles (grantee_user_id, id);
+
+CREATE INDEX IF NOT EXISTS idx_kv_share_handles_app
+    ON kv_share_handles (app_uid);

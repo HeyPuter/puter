@@ -1,16 +1,62 @@
 import { test, expect } from '@playwright/test';
-import { registerTestApp, deleteTestApp, gotoTestApp, FIXTURE_URL } from '../helpers/testApp.js';
+import {
+    registerTestApp,
+    deleteTestApp,
+    gotoTestApp,
+    waitForPuterReady,
+    FIXTURE_URL,
+} from '../helpers/testApp.js';
 
 const PERMISSION_FIXTURE_URL = FIXTURE_URL.replace(
     'menubar-contextmenu.html',
     'request-permission.html',
 );
 
-// A driver nothing implies, for the tests that name a permission themselves:
-// the built-in driver scopes are already held, so asking for one of those would
-// settle before any dialog. Only used by requests that end in a denial, so no
-// row is left behind for the next test.
-const UNHELD_DRIVER_PERMISSION = 'driver:e2e-unheld:generate';
+// The account the suite signs in as (see globalSetup.js).
+const HOME = `/${process.env.PUTER_ADMIN_USERNAME || 'admin'}`;
+
+// Every path an Allow below can create, the fixture's included, so one delete
+// cleans up after the run.
+const E2E_DIR = `${HOME}/e2e-perms`;
+
+test.afterAll(async ({ browser }, testInfo) => {
+    const { baseURL, storageState } = testInfo.project.use;
+    const context = await browser.newContext({ baseURL, storageState });
+    try {
+        const page = await context.newPage();
+        await page.goto('/');
+        await waitForPuterReady(page);
+        await page.evaluate(async (dir) => {
+            try {
+                await puter.fs.delete(dir);
+            } catch {
+                // Nothing was created.
+            }
+        }, E2E_DIR);
+    } finally {
+        await context.close();
+    }
+});
+
+// What a site loads: the fixture builds its default request under `home`,
+// which a signed-out site can't look up.
+const WEB_FIXTURE_URL = `${PERMISSION_FIXTURE_URL}?home=${encodeURIComponent(HOME)}`;
+
+// A missing path in the account's home, for the tests that name a permission
+// themselves: nothing holds it, and the dialog describes it by offering to
+// create it. Only used by requests that end in a denial, so nothing is created
+// and no row is left behind for the next test.
+const UNHELD_PERMISSION = `fs:${E2E_DIR}/unheld:read`;
+
+// For tests that look the granted row up afterwards: `events:background` is
+// stored as asked, where an `fs:` path is stored as its uid. Each test
+// registers its own app, so it starts unheld.
+const STORED_AS_ASKED_FIXTURE_URL =
+    `${PERMISSION_FIXTURE_URL}?perm=${encodeURIComponent('events:background')}`;
+
+/** A fresh unheld scope, named so its prompt can be told apart from others. */
+const unheldPermission = (name) =>
+    `fs:${E2E_DIR}/e2e-${name}-${Math.random().toString(36).slice(2, 10)}:read`;
 
 // Playwright's Chromium reports `navigator.userActivation.isActive` as true
 // even with zero interactions, which routes the SDK to the direct-popup path.
@@ -148,11 +194,11 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
         try {
             const appFrame = await gotoTestApp(page, appName);
 
-            await appFrame.locator('#req-driver-perm').click();
+            await appFrame.locator('#req-unheld-perm').click();
             const dialog = page.locator('dialog.perm-dialog');
             await expect(dialog).toBeVisible();
             await page.keyboard.press('Escape');
-            await expect(appFrame.locator('#log [data-entry="perm:driver:false"]')).toBeVisible();
+            await expect(appFrame.locator('#log [data-entry="perm:unheld:false"]')).toBeVisible();
             await expect(dialog).toBeHidden();
         } finally {
             await deleteTestApp(page, appName);
@@ -165,8 +211,8 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
         // would wall the user in behind a pile of prompts.
         const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
         // Two scopes the app lacks, named so the prompts can be told apart.
-        const alpha = 'driver:e2e-alpha:generate';
-        const beta = 'driver:e2e-beta:generate';
+        const alpha = unheldPermission('alpha');
+        const beta = unheldPermission('beta');
         try {
             const appFrame = await gotoTestApp(page, appName);
 
@@ -207,7 +253,7 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
             );
 
             const appFrame = await gotoTestApp(page, appName);
-            await appFrame.locator('#req-driver-perm').click();
+            await appFrame.locator('#req-unheld-perm').click();
             const dialog = page.locator('dialog.perm-dialog');
             await expect(dialog).toBeVisible();
 
@@ -231,7 +277,7 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
             });
 
             const appFrame = await gotoTestApp(page, appName);
-            await appFrame.locator('#req-driver-perm').click();
+            await appFrame.locator('#req-unheld-perm').click();
             const dialog = page.locator('dialog.perm-dialog');
             await expect(dialog).toBeVisible();
             await dialog.locator('.perm-dialog-allow').click();
@@ -249,8 +295,8 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
             });
 
             // The grant's own outcome is the answer, not the dismissal.
-            await expect(appFrame.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
-            expect(await appFrame.locator('#log [data-entry="perm:driver:false"]').count()).toBe(0);
+            await expect(appFrame.locator('#log [data-entry="perm:unheld:true"]')).toBeVisible();
+            expect(await appFrame.locator('#log [data-entry="perm:unheld:false"]').count()).toBe(0);
         } finally {
             await deleteTestApp(page, appName);
         }
@@ -271,7 +317,7 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
             });
 
             const appFrame = await gotoTestApp(page, appName);
-            await appFrame.locator('#req-driver-perm').click();
+            await appFrame.locator('#req-unheld-perm').click();
             const dialog = page.locator('dialog.perm-dialog');
             await expect(dialog).toBeVisible();
             await dialog.locator('.perm-dialog-allow').click();
@@ -283,7 +329,7 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
                 document.querySelector('dialog.perm-dialog')?.close();
             });
 
-            await expect(appFrame.locator('#log [data-entry="perm:driver:false"]')).toBeVisible({ timeout: 20_000 });
+            await expect(appFrame.locator('#log [data-entry="perm:unheld:false"]')).toBeVisible({ timeout: 20_000 });
         } finally {
             await deleteTestApp(page, appName);
         }
@@ -294,8 +340,8 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
         // already have committed server-side. Answering "Don't Allow" after that
         // has to undo it — otherwise the app is told "denied" while the
         // permission is live in the user's account.
-        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
-        // The fixture picks its own per page load, and this is the row to withdraw.
+        const appName = await registerTestApp(page, { fixtureURL: STORED_AS_ASKED_FIXTURE_URL });
+        // The fixture's pinned scope, and the row to withdraw.
         let permission;
         const isGrantedTo = (appUid) => page.evaluate(async ({ perm, uid }) => {
             const res = await fetch(`${puter.APIOrigin}/auth/list-permissions`, {
@@ -310,7 +356,7 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
         try {
             const appFrame = await gotoTestApp(page, appName);
             permission = await appFrame.locator('body')
-                .evaluate(() => window.__driverPermission);
+                .evaluate(() => window.__unheldPermission());
             const appUid = await page.evaluate(
                 async (name) => (await puter.apps.get(name)).uid,
                 appName,
@@ -318,10 +364,10 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
             const dialog = page.locator('dialog.perm-dialog');
 
             // First, grant it for real so there is a row to withdraw.
-            await appFrame.locator('#req-driver-perm').click();
+            await appFrame.locator('#req-unheld-perm').click();
             await expect(dialog).toBeVisible();
             await dialog.locator('.perm-dialog-allow').click();
-            await expect(appFrame.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
+            await expect(appFrame.locator('#log [data-entry="perm:unheld:true"]')).toBeVisible();
             expect(await isGrantedTo(appUid)).toBe(true);
 
             // Now stand in for a grant whose outcome the dialog can't know: a
@@ -338,7 +384,7 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
             // Alongside a scope the app lacks: a fully-held request never prompts.
             await appFrame.locator('body').evaluate((_el, perms) => {
                 window.__reGrant = puter.ui.requestPermission({ permissions: perms });
-            }, [permission, 'driver:e2e-lost-response:generate']);
+            }, [permission, unheldPermission('lost-response')]);
             await expect(dialog).toBeVisible();
             await dialog.locator('.perm-dialog-allow').click();
             // The dialog hands itself back with a retryable error.
@@ -366,7 +412,7 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
         // as a denial *before* the outcome is recorded as unknown, and the
         // permission the request may have committed is left behind, granted,
         // with the app told it was refused.
-        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
+        const appName = await registerTestApp(page, { fixtureURL: STORED_AS_ASKED_FIXTURE_URL });
         let permission;
         const isGrantedTo = (appUid) => page.evaluate(async ({ perm, uid }) => {
             const res = await fetch(`${puter.APIOrigin}/auth/list-permissions`, {
@@ -381,7 +427,7 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
         try {
             const appFrame = await gotoTestApp(page, appName);
             permission = await appFrame.locator('body')
-                .evaluate(() => window.__driverPermission);
+                .evaluate(() => window.__unheldPermission());
             const appUid = await page.evaluate(
                 async (name) => (await puter.apps.get(name)).uid,
                 appName,
@@ -390,10 +436,10 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
 
             // Grant it for real first, so there is a live row the withdrawal
             // has to remove.
-            await appFrame.locator('#req-driver-perm').click();
+            await appFrame.locator('#req-unheld-perm').click();
             await expect(dialog).toBeVisible();
             await dialog.locator('.perm-dialog-allow').click();
-            await expect(appFrame.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
+            await expect(appFrame.locator('#log [data-entry="perm:unheld:true"]')).toBeVisible();
             expect(await isGrantedTo(appUid)).toBe(true);
 
             // Hang the next grant past the dialog's 15s time-box.
@@ -409,7 +455,7 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
             // Alongside a scope the app lacks, for the same reason as above.
             await appFrame.locator('body').evaluate((_el, perms) => {
                 window.__reGrant = puter.ui.requestPermission({ permissions: perms });
-            }, [permission, 'driver:e2e-hanging-grant:generate']);
+            }, [permission, unheldPermission('hanging-grant')]);
             await expect(dialog).toBeVisible();
             await dialog.locator('.perm-dialog-allow').click();
             await expect(dialog.locator('.perm-dialog-allow.perm-dialog-busy')).toBeVisible();
@@ -486,7 +532,7 @@ test.describe('puter.ui.requestPermission (env=gui)', () => {
 
         const granted = await page.evaluate((permission) =>
             puter.ui.requestPermission({ permission }),
-        UNHELD_DRIVER_PERMISSION);
+        UNHELD_PERMISSION);
         expect(granted).toBe(false);
         expect(popupOpened).toBe(false);
         // Neither the consent dialog nor the permission dialog may appear.
@@ -502,14 +548,14 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
 
         // Load the fixture directly (env=web, third-party origin).
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
 
         // Deny first: the click provides user activation, so the popup opens
         // directly (no consent dialog).
         let [popup] = await Promise.all([
             page.waitForEvent('popup'),
-            page.locator('#req-driver-perm').click(),
+            page.locator('#req-unheld-perm').click(),
         ]);
         let dialog = popup.locator('dialog.perm-dialog');
         await expect(dialog).toBeVisible({ timeout: 60_000 });
@@ -521,17 +567,17 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await expect(dialog.locator('.perm-dialog-entity-name'))
             .toHaveClass(/perm-dialog-entity-host/);
         await dialog.locator('.perm-dialog-deny').click();
-        await expect(page.locator('#log [data-entry="perm:driver:false"]')).toBeVisible();
+        await expect(page.locator('#log [data-entry="perm:unheld:false"]')).toBeVisible();
 
         // Allow on the second attempt; popup closes itself after answering.
         [popup] = await Promise.all([
             page.waitForEvent('popup'),
-            page.locator('#req-driver-perm').click(),
+            page.locator('#req-unheld-perm').click(),
         ]);
         dialog = popup.locator('dialog.perm-dialog');
         await expect(dialog).toBeVisible({ timeout: 60_000 });
         await dialog.locator('.perm-dialog-allow').click();
-        await expect(page.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
+        await expect(page.locator('#log [data-entry="perm:unheld:true"]')).toBeVisible();
     });
 
     test('a non-canonical configured origin still hears the decision', async ({ page }) => {
@@ -544,7 +590,7 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await page.goto('/');
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
 
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
         // Re-point the SDK at the same GUI through a non-canonical string.
         // The getter reads `globalThis.PUTER_ORIGIN` on every access, so this
@@ -555,12 +601,12 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
 
         const [popup] = await Promise.all([
             page.waitForEvent('popup'),
-            page.locator('#req-driver-perm').click(),
+            page.locator('#req-unheld-perm').click(),
         ]);
         const dialog = popup.locator('dialog.perm-dialog');
         await expect(dialog).toBeVisible({ timeout: 60_000 });
         await dialog.locator('.perm-dialog-allow').click();
-        await expect(page.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
+        await expect(page.locator('#log [data-entry="perm:unheld:true"]')).toBeVisible();
     });
 
     test('without a user gesture, a consent dialog collects the click that opens the popup', async ({ page }) => {
@@ -570,14 +616,14 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         // Playwright's Chromium reports user activation as always-active, so
         // stub it out to deterministically exercise the no-gesture path.
         await stubNoUserActivation(page);
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
 
         // Kick off the request from evaluate (no user activation): the SDK
         // must show the PuterDialog consent step instead of a blocked popup.
         await page.evaluate((permission) => {
             window.__permPromise = puter.ui.requestPermission({ permission });
-        }, UNHELD_DRIVER_PERMISSION);
+        }, UNHELD_PERMISSION);
         const continueButton = page.locator('puter-dialog #launch-auth-popup');
         await expect(continueButton).toBeVisible();
 
@@ -598,12 +644,12 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
 
         await stubNoUserActivation(page);
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
 
         await page.evaluate((permission) => {
             window.__permPromise = puter.ui.requestPermission({ permission });
-        }, UNHELD_DRIVER_PERMISSION);
+        }, UNHELD_PERMISSION);
         const cancelButton = page.locator('puter-dialog #launch-auth-popup-cancel');
         await expect(cancelButton).toBeVisible();
         await cancelButton.click();
@@ -619,7 +665,7 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         // wrapped.
         await page.goto('/');
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
 
         const outcome = await page.evaluate(async (permission) => {
@@ -630,7 +676,7 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
                 settled,
                 new Promise(r => setTimeout(() => r('never settled'), 10_000)),
             ]);
-        }, UNHELD_DRIVER_PERMISSION);
+        }, UNHELD_PERMISSION);
         expect(outcome).toBe('resolved:false');
     });
 
@@ -638,16 +684,16 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await page.goto('/');
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
 
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
 
         const [popup] = await Promise.all([
             page.waitForEvent('popup'),
-            page.locator('#req-driver-perm').click(),
+            page.locator('#req-unheld-perm').click(),
         ]);
         await expect(popup.locator('dialog.perm-dialog')).toBeVisible({ timeout: 60_000 });
         await popup.close();
-        await expect(page.locator('#log [data-entry="perm:driver:false"]')).toBeVisible();
+        await expect(page.locator('#log [data-entry="perm:unheld:false"]')).toBeVisible();
     });
 
     test('a close moments after the popup opens is answered, not waited out', async ({ page }) => {
@@ -665,20 +711,20 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
             async (origin) => (await window.getUserAppToken(origin))?.token,
             fixtureOrigin,
         );
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
         await page.evaluate((t) => puter.setAuthToken(t), appToken);
 
         const [popup] = await Promise.all([
             page.waitForEvent('popup'),
-            page.locator('#req-driver-perm').click(),
+            page.locator('#req-unheld-perm').click(),
         ]);
         // Closed as soon as the popup has announced itself, which is the
         // earliest point a real user could have seen the window — and far
         // inside the old cutoff.
         await popup.waitForFunction(() => !!window.openerOrigin, null, { timeout: 30_000 });
         await popup.close();
-        await expect(page.locator('#log [data-entry="perm:driver:false"]'))
+        await expect(page.locator('#log [data-entry="perm:unheld:false"]'))
             .toBeVisible({ timeout: 20_000 });
     });
 
@@ -690,14 +736,14 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
 
         await stubNoUserActivation(page);
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
 
         await page.evaluate((permission) => {
             window.__permSettled = 'pending';
             window.__permPromise = puter.ui.requestPermission({ permission })
                 .then((v) => { window.__permSettled = `resolved:${v}`; return v; });
-        }, UNHELD_DRIVER_PERMISSION);
+        }, UNHELD_PERMISSION);
         await expect(page.locator('puter-dialog #launch-auth-popup')).toBeVisible();
 
         await page.keyboard.press('Escape');
@@ -713,7 +759,7 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await page.goto('/');
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
 
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
         await page.evaluate(() => localStorage.clear());
         await page.reload();
@@ -722,11 +768,11 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
 
         const [popup] = await Promise.all([
             page.waitForEvent('popup'),
-            page.locator('#req-driver-perm').click(),
+            page.locator('#req-unheld-perm').click(),
         ]);
         await expect(popup.locator('dialog.perm-dialog')).toBeVisible({ timeout: 60_000 });
         await popup.locator('dialog.perm-dialog .perm-dialog-deny').click();
-        await expect(page.locator('#log [data-entry="perm:driver:false"]')).toBeVisible();
+        await expect(page.locator('#log [data-entry="perm:unheld:false"]')).toBeVisible();
 
         expect(await page.evaluate(() => !!puter.authToken)).toBe(false);
         expect(await page.evaluate(() => localStorage.getItem('puter.auth.token.v2'))).toBeNull();
@@ -742,13 +788,13 @@ test.describe('puter.ui.requestPermission (env=web popup, first visit)', () => {
     test.use({ storageState: { cookies: [], origins: [] } });
 
     test('creating a user to answer the prompt does not sign the site in', async ({ page }) => {
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
         expect(await page.evaluate(() => !!puter.authToken)).toBe(false);
 
         const [popup] = await Promise.all([
             page.waitForEvent('popup'),
-            page.locator('#req-driver-perm').click(),
+            page.locator('#req-unheld-perm').click(),
         ]);
 
         // The prompt still has to arrive: the first-visit path waits on the
@@ -756,7 +802,7 @@ test.describe('puter.ui.requestPermission (env=web popup, first visit)', () => {
         // any action that keeps the popup open.
         await expect(popup.locator('dialog.perm-dialog')).toBeVisible({ timeout: 60_000 });
         await popup.locator('dialog.perm-dialog .perm-dialog-deny').click();
-        await expect(page.locator('#log [data-entry="perm:driver:false"]')).toBeVisible();
+        await expect(page.locator('#log [data-entry="perm:unheld:false"]')).toBeVisible();
 
         expect(await page.evaluate(() => !!puter.authToken)).toBe(false);
         expect(await page.evaluate(() => localStorage.getItem('puter.auth.token.v2'))).toBeNull();
@@ -793,7 +839,7 @@ test.describe('puter.ui.requestPermission (env=web, COOP-only opener)', () => {
         expect(typeof appToken).toBe('string');
 
         // The fixture's permission is fresh per load, so no poll can start true.
-        await context.route(PERMISSION_FIXTURE_URL, async (route) => {
+        await context.route(WEB_FIXTURE_URL, async (route) => {
             const resp = await route.fetch();
             await route.fulfill({
                 response: resp,
@@ -804,7 +850,7 @@ test.describe('puter.ui.requestPermission (env=web, COOP-only opener)', () => {
             });
         });
 
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
         // COOP-only: severed, but *not* cross-origin-isolated (that needs COEP
         // too), so the isolation check above does not catch this case.
@@ -813,7 +859,7 @@ test.describe('puter.ui.requestPermission (env=web, COOP-only opener)', () => {
 
         const [popup] = await Promise.all([
             page.waitForEvent('popup'),
-            page.locator('#req-driver-perm').click(),
+            page.locator('#req-unheld-perm').click(),
         ]);
         const dialog = popup.locator('dialog.perm-dialog');
         await expect(dialog).toBeVisible({ timeout: 60_000 });
@@ -821,8 +867,8 @@ test.describe('puter.ui.requestPermission (env=web, COOP-only opener)', () => {
         // Long enough to cover the severing (~200ms) and the close grace
         // period (1s), with room to spare.
         await page.waitForTimeout(5000);
-        expect(await page.locator('#log [data-entry="perm:driver:false"]').count()).toBe(0);
-        expect(await page.locator('#log [data-entry="perm:driver:true"]').count()).toBe(0);
+        expect(await page.locator('#log [data-entry="perm:unheld:false"]').count()).toBe(0);
+        expect(await page.locator('#log [data-entry="perm:unheld:true"]').count()).toBe(0);
 
         // The answer itself has to come from the server poll, since the popup
         // cannot reach a severed opener. That leg is not asserted here: the poll
@@ -862,7 +908,7 @@ test.describe('puter.ui.requestPermission (env=web, COOP-only opener)', () => {
             fixtureOrigin,
         );
 
-        await context.route(PERMISSION_FIXTURE_URL, async (route) => {
+        await context.route(WEB_FIXTURE_URL, async (route) => {
             const resp = await route.fetch();
             await route.fulfill({
                 response: resp,
@@ -879,22 +925,22 @@ test.describe('puter.ui.requestPermission (env=web, COOP-only opener)', () => {
             await route.continue();
         });
 
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
         expect(await page.evaluate(() => window.crossOriginIsolated)).toBe(false);
         await page.evaluate((t) => puter.setAuthToken(t), appToken);
 
         await Promise.all([
             page.waitForEvent('popup'),
-            page.locator('#req-driver-perm').click(),
+            page.locator('#req-unheld-perm').click(),
         ]);
 
         // Past the delayed commit and the grace period that follows it: the
         // requester must still be waiting, not holding a denial it was handed
         // while the user was reading the prompt.
         await page.waitForTimeout(9000);
-        expect(await page.locator('#log [data-entry="perm:driver:false"]').count()).toBe(0);
-        expect(await page.locator('#log [data-entry="perm:driver:true"]').count()).toBe(0);
+        expect(await page.locator('#log [data-entry="perm:unheld:false"]').count()).toBe(0);
+        expect(await page.locator('#log [data-entry="perm:unheld:true"]').count()).toBe(0);
     });
 });
 
@@ -905,7 +951,7 @@ test.describe('puter.ui.requestPermission (env=web, cross-origin-isolated)', () 
         // site's own token, and a permission popup deliberately never hands one
         // over — so with no token the poll can never succeed and used to burn
         // its full 5-minute timeout before resolving.
-        await context.route(PERMISSION_FIXTURE_URL, async (route) => {
+        await context.route(WEB_FIXTURE_URL, async (route) => {
             const resp = await route.fetch();
             await route.fulfill({
                 response: resp,
@@ -917,7 +963,7 @@ test.describe('puter.ui.requestPermission (env=web, cross-origin-isolated)', () 
             });
         });
 
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
         await page.evaluate(() => localStorage.clear());
         await page.reload();
@@ -926,8 +972,8 @@ test.describe('puter.ui.requestPermission (env=web, cross-origin-isolated)', () 
         expect(await page.evaluate(() => window.crossOriginIsolated)).toBe(true);
         expect(await page.evaluate(() => !!puter.authToken)).toBe(false);
 
-        await page.locator('#req-driver-perm').click();
-        await expect(page.locator('#log [data-entry="perm:driver:false"]'))
+        await page.locator('#req-unheld-perm').click();
+        await expect(page.locator('#log [data-entry="perm:unheld:false"]'))
             .toBeVisible({ timeout: 30_000 });
     });
 });
@@ -939,9 +985,10 @@ test.describe('request-permission popup reconciliation', () => {
         // withdrawal request is fired from the closing document, so unless it
         // is sent `keepalive` the browser cancels it with the popup — leaving
         // the user told "denied" while the grant is live in their account.
-        // Pinned, not left to the fixture's per-load default: the row must be known.
-        const permission = 'driver:e2e-popup-reconcile:generate';
-        const fixtureURL = `${PERMISSION_FIXTURE_URL}?perm=${encodeURIComponent(permission)}`;
+        // Pinned, not left to the fixture's per-load default: the row must be
+        // known, and stored as asked (an `fs:` path is stored as its uid).
+        const permission = 'events:background';
+        const fixtureURL = `${WEB_FIXTURE_URL}&perm=${encodeURIComponent(permission)}`;
         const fixtureOrigin = new URL(PERMISSION_FIXTURE_URL).origin;
 
         // A GUI-origin page for server-side state checks: the fixture origin
@@ -988,11 +1035,11 @@ test.describe('request-permission popup reconciliation', () => {
         // remove.
         let [popup] = await Promise.all([
             page.waitForEvent('popup'),
-            page.locator('#req-driver-perm').click(),
+            page.locator('#req-unheld-perm').click(),
         ]);
         await expect(popup.locator('dialog.perm-dialog')).toBeVisible({ timeout: 60_000 });
         await popup.locator('dialog.perm-dialog .perm-dialog-allow').click();
-        await expect(page.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
+        await expect(page.locator('#log [data-entry="perm:unheld:true"]')).toBeVisible();
         expect(await isGranted()).toBe(true);
 
         // Now make the next grant's outcome unknowable (a 5xx says nothing
@@ -1005,7 +1052,7 @@ test.describe('request-permission popup reconciliation', () => {
             page.waitForEvent('popup'),
             page.evaluate((perms) => {
                 window.__reGrant = puter.ui.requestPermission({ permissions: perms });
-            }, [permission, 'driver:e2e-popup-reconcile-2:generate']),
+            }, [permission, unheldPermission('popup-reconcile-2')]),
         ]);
         const dialog = popup.locator('dialog.perm-dialog');
         await expect(dialog).toBeVisible({ timeout: 60_000 });
@@ -1048,8 +1095,11 @@ test.describe('grant-user-app permission length', () => {
             const segments = Array.from({ length: 34 },
                 (_, i) => `seg${String(i).padStart(6, '0')}`);
             const deepDir = `/${window.user.username}/${segments.join('/')}`;
-            await puter.fs.mkdir(deepDir, { createMissingParents: true, overwrite: false })
-                .catch(() => {});
+            try {
+                await puter.fs.mkdir(deepDir, { createMissingParents: true, overwrite: false });
+            } catch {
+                // Left by an earlier run.
+            }
             const entry = await puter.fs.stat({ path: deepDir });
 
             const longPathStatus = await post('/auth/grant-user-app', {
@@ -1057,7 +1107,8 @@ test.describe('grant-user-app permission length', () => {
             });
             // Nothing rewrites this one, so it is genuinely too wide.
             const oversizedStatus = await post('/auth/grant-user-app', {
-                app_uid: appUid, permission: `service:${'a'.repeat(300)}:ii:read`,
+                app_uid: appUid,
+                permission: `manage:kv-share:${window.user.uuid}:${appUid}:${'a'.repeat(300)}`,
             });
 
             const body = await fetch(`${api}/auth/list-permissions`, {
@@ -1087,7 +1138,7 @@ test.describe('request-permission action hardening', () => {
         // would otherwise prompt for an unnamed requester and grant to an app
         // the dialog never showed the user.
         await page.goto(
-            `/action/request-permission?permission=${encodeURIComponent(UNHELD_DRIVER_PERMISSION)}` +
+            `/action/request-permission?permission=${encodeURIComponent(UNHELD_PERMISSION)}` +
                 '&app_uid=app-00000000-0000-4000-8000-000000000000',
         );
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
@@ -1108,7 +1159,7 @@ test.describe('request-permission action hardening', () => {
         // reject it outright unless it names an app that really exists.
         await page.goto('/');
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
 
         const grantBodies = [];
@@ -1119,12 +1170,12 @@ test.describe('request-permission action hardening', () => {
 
         const [popup] = await Promise.all([
             page.waitForEvent('popup'),
-            page.locator('#req-driver-perm').click(),
+            page.locator('#req-unheld-perm').click(),
         ]);
         const dialog = popup.locator('dialog.perm-dialog');
         await expect(dialog).toBeVisible({ timeout: 60_000 });
         await dialog.locator('.perm-dialog-allow').click();
-        await expect(page.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
+        await expect(page.locator('#log [data-entry="perm:unheld:true"]')).toBeVisible();
 
         expect(grantBodies.length).toBeGreaterThan(0);
         for ( const body of grantBodies ) {
@@ -1141,7 +1192,7 @@ test.describe('request-permission action hardening', () => {
         // and signs the site in.
         await page.goto('/');
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
 
         const session = '11111111-2222-4333-8444-555555555555';
@@ -1170,7 +1221,7 @@ test.describe('request-permission action hardening', () => {
                 window.open(
                     `${puter.defaultGUIOrigin}/action/request-permission?embedded_in_popup=true`
                         + `&cross_origin_isolated=true&signin_session=${s}`
-                        + `&permission=${encodeURIComponent(UNHELD_DRIVER_PERMISSION)}&msg_id=77`,
+                        + `&permission=${encodeURIComponent(UNHELD_PERMISSION)}&msg_id=77`,
                     'perm-isolated-probe',
                     'width=600,height=700',
                 );
@@ -1192,7 +1243,7 @@ test.describe('request-permission action hardening', () => {
         // app. The popup must name the origin the browser attests to instead.
         await page.goto('/');
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
-        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.goto(WEB_FIXTURE_URL);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
 
         const spoofed = 'https://not-the-requester.example';
@@ -1202,7 +1253,7 @@ test.describe('request-permission action hardening', () => {
                 window.open(
                     `${puter.defaultGUIOrigin}/action/request-permission?embedded_in_popup=true`
                         + `&opener_origin=${encodeURIComponent(o)}`
-                        + `&permission=${encodeURIComponent(UNHELD_DRIVER_PERMISSION)}&msg_id=88`,
+                        + `&permission=${encodeURIComponent(UNHELD_PERMISSION)}&msg_id=88`,
                     'perm-opener-origin-probe',
                     'width=600,height=700',
                 );
@@ -1224,7 +1275,7 @@ test.describe('request-permission action hardening', () => {
         // handshake). Believing the query string would let a bare link raise a
         // consent prompt in any app's name and commit the user's grant to it.
         await page.goto(
-            `/action/request-permission?permission=${encodeURIComponent(UNHELD_DRIVER_PERMISSION)}` +
+            `/action/request-permission?permission=${encodeURIComponent(UNHELD_PERMISSION)}` +
                 `&origin=${encodeURIComponent('https://not-the-requester.example/')}`,
         );
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
@@ -1311,8 +1362,8 @@ test.describe('request-permission popup on access already granted', () => {
         // does it once the exchange has run. Answering `true` with nothing
         // clicked is the assertion: only Allow could produce that otherwise.
         // Pinned through `?perm=`, since the grant has to name the same scope.
-        const permission = 'driver:e2e-already-granted:generate';
-        const fixtureURL = `${PERMISSION_FIXTURE_URL}?perm=${encodeURIComponent(permission)}`;
+        const permission = unheldPermission('already-granted');
+        const fixtureURL = `${WEB_FIXTURE_URL}&perm=${encodeURIComponent(permission)}`;
         const fixtureOrigin = new URL(PERMISSION_FIXTURE_URL).origin;
 
         await page.goto('/');
@@ -1349,9 +1400,9 @@ test.describe('request-permission popup on access already granted', () => {
 
             const [popup] = await Promise.all([
                 page.waitForEvent('popup'),
-                page.locator('#req-driver-perm').click(),
+                page.locator('#req-unheld-perm').click(),
             ]);
-            await expect(page.locator('#log [data-entry="perm:driver:true"]'))
+            await expect(page.locator('#log [data-entry="perm:unheld:true"]'))
                 .toBeVisible({ timeout: 60_000 });
             await expect.poll(() => popup.isClosed(), { timeout: 30_000 }).toBe(true);
         } finally {

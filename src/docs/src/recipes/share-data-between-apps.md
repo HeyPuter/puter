@@ -139,5 +139,5 @@ const setPrivate = (key, value) => puter.kv.set(key, value, { disableSharing: tr
 - Private entries also aren't visible to other apps or users watching your keys
   through [Events](/Events/).
 - This is for sharing between apps for the same user. To share data between
-  different users, use a [worker](/recipes/store-server-side-data/) or an
-  [Events share handle](/Events/subjects/#sharing-key-value-events-with-another-user).
+  different users, use [`puter.kv.share()`](/KV/share/) or a
+  [worker](/recipes/store-server-side-data/).

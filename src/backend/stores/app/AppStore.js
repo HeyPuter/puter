@@ -520,6 +520,7 @@ export class AppStore extends PuterStore {
      * @param {number} [filters.ownerUserId] — only apps owned by this user
      * @param {number} [filters.appOwner] — only apps created by another app
      * @param {string} [filters.name] — exact name match
+     * @param {number} [filters.afterId] — only apps with a greater `id`
      * @param {number} [filters.limit=500] Default is `500`
      */
     async list(filters = {}) {

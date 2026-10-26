@@ -94,6 +94,17 @@ const kindBadgeLabel = (kind) => {
     }
 };
 
+
+/** A refused request's message: the body is JSON `{ message, code }`. */
+const responseMessage = async (resp) => {
+    const text = await resp.text();
+    try {
+        return JSON.parse(text)?.message || text;
+    } catch {
+        return text;
+    }
+};
+
 const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     options = options ?? {};
 
@@ -493,19 +504,23 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                             }),
                         },
                     );
-                    if ( !resp.ok ) throw new Error(await resp.text());
+                    if ( !resp.ok ) throw new Error(await responseMessage(resp));
                 } catch ( e ) {
                     // Roll back optimistic update
                     session.label = original || null;
                     el_title.textContent = sessionTitle(session);
-                    alertDialog({ message: e?.toString?.() ?? String(e) });
+                    alertDialog({ message: e?.message ?? String(e) });
                 }
             };
 
             const onBlur = () => finish(true);
             el_input.addEventListener('keydown', (ev) => {
                 if ( ev.key === 'Enter' ) finish(true);
-                else if ( ev.key === 'Escape' ) finish(false);
+                else if ( ev.key === 'Escape' ) {
+                    // Cancels the rename only, not the whole modal.
+                    ev.stopPropagation();
+                    finish(false);
+                }
             });
             el_input.addEventListener('blur', onBlur);
         };
@@ -609,7 +624,9 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                         reload_sessions();
                         return;
                     }
-                    alertDialog({ message: await resp.text() });
+                    // Revoked meanwhile (another tab): the list is what's stale.
+                    if ( resp.status === 404 ) reload_sessions();
+                    alertDialog({ message: await responseMessage(resp) });
                 } catch ( e ) {
                     alertDialog({ message: e.toString() });
                 }
@@ -731,6 +748,14 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     el_search.type = 'search';
     el_search.placeholder = i18n('ui_search') || 'Search sessions…';
     el_search.classList.add('session-manager-search');
+    // Escape empties a search first; the next one closes the modal.
+    el_search.addEventListener('keydown', (ev) => {
+        if ( ev.key !== 'Escape' || el_search.value === '' ) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        el_search.value = '';
+        el_search.dispatchEvent(new Event('input'));
+    });
     el_search.addEventListener('input', () => {
         searchQuery = el_search.value.trim();
         // Pure client-side filter — re-render from the cached list
@@ -774,7 +799,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                 reload_sessions();
                 return;
             }
-            alertDialog({ message: await resp.text() });
+            alertDialog({ message: await responseMessage(resp) });
         } catch ( e ) {
             alertDialog({ message: e.toString() });
         }
