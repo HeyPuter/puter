@@ -8463,6 +8463,13 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     height: 18px;
 }
 
+.dashboard-notification-icon img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
 .dashboard-notification-icon-sharing {
     background: var(--dashboard-bento-apps-surface);
     color: var(--dashboard-bento-apps-icon-bg);
