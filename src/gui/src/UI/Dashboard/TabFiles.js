@@ -1364,10 +1364,10 @@ const TabFiles = {
         $('body').append(previewHtml);
         const $popover = $('.image-preview-popover');
 
-        // Position centered over the files container
+        // Centered over the files container, and inside it
         $popover.css({
             maxWidth: `${containerWidth - 40}px`,
-            width: '100%',
+            maxHeight: `${$filesContainer.height() - 40}px`,
             left: `${containerOffset.left + (containerWidth / 2)}px`,
             top: `${containerOffset.top + ($filesContainer.height() / 2)}px`,
             transform: 'translate(-50%, -50%)',

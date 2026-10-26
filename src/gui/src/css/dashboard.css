@@ -5809,6 +5809,10 @@ body.myapps-reordering .myapps-tile {
     position: fixed;
     /* On body, above the dashboard window (see the sidebar tooltip). */
     z-index: 999999999;
+    /* Sized to the image, within the bounds showImagePreview sets */
+    box-sizing: border-box;
+    width: max-content;
+    min-width: 160px;
     background: var(--dashboard-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 8px;
@@ -5823,11 +5827,14 @@ body.myapps-reordering .myapps-tile {
 .image-preview-popover img {
     max-width: 100%;
     max-height: 70vh;
+    /* Shrinks to leave the name room in a short listing */
+    min-height: 0;
     object-fit: contain;
     border-radius: 4px;
 }
 
 .image-preview-name {
+    flex-shrink: 0;
     font-size: 14px;
     color: var(--dashboard-text);
     text-align: center;
