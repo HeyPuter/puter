@@ -95,6 +95,7 @@ describe('parseAppGrantablePermission', () => {
             },
         ],
         ['events:background', { family: 'backgroundEvents' }],
+        ['notifications:push', { family: 'pushNotifications' }],
     ])('accepts %s', (permission, parsed) => {
         expect(parse(permission)).toEqual(parsed);
     });
@@ -118,6 +119,9 @@ describe('parseAppGrantablePermission', () => {
         '*',
         'events',
         'events:background:extra',
+        'notifications',
+        'notifications:push:extra',
+        'notifications:other',
         // Modeless, or a mode that does not exist.
         'fs',
         `fs:${FILE}`,
