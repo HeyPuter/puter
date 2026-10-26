@@ -9235,7 +9235,13 @@ body.dashboard-mode .notifications-close-all {
     z-index: 97;
     opacity: 0;
     transform: translateY(12px);
-    transition: opacity 200ms ease, transform 200ms ease;
+    transition: opacity 200ms ease, transform 200ms ease, bottom 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Clears the Files selection bar, which select mode docks at the bottom
+   (at most 40px up and 58-64px tall), so its actions stay reachable. */
+.dashboard:has(.dashboard-section-files.active .files-selection-actions.visible) > .dashboard-transfers {
+    bottom: calc(110px + env(safe-area-inset-bottom, 0px));
 }
 
 .dashboard-transfers-show {
