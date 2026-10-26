@@ -18,11 +18,8 @@
  */
 
 /**
- * The store's own guard against a row wider than the column that holds it.
- *
- * `KvShareService.mintKvHandle` already bounds `keyPrefix` and `permission`
- * well under these widths before the store ever sees them, so reaching the
- * guard here means calling the store directly.
+ * The store against a real database: column-width guards, listings, quota
+ * counts and retention.
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -366,5 +363,84 @@ describe('the owner listing by state', () => {
                 })
             ).total,
         ).toBe(1);
+    });
+});
+
+describe('quota counts', () => {
+    it('counts live handles per owner, per app and per holder, never retired ones', async () => {
+        const appUid = 'app-quota-counts';
+        const before = await store().countLiveForOwner(ownerUserId, appUid);
+        const pairBefore = await store().countLiveForOwnerAndGrantee(
+            ownerUserId,
+            granteeUserId,
+        );
+        await store().mint(input({ appUid, keyPrefix: 'count-a:' }));
+        await store().mint(
+            input({ appUid: 'app-quota-other', keyPrefix: 'count-b:' }),
+        );
+        const gone = await store().mint(
+            input({ appUid, keyPrefix: 'count-c:' }),
+        );
+        await store().retireMany([gone.handle], 'owner');
+
+        expect(await store().countLiveForOwner(ownerUserId, appUid)).toEqual({
+            total: before.total + 2,
+            forApp: before.forApp + 1,
+        });
+        expect(
+            await store().countLiveForOwnerAndGrantee(
+                ownerUserId,
+                granteeUserId,
+            ),
+        ).toBe(pairBefore + 2);
+        expect(
+            await store().countLiveForOwnerAndGrantee(
+                granteeUserId,
+                ownerUserId,
+            ),
+        ).toBe(0);
+    });
+});
+
+describe('retired handle retention', () => {
+    const DAY = 24 * 60 * 60;
+    const now = () => Math.floor(Date.now() / 1000);
+
+    const retiredAt = async (keyPrefix: string, at: number | null) => {
+        const row = await store().mint(
+            input({ appUid: 'app-retention', keyPrefix }),
+        );
+        if (at !== null)
+            await env.server.clients.db.write(
+                'UPDATE `kv_share_handles` SET `revoked_at` = ? WHERE `handle` = ?',
+                [at, row.handle],
+            );
+        return row.handle;
+    };
+
+    const exists = async (handle: string) =>
+        (await store().getByHandle(handle)) !== null;
+
+    it('deletes rows retired before the cutoff, a batch at a time', async () => {
+        const cutoff = now() - 30 * DAY;
+        // Rows other tests retired long ago go first.
+        await store().deleteRevokedBefore(cutoff, 1_000);
+        const old = [
+            await retiredAt('old-1:', cutoff - 10),
+            await retiredAt('old-2:', cutoff - 5),
+        ];
+        const recent = await retiredAt('recent:', cutoff + 5);
+        const live = await retiredAt('live:', null);
+
+        expect(await store().deleteRevokedBefore(cutoff, 1)).toBe(1);
+        // Oldest retirement first.
+        expect(await exists(old[0])).toBe(false);
+        expect(await exists(old[1])).toBe(true);
+        expect(await store().deleteRevokedBefore(cutoff, 10)).toBe(1);
+        expect(await store().deleteRevokedBefore(cutoff, 10)).toBe(0);
+
+        expect(await exists(old[1])).toBe(false);
+        expect(await exists(recent)).toBe(true);
+        expect(await exists(live)).toBe(true);
     });
 });

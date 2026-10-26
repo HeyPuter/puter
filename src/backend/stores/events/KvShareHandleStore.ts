@@ -130,7 +130,8 @@ export interface FindLiveKvShareHandleInput {
 /** Handle cache bounds: live rows, and recently missed names. */
 const LIVE_CACHE_TTL_MS = 60_000;
 const MISS_CACHE_TTL_MS = 5_000;
-const LIVE_CACHE_MAX_ENTRIES = 10_000;
+const LIVE_CACHE_MAX_ENTRIES = 50_000;
+const MISS_CACHE_MAX_ENTRIES = 10_000;
 
 /** Handles one cross-node forget carries. */
 const FORGET_BATCH = 500;
@@ -192,7 +193,7 @@ export class KvShareHandleStore extends PuterStore {
         ttlMs: LIVE_CACHE_TTL_MS,
     });
     readonly #missing = new BoundedTtlMap<string, true>({
-        maxEntries: LIVE_CACHE_MAX_ENTRIES,
+        maxEntries: MISS_CACHE_MAX_ENTRIES,
         ttlMs: MISS_CACHE_TTL_MS,
     });
 
@@ -310,7 +311,8 @@ export class KvShareHandleStore extends PuterStore {
 
     /**
      * Live handles this owner is holding out — in total, and in the namespace a
-     * mint is naming. Both ceilings read off one count, over the owner index.
+     * mint is naming. Both ceilings read off one count, covered by the
+     * `(owner_user_id, revoked_at, app_uid)` index.
      */
     async countLiveForOwner(
         ownerUserId: number,
@@ -327,6 +329,43 @@ export class KvShareHandleStore extends PuterStore {
             total: Number(row?.total ?? 0),
             forApp: Number(row?.for_app ?? 0),
         };
+    }
+
+    /** Live handles this owner holds out to one holder, over the pair index. */
+    async countLiveForOwnerAndGrantee(
+        ownerUserId: number,
+        granteeUserId: number,
+    ): Promise<number> {
+        const [row] = await this.clients.db.pread(
+            `SELECT COUNT(*) AS \`total\` FROM \`${TABLE}\` ` +
+                'WHERE `owner_user_id` = ? AND `grantee_user_id` = ? ' +
+                'AND `revoked_at` IS NULL',
+            [ownerUserId, granteeUserId],
+        );
+        return Number(row?.total ?? 0);
+    }
+
+    /**
+     * Delete up to `limit` rows retired before `cutoff` (unix seconds) and
+     * report how many went. Ids first, then a delete by id, since not every
+     * engine takes `LIMIT` on a delete or in an `IN` subquery.
+     */
+    async deleteRevokedBefore(cutoff: number, limit: number): Promise<number> {
+        const rows = await this.clients.db.pread(
+            `SELECT \`id\` FROM \`${TABLE}\` ` +
+                'WHERE `revoked_at` IS NOT NULL AND `revoked_at` < ? ' +
+                'ORDER BY `revoked_at` LIMIT ?',
+            [cutoff, limit],
+        );
+        if (rows.length === 0) return 0;
+        const ids = rows.map((row) => Number(row.id));
+        const result = await this.clients.db.write(
+            `DELETE FROM \`${TABLE}\` ` +
+                `WHERE \`id\` IN (${ids.map(() => '?').join(', ')}) ` +
+                'AND `revoked_at` IS NOT NULL AND `revoked_at` < ?',
+            [...ids, cutoff],
+        );
+        return result.affectedRows;
     }
 
     /**
@@ -387,7 +426,7 @@ export class KvShareHandleStore extends PuterStore {
     /**
      * Every live handle this owner holds out to one grantee, across every
      * region — what a revoke or an unshare walks to find the narrower handles
-     * that go with a wider one. Bounded by the per-account handle cap.
+     * that go with a wider one. Bounded by the per-holder handle cap.
      */
     async listLiveForOwnerAndGrantee(
         ownerUserId: number,
