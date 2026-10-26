@@ -24,14 +24,13 @@ import {
     type KvShareAccess,
     kvShareRoot,
 } from '../kvShare/kvShares.js';
-import { NOTIFICATIONS_PUSH_PERMISSION } from '../push/pushConsent.js';
 import {
     APP_DATA_CLASSES,
     APP_DATA_KV_OPS,
     APP_DATA_PERMISSION_PREFIX,
     type AppDataStore,
 } from './appDataScopes.js';
-import { MANAGE_PERM_PREFIX } from './consts.js';
+import { MANAGE_PERM_PREFIX, NOTIFICATIONS_PUSH_PERMISSION } from './consts.js';
 import { PermissionUtil } from './permissionUtil.js';
 
 const ACCESS_LEVELS = ['read', 'write'] as const;

@@ -50,12 +50,10 @@ import {
 import { PuterServer } from '../../server.js';
 import { createSecret as otpCreateSecret } from '../../services/auth/OTPUtil.js';
 import { kvSharePermission } from '../../services/kvShare/kvShares.js';
-import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import {
-    hasPushConsent,
+    FULL_API_ACCESS,
     NOTIFICATIONS_PUSH_PERMISSION,
-    type PushConsentDeps,
-} from '../../services/push/pushConsent.js';
+} from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
 import { resetCardVerificationStatusCache } from '../../util/cardFallback.js';
 import { FS_READ_LIMIT } from '../fs/limits.js';
@@ -2184,7 +2182,7 @@ describe('AuthController grant flows', () => {
         ).toContain(permission);
     });
 
-    it('grant-user-app: grants an app push consent with notifications:push', async () => {
+    it('grant-user-app: grants and revokes notifications:push for an app', async () => {
         const app = await server.stores.app.create(
             {
                 name: `tgp-${uuidv4()}`,
@@ -2193,11 +2191,17 @@ describe('AuthController grant flows', () => {
             },
             { ownerUserId: issuer.id },
         );
-        const deps = {
-            stores: server.stores,
-            services: { permission: server.services.permission },
-        } as unknown as PushConsentDeps;
-        expect(await hasPushConsent(deps, issuer.id, app.uid)).toBe(false);
+        const user = await server.stores.user.getById(issuer.id);
+        const appActor = makeActor({
+            user: user!,
+            app: { uid: app.uid, id: app.id },
+        });
+        const hasPush = () =>
+            server.services.permission.check(
+                appActor,
+                NOTIFICATIONS_PUSH_PERMISSION,
+            );
+        expect(await hasPush()).toBe(false);
 
         // Anything past the bare permission names nothing a prompt describes.
         await expect(
@@ -2217,7 +2221,7 @@ describe('AuthController grant flows', () => {
             statusCode: 400,
             legacyCode: 'permission_not_grantable',
         });
-        expect(await hasPushConsent(deps, issuer.id, app.uid)).toBe(false);
+        expect(await hasPush()).toBe(false);
 
         const res = makeRes();
         await inCtx(issuerActor, () =>
@@ -2233,7 +2237,21 @@ describe('AuthController grant flows', () => {
             ),
         );
         expect(res.body).toEqual({});
-        expect(await hasPushConsent(deps, issuer.id, app.uid)).toBe(true);
+        expect(await hasPush()).toBe(true);
+
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    {
+                        app_uid: app.uid,
+                        permission: NOTIFICATIONS_PUSH_PERMISSION,
+                    },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+        expect(await hasPush()).toBe(false);
     });
 
     it('grant-user-app: resolves `origin` to the app when app_uid is omitted', async () => {
