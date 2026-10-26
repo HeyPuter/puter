@@ -248,6 +248,8 @@ export const REMOTE_WATCH_TTL_SECONDS = 2 * 60 * 60;
 
 /** Bounds how many times a reap re-reads the socket set racing a reanchor. */
 const REAP_READS = 3;
+/** Keys one owner-drop delete names. */
+const OWNER_DROP_CHUNK = 500;
 
 const subscriptionLimitReached = (): HttpError =>
     new HttpError(
@@ -1166,6 +1168,30 @@ export class EventSubscriptionStore extends PuterStore {
             // A ref whose row just went has moved; read the refs once more.
         }
         return null;
+    }
+
+    /**
+     * Drop every key kept for one owner, for an account that is gone. Socket
+     * sets are keyed on the holder's sockets and expire on their own.
+     */
+    async dropOwner(ownerUserId: number): Promise<void> {
+        const tokens = await this.clients.redis.smembers(
+            watchedKey(ownerUserId),
+        );
+        const keys = [
+            ...tokens.map((token) => tokenKey(ownerUserId, token)),
+            watchedKey(ownerUserId),
+            generationKey(ownerUserId),
+            durableMapKey(ownerUserId),
+            durableWarmKey(ownerUserId),
+            sessionCountKey(ownerUserId),
+            remoteWatchKey(ownerUserId),
+        ];
+        // One hash tag, so every chunk is a single-slot delete.
+        for (let at = 0; at < keys.length; at += OWNER_DROP_CHUNK)
+            await this.clients.redis.del(
+                ...keys.slice(at, at + OWNER_DROP_CHUNK),
+            );
     }
 
     // -- Generation --------------------------------------------------

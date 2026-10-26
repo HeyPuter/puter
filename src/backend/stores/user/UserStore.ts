@@ -806,6 +806,13 @@ export class UserStore extends PuterStore {
         } else {
             await this.invalidateById(userId);
         }
+        if (Object.hasOwn(patch, 'suspended')) {
+            this.clients.event.emit(
+                patch.suspended ? 'user.suspended' : 'user.unsuspended',
+                { userId },
+                {},
+            );
+        }
         return true;
     }
 

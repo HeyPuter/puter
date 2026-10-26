@@ -1024,3 +1024,28 @@ describe('the generation counter', () => {
         );
     });
 });
+
+describe('dropping an owner', () => {
+    it("removes every key kept for the owner and leaves other owners' alone", async () => {
+        const other = USER + 5000;
+        await store.add(makeSub({ subId: 'a' }));
+        await store.add(makeSub({ subId: 'b', token: 'f#two' }));
+        await store.cacheDurable([
+            makeSub({
+                subId: 'd',
+                token: 'f#durable',
+            }) as unknown as DurableSubscription,
+        ]);
+        await store.markRegionWarm(USER);
+        await store.add(
+            makeSub({ subId: 'c', holderUserId: other, ownerUserId: other }),
+        );
+
+        await store.dropOwner(USER);
+
+        // Socket sets are the holder's, named by socket, and expire on their own.
+        const left = await redis.keys(`ev:*:{${USER}}*`);
+        expect(left.filter((key) => !key.startsWith('ev:s:'))).toEqual([]);
+        await expect(store.userHasAny(other)).resolves.toBe(true);
+    });
+});

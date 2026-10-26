@@ -1178,6 +1178,26 @@ describe('kv sharing routes', () => {
         expect(FakeXHR.requests).toHaveLength(0);
     });
 
+    it('share(prefix, recipients) posts every recipient and resolves to the items', async () => {
+        const items = [
+            { recipient: 'alice', ...SHARE },
+            { recipient: 'nobody', error: { message: 'user_does_not_exist', code: 'subject_does_not_exist' } },
+        ];
+        FakeXHR.respondWith = () => ({ items });
+        await expect(kv.share('list:1:', ['alice', 'nobody'], 'write')).resolves.toEqual(items);
+        expect(lastBody()).toEqual({ prefix: 'list:1:', recipients: ['alice', 'nobody'], access: 'write' });
+    });
+
+    it('share({ recipients }) leaves each recipient for the server to check', async () => {
+        FakeXHR.respondWith = () => ({ items: [] });
+        await kv.share({ prefix: 'list:1:', recipients: ['a@b.c', { uid: 'u-1' }], label: 'Team' });
+        expect(lastBody()).toEqual({
+            prefix: 'list:1:',
+            recipients: ['a@b.c', { uid: 'u-1' }],
+            label: 'Team',
+        });
+    });
+
     it('share passes the server\'s { message, code } through', async () => {
         FakeXHR.status = 403;
         FakeXHR.respondWith = () => ({ message: 'Not accepting shares', code: 'recipient_not_accepting_shares' });
@@ -1214,6 +1234,14 @@ describe('kv sharing routes', () => {
         expect(lastRequest().url).toBe('https://api.test/kv/shares?limit=5&cursor=c1&includeTotal=true');
         await kv.listSharedByMe({ includeTotal: false });
         expect(lastRequest().url).toBe('https://api.test/kv/shares');
+    });
+
+    it('the share listings send appUid and state, with null as the app-less store', async () => {
+        FakeXHR.respondWith = () => ({ items: [] });
+        await kv.listSharedByMe({ appUid: 'app-1', state: 'live' });
+        expect(lastRequest().url).toBe('https://api.test/kv/shares?appUid=app-1&state=live');
+        await kv.listShared({ appUid: null });
+        expect(lastRequest().url).toBe('https://api.test/kv/shares/with-me?appUid=null');
     });
 
     it('the sharing methods keep working when destructured', async () => {

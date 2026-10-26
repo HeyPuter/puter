@@ -186,6 +186,8 @@ const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
 // is bounded; cursors are the recommended way to page.
 const MAX_LIST_OFFSET = 5000;
 const MAX_FILL_PAGES = 10;
+/** Items one purge query reads before deleting them. */
+const PURGE_PAGE_ITEMS = 1000;
 /** Most items one query reads while a foreign listing skips hidden entries. */
 const MAX_HIDDEN_SKIP_READ = 1000;
 // Cache keys carried by one invalidation broadcast. A peer applies them in a
@@ -2196,8 +2198,7 @@ export class SystemKVStore extends PuterStore {
                 settleUsage,
                 writeUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined,
+                        number | undefined,
                 ),
             ),
         };
@@ -2331,8 +2332,7 @@ export class SystemKVStore extends PuterStore {
                 settleUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 1,
+                        number | undefined) ?? 1,
                 ),
             ),
         };
@@ -2732,54 +2732,110 @@ export class SystemKVStore extends PuterStore {
         let pageKey: Record<string, unknown> | undefined;
         try {
             do {
-                const response = await this.clients.dynamo.query(
-                    this.tableName,
-                    { namespace },
-                    0,
-                    pageKey,
-                );
-                usage = addUsage(
-                    usage,
-                    readUsage(
-                        response.ConsumedCapacity?.CapacityUnits as
-                            number | undefined,
-                    ),
-                );
-                const keys = (response.Items ?? []).map((entry) =>
-                    String(entry.key),
-                );
-                if (keys.length > 0) {
-                    try {
-                        const deleted = await this.clients.dynamo.batchDel(
-                            keys.map((key) => ({
-                                table: this.tableName,
-                                key: { namespace, key },
-                            })),
-                        );
-                        usage = addUsage(
-                            usage,
-                            writeUsage(
-                                deleted.ConsumedCapacity?.reduce(
-                                    (acc, curr) =>
-                                        acc + Number(curr.CapacityUnits ?? 0),
-                                    0,
-                                ) ?? 0,
-                            ),
-                        );
-                    } finally {
-                        // A failed batch may still have deleted some of
-                        // these, so their cached reads go either way.
-                        await this.#invalidate(namespace, keys);
-                    }
-                }
-                pageKey = response.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                const page = await this.#deletePage(namespace, pageKey, {
+                    consistent: false,
+                });
+                usage = addUsage(usage, page.usage);
+                pageKey = page.pageKey;
             } while (pageKey);
         } finally {
             this.#emitMutation(opts, namespace, [], 'flush');
         }
 
         return { res: true, usage };
+    }
+
+    /**
+     * Delete up to `maxItems` items of one user's app namespace, as the
+     * platform: no mutation events and no usage. Idempotent; `done` once the
+     * namespace is empty.
+     */
+    async purgeNamespace(
+        namespace: string,
+        { maxItems }: { maxItems: number },
+    ): Promise<{ deleted: number; done: boolean }> {
+        const parsed = parseKvNamespace(namespace);
+        if (
+            !parsed ||
+            parsed.userUuid === SYSTEM_ACTOR_UUID ||
+            kvNamespace(parsed.userUuid, parsed.appUid) !== namespace
+        )
+            throw new Error(`kv: not a user namespace: ${namespace}`);
+        if (!Number.isInteger(maxItems) || maxItems < 1)
+            throw new Error('kv: maxItems must be a positive integer');
+
+        let deleted = 0;
+        let pageKey: Record<string, unknown> | undefined;
+        while (deleted < maxItems) {
+            const page = await this.#deletePage(namespace, pageKey, {
+                limit: Math.min(maxItems - deleted, PURGE_PAGE_ITEMS),
+                consistent: true,
+            });
+            deleted += page.deleted;
+            pageKey = page.pageKey;
+            if (!pageKey) return { deleted, done: true };
+        }
+        return { deleted, done: false };
+    }
+
+    /**
+     * One page of `namespace` deleted, starting after `pageKey`. Reads only the
+     * keys; `pageKey` comes back while more items may remain. A purge reads
+     * strongly consistent, so a stale empty page can't end it early; a flush
+     * keeps the eventually consistent read its usage is billed on.
+     */
+    async #deletePage(
+        namespace: string,
+        pageKey: Record<string, unknown> | undefined,
+        { limit = 0, consistent }: { limit?: number; consistent: boolean },
+    ): Promise<{
+        deleted: number;
+        usage: KVUsage;
+        pageKey?: Record<string, unknown>;
+    }> {
+        const response = await this.clients.dynamo.query(
+            this.tableName,
+            { namespace },
+            limit,
+            pageKey,
+            '',
+            consistent,
+            { projection: ['namespace', 'key'] },
+        );
+        let usage = readUsage(
+            response.ConsumedCapacity?.CapacityUnits as number | undefined,
+        );
+        const keys = (response.Items ?? []).map((entry) => String(entry.key));
+        if (keys.length > 0) {
+            try {
+                const deleted = await this.clients.dynamo.batchDel(
+                    keys.map((key) => ({
+                        table: this.tableName,
+                        key: { namespace, key },
+                    })),
+                );
+                usage = addUsage(
+                    usage,
+                    writeUsage(
+                        deleted.ConsumedCapacity?.reduce(
+                            (acc, curr) =>
+                                acc + Number(curr.CapacityUnits ?? 0),
+                            0,
+                        ) ?? 0,
+                    ),
+                );
+            } finally {
+                // A failed batch may still have deleted some of these, so
+                // their cached reads go either way.
+                await this.#invalidate(namespace, keys);
+            }
+        }
+        return {
+            deleted: keys.length,
+            usage,
+            pageKey: response.LastEvaluatedKey as
+                Record<string, unknown> | undefined,
+        };
     }
 
     async expireAt(
