@@ -124,25 +124,6 @@ export const showLocalBanner = async ({ uid, notification, appUid = null }, { re
     }
 };
 
-const isPuterWorker = (registration) => [registration?.active, registration?.waiting, registration?.installing]
-    .some((worker) => {
-        try {
-            return !! worker && new URL(worker.scriptURL).pathname === WORKER_URL;
-        } catch {
-            return false;
-        }
-    });
-
-/** @param {Navigator} nav */
-const unregisterPuterWorker = async (nav) => {
-    try {
-        const registrations = await nav?.serviceWorker?.getRegistrations?.();
-        await Promise.all((registrations ?? []).filter(isPuterWorker).map((r) => r.unregister()));
-    } catch ( err ) {
-        console.warn('Could not unregister the service worker:', err);
-    }
-};
-
 let started = false;
 
 /**
@@ -166,10 +147,8 @@ export const startPushWorker = async ({
         if ( opened ) dispatchStoredTap(opened);
     }
 
-    if ( ! pushWorkerEnabled(params, nav) ) {
-        await unregisterPuterWorker(nav);
-        return;
-    }
+    // Leave an existing worker: removing it ends this browser's subscription.
+    if ( ! pushWorkerEnabled(params, nav) ) return;
     nav.serviceWorker.addEventListener('message', (event) => {
         if ( event.data?.type !== WORKER_CLICK_MESSAGE || ! normalizePushTap(event.data.notification) ) return;
         event.source?.postMessage?.({ type: WORKER_CLICK_ACK_MESSAGE, id: event.data.id });

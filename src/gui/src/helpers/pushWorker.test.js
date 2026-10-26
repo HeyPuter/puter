@@ -226,14 +226,12 @@ describe('startPushWorker', () => {
         expect(nav.serviceWorker.register).not.toHaveBeenCalled();
     });
 
-    it('unregisters an existing /sw.js where push is off, and registers nothing', async () => {
+    it('leaves an existing /sw.js alone where push is off, and registers nothing', async () => {
         const puter = { active: { scriptURL: 'https://puter.test/sw.js' }, unregister: vi.fn(async () => true) };
-        const other = { active: { scriptURL: 'https://puter.test/other.js' }, unregister: vi.fn() };
-        const nav = makeNav([puter, other]);
+        const nav = makeNav([puter]);
         await start(await load(), { nav, params: { pushEnabled: false } });
         expect(nav.serviceWorker.register).not.toHaveBeenCalled();
-        expect(puter.unregister).toHaveBeenCalledOnce();
-        expect(other.unregister).not.toHaveBeenCalled();
+        expect(puter.unregister).not.toHaveBeenCalled();
     });
 
     it('hands over the notification uid a page was opened for and clears it', async () => {
