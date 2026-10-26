@@ -60,6 +60,8 @@ beforeEach(() => {
     window.update_sites_cache = vi.fn();
     window.require_email_verification_to_publish_website = false;
     globalThis.puter = {
+        fsCacheKey: (kind, path) => `${kind}:${path}`,
+        _cache: { del: vi.fn() },
         hosting: { create: vi.fn(async () => ({})) },
         workers: { create: vi.fn(async (name) => ({ success: true, url: `https://${name}.puter.work` })) },
     };
@@ -94,6 +96,8 @@ describe('publish website', () => {
         expect($folder.find('.item-has-website-badge').css('display')).not.toBe('none');
         expect($child.attr('data-website_url')).toBe('https://my-site.puter.site/index.html');
         expect(window.update_sites_cache).toHaveBeenCalled();
+        // Its row in /alice, when not on screen, is listed afresh next time.
+        expect(puter._cache.del).toHaveBeenCalledWith('readdir:/alice');
     });
 
     it("links to the server's address for the site when it sends one", async () => {

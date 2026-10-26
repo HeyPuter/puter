@@ -53,6 +53,8 @@ describe('UIItemPropertiesModal', () => {
                 return Promise.resolve();
             }) },
             hosting: { update: vi.fn(async () => ({})) },
+            fsCacheKey: (kind, path) => `${kind}:${path}`,
+            _cache: { del: vi.fn() },
         };
 
         UIItemPropertiesModal({ name: 'site', path: '/alice/site', uid: 'u1' });
@@ -64,5 +66,6 @@ describe('UIItemPropertiesModal', () => {
         expect($row.attr('data-has_website')).toBe('0');
         expect(fsentry.has_website).toBe(false);
         expect(window.update_sites_cache).toHaveBeenCalled();
+        expect(puter._cache.del).toHaveBeenCalledWith('readdir:/alice');
     });
 });

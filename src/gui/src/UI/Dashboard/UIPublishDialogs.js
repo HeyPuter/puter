@@ -21,6 +21,7 @@
 // worker: dashboard form dialogs rather than desktop windows.
 
 import ensure_can_publish from '../../helpers/ensureCanPublish.js';
+import forget_parent_listing from '../../helpers/forgetParentListing.js';
 import { SVG } from './UIDashboardDialog.js';
 import UIDashboardFormDialog, { copyRowHtml } from './UIDashboardFormDialog.js';
 import { finalizePublishName, normalizePublishName, PUBLISH_NAME_RULES } from './publishName.js';
@@ -71,6 +72,8 @@ const KINDS = {
                         .find('.item-has-website-url-badge').show();
                 }
             });
+            // The folder's row, when it isn't on screen, is drawn from there next.
+            forget_parent_listing(path);
             window.update_sites_cache?.();
         },
     },

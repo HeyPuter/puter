@@ -19,6 +19,7 @@
 
 import item_icon from '../../helpers/itemIcon.js';
 import UIAlert from '../UIAlert.js';
+import forget_parent_listing from '../../helpers/forgetParentListing.js';
 import { isOverlayOnTop } from './dashboardOverlay.js';
 import { formatRelativeTime } from '../../i18n/formatTime.js';
 import { owner_of_path } from '../../helpers/pathOwner.js';
@@ -307,6 +308,7 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
                         const row_fsentry = $(this).data('fsentry');
                         if ( row_fsentry ) row_fsentry.has_website = false;
                     }).attr('data-has_website', '0').find('.item-has-website-badge').fadeOut(200);
+                    forget_parent_listing(item_path);
                     window.update_sites_cache?.();
                 }).catch((err) => {
                     $link.prop('disabled', false);
