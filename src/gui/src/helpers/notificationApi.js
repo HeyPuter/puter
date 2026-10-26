@@ -144,7 +144,12 @@ export async function getNotification (uid) {
 
 /** @typedef {{ uid: string, name: string, title: string, icon: string|null }} PushApp */
 
-/** Rejects with the server's `code` and `status` on a failed call. */
+export const PUSH_UNAVAILABLE = 'push_unavailable';
+
+/**
+ * Rejects with the server's `code` and `status` on a failed call, and with
+ * `push_unavailable` when no `/push` route answered.
+ */
 const pushCall = async (method, path, body) => {
     const res = await fetch(`${window.api_origin}${path}`, {
         method,
@@ -155,7 +160,10 @@ const pushCall = async (method, path, body) => {
     if ( ! res.ok ) {
         const error = new Error(data?.message ?? `${path} failed (${res.status})`);
         error.status = res.status;
-        error.code = data?.code;
+        // The push routes name what they can't find; a bare not_found is core's.
+        error.code = res.status === 404 && (data?.code ?? 'not_found') === 'not_found'
+            ? PUSH_UNAVAILABLE
+            : data?.code;
         throw error;
     }
     return data;

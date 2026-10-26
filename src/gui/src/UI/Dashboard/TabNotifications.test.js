@@ -305,6 +305,18 @@ describe('Puter notifications', () => {
     });
 });
 
+describe('without a push service', () => {
+    it('says push is unavailable on this server instead of failing', async () => {
+        serve({});
+        await open();
+
+        expect($('.push-devices-list').text()).toBe('push_server_unavailable');
+        expect($('.push-apps-list').text()).toBe('push_server_unavailable');
+        expect($('.push-puter-toggle').prop('disabled')).toBe(true);
+        expect($('.push-puter-card').text()).toContain('push_server_unavailable');
+    });
+});
+
 describe('your devices', () => {
     it('says so when there are none', async () => {
         await open();
@@ -355,6 +367,40 @@ describe('your devices', () => {
         expect(remove).toHaveBeenCalledTimes(1);
         expect($('.push-device-card')).toHaveLength(1);
         expect($('.push-remove-device').attr('data-uid')).toBe('a');
+    });
+
+    it('drops a device the server no longer has', async () => {
+        serve({
+            'GET /push/devices': { devices: [device({ uid: 'a' })] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+            'DELETE /push/devices/a': () => reply(404, { code: 'device_not_found' }),
+        });
+        await open();
+
+        $('.push-remove-device[data-uid="a"]').trigger('click');
+        await settle();
+        dialogButton('push_device_remove').trigger('click');
+        await settle();
+
+        expect($('.push-device-card')).toHaveLength(0);
+    });
+
+    it('keeps the device and says so when no push service answers', async () => {
+        serve({
+            'GET /push/devices': { devices: [device({ uid: 'a' })] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+        });
+        await open();
+
+        $('.push-remove-device[data-uid="a"]').trigger('click');
+        await settle();
+        dialogButton('push_device_remove').trigger('click');
+        await settle();
+
+        expect($('.push-device-card')).toHaveLength(1);
+        expect(dialog('.dashboard-dialog-message').text()).toContain('push_device_remove_failed');
     });
 
     it('keeps the device when the user cancels', async () => {

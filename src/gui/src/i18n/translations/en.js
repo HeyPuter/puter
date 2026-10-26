@@ -447,6 +447,7 @@ const en = {
         push_puter_notifications: 'Puter notifications',
         push_puter_notifications_hint: 'Shares, deploys and other updates from Puter',
         push_save_failed: "Couldn't save that. Please try again.",
+        push_server_unavailable: "Push notifications aren't available on this server.",
         push_settings_subtitle: 'Choose where you get notifications when Puter is closed',
         push_test_confirm_message: 'We sent a test notification to this browser.',
         push_test_confirm_title: 'Did you see a notification?',

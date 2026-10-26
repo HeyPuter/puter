@@ -18,6 +18,7 @@
  */
 
 import {
+    PUSH_UNAVAILABLE,
     getPuterPushPreference,
     listPushApps,
     listPushDevices,
@@ -146,6 +147,9 @@ export const appCardHtml = (app) => {
 
 const emptyHtml = (key) => `<p class="dashboard-settings-empty">${i18n(key)}</p>`;
 
+/** @param {unknown} e @returns {string} The i18n key for a failed read */
+const loadFailedKey = (e) => e?.code === PUSH_UNAVAILABLE ? 'push_server_unavailable' : 'push_load_failed';
+
 const showError = (key, $el_window) => UIDashboardDialog({
     message: i18n(key),
     tone: 'error',
@@ -215,7 +219,7 @@ const TabNotifications = {
                 renderDevices();
             } catch ( e ) {
                 console.warn('[push] device list failed', e);
-                $section.find('.push-devices-list').html(emptyHtml('push_load_failed'));
+                $section.find('.push-devices-list').html(emptyHtml(loadFailedKey(e)));
             }
         };
 
@@ -230,7 +234,7 @@ const TabNotifications = {
                 renderApps();
             } catch ( e ) {
                 console.warn('[push] app list failed', e);
-                $section.find('.push-apps-list').html(emptyHtml('push_load_failed'));
+                $section.find('.push-apps-list').html(emptyHtml(loadFailedKey(e)));
             }
         };
 
@@ -241,7 +245,7 @@ const TabNotifications = {
             } catch ( e ) {
                 console.warn('[push] preference read failed', e);
                 $toggle.prop('checked', false).prop('disabled', true);
-                $section.find('.push-puter-card .dashboard-settings-card-info > span').html(i18n('push_load_failed'));
+                $section.find('.push-puter-card .dashboard-settings-card-info > span').html(i18n(loadFailedKey(e)));
             }
         };
 
@@ -342,7 +346,7 @@ const TabNotifications = {
             try {
                 await removePushDevice(uid);
             } catch ( e ) {
-                if ( e?.status !== 404 ) {
+                if ( e?.status !== 404 || e?.code === PUSH_UNAVAILABLE ) {
                     console.warn('[push] device removal failed', e);
                     showError('push_device_remove_failed', $el_window);
                     return;
