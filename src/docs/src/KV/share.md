@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
 
-Shares the keys under a prefix with another Puter user. The other user becomes the share's holder, and you stay its owner. The keys stay in your store, and the holder reaches them through the share.
+Shares the keys under a prefix with another Puter user, or with up to 50 users in one call. The other user becomes the share's holder, and you stay its owner. The keys stay in your store, and the holder reaches them through the share.
 
 Each share has a `handle`. The holder finds it with [`puter.kv.listShared()`](/KV/listShared/) and passes it as `handle` to the other [`puter.kv`](/KV/) methods. [Sharing with other users](/KV/#sharing-with-other-users) shows how a holder uses a share.
 
@@ -15,6 +15,8 @@ Each share has a `handle`. The holder finds it with [`puter.kv.listShared()`](/K
 ```js
 puter.kv.share(prefix, recipient)
 puter.kv.share(prefix, recipient, access)
+puter.kv.share(prefix, recipients)
+puter.kv.share(prefix, recipients, access)
 puter.kv.share(options)
 ```
 
@@ -36,6 +38,10 @@ A new share is also rejected with `invalid_kv_share_prefix` when its prefix diff
 
 The user to share with, as a username, `{ username }`, or `{ uid }` with the user's uuid. A string that contains `@` is rejected with `invalid_recipient`.
 
+#### `recipients` (Array)
+
+The users to share with, from 1 to 50, each in any form `recipient` takes. Every recipient gets a share of the same prefix at the same access level, with the same label. A user named twice gets one share. An empty array or more than 50 recipients is rejected with `bad_request`.
+
 #### `access` (String) (optional)
 
 What the holder can do. Defaults to `'read'`. Each level includes the ones before it.
@@ -49,7 +55,8 @@ What the holder can do. Defaults to `'read'`. Each level includes the ones befor
 The options form takes these properties:
 
 - `prefix` (String) (required): The key prefix, as above.
-- `recipient` (String | Object) (required): Who to share with, as above.
+- `recipient` (String | Object): Who to share with, as above.
+- `recipients` (Array): Several users to share with, as above. Pass either `recipient` or `recipients`, not both.
 - `access` (String): What the holder can do, as above. Defaults to `'read'`.
 - `label` (String | null): Plain text the holder is shown with the share, such as `'Groceries from Dan'`. Whitespace at either end is trimmed, and the rest can be at most 128 characters and 512 bytes of UTF-8. Control characters, invisible formatting characters (such as zero-width spaces and text direction marks), line breaks, and more than 3 combining marks on one character are rejected with `kv_share_label_invalid`. An empty string means no label.
 - `appUuid` (String): The app whose data to share. Outside an app, such as in a Node.js script using the user's auth token, it can name any app that exists. An app always shares its own data, and passing a different app's id fails with `events_kv_handle_outside_namespace`.
@@ -67,6 +74,12 @@ A `Promise` that resolves to the share:
 - `holder` (String): The holder's username.
 - `label` (String | null): The label the holder is shown.
 - `createdAt` (Number): When the share was made, in Unix seconds.
+
+With `recipients`, the `Promise` resolves to an array with one item per recipient, in the order you passed them. Each item has `recipient`, the recipient as you passed it, and either the share's properties listed above or `error`:
+
+- `error` (Object): Why that recipient didn't get a share, as `{ message, code }`. The code is one of the [errors](#errors) about that recipient: `invalid_recipient`, `subject_does_not_exist`, `bad_request` when it's you, `invalid_kv_share_prefix` when a share with that user differs only in letter case, `recipient_not_accepting_shares`, or `events_kv_handle_limit_reached` when you already hold 256 live shares with that user.
+
+Any other error, such as a bad `prefix`, rejects the whole call. Before it shares with anyone, the call checks that all the new shares fit within your limits and your rate limits, and rejects the whole call if they don't.
 
 ## Sharing the same prefix again
 
@@ -96,14 +109,14 @@ The promise rejects with `{ message, code }`:
 | -- | -- |
 | `invalid_recipient` | `recipient` contains `@`, or isn't a username, `{ username }`, or `{ uid }`. |
 | `subject_does_not_exist` | No user has that username or uuid. |
-| `bad_request` | You named yourself as the recipient, or `appUuid` isn't the id of an app that exists. |
+| `bad_request` | You named yourself as the recipient, `appUuid` isn't the id of an app that exists, you passed both `recipient` and `recipients`, or `recipients` is empty or has more than 50 entries. |
 | `invalid_kv_share_prefix` | `prefix` is empty, too long, has an empty segment, or has a character other than lowercase letters, digits, `_`, `.`, and `-` between its separators, or differs from one of your shares with the same user only in letter case. |
 | `kv_share_access_invalid` | `access` isn't `'watch'`, `'read'`, or `'write'`. |
 | `kv_share_label_invalid` | `label` isn't a string or `null`, is too long, or contains a character it can't have. |
 | `recipient_not_accepting_shares` | The recipient blocked you, or doesn't accept shares. On an existing share, you raised its access or set a new label. |
 | `account_is_not_verified` | Your email address isn't confirmed. |
 | `events_kv_handle_requires_account` | A temporary account tried to share. |
-| `events_kv_handle_limit_reached` | You already hold as many live shares as your plan allows. |
+| `events_kv_handle_limit_reached` | You already hold as many live shares as your plan allows, in total, in this app, or with this user. With `recipients`, the new shares would go over your limit in total or in this app. |
 | `events_kv_handle_not_delegated` | An app shared without the user's consent for that prefix and level. |
 | `events_kv_handle_outside_namespace` | An app named another app's data. |
 | `events_kv_handle_owner_only` | The call came from an access token with less access than the account. |
@@ -137,6 +150,16 @@ const share = await puter.kv.share({
 
 // Same prefix and user, so this changes the same share.
 await puter.kv.share('trip:japan-2027:', 'alice', 'read');
+```
+
+<strong class="example-title">Share with several users at once</strong>
+
+```js
+const results = await puter.kv.share('board:planning:', ['alice', 'bob', 'carol'], 'read');
+for (const result of results) {
+    if (result.error) puter.print(`Not shared with ${result.recipient}: ${result.error.code}<br>`);
+    else puter.print(`Shared with ${result.holder}<br>`);
+}
 ```
 
 ## Related

@@ -430,13 +430,15 @@ See [Events](/Events/) for an overview, [`onLocal()`](/Events/subjects/#gaps) fo
 | ------------------------------------ | ------------------ | ---- | ---- | --------- |
 | Persistent subscriptions             | Per user, all apps | 500  | 100  | 0         |
 | Persistent subscriptions             | Per user, per app  | 100  | 25   | 0         |
-| KV share handles                     | Per user, all apps | 512  | 200  | 0         |
-| KV share handles                     | Per user, per app  | 512  | 128  | 0         |
+| KV share handles                     | Per user, all apps | 25,000 | 5,000 | 0       |
+| KV share handles                     | Per user, per app  | 10,000 | 2,000 | 0       |
+| KV share handles with one other user | Per owner and holder | 256  | 256  | 0         |
 | Session subscriptions                | Per connection     | 50   | 50   | 50        |
 
 - Over a subscription limit: `events_subscription_limit`. Over a share-handle limit: `events_kv_handle_limit_reached`.
 - Anonymous accounts get `events_durable_requires_account` for persistent subscriptions and `events_kv_handle_requires_account` for share handles.
 - Unsubscribing or revoking frees a slot immediately. Revoked handles stay listed but don't count.
+- A [`puter.kv.share()`](/KV/share/) call with several recipients is refused as a whole with `events_kv_handle_limit_reached` when its new shares would go over the all-apps or per-app limit. Sharing a prefix again with a user who already has it takes no slot. The limit per holder applies to each recipient on its own, and a recipient over it gets the error on their own item.
 - A share handle minted without naming an app counts only toward the all-apps limit.
 - A share's key prefix has a length limit that depends on the app's uid and the access level. For an app uid of the usual form, `app-` and a uuid, the prefix without its trailing `:` can be at most 168 characters for `watch`, 163 for `read`, and 162 for `write`. In the store that belongs to no app, it can be at most 199, 194, and 193. A longer prefix is refused with `invalid_kv_share_prefix`.
 - The consent an app asks for with [`puter.perms.request('kvShare', …)`](/Perms/request/) names a prefix too. Its limit is 7 characters lower, so 161, 156, and 155 for an app uid of the usual form.
@@ -466,6 +468,7 @@ Counted per event, per region:
 | `unsubscribe`                                     | 600/min  | Per user, all apps |
 | Acknowledgements                                  | 600/min  | Per user, all apps |
 | Share-handle mint / revoke                        | 60/min   | Per user, all apps |
+| Recipients of `kv.share()`                        | 300/min, 2,000/hour | Per user, all apps |
 | `kv.share.received` notifications                 | 5/hour   | Per owner and holder |
 | Handler publish / remove                          | 60/min   | Per user, all apps |
 | Subscription and share-handle listings (combined) | 120/min  | Per user, per app  |
@@ -473,7 +476,9 @@ Counted per event, per region:
 | Events worker listings                            | 120/min  | Per user, per app  |
 | `fetch()`                                         | 120/min  | Per user, per app  |
 
-Over any of these: `too_many_requests`, except `kv.share.received` notifications: a share past that limit is still made, and the holder isn't notified about it. Listing pages hold up to 200 items. A `fetch()` page defaults to 50 events and holds up to 200.
+Over any of these: `too_many_requests`, except `kv.share.received` notifications: a share past that limit is still made, and the holder isn't notified about it. Listing pages hold up to 200 items.
+
+A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients. Each one counts toward the recipient budget, and the call counts once toward the mint budget. When the recipients don't all fit in the recipient budget, the whole call fails with `too_many_requests`, and the part that did fit still counts. A `fetch()` page defaults to 50 events and holds up to 200.
 
 Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one.
 
