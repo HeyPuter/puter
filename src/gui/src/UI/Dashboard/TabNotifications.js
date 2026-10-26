@@ -26,6 +26,7 @@ import {
     sendTestPush,
     setPuterPushPreference,
 } from '../../helpers/notificationApi.js';
+import { appIconAttrs } from '../../helpers/appIcon.js';
 import { getPushClient, PUSH_CLIENT_REGISTERED_EVENT } from '../../helpers/pushClient.js';
 import { formatBrowserOs, parseUserAgent } from '../../helpers/userAgent.js';
 import { formatAbsoluteTime, formatRelativeTime } from './notificationCenter.js';
@@ -121,12 +122,22 @@ export const deviceCardHtml = (device, now) => {
     });
 };
 
+/** @param {unknown} url @returns {boolean} An https or same-origin URL */
+export const isLoadableIcon = (url) => {
+    if ( typeof url !== 'string' || ! url ) return false;
+    try {
+        const parsed = new URL(url, window.location.origin);
+        return parsed.protocol === 'https:' || parsed.origin === window.location.origin;
+    } catch {
+        return false;
+    }
+};
+
 /** @param {import('../../helpers/notificationApi.js').PushApp} app */
 export const appCardHtml = (app) => {
-    const fallback = window.icons?.['app.svg'] ?? '';
-    const src = typeof app.icon === 'string' && app.icon ? app.icon : fallback;
+    const icon = isLoadableIcon(app.icon) ? app.icon : '';
     return card({
-        icon: `<img src="${html_encode(src)}" alt="">`,
+        icon: `<img ${appIconAttrs({ icon }, window.icons?.['app.svg'] ?? '')} alt="">`,
         title: html_encode(app.title || app.name || ''),
         action: `<button type="button" class="button push-revoke-app" data-app-uid="${html_encode(app.uid)}">${i18n('push_turn_off')}</button>`,
         extraClass: 'push-app-card',
@@ -158,11 +169,12 @@ const TabNotifications = {
         h += '<div class="dashboard-settings-grid push-browser-slot">';
         h += browserCardHtml('checking');
         h += card({
+            extraClass: 'push-puter-card',
             icon: ICONS.puter,
             title: i18n('push_puter_notifications'),
             detail: i18n('push_puter_notifications_hint'),
             action: '<label class="dashboard-switch">'
-                + `<input type="checkbox" class="push-puter-toggle" checked disabled aria-label="${html_encode(i18n('push_puter_notifications', [], false))}">`
+                + `<input type="checkbox" class="push-puter-toggle" disabled aria-label="${html_encode(i18n('push_puter_notifications', [], false))}">`
                 + '<span class="dashboard-switch-slider"></span></label>',
         });
         h += '</div>';
@@ -182,11 +194,13 @@ const TabNotifications = {
         let devices = [];
         let apps = [];
 
-        const renderBrowser = (state) => {
-            $section.find('.push-browser-card').replaceWith(browserCardHtml(state));
-        };
+        // Only the latest status read is drawn, so a slow one can't undo a newer state.
+        let browserSeq = 0;
         const refreshBrowser = async () => {
-            renderBrowser(await browserPushState(getPushClient()));
+            const seq = ++browserSeq;
+            const state = await browserPushState(getPushClient());
+            if ( seq === browserSeq ) $section.find('.push-browser-card').replaceWith(browserCardHtml(state));
+            return state;
         };
 
         const renderDevices = () => {
@@ -226,6 +240,8 @@ const TabNotifications = {
                 $toggle.prop('checked', await getPuterPushPreference()).prop('disabled', false);
             } catch ( e ) {
                 console.warn('[push] preference read failed', e);
+                $toggle.prop('checked', false).prop('disabled', true);
+                $section.find('.push-puter-card .dashboard-settings-card-info > span').html(i18n('push_load_failed'));
             }
         };
 
@@ -262,20 +278,20 @@ const TabNotifications = {
                 ({ deviceUid } = await client.enable());
             } catch ( e ) {
                 console.warn('[push] enable failed', e);
-                const state = await browserPushState(client);
-                renderBrowser(state);
-                if ( state !== 'blocked' ) showError('push_enable_failed', $el_window);
+                if ( await refreshBrowser() !== 'blocked' ) showError('push_enable_failed', $el_window);
                 return;
             }
-            await Promise.all([refreshBrowser(), refreshDevices()]);
+            const refreshed = Promise.all([refreshBrowser(), refreshDevices()]);
             try {
                 await sendTestPush(deviceUid);
             } catch ( e ) {
                 console.warn('[push] test push failed', e);
                 showError('push_test_failed', $el_window);
+                await refreshed;
                 await Promise.all([refreshBrowser(), refreshDevices()]);
                 return;
             }
+            await refreshed;
             await askIfSeen();
         });
 

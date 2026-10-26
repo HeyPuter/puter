@@ -441,7 +441,7 @@ const en = {
         push_test_confirm_message: 'We sent a test notification to this browser.',
         push_test_confirm_title: 'Did you see a notification?',
         push_test_failed: "Couldn't send a test notification. Please try again.",
-        push_test_help: "Check that your device's settings allow notifications from this browser, and that Do Not Disturb or Focus is off.\nOn Android, if you just turned notifications back on, close Chrome completely and open it again.",
+        push_test_help: 'Check that your device allows notifications from this browser. If you just turned notifications back on, close your browser completely and open it again.',
         push_test_help_title: 'No notification?',
         push_this_browser: 'This browser',
         push_turn_off: 'Turn off',

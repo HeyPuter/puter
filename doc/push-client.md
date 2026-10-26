@@ -8,11 +8,11 @@ The registry is in [src/gui/src/helpers/pushClient.js](../src/gui/src/helpers/pu
 
 ```js
 service_script(async (api) => {
-    api.use('push.registerPushClient')(client);
+    api.use()['push.registerPushClient']?.(client);
 });
 ```
 
-Any script that runs after the GUI bundle can call `use('push.registerPushClient')(client)` the same way. Registering again replaces the client. Registering dispatches `push-client-registered` on `window`, and an open Notifications tab redraws.
+`use(id)` throws when nothing is registered under `id`, so the form above also runs on a Puter version without the registry and does nothing there. Any script that runs after the GUI bundle can call `use()['push.registerPushClient']?.(client)` the same way. Registering again replaces the client. Registering dispatches `push-client-registered` on `window`, and an open Notifications tab redraws.
 
 With no client registered, the tab says push notifications aren't available in this browser.
 

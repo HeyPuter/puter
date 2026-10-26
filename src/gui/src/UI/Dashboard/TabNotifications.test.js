@@ -220,6 +220,27 @@ describe('this browser', () => {
         expect($('.dashboard-dialog-overlay')).toHaveLength(0);
     });
 
+    it('keeps the newest state when an older status read finishes last', async () => {
+        const client = fakeClient();
+        pushClient.registerPushClient(client);
+        await open();
+        let finishSlow;
+        client.status
+            .mockImplementationOnce(() => new Promise(resolve => {
+                finishSlow = resolve;
+            }))
+            .mockResolvedValueOnce({ permission: 'granted', registered: true, deviceUid: 'dev-1' });
+
+        tab.onActivate($('.win'));
+        tab.onActivate($('.win'));
+        await settle();
+        expect(browserCard().hasClass('push-browser-on')).toBe(true);
+        finishSlow({ permission: 'default', registered: false });
+        await settle();
+
+        expect(browserCard().hasClass('push-browser-on')).toBe(true);
+    });
+
     it('turns off through the client', async () => {
         const client = fakeClient({ permission: 'granted', registered: true, deviceUid: 'dev-1' });
         pushClient.registerPushClient(client);
@@ -252,6 +273,20 @@ describe('Puter notifications', () => {
         await settle();
 
         expect(JSON.parse(save.mock.calls[0][0].body)).toEqual({ puter: true });
+    });
+
+    it('shows the switch off and disabled with a message when the preference can’t be read', async () => {
+        serve({
+            'GET /push/devices': { devices: [] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': () => reply(500, {}),
+        });
+        await open();
+
+        const $toggle = $('.push-puter-toggle');
+        expect($toggle.prop('checked')).toBe(false);
+        expect($toggle.prop('disabled')).toBe(true);
+        expect($('.push-puter-card').text()).toContain('push_load_failed');
     });
 
     it('puts the switch back when the save fails', async () => {
@@ -381,6 +416,19 @@ describe('apps that can send pushes', () => {
         expect(JSON.parse(revoke.mock.calls[0][0].body)).toEqual({ app_uid: 'app-1', permission: 'notifications:push' });
         expect($('.push-app-card')).toHaveLength(0);
         expect($('.push-apps-list').text()).toBe('push_apps_empty');
+    });
+
+    it('shows the default icon for an app icon that is not https', async () => {
+        window.icons = { 'app.svg': '/images/app.svg' };
+        serve({
+            'GET /push/devices': { devices: [] },
+            'GET /push/apps': { apps: [{ uid: 'app-1', name: 'chat', title: 'Chat', icon: 'http://elsewhere.test/icon.png' }] },
+            'GET /push/preferences': { puter: true },
+        });
+        await open();
+
+        expect($('.push-app-card img').attr('src')).toBe('/images/app.svg');
+        delete window.icons;
     });
 
     it('shows an app name and icon containing markup as text', async () => {
