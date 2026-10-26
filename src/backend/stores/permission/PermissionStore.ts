@@ -38,6 +38,14 @@ import type { UserRow } from '../user/UserStore';
 // can touch rows this store's mutators never see.
 const U2A_CACHE_TTL_SECONDS = 5 * 60;
 const U2U_CACHE_TTL_SECONDS = 5 * 60;
+/**
+ * Grants a holder may have and still be cached as one row set. Past it, each
+ * check reads only the permissions it names, so a check costs the same however
+ * many grants the holder has.
+ */
+export const U2U_CACHE_MAX_ROWS = 200;
+/** Cached in place of the row set for a holder past {@link U2U_CACHE_MAX_ROWS}. */
+const U2U_TOO_MANY = 'too-many';
 const TOKEN_CACHE_TTL_SECONDS = 10 * 60;
 // Rows per INSERT; five parameters each stays under SQLite's 999 limit.
 const ACCESS_TOKEN_PERM_INSERT_CHUNK = 100;
@@ -77,6 +85,11 @@ export interface FlatPermValue {
     deleted?: boolean;
     [k: string]: unknown;
 }
+
+type DbRead = (
+    query: string,
+    params: unknown[],
+) => Promise<Record<string, unknown>[]>;
 
 export interface LinkedUserUserPermRow {
     holder_user_id: number;
@@ -392,9 +405,11 @@ export class PermissionStore extends PuterStore {
         permissions: string[],
     ): Promise<LinkedUserUserPermRow[]> {
         if (permissions.length === 0) return [];
-        const all = await this.#readAllUserUserPermsForHolder(holderUserId);
-        const wanted = new Set(permissions);
-        return all.filter((row) => wanted.has(row.permission));
+        const read = this.clients.db.read.bind(this.clients.db);
+        const rows =
+            (await this.#cachedUserUserPerms(holderUserId)) ??
+            (await this.#loadUserUserPerms(holderUserId, read));
+        return this.#pickUserUserPerms(holderUserId, rows, permissions, read);
     }
 
     /**
@@ -409,30 +424,15 @@ export class PermissionStore extends PuterStore {
         permissions: string[],
     ): Promise<LinkedUserUserPermRow[]> {
         if (permissions.length === 0) return [];
-        const rows = await this.clients.db.pread(
-            'SELECT * FROM `user_to_user_permissions` WHERE `holder_user_id` = ?',
-            [holderUserId],
-        );
-        const decoded = rows.map((row) =>
-            this.#decodeExtra<LinkedUserUserPermRow>(row),
-        );
-        this.clients.redis
-            .set(
-                this.#u2uCacheKey(holderUserId),
-                JSON.stringify(decoded),
-                'EX',
-                U2U_CACHE_TTL_SECONDS,
-            )
-            .catch(() => {});
-        const wanted = new Set(permissions);
-        return decoded.filter((row) => wanted.has(row.permission));
+        const pread = this.clients.db.pread.bind(this.clients.db);
+        const rows = await this.#loadUserUserPerms(holderUserId, pread);
+        return this.#pickUserUserPerms(holderUserId, rows, permissions, pread);
     }
 
     /**
      * Batched {@link readLinkedUserUserPerms} across holders: an indexed `holder
      * IN … AND permission IN …` read instead of one row-set per holder, which
-     * on a cold cache fans a listing page out into that many queries. Chunked
-     * to stay under the dialects' placeholder limits.
+     * on a cold cache fans a listing page out into that many queries.
      */
     async readLinkedUserUserPermsForHolders(
         holderUserIds: number[],
@@ -444,23 +444,11 @@ export class PermissionStore extends PuterStore {
         const perms = [...new Set(permissions)];
         if (holders.length === 0 || perms.length === 0) return [];
 
-        const rows: LinkedUserUserPermRow[] = [];
-        for (let h = 0; h < holders.length; h += 200) {
-            const holderChunk = holders.slice(h, h + 200);
-            for (let p = 0; p < perms.length; p += 700) {
-                const permChunk = perms.slice(p, p + 700);
-                const found = await this.clients.db.read(
-                    'SELECT * FROM `user_to_user_permissions` WHERE ' +
-                        `\`holder_user_id\` IN (${holderChunk.map(() => '?').join(', ')}) ` +
-                        `AND \`permission\` IN (${permChunk.map(() => '?').join(', ')})`,
-                    [...holderChunk, ...permChunk],
-                );
-                for (const row of found) {
-                    rows.push(this.#decodeExtra<LinkedUserUserPermRow>(row));
-                }
-            }
-        }
-        return rows;
+        return this.#selectUserUserPermsIn(
+            this.clients.db.read.bind(this.clients.db),
+            holders,
+            perms,
+        );
     }
 
     /**
@@ -1897,32 +1885,93 @@ export class PermissionStore extends PuterStore {
         return `perms:token:${tokenUid}`;
     }
 
-    async #readAllUserUserPermsForHolder(
+    async #cachedUserUserPerms(
         holderUserId: number,
-    ): Promise<LinkedUserUserPermRow[]> {
-        const cacheKey = this.#u2uCacheKey(holderUserId);
+    ): Promise<LinkedUserUserPermRow[] | typeof U2U_TOO_MANY | null> {
         try {
-            const raw = await this.clients.redis.get(cacheKey);
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed)) return parsed;
-            }
+            const raw = await this.clients.redis.get(
+                this.#u2uCacheKey(holderUserId),
+            );
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) || parsed === U2U_TOO_MANY) return parsed;
         } catch {
             // Fall through to DB.
         }
+        return null;
+    }
 
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `user_to_user_permissions` WHERE `holder_user_id` = ?',
-            [holderUserId],
+    /** The holder's whole row set, or the marker once it is too big to cache. */
+    async #loadUserUserPerms(
+        holderUserId: number,
+        read: DbRead,
+    ): Promise<LinkedUserUserPermRow[] | typeof U2U_TOO_MANY> {
+        const rows = await read(
+            'SELECT * FROM `user_to_user_permissions` WHERE `holder_user_id` = ? LIMIT ?',
+            [holderUserId, U2U_CACHE_MAX_ROWS + 1],
         );
-        const decoded = rows.map((row) =>
-            this.#decodeExtra<LinkedUserUserPermRow>(row),
-        );
-
+        const value =
+            rows.length > U2U_CACHE_MAX_ROWS
+                ? U2U_TOO_MANY
+                : rows.map((row) =>
+                      this.#decodeExtra<LinkedUserUserPermRow>(row),
+                  );
         this.clients.redis
-            .set(cacheKey, JSON.stringify(decoded), 'EX', U2U_CACHE_TTL_SECONDS)
+            .set(
+                this.#u2uCacheKey(holderUserId),
+                JSON.stringify(value),
+                'EX',
+                U2U_CACHE_TTL_SECONDS,
+            )
             .catch(() => {});
-        return decoded;
+        return value;
+    }
+
+    /**
+     * The rows naming exactly one of `permissions`. Exact in JS too: MySQL
+     * compares `permission` case-insensitively.
+     */
+    async #pickUserUserPerms(
+        holderUserId: number,
+        rows: LinkedUserUserPermRow[] | typeof U2U_TOO_MANY,
+        permissions: string[],
+        read: DbRead,
+    ): Promise<LinkedUserUserPermRow[]> {
+        const wanted = new Set(permissions);
+        const candidates =
+            rows === U2U_TOO_MANY
+                ? await this.#selectUserUserPermsIn(
+                      read,
+                      [holderUserId],
+                      [...wanted],
+                  )
+                : rows;
+        return candidates.filter((row) => wanted.has(row.permission));
+    }
+
+    /** Chunked to stay under the dialects' placeholder limits. */
+    async #selectUserUserPermsIn(
+        read: DbRead,
+        holders: number[],
+        perms: string[],
+    ): Promise<LinkedUserUserPermRow[]> {
+        const rows: LinkedUserUserPermRow[] = [];
+        for (let h = 0; h < holders.length; h += 200) {
+            const holderChunk = holders.slice(h, h + 200);
+            for (let p = 0; p < perms.length; p += 700) {
+                const permChunk = perms.slice(p, p + 700);
+                const found = await read(
+                    'SELECT * FROM `user_to_user_permissions` WHERE ' +
+                        `\`holder_user_id\` IN (${holderChunk.map(() => '?').join(', ')}) ` +
+                        `AND \`permission\` IN (${permChunk.map(() => '?').join(', ')})`,
+                    [...holderChunk, ...permChunk],
+                );
+                for (const row of found) {
+                    rows.push(this.#decodeExtra<LinkedUserUserPermRow>(row));
+                }
+            }
+        }
+        return rows;
     }
 
     async #readAllUserAppPerms(
