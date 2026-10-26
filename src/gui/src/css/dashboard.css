@@ -9217,9 +9217,8 @@ body.dashboard-mode .notifications-close-all {
    ====================================== */
 
 /* Bottom-right, out of the way of the toasts at the top, and high enough to
-   leave the Files footer readable. Above every window like the toasts (app
-   windows stack in the 99999999+ band, see window_zindex_base in
-   UIWindow.js), one step under them and the context menus. */
+   leave the Files footer readable. Mounted in .dashboard: over the Files
+   content, under the mobile drawer's scrim (98) and everything above it. */
 .dashboard-transfers {
     position: fixed;
     right: calc(16px + env(safe-area-inset-right, 0px));
@@ -9233,7 +9232,7 @@ body.dashboard-mode .notifications-close-all {
     border-radius: 14px;
     box-shadow: 0 12px 40px var(--dashboard-shadow-medium);
     overflow: hidden;
-    z-index: 999999998;
+    z-index: 97;
     opacity: 0;
     transform: translateY(12px);
     transition: opacity 200ms ease, transform 200ms ease;

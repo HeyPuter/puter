@@ -77,7 +77,7 @@ function setCollapsed (value) {
 }
 
 function mountTray () {
-    if ( $tray ) return $tray;
+    if ( $tray?.get(0).isConnected ) return $tray;
     const id = `dashboard-transfers-${window.uuidv4?.() ?? Date.now()}`;
     let h = `<section class="dashboard-transfers" aria-labelledby="${id}-summary">`;
     h += '<div class="dashboard-transfers-header">';
@@ -88,7 +88,9 @@ function mountTray () {
     h += `<ul class="dashboard-transfers-list" id="${id}-list"></ul>`;
     h += '</section>';
 
-    $tray = $(h).appendTo('body');
+    // Inside the dashboard, so its drawer, sheets and dialogs stack above the tray.
+    const $dashboard = $('.window-dashboard .dashboard').first();
+    $tray = $(h).appendTo($dashboard.length ? $dashboard : 'body');
     setCollapsed(collapsed);
     requestAnimationFrame(() => $tray?.addClass('dashboard-transfers-show'));
 

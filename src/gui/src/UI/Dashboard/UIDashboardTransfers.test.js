@@ -65,6 +65,20 @@ describe('UIDashboardTransfer', () => {
         expect($bar.attr('aria-valuenow')).toBeUndefined();
     });
 
+    it('mounts inside the dashboard, under its drawer and dialogs', () => {
+        $('<div class="window window-dashboard"><div class="dashboard"></div></div>').appendTo('body');
+        UIDashboardTransfer({ title: 'Copying' });
+        expect($('.window-dashboard .dashboard > .dashboard-transfers')).toHaveLength(1);
+    });
+
+    it('mounts a new tray when the old one was taken out of the page', () => {
+        UIDashboardTransfer({ title: 'Copying' });
+        $('.dashboard-transfers').detach();
+        UIDashboardTransfer({ title: 'Moving' });
+        expect($('.dashboard-transfers')).toHaveLength(1);
+        expect($('.dashboard-transfer-title').text()).toBe('Moving');
+    });
+
     it('does not take focus', () => {
         const $input = $('<input>').appendTo('body');
         $input.get(0).focus();
