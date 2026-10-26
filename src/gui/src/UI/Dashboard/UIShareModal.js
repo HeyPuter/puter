@@ -535,8 +535,10 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     $(document).on(`keydown.share-modal-${modal_id}`, function (e) {
         // A gate or upgrade window opened over the modal takes its own Escape.
         if ( e.key !== 'Escape' || ! isOverlayOnTop($overlay[0]) ) return;
-        // An open revoke confirmation swallows the first Escape.
+        // An open revoke confirmation swallows the first Escape. Once Remove
+        // is under way it can't be taken back, and the row must not look it.
         const $confirm = $list.find('.share-modal-row-confirm');
+        if ( $confirm.find('button:disabled').length ) return;
         if ( $confirm.length ) {
             const key = $confirm.attr('data-key');
             render(last_groups);

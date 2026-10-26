@@ -107,3 +107,24 @@ describe('UIShareModal extending a grant', () => {
         expect(puter.fs.share).toHaveBeenCalledWith({ paths: ['/alice/b.txt'], recipient: 'bob', mode: 'read' });
     });
 });
+
+describe('UIShareModal removing access', () => {
+    it("doesn't look cancelled by an Escape while the removal is under way", async () => {
+        puter.fs.getShares = vi.fn(async () => [{ holder: 'bob', mode: 'read', issuer: 'alice' }]);
+        let finish;
+        puter.fs.unshare = vi.fn(() => new Promise((resolve) => {
+            finish = resolve;
+        }));
+        UIShareModal({ path: '/alice/a.txt' });
+        await settle();
+
+        $('.share-modal-revoke').trigger('click');
+        $('.share-modal-confirm-remove').trigger('click');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+        expect($('.share-modal-row-confirm').length).toBe(1);
+        expect($('.share-modal-overlay').length).toBe(1);
+        finish();
+        await settle();
+    });
+});
