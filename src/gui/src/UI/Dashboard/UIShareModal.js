@@ -200,6 +200,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                                 <option value="restricted">${i18n('share_link_restricted')}</option>
                                 <option value="anyone">${i18n('share_link_anyone')}</option>
                                 <option value="mixed" disabled hidden>${i18n('share_access_mixed')}</option>
+                                <option value="unchecked" disabled hidden>${i18n('share_link_unchecked')}</option>
                             </select>
                             <select class="share-modal-link-mode" aria-label="${i18n('share_access_level')}" hidden>${options_for('read', { allow_manage: false })}</select>
                         </div>
@@ -230,8 +231,11 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
     const $link_note = $overlay.find('.share-modal-general-note');
     const $copy_link = $overlay.find('.share-modal-copy-link');
 
-    /** Where the selection stands on "anyone with the link", as last listed. */
-    let link_state = { access: 'restricted', mode: null };
+    /**
+     * Where the selection stands on "anyone with the link", as last listed.
+     * A selection too large to list (see refresh) is unchecked until set here.
+     */
+    let link_state = { access: total > MAX_ITEMS_PER_REQUEST ? 'unchecked' : 'restricted', mode: null };
     /** The one item's uid, which its link is built on. Single item only. */
     let single_uid = is_multi ? null : (targets[0].fsentry?.uid ?? null);
 
@@ -447,6 +451,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             last_groups = [];
             $list.attr('aria-busy', 'false')
                 .html(`<p class="share-modal-empty">${i18n('share_access_list_too_many', { total })}</p>`);
+            render_link_access();
             return;
         }
 
@@ -497,7 +502,9 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         // `null` rests the mode on the "Mixed" placeholder, as the rows do.
         if ( access === 'anyone' ) $link_mode.html(options_for(mode, { allow_manage: false }));
         let note;
-        if ( access === 'mixed' ) {
+        if ( access === 'unchecked' ) {
+            note = i18n('share_link_unchecked_note', { total });
+        } else if ( access === 'mixed' ) {
             note = i18n('share_link_mixed_note');
         } else if ( access === 'anyone' ) {
             note = i18n(`share_link_anyone_note_${mode === 'write' ? 'write' : 'read'}${is_multi ? '_items' : ''}`);
@@ -655,7 +662,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
 
     $overlay.on('change', '.share-modal-link-access', function () {
         const value = $(this).val();
-        if ( value === 'mixed' ) return;
+        if ( value === 'mixed' || value === 'unchecked' ) return;
         // Opening up starts at view. The mode control is hidden unless every
         // item is already open, so its value may be left over from before.
         set_link_access(value === 'anyone' ? 'read' : null, this);

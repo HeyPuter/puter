@@ -610,6 +610,9 @@ const en = {
         share_link_anyone_note_write_items:
             'Anyone signed in to Puter who has a link to one of these items can view and edit it.',
         share_link_mixed_note: 'Some of these items are open to anyone with the link and some are not.',
+        share_link_unchecked: 'Not checked',
+        share_link_unchecked_note:
+            'Whether this many items are open to anyone with the link isn’t checked. A choice here applies to all {{total}}.',
         share_link_on_read: 'Anyone with the link can now view this item',
         share_link_on_write: 'Anyone with the link can now edit this item',
         share_link_on_read_items: 'Anyone with the link can now view these items',
