@@ -1109,6 +1109,27 @@ describe('TabFiles uploads', () => {
         expect($('.files .row.selected')).toHaveLength(2);
     });
 
+    it('that fail or are cancelled leave no rejection unhandled', async () => {
+        mountListing(['a.txt'], '/alice/Documents');
+        // Not a vi.fn(), which handles the promises it returns.
+        let uploads = 0;
+        window.puter.fs.upload = async (items, dest, callbacks) => {
+            uploads++;
+            await callbacks.init('op1', { abort: vi.fn() });
+            await callbacks.abort('op1');
+            throw { code: 'upload_aborted', message: 'Upload aborted.' };
+        };
+        const unhandled = vi.fn();
+        process.on('unhandledRejection', unhandled);
+
+        TabFiles.uploadFiles([new File(['x'], 'new.txt')], '/alice/Documents');
+        await new Promise(resolve => setTimeout(resolve, 50));
+        process.off('unhandledRejection', unhandled);
+
+        expect(uploads).toBe(1);
+        expect(unhandled).not.toHaveBeenCalled();
+    });
+
     it('into the folder on screen list it again', async () => {
         mountListing(['a.txt'], '/alice/Documents');
 

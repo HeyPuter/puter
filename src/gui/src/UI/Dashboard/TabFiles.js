@@ -5764,6 +5764,8 @@ const TabFiles = {
             abort: async function (_operation_id) {
                 delete window.active_uploads[opid];
             },
+        }).catch(() => {
+            // A failure is reported by the error callback above; a cancel needs no word.
         });
     },
 
