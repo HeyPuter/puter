@@ -37,8 +37,9 @@ export const PUBLISH_NAME_RULES = {
 };
 
 /**
- * What a typed name becomes as the user types: lowercase, with separator
- * runs turned into a hyphen and anything else the rule refuses dropped.
+ * What a typed name becomes as the user types: lowercase, accents taken off
+ * their letters, separator runs turned into a hyphen, and anything else the
+ * rule refuses dropped.
  *
  * @param {string} value
  * @param {PublishNameRule} rule
@@ -46,6 +47,8 @@ export const PUBLISH_NAME_RULES = {
  */
 export const normalizePublishName = (value, rule) => String(value ?? '')
     .toLowerCase()
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
     .replace(rule.separators, '-')
     .replace(rule.invalid, '');
 
