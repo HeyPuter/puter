@@ -29,7 +29,7 @@ import {
 import { appIconAttrs } from '../../helpers/appIcon.js';
 import { getPushClient, PUSH_CLIENT_REGISTERED_EVENT } from '../../helpers/pushClient.js';
 import { formatBrowserOs, parseUserAgent } from '../../helpers/userAgent.js';
-import { formatAbsoluteTime, formatRelativeTime } from './notificationCenter.js';
+import { formatAbsoluteTime, formatRelativeTime } from '../../i18n/formatTime.js';
 import UIDashboardDialog from './UIDashboardDialog.js';
 
 const SECTION = '.dashboard-section-notifications';
