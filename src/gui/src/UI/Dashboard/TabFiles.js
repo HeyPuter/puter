@@ -4386,9 +4386,10 @@ const TabFiles = {
         // then overwrite without asking again.
         let overwrite_all = false;
 
-        for ( const item of window.clipboard ) {
-            // Handle both object format { path, uid } and legacy string format
-            const source = item.uid || item.path || item;
+        for ( const entry of window.clipboard ) {
+            // A row menu's Cut puts the bare path here; the rest put { path, uid }.
+            const item = typeof entry === 'string' ? { path: entry } : entry;
+            const source = item.uid || item.path;
             let overwrite = overwrite_all;
             let keep_both = false;
             let retry;

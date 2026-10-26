@@ -435,6 +435,16 @@ describe('TabFiles.moveClipboardItems', () => {
             options: expect.objectContaining({ uid: 'a1', path: '/alice/Pictures/a.txt' }),
         })]);
     });
+
+    it("is what Undo takes back after a row menu's Cut too", async () => {
+        window.clipboard = ['/alice/Documents/a.txt'];
+        await TabFiles.moveClipboardItems('/alice/Pictures');
+
+        expect(window.puter.fs.move).toHaveBeenCalledWith(expect.objectContaining({ source: '/alice/Documents/a.txt' }));
+        const last = window.actions_history.at(-1);
+        expect(last.operation).toBe('move');
+        expect(last.data).toEqual([expect.objectContaining({ original_path: '/alice/Documents/a.txt' })]);
+    });
 });
 
 describe('TabFiles refreshing a folder during a refresh of it', () => {
