@@ -82,7 +82,10 @@ function readPushPayload (pushData) {
     } catch ( _e ) {
         return null;
     }
-    let message = payload && typeof payload === 'object' ? payload.puter : null;
+    // Providers that only carry string data deliver it under `data`.
+    let message = payload && typeof payload === 'object'
+        ? (payload.puter ?? payload.data?.puter)
+        : null;
     if ( typeof message === 'string' ) {
         try {
             message = JSON.parse(message);

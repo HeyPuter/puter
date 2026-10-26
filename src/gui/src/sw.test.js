@@ -90,6 +90,13 @@ describe('service worker helpers', () => {
         expect(context.readPushPayload(pushData({ puter: JSON.stringify(message) }))).toEqual(message);
     });
 
+    it('reads the message from string data under `data.puter`', () => {
+        const message = { uid: 'n2', title: 'Hello' };
+        const payload = { data: { puter: JSON.stringify(message) }, from: '123', messageId: 'm1' };
+        expect(context.readPushPayload(pushData(payload))).toEqual(message);
+        expect(context.readPushPayload(pushData({ data: { other: 'x' } }))).toBeNull();
+    });
+
     it('reads nothing from a missing, garbled or misplaced payload', () => {
         expect(context.readPushPayload(null)).toBeNull();
         expect(context.readPushPayload({ json: () => { throw new SyntaxError('bad'); } })).toBeNull();
