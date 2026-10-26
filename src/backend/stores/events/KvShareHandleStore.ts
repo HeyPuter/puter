@@ -19,6 +19,7 @@
 
 import {
     KV_SHARE_ACCESS_LEVELS,
+    kvHandleIdKind,
     kvShareRoot,
     mintKvHandleId,
     type KvShareAccess,
@@ -101,6 +102,15 @@ export interface KvShareHandleListOptions {
     appUid?: string | null;
 }
 
+/** Which of an owner's handles a listing returns. */
+export const KV_SHARE_OWNER_LIST_STATES = ['live', 'revoked', 'all'] as const;
+export type KvShareOwnerListState = (typeof KV_SHARE_OWNER_LIST_STATES)[number];
+
+export interface KvShareOwnerListOptions extends KvShareHandleListOptions {
+    /** Defaults to `all`. */
+    state?: KvShareOwnerListState;
+}
+
 export interface MintKvShareHandleInput {
     ownerUserId: number;
     granteeUserId: number;
@@ -120,7 +130,11 @@ export interface FindLiveKvShareHandleInput {
 /** Handle cache bounds: live rows, and recently missed names. */
 const LIVE_CACHE_TTL_MS = 60_000;
 const MISS_CACHE_TTL_MS = 5_000;
-const LIVE_CACHE_MAX_ENTRIES = 10_000;
+const LIVE_CACHE_MAX_ENTRIES = 50_000;
+const MISS_CACHE_MAX_ENTRIES = 10_000;
+
+/** Handles one cross-node forget carries. */
+const FORGET_BATCH = 500;
 
 /** Rows one app-deletion retire pass takes. */
 export const KV_HANDLE_RETIRE_BATCH = 500;
@@ -179,13 +193,13 @@ export class KvShareHandleStore extends PuterStore {
         ttlMs: LIVE_CACHE_TTL_MS,
     });
     readonly #missing = new BoundedTtlMap<string, true>({
-        maxEntries: LIVE_CACHE_MAX_ENTRIES,
+        maxEntries: MISS_CACHE_MAX_ENTRIES,
         ttlMs: MISS_CACHE_TTL_MS,
     });
 
     async mint(input: MintKvShareHandleInput): Promise<KvShareHandle> {
         const row: KvShareHandle = {
-            handle: mintKvHandleId(),
+            handle: mintKvHandleId(this.config.jwt_secret_v2),
             ownerUserId: input.ownerUserId,
             granteeUserId: input.granteeUserId,
             appUid: input.appUid,
@@ -218,12 +232,67 @@ export class KvShareHandleStore extends PuterStore {
         return row;
     }
 
+    override onServerStart(): void {
+        // Our own emit already forgot locally before it went out.
+        this.clients.event.on(
+            'outer.pubsub.kv.share.forget',
+            (_key, data, meta) => {
+                if (!(meta as { from_outside?: boolean })?.from_outside) return;
+                const handles = (data as { handles?: unknown })?.handles;
+                if (!Array.isArray(handles)) return;
+                for (const handle of handles)
+                    if (typeof handle === 'string') this.#forget(handle);
+            },
+        );
+
+        // Cached rows carry their owner's suspension, so a change to it drops
+        // them here and on every other node.
+        const ownerChanged = (_key: string, data: { userId?: unknown }) => {
+            const ownerUserId = Number(data?.userId);
+            if (!Number.isInteger(ownerUserId) || ownerUserId <= 0) return;
+            this.#forgetOwner(ownerUserId);
+            try {
+                this.clients.event.emit(
+                    'outer.pubsub.kv.share.forgetOwner',
+                    { ownerUserId },
+                    {},
+                );
+            } catch {
+                // The cache's TTL covers a node the broadcast misses.
+            }
+        };
+        this.clients.event.on('user.suspended', ownerChanged);
+        this.clients.event.on('user.unsuspended', ownerChanged);
+        this.clients.event.on(
+            'outer.pubsub.kv.share.forgetOwner',
+            (_key, data, meta) => {
+                if (!(meta as { from_outside?: boolean })?.from_outside) return;
+                const ownerUserId = Number(
+                    (data as { ownerUserId?: unknown })?.ownerUserId,
+                );
+                if (Number.isInteger(ownerUserId) && ownerUserId > 0)
+                    this.#forgetOwner(ownerUserId);
+            },
+        );
+    }
+
+    /** Drop this node's cached live rows owned by one user. */
+    #forgetOwner(ownerUserId: number): void {
+        this.#live.deleteWhere(({ row }) => row.ownerUserId === ownerUserId);
+    }
+
     /**
      * A live handle and its owner's state, cached in-process (hits up to 60 s,
      * misses 5 s). Authority is the grant, checked on every call, so a stale
      * row only keeps an address alive a little longer, never widens it.
+     *
+     * A forged id is refused without a read. Only a signed id falls back to the
+     * primary on a replica miss: that is for read-after-mint, and legacy ids
+     * are no longer minted.
      */
     async getLive(handle: string): Promise<LiveKvShareHandle | null> {
+        const kind = kvHandleIdKind(handle, this.config.jwt_secret_v2);
+        if (kind === null) return null;
         const cached = this.#live.get(handle);
         if (cached) return cached;
         if (this.#missing.has(handle)) return null;
@@ -236,7 +305,7 @@ export class KvShareHandleStore extends PuterStore {
             `FROM \`${TABLE}\` h JOIN \`user\` u ON u.\`id\` = h.\`owner_user_id\` ` +
             'WHERE h.`handle` = ?';
         let rows = await this.clients.db.read(query, [handle]);
-        if (rows.length === 0)
+        if (rows.length === 0 && kind === 'signed')
             rows = await this.clients.db.pread(query, [handle]);
 
         const found = rows[0];
@@ -254,15 +323,31 @@ export class KvShareHandleStore extends PuterStore {
         return live;
     }
 
-    /** Drops this node's cached copy; other nodes converge within the TTL. */
     #forget(handle: string): void {
         this.#live.delete(handle);
         this.#missing.delete(handle);
     }
 
+    /** Drops the cached copies on this node and every other one. */
+    #forgetEverywhere(handles: readonly string[]): void {
+        for (const handle of handles) this.#forget(handle);
+        for (let at = 0; at < handles.length; at += FORGET_BATCH) {
+            try {
+                this.clients.event.emit(
+                    'outer.pubsub.kv.share.forget',
+                    { handles: handles.slice(at, at + FORGET_BATCH) },
+                    {},
+                );
+            } catch {
+                // The cache's TTL covers a node the broadcast misses.
+            }
+        }
+    }
+
     /**
      * Live handles this owner is holding out — in total, and in the namespace a
-     * mint is naming. Both ceilings read off one count, over the owner index.
+     * mint is naming. Both ceilings read off one count, covered by the
+     * `(owner_user_id, revoked_at, app_uid)` index.
      */
     async countLiveForOwner(
         ownerUserId: number,
@@ -279,6 +364,43 @@ export class KvShareHandleStore extends PuterStore {
             total: Number(row?.total ?? 0),
             forApp: Number(row?.for_app ?? 0),
         };
+    }
+
+    /** Live handles this owner holds out to one holder, over the pair index. */
+    async countLiveForOwnerAndGrantee(
+        ownerUserId: number,
+        granteeUserId: number,
+    ): Promise<number> {
+        const [row] = await this.clients.db.pread(
+            `SELECT COUNT(*) AS \`total\` FROM \`${TABLE}\` ` +
+                'WHERE `owner_user_id` = ? AND `grantee_user_id` = ? ' +
+                'AND `revoked_at` IS NULL',
+            [ownerUserId, granteeUserId],
+        );
+        return Number(row?.total ?? 0);
+    }
+
+    /**
+     * Delete up to `limit` rows retired before `cutoff` (unix seconds) and
+     * report how many went. Ids first, then a delete by id, since not every
+     * engine takes `LIMIT` on a delete or in an `IN` subquery.
+     */
+    async deleteRevokedBefore(cutoff: number, limit: number): Promise<number> {
+        const rows = await this.clients.db.pread(
+            `SELECT \`id\` FROM \`${TABLE}\` ` +
+                'WHERE `revoked_at` IS NOT NULL AND `revoked_at` < ? ' +
+                'ORDER BY `revoked_at` LIMIT ?',
+            [cutoff, limit],
+        );
+        if (rows.length === 0) return 0;
+        const ids = rows.map((row) => Number(row.id));
+        const result = await this.clients.db.write(
+            `DELETE FROM \`${TABLE}\` ` +
+                `WHERE \`id\` IN (${ids.map(() => '?').join(', ')}) ` +
+                'AND `revoked_at` IS NOT NULL AND `revoked_at` < ?',
+            [...ids, cutoff],
+        );
+        return result.affectedRows;
     }
 
     /**
@@ -339,7 +461,7 @@ export class KvShareHandleStore extends PuterStore {
     /**
      * Every live handle this owner holds out to one grantee, across every
      * region — what a revoke or an unshare walks to find the narrower handles
-     * that go with a wider one. Bounded by the per-account handle cap.
+     * that go with a wider one. Bounded by the per-holder handle cap.
      */
     async listLiveForOwnerAndGrantee(
         ownerUserId: number,
@@ -359,6 +481,8 @@ export class KvShareHandleStore extends PuterStore {
      * as absent, or a revoked one as live.
      */
     async getByHandle(handle: string): Promise<KvShareHandle | null> {
+        if (kvHandleIdKind(handle, this.config.jwt_secret_v2) === null)
+            return null;
         const rows = await this.clients.db.pread(
             `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` WHERE \`handle\` = ?`,
             [handle],
@@ -425,7 +549,7 @@ export class KvShareHandleStore extends PuterStore {
                 `WHERE ${where.join(' AND ')}`,
             params,
         );
-        for (const handle of unique) this.#forget(handle);
+        this.#forgetEverywhere(unique);
     }
 
     /**
@@ -444,6 +568,25 @@ export class KvShareHandleStore extends PuterStore {
                 `WHERE \`app_uid\` IN (${unique.map(() => '?').join(', ')}) ` +
                 'AND `revoked_at` IS NULL ORDER BY `id` LIMIT ?',
             [...unique, limit],
+        );
+        return rows.map(toRow);
+    }
+
+    /**
+     * One batch of live handles one owner holds out in one app's namespace,
+     * oldest first, over the `(owner_user_id, app_uid, id)` index. The caller
+     * repeats until a batch comes back short.
+     */
+    async listLiveForOwnerApp(
+        ownerUserId: number,
+        appUid: string,
+        limit = KV_HANDLE_RETIRE_BATCH,
+    ): Promise<KvShareHandle[]> {
+        const rows = await this.clients.db.pread(
+            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                'WHERE `owner_user_id` = ? AND `app_uid` = ? ' +
+                'AND `revoked_at` IS NULL ORDER BY `id` LIMIT ?',
+            [ownerUserId, appUid, limit],
         );
         return rows.map(toRow);
     }
@@ -479,7 +622,7 @@ export class KvShareHandleStore extends PuterStore {
                 [...params, handle, ownerUserId],
             );
         }
-        this.#forget(handle);
+        this.#forgetEverywhere([handle]);
         const row = await this.getByHandle(handle);
         return row && row.ownerUserId === ownerUserId ? row : null;
     }
@@ -547,7 +690,7 @@ export class KvShareHandleStore extends PuterStore {
      */
     async listForOwner(
         ownerUserId: number,
-        options: KvShareHandleListOptions = {},
+        options: KvShareOwnerListOptions = {},
     ): Promise<PageResult<KvShareHandle>> {
         const limit = clampLimit(options.limit);
         const after = openIdCursor(options.cursor, this.config.jwt_secret_v2);
@@ -558,6 +701,9 @@ export class KvShareHandleStore extends PuterStore {
             filter.push('`app_uid` = ?');
             filterParams.push(options.appUid);
         }
+        if (options.state === 'live') filter.push('`revoked_at` IS NULL');
+        if (options.state === 'revoked')
+            filter.push('`revoked_at` IS NOT NULL');
 
         const where = [...filter];
         const params = [...filterParams];

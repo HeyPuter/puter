@@ -39,13 +39,15 @@ export const assertUsernameRecipient = (recipient) => {
 
 /**
  * The query a share listing sends. The server reads `includeTotal` only as the
- * string `'true'`.
+ * string `'true'`, and the app-less store's `appUid` as the string `'null'`.
  *
- * @param {import('../types.js').KVShareListOptions} [options]
+ * @param {import('../types.js').KVSharedByMeListOptions} [options]
  * @returns {Record<string, unknown>}
  */
 export const shareListQuery = (options = {}) => ({
     limit: options.limit,
     cursor: options.cursor,
     includeTotal: options.includeTotal === true ? 'true' : undefined,
+    appUid: options.appUid === null ? 'null' : options.appUid,
+    state: options.state,
 });

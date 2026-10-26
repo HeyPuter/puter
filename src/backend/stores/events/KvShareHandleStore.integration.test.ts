@@ -18,14 +18,11 @@
  */
 
 /**
- * The store's own guard against a row wider than the column that holds it.
- *
- * `KvShareService.mintKvHandle` already bounds `keyPrefix` and `permission`
- * well under these widths before the store ever sees them, so reaching the
- * guard here means calling the store directly.
+ * The store against a real database: column-width guards, listings, quota
+ * counts and retention.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
@@ -257,5 +254,335 @@ describe('the holder listing', () => {
                 createdAt: row.createdAt,
             },
         ]);
+    });
+});
+
+describe('live handles by owner and app', () => {
+    it('lists only the owner\'s live handles in that app, oldest first', async () => {
+        const appUid = 'app-owner-listing';
+        const first = await store().mint(
+            input({ appUid, keyPrefix: 'owned-a:' }),
+        );
+        const second = await store().mint(
+            input({ appUid, keyPrefix: 'owned-b:' }),
+        );
+        const retired = await store().mint(
+            input({ appUid, keyPrefix: 'owned-c:' }),
+        );
+        await store().retireMany([retired.handle], 'owner');
+        await store().mint(
+            input({ appUid: 'app-owner-listing-other', keyPrefix: 'x:' }),
+        );
+        const theirs = await store().mint(
+            input({
+                appUid,
+                keyPrefix: 'theirs:',
+                ownerUserId: granteeUserId,
+                granteeUserId: ownerUserId,
+            }),
+        );
+
+        const rows = await store().listLiveForOwnerApp(ownerUserId, appUid);
+        expect(rows.map((row) => row.handle)).toEqual([
+            first.handle,
+            second.handle,
+        ]);
+        expect(
+            await store().listLiveForOwnerApp(ownerUserId, appUid, 1),
+        ).toHaveLength(1);
+        // Other tests count the other account's live handles from zero.
+        await store().retireMany([theirs.handle], 'owner');
+    });
+});
+
+describe('the live cache across nodes', () => {
+    const handleReads = (spy: ReturnType<typeof vi.spyOn>) =>
+        spy.mock.calls.filter(([sql]) =>
+            String(sql).includes('kv_share_handles'),
+        ).length;
+
+    it('tells other nodes to forget a handle it retires or changes', async () => {
+        const first = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-a:' }),
+        );
+        const second = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-b:' }),
+        );
+        const emit = vi.spyOn(env.server.clients.event, 'emit');
+        try {
+            await store().update(first.handle, ownerUserId, { label: 'x' });
+            await store().retireMany([first.handle, second.handle], 'owner');
+            const forgets = emit.mock.calls
+                .filter(([key]) => key === 'outer.pubsub.kv.share.forget')
+                .map(([, data]) => data);
+            expect(forgets).toEqual([
+                { handles: [first.handle] },
+                { handles: [first.handle, second.handle] },
+            ]);
+        } finally {
+            emit.mockRestore();
+        }
+    });
+
+    it('drops its cached row when another node says to', async () => {
+        const row = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-c:' }),
+        );
+        expect(await store().getLive(row.handle)).not.toBeNull();
+        // Retired behind this node's back, as another node would.
+        await env.server.clients.db.write(
+            'UPDATE `kv_share_handles` SET `revoked_at` = 1 WHERE `handle` = ?',
+            [row.handle],
+        );
+        expect(await store().getLive(row.handle)).not.toBeNull();
+
+        // A local emit is ignored: the sender already forgot.
+        env.server.clients.event.emit(
+            'outer.pubsub.kv.share.forget',
+            { handles: [row.handle] },
+            {},
+        );
+        expect(await store().getLive(row.handle)).not.toBeNull();
+
+        env.server.clients.event.emit(
+            'outer.pubsub.kv.share.forget',
+            { handles: [row.handle] },
+            { from_outside: true },
+        );
+        await vi.waitFor(async () =>
+            expect(await store().getLive(row.handle)).toBeNull(),
+        );
+    });
+
+    it('drops an owner\'s cached rows when the owner is suspended, here and on other nodes', async () => {
+        const row = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-owner:' }),
+        );
+        expect((await store().getLive(row.handle))?.ownerSuspended).toBe(
+            false,
+        );
+        const setSuspended = (value: number) =>
+            env.server.clients.db.write(
+                'UPDATE `user` SET `suspended` = ? WHERE `id` = ?',
+                [value, ownerUserId],
+            );
+        const emit = vi.spyOn(env.server.clients.event, 'emit');
+        try {
+            await setSuspended(1);
+            expect((await store().getLive(row.handle))?.ownerSuspended).toBe(
+                false,
+            );
+
+            env.server.clients.event.emit(
+                'user.suspended',
+                { userId: ownerUserId },
+                {},
+            );
+            expect((await store().getLive(row.handle))?.ownerSuspended).toBe(
+                true,
+            );
+            expect(
+                emit.mock.calls.filter(
+                    ([key]) => key === 'outer.pubsub.kv.share.forgetOwner',
+                ),
+            ).toEqual([
+                [
+                    'outer.pubsub.kv.share.forgetOwner',
+                    { ownerUserId },
+                    {},
+                ],
+            ]);
+
+            // Another node lifting the suspension reaches this one's cache.
+            await setSuspended(0);
+            env.server.clients.event.emit(
+                'outer.pubsub.kv.share.forgetOwner',
+                { ownerUserId },
+                { from_outside: true },
+            );
+            expect((await store().getLive(row.handle))?.ownerSuspended).toBe(
+                false,
+            );
+        } finally {
+            emit.mockRestore();
+            await setSuspended(0);
+        }
+    });
+
+    it('drops an owner\'s cached rows when the user store suspends or unsuspends them', async () => {
+        const row = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-store:' }),
+        );
+        expect((await store().getLive(row.handle))?.ownerSuspended).toBe(
+            false,
+        );
+        try {
+            await env.server.stores.user.update(ownerUserId, {
+                suspended: true,
+            });
+            await vi.waitFor(async () =>
+                expect(
+                    (await store().getLive(row.handle))?.ownerSuspended,
+                ).toBe(true),
+            );
+            await env.server.stores.user.update(ownerUserId, {
+                suspended: false,
+            });
+            await vi.waitFor(async () =>
+                expect(
+                    (await store().getLive(row.handle))?.ownerSuspended,
+                ).toBe(false),
+            );
+        } finally {
+            await env.server.stores.user.update(ownerUserId, {
+                suspended: false,
+            });
+        }
+    });
+
+    it('reads nothing for an id whose mac does not verify', async () => {
+        const row = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-d:' }),
+        );
+        const [id, mac] = row.handle.split('.');
+        const forged = `${id}.${mac[0] === 'A' ? 'B' : 'A'}${mac.slice(1)}`;
+        const read = vi.spyOn(env.server.clients.db, 'read');
+        const pread = vi.spyOn(env.server.clients.db, 'pread');
+        try {
+            expect(await store().getLive(forged)).toBeNull();
+            expect(await store().getByHandle(forged)).toBeNull();
+            expect(handleReads(read) + handleReads(pread)).toBe(0);
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+    });
+});
+
+describe('the owner listing by state', () => {
+    it('defaults to every handle, and narrows to live or revoked', async () => {
+        const appUid = 'app-listing-state';
+        const live = await store().mint(
+            input({ appUid, keyPrefix: 'state-live:' }),
+        );
+        const gone = await store().mint(
+            input({ appUid, keyPrefix: 'state-gone:' }),
+        );
+        await store().retireMany([gone.handle], 'owner');
+        const handlesIn = async (state?: 'live' | 'revoked' | 'all') =>
+            (
+                await store().listForOwner(ownerUserId, { appUid, state })
+            ).items.map((row) => row.handle);
+
+        expect(await handlesIn()).toEqual([live.handle, gone.handle]);
+        expect(await handlesIn('all')).toEqual([live.handle, gone.handle]);
+        expect(await handlesIn('live')).toEqual([live.handle]);
+        expect(await handlesIn('revoked')).toEqual([gone.handle]);
+        expect(
+            (
+                await store().listForOwner(ownerUserId, {
+                    appUid,
+                    state: 'live',
+                    includeTotal: true,
+                })
+            ).total,
+        ).toBe(1);
+    });
+});
+
+describe('quota counts', () => {
+    it('counts live handles per owner, per app and per holder, never retired ones', async () => {
+        const appUid = 'app-quota-counts';
+        const before = await store().countLiveForOwner(ownerUserId, appUid);
+        const pairBefore = await store().countLiveForOwnerAndGrantee(
+            ownerUserId,
+            granteeUserId,
+        );
+        await store().mint(input({ appUid, keyPrefix: 'count-a:' }));
+        await store().mint(
+            input({ appUid: 'app-quota-other', keyPrefix: 'count-b:' }),
+        );
+        const gone = await store().mint(
+            input({ appUid, keyPrefix: 'count-c:' }),
+        );
+        await store().retireMany([gone.handle], 'owner');
+
+        expect(await store().countLiveForOwner(ownerUserId, appUid)).toEqual({
+            total: before.total + 2,
+            forApp: before.forApp + 1,
+        });
+        expect(
+            await store().countLiveForOwnerAndGrantee(
+                ownerUserId,
+                granteeUserId,
+            ),
+        ).toBe(pairBefore + 2);
+        expect(
+            await store().countLiveForOwnerAndGrantee(
+                granteeUserId,
+                ownerUserId,
+            ),
+        ).toBe(0);
+    });
+});
+
+describe('retired handle retention', () => {
+    const DAY = 24 * 60 * 60;
+    const now = () => Math.floor(Date.now() / 1000);
+
+    const retiredAt = async (keyPrefix: string, at: number | null) => {
+        const row = await store().mint(
+            input({ appUid: 'app-retention', keyPrefix }),
+        );
+        if (at !== null)
+            await env.server.clients.db.write(
+                'UPDATE `kv_share_handles` SET `revoked_at` = ? WHERE `handle` = ?',
+                [at, row.handle],
+            );
+        return row.handle;
+    };
+
+    const exists = async (handle: string) =>
+        (await store().getByHandle(handle)) !== null;
+
+    it('deletes rows retired before the cutoff, a batch at a time', async () => {
+        const cutoff = now() - 30 * DAY;
+        // Rows other tests retired long ago go first.
+        await store().deleteRevokedBefore(cutoff, 1_000);
+        const old = [
+            await retiredAt('old-1:', cutoff - 10),
+            await retiredAt('old-2:', cutoff - 5),
+        ];
+        const recent = await retiredAt('recent:', cutoff + 5);
+        const live = await retiredAt('live:', null);
+
+        expect(await store().deleteRevokedBefore(cutoff, 1)).toBe(1);
+        // Oldest retirement first.
+        expect(await exists(old[0])).toBe(false);
+        expect(await exists(old[1])).toBe(true);
+        expect(await store().deleteRevokedBefore(cutoff, 10)).toBe(1);
+        expect(await store().deleteRevokedBefore(cutoff, 10)).toBe(0);
+
+        expect(await exists(old[1])).toBe(false);
+        expect(await exists(recent)).toBe(true);
+        expect(await exists(live)).toBe(true);
+    });
+
+    it('purges once per day across nodes, keeping live and recent rows', async () => {
+        const kvShare = env.server.services.kvShare;
+        await env.server.clients.redis.del('kvShare:purge:gate');
+        const old = await retiredAt('purge-old:', now() - 31 * DAY);
+        const recent = await retiredAt('purge-recent:', now() - 29 * DAY);
+        const live = await retiredAt('purge-live:', null);
+
+        expect(await kvShare.purgeRevokedHandles()).toBeGreaterThanOrEqual(1);
+        expect(await exists(old)).toBe(false);
+        expect(await exists(recent)).toBe(true);
+        expect(await exists(live)).toBe(true);
+
+        // Another node checking the same day finds the gate held.
+        const again = await retiredAt('purge-again:', now() - 31 * DAY);
+        expect(await kvShare.purgeRevokedHandles()).toBeNull();
+        expect(await exists(again)).toBe(true);
     });
 });
