@@ -54,12 +54,12 @@ const INSTALLED_APPS_ORDER_COLUMNS = {
     title: 'apps.title',
     installed_at: 'installed_at',
 } as const;
-export interface GrantedAppRow {
+export type GrantedAppRow = {
     uid: string;
     name: string;
     title: string;
     icon?: unknown;
-}
+};
 
 export type InstalledAppsOrder = keyof typeof INSTALLED_APPS_ORDER_COLUMNS;
 export const INSTALLED_APPS_ORDERS = Object.keys(
