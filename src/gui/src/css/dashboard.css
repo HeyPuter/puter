@@ -4940,6 +4940,25 @@ body.myapps-reordering .myapps-tile {
     color: var(--dashboard-text-tertiary);
 }
 
+/* On a touch screen the '⋯' is a 20x23 target beside a row whose tap opens
+   the item, so a near miss opened the item instead of the menu. It takes the
+   row's height and a finger's width. (Two-row rows get a 44px square below.) */
+@media (pointer: coarse) {
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-more {
+        position: relative;
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-more::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 32px;
+        transform: translate(-50%, -50%);
+    }
+}
+
 .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-size,
 .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-modified {
     color: inherit;
