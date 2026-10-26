@@ -2732,7 +2732,9 @@ export class SystemKVStore extends PuterStore {
         let pageKey: Record<string, unknown> | undefined;
         try {
             do {
-                const page = await this.#deletePage(namespace, pageKey);
+                const page = await this.#deletePage(namespace, pageKey, {
+                    consistent: false,
+                });
                 usage = addUsage(usage, page.usage);
                 pageKey = page.pageKey;
             } while (pageKey);
@@ -2765,11 +2767,10 @@ export class SystemKVStore extends PuterStore {
         let deleted = 0;
         let pageKey: Record<string, unknown> | undefined;
         while (deleted < maxItems) {
-            const page = await this.#deletePage(
-                namespace,
-                pageKey,
-                Math.min(maxItems - deleted, PURGE_PAGE_ITEMS),
-            );
+            const page = await this.#deletePage(namespace, pageKey, {
+                limit: Math.min(maxItems - deleted, PURGE_PAGE_ITEMS),
+                consistent: true,
+            });
             deleted += page.deleted;
             pageKey = page.pageKey;
             if (!pageKey) return { deleted, done: true };
@@ -2779,13 +2780,14 @@ export class SystemKVStore extends PuterStore {
 
     /**
      * One page of `namespace` deleted, starting after `pageKey`. Reads only the
-     * keys; `pageKey` comes back while more items may remain. Strongly
-     * consistent, so a stale empty page can't end a purge early.
+     * keys; `pageKey` comes back while more items may remain. A purge reads
+     * strongly consistent, so a stale empty page can't end it early; a flush
+     * keeps the eventually consistent read its usage is billed on.
      */
     async #deletePage(
         namespace: string,
-        pageKey?: Record<string, unknown>,
-        limit = 0,
+        pageKey: Record<string, unknown> | undefined,
+        { limit = 0, consistent }: { limit?: number; consistent: boolean },
     ): Promise<{
         deleted: number;
         usage: KVUsage;
@@ -2797,7 +2799,7 @@ export class SystemKVStore extends PuterStore {
             limit,
             pageKey,
             '',
-            true,
+            consistent,
             { projection: ['namespace', 'key'] },
         );
         let usage = readUsage(

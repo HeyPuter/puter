@@ -789,6 +789,18 @@ describe('SystemKVStore', () => {
                 batchDel.mockRestore();
             }
         });
+
+        it('reads its pages eventually consistent, as it is billed', async () => {
+            await target.set({ key: 'f1', value: 1 }, opts);
+            const query = vi.spyOn(server.clients.dynamo, 'query');
+            try {
+                await target.flush(opts);
+                expect(query.mock.calls.length).toBeGreaterThan(0);
+                for (const call of query.mock.calls) expect(call[5]).toBe(false);
+            } finally {
+                query.mockRestore();
+            }
+        });
     });
 
     describe('purgeNamespace', () => {
