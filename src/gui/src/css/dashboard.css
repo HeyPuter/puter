@@ -5288,6 +5288,9 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-name-wrapper {
     width: 100%;
     display: block;
+    /* Above the tile-sized badge layer, which would take the hover that
+       shows a shortened name in full. */
+    position: relative;
 }
 
 @media (hover: hover) {
