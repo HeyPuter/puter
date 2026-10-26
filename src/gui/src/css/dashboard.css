@@ -9320,6 +9320,16 @@ body.dashboard-mode .notifications-close-all {
     text-align: right;
 }
 
+/* Locked while the form submits: dim the whole box, suffix included, as
+   one field rather than the input alone. */
+.dashboard-form-affix:has(:disabled) {
+    opacity: 0.6;
+}
+
+.dashboard-dialog .dashboard-form-affix .dashboard-dialog-input:disabled {
+    opacity: 1;
+}
+
 .dashboard-form-suffix {
     flex-shrink: 0;
     max-width: 60%;
