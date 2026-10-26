@@ -39,7 +39,7 @@ If set to `true`, the returned array will contain objects with both `key` and `v
 
 The last argument of the positional forms. It takes these properties:
 
-- `handle` (String): List data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The share needs `read` or `write` access. The `pattern` is relative to the shared prefix and can be at most 768 bytes, and the returned keys are relative to the prefix too. The results and `total` leave out private entries. Every page of a full listing or a stream is fetched through the handle. See [Sharing with other users](/KV/#sharing-with-other-users).
+- `handle` (String): List data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). Listing only keys works with any access level. Listing values needs `read` or `write` access. The `pattern` is relative to the shared prefix and can be at most 768 bytes, and the returned keys are relative to the prefix too. The results and `total` leave out private entries. Every page of a full listing or a stream is fetched through the handle. See [Sharing with other users](/KV/#sharing-with-other-users).
 - `appUuid` (String): List another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
 
 #### `options` (Object) (optional)
@@ -73,7 +73,7 @@ Invalid options, such as a non-boolean `reverse` or `offset` combined with `stre
 
 Without pagination params, the full listing is returned as a plain array. It reads the entire store and is metered per page, so on large stores a bare `list()` gets slow and costly. The SDK logs a one-time console warning when a full listing spans multiple pages. Use `stream: true` or `limit` and `cursor` pages instead, and narrow the scan with a `pattern`.
 
-With `handle`, the promise can also reject with `kv_handle_not_found` (the handle doesn't exist, the share stopped, or it isn't shared with you), `kv_handle_access_denied` (the share is `watch` only), `kv_handle_option_invalid` (`handle` combined with `appUuid`), `kv_handle_key_invalid` (`pattern` is over 768 bytes), or `kv_handles_disabled` (shares can't be used this way on this deployment).
+With `handle`, the promise can also reject with `kv_handle_not_found` (the handle doesn't exist, the share stopped, or it isn't shared with you), `kv_handle_access_denied` (the listing asks for values and the share is `watch` only), `kv_handle_option_invalid` (`handle` combined with `appUuid`), `kv_handle_key_invalid` (`pattern` is over 768 bytes), or `kv_handles_disabled` (shares can't be used this way on this deployment).
 
 With `stream: true`, the method returns an async iterator of [`KVListPage`](/Objects/kvlistpage) objects instead:
 

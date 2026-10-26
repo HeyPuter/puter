@@ -349,6 +349,14 @@ describe('SystemKVStore read cache', () => {
             expect(result.res).toEqual([null, null]);
         });
 
+        it('serves nothing after a namespace purge', async () => {
+            await warm('a', 1);
+            await warm('b', 2);
+            await target.purgeNamespace(namespace, { maxItems: 10 });
+            const result = await target.get({ key: ['a', 'b'] }, opts);
+            expect(result.res).toEqual([null, null]);
+        });
+
         it('serves nothing after a flush whose delete failed partway', async () => {
             await warm('a', 1);
             await warm('b', 2);

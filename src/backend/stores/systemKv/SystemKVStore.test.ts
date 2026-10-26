@@ -789,6 +789,114 @@ describe('SystemKVStore', () => {
                 batchDel.mockRestore();
             }
         });
+
+        it('reads its pages eventually consistent, as it is billed', async () => {
+            await target.set({ key: 'f1', value: 1 }, opts);
+            const query = vi.spyOn(server.clients.dynamo, 'query');
+            try {
+                await target.flush(opts);
+                expect(query.mock.calls.length).toBeGreaterThan(0);
+                for (const call of query.mock.calls) expect(call[5]).toBe(false);
+            } finally {
+                query.mockRestore();
+            }
+        });
+    });
+
+    describe('purgeNamespace', () => {
+        const appOpts = () => ({ actor, appUuid: 'app-purge-test' });
+        const namespaceOf = () =>
+            kvNamespace(actor.user!.uuid!, 'app-purge-test');
+        const seed = (count: number) =>
+            target.batchPut(
+                {
+                    items: Array.from({ length: count }, (_, i) => ({
+                        key: `p${i}`,
+                        value: i,
+                    })),
+                },
+                appOpts(),
+            );
+
+        it('deletes at most maxItems per call and reports when the namespace is empty', async () => {
+            await seed(5);
+
+            expect(
+                await target.purgeNamespace(namespaceOf(), { maxItems: 3 }),
+            ).toEqual({ deleted: 3, done: false });
+            expect(
+                (await target.list({ as: 'keys' }, appOpts())).res,
+            ).toHaveLength(2);
+
+            expect(
+                await target.purgeNamespace(namespaceOf(), { maxItems: 10 }),
+            ).toEqual({ deleted: 2, done: true });
+            expect(
+                await target.purgeNamespace(namespaceOf(), { maxItems: 10 }),
+            ).toEqual({ deleted: 0, done: true });
+        });
+
+        it('leaves the same user\'s other namespaces alone', async () => {
+            await seed(2);
+            await target.set({ key: 'global', value: 1 }, opts);
+
+            await target.purgeNamespace(namespaceOf(), { maxItems: 10 });
+
+            expect((await target.get({ key: 'global' }, opts)).res).toBe(1);
+        });
+
+        it('emits no mutation events', async () => {
+            await seed(2);
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            try {
+                await target.purgeNamespace(namespaceOf(), { maxItems: 10 });
+                const keys = emit.mock.calls.map(([key]) => key);
+                expect(keys).not.toContain('kv.mutated');
+                expect(keys).not.toContain('kv.flushed');
+            } finally {
+                emit.mockRestore();
+            }
+        });
+
+        it('refuses the system namespace and anything that is not a user namespace', async () => {
+            for (const namespace of [
+                `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`,
+                `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}:partition`,
+                `v1:${SYSTEM_ACTOR_UUID}:some-app`,
+                'v1:only-two',
+                'v2:user:app',
+                '',
+            ]) {
+                await expect(
+                    target.purgeNamespace(namespace, { maxItems: 10 }),
+                ).rejects.toThrow();
+            }
+        });
+
+        it('reads its pages with strong consistency', async () => {
+            await seed(2);
+            const query = vi.spyOn(server.clients.dynamo, 'query');
+            try {
+                await target.purgeNamespace(namespaceOf(), { maxItems: 10 });
+                const pageReads = query.mock.calls.filter(
+                    ([, keys]) =>
+                        (keys as { namespace?: string }).namespace ===
+                        namespaceOf(),
+                );
+                expect(pageReads.length).toBeGreaterThan(0);
+                for (const call of pageReads) expect(call[5]).toBe(true);
+            } finally {
+                query.mockRestore();
+            }
+        });
+
+        it('refuses a maxItems that is not a positive integer', async () => {
+            for (const maxItems of [0, -1, 1.5, Number.NaN]) {
+                await expect(
+                    target.purgeNamespace(namespaceOf(), { maxItems }),
+                ).rejects.toThrow();
+            }
+        });
     });
 
     describe('expireAt / expire', () => {

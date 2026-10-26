@@ -43,6 +43,7 @@ import { Span } from '../../util/span.js';
 import type { puterServices } from '../index';
 import { EVENTS_WORKER_SESSION_NAME } from '../events/workerRuntime.js';
 import { FULL_API_ACCESS, PERMISSION_MAX_LEN } from '../permission/consts';
+import type { GrantMeta } from '../permission/PermissionService.js';
 import { PuterService } from '../types';
 import type {
     AccessTokenPayload,
@@ -941,10 +942,37 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Delete the sessions of the workers an app deployed for this user, e.g.
-     * when the user uninstalls it. The workers themselves keep running.
+     * A user removing an app: every grant they gave it and the sessions of the
+     * workers it deployed for them go, then `app.uninstalled` tells listeners,
+     * which delete the app's data in the account when `deleteData` is set.
      */
-    async deleteWorkerSessionsForApp(
+    async uninstallApp(
+        actor: Actor,
+        appIdentifier: string,
+        {
+            deleteData = false,
+            meta,
+        }: { deleteData?: boolean; meta?: GrantMeta } = {},
+    ): Promise<void> {
+        const appUid = await this.services.permission.revokeUserAppAll(
+            actor,
+            appIdentifier,
+            meta,
+        );
+        const userId = actor.user!.id as number;
+        await this.#deleteWorkerSessionsForApp(userId, appUid);
+        await this.clients.event.emitAndWait(
+            'app.uninstalled',
+            { userId, userUuid: actor.user!.uuid!, appUid, deleteData },
+            {},
+        );
+    }
+
+    /**
+     * Delete the sessions of the workers an app deployed for this user. Their
+     * tokens would otherwise act as the app; the workers keep running.
+     */
+    async #deleteWorkerSessionsForApp(
         userId: number,
         appUid: string,
     ): Promise<void> {
