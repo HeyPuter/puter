@@ -303,6 +303,22 @@ describe('service worker notificationclick', () => {
     });
 });
 
+describe('service worker pushsubscriptionchange', () => {
+    it('tells every window on this origin, and no other', async () => {
+        const desktop = windowClient(`${ORIGIN}/desktop`);
+        const hidden = windowClient(`${ORIGIN}/`);
+        const other = windowClient('https://elsewhere.example/');
+        const worker = loadWorker({ windows: [desktop, hidden, other] });
+        await worker.fire('pushsubscriptionchange', {});
+        expect(worker.scope.clients.matchAll).toHaveBeenCalledWith({ type: 'window', includeUncontrolled: true });
+        for ( const win of [desktop, hidden] ) {
+            expect(win.postMessage).toHaveBeenCalledWith({ type: 'puter-push-subscription-changed' });
+        }
+        expect(other.postMessage).not.toHaveBeenCalled();
+        expect(worker.shown).toEqual([]);
+    });
+});
+
 describe('service worker lifecycle', () => {
     it('takes over at once and adds no fetch handler', async () => {
         const worker = loadWorker();

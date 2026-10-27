@@ -20,12 +20,15 @@
 // Shows each push as a notification and routes taps to a Puter window.
 // Push payload: JSON whose `puter` (or `data.puter`, an object or JSON string)
 // is { uid, title, body, icon, group, target: { app, path }, data }.
+// On `pushsubscriptionchange` it posts { type: 'puter-push-subscription-changed' }
+// to this origin's windows, so a signed-in page can register again.
 
 const DEFAULT_TITLE = 'New notification';
 const DEFAULT_ICON = '/favicons/android-icon-192x192.png';
 const SHOW_MESSAGE = 'puter-show-notification';
 const CLICK_MESSAGE = 'puter-notification-click';
 const CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
+const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
 const CLICK_PARAM = 'puter.notification';
 // Browsers allow openWindow only shortly after the click.
 const CLICK_ACK_BUDGET_MS = 600;
@@ -189,6 +192,14 @@ async function showPageMessage (scope, message) {
     await showMessage(scope.registration, message, scope.location.origin);
 }
 
+async function announceSubscriptionChange (scope) {
+    const origin = scope.location.origin;
+    const windowClients = await scope.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for ( const client of windowClients ) {
+        if ( sameOriginUrl(client.url, origin) ) client.postMessage({ type: SUBSCRIPTION_CHANGED_MESSAGE });
+    }
+}
+
 self.addEventListener('install', () => {
     self.skipWaiting();
 });
@@ -215,4 +226,8 @@ self.addEventListener('notificationclick', (event) => {
     const startedAt = Date.now();
     event.notification.close();
     event.waitUntil(routeClick(self, clickFromData(event.notification.data), startedAt));
+});
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+    event.waitUntil(announceSubscriptionChange(self));
 });
