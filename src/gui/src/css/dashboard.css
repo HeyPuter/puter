@@ -2770,6 +2770,35 @@ button.share-modal-title-sub:focus-visible {
     padding: 16px 18px 18px;
 }
 
+/* Footer: the status line, then Copy link and Done. Outside the scrolling
+   body, so a message is in view wherever the list is scrolled to. */
+.share-modal-footer {
+    flex-shrink: 0;
+    padding: 12px 18px 14px;
+    border-top: 1px solid var(--dashboard-border);
+}
+.share-modal-footer-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.share-modal-done {
+    margin-left: auto;
+}
+.share-modal-copy-link {
+    gap: 6px;
+}
+.share-modal-copy-link[hidden] {
+    display: none;
+}
+.share-modal-copy-icon {
+    display: flex;
+}
+.share-modal-copy-link.share-modal-copied {
+    border-color: var(--dashboard-success-border);
+    color: var(--dashboard-success-text);
+}
+
 /* Add people. style.css's input[type=text] / select rules match these
    controls at the SAME specificity, so everything must be spelled out here
    (twice for focus — input[type=text]:focus sets padding 7px / border 2px).
@@ -2778,12 +2807,25 @@ button.share-modal-title-sub:focus-visible {
     display: flex;
     gap: 8px;
 }
+.share-modal-add-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+    animation: share-modal-reveal 150ms ease-out;
+}
+.share-modal-add-actions[hidden] {
+    display: none;
+}
+@keyframes share-modal-reveal {
+    from { opacity: 0; transform: translateX(6px); }
+}
 input.share-modal-recipient {
     -webkit-appearance: none;
     appearance: none;
     box-sizing: border-box;
     flex: 1 1 auto;
     width: auto;
+    height: 36px;
     min-width: 0;
     /* On narrow screens the placeholder outgrows the field; fade it out
        with an ellipsis instead of clipping mid-letter. */
@@ -2834,6 +2876,9 @@ select.share-modal-mode,
 select.share-modal-link-mode {
     flex-shrink: 0;
 }
+select.share-modal-mode {
+    height: 36px;
+}
 select.share-modal-mode:focus,
 select.share-modal-link-access:focus,
 select.share-modal-link-mode:focus,
@@ -2875,56 +2920,75 @@ select.share-modal-row-mode:disabled {
 }
 
 /* General access: the owner's switch between people-only and anyone with
-   the link, below the people and team controls. The copy button is the team
-   button's quieter sibling. */
+   the link, as one row shaped like a person's — an icon where the avatar
+   goes, the switch and what it means, and the level on the right. */
 .share-modal-general {
-    margin-top: 18px;
-    padding-top: 16px;
-    border-top: 1px solid var(--dashboard-border);
+    margin-top: 20px;
 }
 
 .share-modal-general .share-modal-heading {
-    margin: 0 0 8px;
+    margin: 0 0 6px;
 }
 
 .share-modal-general-row {
     display: flex;
-    gap: 8px;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 0;
 }
 
-select.share-modal-link-access {
+.share-modal-general-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--dashboard-hover);
+    color: var(--dashboard-text-secondary);
+    transition: background 0.15s, color 0.15s;
+}
+
+.share-modal-general-icon.share-modal-general-icon-open {
+    background: var(--dashboard-success-background);
+    color: var(--dashboard-success-text);
+}
+
+.share-modal-general-text {
     flex: 1 1 auto;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+/* Reads as the row's title; the padding lets the hover fill reach past the
+   text while the text itself lines up with the note below. */
+select.share-modal-link-access {
+    max-width: calc(100% + 8px);
+    margin-left: -8px;
+    padding: 3px 24px 3px 8px;
+    border-color: transparent;
+    background-color: transparent;
+    background-position: right 6px center;
+    font-size: 13.5px;
+    font-weight: 600;
+    field-sizing: content;
+}
+select.share-modal-link-access:focus {
+    padding: 3px 24px 3px 8px;
+}
+@media (hover: hover) {
+    select.share-modal-link-access:hover:not(:disabled) {
+        background-color: var(--dashboard-hover);
+    }
 }
 
 .share-modal-general-note {
-    margin: 8px 0 0;
-    font-size: 12.5px;
-    line-height: 1.45;
-    color: var(--dashboard-text-hint);
-}
-
-.share-modal-copy-link {
-    width: 100%;
-    height: 38px;
-    margin-top: 10px;
-    padding: 0 16px;
-    border: 1px solid var(--dashboard-border);
-    border-radius: 10px;
-    background: transparent;
-    font-size: 13.5px;
-    font-weight: 600;
-    font-family: inherit;
-    color: var(--dashboard-text-primary);
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-}
-
-@media (hover: hover) {
-    .share-modal-copy-link:hover:not(:disabled) {
-        background: var(--dashboard-card-background);
-        border-color: var(--dashboard-text-hint);
-    }
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--dashboard-text-muted);
 }
 
 .share-modal-submit {
@@ -2932,14 +2996,14 @@ select.share-modal-link-access {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    width: 100%;
-    margin-top: 10px;
+    flex-shrink: 0;
+    box-sizing: border-box;
     padding: 0 16px;
-    height: 38px;
+    height: 36px;
     border: 1px solid var(--dashboard-button-primary);
-    border-radius: 10px;
+    border-radius: 8px;
     background: var(--dashboard-button-primary);
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 600;
     font-family: inherit;
     color: #fff;
@@ -3002,16 +3066,16 @@ select.share-modal-link-access {
    display:none — a live region revealed in the same frame as its text is
    unreliably announced, so it stays in the a11y tree between messages. */
 .share-modal-status {
-    margin-top: 12px;
-    padding: 9px 12px;
+    margin-bottom: 10px;
+    padding: 8px 12px;
     border: 1px solid transparent;
     border-radius: 8px;
-    font-size: 13px;
+    font-size: 12.5px;
     line-height: 1.45;
     word-break: break-word;
 }
 .share-modal-status:empty {
-    margin-top: 0;
+    margin-bottom: 0;
     padding: 0;
     border-width: 0;
 }
@@ -3028,28 +3092,27 @@ select.share-modal-link-access {
 
 /* Access list */
 .share-modal-heading {
-    margin: 18px 0 2px;
     font-size: 13px;
     font-weight: 600;
     color: var(--dashboard-text-secondary);
+}
+.share-modal-list {
+    margin-top: 10px;
 }
 .share-modal-row {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 9px 0;
-    border-bottom: 1px solid var(--dashboard-border);
-}
-.share-modal-row:last-child {
-    border-bottom: none;
+    min-height: 32px;
+    padding: 5px 0;
 }
 .share-modal-avatar {
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     font-size: 13px;
     font-weight: 600;
@@ -3116,49 +3179,40 @@ select.share-modal-link-access {
     font-size: 12.5px;
     color: var(--dashboard-text-secondary);
 }
+select.share-modal-link-mode,
 select.share-modal-row-mode {
     flex-shrink: 0;
+    max-width: 50%;
     padding: 5px 24px 5px 8px;
     border-color: transparent;
     background-color: transparent;
     font-size: 12.5px;
     color: var(--dashboard-text-secondary);
     background-position: right 6px center;
+    /* Sized to the level on show rather than the longest entry ("Remove
+       access"), so the chevron sits next to the text. Where unsupported,
+       the text at least hugs the chevron. */
+    field-sizing: content;
+    text-align-last: right;
+}
+select.share-modal-row-mode option,
+select.share-modal-link-mode option {
+    text-align: left;
+}
+select.share-modal-row-mode option.share-modal-option-danger {
+    color: var(--dashboard-danger-text);
 }
 @media (hover: hover) {
+    select.share-modal-link-mode:hover:not(:disabled),
     select.share-modal-row-mode:hover:not(:disabled) {
         background-color: var(--dashboard-hover);
         color: var(--dashboard-text-primary);
     }
 }
+select.share-modal-link-mode:focus,
 select.share-modal-row-mode:focus {
     padding: 5px 24px 5px 8px;
     border: 1px solid var(--select-color);
-}
-.share-modal-revoke {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--dashboard-text-secondary);
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-}
-@media (hover: hover) {
-    .share-modal-revoke:hover:not(:disabled) {
-        background: var(--dashboard-danger-background);
-        color: var(--dashboard-danger-text);
-    }
-}
-.share-modal-revoke:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 3px var(--select-ring);
 }
 .share-modal-empty {
     margin: 0;
@@ -3226,20 +3280,17 @@ select.share-modal-row-mode:focus {
     cursor: default;
 }
 
-/* Touch: every control clears 44px. The icon buttons keep their 30-32px
-   visuals but hit-test at 44x44 via a centered pseudo-element (the 10px
-   gap to the row's select and the 18px between rows absorb the overhang
-   without overlap); everything else grows for real via min-height, which
-   holds whatever the inherited line-height turns out to be.
+/* Touch: every control clears 44px. The close button keeps its 32px
+   visual but hit-tests at 44x44 via a centered pseudo-element; everything
+   else grows for real via min-height, which holds whatever the inherited
+   line-height turns out to be.
    This block sits below every base rule it overrides — a media query
    adds no specificity, so source order decides. */
 @media (pointer: coarse) {
-    .share-modal-close,
-    .share-modal-revoke {
+    .share-modal-close {
         position: relative;
     }
-    .share-modal-close::before,
-    .share-modal-revoke::before {
+    .share-modal-close::before {
         content: '';
         position: absolute;
         left: 50%;
@@ -3269,19 +3320,18 @@ select.share-modal-row-mode:focus {
     select.share-modal-mode,
     select.share-modal-mode:focus,
     select.share-modal-link-access,
-    select.share-modal-link-access:focus,
-    select.share-modal-link-mode,
-    select.share-modal-link-mode:focus {
+    select.share-modal-link-access:focus {
         min-height: 44px;
     }
+    select.share-modal-link-mode,
+    select.share-modal-link-mode:focus,
     select.share-modal-row-mode,
     select.share-modal-row-mode:focus {
         min-height: 44px;
         padding-top: 9px;
         padding-bottom: 9px;
     }
-    .share-modal-submit,
-    .share-modal-copy-link {
+    .share-modal-submit {
         height: 44px;
     }
     .share-modal-btn-quiet,
@@ -3332,9 +3382,14 @@ select.share-modal-row-mode:focus {
         transform: translateY(0);
     }
     /* The sheet sits flush with the physical bottom edge (viewport-fit=
-       cover), so the scrollable body clears the home indicator itself. */
-    .share-modal-body {
-        padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+       cover), so the footer clears the home indicator itself. */
+    .share-modal-footer {
+        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    }
+    /* Copy link and Done split the row rather than stacking. */
+    .share-modal-footer-row .dashboard-dialog-btn {
+        flex: 1 1 0;
+        min-width: 0;
     }
 }
 
@@ -3342,6 +3397,9 @@ select.share-modal-row-mode:focus {
     .share-modal-overlay,
     .share-modal {
         transition: none;
+    }
+    .share-modal-add-actions {
+        animation: none;
     }
     .share-modal-spinner {
         animation-duration: 1.6s;
