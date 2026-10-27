@@ -35,4 +35,39 @@ test.describe('puter.ui.showFontPicker (env=app)', () => {
             }
         });
     }
+
+    test('scrolls the preselected font into view', async ({ page }) => {
+        const appName = await registerTestApp(page, { fixtureURL: FONT_FIXTURE_URL });
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+
+            await appFrame.locator('#font-verdana').click();
+            const dialog = page.locator('.window[data-app="font-picker"]');
+            await expect(dialog).toBeVisible({ timeout: 15_000 });
+
+            const active = dialog.locator('.font-selector-active');
+            await expect(active).toHaveCount(1);
+            await expect(active).toHaveAttribute('data-font-family', 'Verdana');
+            await expect(active).toBeInViewport();
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+
+    test('resolves false when the picker is closed', async ({ page }) => {
+        const appName = await registerTestApp(page, { fixtureURL: FONT_FIXTURE_URL });
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+
+            await appFrame.locator('#font-string').click();
+            const dialog = page.locator('.window[data-app="font-picker"]');
+            await expect(dialog).toBeVisible({ timeout: 15_000 });
+
+            await dialog.locator('.window-close-btn').click();
+            await expect(dialog).toBeHidden();
+            await expect(appFrame.locator('#log [data-entry="font:cancel"]')).toBeVisible();
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
 });

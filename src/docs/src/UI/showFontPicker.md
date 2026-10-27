@@ -20,10 +20,10 @@ The default font to select when the font picker is opened.
 #### `options` (Object)
 An object with the following properties:
 
-- `defaultFont` (String): The font to select when the font picker is opened. The name is matched without regard to case. `defaultValue` and `default` are accepted as aliases.
+- `defaultFont` (String): The font to select when the font picker is opened. The name is matched without regard to case. `defaultValue` and `default` are accepted as aliases. If more than one is given, `defaultValue` is used, then `defaultFont`, then `default`.
 
 ## Return value
-A `Promise` that resolves to an object with a `fontFamily` property holding the name of the selected font.
+A `Promise` that resolves to an object with a `fontFamily` property holding the name of the selected font. If the user closes the picker without selecting a font, the promise resolves to `false` in a Puter app and to `null` on a website.
 
 ## Examples
 
@@ -35,7 +35,9 @@ A `Promise` that resolves to an object with a `fontFamily` property holding the 
 
     <script>
         puter.ui.showFontPicker().then((font)=>{
-            document.body.style.fontFamily = font.fontFamily;
+            if (font) {
+                document.body.style.fontFamily = font.fontFamily;
+            }
         })
     </script>
 </body>

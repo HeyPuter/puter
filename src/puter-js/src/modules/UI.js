@@ -1412,12 +1412,24 @@ export class UIModule extends EventListener {
     };
 
     /**
-     * Shows a font picker. Resolves to the chosen font. Accepts either a
-     * default font name or an options object. `default` and `defaultValue`
-     * are legacy aliases for `defaultFont`.
+     * @overload
+     * @param {string} [defaultFont]
+     * @returns {Promise<{ fontFamily: string } | false | null>}
+     */
+    /**
+     * @overload
+     * @param {FontPickerOptions & { default?: string, defaultValue?: string }} [options]
+     * @returns {Promise<{ fontFamily: string } | false | null>}
+     */
+    /**
+     * Shows a font picker. Resolves to the chosen font, or to `false` inside a
+     * Puter app and `null` on a website when the user closes the picker without
+     * choosing. Accepts either a default font name or an options object.
+     * `default` and `defaultValue` are legacy aliases for `defaultFont`;
+     * `defaultValue` wins over `defaultFont`, which wins over `default`.
      *
      * @param {string | (FontPickerOptions & { default?: string, defaultValue?: string })} [options]
-     * @returns {Promise<{ fontFamily: string }>}
+     * @returns {Promise<{ fontFamily: string } | false | null>}
      */
     showFontPicker (options) {
         if ( this.messageTarget ) {

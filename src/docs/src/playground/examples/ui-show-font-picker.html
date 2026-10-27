@@ -6,8 +6,10 @@
     <script>
         document.getElementById('pick-font').addEventListener('click', () => {
             puter.ui.showFontPicker().then((font) => {
-                document.getElementById('preview').style.fontFamily = font.fontFamily;
-                puter.print('Selected font: ' + font.fontFamily);
+                if (font) {
+                    document.getElementById('preview').style.fontFamily = font.fontFamily;
+                    puter.print('Selected font: ' + font.fontFamily);
+                }
             });
         });
     </script>

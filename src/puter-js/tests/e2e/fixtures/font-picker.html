@@ -17,6 +17,7 @@
     <button id="font-string" disabled>Font Picker (string)</button>
     <button id="font-default-font" disabled>Font Picker (defaultFont)</button>
     <button id="font-default-value" disabled>Font Picker (defaultValue)</button>
+    <button id="font-verdana" disabled>Font Picker (Verdana)</button>
 
     <div id="log" data-testid="log"></div>
 
@@ -54,7 +55,7 @@
         async function pickFont(options) {
             try {
                 const font = await puter.ui.showFontPicker(options);
-                log(font ? `font:${font.fontFamily}` : 'font:cancel');
+                log(font === false ? 'font:cancel' : font ? `font:${font.fontFamily}` : `font:${font}`);
             } catch (e) {
                 log(`font:error:${e?.message ?? e}`);
             }
@@ -63,6 +64,7 @@
         document.getElementById('font-string').addEventListener('click', () => pickFont('Georgia'));
         document.getElementById('font-default-font').addEventListener('click', () => pickFont({ defaultFont: 'Georgia' }));
         document.getElementById('font-default-value').addEventListener('click', () => pickFont({ defaultValue: 'georgia' }));
+        document.getElementById('font-verdana').addEventListener('click', () => pickFont('Verdana'));
     </script>
 </body>
 </html>
