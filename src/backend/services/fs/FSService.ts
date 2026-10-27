@@ -303,6 +303,8 @@ export class FSService extends PuterService {
      * Overridable so tests can split a page of directories.
      */
     static SUBTREE_WALK_PARENTS = 100;
+    /** Rows one page of `listDirectoryPages` reads. Overridable for tests. */
+    static LISTING_PAGE_SIZE = 1000;
 
     declare protected stores: LayerInstances<typeof puterStores>;
     declare protected services: LayerInstances<typeof puterServices>;
@@ -3731,6 +3733,19 @@ export class FSService extends PuterService {
         return this.stores.fsEntry.listChildrenPage(parentUid, options);
     }
 
+    /** A directory's children in name order, for listings with no paging. */
+    async *listDirectoryPages(parentUid: string): AsyncGenerator<FSEntry[]> {
+        let cursor: string | undefined;
+        do {
+            const page = await this.stores.fsEntry.listChildrenPage(parentUid, {
+                limit: FSService.LISTING_PAGE_SIZE,
+                cursor,
+            });
+            yield page.entries;
+            cursor = page.cursor;
+        } while (cursor);
+    }
+
     async countDirectory(parentUid: string): Promise<number> {
         return this.stores.fsEntry.countChildren(parentUid);
     }
@@ -3745,6 +3760,7 @@ export class FSService extends PuterService {
         path: string,
         options: {
             limit?: number;
+            offset?: number;
             cursor?: string | null;
             maxDepth: number;
             sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
@@ -3876,7 +3892,8 @@ export class FSService extends PuterService {
                 {
                     bucket: this.stores.s3Object.resolveBucket(entry.bucket),
                     objectKey,
-                    range: options.range,
+                    // The store refuses every range on a zero-byte object.
+                    range: entry.size === 0 ? undefined : options.range,
                 },
                 this.stores.s3Object.resolveRegion(entry.bucketRegion),
             );
@@ -5193,6 +5210,8 @@ export class FSService extends PuterService {
                 : `${destinationParent.path}/${name}`;
 
         const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
+        // Overwriting the source would delete it before it is read.
+        const replacesSource = collision?.uuid === source.uuid;
 
         // A copy duplicates the bytes for real, so it costs the same against
         // the allowance as writing them. Check before the overwrite below
@@ -5208,14 +5227,14 @@ export class FSService extends PuterService {
         await this.#assertStorageAllowance(
             allowance.ownerId,
             await this.#entryStorageSize(source),
-            collision && input.overwrite
+            collision && input.overwrite && !replacesSource
                 ? await this.#entryStorageSize(collision)
                 : 0,
             allowance.max,
         );
 
         if (collision) {
-            if (input.overwrite) {
+            if (input.overwrite && !replacesSource) {
                 this.#assertNotReplacingAncestor(source, collision);
                 await this.remove(userId, {
                     entry: collision,
@@ -5223,6 +5242,10 @@ export class FSService extends PuterService {
                 });
             } else if (input.dedupeName) {
                 name = await this.#findDedupedName(destinationParent, name);
+            } else if (input.overwrite) {
+                throw new HttpError(400, 'Cannot copy an item over itself', {
+                    legacyCode: 'bad_request',
+                });
             } else {
                 // v1 wire contract, as in move() above.
                 throw new HttpError(
