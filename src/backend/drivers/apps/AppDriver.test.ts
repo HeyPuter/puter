@@ -2322,7 +2322,10 @@ describe('AppDriver.select query-count regression', () => {
         expect(large.itemCount).toBe(30);
         // Sanity check the classifier actually saw the shapes it's counting.
         expect(small.counts.indexUrlIn).toBeGreaterThan(0);
-        expect(small.counts.subdomains).toBeGreaterThan(0);
+        // Live and dangling backings both come from the warm subdomain cache
+        // (negative entries included), so no subdomains read on either path.
+        expect(small.counts.subdomains).toBe(0);
+        expect(small.pread).toBe(0);
 
         expect(large.counts).toEqual(small.counts);
         expect(large.pread).toBe(small.pread);
