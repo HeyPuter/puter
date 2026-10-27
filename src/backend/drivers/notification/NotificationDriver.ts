@@ -340,7 +340,12 @@ export class NotificationDriver extends PuterDriver {
         });
     }
 
-    /** Both windows are read before either is spent, so a refusal costs none. */
+    /**
+     * Both windows are read before either is spent, so a refusal costs none.
+     * The minute window is spent first: it is the one most likely to run out
+     * between the read and the spend, and a refusal there leaves the day
+     * alone.
+     */
     async #withinAppMessageLimits(
         userId: number,
         appUid: string,
@@ -348,14 +353,14 @@ export class NotificationDriver extends PuterDriver {
         const configured = this.config.notificationAppMessageLimits ?? {};
         const all: Array<[string, number, number]> = [
             [
-                `notif:app-message:day:${userId}:${appUid}`,
-                configured.perDay ?? APP_MESSAGE_RATE_LIMITS.perDay,
-                DAY_MS,
-            ],
-            [
                 `notif:app-message:minute:${userId}:${appUid}`,
                 configured.perMinute ?? APP_MESSAGE_RATE_LIMITS.perMinute,
                 MINUTE_MS,
+            ],
+            [
+                `notif:app-message:day:${userId}:${appUid}`,
+                configured.perDay ?? APP_MESSAGE_RATE_LIMITS.perDay,
+                DAY_MS,
             ],
         ];
         const windows = all.filter(([, limit]) => limit > 0);
