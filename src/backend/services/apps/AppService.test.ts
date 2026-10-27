@@ -145,7 +145,8 @@ describe('AppService.views', () => {
                 apps.map((app) => app.uid),
             );
             expect(origins).toHaveBeenCalledTimes(1);
-            expect(filetypes).toHaveBeenCalledTimes(1);
+            // Rows from the app cache carry their filetype associations.
+            expect(filetypes).toHaveBeenCalledTimes(0);
             // Each row is its own origin's oldest app.
             for (const [i, { createdFromOrigin }] of views.entries()) {
                 expect(createdFromOrigin).toBe(

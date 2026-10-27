@@ -271,8 +271,11 @@ export class AppDriver extends PuterDriver {
                 legacyCode: 'app_name_already_in_use',
             });
         }
-        if (filetypes)
+        if (filetypes) {
             await this.appStore.setFiletypeAssociations(app.id, filetypes);
+            // The row was built before they were stored; views re-read them.
+            delete app.filetype_associations;
+        }
 
         this.#emitAppChanged({ app, action: 'created' });
 
@@ -486,6 +489,8 @@ export class AppDriver extends PuterDriver {
         }
         if (filetypes !== undefined) {
             await this.appStore.setFiletypeAssociations(app.id, filetypes);
+            // A filetype-only update returns the cached row with the old ones.
+            if (updated) delete updated.filetype_associations;
         }
 
         this.#emitAppChanged({ app: updated, old_app: app, action: 'updated' });
