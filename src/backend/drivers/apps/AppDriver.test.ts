@@ -1055,6 +1055,34 @@ describe('AppDriver.create additional branches', () => {
         );
     });
 
+    it('returns the new filetype_associations from a filetype-only update of a cached app', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('ftu'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    filetype_associations: ['txt'],
+                },
+            }),
+        );
+        // Let the post-write window lapse so the row is cached again.
+        for (const key of await server.clients.redis.keys('apps:*:deleted')) {
+            await server.clients.redis.del(key);
+        }
+        await server.stores.app.getByUid(created.uid as string);
+        await new Promise((r) => setTimeout(r, 20));
+
+        const updated = await withActor(actor, () =>
+            driver.update({
+                uid: created.uid as string,
+                object: { filetype_associations: ['csv'] },
+            }),
+        );
+        expect(updated.filetype_associations).toEqual(['csv']);
+    });
+
     it('rejects too-long title with 400', async () => {
         const { actor } = await makeUser();
         await expect(
