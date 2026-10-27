@@ -68,6 +68,9 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends git wget && \
     rm -rf /var/lib/apt/lists/*
 
+# Fix outdated HOME_URL in /etc/os-release (see issue #4329)
+RUN sed -i 's|HOME_URL="https://github.com/HeyPuter/phoenix"|HOME_URL="https://github.com/HeyPuter/puter"|' /etc/os-release
+
 COPY --from=build --chown=node:node /opt/puter .
 
 RUN mkdir -p /etc/puter /var/puter && \
