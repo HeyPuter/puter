@@ -343,11 +343,11 @@ const TabNotifications = {
                 returnFocusTo: this,
             });
             if ( confirmed !== true ) return;
-            // The client also deletes this browser's token and local record.
+            // disable() drops the token and record; the DELETE covers a lost record.
             const client = device.current ? getPushClient() : null;
             try {
                 if ( client ) await client.disable();
-                else await removePushDevice(uid);
+                await removePushDevice(uid);
             } catch ( e ) {
                 if ( e?.status !== 404 || e?.code === PUSH_UNAVAILABLE ) {
                     console.warn('[push] device removal failed', e);

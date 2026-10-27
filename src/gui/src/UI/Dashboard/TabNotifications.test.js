@@ -372,7 +372,7 @@ describe('your devices', () => {
     it('removes this browser through the client, which also forgets its registration', async () => {
         const client = fakeClient({ permission: 'granted', registered: true, deviceUid: 'a' });
         pushClient.registerPushClient(client);
-        const remove = vi.fn(() => reply(200, { removed: true }));
+        const remove = vi.fn(() => reply(404, { code: 'device_not_found', message: 'Device not found' }));
         let listed = [device({ uid: 'a', current: true }), device({ uid: 'b', label: 'Phone' })];
         serve({
             'GET /push/devices': () => reply(200, { devices: listed }),
@@ -392,10 +392,36 @@ describe('your devices', () => {
         await settle();
 
         expect(client.disable).toHaveBeenCalledTimes(1);
-        expect(remove).not.toHaveBeenCalled();
+        expect(remove).toHaveBeenCalledTimes(1);
         expect(browserCard().hasClass('push-browser-off')).toBe(true);
         expect($('.push-device-card')).toHaveLength(1);
         expect($('.push-remove-device').attr('data-uid')).toBe('b');
+    });
+
+    it('still removes this browser on the server when it has no local record', async () => {
+        const client = fakeClient({ permission: 'granted', registered: false });
+        pushClient.registerPushClient(client);
+        let listed = [device({ uid: 'a', current: true })];
+        const remove = vi.fn(() => {
+            listed = [];
+            return reply(200, { removed: true });
+        });
+        serve({
+            'GET /push/devices': () => reply(200, { devices: listed }),
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+            'DELETE /push/devices/a': remove,
+        });
+        await open();
+
+        $('.push-remove-device[data-uid="a"]').trigger('click');
+        await settle();
+        dialogButton('push_device_remove').trigger('click');
+        await settle();
+
+        expect(client.disable).toHaveBeenCalledTimes(1);
+        expect(remove).toHaveBeenCalledTimes(1);
+        expect($('.push-device-card')).toHaveLength(0);
     });
 
     it('removes another device with the server alone', async () => {
