@@ -27,6 +27,7 @@ import { expand_home_path } from './expandHomePath.js';
 import { confirmUrlFileAccess } from './confirmUrlFileAccess.js';
 import { mintGodmodeToken, reusableGodmodeToken, trackGodmodeToken } from './godmodeTokens.js';
 import { withoutNotificationClick } from './notificationTap.js';
+import { syncBrowserPush } from './pushSync.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -756,6 +757,10 @@ const launch_app = async (options) => {
         // If the app is not in the background, show the window
         if ( ! starts_hidden(app_info, options) ) {
             $(el_win).show();
+        }
+
+        if ( ! window.embedded_in_popup ) {
+            void syncBrowserPush({ appUid: launch_app_uid });
         }
 
         // send post request to /rao to record app open

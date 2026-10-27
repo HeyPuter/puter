@@ -54,6 +54,7 @@ import {
     storedTapHandler,
 } from '../helpers/notificationTap.js';
 import { showLocalBanner, startPushWorker } from '../helpers/pushWorker.js';
+import { syncBrowserPush } from '../helpers/pushSync.js';
 import { get_app_by_uid } from '../helpers/getAppByUid.js';
 import { httpsIconFor, notificationTarget, senderNameFor } from './Dashboard/notificationCenter.js';
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
@@ -270,7 +271,7 @@ async function UIDesktop (options) {
             });
         },
     }));
-    startPushWorker();
+    startPushWorker().then(() => syncBrowserPush());
 
     /**
      * Raise one notification, whichever path it arrived on. `replay` names
