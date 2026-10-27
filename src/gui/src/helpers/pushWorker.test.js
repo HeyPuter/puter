@@ -217,7 +217,7 @@ describe('startPushWorker', () => {
         mod.setPushTapHandler(handler);
         const nav = makeNav();
         await start(mod, { nav });
-        expect(nav.serviceWorker.register).toHaveBeenCalledWith('/sw.js', { scope: '/' });
+        expect(nav.serviceWorker.register).toHaveBeenCalledWith('/sw.js', { scope: '/', updateViaCache: 'none' });
 
         const source = { postMessage: vi.fn() };
         nav.listeners.message({ data: { type: 'other', notification: { uid: UID } }, source });

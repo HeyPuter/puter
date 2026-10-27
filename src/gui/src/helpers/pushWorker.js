@@ -157,7 +157,8 @@ export const startPushWorker = async ({
         dispatchPushTap(event.data.notification);
     });
     try {
-        await nav.serviceWorker.register(WORKER_URL, { scope: '/' });
+        // Scripts the worker imports are fetched fresh on each update check.
+        await nav.serviceWorker.register(WORKER_URL, { scope: '/', updateViaCache: 'none' });
     } catch ( err ) {
         console.warn('Could not register the service worker:', err);
     }
