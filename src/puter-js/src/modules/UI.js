@@ -670,6 +670,7 @@ export class UIModule extends EventListener {
             uuid: callback_id,
         }, '*');
         const ret = await p;
+        if (ret?.$ === 'puter-ipc-error') throw ret.error;
         if ( callback ) callback(ret);
         return ret;
     };
@@ -2618,11 +2619,6 @@ export class UIModule extends EventListener {
         return puter.auth.signIn({ request_auth: true }).then(
             () => {
                 settle(true);
-                if ( puter.onAuth && typeof puter.onAuth === 'function' ) {
-                    puter.getUser().then((user) => {
-                        puter.onAuth(user);
-                    });
-                }
             },
             (err) => {
                 settle(false);

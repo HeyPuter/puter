@@ -2229,9 +2229,12 @@ p.myapps-add-error {
     opacity: 0;
     transition: opacity 200ms ease;
     z-index: 1000;
+    /* Fading out after a close, it must not take the next click. */
+    pointer-events: none;
 }
 .item-props-overlay.item-props-show {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .item-props-modal {
@@ -2556,9 +2559,12 @@ p.myapps-add-error {
     opacity: 0;
     transition: opacity 200ms ease;
     z-index: 1000;
+    /* Fading out after a close, it must not take the next click. */
+    pointer-events: none;
 }
 .share-modal-overlay.share-modal-show {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .share-modal {
@@ -4940,6 +4946,25 @@ body.myapps-reordering .myapps-tile {
     color: var(--dashboard-text-tertiary);
 }
 
+/* On a touch screen the '⋯' is a 20x23 target beside a row whose tap opens
+   the item, so a near miss opened the item instead of the menu. It takes the
+   row's height and a finger's width. (Two-row rows get a 44px square below.) */
+@media (pointer: coarse) {
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-more {
+        position: relative;
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-more::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 32px;
+        transform: translate(-50%, -50%);
+    }
+}
+
 .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-size,
 .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-modified {
     color: inherit;
@@ -5155,6 +5180,13 @@ body.myapps-reordering .myapps-tile {
     filter: none;
 }
 
+@media (prefers-color-scheme: dark) {
+    /* A black glyph, lost on the dark row: drawn light instead. */
+    .dashboard-section-files .files-tab .files.files-list-view .row img.item-has-website-url-badge {
+        filter: invert(1);
+    }
+}
+
 /* Badges live top-LEFT in grid view; the top-right corner belongs to the
    hover '⋯' button (.item-more) and they must not overlap. */
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-badges {
@@ -5288,6 +5320,9 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-name-wrapper {
     width: 100%;
     display: block;
+    /* Above the tile-sized badge layer, which would take the hover that
+       shows a shortened name in full. */
+    position: relative;
 }
 
 @media (hover: hover) {
@@ -5787,6 +5822,10 @@ body.myapps-reordering .myapps-tile {
     position: fixed;
     /* On body, above the dashboard window (see the sidebar tooltip). */
     z-index: 999999999;
+    /* Sized to the image, within the bounds showImagePreview sets */
+    box-sizing: border-box;
+    width: max-content;
+    min-width: 160px;
     background: var(--dashboard-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 8px;
@@ -5801,11 +5840,14 @@ body.myapps-reordering .myapps-tile {
 .image-preview-popover img {
     max-width: 100%;
     max-height: 70vh;
+    /* Shrinks to leave the name room in a short listing */
+    min-height: 0;
     object-fit: contain;
     border-radius: 4px;
 }
 
 .image-preview-name {
+    flex-shrink: 0;
     font-size: 14px;
     color: var(--dashboard-text);
     text-align: center;
@@ -6031,9 +6073,20 @@ body.myapps-reordering .myapps-tile {
         margin-bottom: 12px;
     }
 
-    /* Clear the fixed menu button beside the crumbs */
+    /* Clear the fixed menu button beside the crumbs, and match its height:
+       a shorter row put the arrows below under the button's tap area, so
+       the top of Back opened the menu. */
     .dashboard-section-files .header .path-breadcrumbs {
         margin-left: 50px;
+        box-sizing: content-box;
+        min-height: 40px;
+    }
+
+    /* Finger-sized crumbs, in that row */
+    @media (pointer: coarse) {
+        .dashboard-section-files .header .path .dirname {
+            padding: 8px 6px;
+        }
     }
 
     /* Adjust footer position - full width since sidebar is hidden. It sits
@@ -6047,6 +6100,13 @@ body.myapps-reordering .myapps-tile {
 
     .dashboard-section-files .files {
         padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+    }
+
+    /* The grids keep their own padding and clear the footer with a margin,
+       which has to grow with the footer as well. (Select mode makes room
+       for its bar, safe area included, below.) */
+    .dashboard-section-files .files-tab:not(.select-mode-active) .files.files-grid-view {
+        margin-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
     }
 
     /* Mobile: Floating selection actions - icon-only, full width */
@@ -7629,6 +7689,19 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* "No files in this directory." and "couldn't be opened", in place of rows */
+.files-notice {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0 16px;
+    text-align: center;
+    color: var(--dashboard-text-tertiary);
+    pointer-events: none;
+}
+
 /* ======================================
    Files Loading Spinner
    ====================================== */
@@ -8895,10 +8968,13 @@ body.dashboard-mode .notifications-close-all {
     opacity: 0;
     transition: opacity 200ms ease;
     z-index: 1000;
+    /* Fading out after a close, it must not take the next click. */
+    pointer-events: none;
 }
 
 .dashboard-dialog-overlay.dashboard-dialog-show {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .dashboard-dialog {

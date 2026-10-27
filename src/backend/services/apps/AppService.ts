@@ -106,10 +106,7 @@ export class AppService extends PuterService {
     ): Promise<AppClientView[]> {
         if (apps.length === 0) return [];
         const [filetypes, canonicals, hostedUnavailable] = await Promise.all([
-            filetypesByAppId ??
-                (this.stores.app.getFiletypeAssociationsByIds(
-                    apps.map((app) => app.id),
-                ) as Promise<Map<unknown, string[]>>),
+            filetypesByAppId ?? this.#filetypesFor(apps),
             this.#resolveCanonicalForIndexUrls(apps),
             hostedIndexUrlBackingsAreUnavailable({
                 apps,
@@ -140,6 +137,24 @@ export class AppService extends PuterService {
                 };
             }),
         );
+    }
+
+    /** Associations from the cached rows; rows loaded without them are queried. */
+    async #filetypesFor(apps: AppRow[]): Promise<Map<unknown, string[]>> {
+        const out = new Map<unknown, string[]>();
+        const missing: unknown[] = [];
+        for (const app of apps) {
+            const cached = app.filetype_associations;
+            if (Array.isArray(cached)) out.set(app.id, cached as string[]);
+            else missing.push(app.id);
+        }
+        if (missing.length > 0) {
+            const loaded = (await this.stores.app.getFiletypeAssociationsByIds(
+                missing,
+            )) as Map<unknown, string[]>;
+            for (const [id, types] of loaded) out.set(id, types);
+        }
+        return out;
     }
 
     /**

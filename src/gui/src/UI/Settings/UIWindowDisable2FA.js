@@ -53,8 +53,8 @@ async function UIWindowDisable2FA (options) {
     h += '<p class="disable-2fa-oidc-hint" style="margin-top:6px;font-size:12px;color:#666;display:none;"></p>';
     h += '</div>';
     h += '<div class="disable-2fa-code-wrap" style="margin-bottom:30px;">';
-    h += `<label for="disable-2fa-code-${internal_id}">${i18n('confirm_code_2fa_instruction')}</label>`;
-    h += `<input id="disable-2fa-code-${internal_id}" class="disable-2fa-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />`;
+    h += `<label for="disable-2fa-code-${internal_id}">${i18n('disable_2fa_code_instruction')}</label>`;
+    h += `<input id="disable-2fa-code-${internal_id}" class="disable-2fa-code" type="text" autocomplete="one-time-code" maxlength="64" />`;
     h += '</div>';
     h += `<button class="disable-2fa-btn button button-primary button-block button-normal">${i18n('disable_2fa')}</button>`;
     h += '</div>';
@@ -204,7 +204,8 @@ async function UIWindowDisable2FA (options) {
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                code: $(el_window).find('.disable-2fa-code').val() || undefined,
+                // Normalized like the login window's recovery input.
+                code: $(el_window).find('.disable-2fa-code').val()?.trim().toUpperCase() || undefined,
                 password: password !== undefined && password !== '' ? password : undefined,
             }),
         });

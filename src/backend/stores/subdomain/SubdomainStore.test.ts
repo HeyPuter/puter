@@ -69,8 +69,10 @@ describe('SubdomainStore cache coherency', () => {
         const row = await store.create({ userId, subdomain, rootDirId: 111 });
 
         // Force the next lookup down the cache-miss path, which is where the
-        // read populates the cache.
+        // read populates the cache. Past the create's change window, so the
+        // read takes the replica path.
         await server.clients.redis.del(cacheKey(subdomain));
+        await server.clients.redis.del(`${cacheKey(subdomain)}:deleted`);
 
         // Stall just the read path's own `set`. The update path writes
         // through `pipeline()`, so this leaves it untouched and lets the
@@ -321,6 +323,27 @@ describe('SubdomainStore in a peer region behind a lagging replica', () => {
         );
         expect(found?.uuid).not.toBe(row.uuid);
         expect(found?.root_dir_id).toBe(2);
+    });
+
+    it('finds a just-created site, and caches no miss, behind a lagging replica', async () => {
+        const userId = await makeUser();
+        const name = newName('create');
+        const other = newName('create-batch');
+
+        await applyOnPeer(name, null, async () => {
+            await store.create({ userId, subdomain: name, rootDirId: 1 });
+            await store.create({ userId, subdomain: other, rootDirId: 2 });
+        });
+        await server.clients.redis.del(cacheKey(other));
+
+        const [found, batch] = await withLaggingReplica([], async () => [
+            await store.getBySubdomain(name),
+            await store.getBySubdomains([other]),
+        ]);
+        expect(found?.root_dir_id).toBe(1);
+        expect(batch.get(other)?.root_dir_id).toBe(2);
+        expect(await settledCache(name)).not.toBe('__none__');
+        expect(await settledCache(other)).not.toBe('__none__');
     });
 
     it('sends a recently changed name in a batch to the primary', async () => {
@@ -1038,6 +1061,37 @@ describe('SubdomainStore.getBySubdomains', () => {
         }
     });
 
+    it('reports negative-cache hits, and only those, in `cachedMisses`', async () => {
+        const userId = await makeUser();
+        const cachedGone = `gbs-cm-${Math.random().toString(36).slice(2, 8)}`;
+        const uncachedGone = `gbs-cm-${Math.random().toString(36).slice(2, 8)}`;
+        const live = `gbs-cm-${Math.random().toString(36).slice(2, 8)}`;
+        await store.create({ userId, subdomain: live });
+        await server.clients.redis.set(cacheKey(cachedGone), '__none__');
+
+        const batchMisses = new Set<string>();
+        const found = await store.getBySubdomains(
+            [cachedGone, uncachedGone, live],
+            { cachedMisses: batchMisses },
+        );
+        expect([...found.keys()]).toEqual([live]);
+        expect([...batchMisses]).toEqual([cachedGone]);
+
+        const singleMisses = new Set<string>();
+        expect(
+            await store.getBySubdomain(cachedGone, {
+                cachedMisses: singleMisses,
+            }),
+        ).toBeNull();
+        await server.clients.redis.del(cacheKey(uncachedGone));
+        expect(
+            await store.getBySubdomain(uncachedGone, {
+                cachedMisses: singleMisses,
+            }),
+        ).toBeNull();
+        expect([...singleMisses]).toEqual([cachedGone]);
+    });
+
     it('treats a cached JSON null as a miss and reads the DB, like getBySubdomain', async () => {
         const owner = await makeUser();
         const name = `gbs-null-${Math.random().toString(36).slice(2, 8)}`;
@@ -1069,5 +1123,29 @@ describe('SubdomainStore.getBySubdomains', () => {
         // The write-through heals the replica-path cache too.
         const healedFound = await store.getBySubdomains([name]);
         expect(healedFound.get(name)?.subdomain).toBe(name);
+    });
+});
+
+describe('SubdomainStore.trashedRootDirIds', () => {
+    it('names the root dirs that sit in their owner Trash', async () => {
+        const fsEntry = server.stores.fsEntry;
+        const spy = vi.spyOn(fsEntry, 'getEntriesByIds').mockResolvedValue(
+            new Map([
+                [1, { id: 1, path: '/alice/Trash/uid-1' }],
+                [2, { id: 2, path: '/alice/Trash' }],
+                [3, { id: 3, path: '/alice/Documents/Trash/site' }],
+                [4, { id: 4, path: '/alice/Trashy' }],
+                [5, { id: 5, path: '/alice/Public' }],
+            ]) as never,
+        );
+        try {
+            expect([
+                ...(await store.trashedRootDirIds([1, 2, 3, 4, 5])),
+            ]).toEqual([1, 2]);
+            expect(await store.trashedRootDirIds([])).toEqual(new Set());
+            expect(spy).toHaveBeenCalledTimes(1);
+        } finally {
+            spy.mockRestore();
+        }
     });
 });

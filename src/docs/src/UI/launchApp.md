@@ -60,6 +60,8 @@ running on its own.
 ## Return value 
 A `Promise` that will resolve to an [`AppConnection`](/Objects/AppConnection) once the app is launched.
 
+If the desktop cannot complete the launch, the promise rejects with `code: 'ipc_handler_failed'` and a `message`.
+
 ## Examples
 
 ```html
