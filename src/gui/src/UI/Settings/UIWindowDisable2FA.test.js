@@ -59,6 +59,14 @@ describe('disabling 2FA', () => {
         await expect(Promise.resolve(state.result.promise)).resolves.toBe(true);
     });
 
+    it('trims and uppercases a pasted recovery code', async () => {
+        await open({ otp: true });
+        jQuery(state.el).find('.disable-2fa-code').val(' abcd2345\n');
+        fetch.mockResolvedValue(reply(200));
+        await submit();
+        expect(bodyOf(0)).toEqual({ password: 'password', code: 'ABCD2345' });
+    });
+
     it.each([400, 401])('leaves 2FA enabled and permits retry after a code rejection (%s)', async status => {
         await open({ otp: true });
         jQuery(state.el).find('.disable-2fa-code').val('000123');
