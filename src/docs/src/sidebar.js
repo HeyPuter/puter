@@ -148,6 +148,14 @@ let sidebar = [
                 path: '/AI/speech2txt',
             },
             {
+                title: '<code>convo()</code>',
+                page_title: '<code>puter.ai.convo()</code>',
+                title_tag: 'puter.ai.convo()',
+                icon: '/assets/img/function.svg',
+                source: '/AI/convo.md',
+                path: '/AI/convo',
+            },
+            {
                 title: '<code>assistant.connect()</code>',
                 page_title: '<code>puter.ai.assistant.connect()</code>',
                 title_tag: 'puter.ai.assistant.connect()',

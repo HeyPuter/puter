@@ -204,6 +204,7 @@ These AI features are supported out of the box when using Puter.js:
 - **[`puter.ai.speech2speech()`](/AI/speech2speech/)** - Convert speech in one voice to another voice
 - **[`puter.ai.txt2vid()`](/AI/txt2vid/)** - Generate short video clips from text or a reference image with Wan, Seedance, Veo, Kling, MiniMax H3 and other models, or edit a video you supply with Gemini Omni, FLUX 3 or Kling Omni
 - **[`puter.ai.speech2txt()`](/AI/speech2txt/)** - Transcribe audio recordings into text
+- **[`puter.ai.convo()`](/AI/convo/)** - Prepare a realtime conversation with optional text, microphone, playback, and interruption helpers
 - **[`puter.ai.assistant.connect()`](/AI/assistant.connect/)** - Hold a realtime voice and text conversation over OpenAI's Realtime API
 
 ## Examples

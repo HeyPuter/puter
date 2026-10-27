@@ -1,156 +1,169 @@
-# `puter.ai.conversation()`: API shape proposal
+# Conversation API contract
 
-Starting point for turning the realtime relay into a high-level API that works the same across OpenAI Realtime, Gemini Live and xAI Grok Voice. This is a proposal, not a decision. Provider facts were checked against their docs on 2026-10-25; items marked *(verify)* weren't.
+The SDK exposes the composable session through `puter.ai.convo()`. OpenAI is the
+baseline provider. The lower-level `puter.ai.assistant.connect()` transport is
+also supported.
 
-## Target shape
-
-Simple by default, as easy to start as `puter.ai.chat()`:
-
-```js
-const convo = puter.ai.conversation(); // default model, voice in/out
-convo.on('transcript', (t) => console.log(t.role, t.text));
-await convo.start(); // asks for the mic, plays replies, handles barge-in
-// ...
-await convo.stop();
-```
-
-With options:
+## Preparation and connection
 
 ```js
-const convo = puter.ai.conversation({
-    model: 'gemini-…-native-audio', // provider picked from the model, like chat()
+const convo = await puter.ai.convo({
+    model: 'gpt-realtime-2.1-mini',
     instructions: 'You are a booking assistant.',
-    voice: 'alloy',              // provider-specific id, passed through
-    modalities: ['audio'],       // or ['text']
-    tools: [{
-        type: 'function',
-        function: { name: 'getWeather', description: '…', parameters: { /* JSON schema */ } },
-        run: async ({ city }) => fetchWeather(city), // optional; SDK sends the result back
-    }],
-    providerOptions: { /* merged into session.update / Gemini setup as-is */ },
+    output: ['text', 'audio'],
+    voice: 'alloy',
 });
 
-await convo.start({
-    input: myMediaStream,   // default: getUserMedia() in browsers; false = text only
-    output: myAudioElement, // default: built-in player; false = emit 'audio' events only
-    resume: savedHandle,    // continue an earlier conversation where the provider supports it
-});
-
-convo.say('Actually, make it Tuesday.'); // text turn
-convo.interrupt();                        // cancel the current reply, flush playback
-convo.mute(true);
-convo.update({ instructions: '…' });      // mid-session config change
+convo.on('response.output_text.delta', ({ delta }) => renderText(delta));
+convo.on('error', handleError);
+await convo.connect();
+convo.sendText('Hello!');
 ```
 
-Escape hatches, so nobody is boxed in:
+The factory validates options, resolves the model, and authenticates the user.
+It does not open a provider connection or request media permissions. Connection
+rechecks authentication and credit, applies configuration, and resolves when
+the provider acknowledges readiness. Attach listeners before connecting.
+
+The lifecycle is `prepared → connecting → connected → closed`. Concurrent
+`connect()` calls share the same attempt. Calling it when connected resolves
+without opening another socket. After closing, create a new conversation.
+Calling `close()` during connection rejects the connection attempt and releases
+its resources. Sending before readiness rejects with `session_not_ready`.
+
+## Optional abstractions on one session
+
+Native OpenAI events are the foundation. Convenience methods use the same
+connection and event stream. No provider adapter registry is needed.
 
 ```js
-convo.provider;           // 'openai' | 'gemini' | 'xai'
-convo.on('raw', (frame) => …); // every provider-native server event
-convo.raw.send(event);    // provider-native client event, unchanged
+convo.send({ type: 'response.create' });
+convo.on('response.done', handleResponse);
+const unsubscribe = convo.on('*', inspectEvent);
+unsubscribe();
+
+await convo.configure({ instructions: 'Keep replies short.' });
+convo.sendText('Book a table for Tuesday.');
+convo.appendAudio(pcmChunk);
+convo.commitAudio();
+await convo.interrupt();
+convo.close();
 ```
 
-`start()` without a browser (Node, workers): `input` takes an async iterable of PCM chunks, `output: false` is implied, and audio arrives as `'audio'` events.
-
-### Normalized events
-
-Keep the set small. Anything not here is still available on `'raw'`.
-
-| Event | Payload |
-| --- | --- |
-| `ready` | `{ provider, model }` |
-| `speech.start` / `speech.stop` | user started/stopped talking (server VAD) |
-| `transcript` | `{ role: 'user' \| 'assistant', text, final }` |
-| `text` | `{ delta }` for text output |
-| `audio` | `{ pcm: Int16Array, sampleRate }` (only when the SDK isn't playing it) |
-| `tool.call` | `{ name, args, id }`; skipped if the tool has `run` |
-| `interrupted` | reply was cut off by barge-in or `interrupt()` |
-| `turn.done` | `{ usage: { costMicroCents } }` |
-| `reconnecting` / `reconnected` | transparent reconnects (Gemini resets, drains) |
-| `error` | `{ code, message }`; same codes as today (`insufficient_funds`, …) |
-| `close` | `{ code, reason }` |
-
-## Providers side by side
-
-| | OpenAI Realtime | Gemini Live | xAI Grok Voice |
-| --- | --- | --- | --- |
-| Endpoint | `wss://api.openai.com/v1/realtime?model=` | `wss://generativelanguage.googleapis.com/ws/…BidiGenerateContent` | `wss://api.x.ai/v1/realtime?model=` |
-| Other transports | WebRTC, SIP | none | SIP (WebRTC only via your own server) |
-| Wire protocol | OpenAI Realtime events | Own protocol: `setup`, `realtimeInput`, `clientContent`, `toolResponse` / `serverContent`, `toolCall`, `goAway`, `sessionResumptionUpdate` | OpenAI Realtime-compatible (`session.update`, `response.create`, `response.function_call_arguments.done`, `function_call_output`) with its own fields |
-| Config | `session.update`, any time | `setup` must be the first frame (model, tools, instructions); limited changes after | `session.update`, any time |
-| Audio in / out | PCM16 24 kHz, G.711 | PCM16 16 kHz in, 24 kHz out | PCM16 8–48 kHz, Opus, G.711; optional raw binary frames instead of base64 |
-| Session limits | 60 min | Connection ~10 min; session 15 min audio-only, 2 min with video, unlimited with context compression | not documented *(verify)* |
-| Resume | none | `sessionResumption` handle, valid 2 h after disconnect | `?conversation_id=` with `resumption.enabled`, history kept 30 min idle |
-| Tools | function, MCP, hosted | function, Google Search, code execution | function, `web_search`, `x_search`, `file_search`, MCP |
-| Billing unit | tokens per modality, in `response.done` | tokens per modality, in `usageMetadata` *(verify exact shape)* | $0.08/min + text input |
-| Browser tokens | client secrets (+ sideband attach, see below) | ephemeral tokens, can lock model/config | `client_secrets`, expiry only, no config lock |
-
-xAI is close enough to OpenAI that Filip's passthrough relay mostly works for it already: different upstream URL and key, a different metering function. Gemini needs a real adapter.
-
-## User pays: what it rules in and out
-
-1. **Usage has to pass through us.** Handing out provider ephemeral tokens for direct browser → provider sessions means we can't see usage, so it's out for Gemini and xAI. The relay stays the default for every provider.
-2. **OpenAI is the one exception worth considering later.** Browser on WebRTC with a client secret we mint, plus a server sideband (`/v1/live/sessions/{id}/attach`) that receives events and final session usage. Lower latency and no audio through our nodes. Risk: a dropped sideband is an unmetered session, so it needs a hold and a cap. Phase 2 at best.
-3. **Charge as it goes, with a hold.** Today a response is billed at `response.done` and a session can go negative by one response. That's tolerable per token; for xAI's per-minute billing an idle open socket costs money, so the relay needs to meter wall-clock minutes and enforce an idle timeout. A small credit hold at `start()` that's topped up per turn covers both.
-4. **Hosted tools cost extra upstream** (web search, `x_search`, MCP calls made by the provider). Block them until they're metered; function tools are free to us since they run in the user's client.
-5. **Out of credit mid-call** should surface the same upgrade prompt other AI calls use, then `error` + `close`. The conversation object can offer `resume` after top-up where the provider supports it.
-
-## Where the normalization lives
-
-Recommendation: **relay stays provider-native, normalization lives in the SDK.**
-
-- The relay has to parse provider frames for billing anyway, but only a few message types. Translating every audio frame (Gemini sends base64 PCM in JSON) costs CPU on the busiest path, and the relay's capacity numbers in `README.md` are already dominated by audio bytes.
-- Raw access stays honest: `'raw'` is exactly what the provider sent, and third-party clients (OpenAI SDK, websocat) keep working against the relay.
-- Each SDK adapter is roughly: `openSocket(opts)`, `configure(opts)` → first frames, `toEvents(frame)` → normalized events, `say/interrupt/sendToolResult` → provider frames, `inputRate/outputRate`.
-
-Backend side, the relay becomes one service with a provider table:
+The public shapes are:
 
 ```ts
-interface RealtimeProvider {
-    upstreamUrl(model: string): string;
-    authHeaders(): Record<string, string>;
-    // Gemini: model and tools come from the client's first `setup` frame, so validate there
-    validateFirstFrame?(frame: Buffer): { model: string } | { error: string };
-    meter(frame: Buffer, state: SessionState): UsageRow[]; // tokens or minutes
-    reconnect?(state: SessionState): string; // Gemini: dial again with the resumption handle
+interface ConvoOptions {
+    model?: string;
+    instructions?: string;
+    output?: ('text' | 'audio')[];
+    voice?: string;
+}
+interface ConvoEvent {
+    type: string;
+    [field: string]: unknown; // Provider-owned event fields pass through.
+}
+interface PlaybackPosition {
+    itemId: string;
+    contentIndex: number;
+    playedMs: number;
+}
+interface ConvoError {
+    code: string;
+    message: string;
 }
 ```
 
-Gemini's ~10 min connection reset is the main thing the SDK hides: on `goAway`, reconnect with the latest `sessionResumptionUpdate.newHandle`, emit `reconnecting`/`reconnected`, keep the mic running and buffer meanwhile. Doing it relay-side (keep the client socket, re-dial upstream) is also possible and saves a client round trip, but means the relay holds resumption state. Pick one.
+Each helper has a specific effect:
 
-## Audio defaults in the SDK
+- `configure(options)` changes session settings and resolves on acknowledgment.
+- `sendText(text)` creates a user message and requests a reply.
+- `appendAudio(pcm)` appends PCM16, 24 kHz mono input without ending a turn.
+- `commitAudio()` commits input and requests a reply in manual turn mode.
+  Automatic voice activity detection is the default.
+- `interrupt(position?)` cancels the response active when called. Idle calls
+  resolve immediately. Repeated calls for the same response share one promise.
+- `send(event)` sends a native event. Native events remain observable even when
+  helpers consume them.
+- `close()` ends the connection and releases media resources owned by the SDK.
 
-- Mic: `getUserMedia` → AudioWorklet → resample to the provider's input rate (24 kHz OpenAI/xAI, 16 kHz Gemini) → PCM16.
-- Playback: queue PCM at the output rate; on `speech.start` or `interrupted`, flush the queue and tell the provider how much was played (OpenAI `conversation.item.truncate`) so its transcript matches what the user heard.
-- Echo cancellation from `getUserMedia` constraints; no custom DSP.
-- xAI's binary audio transport cuts the base64 overhead; use it once the relay forwards binary frames for xAI.
+Normalized text, transcript, audio, and turn-completion events supplement native
+events. Audio decoding runs only when playback or an audio listener is active.
+The backend does not parse frames again or run media helpers.
 
-## Doesn't map cleanly
+## Optional browser media
 
-- **Voices** differ per provider; `voice` is a pass-through string. A voice list per model could come later.
-- **Video / images** (Gemini video input, OpenAI image input): `convo.raw.send()` for now. Gemini video sessions are 2 min without compression.
-- **Provider extras** (Gemini affective/proactive audio, OpenAI MCP/SIP, xAI custom voices, `x_search`): `providerOptions` + `raw`.
-- **Usage** is tokens for two providers and minutes for one, so `turn.done.usage` reports cost, not tokens.
-- **Config after start**: Gemini can't change model or tools mid-session; `update()` rejects those for Gemini.
+```js
+await convo.microphone.start();
+await convo.speaker.start({ bargeIn: true });
+convo.microphone.mute();
+convo.microphone.unmute();
+await convo.microphone.stop();
+await convo.speaker.stop();
+```
 
-## Suggested order
+Microphone and speaker are independent. Starting either requires a connected
+session. Only microphone start requests capture permission. Browser-only helpers
+reject with `unsupported_environment` elsewhere. Raw events and audio input
+remain available in Node and workers.
 
-1. `conversation()` + `start()` on top of the existing OpenAI relay (`assistant.connect()` becomes the transport underneath, or stays as the raw API).
-2. xAI: second upstream in the relay, per-minute metering, idle timeout.
-3. Gemini: relay adapter (first-frame validation, `usageMetadata` metering) and SDK adapter with transparent reconnect.
-4. Credit hold + upgrade prompt.
-5. Maybe: OpenAI WebRTC + sideband.
+Capture uses an AudioWorklet with bounded chunks. Playback has a bounded queue.
+No ScriptProcessor, growing transcript buffer, or retained audio history is
+part of the SDK. Custom capture and playback can be mixed with built-in helpers.
 
-## Open questions
+## Asynchronous interruption
 
-- SDK-side vs relay-side Gemini reconnect.
-- Paid-only or not. Other `/puterai/openai/v1/*` routes are; the relay isn't.
-- Hold size and idle timeout values.
-- Does the `'raw'` passthrough stay stable API, or is it documented as provider-dependent?
-- Does `puter.ai.assistant.connect()` ship publicly, or stay internal once `conversation()` exists?
+Explicit interruption and provider speech-start events enter the same operation.
+The built-in speaker immediately clears playback, then cancellation and playback
+history synchronization run asynchronously. The promise resolves after provider
+acknowledgment. A disconnect rejects it with a stable connection error.
 
-## Links
+Interruption captures the response ID. Late deltas from that response remain
+visible as native events but never enter built-in playback. Delayed cancellation
+must not cancel a newer response. The speaker tracks item ID, content index,
+and played milliseconds. Custom players supply that position explicitly.
 
-- OpenAI: [Realtime](https://developers.openai.com/api/docs/guides/realtime), [server-side controls / sideband](https://developers.openai.com/api/docs/guides/realtime-server-controls)
-- Gemini: [Live API](https://ai.google.dev/gemini-api/docs/live), [session management](https://ai.google.dev/gemini-api/docs/live-session), [ephemeral tokens](https://ai.google.dev/gemini-api/docs/ephemeral-tokens)
-- xAI: [Speech to Speech](https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech), [ephemeral tokens](https://docs.x.ai/developers/model-capabilities/audio/ephemeral-tokens), [pricing](https://docs.x.ai/developers/pricing)
+The `interrupted` event carries `{ type: 'interrupted', source:
+'speech' | 'manual', responseId }`. It signals local interruption immediately.
+Await the operation before submitting a replacement text turn:
+
+```js
+await convo.interrupt();
+convo.sendText('Actually, make it Wednesday.');
+```
+
+## Latency and bounded work
+
+The relay passes original bytes through after a single bounded JSON parse.
+Metering is serialized outside forwarding with bounded retained work. It never
+buffers an entire conversation or transcodes audio. Media and convenience
+helpers run in the client only when selected.
+
+The implemented transport caps each message at 64 KiB in either direction,
+including fragmented messages. Audio producers must stream chunks rather than
+upload recordings. Client traffic has a 64 KiB burst and 128 KiB/s sustained
+budget, plus 100 messages/s. Upstream traffic allows 200 messages/s and 256 KiB/s with a 256 KiB burst. Message
+rates use token buckets with bursts equal to their one-second allowance.
+Pending handshake input is bounded by both 32 messages and 64 KiB. Pending
+metering is bounded by both 32 events and 256 KiB. Forwarding queues have a
+128 KiB high-water mark and a 192 KiB hard admission cap in each direction.
+
+The SDK must check text, PCM chunk, native event size, and outbound buffered
+bytes before sending. Configuration and interruption acknowledgment waits need
+timeouts and bounded pending operations. Closing rejects all pending operations
+and clears timers and listeners. Automatic reconnect and tool execution are
+outside this contract.
+
+## SDK contract tests
+
+Use typed fixtures matching the shapes above, with explicit malformed fixtures
+for rejection tests. Exercise the built SDK against a test server as well as
+unit tests. Cover authentication cancellation, option validation, readiness,
+concurrent connection attempts, close during setup, native event preservation,
+helper-to-event mappings, interruption races, media cleanup, queue overflow,
+and operation timeouts. No production method should exist only for a test.
+
+Cross-session tests must show that flooding one session does not prevent another
+from making progress. Timing measurements are evidence for a specific run, not
+a claim about fleet capacity. A deployment load test is required before raising
+transport limits or enabling media helpers at scale.

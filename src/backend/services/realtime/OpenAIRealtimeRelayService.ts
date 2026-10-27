@@ -20,12 +20,6 @@
 import { createHash } from 'node:crypto';
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
-import {
-    monitorEventLoopDelay,
-    performance,
-    type EventLoopUtilization,
-    type IntervalHistogram,
-} from 'node:perf_hooks';
 import WebSocket, { WebSocketServer, type RawData } from 'ws';
 import type { Actor } from '../../core/actor.js';
 import {
@@ -34,6 +28,7 @@ import {
 } from '../../core/http/middleware/rateLimit.js';
 import { SPEECH_TO_TEXT_COSTS } from '../../drivers/ai-speech2txt/costs.js';
 import { readProviderKey } from '../../drivers/util/providerRegistry.js';
+import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { kv } from '../../util/kvSingleton.js';
 import type { UsageInput } from '../metering/types.js';
 import { decideSocketAuth } from '../socket/SocketService.js';
@@ -125,18 +120,24 @@ export interface RealtimeTranscriptionUsage {
 }
 
 const OPENAI_KEY_PROTOCOL = 'openai-insecure-api-key.';
-const MAX_CLIENT_PAYLOAD = 16 * 1024 * 1024;
-// Client reads pause past this much buffered before the upstream opens.
-const MAX_PENDING_BYTES = 1024 * 1024;
+export const MAX_REALTIME_MESSAGE_BYTES = 64 * 1024;
+const MAX_PENDING_MESSAGES = 32;
+const MAX_DECODE_BYTES = 256 * 1024;
+const MAX_DECODE_MESSAGES = 32;
+const MAX_CLIENT_MESSAGES_PER_SECOND = 100;
+const MAX_UPSTREAM_MESSAGES_PER_SECOND = 200;
+// Input retained while authentication and the upstream handshake run.
+const MAX_PENDING_BYTES = MAX_REALTIME_MESSAGE_BYTES;
 // Either side stops being read while the other has this much queued.
-const HIGH_WATER_BYTES = 1024 * 1024;
+const HIGH_WATER_BYTES = 128 * 1024;
 // A client that leaves the upstream paused this long is closed.
 const SLOW_CLIENT_MS = 30_000;
 // Sustained client → upstream rate; bursts up to one max-size frame.
-const DEFAULT_CLIENT_BYTES_PER_SEC = 1024 * 1024;
+const DEFAULT_CLIENT_BYTES_PER_SEC = 128 * 1024;
+const MAX_UPSTREAM_BYTES_PER_SECOND = 256 * 1024;
 const HEARTBEAT_MS = 30_000;
 const UPSTREAM_HANDSHAKE_MS = 10_000;
-const STATS_INTERVAL_MS = 30_000;
+const SESSION_SETUP_MS = 15_000;
 const DEFAULT_MAX_PER_USER = 20;
 // Credentials are re-authenticated once their kv entry expires.
 const AUTH_RECHECK_SEC = 60;
@@ -145,9 +146,76 @@ const AUTH_SWEEP_MS = 15_000;
 const DRAIN_RESPONSE_MS = 5_000;
 // RFC 6455 "Service Restart": the client should reconnect.
 const CLOSE_RESTART = 1012;
-const TYPE_PREFIX = /^\{\s*"type"\s*:\s*"([^"]+)"/;
 const TRANSCRIPTION_DONE =
     'conversation.item.input_audio_transcription.completed';
+
+interface RealtimeEvent {
+    type: string;
+    session?: unknown;
+    response?: { usage?: RealtimeUsage };
+    usage?: RealtimeTranscriptionUsage;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const validUsage = (usage: unknown): boolean => {
+    if (usage === undefined) return true;
+    if (!isRecord(usage)) return false;
+    const validNumbers = (value: Record<string, unknown>) =>
+        [
+            'text_tokens',
+            'audio_tokens',
+            'image_tokens',
+            'input_tokens',
+            'output_tokens',
+            'seconds',
+        ].every(
+            (key) =>
+                value[key] === undefined ||
+                (typeof value[key] === 'number' &&
+                    Number.isFinite(value[key]) &&
+                    value[key] >= 0 &&
+                    value[key] <= 1_000_000_000),
+        );
+    if (!validNumbers(usage)) return false;
+    for (const key of ['input_token_details', 'output_token_details']) {
+        const details = usage[key];
+        if (details === undefined) continue;
+        if (!isRecord(details) || !validNumbers(details)) return false;
+        const cached = details.cached_tokens_details;
+        if (
+            cached !== undefined &&
+            (!isRecord(cached) || !validNumbers(cached))
+        )
+            return false;
+    }
+    return true;
+};
+
+const parseEvent = (buffer: Buffer): RealtimeEvent | null => {
+    try {
+        const event = JSON.parse(buffer.toString('utf8'));
+        if (
+            !event ||
+            typeof event !== 'object' ||
+            Array.isArray(event) ||
+            typeof event.type !== 'string' ||
+            !event.type.length ||
+            event.type.length > 128
+        )
+            return null;
+        if (event.type === 'response.done' && event.response !== undefined) {
+            if (!isRecord(event.response) || !validUsage(event.response.usage))
+                return null;
+        }
+        if (event.type === TRANSCRIPTION_DONE && !validUsage(event.usage))
+            return null;
+        return event;
+    } catch {
+        return null;
+    }
+};
 
 /**
  * The credential a realtime client presents, in the places OpenAI's own clients
@@ -155,7 +223,7 @@ const TRANSCRIPTION_DONE =
  * `openai-insecure-api-key.<token>` subprotocol (browsers), or `auth_token`.
  */
 export const realtimeTokenFrom = (
-    req: IncomingMessage,
+    req: Pick<IncomingMessage, 'headers'>,
     url: URL,
 ): string | undefined => {
     const header = req.headers.authorization;
@@ -177,7 +245,9 @@ export const realtimeUsageRows = (
     model: string,
     usage: RealtimeUsage | undefined,
 ): UsageInput[] => {
-    const price = REALTIME_MODELS[model];
+    const price = Object.hasOwn(REALTIME_MODELS, model)
+        ? REALTIME_MODELS[model]
+        : undefined;
     if (!price || !usage) return [];
     const input = usage.input_token_details ?? {};
     const cached = input.cached_tokens_details ?? {};
@@ -228,8 +298,8 @@ export const realtimeTranscriptionRows = (
         typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
     const known =
         model &&
-        (TRANSCRIPTION_TOKEN_PRICES[model] ||
-            TRANSCRIPTION_SECOND_PRICES[model])
+        (Object.hasOwn(TRANSCRIPTION_TOKEN_PRICES, model) ||
+            Object.hasOwn(TRANSCRIPTION_SECOND_PRICES, model))
             ? model
             : 'unknown';
     const usageType = (kind: string) =>
@@ -300,8 +370,8 @@ const errorEvent = (code: string, message: string): string =>
 /**
  * Relays OpenAI's Realtime API over WebSocket at `REALTIME_PATH` on the api
  * host, one upstream connection per client connection. Frames pass through
- * untouched in both directions; only `response.done` is parsed, to meter its
- * usage.
+ * untouched in both directions after bounded envelope validation. Usage events
+ * are metered serially outside the forwarding path.
  *
  * The client socket is accepted before authenticating: socket.io ends any
  * upgrade that hasn't written a byte within a second, which an auth lookup
@@ -310,9 +380,6 @@ const errorEvent = (code: string, message: string): string =>
  */
 export class OpenAIRealtimeRelayService extends PuterService {
     #wss: WebSocketServer | null = null;
-    #statsTimer: ReturnType<typeof setInterval> | null = null;
-    #loopDelay: IntervalHistogram | null = null;
-    #elu: EventLoopUtilization | null = null;
     #sessions = new Set<{
         close: (code: number, reason: string) => void;
         heartbeat: () => void;
@@ -324,26 +391,14 @@ export class OpenAIRealtimeRelayService extends PuterService {
     // One re-authentication per token at a time, shared by its sessions.
     #authChecks = new Map<string, Promise<Actor | null>>();
     #draining = false;
-    #stats = {
-        opened: 0,
-        closed: 0,
-        rejected: 0,
-        upstreamFailed: 0,
-        connectMsTotal: 0,
-        connectCount: 0,
-        framesUp: 0,
-        framesDown: 0,
-        bytesUp: 0,
-        bytesDown: 0,
-    };
-
+    #sweeping = false;
     attachHttpServer(server: HttpServer): void {
         this.#wss = new WebSocketServer({
             noServer: true,
-            maxPayload: MAX_CLIENT_PAYLOAD,
+            maxPayload: MAX_REALTIME_MESSAGE_BYTES,
+            maxFragments: 64,
+            maxBufferedChunks: 128,
             perMessageDeflate: false,
-            // Frames are relayed, not read; the receiving end validates.
-            skipUTF8Validation: true,
             // Echo `realtime` so browsers that offered OpenAI's protocols
             // accept the handshake; the key protocol is never echoed.
             handleProtocols: (protocols) =>
@@ -353,7 +408,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
         const apiHost = `api.${domain}`;
 
         server.on('upgrade', (req: IncomingMessage, socket: Duplex, head) => {
-            const url = new URL(req.url ?? '/', 'http://placeholder');
+            if (!req.url?.startsWith(REALTIME_PATH)) return;
+            const url = new URL(req.url, 'http://placeholder');
             if (url.pathname !== REALTIME_PATH) return;
             const host = (req.headers.host ?? '').split(':')[0].toLowerCase();
             if (!domain || host !== apiHost) {
@@ -368,14 +424,6 @@ export class OpenAIRealtimeRelayService extends PuterService {
             });
         });
 
-        this.#loopDelay = monitorEventLoopDelay({ resolution: 10 });
-        this.#loopDelay.enable();
-        this.#elu = performance.eventLoopUtilization();
-        this.#statsTimer = setInterval(
-            () => this.#logStats(),
-            STATS_INTERVAL_MS,
-        );
-        this.#statsTimer.unref?.();
         this.#heartbeatTimer = setInterval(() => {
             for (const session of this.#sessions) session.heartbeat();
         }, HEARTBEAT_MS);
@@ -389,7 +437,15 @@ export class OpenAIRealtimeRelayService extends PuterService {
 
     /** Re-authenticates every session whose token's kv entry has expired. */
     async recheckSessions(): Promise<void> {
-        await Promise.all([...this.#sessions].map((s) => s.recheck()));
+        if (this.#sweeping) return;
+        this.#sweeping = true;
+        try {
+            await runWithConcurrencyLimit([...this.#sessions], 16, (s) =>
+                s.recheck(),
+            );
+        } finally {
+            this.#sweeping = false;
+        }
     }
 
     /** New sessions are refused; open ones keep running through the drain. */
@@ -406,50 +462,10 @@ export class OpenAIRealtimeRelayService extends PuterService {
      */
     override async onServerPrepareShutdown(): Promise<void> {
         this.#draining = true;
-        if (this.#statsTimer) clearInterval(this.#statsTimer);
         if (this.#heartbeatTimer) clearInterval(this.#heartbeatTimer);
         if (this.#authTimer) clearInterval(this.#authTimer);
-        this.#loopDelay?.disable();
         await Promise.all([...this.#sessions].map((s) => s.drain()));
         this.#wss?.close();
-    }
-
-    /**
-     * Counters for this node, cumulative since boot, plus event-loop delay (ms)
-     * and memory (MiB) sampled since the previous stats line.
-     */
-    stats() {
-        const ns = (v: number | undefined) =>
-            Math.round(((v ?? 0) / 1e6) * 10) / 10;
-        const mem = process.memoryUsage();
-        return {
-            active: this.#sessions.size,
-            ...this.#stats,
-            loopP50Ms: ns(this.#loopDelay?.percentile(50)),
-            loopP99Ms: ns(this.#loopDelay?.percentile(99)),
-            loopMaxMs: ns(this.#loopDelay?.max),
-            elu: this.#elu
-                ? Math.round(
-                      performance.eventLoopUtilization(this.#elu).utilization *
-                          1000,
-                  ) / 1000
-                : 0,
-            rssMb: Math.round(mem.rss / 1048576),
-            heapMb: Math.round(mem.heapUsed / 1048576),
-        };
-    }
-
-    #logStats(): void {
-        const s = this.stats();
-        if (s.active === 0 && s.opened === 0) return;
-        const avgConnect = s.connectCount
-            ? Math.round(s.connectMsTotal / s.connectCount)
-            : 0;
-        console.info(
-            `[realtime] active=${s.active} opened=${s.opened} closed=${s.closed} rejected=${s.rejected} upstreamFailed=${s.upstreamFailed} avgUpstreamConnectMs=${avgConnect} framesUp=${s.framesUp} framesDown=${s.framesDown} bytesUp=${s.bytesUp} bytesDown=${s.bytesDown} loopP50Ms=${s.loopP50Ms} loopP99Ms=${s.loopP99Ms} loopMaxMs=${s.loopMaxMs} elu=${s.elu} rssMb=${s.rssMb} heapMb=${s.heapMb}`,
-        );
-        this.#loopDelay?.reset();
-        this.#elu = performance.eventLoopUtilization();
     }
 
     async #runSession(
@@ -463,6 +479,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
         let pendingBytes = 0;
         let upstream: WebSocket | null = null;
         let closed = false;
+        let setupTimer: ReturnType<typeof setTimeout> | null = null;
         let alive = true;
         const slots: { release: () => Promise<void> }[] = [];
         let renewTimer: ReturnType<typeof setInterval> | null = null;
@@ -478,12 +495,12 @@ export class OpenAIRealtimeRelayService extends PuterService {
         const decoded: { transcriptionModel?: string } = {};
 
         // Client reads stay paused while any reason holds.
-        const holds = new Set<'pending' | 'upstream' | 'budget'>();
-        const holdClient = (reason: 'pending' | 'upstream' | 'budget') => {
+        const holds = new Set<'upstream' | 'budget'>();
+        const holdClient = (reason: 'upstream' | 'budget') => {
             holds.add(reason);
             client.pause();
         };
-        const releaseClient = (reason: 'pending' | 'upstream' | 'budget') => {
+        const releaseClient = (reason: 'upstream' | 'budget') => {
             if (holds.delete(reason) && holds.size === 0 && !closed) {
                 client.resume();
             }
@@ -493,14 +510,17 @@ export class OpenAIRealtimeRelayService extends PuterService {
             close: (code: number, reason: string) => {
                 if (closed) return;
                 closed = true;
+                if (setupTimer) clearTimeout(setupTimer);
+                pending.length = 0;
+                pendingBytes = 0;
                 this.#sessions.delete(session);
-                this.#stats.closed++;
                 if (renewTimer) clearInterval(renewTimer);
                 if (budgetTimer) clearTimeout(budgetTimer);
                 if (stallTimer) clearTimeout(stallTimer);
                 onIdle?.();
                 void Promise.all(slots.map((s) => s.release()));
                 if (client.readyState === WebSocket.OPEN) {
+                    client.resume();
                     client.close(code, reason);
                 }
                 if (
@@ -558,11 +578,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
             },
         };
         this.#sessions.add(session);
-        this.#stats.opened++;
-        client.on('pong', () => (alive = true));
 
         const reject = (code: string, message: string, closeCode = 1008) => {
-            this.#stats.rejected++;
             if (client.readyState === WebSocket.OPEN) {
                 client.send(errorEvent(code, message));
             }
@@ -578,22 +595,31 @@ export class OpenAIRealtimeRelayService extends PuterService {
             return;
         }
 
+        setupTimer = setTimeout(
+            () =>
+                reject('connection_timeout', 'Realtime setup timed out', 1011),
+            SESSION_SETUP_MS,
+        );
+
         // Token bucket over client bytes: one max-size frame of burst, then
         // reads pause until the sustained rate catches up.
-        const rate =
-            this.config.realtime?.maxClientBytesPerSecond ??
-            DEFAULT_CLIENT_BYTES_PER_SEC;
-        let budget = MAX_CLIENT_PAYLOAD;
+        const rate = DEFAULT_CLIENT_BYTES_PER_SEC;
+        let budget = MAX_REALTIME_MESSAGE_BYTES;
         let budgetAt = Date.now();
         const spend = (size: number) => {
             const now = Date.now();
             budget = Math.min(
-                MAX_CLIENT_PAYLOAD,
+                MAX_REALTIME_MESSAGE_BYTES,
                 budget + ((now - budgetAt) * rate) / 1000,
             );
             budgetAt = now;
             budget -= size;
-            if (budget >= 0 || budgetTimer) return;
+            if (budget < -MAX_REALTIME_MESSAGE_BYTES) {
+                reject('rate_limit_exceeded', 'Realtime byte rate exceeded');
+                return;
+            }
+            if (budget >= 0) return;
+            if (budgetTimer) clearTimeout(budgetTimer);
             holdClient('budget');
             budgetTimer = setTimeout(
                 () => {
@@ -604,8 +630,88 @@ export class OpenAIRealtimeRelayService extends PuterService {
             );
         };
 
+        const messageBudgets = {
+            client: {
+                tokens: MAX_CLIENT_MESSAGES_PER_SECOND,
+                at: Date.now(),
+                rate: MAX_CLIENT_MESSAGES_PER_SECOND,
+            },
+            upstream: {
+                tokens: MAX_UPSTREAM_MESSAGES_PER_SECOND,
+                at: Date.now(),
+                rate: MAX_UPSTREAM_MESSAGES_PER_SECOND,
+            },
+        };
+        let upstreamBytes = MAX_UPSTREAM_BYTES_PER_SECOND;
+        let upstreamBytesAt = Date.now();
+        const admitMessage = (
+            direction: keyof typeof messageBudgets,
+            bytes = 0,
+        ) => {
+            if (direction === 'upstream') {
+                const now = Date.now();
+                upstreamBytes =
+                    Math.min(
+                        MAX_UPSTREAM_BYTES_PER_SECOND,
+                        upstreamBytes +
+                            ((now - upstreamBytesAt) *
+                                MAX_UPSTREAM_BYTES_PER_SECOND) /
+                                1000,
+                    ) - bytes;
+                upstreamBytesAt = now;
+                if (upstreamBytes < 0) {
+                    reject(
+                        'rate_limit_exceeded',
+                        'Upstream byte rate exceeded',
+                    );
+                    return false;
+                }
+            }
+            const bucket = messageBudgets[direction];
+            const now = Date.now();
+            bucket.tokens = Math.min(
+                bucket.rate,
+                bucket.tokens + ((now - bucket.at) * bucket.rate) / 1000,
+            );
+            bucket.at = now;
+            if (bucket.tokens < 1) {
+                reject('rate_limit_exceeded', 'Realtime message rate exceeded');
+                return false;
+            }
+            bucket.tokens--;
+            return true;
+        };
+        client.on('pong', () => {
+            if (!closed && admitMessage('client')) alive = true;
+        });
+        client.on('ping', () => {
+            if (!closed) admitMessage('client');
+        });
+        const decodeQueue: { event: RealtimeEvent; bytes: number }[] = [];
+        let decodeBytes = 0;
+        let decoding = false;
+        const drainDecode = async () => {
+            while (decodeQueue.length) {
+                const entry = decodeQueue[0];
+                await this.#decode(entry.event, model, decoded, actor!, () =>
+                    reject('insufficient_funds', 'No usage left for request'),
+                );
+                decodeQueue.shift();
+                decodeBytes -= entry.bytes;
+                await new Promise<void>((resolve) => setImmediate(resolve));
+            }
+            decoding = false;
+        };
+
         const sendUpstream = (data: RawData, isBinary: boolean) => {
             const up = upstream!;
+            if (
+                up.bufferedAmount + (data as Buffer).length >
+                HIGH_WATER_BYTES + MAX_REALTIME_MESSAGE_BYTES
+            ) {
+                reject('rate_limit_exceeded', 'Upstream queue is full');
+                return;
+            }
             up.send(data, { binary: isBinary }, () => {
                 if (up.bufferedAmount < HIGH_WATER_BYTES) {
                     releaseClient('upstream');
@@ -616,25 +722,46 @@ export class OpenAIRealtimeRelayService extends PuterService {
 
         client.on('message', (data, isBinary) => {
             if (closed) return;
-            this.#stats.framesUp++;
-            const size = (data as Buffer).length ?? 0;
-            this.#stats.bytesUp += size;
+            const size = (data as Buffer).length;
+            if (!admitMessage('client')) return;
+            if (isBinary || !parseEvent(data as Buffer)) {
+                reject(
+                    'invalid_event',
+                    'Expected a JSON object with a nonempty type',
+                );
+                return;
+            }
             spend(size);
+            if (closed) return;
             if (upstream?.readyState === WebSocket.OPEN) {
                 sendUpstream(data, isBinary);
                 return;
             }
+            if (
+                pending.length >= MAX_PENDING_MESSAGES ||
+                pendingBytes + size > MAX_PENDING_BYTES
+            ) {
+                reject(
+                    'rate_limit_exceeded',
+                    'Too much data before session readiness',
+                );
+                return;
+            }
             pending.push({ data, isBinary });
             pendingBytes += size;
-            if (pendingBytes > MAX_PENDING_BYTES) holdClient('pending');
         });
         client.on('close', (code) =>
             session.close(code === 1005 || code === 1006 ? 1000 : code, ''),
         );
-        client.on('error', () => session.close(1011, 'client error'));
+        client.on('error', (err: Error & { code?: string }) =>
+            session.close(
+                err.code === 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH' ? 1009 : 1011,
+                'client error',
+            ),
+        );
 
         const model = url.searchParams.get('model') || DEFAULT_REALTIME_MODEL;
-        if (!REALTIME_MODELS[model]) {
+        if (!Object.hasOwn(REALTIME_MODELS, model)) {
             reject(
                 'model_not_found',
                 `Model '${model}' is not available for realtime`,
@@ -694,37 +821,51 @@ export class OpenAIRealtimeRelayService extends PuterService {
             return;
         }
 
-        const connectStart = Date.now();
         upstream = new WebSocket(
             `${this.config.realtime?.upstreamUrl ?? UPSTREAM_URL}?model=${encodeURIComponent(model)}`,
             {
                 headers: { Authorization: `Bearer ${apiKey}` },
                 handshakeTimeout: UPSTREAM_HANDSHAKE_MS,
                 perMessageDeflate: false,
-                // Masking protects proxies from browser-crafted frames; on a
-                // TLS socket to a fixed host a zero key is valid and lets ws
-                // skip copying and XOR-ing every frame.
-                generateMask: (mask) => mask.fill(0),
-                skipUTF8Validation: true,
+                maxPayload: MAX_REALTIME_MESSAGE_BYTES,
+                maxFragments: 64,
+                maxBufferedChunks: 128,
             },
         );
         const up = upstream;
+        up.on('pong', () => {
+            if (!closed) admitMessage('upstream');
+        });
+        up.on('ping', () => {
+            if (!closed) admitMessage('upstream');
+        });
 
         up.on('open', () => {
-            this.#stats.connectMsTotal += Date.now() - connectStart;
-            this.#stats.connectCount++;
+            if (setupTimer) clearTimeout(setupTimer);
+            if (closed) return;
             for (const { data, isBinary } of pending) {
+                if (closed) break;
                 sendUpstream(data, isBinary);
             }
             pending.length = 0;
             pendingBytes = 0;
-            releaseClient('pending');
         });
         up.on('message', (data, isBinary) => {
             const buf = data as Buffer;
-            this.#stats.framesDown++;
-            this.#stats.bytesDown += buf.length;
-            if (client.readyState !== WebSocket.OPEN) return;
+            if (closed || client.readyState !== WebSocket.OPEN) return;
+            if (!admitMessage('upstream', buf.length)) return;
+            const event = !isBinary && parseEvent(buf);
+            if (!event) {
+                reject('upstream_error', 'Invalid upstream event', 1011);
+                return;
+            }
+            if (
+                client.bufferedAmount + buf.length >
+                HIGH_WATER_BYTES + MAX_REALTIME_MESSAGE_BYTES
+            ) {
+                reject('rate_limit_exceeded', 'Client queue is full');
+                return;
+            }
             client.send(buf, { binary: isBinary }, () => {
                 if (
                     up.isPaused &&
@@ -745,11 +886,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     SLOW_CLIENT_MS,
                 );
             }
-            if (isBinary) return;
-            // Audio deltas dominate; only the type prefix is read per frame.
-            const type = TYPE_PREFIX.exec(
-                buf.subarray(0, 96).toString('latin1'),
-            )?.[1];
+            const type = event.type;
             if (type === 'response.created') inFlight++;
             if (type === 'response.done') {
                 inFlight = Math.max(0, inFlight - 1);
@@ -761,20 +898,25 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 type === 'session.created' ||
                 type === 'session.updated'
             ) {
-                // Parsed and billed after the frame is forwarded, in arrival
-                // order, so metering never holds up the relay.
-                setImmediate(() =>
-                    this.#decode(type, buf, model, decoded, actor!, () =>
-                        reject(
-                            'insufficient_funds',
-                            'No usage left for request',
-                        ),
-                    ),
-                );
+                if (
+                    decodeQueue.length >= MAX_DECODE_MESSAGES ||
+                    decodeBytes + buf.length > MAX_DECODE_BYTES
+                ) {
+                    reject(
+                        'rate_limit_exceeded',
+                        'Too many pending usage events',
+                    );
+                    return;
+                }
+                decodeQueue.push({ event, bytes: buf.length });
+                decodeBytes += buf.length;
+                if (!decoding) {
+                    decoding = true;
+                    setImmediate(() => void drainDecode());
+                }
             }
         });
         up.on('unexpected-response', (_req, res) => {
-            this.#stats.upstreamFailed++;
             console.warn(
                 `[realtime] upstream rejected: HTTP ${res.statusCode}`,
             );
@@ -791,7 +933,6 @@ export class OpenAIRealtimeRelayService extends PuterService {
         up.on('error', (err) => {
             // Our own terminate() of a half-open upstream also lands here.
             if (closed) return;
-            if (up.readyState !== WebSocket.OPEN) this.#stats.upstreamFailed++;
             console.warn('[realtime] upstream error', err.message);
             session.close(1011, 'upstream error');
         });
@@ -804,33 +945,23 @@ export class OpenAIRealtimeRelayService extends PuterService {
     }
 
     async #decode(
-        type: string,
-        buf: Buffer,
+        event: RealtimeEvent,
         model: string,
         decoded: { transcriptionModel?: string },
         actor: Actor,
         onExhausted: () => void,
     ): Promise<void> {
-        let event: {
-            session?: unknown;
-            response?: { usage?: RealtimeUsage };
-            usage?: RealtimeTranscriptionUsage;
-        };
-        try {
-            event = JSON.parse(buf.toString('utf8'));
-        } catch {
-            return;
-        }
+        const type = event.type;
         if (type === 'session.created' || type === 'session.updated') {
             decoded.transcriptionModel = transcriptionModelOf(event?.session);
             return;
         }
         const rows =
             type === 'response.done'
-                ? realtimeUsageRows(model, event?.response?.usage)
+                ? realtimeUsageRows(model, event.response?.usage)
                 : realtimeTranscriptionRows(
                       decoded.transcriptionModel,
-                      event?.usage,
+                      event.usage,
                   );
         if (rows.length === 0) return;
         try {

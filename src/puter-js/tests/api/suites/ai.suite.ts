@@ -1733,6 +1733,52 @@ export default suite('ai', {
         t.assert.equal(error.message, 'Input size cannot be larger than 25 MB');
     },
 
+    'convo streams a live text turn': {
+        requires: ['ai.openai'],
+        fn: async (t) => {
+            const conversation = await t.puter.ai.convo({ output: ['text'], instructions: 'Reply with exactly realtime-ok.' });
+            let text = '';
+            conversation.on('text', ({ delta }) => { text += delta; });
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+                await conversation.connect();
+                const completed = new Promise<void>((resolve, reject) => {
+                    timer = setTimeout(() => reject(new Error('Realtime response timed out')), 20_000);
+                    conversation.on('turn.done', () => resolve());
+                    conversation.on('error', (event) => reject(new Error(String((event.error as { code?: string })?.code ?? event.code))));
+                });
+                conversation.sendText('Say realtime-ok');
+                await completed;
+                t.assert.ok(text.toLowerCase().includes('realtime-ok'));
+            } finally {
+                clearTimeout(timer);
+                conversation.close();
+            }
+        },
+    },
+
+    'convo prepares and closes without opening a provider session': async (t) => {
+        const conversation = await t.puter.ai.convo({ output: ['text'] });
+        t.assert.equal(conversation.state, 'prepared');
+        t.assert.equal(conversation.model, 'gpt-realtime-2.1-mini');
+        let closed = 0;
+        conversation.on('close', () => closed++);
+        conversation.close();
+        conversation.close();
+        t.assert.equal(conversation.state, 'closed');
+        t.assert.equal(closed, 1);
+    },
+
+    'convo rejects invalid options and sending before connect': async (t) => {
+        await t.assert.rejects(() => t.puter.ai.convo({ model: 'not-a-realtime-model' }));
+        const conversation = await t.puter.ai.convo({ output: ['text'] });
+        try {
+            await t.assert.rejects(async () => conversation.sendText('Hello'));
+        } finally {
+            conversation.close();
+        }
+    },
+
     // Keyless: the relay rejects an unknown model before dialing OpenAI, so
     // this covers the SDK socket, the subprotocol credential and the
     // error-event shape without an upstream.

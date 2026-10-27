@@ -32,14 +32,21 @@ A `Promise` that resolves to a session once the socket opens. The session has:
 
 The promise rejects with `{ code: 'connection_failed' }` if the socket can't open, with `{ code: 'auth_canceled' }` if the user closes the browser sign-in prompt, and with `{ code: 'auth_required' }` when there is no signed-in user outside the browser.
 
-Errors after the socket opens arrive the way OpenAI sends them: an `error` event whose `error.code` says what went wrong. Puter's own checks use the same shape and then close the session with code `1008`:
+Errors after the socket opens arrive the way OpenAI sends them: an `error` event whose `error.code` says what went wrong. Puter's own checks use the same shape. Policy errors close with code `1008`. Setup and upstream failures close with `1011`. Server restarts close with `1012`:
 
 | `error.code`          | Meaning                                                        |
 | --------------------- | -------------------------------------------------------------- |
 | `invalid_api_key`     | The credential was missing or rejected.                        |
 | `model_not_found`     | `model` isn't one of the realtime models above.                |
 | `insufficient_funds`  | No usage left, at connect time or after a response.           |
-| `rate_limit_exceeded` | Too many concurrent realtime sessions for this account.        |
+| `rate_limit_exceeded` | A connection, message rate, byte rate, or queue limit was reached. |
+| `invalid_event` | The client message has an invalid envelope or uses binary input. |
+| `connection_timeout` | Session setup took longer than 15 seconds. |
+| `provider_unavailable` | The server has no configured realtime provider key. |
+| `upstream_error` | The provider rejected the connection or sent an invalid event. |
+| `server_restarting` | The server is draining connections. |
+
+Each JSON message is limited to 64 KiB in either direction. Send audio in small chunks. Messages must be JSON objects with a nonempty string `type` of at most 128 characters. Invalid client messages receive `invalid_event` and close with 1008. Oversized client messages close with 1009. Binary input is rejected. Queue and message rate limits are listed in [rate limits and quotas](/rate-limits-and-quotas/).
 
 Usage is charged per token at the model's rate, as each `response.done` arrives.
 

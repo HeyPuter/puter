@@ -91,7 +91,51 @@ Gemini speech-to-text first counts the audio's tokens, which times out after 30 
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
-Realtime sessions (`puter.ai.assistant.connect()`, `/puterai/openai/v1/realtime`) are open to every plan, unlike the other OpenAI-compatible endpoints, and capped at 20 open at once per account. A session over the cap gets an `error` event with code `rate_limit_exceeded` and closes. Each session can send about 1 MiB/s upstream after an initial 16 MiB burst; a faster sender is slowed down, not disconnected.
+Realtime sessions ([`puter.ai.assistant.connect()`](/AI/assistant.connect/), `/puterai/openai/v1/realtime`) are open to every plan, unlike the other OpenAI-compatible endpoints, and capped at 20 open at once per account. A session over the cap gets an `error` event with code `rate_limit_exceeded` and closes.
+
+| Realtime transport limit | Value | Behavior at the limit |
+| --- | --- | --- |
+| JSON message size in either direction | 64 KiB, including reassembled fragments | Oversized client messages close with 1009. Oversized upstream messages close the session with 1011. |
+| Fragments per message | 64 | Connection closes. |
+| Buffered receive chunks | 128 per socket | Connection closes. |
+| Event type length | 1–128 characters | Invalid client envelopes receive `invalid_event` and close with 1008. Invalid upstream envelopes close with 1011. |
+| Client message rate | 100/s, burst 100 | Error `rate_limit_exceeded`, close 1008. Ping and pong frames count toward this allowance. |
+| Upstream message rate | 200/s, burst 200 | Error `rate_limit_exceeded`, close 1008. Ping and pong frames count toward this allowance. |
+| Upstream byte rate | 256 KiB/s, burst 256 KiB | Error `rate_limit_exceeded`, close 1008. |
+| Client upload rate | 128 KiB/s, burst 64 KiB | Reads pause to refill the budget. More than 64 KiB of overdraft closes with `rate_limit_exceeded`. |
+| Input pending session setup | 32 messages or 64 KiB | Error `rate_limit_exceeded`, close 1008. |
+| Forwarding queue in either direction | Reads pause at 128 KiB. Admission stops above 192 KiB. | A full queue closes with `rate_limit_exceeded`. |
+| Client that stops reading | 30 seconds of paused upstream reads | Close 1008. |
+| Pending usage and configuration events | 32 events or 256 KiB, including the event being processed | Error `rate_limit_exceeded`, close 1008. |
+| Numeric usage fields | Finite, nonnegative, at most 1 billion | Invalid upstream usage closes with 1011. |
+| Session setup timeout | 15 seconds | Error `connection_timeout`, close 1011. |
+| Upstream handshake timeout | 10 seconds | Close 1011. |
+| Heartbeat interval | 30 seconds | A missing pong terminates the connection on the next heartbeat. |
+| Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. Overlapping sweeps are skipped. |
+| Credit needed at connection | 1 cent | Error `insufficient_funds`, close 1008. |
+| In-flight response drain at shutdown | 5 seconds | Close 1012. |
+
+Send audio as a stream of small chunks. The message cap applies to text, configuration, tool output, and audio alike.
+
+The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sending or retaining data.
+
+| Conversation SDK limit | Value | Behavior at the limit |
+| --- | --- | --- |
+| Text per helper call | 8192 characters | Throws `input_too_large`. |
+| Instructions | 8192 characters | Rejects with `invalid_argument`. |
+| Voice identifier | 128 characters | Rejects with `invalid_argument`. |
+| PCM chunk | 12000 samples at 24 kHz, or 500 ms | Throws `input_too_large`. |
+| Native JSON traversal | Depth 16, 2048 visited values, 2048 array entries or object fields | Throws `input_too_large` before serialization. |
+| Outbound buffered data | 128 KiB, including the next event | Throws `queue_full`. |
+| Pending acknowledgments | 8 | Rejects with `operation_in_progress`. |
+| Concurrent configuration updates | 1 | Rejects with `operation_in_progress`. |
+| Authentication and provider acknowledgment timeout | 10 seconds | Rejects preparation or the pending operation. |
+| Browser media initialization timeout | 10 seconds | Rejects with `media_timeout` and releases resources. |
+| Capture chunk duration | 20 ms | AudioWorklet sends 480 PCM16 samples per chunk. |
+| Unacknowledged capture chunks | 2 | Stops capture and reports `queue_full`. |
+| Queued playback | 5 seconds or 128 chunks | Interrupts playback and reports `queue_full`. |
+| Remembered canceled responses | 32 | Older response IDs are evicted from the suppression set. |
+
 
 `/puterai/anthropic/v1/messages/count_tokens` has its own budget of 120 requests per minute per user, with no concurrency limit, and is not charged.
 

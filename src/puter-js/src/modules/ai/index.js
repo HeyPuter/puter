@@ -1,5 +1,6 @@
 import { PuterModule } from '../../lib/PuterModule.js';
 import { connect } from './assistant.js';
+import { convo } from './convo.js';
 import { chat } from './chat.js';
 import { txt2img } from './image.js';
 import { listModelProviders, listModels } from './models.js';
@@ -57,6 +58,7 @@ export class AIModule extends PuterModule {
     // runtime so destructured calls (`const { chat } = puter.ai`) keep
     // working like the old arrow fields did.
     chat = chat;
+    convo = convo;
     img2txt = img2txt;
     speech2txt = speech2txt;
     speech2speech = speech2speech;
@@ -73,7 +75,7 @@ export class AIModule extends PuterModule {
             /** @type {unknown} */ (this)
         );
         for ( const name of [
-            'chat', 'img2txt', 'speech2txt', 'speech2speech',
+            'chat', 'convo', 'img2txt', 'speech2txt', 'speech2speech',
             'txt2img', 'txt2vid', 'listModels', 'listModelProviders',
         ] ) {
             methods[name] = methods[name].bind(this);

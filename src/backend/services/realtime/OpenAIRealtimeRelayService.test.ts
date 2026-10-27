@@ -1,7 +1,16 @@
 import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
+import type { IConfig } from '../../types';
 import type { PuterServer } from '../../server';
 import {
     allocateEphemeralPort,
@@ -11,15 +20,17 @@ import {
 } from '../../testUtil';
 import { kv } from '../../util/kvSingleton';
 import {
+    MAX_REALTIME_MESSAGE_BYTES,
     REALTIME_PATH,
+    type RealtimeUsage,
+    type RealtimeTranscriptionUsage,
     realtimeAuthKey,
     realtimeTokenFrom,
     realtimeTranscriptionRows,
     realtimeUsageRows,
 } from './OpenAIRealtimeRelayService';
 
-const reqWith = (headers: Record<string, string>) =>
-    ({ headers }) as unknown as IncomingMessage;
+const reqWith = (headers: Record<string, string>) => ({ headers });
 
 describe('realtimeTokenFrom', () => {
     const url = new URL('http://x/?auth_token=from-query');
@@ -85,6 +96,7 @@ describe('realtimeUsageRows', () => {
     });
 
     it('returns nothing for an unknown model or missing usage', () => {
+        expect(realtimeUsageRows('constructor', {})).toEqual([]);
         expect(realtimeUsageRows('gpt-4o', {})).toEqual([]);
         expect(realtimeUsageRows('gpt-realtime', undefined)).toEqual([]);
     });
@@ -148,6 +160,13 @@ describe('OpenAIRealtimeRelayService relay', () => {
     let user: TestUserCredentials;
     let relayUrl: string;
     const upstreamRequests: IncomingMessage[] = [];
+    const clients = new Set<WebSocket>();
+
+    afterEach(() => {
+        for (const client of clients) client.terminate();
+        clients.clear();
+        vi.restoreAllMocks();
+    });
 
     beforeAll(async () => {
         // A fake OpenAI: echoes every client event back as `echo` and answers
@@ -158,10 +177,13 @@ describe('OpenAIRealtimeRelayService relay', () => {
             verifyClient: (info, done) =>
                 info.req.url?.endsWith('model=gpt-realtime')
                     ? done(false, 429)
-                    : done(true),
+                    : info.req.url?.endsWith('model=gpt-realtime-1.5')
+                      ? void setTimeout(() => done(true), 300)
+                      : done(true),
         });
         upstream.on('connection', (ws, req) => {
             upstreamRequests.push(req);
+            ws.on('error', () => {});
             ws.send(JSON.stringify({ type: 'session.created' }));
             ws.on('message', (data, isBinary) => {
                 // OpenAI rejects binary frames outright.
@@ -170,6 +192,53 @@ describe('OpenAIRealtimeRelayService relay', () => {
                     return;
                 }
                 const event = JSON.parse(data.toString());
+                if (event.type === 'test.upstream') {
+                    ws.send(event.payload, { binary: event.binary ?? false });
+                    return;
+                }
+                if (event.type === 'test.burst') {
+                    for (let i = 0; i < event.count; i++) {
+                        ws.send(
+                            JSON.stringify({
+                                type: event.eventType ?? 'response.done',
+                                response: {
+                                    usage: {
+                                        output_token_details: {
+                                            text_tokens: 1,
+                                        },
+                                    },
+                                },
+                            }),
+                        );
+                    }
+                    return;
+                }
+                if (event.type === 'test.largeBurst') {
+                    const payload = JSON.stringify({
+                        type: 'response.output_text.delta',
+                        delta: 'x'.repeat(60 * 1024),
+                    });
+                    for (let i = 0; i < 6; i++) ws.send(payload);
+                    return;
+                }
+                if (event.type === 'test.exact') {
+                    const envelope = { type: 'test.exact', pad: '' };
+                    envelope.pad = 'x'.repeat(
+                        MAX_REALTIME_MESSAGE_BYTES -
+                            Buffer.byteLength(JSON.stringify(envelope)),
+                    );
+                    ws.send(JSON.stringify(envelope));
+                    return;
+                }
+                if (event.type === 'test.oversize') {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'response.output_text.delta',
+                            delta: 'x'.repeat(MAX_REALTIME_MESSAGE_BYTES),
+                        }),
+                    );
+                    return;
+                }
                 ws.send(JSON.stringify({ type: 'echo', event }));
                 if (event.type === 'transcribe') {
                     ws.send(
@@ -194,7 +263,7 @@ describe('OpenAIRealtimeRelayService relay', () => {
                                 input_tokens: 4,
                                 input_token_details: { audio_tokens: 4 },
                                 output_tokens: 2,
-                            },
+                            } satisfies RealtimeTranscriptionUsage,
                         }),
                     );
                 }
@@ -220,7 +289,7 @@ describe('OpenAIRealtimeRelayService relay', () => {
                                 usage: {
                                     input_token_details: { text_tokens: 7 },
                                     output_token_details: { text_tokens: 3 },
-                                },
+                                } satisfies RealtimeUsage,
                             },
                         }),
                     );
@@ -235,7 +304,7 @@ describe('OpenAIRealtimeRelayService relay', () => {
                 port,
                 realtime: { upstreamUrl: `ws://127.0.0.1:${upstreamPort}` },
                 providers: { 'openai-completion': { apiKey: 'sk-test' } },
-            } as never,
+            } satisfies Partial<IConfig> as IConfig,
             { listen: true },
         );
         user = await createTestUser(server, {
@@ -253,10 +322,13 @@ describe('OpenAIRealtimeRelayService relay', () => {
     /** Open a client and collect every event until it closes. */
     const open = (url: string, protocols?: string[]) => {
         const ws = new WebSocket(url, protocols);
+        clients.add(ws);
+        ws.once('close', () => clients.delete(ws));
         const events: Record<string, unknown>[] = [];
         const closed = new Promise<{ code: number }>((resolve) =>
             ws.on('close', (code) => resolve({ code })),
         );
+        ws.on('error', () => {});
         ws.on('message', (d) => events.push(JSON.parse(d.toString())));
         const waitFor = (type: string) =>
             vi.waitFor(
@@ -322,57 +394,264 @@ describe('OpenAIRealtimeRelayService relay', () => {
         ws.close();
     });
 
-    it('slows a client that sends past its byte budget instead of buffering', async () => {
-        const { ws, waitFor, events } = open(
-            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
-        );
-        await new Promise((r) => ws.once('open', r));
-        await waitFor('session.created');
-        const frame = (type: string, mb: number) =>
-            JSON.stringify({ type, pad: 'x'.repeat(mb * 1024 * 1024) });
-        // 15.5 + 1.5 MiB overdraws the 16 MiB burst by 1 MiB, which at the
-        // default 1 MiB/s pauses reads for about a second. Frames already
-        // read when the pause lands still go through, so `c` is sent after.
-        ws.send(frame('a', 15.5));
-        ws.send(frame('b', 1.5));
-        const echoedAt = async (type: string) => {
-            await vi.waitFor(
-                () => {
-                    if (
-                        !events.some(
-                            (e) =>
-                                e.type === 'echo' &&
-                                (e.event as { type: string }).type === type,
-                        )
-                    ) {
-                        throw new Error(`no echo of ${type}`);
-                    }
-                },
-                { timeout: 10_000, interval: 20 },
-            );
-            return Date.now();
-        };
-        const b = await echoedAt('b');
-        ws.send(JSON.stringify({ type: 'c' }));
-        const c = await echoedAt('c');
-        expect(c - b).toBeGreaterThanOrEqual(700);
-        ws.close();
-    }, 20_000);
+    it.each(['null', '[]', '{}', '{', '{"type":3}', '{"type":""}'])(
+        'rejects malformed client envelope %s',
+        async (payload) => {
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            await c.waitFor('session.created');
+            c.ws.send(payload);
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'invalid_event' },
+            });
+            expect((await c.closed).code).toBe(1008);
+        },
+    );
 
-    it('counts a refused upstream handshake once and reports it to the client', async () => {
-        const relay = server.services.openaiRealtime;
-        const before = relay.stats().upstreamFailed;
+    it('rejects binary client messages before forwarding them', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(Buffer.from('{}'));
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_event' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('accepts an exactly 64 KiB message unchanged', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'test.exact' }));
+        const event = await c.waitFor('test.exact');
+        expect(Buffer.byteLength(JSON.stringify(event))).toBe(
+            MAX_REALTIME_MESSAGE_BYTES,
+        );
+        c.ws.close();
+    });
+
+    it('closes oversized client messages with 1009', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.large',
+                pad: 'x'.repeat(MAX_REALTIME_MESSAGE_BYTES),
+            }),
+        );
+        expect((await c.closed).code).toBe(1009);
+    });
+
+    it('bounds fragmented messages before reassembly', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        for (let i = 0; i < 65; i++) c.ws.send(' ', { fin: false });
+        c.ws.send(' ', { fin: true });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('rejects oversized upstream messages before forwarding them', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'test.oversize' }));
+        expect((await c.closed).code).toBe(1011);
+        expect(
+            c.events.some(
+                (event) => event.type === 'response.output_text.delta',
+            ),
+        ).toBe(false);
+    });
+
+    it.each([
+        'null',
+        '{"type":"response.done","response":{"usage":{"input_tokens":-1}}}',
+        '{"type":"response.done","response":{"usage":null}}',
+        '{"type":"response.done","response":{"usage":{"input_token_details":null}}}',
+    ])('rejects malformed upstream shape %s', async (payload) => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'test.upstream', payload }));
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'upstream_error' },
+        });
+        expect((await c.closed).code).toBe(1011);
+    });
+
+    it('caps messages pending an upstream handshake', async () => {
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-1.5&auth_token=${user.token}`,
+        );
+        await new Promise((resolve) => c.ws.once('open', resolve));
+        for (let i = 0; i < 33; i++) c.ws.send('{"type":"response.create"}');
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('caps client message floods without waiting for a byte budget', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        for (let i = 0; i < 150; i++) c.ws.send('{"type":"test.small"}');
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('bounds pending metering work while another session remains responsive', async () => {
+        const flooding = open(`${relayUrl}?auth_token=${user.token}`);
+        const quiet = open(`${relayUrl}?auth_token=${user.token}`);
+        await Promise.all([
+            flooding.waitFor('session.created'),
+            quiet.waitFor('session.created'),
+        ]);
+        flooding.ws.send(JSON.stringify({ type: 'test.burst', count: 40 }));
+        quiet.ws.send('{"type":"test.quiet"}');
+        expect(await flooding.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        expect((await flooding.closed).code).toBe(1008);
+        expect(await quiet.waitFor('echo')).toMatchObject({
+            event: { type: 'test.quiet' },
+        });
+        quiet.ws.close();
+    });
+
+    it('reports a refused upstream handshake', async () => {
         const { closed, waitFor } = open(
             `${relayUrl}?model=gpt-realtime&auth_token=${user.token}`,
         );
-        const error = (await waitFor('error')) as {
-            error: { code: string };
-        };
-        expect(error.error.code).toBe('upstream_error');
+        expect(await waitFor('error')).toMatchObject({
+            error: { code: 'upstream_error' },
+        });
         expect((await closed).code).toBe(1011);
-        // Let the terminated upstream's late error event land, if any.
-        await new Promise((r) => setTimeout(r, 200));
-        expect(relay.stats().upstreamFailed).toBe(before + 1);
+    });
+
+    it('meters usage when type follows other event fields', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const usage = {
+            output_token_details: { text_tokens: 13 },
+        } satisfies RealtimeUsage;
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.upstream',
+                payload: JSON.stringify({
+                    event_id: 'test-order',
+                    response: { usage },
+                    type: 'response.done',
+                }),
+            }),
+        );
+        await c.waitFor('response.done');
+        await vi.waitFor(() =>
+            expect(
+                spy.mock.calls.some(([, rows]) =>
+                    rows.some(
+                        (row) =>
+                            row.usageType.endsWith(':text_output') &&
+                            row.usageAmount === 13,
+                    ),
+                ),
+            ).toBe(true),
+        );
+        c.ws.close();
+    });
+
+    it('caps bytes retained before session readiness', async () => {
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-1.5&auth_token=${user.token}`,
+        );
+        await new Promise((resolve) => c.ws.once('open', resolve));
+        const payload = JSON.stringify({
+            type: 'test.pending',
+            pad: 'x'.repeat(33 * 1024),
+        });
+        c.ws.send(payload);
+        c.ws.send(payload);
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('slows uploads beyond the byte burst without buffering them', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const first = JSON.stringify({
+            type: 'test.bytes',
+            pad: 'x'.repeat(60 * 1024),
+        });
+        c.ws.send(first);
+        c.ws.send(first);
+        await vi.waitFor(() =>
+            expect(c.events.filter((e) => e.type === 'echo')).toHaveLength(2),
+        );
+        const sentAt = Date.now();
+        c.ws.send('{"type":"test.afterBudget"}');
+        await vi.waitFor(() =>
+            expect(
+                c.events.some(
+                    (e) =>
+                        e.type === 'echo' &&
+                        (e.event as { type: string }).type ===
+                            'test.afterBudget',
+                ),
+            ).toBe(true),
+        );
+        expect(Date.now() - sentAt).toBeGreaterThanOrEqual(200);
+        c.ws.close();
+    });
+
+    it('bounds upstream byte floods before JSON parsing', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'test.largeBurst' }));
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('bounds upstream message floods', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.burst',
+                count: 250,
+                eventType: 'test.delta',
+            }),
+        );
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('forwards a normal stream without waiting for metering', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const latencies: number[] = [];
+        for (let i = 0; i < 20; i++) {
+            const start = performance.now();
+            const echoed = new Promise<void>((resolve) =>
+                c.ws.once('message', () => resolve()),
+            );
+            c.ws.send(
+                JSON.stringify({ type: 'test.audio', pad: 'x'.repeat(2048) }),
+            );
+            await echoed;
+            latencies.push(performance.now() - start);
+        }
+        latencies.sort((a, b) => a - b);
+        process.stdout.write(
+            `[realtime test] 2 KiB echo round trip p50=${latencies[9].toFixed(2)}ms p95=${latencies[18].toFixed(2)}ms\n`,
+        );
+        expect(c.events.filter((event) => event.type === 'echo')).toHaveLength(
+            20,
+        );
+        c.ws.close();
     });
 
     it('meters input transcription at the session transcription model', async () => {
@@ -384,8 +663,20 @@ describe('OpenAIRealtimeRelayService relay', () => {
         await new Promise((r) => ws.once('open', r));
         ws.send(JSON.stringify({ type: 'transcribe' }));
         await waitFor('conversation.item.input_audio_transcription.completed');
-        await vi.waitFor(() => expect(spy).toHaveBeenCalled());
-        const [, rows] = spy.mock.calls.at(-1)!;
+        const expectedPrefix =
+            'openai:gpt-4o-transcribe:realtime:transcription_';
+        await vi.waitFor(() =>
+            expect(
+                spy.mock.calls.some(([, rows]) =>
+                    rows.some((row) =>
+                        row.usageType.startsWith(expectedPrefix),
+                    ),
+                ),
+            ).toBe(true),
+        );
+        const [, rows] = spy.mock.calls.find(([, rows]) =>
+            rows.some((row) => row.usageType.startsWith(expectedPrefix)),
+        )!;
         expect(rows.map((r) => [r.usageType, r.costOverride])).toEqual([
             [
                 'openai:gpt-4o-transcribe:realtime:transcription_audio_input',
@@ -413,7 +704,7 @@ describe('OpenAIRealtimeRelayService relay', () => {
         expect(auth).not.toHaveBeenCalled();
         expect(ws.readyState).toBe(WebSocket.OPEN);
 
-        auth.mockResolvedValue({ invalid: true } as never);
+        auth.mockResolvedValue({ invalid: true });
         kv.del(realtimeAuthKey(user.token));
         await relay.recheckSessions();
         const error = (await waitFor('error')) as {
@@ -437,23 +728,6 @@ describe('OpenAIRealtimeRelayService relay', () => {
         expect(ws.readyState).toBe(WebSocket.OPEN);
         auth.mockRestore();
         ws.close();
-    });
-
-    it('reports counters, event-loop delay and memory', async () => {
-        const relay = server.services.openaiRealtime;
-        await vi.waitFor(() => expect(relay.stats().active).toBe(0));
-        const stats = relay.stats();
-        expect(stats.opened).toBeGreaterThanOrEqual(3);
-        expect(stats.rejected).toBeGreaterThanOrEqual(2);
-        for (const key of [
-            'loopP50Ms',
-            'loopP99Ms',
-            'loopMaxMs',
-            'rssMb',
-            'heapMb',
-        ] as const) {
-            expect(Number.isFinite(stats[key])).toBe(true);
-        }
     });
 
     // Last: the relay stays in drain mode afterwards.

@@ -587,3 +587,43 @@ export {};
  *     cancel: () => Promise<IteratorResult<ChatResponseChunk, void>>;
  * }} ChatResponseStream
  */
+
+/**
+ * Session settings for a live conversation.
+ *
+ * @typedef {Object} ConvoSessionOptions
+ * @property {string} [instructions] Instructions, up to 8192 characters.
+ * @property {('text' | 'audio')[]} [output] Defaults to audio. Audio includes transcript events.
+ * @property {string} [voice] OpenAI voice identifier, up to 128 characters.
+ * @property {boolean} [turnDetection] Automatic voice activity detection. Defaults to true.
+ */
+/**
+ * Options for preparing a conversation.
+ *
+ * @typedef {ConvoSessionOptions & { model?: string }} ConvoOptions
+ */
+/**
+ * How much of an assistant audio item a custom player has played.
+ *
+ * @typedef {Object} ConvoPlaybackPosition
+ * @property {string} itemId Assistant message item ID.
+ * @property {number} contentIndex Audio content index.
+ * @property {number} playedMs Played duration in milliseconds.
+ */
+/**
+ * Built-in speaker options.
+ *
+ * @typedef {Object} ConvoSpeakerOptions
+ * @property {boolean} [bargeIn] Stop replies when user speech is detected. Defaults to true.
+ */
+
+/**
+ * @typedef {{ type: 'text'; delta: string; responseId: string }} ConvoTextEvent */
+/**
+ * @typedef {{ type: 'audio'; pcm: Int16Array; sampleRate: number; responseId: string; itemId: string; contentIndex: number }} ConvoAudioEvent */
+/**
+ * @typedef {{ type: 'transcript'; role: 'user' | 'assistant'; text: string; final: boolean }} ConvoTranscriptEvent */
+/**
+ * @typedef {{ type: 'interrupted'; source: 'manual' | 'speech'; responseId: string }} ConvoInterruptedEvent */
+/** Native provider events retain their provider-owned fields.
+ * @typedef {Record<string, RealtimeServerEvent> & { text: ConvoTextEvent; audio: ConvoAudioEvent; transcript: ConvoTranscriptEvent; interrupted: ConvoInterruptedEvent; ready: { type: 'ready'; model: string; provider: 'openai' }; close: { type: 'close'; code: number; reason: string } }} ConvoEventMap */
