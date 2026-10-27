@@ -1335,6 +1335,7 @@ export class FSController extends PuterController {
                 parent.path,
                 {
                     limit,
+                    offset,
                     cursor:
                         typeof body.cursor === 'string'
                             ? body.cursor

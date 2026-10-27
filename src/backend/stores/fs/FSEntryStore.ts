@@ -3275,6 +3275,7 @@ export class FSEntryStore extends PuterStore {
         pathPrefix: string,
         options: {
             limit?: number;
+            offset?: number;
             cursor?: string | null;
             maxDepth: number;
             sortBy?: DescendantSortField | null;
@@ -3291,13 +3292,21 @@ export class FSEntryStore extends PuterStore {
         const maxSlashes =
             this.#slashCount(normalizedPrefix) + Math.max(1, options.maxDepth);
         const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
-
         const rawPayload = openCursor(
             options.cursor,
             this.config.jwt_secret_v2,
         ) as
             | { v?: unknown; id?: number; s?: string; o?: string; p?: string }
             | undefined;
+        // Recursive listings used to ignore `offset`; a cursor still wins and
+        // an invalid offset is still ignored rather than rejected.
+        const requestedOffset = Number(options.offset);
+        const offset =
+            !rawPayload &&
+            Number.isFinite(requestedOffset) &&
+            requestedOffset > 0
+                ? Math.floor(requestedOffset)
+                : 0;
         // Cursors minted before this listing honored the sort carried only the
         // last path, always ascending.
         const payload =
@@ -3351,6 +3360,7 @@ export class FSEntryStore extends PuterStore {
             maxSlashes,
             ...seekParams,
             limit + 1,
+            offset,
         ];
 
         const rows = (await this.clients.db.read(
@@ -3359,7 +3369,7 @@ export class FSEntryStore extends PuterStore {
              WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}
                AND (LENGTH(path) - LENGTH(REPLACE(path, '/', ''))) <= ? ${seek}
              ORDER BY ${sortExpr} ${dir}${tiebreak ? `, id ${dir}` : ''}
-             LIMIT ?`,
+             LIMIT ? OFFSET ?`,
             params,
         )) as unknown as FSEntryRow[];
 
