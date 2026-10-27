@@ -39,6 +39,8 @@ import UIWindowSignup from './UI/UIWindowSignup.js';
 import UINotification from './UI/UINotification.js';
 
 import { renewGodmodeToken } from './helpers/godmodeTokens.js';
+import { appHoldsPermissions } from './helpers/holdsPermissions.js';
+import { PUSH_PERMISSION } from './helpers/pushClient.js';
 import { ipc_target_window } from './helpers/ipcTargetWindow.js';
 import { addItemWatcher } from './helpers/watchItems.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
@@ -52,6 +54,7 @@ window.ipc_handlers = {};
 // handler below): one dialog at a time, and nothing else — reopening is always
 // allowed. See feedbackDialogGuard.js.
 const feedback_dialog_guard = createFeedbackDialogGuard();
+const enable_push_dialog_guard = createFeedbackDialogGuard();
 
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
@@ -1501,26 +1504,44 @@ const ipc_listener = async (event, handled) => {
             }, '*');
         };
 
-        try {
-            if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
-            {
-                respond('unavailable');
-                return;
-            }
-        } catch ( e ) {
-            console.error('IPC enablePush: auth gate failed', e);
+        // One dialog at a time, checked before the auth gate as for the feedback dialog.
+        if ( ! enable_push_dialog_guard.mayOpen() ) {
+            console.warn('IPC enablePush: a dialog is already open; ignoring this call');
             respond('unavailable');
             return;
         }
 
-        let state = 'unavailable';
+        enable_push_dialog_guard.markOpened();
         try {
-            state = await UIEnablePushDialog({ app_name });
-        } catch ( e ) {
-            console.error('IPC enablePush failed', e);
+            try {
+                if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+                {
+                    respond('unavailable');
+                    return;
+                }
+            } catch ( e ) {
+                console.error('IPC enablePush: auth gate failed', e);
+                respond('unavailable');
+                return;
+            }
+
+            // The dialog says this app wants to send pushes, so only an app that may.
+            if ( ! await appHoldsPermissions([PUSH_PERMISSION], app_uuid) ) {
+                respond('unavailable');
+                return;
+            }
+
+            let state = 'unavailable';
+            try {
+                state = await UIEnablePushDialog({ app_name });
+            } catch ( e ) {
+                console.error('IPC enablePush failed', e);
+            }
+            respond(state);
+            $(target_iframe).get(0)?.focus({ preventScroll: true });
+        } finally {
+            enable_push_dialog_guard.markClosed();
         }
-        respond(state);
-        $(target_iframe).get(0)?.focus({ preventScroll: true });
     }
     //--------------------------------------------------------
     // showFontPicker

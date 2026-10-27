@@ -66,6 +66,27 @@ describe('syncBrowserPush', () => {
         expect(client.enable).toHaveBeenCalledTimes(1);
     });
 
+    it('runs once at a time: a call during a run joins it', async () => {
+        const client = off();
+        let release;
+        client.enable.mockImplementation(() => new Promise((resolve) => {
+            release = resolve;
+        }));
+        const deps = { NotificationApi: granted, userUid: 'u-1', holdsPush: vi.fn(async () => true) };
+
+        const first = syncBrowserPush({}, deps);
+        const second = syncBrowserPush({ appUid: 'app-1' }, deps);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(second).toBe(first);
+        expect(client.enable).toHaveBeenCalledTimes(1);
+        release({ deviceUid: 'dev-new' });
+        await expect(first).resolves.toBe('on');
+
+        client.status.mockResolvedValue({ permission: 'granted', registered: true, deviceUid: 'dev-new' });
+        await expect(syncBrowserPush({}, deps)).resolves.toBe('on');
+        expect(client.enable).toHaveBeenCalledTimes(1);
+    });
+
     it('does nothing when no app may send pushes', async () => {
         const client = off();
         await expect(syncBrowserPush({}, { NotificationApi: granted, userUid: 'u-1', holdsPush: async () => false })).resolves.toBe('no_app');

@@ -68,6 +68,7 @@ beforeEach(() => {
         value: { postMessage },
     });
     framedBy('feedback-dialog,enable-push');
+    document.body.innerHTML = '';
 });
 
 afterEach(() => {
@@ -196,6 +197,32 @@ describe('ui.enablePush on a website', () => {
         popup.closed = true;
         await expect(result).resolves.toBe(false);
     }, 5000);
+
+    it('resolves false on a cross-origin-isolated page and leaves the popup open', async () => {
+        Object.defineProperty(window, 'crossOriginIsolated', { configurable: true, value: true });
+        const ui = makeUI({ env: 'web' });
+        await expect(ui.enablePush()).resolves.toBe(false);
+        expect(window.open).toHaveBeenCalledTimes(1);
+        expect(popup.close).not.toHaveBeenCalled();
+        Object.defineProperty(window, 'crossOriginIsolated', { configurable: true, value: false });
+    });
+
+    it('opens the popup from the consent dialog\'s Continue and reads its answer', async () => {
+        Object.defineProperty(navigator, 'userActivation', {
+            configurable: true,
+            value: { hasBeenActive: false, isActive: false },
+        });
+        const ui = makeUI({ env: 'web' });
+        const result = ui.enablePush();
+        await vi.waitFor(() => expect(document.querySelector('puter-dialog')).not.toBeNull());
+        document.querySelector('puter-dialog').shadowRoot.querySelector('#launch-auth-popup').click();
+
+        await vi.waitFor(() => expect(window.open).toHaveBeenCalledTimes(1));
+        const msg_id = lastUrl().searchParams.get('msg_id');
+        popupMessage({ msg: 'pushEnabled', state: 'on', original_msg_id: msg_id }, { source: popup });
+        await expect(result).resolves.toBe(true);
+        expect(document.querySelector('puter-dialog')).toBeNull();
+    });
 
     it('collects a click first when there is no user activation', async () => {
         Object.defineProperty(navigator, 'userActivation', {

@@ -102,6 +102,25 @@ describe('the permission popup and browser push', () => {
         expect(requestPermission).not.toContain('setTimeout');
     });
 
+    it('shows the enable-push dialog only for a site whose app may send pushes', () => {
+        const resolved = enablePush.indexOf('await window.getAppUIDFromOrigin(origin)');
+        const checked = enablePush.indexOf('await appHoldsPermissions([PUSH_PERMISSION], app_uid)');
+        const dialog = enablePush.indexOf('await UIEnablePushDialog({ origin })');
+        expect(resolved).toBeGreaterThan(-1);
+        expect(checked).toBeGreaterThan(resolved);
+        expect(dialog).toBeGreaterThan(checked);
+    });
+
+    it('answers an enable-push opener it cannot attest, like a permission prompt', () => {
+        const unattested = src.slice(
+            src.indexOf('if (!isAttestedOrigin(window.openerOrigin))'),
+            src.indexOf("i18n('popup_opener_origin_unsupported')"),
+        );
+        expect(unattested).toContain("if (action === 'request-permission')");
+        expect(unattested).toContain("else if (action === 'enable-push')");
+        expect(unattested).toContain("state: 'unavailable'");
+    });
+
     it('answers the enable-push opener after the dialog, then closes', () => {
         expect(enablePush).toContain('startPushWorker()');
         const dialog = enablePush.indexOf('await UIEnablePushDialog({ origin })');

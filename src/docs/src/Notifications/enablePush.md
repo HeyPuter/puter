@@ -4,9 +4,9 @@ description: Offer to turn on push notifications in the browser the user is in.
 platforms: [websites, apps]
 ---
 
-Offers to turn on push notifications in the browser the user is using right now. A push only reaches a browser once the user has turned push notifications on there, and the browser asks for that from a click on the Puter origin. This call provides that click: inside the Puter desktop it shows a dialog with a "Turn on notifications" button, and on a website it opens a small popup on the Puter origin with the same button. Call it from a user gesture such as a click.
+Offers to turn on push notifications in the browser the user is using right now. A push only reaches a browser once the user has turned push notifications on there, and the browser asks for that from a click on the Puter origin. This call provides that click. Inside the Puter desktop it shows a dialog with a "Turn on notifications" button, and on a website it opens a small popup on the Puter origin with the same button. Call it from a user gesture such as a click.
 
-When push notifications are already on in this browser, it resolves `true` without showing anything. When the browser has blocked notifications for Puter, or the server has no push service, it resolves `false` without showing anything either.
+When push notifications are already on in this browser, it resolves `true` without showing anything. When your app does not hold the [`notifications:push`](/Notifications/requestPermission/) permission, the browser has blocked notifications for Puter, or the server has no push service, it resolves `false` without showing anything either.
 
 Puter also turns push on in the browser by itself where it can. When the user allows [`notifications:push`](/Notifications/requestPermission/) in the permission prompt, that prompt turns push on in the same browser. When the browser already allows notifications from Puter and your app holds the permission, the Puter desktop registers the browser without asking. This call is for the remaining case, a website on its own domain in a browser that has not allowed notifications from Puter yet.
 

@@ -58,7 +58,7 @@ import {
     wantsFullToken,
 } from './util/authmeGrant.js';
 import init_device_signals from './helpers/deviceSignals.js';
-import { holdsPermissions } from './helpers/holdsPermissions.js';
+import { appHoldsPermissions, holdsPermissions } from './helpers/holdsPermissions.js';
 import { PUSH_PERMISSION, withEnableDeadline } from './helpers/pushClient.js';
 import { startPushWorker } from './helpers/pushWorker.js';
 import item_icon from './helpers/itemIcon.js';
@@ -882,8 +882,12 @@ const postAuthActions = async (action) => {
             if ( ! origin ) {
                 throw new Error('no opener origin; not prompting');
             }
-            startPushWorker();
-            state = await UIEnablePushDialog({ origin });
+            // The dialog says this site wants to send pushes, so only a site whose app may.
+            const app_uid = await window.getAppUIDFromOrigin(origin);
+            if ( app_uid && await appHoldsPermissions([PUSH_PERMISSION], app_uid) ) {
+                startPushWorker();
+                state = await UIEnablePushDialog({ origin });
+            }
         } catch (e) {
             console.error('enable-push action failed', e);
         }
@@ -1604,6 +1608,20 @@ window.initgui = async function (options) {
                         {
                             msg: 'permissionGranted',
                             granted: false,
+                            original_msg_id:
+                                window.url_query_params.get('msg_id'),
+                        },
+                        '*',
+                    );
+                } catch (e) {
+                    console.error('could not answer the requester', e);
+                }
+            } else if (action === 'enable-push') {
+                try {
+                    window.opener?.postMessage(
+                        {
+                            msg: 'pushEnabled',
+                            state: 'unavailable',
                             original_msg_id:
                                 window.url_query_params.get('msg_id'),
                         },

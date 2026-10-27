@@ -78,6 +78,9 @@ beforeEach(() => {
     window.iframe_for_app_instance = (id) => (id === 'inst-1' ? iframe : null);
     window.window_for_app_instance = () => win;
     window.is_auth = () => true;
+    window.api_origin = 'https://api.puter.test';
+    window.auth_token = 'tok-1';
+    holds(true);
     window.ipc_handlers = {};
     globalThis.services = { get: () => ({ get_by_uuid: () => ({ name: 'caller', uuid: 'inst-1' }) }) };
 });
@@ -93,6 +96,16 @@ const post = (msg) =>
 
 const settle = () => new Promise((r) => setTimeout(r, 20));
 
+/** What /auth/check-permissions answers for notifications:push. */
+const holds = (value) => {
+    globalThis.fetch = vi.fn(async (url, init) => ({
+        ok: true,
+        json: async () => ({ permissions: { 'notifications:push': value } }),
+        url,
+        init,
+    }));
+};
+
 describe('the enablePush IPC message', () => {
     it('offers the dialog for the calling app and reports the state', async () => {
         dialog.mockResolvedValue('on');
@@ -104,6 +117,49 @@ describe('the enablePush IPC message', () => {
             { msg: 'pushEnabled', state: 'on', original_msg_id: 'cb-1' },
             '*',
         );
+    });
+
+    it('asks the server whether this app may send pushes, and shows nothing when it may not', async () => {
+        holds(false);
+        dialog.mockResolvedValue('on');
+        post('enablePush');
+        await settle();
+
+        expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ permissions: ['notifications:push'], app_uid: 'app-1' });
+        expect(dialog).not.toHaveBeenCalled();
+        expect(posted).toHaveBeenCalledWith(
+            { msg: 'pushEnabled', state: 'unavailable', original_msg_id: 'cb-1' },
+            '*',
+        );
+    });
+
+    it('answers a second call unavailable while the dialog is up', async () => {
+        let finish;
+        dialog.mockImplementation(() => new Promise((resolve) => {
+            finish = resolve;
+        }));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        post('enablePush');
+        await settle();
+        post('enablePush');
+        await settle();
+
+        expect(dialog).toHaveBeenCalledTimes(1);
+        expect(posted).toHaveBeenCalledWith(
+            { msg: 'pushEnabled', state: 'unavailable', original_msg_id: 'cb-1' },
+            '*',
+        );
+        finish('on');
+        await settle();
+        expect(posted).toHaveBeenCalledWith(
+            { msg: 'pushEnabled', state: 'on', original_msg_id: 'cb-1' },
+            '*',
+        );
+
+        post('enablePush');
+        await settle();
+        expect(dialog).toHaveBeenCalledTimes(2);
+        warn.mockRestore();
     });
 
     it('reports unavailable when the dialog fails', async () => {
