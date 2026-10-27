@@ -52,7 +52,7 @@ const DEFAULT_BROADCAST_REFRESH_TTL_SECONDS = 15 * 60;
 
 // Tombstone lifetime, counted from each node's own receipt; must outlast
 // replica lag at the receiving node.
-export const CACHE_TOMBSTONE_TTL_SECONDS = 2;
+export const CACHE_TOMBSTONE_TTL_SECONDS = 5;
 export const CACHE_TOMBSTONE_SUFFIX = ':deleted';
 
 /** A tombstone marker rather than a cached row; peers must set it, not drop it. */
