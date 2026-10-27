@@ -239,7 +239,10 @@ export class PermissionService extends PuterService {
         permissionOptions: string | string[],
         scanOptions?: ScanOptions,
     ): Promise<boolean> {
-        if (this.#heldByDefault(actor, permissionOptions)) return true;
+        const defaultActor = actor.accessToken?.fullAccess
+            ? actor.accessToken.issuer
+            : actor;
+        if (this.#heldByDefault(defaultActor, permissionOptions)) return true;
         const reading = await this.scan(
             actor,
             permissionOptions,
@@ -626,8 +629,11 @@ export class PermissionService extends PuterService {
         // Account-management endpoints stay closed because they gate on actor
         // type (requireUserActor / session cookie), not permissions.
         if (actor.accessToken.fullAccess) {
-            for (const permission of options) {
-                const issuerReading = await this.scan(issuerActor, permission);
+            const issuerReadings = await Promise.all(
+                options.map((permission) => this.scan(issuerActor, permission)),
+            );
+            for (const [index, permission] of options.entries()) {
+                const issuerReading = issuerReadings[index];
                 reading.push({
                     $: 'path',
                     via: 'access-token',
