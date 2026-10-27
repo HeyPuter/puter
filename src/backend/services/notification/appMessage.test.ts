@@ -212,4 +212,14 @@ describe('appMessageSender', () => {
         ).toEqual({ uid: 'app-1', name: 'chat' });
         expect(appMessageSender('app-1', null)).toEqual({ uid: 'app-1' });
     });
+
+    it('caps the name at the title length, counting an emoji once', () => {
+        const long = '😀'.repeat(500);
+        const { name } = appMessageSender('app-1', { title: long });
+        expect([...name!].length).toBe(120);
+        expect(name).toBe('😀'.repeat(120));
+        expect(appMessageSender('app-1', { title: 'a'.repeat(300) }).name).toBe(
+            'a'.repeat(120),
+        );
+    });
 });
