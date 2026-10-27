@@ -424,10 +424,10 @@ export class AppDriver extends PuterDriver {
             existing: app,
         });
 
-        // Puter-hosted index_url handling on update — same flow as create
-        // but only when the index_url is actually changing. Self-app is
+        // Puter-hosted index_url handling on update — same flow as create.
+        // #validateInput already dropped an unchanged index_url. Self-app is
         // excluded from the conflict search via `excludeAppId`.
-        if (fields.index_url && fields.index_url !== app.index_url) {
+        if (fields.index_url) {
             await this.#ensurePuterSiteSubdomainIsOwned(
                 fields.index_url,
                 actor.user,
@@ -620,13 +620,19 @@ export class AppDriver extends PuterDriver {
                 protocols: WEB_AND_EXTENSION_PROTOCOLS,
             });
             if (out.index_url) out.index_url = new URL(out.index_url).href;
-            // Only enforce on new/changed values so rows that already
-            // carry a reserved host (migration-seeded builtins) can still
-            // have their other fields updated.
+            // A value equal to the stored one after normalization is
+            // unchanged: drop it so legacy spellings stay as stored and
+            // skip the host checks (migration-seeded builtins carry
+            // reserved hosts). Rewriting it would make a dormant
+            // mixed-case/default-port row match again without checks.
             if (
+                existing &&
                 out.index_url !== undefined &&
-                out.index_url !== existing?.index_url
+                out.index_url ===
+                    (URL.parse(existing.index_url)?.href ?? existing.index_url)
             ) {
+                delete out.index_url;
+            } else if (out.index_url !== undefined) {
                 this.#assertIndexUrlHostAllowed(out.index_url);
             }
         }
