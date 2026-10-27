@@ -669,6 +669,7 @@ export class UIModule extends EventListener {
             uuid: callback_id,
         }, '*');
         const ret = await p;
+        if (ret?.$ === 'puter-ipc-error') throw ret.error;
         if ( callback ) callback(ret);
         return ret;
     };
