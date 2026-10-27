@@ -444,6 +444,7 @@ export class SubdomainDriver extends PuterDriver {
                 {
                     subdomain: row.subdomain as string,
                     uid: String(row.uuid),
+                    userId: row.user_id as number,
                 },
                 {},
             );

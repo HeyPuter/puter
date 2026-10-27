@@ -539,11 +539,13 @@ describe('SubdomainStore app_owner filtering', () => {
                     uuid: owned.uuid,
                     subdomain: owned.subdomain,
                     root_dir_id: null,
+                    user_id: siteOwner,
                 },
                 {
                     uuid: associated.uuid,
                     subdomain: associated.subdomain,
                     root_dir_id: 7,
+                    user_id: siteOwner,
                 },
             ]),
         );
@@ -589,8 +591,16 @@ describe('SubdomainStore app_owner filtering', () => {
 
         expect(events).toEqual(
             expect.arrayContaining([
-                { subdomain: owned.subdomain, uid: owned.uuid },
-                { subdomain: associated.subdomain, uid: associated.uuid },
+                {
+                    subdomain: owned.subdomain,
+                    uid: owned.uuid,
+                    userId: siteOwner,
+                },
+                {
+                    subdomain: associated.subdomain,
+                    uid: associated.uuid,
+                    userId: siteOwner,
+                },
             ]),
         );
         // SQLite reuses the deleted app's id; drop anything it left behind.

@@ -48,7 +48,7 @@ export interface SubdomainRow {
 /** A row deleted by the database along with an app. */
 export type CascadeRow = Pick<
     SubdomainRow,
-    'uuid' | 'subdomain' | 'root_dir_id'
+    'uuid' | 'subdomain' | 'root_dir_id' | 'user_id'
 >;
 
 // Columns that may not be set through an `update` patch map. Defence-in-depth
@@ -777,13 +777,13 @@ export class SubdomainStore extends PuterStore {
         let afterId = 0;
         for (;;) {
             const rows = (await this.clients.db.pread(
-                `SELECT \`id\`, \`uuid\`, \`subdomain\`, \`root_dir_id\` FROM \`subdomains\`
+                `SELECT \`id\`, \`uuid\`, \`subdomain\`, \`root_dir_id\`, \`user_id\` FROM \`subdomains\`
                   WHERE (\`app_owner\` ${match} OR \`associated_app_id\` ${match})
                     AND \`id\` > ? ORDER BY \`id\` LIMIT ?`,
                 [param, param, afterId, BULK_QUERY_CHUNK_SIZE],
             )) as Array<Pick<SubdomainRow, 'id'> & CascadeRow>;
-            for (const { uuid, subdomain, root_dir_id } of rows) {
-                out.push({ uuid, subdomain, root_dir_id });
+            for (const { uuid, subdomain, root_dir_id, user_id } of rows) {
+                out.push({ uuid, subdomain, root_dir_id, user_id });
             }
             if (rows.length < BULK_QUERY_CHUNK_SIZE) return out;
             afterId = Number(rows[rows.length - 1].id);
@@ -813,7 +813,11 @@ export class SubdomainStore extends PuterStore {
             try {
                 this.clients.event.emit(
                     'subdomain.delete',
-                    { subdomain: row.subdomain, uid: String(row.uuid) },
+                    {
+                        subdomain: row.subdomain,
+                        uid: String(row.uuid),
+                        userId: Number(row.user_id),
+                    },
                     {},
                 );
             } catch {

@@ -414,6 +414,8 @@ export class AuthService extends PuterService {
             worker?: boolean;
             workerName?: string;
             workerUid?: string;
+            workerSiteUid?: string;
+            workerSite?: string;
         } = {},
     ): string {
         const claims: Record<string, unknown> = {
@@ -430,6 +432,8 @@ export class AuthService extends PuterService {
         if (opts.worker) claims.worker = true;
         if (opts.workerName) claims.worker_name = opts.workerName;
         if (opts.workerUid) claims.worker_uid = opts.workerUid;
+        if (opts.workerSiteUid) claims.workerSiteUid = opts.workerSiteUid;
+        if (opts.workerSite) claims.workerSite = opts.workerSite;
         return this.services.token.sign('auth', claims);
     }
 
@@ -448,7 +452,15 @@ export class AuthService extends PuterService {
         user: UserRow,
         workerName: string,
         meta: Record<string, unknown> = {},
-        { workerUid }: { workerUid?: string } = {},
+        {
+            workerUid,
+            workerSiteUid,
+            workerSite,
+        }: {
+            workerUid?: string;
+            workerSiteUid?: string;
+            workerSite?: string;
+        } = {},
     ): Promise<{
         session: Record<string, unknown>;
         token: string;
@@ -480,14 +492,14 @@ export class AuthService extends PuterService {
             user,
             session.uuid as string,
             auth_id,
-            { worker: true, workerName, workerUid },
+            { worker: true, workerName, workerUid, workerSiteUid, workerSite },
         );
         const gui_token = this.#signSessionTypeToken(
             'gui',
             user,
             session.uuid as string,
             auth_id,
-            { worker: true, workerName, workerUid },
+            { worker: true, workerName, workerUid, workerSiteUid, workerSite },
         );
 
         return { session, token, gui_token };
@@ -516,6 +528,8 @@ export class AuthService extends PuterService {
             handlerDepth?: number;
             expiresInSeconds?: number;
             workerUid?: string;
+            workerSiteUid?: string;
+            workerSite?: string;
         } = {},
     ): Promise<string> {
         if (!actor.user) {
@@ -568,6 +582,12 @@ export class AuthService extends PuterService {
                 worker: true,
                 worker_name: workerName,
                 ...(options.workerUid ? { worker_uid: options.workerUid } : {}),
+                ...(options.workerSiteUid
+                    ? { workerSiteUid: options.workerSiteUid }
+                    : {}),
+                ...(options.workerSite
+                    ? { workerSite: options.workerSite }
+                    : {}),
                 ...(options.handlerDepth
                     ? { handler_depth: options.handlerDepth }
                     : {}),
@@ -932,13 +952,13 @@ export class AuthService extends PuterService {
         for (const entry of revoked) this.#announceRevocation(entry);
     }
 
-    /**
-     * Delete every session of a worker that no longer exists, whoever minted
-     * it: worker names are unique, so nothing else can be using them.
-     */
-    async deleteWorkerSessionsByName(workerName: string): Promise<void> {
-        if (!workerName) return;
-        await this.#deleteWorkerSessions({ workerName });
+    /** Delete the owner's sessions for a worker that no longer exists. */
+    async deleteWorkerSessionsByName(
+        workerName: string,
+        userId: number,
+    ): Promise<void> {
+        if (!workerName || !userId) return;
+        await this.#deleteWorkerSessions({ workerName, userId });
     }
 
     /**
@@ -2531,6 +2551,8 @@ export class AuthService extends PuterService {
             worker?: boolean;
             worker_name?: string;
             worker_uid?: string;
+            workerSiteUid?: string;
+            workerSite?: string;
         },
         userId: number,
     ): Promise<boolean> {
@@ -2538,6 +2560,18 @@ export class AuthService extends PuterService {
         // Events handler sessions have no worker row; EventsService retires them.
         if (decoded.worker_name === EVENTS_WORKER_SESSION_NAME) return true;
         if (!decoded.worker_name) return false;
+        if (decoded.workerSiteUid) {
+            // Looked up by name to hit the subdomain cache; the uid pins the
+            // row, so a deleted or re-created site fails.
+            const name = decoded.workerSite;
+            if (!name || name.startsWith(WORKER_SUBDOMAIN_PREFIX)) return false;
+            const site = await this.stores.subdomain.getBySubdomain(name);
+            return (
+                !!site &&
+                site.uuid === decoded.workerSiteUid &&
+                Number(site.user_id) === Number(userId)
+            );
+        }
         const row = await this.stores.subdomain.getBySubdomain(
             `${WORKER_SUBDOMAIN_PREFIX}${decoded.worker_name}`,
         );
