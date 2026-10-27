@@ -241,6 +241,92 @@ describe('this browser', () => {
         expect(browserCard().hasClass('push-browser-on')).toBe(true);
     });
 
+    it('turns on once however often the button is pressed while enabling', async () => {
+        const client = fakeClient();
+        pushClient.registerPushClient(client);
+        let finishEnable;
+        client.enable.mockImplementation(() => new Promise(resolve => {
+            finishEnable = resolve;
+        }));
+        serve({
+            'GET /push/devices': { devices: [] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+            'POST /push/devices/dev-new/test': () => reply(200, { sent: true }),
+        });
+        await open();
+
+        $('.push-turn-on').trigger('click');
+        await settle();
+        expect($('.push-turn-on').prop('disabled')).toBe(true);
+        // A redraw while enabling keeps the button out.
+        await tab.onActivate($('.win'));
+        await settle();
+        expect($('.push-turn-on').prop('disabled')).toBe(true);
+        $('.push-turn-on').trigger('click');
+        $('.push-turn-on').prop('disabled', false).trigger('click');
+        await settle();
+        expect(client.enable).toHaveBeenCalledTimes(1);
+
+        client.status.mockResolvedValue({ permission: 'granted', registered: true, deviceUid: 'dev-new' });
+        finishEnable({ deviceUid: 'dev-new' });
+        await settle();
+        expect(browserCard().hasClass('push-browser-on')).toBe(true);
+        expect($('.push-turn-off').prop('disabled')).toBe(false);
+    });
+
+    it('lets no status read begun before Turn on draw the card while enabling', async () => {
+        const client = fakeClient();
+        pushClient.registerPushClient(client);
+        await open();
+        let finishSlow;
+        client.status.mockImplementationOnce(() => new Promise(resolve => {
+            finishSlow = resolve;
+        }));
+        let finishEnable;
+        client.enable.mockImplementation(() => new Promise(resolve => {
+            finishEnable = resolve;
+        }));
+        tab.onActivate($('.win'));
+        await settle();
+
+        $('.push-turn-on').trigger('click');
+        await settle();
+        finishSlow({ permission: 'default', registered: false });
+        await settle();
+        expect($('.push-turn-on').prop('disabled')).toBe(true);
+
+        client.status.mockResolvedValue({ permission: 'granted', registered: true, deviceUid: 'dev-new' });
+        finishEnable({ deviceUid: 'dev-new' });
+        await settle();
+        expect(browserCard().hasClass('push-browser-on')).toBe(true);
+    });
+
+    it('turns off once however often the button is pressed while disabling', async () => {
+        const client = fakeClient({ permission: 'granted', registered: true, deviceUid: 'dev-1' });
+        pushClient.registerPushClient(client);
+        let finishDisable;
+        client.disable.mockImplementation(() => new Promise(resolve => {
+            finishDisable = resolve;
+        }));
+        await open();
+
+        $('.push-turn-off').trigger('click');
+        await settle();
+        await tab.onActivate($('.win'));
+        await settle();
+        expect($('.push-turn-off').prop('disabled')).toBe(true);
+        $('.push-turn-off').prop('disabled', false).trigger('click');
+        await settle();
+        expect(client.disable).toHaveBeenCalledTimes(1);
+
+        client.status.mockResolvedValue({ permission: 'granted', registered: false });
+        finishDisable();
+        await settle();
+        expect(browserCard().hasClass('push-browser-off')).toBe(true);
+        expect($('.push-turn-on').prop('disabled')).toBe(false);
+    });
+
     it('turns off through the client', async () => {
         const client = fakeClient({ permission: 'granted', registered: true, deviceUid: 'dev-1' });
         pushClient.registerPushClient(client);

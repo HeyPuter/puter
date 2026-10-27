@@ -85,11 +85,12 @@ const BROWSER_DETAIL_KEYS = {
     off: 'push_browser_off',
 };
 
-/** @param {BrowserPushState} state */
-export const browserCardHtml = (state) => {
+/** @param {BrowserPushState} state @param {{ busy?: boolean }} [opts] - `busy` while the client is enabling or disabling */
+export const browserCardHtml = (state, { busy = false } = {}) => {
+    const disabled = busy ? ' disabled' : '';
     let action = '';
-    if ( state === 'on' ) action = `<button type="button" class="button push-turn-off">${i18n('push_turn_off')}</button>`;
-    if ( state === 'off' ) action = `<button type="button" class="button push-turn-on">${i18n('push_turn_on')}</button>`;
+    if ( state === 'on' ) action = `<button type="button" class="button push-turn-off"${disabled}>${i18n('push_turn_off')}</button>`;
+    if ( state === 'off' ) action = `<button type="button" class="button push-turn-on"${disabled}>${i18n('push_turn_on')}</button>`;
     return card({
         icon: ICONS.bell,
         title: i18n('push_this_browser'),
@@ -200,11 +201,26 @@ const TabNotifications = {
 
         // Only the latest status read is drawn, so a slow one can't undo a newer state.
         let browserSeq = 0;
+        let browserBusy = false;
         const refreshBrowser = async () => {
             const seq = ++browserSeq;
             const state = await browserPushState(getPushClient());
-            if ( seq === browserSeq ) $section.find('.push-browser-card').replaceWith(browserCardHtml(state));
+            if ( seq === browserSeq ) {
+                $section.find('.push-browser-card').replaceWith(browserCardHtml(state, { busy: browserBusy }));
+            }
             return state;
+        };
+        // One client call at a time: the card's button is out until it settles,
+        // and a status read begun before it no longer draws the card.
+        const whileBrowserBusy = async (call) => {
+            browserBusy = true;
+            browserSeq++;
+            $section.find('.push-browser-card button').prop('disabled', true);
+            try {
+                return await call();
+            } finally {
+                browserBusy = false;
+            }
         };
 
         const renderDevices = () => {
@@ -275,11 +291,10 @@ const TabNotifications = {
 
         $section.on('click', '.push-turn-on', async function () {
             const client = getPushClient();
-            if ( ! client ) return;
-            $(this).prop('disabled', true);
+            if ( ! client || browserBusy ) return;
             let deviceUid;
             try {
-                ({ deviceUid } = await client.enable());
+                ({ deviceUid } = await whileBrowserBusy(() => client.enable()));
             } catch ( e ) {
                 console.warn('[push] enable failed', e);
                 if ( await refreshBrowser() !== 'blocked' ) showError('push_enable_failed', $el_window);
@@ -301,10 +316,9 @@ const TabNotifications = {
 
         $section.on('click', '.push-turn-off', async function () {
             const client = getPushClient();
-            if ( ! client ) return;
-            $(this).prop('disabled', true);
+            if ( ! client || browserBusy ) return;
             try {
-                await client.disable();
+                await whileBrowserBusy(() => client.disable());
             } catch ( e ) {
                 console.warn('[push] disable failed', e);
                 showError('push_disable_failed', $el_window);
