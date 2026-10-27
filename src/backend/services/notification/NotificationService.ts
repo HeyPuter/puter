@@ -234,7 +234,7 @@ export class NotificationService extends PuterService {
             const row = await this.stores.notification.getByUid(uid, {
                 userId,
             });
-            const app = payload.app as { uid?: unknown } | undefined;
+            const app = notification.app as { uid?: unknown } | undefined;
             this.clients.event.emit(
                 'notif.written',
                 {
