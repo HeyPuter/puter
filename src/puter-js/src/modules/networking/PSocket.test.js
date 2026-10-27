@@ -4,10 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // no wasm runtime, no relay, no websocket. Stubbing it also breaks the
 // PSocket <-> index.js import cycle for these tests.
 const mockGetEpoxyClient = vi.fn();
-const mockClearEpoxyClientCache = vi.fn();
+const mockDiscardOnRelayFailure = vi.fn();
 vi.mock('./index.js', () => ({
     getEpoxyClient: (...args) => mockGetEpoxyClient(...args),
-    clearEpoxyClientCache: (...args) => mockClearEpoxyClientCache(...args),
+    discardOnRelayFailure: (...args) => mockDiscardOnRelayFailure(...args),
 }));
 
 const { PSocket, PTLSSocket } = await import('./PSocket.js');
@@ -132,7 +132,7 @@ async function connected (stream = makeStream()) {
 
 beforeEach(() => {
     mockGetEpoxyClient.mockReset();
-    mockClearEpoxyClientCache.mockReset();
+    mockDiscardOnRelayFailure.mockReset().mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -145,7 +145,7 @@ describe('PSocket connect', () => {
 
         expect(client.connect).toHaveBeenCalledWith('example.com', 80);
         expect(client.connectTls).not.toHaveBeenCalled();
-        expect(mockGetEpoxyClient).toHaveBeenCalledWith({ refresh: false });
+        expect(mockGetEpoxyClient).toHaveBeenCalledTimes(1);
         expect(events.error).not.toHaveBeenCalled();
     });
 
@@ -160,19 +160,56 @@ describe('PSocket connect', () => {
         expect(client.connect).toHaveBeenCalledWith('example.com', 443);
     });
 
-    it('retries with a refreshed client when the first attempt fails', async () => {
+    it('retries once when the client could not be built', async () => {
         const client = makeClient(makeStream());
         mockGetEpoxyClient
-            .mockRejectedValueOnce(new Error('stale client'))
+            .mockRejectedValueOnce(new Error('wasm unavailable'))
             .mockResolvedValueOnce(client);
 
         const socket = new PSocket('example.com', 80);
         const events = listen(socket);
         await until(() => expect(events.open).toHaveBeenCalledTimes(1));
 
-        expect(mockGetEpoxyClient).toHaveBeenNthCalledWith(1, { refresh: false });
-        expect(mockGetEpoxyClient).toHaveBeenNthCalledWith(2, { refresh: true });
+        expect(mockGetEpoxyClient).toHaveBeenCalledTimes(2);
         expect(events.error).not.toHaveBeenCalled();
+    });
+
+    it('retries on a fresh client when the relay itself failed', async () => {
+        const relayError = new Error('Wisp: Multiplexor task ended');
+        const dead = makeClient(makeStream());
+        dead.connect.mockRejectedValue(relayError);
+        const fresh = makeClient(makeStream());
+        mockGetEpoxyClient
+            .mockResolvedValueOnce(dead)
+            .mockResolvedValueOnce(fresh);
+        mockDiscardOnRelayFailure.mockReturnValueOnce(true);
+
+        const socket = new PSocket('example.com', 80);
+        const events = listen(socket);
+        await until(() => expect(events.open).toHaveBeenCalledTimes(1));
+
+        expect(mockDiscardOnRelayFailure).toHaveBeenCalledWith(
+            dead,
+            relayError,
+        );
+        expect(fresh.connect).toHaveBeenCalledWith('example.com', 80);
+        expect(events.error).not.toHaveBeenCalled();
+    });
+
+    // One unreachable host must not cost a second relay client.
+    it('does not retry a stream failure on a working relay', async () => {
+        const refused = new Error('connection refused');
+        const client = makeClient(makeStream());
+        client.connect.mockRejectedValue(refused);
+        mockGetEpoxyClient.mockResolvedValue(client);
+
+        const socket = new PSocket('down.example', 80);
+        const events = listen(socket);
+        await until(() => expect(events.close).toHaveBeenCalledWith(true));
+
+        expect(mockGetEpoxyClient).toHaveBeenCalledTimes(1);
+        expect(mockDiscardOnRelayFailure).toHaveBeenCalledWith(client, refused);
+        expect(events.error.mock.calls[0][0]).toBe(refused);
     });
 
     it('emits an error and closes when both attempts fail', async () => {
@@ -185,7 +222,7 @@ describe('PSocket connect', () => {
         expect(events.open).not.toHaveBeenCalled();
         expect(events.error).toHaveBeenCalledTimes(1);
         expect(events.close).toHaveBeenCalledWith(true);
-        expect(mockClearEpoxyClientCache).toHaveBeenCalled();
+        expect(mockGetEpoxyClient).toHaveBeenCalledTimes(2);
     });
 
     // The types declare the handler as `(error: Error) => void` and document the
@@ -246,14 +283,15 @@ describe('PSocket inbound data', () => {
         expect(events.error).not.toHaveBeenCalled();
     });
 
-    it('emits an error and drops the cached client when the read fails', async () => {
-        const { events, stream } = await connected();
+    it('emits an error and reports it to the client cache when the read fails', async () => {
+        const { events, stream, client } = await connected();
 
-        stream.failRead(new Error('connection reset'));
+        const reset = new Error('connection reset');
+        stream.failRead(reset);
         await until(() => expect(events.error).toHaveBeenCalled());
 
         expect(events.error.mock.calls[0][0].message).toBe('connection reset');
-        expect(mockClearEpoxyClientCache).toHaveBeenCalled();
+        expect(mockDiscardOnRelayFailure).toHaveBeenCalledWith(client, reset);
         await until(() => expect(events.close).toHaveBeenCalledWith(true));
     });
 });
@@ -311,6 +349,51 @@ describe('PSocket write', () => {
         await until(() => expect(callback).toHaveBeenCalledTimes(1));
     });
 
+    it('sends queued writes before writes from the open handler', async () => {
+        const stream = makeStream();
+        const gate = deferred();
+        mockGetEpoxyClient.mockReturnValue(gate.promise);
+        const socket = new PSocket('example.com', 80);
+        socket.write('first');
+        socket.on('open', () => socket.write('second'));
+        gate.resolve(makeClient(stream));
+        await until(() => expect(stream.written).toHaveLength(2));
+        expect(
+            stream.written.map((chunk) => new TextDecoder().decode(chunk)),
+        ).toEqual(['first', 'second']);
+        socket.close();
+    });
+
+    it('queues a write made during the flush behind the queued writes', async () => {
+        const written = [];
+        const sinkGate = deferred();
+        let sinkCalls = 0;
+        const stream = {
+            read: new ReadableStream(),
+            write: new WritableStream({
+                async write(chunk) {
+                    written.push(new TextDecoder().decode(chunk));
+                    if (sinkCalls++ === 0) await sinkGate.promise;
+                },
+            }),
+        };
+        const gate = deferred();
+        mockGetEpoxyClient.mockReturnValue(gate.promise);
+        const socket = new PSocket('example.com', 80);
+        socket.write('first');
+        socket.write('second');
+        gate.resolve(makeClient(stream));
+
+        // The flush is parked on 'first'; this write comes from elsewhere.
+        await until(() => expect(written).toEqual(['first']));
+        socket.write('third');
+        sinkGate.resolve();
+
+        await until(() => expect(written).toHaveLength(3));
+        expect(written).toEqual(['first', 'second', 'third']);
+        socket.close();
+    });
+
     it('queues writes issued before the socket opens and flushes them in order', async () => {
         const stream = makeStream();
         const gate = deferred();
@@ -342,15 +425,19 @@ describe('PSocket write', () => {
         expect(() => socket.write('late')).toThrow(/already closed/);
     });
 
-    it('emits an error and drops the cached client when a write fails', async () => {
-        const stream = makeStream({ failWrite: new Error('write failed') });
-        const { socket, events } = await connected(stream);
+    it('emits an error and reports it to the client cache when a write fails', async () => {
+        const failWrite = new Error('write failed');
+        const stream = makeStream({ failWrite });
+        const { socket, events, client } = await connected(stream);
 
         socket.write('doomed');
         await until(() => expect(events.error).toHaveBeenCalled());
 
         expect(events.error.mock.calls[0][0].message).toBe('write failed');
-        expect(mockClearEpoxyClientCache).toHaveBeenCalled();
+        expect(mockDiscardOnRelayFailure).toHaveBeenCalledWith(
+            client,
+            failWrite,
+        );
     });
 
     // Regression guard: a failed write hands the close event to #closeStreams,
