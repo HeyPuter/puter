@@ -18,6 +18,7 @@
  */
 
 import { createUploadThumbnailGenerator } from './services/pdfThumbnails/index.js';
+import { dedupedName } from './helpers/dedupedName.js';
 import { archiveEntryPath } from './helpers/archiveEntryPath.js';
 import get_html_element_from_options from './helpers/getHtmlElementFromOptions.js';
 import globToRegExp from './helpers/globToRegExp.js';
@@ -27,7 +28,9 @@ import { invalidate_shared_roots } from './helpers/sharedAccess.js';
 import truncate_filename from './helpers/truncateFilename.js';
 import update_title_based_on_uploads from './helpers/updateTitleBasedOnUploads.js';
 import update_username_in_gui from './helpers/updateUsernameInGui.js';
+import { notifyItemWatchers } from './helpers/watchItems.js';
 import { select_uploaded_items } from './helpers/uploadSelection.js';
+import { templateMenuItem } from './helpers/templateMenuItem.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
@@ -628,6 +631,11 @@ window.update_auth_data = async (auth_token, user) => {
     // ----------------------------------------------------
     user.profile = {};
     puter.auth.getProfile().then((profile) => {
+        window.user.profile.displayName = profile?.displayName ?? null;
+        window.user.profile.bio = profile?.bio ?? null;
+        if ( profile?.displayName ) {
+            $('.dashboard-profile-display-name').text(profile.displayName);
+        }
         if ( profile?.picture ) {
             window.user.profile.picture = html_encode(profile.picture);
             $('.profile-pic').css('background-image', `url(${window.user.profile.picture})`);
@@ -704,10 +712,18 @@ window.mutate_user_preferences = function (user_preferences_delta) {
     window.update_user_preferences({ ...window.user_preferences, ...user_preferences_delta });
 };
 
+/**
+ * The language to render in for a saved `language` preference. The stored
+ * value can be anything, and i18n/Intl throw on some bad locales.
+ */
+window.resolve_language = (language) => (window.listSupportedLanguages().some(lang => lang.code === language)
+    ? language
+    : 'en');
+
 window.update_user_preferences = function (user_preferences) {
     window.user_preferences = user_preferences;
     localStorage.setItem('user_preferences', JSON.stringify(user_preferences));
-    const language = user_preferences.language ?? 'en';
+    const language = window.resolve_language(user_preferences.language);
     window.locale = language;
 
     // Broadcast locale change to apps
@@ -715,6 +731,32 @@ window.update_user_preferences = function (user_preferences) {
     broadcastService.sendBroadcast('localeChanged', {
         language: language,
     }, { sendToNewAppInstances: true });
+};
+
+/**
+ * Read the account's saved preferences and apply them. A read that fails
+ * keeps what this browser last loaded.
+ */
+window.load_user_preferences = async function () {
+    const user_preferences = {
+        show_hidden_files: window.user_preferences.show_hidden_files,
+        language: window.user_preferences.language,
+    };
+    try {
+        user_preferences.show_hidden_files = JSON.parse(await puter.kv.get('user_preferences.show_hidden_files'));
+    } catch (e) {
+        console.error('Error loading show_hidden_files', e);
+    }
+    try {
+        user_preferences.language = await puter.kv.get('user_preferences.language');
+    } catch (e) {
+        console.error('Error loading language', e);
+    }
+    const entries = await puter.kv.list('user_preferences.default_apps.*', true).catch(() => []);
+    for ( const entry of entries ) {
+        user_preferences[entry.key.substring(17)] = entry.value;
+    }
+    window.update_user_preferences(user_preferences);
 };
 
 window.sendWindowWillCloseMsg = function (iframe_element) {
@@ -931,39 +973,14 @@ window.get_apps = async (app_names, callback) => {
 };
 
 /**
- * Sends an "itemChanged" event to all watching applications associated with a specific item.
+ * Sends an "itemChanged" event to the apps watching an item, re-checking that
+ * each one can still see it. See `helpers/watchItems.js`.
  *
- * @function sendItemChangeEventToWatchingApps
- * @memberof window
- * @param {string} item_uid - Unique identifier of the item that experienced the change.
- * @param {Object} event_data - Additional data about the event to be passed to the watching applications.
- *
- * @description
- * This function sends an "itemChanged" message to all applications that are currently watching
- * the specified item. If an application's iframe is not found or no longer valid,
- * it is removed from the list of watchers.
- *
- * The function expects that `window.watchItems` contains a mapping of item UIDs to arrays of app instance IDs.
- *
- * @example
- * // Example usage to send a change event to watching applications of an item with UID "item123".
- * window.sendItemChangeEventToWatchingApps('item123', { property: 'value' });
+ * @param {string} item_uid - Unique identifier of the item that changed.
+ * @param {Object} event_data - Data about the change, passed to the apps.
  */
 window.sendItemChangeEventToWatchingApps = function (item_uid, event_data) {
-    if ( window.watchItems[item_uid] ) {
-        window.watchItems[item_uid].forEach(app_instance_id => {
-            const iframe = $(`.window[data-element_uuid="${app_instance_id}"]`).find('.window-app-iframe');
-            if ( iframe && iframe.length > 0 ) {
-                iframe.get(0)?.contentWindow
-                    .postMessage({
-                        msg: 'itemChanged',
-                        data: event_data,
-                    }, '*');
-            } else {
-                window.watchItems[item_uid].splice(window.watchItems[item_uid].indexOf(app_instance_id), 1);
-            }
-        });
-    }
+    notifyItemWatchers(item_uid, event_data);
 };
 
 /**
@@ -1184,29 +1201,7 @@ window.available_templates = () => {
                 return [];
             }
 
-            let result = [];
-
-            hasTemplateFiles.forEach(element => {
-                const extIndex = element.name.lastIndexOf('.');
-                const name = extIndex === -1
-                    ? element.name
-                    : element.name.slice(0, extIndex);
-                let extension = extIndex === -1
-                    ? ''
-                    : element.name.slice(extIndex + 1);
-
-                if ( extension == 'txt' ) extension = 'text';
-
-                const _path = path.join(templatesPath, element.name);
-
-                const itemStructure = {
-                    path: _path,
-                    html: `${html_encode(extension.toUpperCase())} ${html_encode(name)}`,
-                    extension: extension,
-                    name: element.name,
-                };
-                result.push(itemStructure);
-            });
+            const result = hasTemplateFiles.map(element => templateMenuItem(templatesPath, element.name));
 
             // Assign to window.file_templates when ready
             window.file_templates = result;
@@ -1325,7 +1320,7 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                         // pops up on top of the dialog while it waits.
                         clearTimeout(progwin_timeout);
                         const alert_resp = await UIAlert({
-                            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                            message: i18n('item_already_exists', [err.entry_name], false),
                             buttons: [
                                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                                 ... (window.clipboard.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
@@ -1464,7 +1459,7 @@ window.copy_items = function (el_items, dest_path) {
                         // pops up on top of the dialog while it waits.
                         clearTimeout(progwin_timeout);
                         const alert_resp = await UIAlert({
-                            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                            message: i18n('item_already_exists', [err.entry_name], false),
                             buttons: [
                                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                                 ... (el_items.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
@@ -1570,7 +1565,9 @@ window.delete_item = async function (el_item, descendants_only = false) {
             $(`.item[data-shortcut_to_path="${html_encode($(el_item).attr('data-path'))}" i]`).attr('data-shortcut_to_path', '');
         });
     } catch ( err ) {
-        UIAlert(err.responseText);
+        // Nothing was deleted: bring back what was faded out above.
+        $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).stop(true).fadeIn(150);
+        UIAlert(err?.message ?? err?.responseText ?? String(err));
     }
 };
 
@@ -1699,7 +1696,7 @@ window.refresh_trash_state = async function () {
     // 'strong' consistency: an 'eventual' stat can be served from the SDK
     // cache, which is stale right after a trash mutation and — when seeded
     // by readdir — lacks the `is_empty` field entirely.
-    const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'eventual' });
+    const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'strong' });
     if ( window.socket ) {
         window.socket.emit('trash.is_empty', { is_empty: trash.is_empty });
     }
@@ -1965,14 +1962,17 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     });
                 }
 
+                // The dashboard's Back/Forward follows a moved folder, and
+                // forgets a trashed one.
+                if ( $(el_item).attr('data-is_dir') === '1' ) {
+                    window.dashboard_object?.folderMoved?.($(el_item).attr('data-path'), is_trashing ? null : fsentry.path);
+                }
+
                 if ( is_trashing ) {
                     // if trashing dir...
                     if ( $(el_item).attr('data-is_dir') === '1' ) {
-                        // disassociate all its websites
-                        // todo, some client-side check to see if this dir has at least one associated website before sending ajax request
-                        // FIXME: dir_uuid is not defined, is this the same as the data-uid attribute?
-                        // puter.hosting.delete(dir_uuid)
-
+                        // Its websites stay registered: the server doesn't
+                        // serve a root in Trash, and restoring brings them back.
                         $(`.mywebsites-dir-path[data-uuid="${$(el_item).attr('data-uid')}"]`).remove();
                         // remove the website badge from all instances of the dir
                         $(`.item[data-uid="${$(el_item).attr('data-uid')}"]`).find('.item-has-website-badge').fadeOut(300);
@@ -2062,7 +2062,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     // pops up on top of the dialog while it waits.
                     clearTimeout(progwin_timeout);
                     const alert_resp = await UIAlert({
-                        message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                        message: i18n('item_already_exists', [err.entry_name], false),
                         buttons: [
                             { label: i18n('replace'), type: 'primary', value: 'replace' },
                             ... (el_items.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
@@ -2163,10 +2163,13 @@ window.refresh_desktop_background = function () {
 };
 
 window.determine_website_url = function (fsentry_path) {
-    // search window.sites and if any site has `dir_path` set and the fsentry_path starts with that dir_path + '/', return the site's url + path
-    for ( let i = 0; i < window.sites.length; i++ ) {
-        if ( window.sites[i].dir_path && fsentry_path.startsWith(`${window.sites[i].dir_path }/`) ) {
-            return window.sites[i].address + fsentry_path.replace(window.sites[i].dir_path, '');
+    // The address an item has under a site serving a folder above it. The
+    // site's folder and address come with its root_dir.
+    for ( const site of window.sites ) {
+        const dir_path = site.root_dir?.path;
+        const address = site.root_dir?.subdomains?.find((entry) => entry.subdomain === site.subdomain)?.address;
+        if ( dir_path && address && fsentry_path.startsWith(`${dir_path}/`) ) {
+            return address + fsentry_path.slice(dir_path.length);
         }
     }
 
@@ -2432,7 +2435,7 @@ window.upload_items = async function (items, dest_path) {
             },
             // error
             error: async function (err) {
-                upload_progress_window.show_error(i18n('error_uploading_files'), err.message);
+                upload_progress_window.show_error(i18n('error_uploading_files', [], false), err.message);
                 // remove from active_uploads
                 delete window.active_uploads[opid];
             },
@@ -2635,7 +2638,10 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
         progwin?.set_status(i18n('zip', 'Selection(s)'));
     }, 500);
 
-    let toBeZipped = {};
+    const toBeZipped = {};
+    // Shared items from different people can share a name; each keeps its
+    // own entry rather than overwriting the other.
+    const topNames = [];
 
     let perItemAdditionProgress = window.zippingProgressConfig.SEQUENCING / el_items.length;
     let currentProgress = 0;
@@ -2643,6 +2649,8 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
         const el_item = el_items[idx];
         if ( window.operation_cancelled[zip_operation_id] ) return;
         let targetPath = $(el_item).attr('data-path');
+        const topName = dedupedName(path.basename(targetPath), topNames);
+        topNames.push(topName);
 
         // if directory, zip the directory
         if ( $(el_item).attr('data-is_dir') === '1' ) {
@@ -2654,12 +2662,10 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
             for ( let cIdx = 0; cIdx < children.length; cIdx++ ) {
                 const child = children[cIdx];
 
-                if ( ! child.relativePath ) {
-                    // Add empty directiories to the zip
-                    toBeZipped = {
-                        ...toBeZipped,
-                        [`${path.basename(child.path)}/`]: [await blobToUint8Array(new Blob()), { level: 9 }],
-                    };
+                if ( child.emptyDirPath !== undefined ) {
+                    // Add empty directories to the zip, where they sit
+                    const dirPath = el_items.length === 1 ? child.emptyDirPath : `${topName}/${child.emptyDirPath}`;
+                    toBeZipped[dirPath || `${topName}/`] = [await blobToUint8Array(new Blob()), { level: 9 }];
                 } else {
                     // Add files from directory to the zip
                     let relativePath;
@@ -2669,17 +2675,14 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
                     }
                     else
                     {
-                        relativePath = `${path.basename(targetPath) }/${ child.relativePath}`;
+                        relativePath = `${topName}/${child.relativePath}`;
                     }
 
                     // read file content
                     progwin?.set_status(i18n('sequencing', child.relativePath));
                     let content = await puter.fs.read(child.path);
                     try {
-                        toBeZipped = {
-                            ...toBeZipped,
-                            [relativePath]: [await blobToUint8Array(content), { level: 9 }],
-                        };
+                        toBeZipped[relativePath] = [await blobToUint8Array(content), { level: 9 }];
                     } catch (e) {
                         console.error(e);
                     }
@@ -2692,10 +2695,7 @@ window.zipItems = async function (el_items, targetDirPath, download = true) {
         else {
             progwin?.set_status(i18n('reading', path.basename($(el_items[0]).attr('data-path'))));
             let content = await puter.fs.read(targetPath);
-            toBeZipped = {
-                ...toBeZipped,
-                [path.basename(targetPath)]: [await blobToUint8Array(content), { level: 9 }],
-            };
+            toBeZipped[topName] = [await blobToUint8Array(content), { level: 9 }];
             currentProgress += perItemAdditionProgress;
             progwin?.set_progress(currentProgress.toPrecision(2));
         }
@@ -2766,7 +2766,8 @@ async function readDirectoryRecursive (path, baseDir = '') {
     const entries = await puter.fs.readdir(path, { consistency: 'eventual' });
 
     if ( entries.length === 0 ) {
-        allFiles.push({ path });
+        // An empty folder, by where it sits in the folder being read.
+        allFiles.push({ path, emptyDirPath: baseDir });
     } else {
         // Process each entry
         for ( const entry of entries ) {
@@ -3187,7 +3188,11 @@ function parseTar (data) {
     return files;
 }
 
-window.rename_file = async (options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false) => {
+/**
+ * @param {(fsentry: object | null) => void} [onDone] - Runs after the row is
+ *     updated: with the renamed entry, or null once a failed rename is undone.
+ */
+window.rename_file = async (options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, is_undo = false, onDone) => {
     puter.fs.rename({
         uid: options.uid === 'null' ? null : options.uid,
         new_name: new_name,
@@ -3202,7 +3207,7 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             {
                 window.actions_history.push({
                     operation: 'rename',
-                    data: { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url },
+                    data: { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, onDone },
                 });
             }
 
@@ -3290,6 +3295,8 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).parent('.item-container').each(function () {
                 window.sort_items(this, $(el_item).closest('.item-container').attr('data-sort_by'), $(el_item).closest('.item-container').attr('data-sort_order'));
             });
+
+            onDone?.(fsentry);
         },
         error: function (err) {
             // reset to old name
@@ -3300,11 +3307,14 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
             $(el_item_name_editor).hide();
             $(el_item_name_editor).val($(el_item).attr('data-name'));
 
-            //show error
-            if ( err.message ) {
-                UIAlert(err.message);
-            }
+            onDone?.(null);
+
+            // A network failure rejects with no message, and the name going
+            // back on its own would look like the rename was ignored.
+            UIAlert(err?.message || i18n('error_unknown_cause', [], false));
         },
+    }).catch(() => {
+        // Handled by the error callback above.
     });
 };
 
@@ -3341,8 +3351,8 @@ window.undo_last_action = async () => {
         move: () => window.undo_move(data),
         delete: () => window.undo_delete(data),
         rename: () => {
-            const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url } = data;
-            window.rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true);
+            const { options, new_name, old_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, onDone } = data;
+            window.rename_file(options, old_name, new_name, old_path, el_item, el_item_name, el_item_icon, el_item_name_editor, website_url, true, onDone);
         },
     };
 
@@ -3686,7 +3696,7 @@ window.handle_same_name_exists = async ({
             return false;
         }
         const alert_resp = await UIAlert({
-            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+            message: i18n('item_already_exists', [err.entry_name], false),
             buttons: [
                 {
                     label: i18n('replace'),

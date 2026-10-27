@@ -40,6 +40,12 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import type { Request } from 'express';
+import {
+    renderAnthropicError,
+    renderOpenAIError,
+} from '../../controllers/puterai/wireErrors.js';
+import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -52,6 +58,7 @@ import {
     markRouteUnhealthy,
 } from './utils/providerHealth.js';
 import { InfronProvider } from './providers/infron/InfronProvider.js';
+import { UpstreamDeadlineError } from '../util/upstreamErrors.js';
 
 // -- OpenAI SDK mock ------------------------------------------------
 // Gemini reaches Google through `new openai.OpenAI()` (default export) and
@@ -143,6 +150,7 @@ const OPENROUTER_CATALOG = [
     // also the alias the Meta provider publishes — the two have to land in
     // one bucket rather than becoming separate models.
     'meta/muse-spark-1.2',
+    'openai/o1-pro',
 ].map((id) => ({
     id,
     name: `${id} (via OpenRouter)`,
@@ -475,6 +483,366 @@ describe('ChatCompletionDriver muse spark routing', () => {
     });
 });
 
+describe('ChatCompletionDriver model-unavailable routes', () => {
+    // Shaped like the OpenAI SDK's APIError for an OpenAI-convention body.
+    const modelNotFound = () =>
+        Object.assign(
+            new Error('403 The model is not available to your account.'),
+            {
+                status: 403,
+                error: {
+                    code: 'model_not_found',
+                    message: 'The model is not available to your account.',
+                },
+            },
+        );
+    const statusError = (status: number, message: string) =>
+        Object.assign(new Error(message), { status });
+    const reply = {
+        choices: [
+            {
+                message: { role: 'assistant', content: 'hi' },
+                finish_reason: 'stop',
+            },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+    };
+
+    const complete = (model: string, provider?: string) =>
+        withTestActor(() =>
+            driver.complete({
+                model,
+                ...(provider ? { provider } : {}),
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        ).catch((e: unknown) => e as HttpError);
+
+    const statusesOf = (err: HttpError) =>
+        (
+            err as unknown as { fields: { attempts: { status?: number }[] } }
+        ).fields.attempts.map((a) => a.status);
+
+    it('falls back past a gated route and marks only that route', async () => {
+        createMock
+            .mockRejectedValueOnce(modelNotFound())
+            .mockResolvedValueOnce(reply);
+
+        await expect(complete('deepseek-v4-pro')).resolves.toMatchObject({
+            message: { content: 'hi' },
+        });
+        expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(true);
+        expect(
+            isRouteUnhealthy('infron', 'infron:deepseek/deepseek-v4-pro'),
+        ).toBe(false);
+    });
+
+    it('keeps serving a model from its vendor after the gateway route is gated', async () => {
+        createMock
+            .mockRejectedValueOnce(modelNotFound())
+            .mockResolvedValueOnce(reply)
+            .mockResolvedValueOnce(reply);
+
+        await expect(
+            complete('muse-spark-1.2', 'openrouter'),
+        ).resolves.toMatchObject({ message: { content: 'hi' } });
+        expect(createMock.mock.calls.at(-1)![0].model).toBe('muse-spark-1.2');
+        expect(
+            isRouteUnhealthy('openrouter', 'openrouter:meta/muse-spark-1.2'),
+        ).toBe(true);
+        expect(isRouteUnhealthy('meta', 'muse-spark-1.2')).toBe(false);
+
+        await expect(complete('meta/muse-spark-1.2')).resolves.toMatchObject({
+            message: { content: 'hi' },
+        });
+        expect(createMock.mock.calls.at(-1)![0].model).toBe('muse-spark-1.2');
+    });
+
+    it('keeps a gated route marked for as long as bad credentials', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const start = Date.now();
+        try {
+            createMock
+                .mockRejectedValueOnce(modelNotFound())
+                .mockResolvedValueOnce(reply);
+            await complete('deepseek-v4-pro');
+
+            vi.setSystemTime(start + 61 * 1000);
+            expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(true);
+            vi.setSystemTime(start + (10 * 60 + 1) * 1000);
+            expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('tells the caller the model is unavailable when every route is gated or missing', async () => {
+        createMock
+            .mockRejectedValueOnce(modelNotFound())
+            .mockRejectedValue(statusError(404, 'model not found'));
+
+        const err = await complete('deepseek-v4-pro');
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+            fields: expect.objectContaining({ upstreamStatus: 404 }),
+        });
+        expect(statusesOf(err)).toEqual([403, 404, 404]);
+    });
+
+    it('still pages when a gated route sits beside a bad credential', async () => {
+        createMock
+            .mockRejectedValueOnce(modelNotFound())
+            .mockRejectedValue(statusError(401, 'invalid api key'));
+
+        const err = await complete('deepseek-v4-pro');
+
+        expect(err).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+        });
+        expect(statusesOf(err)).toEqual([403, 401, 401]);
+    });
+
+    it('classifies a gated route beside an outage as a mixed upstream failure', async () => {
+        createMock
+            .mockRejectedValueOnce(modelNotFound())
+            .mockRejectedValue(statusError(503, 'service unavailable'));
+
+        const err = await complete('deepseek-v4-pro');
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_failed',
+        });
+        expect(statusesOf(err)).toEqual([403, 503, 503]);
+    });
+});
+
+describe('ChatCompletionDriver OpenRouter account policy block', () => {
+    const POLICY_MESSAGE =
+        'Policy Violation: this user has been blocked for a previous policy violation. Learn more: https://openrouter.ai/docs/policy (request id: req-secret)';
+    // Shaped like the OpenAI SDK's APIError for OpenRouter's error body.
+    const policyBlock = () =>
+        Object.assign(new Error(`403 ${POLICY_MESSAGE}`), {
+            status: 403,
+            code: 403,
+            error: { code: 403, message: POLICY_MESSAGE },
+        });
+    const reply = {
+        choices: [
+            {
+                message: { role: 'assistant', content: 'hi' },
+                finish_reason: 'stop',
+            },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+    };
+
+    const complete = (model: string, provider?: string) =>
+        withTestActor(() =>
+            driver.complete({
+                model,
+                ...(provider ? { provider } : {}),
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        ).catch((e: unknown) => e as HttpError);
+
+    const attemptsOf = (err: HttpError) =>
+        (
+            err as unknown as {
+                fields: {
+                    attempts: {
+                        provider: string;
+                        status?: number;
+                        code?: unknown;
+                    }[];
+                };
+            }
+        ).fields.attempts;
+
+    it.each(['openai/o1-pro', 'openrouter:openai/o1-pro', 'o1-pro'])(
+        'tells a caller asking for %s that the model is unavailable',
+        async (model) => {
+            createMock.mockRejectedValueOnce(policyBlock());
+
+            const err = await complete(model);
+
+            expect(err).toMatchObject({
+                statusCode: 400,
+                legacyCode: 'upstream_bad_request',
+                message: 'Model not available: openrouter:openai/o1-pro',
+                fields: expect.objectContaining({ upstreamStatus: 404 }),
+            });
+            expect(JSON.stringify(err.fields)).not.toMatch(
+                /policy|http|request id/i,
+            );
+        },
+    );
+
+    it('treats the in-band policy block of a 200 with no choices the same way', async () => {
+        createMock.mockResolvedValueOnce({
+            error: { code: 403, message: POLICY_MESSAGE },
+        });
+
+        const err = await complete('openai/o1-pro');
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+            fields: expect.objectContaining({ upstreamStatus: 404 }),
+        });
+        expect(attemptsOf(err)).toEqual([
+            expect.objectContaining({
+                provider: 'openrouter',
+                status: 403,
+                code: 'model_not_found',
+            }),
+        ]);
+    });
+
+    it('keeps a no-choice completion without the policy block a request-level 400', async () => {
+        createMock.mockResolvedValueOnce({});
+
+        const err = await complete('openai/o1-pro');
+
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+            message: 'no completion was returned',
+        });
+        expect(err.fields?.upstreamStatus).toBe(400);
+        expect(isRouteUnhealthy('openrouter', 'openrouter:openai/o1-pro')).toBe(
+            false,
+        );
+    });
+
+    it('falls back from a policy-blocked gateway route to the vendor, under the Anthropic route too', async () => {
+        for (const strict of [false, true]) {
+            clearUnhealthyRoutes();
+            createMock
+                .mockRejectedValueOnce(policyBlock())
+                .mockResolvedValueOnce(reply);
+
+            const res = await withTestActor(() => {
+                if (strict) Context.set('strictUpstreamErrors', true);
+                return driver.complete({
+                    model: 'muse-spark-1.2',
+                    provider: 'openrouter',
+                    messages: [{ role: 'user', content: 'hi' }],
+                });
+            });
+
+            expect(res).toMatchObject({ message: { content: 'hi' } });
+            expect(createMock.mock.calls.at(-1)![0].model).toBe(
+                'muse-spark-1.2',
+            );
+            expect(
+                isRouteUnhealthy(
+                    'openrouter',
+                    'openrouter:meta/muse-spark-1.2',
+                ),
+            ).toBe(true);
+            expect(isRouteUnhealthy('meta', 'muse-spark-1.2')).toBe(false);
+        }
+    });
+
+    it('renders a gated route beside a missing one as not found on both wire formats', async () => {
+        createMock
+            .mockRejectedValueOnce(policyBlock())
+            .mockRejectedValueOnce(
+                Object.assign(new Error('model not found'), { status: 404 }),
+            );
+
+        const err = await complete('muse-spark-1.2', 'openrouter');
+
+        expect(attemptsOf(err).map((a) => a.status)).toEqual([403, 404]);
+        const anthropic = renderAnthropicError(err, {} as Request);
+        const openai = renderOpenAIError(err, {} as Request);
+        expect(anthropic.status).toBe(404);
+        expect(anthropic.body).toMatchObject({
+            error: {
+                type: 'not_found_error',
+                message: 'Model not available: openrouter:meta/muse-spark-1.2',
+            },
+        });
+        expect(openai.status).toBe(404);
+        expect(openai.body).toMatchObject({
+            error: {
+                type: 'not_found_error',
+                message: 'Model not available: openrouter:meta/muse-spark-1.2',
+            },
+        });
+        expect(JSON.stringify([anthropic.body, openai.body])).not.toMatch(
+            /policy|http|request id/i,
+        );
+    });
+
+    it('leaves the same body from another provider an auth failure', async () => {
+        createMock.mockRejectedValue(policyBlock());
+
+        const err = await complete('muse-spark-1.2');
+
+        expect(err).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+        });
+        expect(attemptsOf(err)).toEqual([
+            expect.objectContaining({
+                provider: 'meta',
+                status: 403,
+                code: 403,
+            }),
+            expect.objectContaining({
+                provider: 'openrouter',
+                status: 403,
+                code: 'model_not_found',
+            }),
+        ]);
+    });
+
+    it.each([
+        [
+            'a generic 403',
+            { status: 403, error: { code: 403, message: 'Forbidden' } },
+            500,
+            'upstream_auth_failed',
+        ],
+        [
+            'a 401',
+            { status: 401, error: { code: 401, message: 'User not found.' } },
+            500,
+            'upstream_auth_failed',
+        ],
+        [
+            'a 402',
+            {
+                status: 402,
+                error: { code: 402, message: 'Insufficient credits' },
+            },
+            503,
+            'upstream_credits_exhausted',
+        ],
+        [
+            'a 503',
+            { status: 503, error: { code: 503, message: POLICY_MESSAGE } },
+            400,
+            'upstream_provider_unavailable',
+        ],
+    ])(
+        'keeps %s from OpenRouter classified as before',
+        async (_label, shape, statusCode, legacyCode) => {
+            createMock.mockRejectedValueOnce(
+                Object.assign(new Error(shape.error.message), shape),
+            );
+
+            const err = await complete('openai/o1-pro');
+
+            expect(err).toMatchObject({ statusCode, legacyCode });
+        },
+    );
+});
+
 describe('ChatCompletionDriver duplicate-model fallback', () => {
     // deepseek-v4-pro is served directly by DeepSeek, by Infron, and twice by
     // OpenRouter (two upstream orgs) — four routes in one bucket.
@@ -710,6 +1078,25 @@ describe('ChatCompletionDriver unhealthy-route skipping', () => {
         );
         await complete();
         expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(true);
+    });
+
+    it('returns 504 for a request that outlived its deadline and keeps the route', async () => {
+        createMock.mockRejectedValue(
+            new UpstreamDeadlineError('Gemini request timed out'),
+        );
+
+        const err = await withTestActor(() =>
+            driver.complete({
+                model: 'deepseek-v4-pro',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        ).catch((e: unknown) => e as HttpError);
+
+        expect(err).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+        });
+        expect(isRouteUnhealthy('deepseek', 'deepseek-v4-pro')).toBe(false);
     });
 
     describe('how long a failed route stays marked', () => {

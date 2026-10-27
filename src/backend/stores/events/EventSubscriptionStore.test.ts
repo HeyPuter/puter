@@ -945,6 +945,65 @@ describe('reading rows for dispatch', () => {
     });
 });
 
+describe('anyone watching, when the region is warm', () => {
+    it('answers null while the region is cold, whatever is watched', async () => {
+        await store.add(makeSub());
+
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBeNull();
+    });
+
+    it('answers what userHasAny would once the region is warm', async () => {
+        await store.markRegionWarm(USER);
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBe(false);
+
+        await store.add(makeSub());
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBe(true);
+    });
+
+    it('counts a peer watching one of the owner`s tokens', async () => {
+        await store.markRegionWarm(USER);
+        await store.noteRemoteWatch(USER, 'f#anchor', 'peer-region', 'add');
+
+        await expect(store.userHasAny(USER)).resolves.toBe(true);
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBe(true);
+    });
+
+    it('goes back to null once the region is marked cold', async () => {
+        await store.markRegionWarm(USER);
+        await store.add(makeSub());
+        await store.markRegionCold(USER);
+
+        await expect(store.userHasAnyIfWarm(USER)).resolves.toBeNull();
+    });
+
+    // One pipeline in a cluster has to stay in one slot.
+    it('asks in one pipeline, on keys under the owner`s hash tag', async () => {
+        await store.markRegionWarm(USER);
+        const keys: string[] = [];
+        let pipelines = 0;
+        const realPipeline = redis.pipeline.bind(redis);
+        const spy = vi.spyOn(redis, 'pipeline').mockImplementation(() => {
+            pipelines++;
+            const pipeline = realPipeline();
+            const exists = pipeline.exists.bind(pipeline);
+            pipeline.exists = ((key: string) => {
+                keys.push(key);
+                return exists(key);
+            }) as typeof pipeline.exists;
+            return pipeline;
+        });
+        try {
+            await store.userHasAnyIfWarm(USER);
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(pipelines).toBe(1);
+        expect(keys).toHaveLength(3);
+        for (const key of keys) expect(key).toContain(`{${USER}}`);
+    });
+});
+
 describe('the generation counter', () => {
     it('advances on every registration and removal', async () => {
         const first = await store.add(makeSub({ subId: 'a' }));
@@ -963,5 +1022,30 @@ describe('the generation counter', () => {
         expect(await redis.ttl(`ev:g:{${USER}}`)).toBeGreaterThan(
             SESSION_SUBSCRIPTION_TTL_SECONDS,
         );
+    });
+});
+
+describe('dropping an owner', () => {
+    it("removes every key kept for the owner and leaves other owners' alone", async () => {
+        const other = USER + 5000;
+        await store.add(makeSub({ subId: 'a' }));
+        await store.add(makeSub({ subId: 'b', token: 'f#two' }));
+        await store.cacheDurable([
+            makeSub({
+                subId: 'd',
+                token: 'f#durable',
+            }) as unknown as DurableSubscription,
+        ]);
+        await store.markRegionWarm(USER);
+        await store.add(
+            makeSub({ subId: 'c', holderUserId: other, ownerUserId: other }),
+        );
+
+        await store.dropOwner(USER);
+
+        // Socket sets are the holder's, named by socket, and expire on their own.
+        const left = await redis.keys(`ev:*:{${USER}}*`);
+        expect(left.filter((key) => !key.startsWith('ev:s:'))).toEqual([]);
+        await expect(store.userHasAny(other)).resolves.toBe(true);
     });
 });

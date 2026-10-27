@@ -18,6 +18,7 @@
  */
 
 import type { Actor } from '../../../core/actor.js';
+import { HttpError } from '../../../core/http/HttpError.js';
 import {
     type AiMeteringService,
     withStreamedAiCharge,
@@ -29,6 +30,16 @@ import type { DriverStreamResult } from '../../meta.js';
  * streamed on.
  */
 export const TTS_UPSTREAM_TIMEOUT_MS = 120_000;
+
+/** Rejects a string argument longer than its published cap with a 400. */
+export function assertMaxChars(key: string, value: unknown, max: number): void {
+    if (typeof value === 'string' && value.length > max) {
+        throw new HttpError(400, `${key} must be at most ${max} characters`, {
+            legacyCode: 'input_too_large',
+            fields: { key, max },
+        });
+    }
+}
 
 /**
  * Runs `synthesize` under a hold on `text.length × ucentsPerChar` and meters

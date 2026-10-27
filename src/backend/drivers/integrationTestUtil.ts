@@ -30,6 +30,7 @@
  * a test file.
  */
 
+import type { EventClient } from '../clients/event/EventClient.js';
 import { translateProviderError } from '../controllers/drivers/DriverController.js';
 import type { Actor } from '../core/actor.js';
 import { SYSTEM_ACTOR, makeActor } from '../core/actor.js';
@@ -59,6 +60,23 @@ export const skipUnlessEnv = (name: string): boolean => !optionalEnv(name);
  * routinely takes 15–30s. Pass this as the third argument to `it(...)`.
  */
 export const INTEGRATION_TEST_TIMEOUT_MS = 90_000;
+
+/** Runs `fn` with every AI driver's cost factor hooked to `factor`. */
+export const withAiCostFactorHook = async <T>(
+    events: EventClient,
+    factor: number,
+    fn: () => Promise<T>,
+): Promise<T> => {
+    const hook = (_key: string, event: { factor: number }) => {
+        event.factor = factor;
+    };
+    events.on('ai.cost.factor.*', hook);
+    try {
+        return await fn();
+    } finally {
+        events.off('ai.cost.factor.*', hook);
+    }
+};
 
 /**
  * Returns a no-op MeteringService stub. Real metering would write to DynamoDB /

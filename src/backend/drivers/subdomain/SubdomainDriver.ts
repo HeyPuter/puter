@@ -41,6 +41,7 @@ import {
     PROFILES_SUBDOMAIN,
 } from '../../util/systemSite.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
+import { awaitLater } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { buildHostedSubdomainIndexUrlCandidates } from '../../util/hostedAppBacking.js';
 import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
@@ -86,7 +87,8 @@ const RESERVED_SUBDOMAINS = new Set([
  *
  * - Owner (user_id) can read/write their own subdomains
  * - An app actor is further scoped to the rows it created (app_owner), for reads
- *   as well as writes — never widened past its own user
+ *   as well as writes, unless the user granted it
+ *   `subdomains-of-user:<uuid>:read|write` — never widened past its own user
  * - `system:es:write-all-owners` grants blanket write
  * - `read-all-subdomains` grants cross-user reads, and is the only thing that
  *   does
@@ -247,16 +249,7 @@ export class SubdomainDriver extends PuterDriver {
     async read(args: Record<string, unknown>): Promise<unknown> {
         const actor = requireContextUserActor();
         const row = await this.#resolve(args);
-        // Worker deployments live in this table but aren't sites. `select`
-        // excludes them and the workers driver serves them under its own
-        // scoping, so answering for them here would make the hosting API a
-        // by-name lookup for objects it doesn't manage. Same 404 as a miss:
-        // the name is resolved globally, so a distinct refusal would confirm
-        // the row exists.
-        const isWorkerRow =
-            typeof row?.subdomain === 'string' &&
-            row.subdomain.startsWith(WORKER_SUBDOMAIN_PREFIX);
-        if (!row || isWorkerRow)
+        if (!row)
             throw new HttpError(404, 'Subdomain not found', {
                 legacyCode: 'not_found',
             });
@@ -292,8 +285,15 @@ export class SubdomainDriver extends PuterDriver {
             predicate !== 'user-can-edit' &&
             (await this.#hasPermission(actor, 'read-all-subdomains'));
 
-        // App actors only see subdomains they own; read-all bypasses scoping.
-        const appOwner = widenToAll ? undefined : actor.effectiveApp?.id;
+        // App actors only see subdomains they own unless granted the user's;
+        // read-all bypasses scoping.
+        let appOwner = widenToAll ? undefined : actor.effectiveApp?.id;
+        if (
+            appOwner !== undefined &&
+            (await this.#appHoldsUserSubdomains(actor, 'read'))
+        ) {
+            appOwner = undefined;
+        }
         // Worker deployments live in the same table but aren't sites —
         // they're listed through the workers driver instead.
         const listOpts = {
@@ -365,7 +365,10 @@ export class SubdomainDriver extends PuterDriver {
 
         // Subdomain name is immutable — strip if provided
         const patch: Record<string, unknown> = {};
-        if (object.root_dir !== undefined) {
+        // A null root_dir disconnects the directory; the site stays reserved.
+        if (object.root_dir === null) {
+            patch.root_dir_id = null;
+        } else if (object.root_dir !== undefined) {
             const rootDirPath = expandTildePath(
                 String(object.root_dir),
                 actor.user.username,
@@ -461,7 +464,29 @@ export class SubdomainDriver extends PuterDriver {
 
     // -- Resolve -----------------------------------------------------
 
+    /**
+     * Worker deployments live in this table but aren't sites, so every method
+     * here resolves them as a miss. `select` excludes them and the workers
+     * driver serves them under its own scoping. Answering for them would make
+     * the hosting API a by-name lookup for objects it doesn't manage, and
+     * deleting one here would drop the row with no Cloudflare delete behind it
+     * — the script stays live and the user loses the handle to destroy it. Same
+     * 404 as a miss: the name is resolved globally, so a distinct refusal would
+     * confirm the row exists.
+     */
     async #resolve(
+        args: Record<string, unknown>,
+    ): Promise<Record<string, unknown> | null> {
+        const row = await this.#resolveAny(args);
+        if (
+            typeof row?.subdomain === 'string' &&
+            row.subdomain.startsWith(WORKER_SUBDOMAIN_PREFIX)
+        )
+            return null;
+        return row;
+    }
+
+    async #resolveAny(
         args: Record<string, unknown>,
     ): Promise<Record<string, unknown> | null> {
         if (args.uid) return this.stores.subdomain.getByUuid(String(args.uid));
@@ -520,6 +545,21 @@ export class SubdomainDriver extends PuterDriver {
     }
 
     /**
+     * Whether the user granted this app actor all of their own subdomains
+     * (`puter.perms.request('subdomains')`). Write implies read.
+     */
+    async #appHoldsUserSubdomains(
+        actor: Actor,
+        access: 'read' | 'write',
+    ): Promise<boolean> {
+        if (!actor.effectiveApp?.id || !actor.user?.uuid) return false;
+        return this.#hasPermission(
+            actor,
+            `subdomains-of-user:${actor.user.uuid}:${access}`,
+        );
+    }
+
+    /**
      * Both grants are nested under "the caller owns this row" on purpose.
      *
      * Held flat, an `app_owner` match reads as a grant in its own right — and
@@ -531,7 +571,8 @@ export class SubdomainDriver extends PuterDriver {
      * of its branches; this is the same rule, written as nesting.
      *
      * The inner check is the predicate `select` applies in SQL: an app sees
-     * what it created, not everything its user owns.
+     * what it created, not everything its user owns, unless the user granted it
+     * their subdomains.
      */
     async #checkReadAccess(
         row: Record<string, unknown>,
@@ -541,6 +582,7 @@ export class SubdomainDriver extends PuterDriver {
             const app = actor.effectiveApp;
             if (!app?.id) return;
             if (app.id === row.app_owner) return;
+            if (await this.#appHoldsUserSubdomains(actor, 'read')) return;
         }
         // Cross-user read permission
         if (await this.#hasPermission(actor, 'read-all-subdomains')) return;
@@ -589,6 +631,12 @@ export class SubdomainDriver extends PuterDriver {
             appOwnerId: row.app_owner,
         });
         if (owns) return;
+        if (
+            actor.user?.id === row.user_id &&
+            (await this.#appHoldsUserSubdomains(actor, 'write'))
+        ) {
+            return;
+        }
         if (await this.#hasPermission(actor, 'system:es:write-all-owners')) {
             return;
         }
@@ -657,6 +705,14 @@ export class SubdomainDriver extends PuterDriver {
         const rootDirIds = collectIds('root_dir_id');
         const appOwnerIds = collectIds('app_owner');
 
+        // Owners and root dirs don't depend on the derived apps, so they load
+        // alongside the derive. Handled now so a derive error, which still
+        // wins, can't leave them rejecting unobserved.
+        const pendingUsers = awaitLater(this.stores.user.getByIds(userIds));
+        const pendingEntries = awaitLater(
+            this.stores.fsEntry.getEntriesByIds(rootDirIds),
+        );
+
         // `associated_app` is derived: match apps owned by `subdomain.user_id`
         // whose `index_url` resolves to one of the subdomain's host
         // variants. The row's stored `associated_app_id` is ignored
@@ -673,8 +729,8 @@ export class SubdomainDriver extends PuterDriver {
         // so it doesn't need to wait for the app rows.
         const [usersById, entriesById, appsById, filetypesByAppId] =
             await Promise.all([
-                this.stores.user.getByIds(userIds),
-                this.stores.fsEntry.getEntriesByIds(rootDirIds),
+                pendingUsers,
+                pendingEntries,
                 this.stores.app.getByIds(allAppIds),
                 this.stores.app.getFiletypeAssociationsByIds(allAppIds),
             ]);

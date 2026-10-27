@@ -239,6 +239,33 @@ describe('SignupService.confirmEmail', () => {
         expect(after!.email_confirm_code).toBeNull();
     });
 
+    it('refuses with a 400 when the address index already has an owner', async () => {
+        const user = await makeUnconfirmed();
+        // An owner row the address checks don't strip (no clean_email, a
+        // spelling sqlite compares unequal) whose index key still collides.
+        const rival = await server.stores.user.create({
+            username: `ce_${slug()}`,
+            uuid: crypto.randomUUID(),
+            password: 'hashed',
+            email: `x${slug()}@example.com`,
+        });
+        await server.clients.db.write(
+            'UPDATE `user` SET `email` = ?, `clean_email` = NULL WHERE `id` = ?',
+            [user.email!.toUpperCase(), rival.id],
+        );
+
+        await expect(
+            server.services.signup.confirmEmail(user),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'email_already_in_use',
+        });
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.email_confirmed).toBeFalsy();
+    });
+
     it('leaves another account no way to take the address through a pending change', async () => {
         const owner = await makeUnconfirmed();
         const other = await makeUnconfirmed();

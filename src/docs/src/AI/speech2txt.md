@@ -1,10 +1,10 @@
 ---
 title: puter.ai.speech2txt()
-description: Transcribe audio into text using OpenAI or xAI speech-to-text models.
+description: Transcribe audio into text using OpenAI, xAI or Gemini speech-to-text models.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Converts spoken audio into text, with speaker diarization on xAI. This helper wraps the Puter driver-backed transcription API (OpenAI and xAI) so you can work with local files, remote URLs, or in-memory blobs from the browser.
+Converts spoken audio into text, with speaker diarization on xAI and Gemini. Supports OpenAI, xAI and Gemini models.
 
 ## Syntax
 
@@ -32,10 +32,10 @@ When you omit `source`, supply `options.file` or `options.audio` instead.
 Fine-tune how transcription runs.
 
 - `file` / `audio` (String | File | Blob): Alternative way to pass the audio input.
-- `provider` (String): STT provider to use. `'openai'` (default) or `'xai'`. Aliases `'whisper'`, `'grok'` and `'x-ai'` are also accepted; anything else is rejected with a `bad_request` error.
-- `model` (String): `gpt-transcribe` (OpenAI default), or `grok-voice-transcribe-2.0` with `provider: 'xai'`. OpenAI deprecated `whisper-1`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, and `gpt-4o-transcribe-diarize`; Puter rejects them with `bad_request`.
-- `translate` (Boolean): Not supported. On OpenAI, `translate: true` fails with `bad_request`; on xAI it returns an ordinary transcript in the source language.
-- `response_format` (String): `json` (default) or `text` for OpenAI.
+- `provider` (String): STT provider to use. `'openai'` (default), `'xai'` or `'gemini'`. Aliases `'whisper'`, `'grok'`, `'x-ai'`, `'google'` and `'gemini-speech2txt'` are also accepted; anything else is rejected with a `bad_request` error.
+- `model` (String): `gpt-transcribe` (OpenAI default), `grok-voice-transcribe-2.0` with `provider: 'xai'`, or `gemini-3.5-transcribe` (the only Gemini model) with `provider: 'gemini'`. OpenAI deprecated `whisper-1`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, and `gpt-4o-transcribe-diarize`; Puter rejects them with `bad_request`.
+- `translate` (Boolean): Not supported. On OpenAI and Gemini, `translate: true` fails with `bad_request`; on xAI it returns an ordinary transcript in the source language.
+- `response_format` (String): `json` (default) or `text` for OpenAI and Gemini.
 - `language` (String): ISO language code hint for the input audio.
 - `prompt` (String): Optional context to guide the transcription.
 - `temperature` (Number): Sampling temperature (0–1) for supported models.
@@ -54,6 +54,20 @@ Fine-tune how transcription runs.
 - `audio_format` (String): Format hint for raw/headerless audio: `pcm`, `mulaw`, `alaw`.
 - `sample_rate` (Number): Sample rate in Hz. Required for raw audio.
 
+**Gemini-specific options** (when `provider: 'gemini'`):
+
+- `language` (String): Language code (e.g. `en`) the audio is spoken in. The result echoes it as `language`. Without it, the result has no `language`.
+- `timestamp_granularities` (Array): `['word']` adds a `words` array with each word's `start` and `end` in seconds. Only `word` entries are supported. Other entries fail with `bad_request`. When Gemini returns a word with an unusable timing or speaker, that word is left out of `words`, and `text` still has the full transcript.
+- `diarize` (Boolean): When `true`, the result includes `words`. Words can include a `speaker` label such as `spk:0`.
+
+Gemini rejects options it can't honor with `bad_request` instead of ignoring them. These are `prompt`, `temperature`, `logprobs: true`, `stream: true`, `chunking_strategy`, `known_speaker_names`, `extra_body`, and the xAI-specific options.
+
+Gemini accepts WAV, MP3, AIFF, AAC, OGG, FLAC, MPEG, M4A, L16, Opus, A-law, mu-law and WebM audio, sent with an `audio/*` MIME type (`audio/wav`, `audio/mpeg`, `audio/webm`, and so on). Other types fail with `bad_request`, and the audio isn't converted. The audio can be at most 10 MiB, or 1 hour long, or 30 minutes long with word timestamps or `diarize`. Gemini enforces the duration limits itself, and the call fails when the audio is longer. A transcript is limited to 8,192 output tokens. A longer one fails with `502 upstream_failed`, so split long recordings into shorter files.
+
+Before transcribing, Puter reserves the cost of the counted audio tokens plus the full 8,192 output tokens, then charges the tokens Gemini reports. A transcription Gemini answers is charged even when it fails, as Gemini bills it, including one cut off at the output limit. When Gemini reports no usable token counts, only the counted audio is charged.
+
+On a Puter server that doesn't have Gemini set up, Gemini transcription fails with `503 service_unavailable` and isn't charged. Test mode still works there.
+
 #### `testMode` (Boolean) (optional)
 
 When `true`, skips the live API call and returns a static sample transcript so you can develop without consuming credits.
@@ -63,7 +77,7 @@ When `true`, skips the live API call and returns a static sample transcript so y
 Returns a `Promise` that resolves to either:
 
 - A string (when `response_format: "text"`), or
-- An object of [`Speech2TxtResult`](/Objects/speech2txtresult) containing the transcription payload (including per-word timestamps and speakers on xAI, depending on the provider and options). This is the default, including when you pass a bare `source` with no options.
+- An object of [`Speech2TxtResult`](/Objects/speech2txtresult) containing the transcription payload (including per-word timestamps and speakers on xAI and Gemini, depending on the provider and options). This is the default, including when you pass a bare `source` with no options. On Gemini it has `text`, `model`, `language` when you passed one, and `words` when you asked for word timestamps or `diarize`. Gemini returns no `duration`.
 
 ## Examples
 
@@ -104,6 +118,30 @@ Returns a `Promise` that resolves to either:
                     puter.print(`  ${w.start.toFixed(2)}s - ${w.end.toFixed(2)}s: ${w.text}`);
                 });
             }
+        })();
+    </script>
+</body>
+</html>
+```
+
+<strong class="example-title">Transcribe with Gemini, with word timestamps and speakers</strong>
+
+```html;ai-speech2txt-gemini
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const transcript = await puter.ai.speech2txt({
+                file: 'https://assets.puter.site/example.mp3',
+                provider: 'gemini',
+                language: 'en',
+                diarize: true
+            });
+            puter.print('Transcript:', transcript.text);
+            transcript.words.forEach(w => {
+                puter.print(`  ${w.start.toFixed(2)}s - ${w.end.toFixed(2)}s ${w.speaker ?? ''}: ${w.text}`);
+            });
         })();
     </script>
 </body>

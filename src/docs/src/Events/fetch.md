@@ -25,7 +25,7 @@ puter.events.fetch(options)
 
 #### `options` (Object) (required)
 
-- `subject` (String) (required): What to read: `notif:account` (the account's notifications), `notif:app-user` (the ones belonging to the app you're running as), or `notif:<appId>:<audience>`. Audiences are `account`, `developer` (about an app, sent to its owner), and `app-user` (about your data inside an app).
+- `subject` (String) (required): What to read: `notif:app-user` (the ones belonging to the app you're running as), `notif:developer` (about your app, for its owner), or `notif:<appId>:<audience>`. Audiences are `account`, `developer` (about an app, sent to its owner), and `app-user` (about your data inside an app). Apps and websites never see `account` notifications: `notif:account` returns an empty page for them.
 - `cursor` (String): The `cursor` from the previous page. Leave it off to start from the oldest notification still kept.
 - `after` (String): The older name for `cursor`, still accepted. If both are given, `cursor` is used.
 - `limit` (Number): Events per page. Defaults to 50, max 200.
@@ -48,7 +48,7 @@ Each item is a notification event:
 | `type` | String | The kind of notification, from the published catalog: `share.received`, `app.worker.deployed`, and so on. |
 | `audience` | String | `account`, `developer`, or `app-user`. |
 | `appUid` | String \| null | The app it's about, or `null` for platform notifications. |
-| `notification` | Object | The stored payload. It always has `type`, and everything Puter sends has a `title`; other fields depend on `type` (below). |
+| `notification` | Object | The stored payload. It always has `type`, and every type except `kv.share.received` has a `title`. Other fields depend on `type` (below). |
 | `self` | Boolean | Always `true`: a mailbox is your own. |
 | `ts` | Number | When it was created, in milliseconds since the epoch. |
 | `seq` | Number | Position within the page. |
@@ -60,6 +60,7 @@ Besides `type` and `title`, `notification` carries:
 - `app.worker.deployed`, `app.worker.deployFailed`: nothing else.
 - `app.events.ended`: `reason` (`anchor_deleted`, `permission_revoked`, or `no_credit`); `anchor_deleted` and `permission_revoked` also add `subject`, `subjects` (up to 20) and `count`.
 - `app.events.suspended`: `handler` and `subscriptions`.
+- `kv.share.received`: `handle`, `access`, `label`, and `createdAt` (in Unix seconds) of a key-value share another user made with you (see [`puter.kv.listShared()`](/KV/listShared/)). It arrives on `notif:app-user` in the app whose data was shared, and the Puter desktop doesn't show it. Outside that app, `notif:app-user` leaves it out. `notif:<appId>:app-user` returns it to the account itself and to that app, and not to other apps.
 
 Other notifications can carry other fields, so read them defensively.
 
@@ -83,7 +84,7 @@ The promise rejects with `{ message, code }`: `auth_canceled` if nobody was sign
             let seen = 0;
             do {
                 const page = await puter.events.fetch({
-                    subject: 'notif:account',
+                    subject: 'notif:app-user',
                     cursor,
                 });
                 for (const event of page.items) {
@@ -118,10 +119,10 @@ The promise rejects with `{ message, code }`: `auth_canceled` if nobody was sign
 
             // Live first, so nothing arriving during the catch-up is lost —
             // `id` is what makes the overlap harmless.
-            const sub = await puter.events.onLocal('notif:account',
+            const sub = await puter.events.onLocal('notif:app-user',
                 ({ event }) => show(event));
 
-            const page = await puter.events.fetch({ subject: 'notif:account' });
+            const page = await puter.events.fetch({ subject: 'notif:app-user' });
             page.items.forEach(show);
 
             await sub.off();

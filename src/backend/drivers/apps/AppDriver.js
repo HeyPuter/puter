@@ -19,6 +19,8 @@
 
 import { actorOwnsRow, requireContextActor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { subdomainLabelOf } from '../../core/http/middleware/hostRedirects.js';
+import { extensionStore } from '../../extensions.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
@@ -269,8 +271,11 @@ export class AppDriver extends PuterDriver {
                 legacyCode: 'app_name_already_in_use',
             });
         }
-        if (filetypes)
+        if (filetypes) {
             await this.appStore.setFiletypeAssociations(app.id, filetypes);
+            // The row was built before they were stored; views re-read them.
+            delete app.filetype_associations;
+        }
 
         this.#emitAppChanged({ app, action: 'created' });
 
@@ -419,10 +424,10 @@ export class AppDriver extends PuterDriver {
             existing: app,
         });
 
-        // Puter-hosted index_url handling on update — same flow as create
-        // but only when the index_url is actually changing. Self-app is
+        // Puter-hosted index_url handling on update — same flow as create.
+        // #validateInput already dropped an unchanged index_url. Self-app is
         // excluded from the conflict search via `excludeAppId`.
-        if (fields.index_url && fields.index_url !== app.index_url) {
+        if (fields.index_url) {
             await this.#ensurePuterSiteSubdomainIsOwned(
                 fields.index_url,
                 actor.user,
@@ -441,6 +446,22 @@ export class AppDriver extends PuterDriver {
                 indexUrl: fields.index_url,
                 excludeAppId: app.id,
             });
+            if (
+                app.is_private &&
+                (await this.services.auth.originHeldByOtherUser(
+                    fields.index_url,
+                    app.owner_user_id,
+                ))
+            ) {
+                throw new HttpError(
+                    400,
+                    "A private app can't use an index_url whose origin belongs to another user's app or site",
+                    {
+                        legacyCode: 'app_index_url_already_in_use',
+                        fields: { index_url: fields.index_url },
+                    },
+                );
+            }
         }
 
         // Name conflict check (only if name is changing)
@@ -468,6 +489,8 @@ export class AppDriver extends PuterDriver {
         }
         if (filetypes !== undefined) {
             await this.appStore.setFiletypeAssociations(app.id, filetypes);
+            // A filetype-only update returns the cached row with the old ones.
+            if (updated) delete updated.filetype_associations;
         }
 
         this.#emitAppChanged({ app: updated, old_app: app, action: 'updated' });
@@ -596,13 +619,20 @@ export class AppDriver extends PuterDriver {
                 required: isCreate,
                 protocols: WEB_AND_EXTENSION_PROTOCOLS,
             });
-            // Only enforce on new/changed values so rows that already
-            // carry a reserved host (migration-seeded builtins) can still
-            // have their other fields updated.
+            if (out.index_url) out.index_url = new URL(out.index_url).href;
+            // A value equal to the stored one after normalization is
+            // unchanged: drop it so legacy spellings stay as stored and
+            // skip the host checks (migration-seeded builtins carry
+            // reserved hosts). Rewriting it would make a dormant
+            // mixed-case/default-port row match again without checks.
             if (
+                existing &&
                 out.index_url !== undefined &&
-                out.index_url !== existing?.index_url
+                out.index_url ===
+                    (URL.parse(existing.index_url)?.href ?? existing.index_url)
             ) {
+                delete out.index_url;
+            } else if (out.index_url !== undefined) {
                 this.#assertIndexUrlHostAllowed(out.index_url);
             }
         }
@@ -702,9 +732,10 @@ export class AppDriver extends PuterDriver {
      * loading from the GUI host would execute third-party code same-origin with
      * the desktop — a full sandbox escape. The API host is reserved for the
      * same reason, and the builtin sentinel host is rewritten by the GUI to
-     * `<gui origin>/builtin/…` (see BUILTIN_APPS_HOST above). Host comparison
-     * (rather than full origin) deliberately also catches scheme/port variants
-     * of these hosts.
+     * `<gui origin>/builtin/…` (see BUILTIN_APPS_HOST above). A subdomain an
+     * extension has claimed is a system host too. Host comparison (rather than
+     * full origin) deliberately also catches scheme/port variants of these
+     * hosts.
      */
     #assertIndexUrlHostAllowed(indexUrl) {
         let hostname;
@@ -736,7 +767,13 @@ export class AppDriver extends PuterDriver {
             }
         }
 
-        if (reserved.has(hostname)) {
+        const label = config.domain
+            ? subdomainLabelOf(hostname, config.domain)
+            : undefined;
+        if (
+            reserved.has(hostname) ||
+            (label !== undefined && extensionStore.claimedSubdomains.has(label))
+        ) {
             throw new HttpError(
                 400,
                 '`index_url` cannot point at a Puter system host',

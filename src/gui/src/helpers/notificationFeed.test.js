@@ -249,6 +249,16 @@ describe('createNotificationFeed', () => {
         expect(claimShown.mock.calls.map(([uid]) => uid)).toEqual(['n1', 'n2']);
     });
 
+    it('hands a replay over in one batch, so it can toast as a burst', async () => {
+        const sdk = fakeSdk({ pages: { 'notif:account': [event('n1'), event('n2'), event('n3')] } });
+        const { delivered } = await startFeed({
+            sdk,
+            mailbox: { undismissed: async () => new Set(['n1', 'n2', 'n3']), claimShown: async () => true },
+        });
+        expect(delivered).toHaveLength(1);
+        expect(delivered[0][0].map((item) => item.uid)).toEqual(['n1', 'n2', 'n3']);
+    });
+
     it('does not replay what it already delivered live', async () => {
         const sdk = fakeSdk({
             pages: { 'notif:account': [event('n1')] },
@@ -293,7 +303,7 @@ describe('createNotificationFeed', () => {
             sdk,
             mailbox: { undismissed: async () => new Set(['n1', 'n2']) },
         });
-        expect(delivered.map(([items]) => items[0].uid)).toEqual(['n1', 'n2']);
+        expect(delivered.flatMap(([items]) => items.map((item) => item.uid))).toEqual(['n1', 'n2']);
     });
 
     it('resumes a later read where the last one stopped', async () => {

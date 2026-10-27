@@ -40,11 +40,14 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { v4 as uuidv4 } from 'uuid';
 import { runWithContext } from '../../core/context.js';
-import { SYSTEM_ACTOR } from '../../core/actor.js';
+import { type Actor, SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { setupTestServer } from '../../testUtil.js';
+import { withAiCostFactorHook } from '../integrationTestUtil.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { TOGETHER_VIDEO_GENERATION_MODELS } from './providers/together/models.js';
 import type { VideoGenerationDriver } from './VideoGenerationDriver.js';
 
@@ -96,9 +99,15 @@ beforeAll(async () => {
     server = await setupTestServer({
         providers: {
             'together-video-generation': { apiKey: 'tg-key' },
-            // Configured on purpose: a Gemini key must no longer register a
-            // video provider now that its Veo previews are gone.
+            // Configured on purpose: Gemini video reads the shared `gemini`
+            // block, so this one alone must not register a provider.
             'gemini-video-generation': { apiKey: 'gem-key' },
+            kling: { apiKey: 'kling-key' },
+            // The chat block's base URL ends in `/v1`; video must drop it.
+            minimax: {
+                apiKey: 'mm-key',
+                apiBaseUrl: 'https://api.minimax.io/v1',
+            },
         },
     } as never);
     driver = server.drivers.aiVideo as unknown as VideoGenerationDriver;
@@ -164,6 +173,161 @@ describe('VideoGenerationDriver.generate argument validation', () => {
                 } as never),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('refuses a source video for a model without video input before calling it', async () => {
+        await expect(
+            withActor(() =>
+                driver.generate({
+                    prompt: 'Make this dog a dinosaur.',
+                    model: DEFAULT_MODEL,
+                    input_video: 'https://example.com/dog.mp4',
+                }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: `${DEFAULT_MODEL} does not accept a source video`,
+        });
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+        expect(secureFetchMock).not.toHaveBeenCalled();
+    });
+});
+
+describe('VideoGenerationDriver.generate media inputs', () => {
+    const PNG = Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+        'base64',
+    );
+    const pngDataUri = `data:image/png;base64,${PNG.toString('base64')}`;
+
+    const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
+        const username = `video-media-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            server.clients.db,
+            server.stores.user,
+            created,
+        );
+        const user = (await server.stores.user.getById(created.id))!;
+        return {
+            userId: user.id,
+            actor: {
+                user: {
+                    id: user.id,
+                    uuid: user.uuid,
+                    username: user.username,
+                    email: user.email ?? null,
+                    email_confirmed: true,
+                } as Actor['user'],
+            },
+        };
+    };
+
+    const writeImage = async (
+        { actor, userId }: { actor: Actor; userId: number },
+        name: string,
+    ) => {
+        const path = `/${actor.user.username}/${name}`;
+        await server.services.fs.write(userId, {
+            fileMetadata: {
+                path,
+                size: PNG.byteLength,
+                contentType: 'application/octet-stream',
+            },
+            fileContent: PNG,
+        });
+        return path;
+    };
+
+    const generateAs = (actor: Actor, args: Record<string, unknown>) =>
+        Promise.resolve(
+            runWithContext({ actor }, () =>
+                driver.generate({
+                    prompt: 'A dinosaur.',
+                    model: DEFAULT_MODEL,
+                    ...args,
+                } as never),
+            ),
+        );
+
+    it("sends Puter file image inputs as data URIs without changing the caller's arrays", async () => {
+        const user = await makeUser();
+        const first = await writeImage(user, 'first.tmp');
+        const reference = await writeImage(user, 'reference.tmp');
+        const referenceImages = [reference, 'https://example.com/b.png'];
+        const frameImages = [{ input_image: first, frame: 'first' }];
+
+        completeTogetherJob();
+        await generateAs(user.actor, {
+            reference_images: referenceImages,
+            frame_images: frameImages,
+        });
+        expect(togetherSent().reference_images).toEqual([
+            pngDataUri,
+            'https://example.com/b.png',
+        ]);
+        expect(togetherSent().frame_images).toEqual([
+            { input_image: pngDataUri, frame: 'first' },
+        ]);
+        expect(referenceImages[0]).toBe(reference);
+        expect(frameImages[0]!.input_image).toBe(first);
+
+        completeTogetherJob();
+        await generateAs(user.actor, {
+            input_reference: first,
+            last_frame: 'https://example.com/last.png',
+        });
+        expect(togetherSent(1).frame_images).toEqual([
+            { input_image: pngDataUri, frame: 'first' },
+            { input_image: 'https://example.com/last.png', frame: 'last' },
+        ]);
+        expect(secureFetchMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses another user's image before calling the provider", async () => {
+        const owner = await makeUser();
+        const intruder = await makeUser();
+        const path = await writeImage(owner, 'private.png');
+        const status = await generateAs(intruder.actor, {
+            input_reference: path,
+        }).then(
+            () => null,
+            (err: { statusCode?: number }) => err.statusCode,
+        );
+        expect([403, 404]).toContain(status);
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('reads no file in test mode', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            generateAs(actor, {
+                input_reference: '/nobody/missing.png',
+                test_mode: true,
+            }),
+        ).resolves.toBeTruthy();
+    });
+
+    it('refuses a data URI source video over 1 MiB with 413', async () => {
+        const { actor } = await makeUser();
+        const video = Buffer.alloc(1024 * 1024 + 1).toString('base64');
+        await expect(
+            generateAs(actor, {
+                model: 'togetherai:black-forest-labs/flux-3',
+                input_video: `data:video/mp4;base64,${video}`,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 413,
+            legacyCode: 'input_too_large',
+        });
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
     });
 });
 
@@ -267,12 +431,11 @@ describe('VideoGenerationDriver.generate provider routing', () => {
         expect(togetherVideosCreateMock).not.toHaveBeenCalled();
     });
 
-    it('registers no Gemini video provider even when a Gemini key is configured', async () => {
+    it('registers no Gemini video provider from a gemini-video-generation key alone', async () => {
         const all = await driver.models();
         expect(
             all.some((m) => m.provider === 'gemini-video-generation'),
         ).toBe(false);
-        expect(driver.driverAliases).not.toContain('gemini-video-generation');
     });
 
     it.each([
@@ -288,6 +451,113 @@ describe('VideoGenerationDriver.generate provider routing', () => {
             withActor(() => driver.generate({ prompt: 'hi', model } as never)),
         ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
         expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it.each(['kling-3.0', 'kling-v3', 'kling:kling/kling-3.0'])(
+        'routes %s to the Kling provider from the shared kling key',
+        async (model) => {
+            const fetchSpy = vi.spyOn(globalThis, 'fetch');
+            fetchSpy.mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        code: 0,
+                        data: { id: 'kl-task', status: 'submitted' },
+                    }),
+                ),
+            );
+            fetchSpy.mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        code: 0,
+                        data: [
+                            {
+                                id: 'kl-task',
+                                status: 'succeeded',
+                                outputs: [
+                                    {
+                                        type: 'video',
+                                        url: 'https://kling/out.mp4',
+                                        duration: '5',
+                                    },
+                                ],
+                            },
+                        ],
+                    }),
+                ),
+            );
+
+            const result = await withActor(() =>
+                driver.generate({ prompt: 'hi', model } as never),
+            );
+
+            expect(result).toBe('https://kling/out.mp4');
+            expect(String(fetchSpy.mock.calls[0]![0])).toBe(
+                'https://api-singapore.klingai.com/text-to-video/kling-3.0',
+            );
+            expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it('lists the Kling models under the kling-video-generation provider', async () => {
+        const kling = (await driver.models()).filter(
+            (m) => m.provider === 'kling-video-generation',
+        );
+        expect(kling.map((m) => m.id).sort()).toEqual([
+            'kling-2.5-turbo',
+            'kling-2.6',
+            'kling-3.0',
+            'kling-3.0-omni',
+            'kling-3.0-turbo',
+            'kling-o1',
+        ]);
+    });
+
+    it.each([
+        'minimax-h3',
+        'minimax/minimax-h3',
+        'minimax:minimax/minimax-h3',
+    ])('routes %s to the MiniMax provider from the shared minimax key', async (model) => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValueOnce(
+            new Response(JSON.stringify({ task_id: 'mm-task' })),
+        );
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    task: {
+                        id: 'mm-task',
+                        status: 'succeeded',
+                        content: { url: 'https://minimax/out.mp4' },
+                        usage: { output_seconds: 5 },
+                    },
+                }),
+            ),
+        );
+
+        const result = await withActor(() =>
+            driver.generate({ prompt: 'hi', model } as never),
+        );
+
+        expect(result).toBe('https://minimax/out.mp4');
+        expect(String(fetchSpy.mock.calls[0]![0])).toBe(
+            'https://api.minimax.io/v2/video_generation',
+        );
+        expect(togetherVideosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('lists the MiniMax models under the minimax-video-generation provider', async () => {
+        const minimax = (await driver.models()).filter(
+            (m) => m.provider === 'minimax-video-generation',
+        );
+        expect(minimax.map((m) => m.id).sort()).toEqual([
+            'minimax-h3',
+            'minimax-h3-highspeed',
+            'minimax-h3-lite',
+            'minimax-h3-max',
+            'minimax-hailuo-02',
+            'minimax-hailuo-2.3',
+            'minimax-hailuo-2.3-fast',
+        ]);
     });
 
     it('routes a known togetherai:minimax/video-01-director id to the Together provider', async () => {
@@ -731,6 +1001,49 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
 // ── Size unification ───────────────────────────────────────────────
 
 describe('VideoGenerationDriver.generate size unification', () => {
+    it.each(['912x512', '512x912'])(
+        'selects and bills Hailuo 02 at 512p for %s',
+        async (size) => {
+            const fetchSpy = vi.spyOn(globalThis, 'fetch');
+            const incrementUsageSpy = vi.spyOn(
+                server.services.metering,
+                'incrementUsage',
+            );
+            fetchSpy.mockResolvedValueOnce(
+                new Response(JSON.stringify({ task_id: 'mm-task' })),
+            );
+            fetchSpy.mockResolvedValueOnce(
+                new Response(JSON.stringify({
+                    status: 'Success',
+                    file_id: 'file-1',
+                })),
+            );
+            fetchSpy.mockResolvedValueOnce(
+                new Response(JSON.stringify({
+                    file: { download_url: 'https://minimax/out.mp4' },
+                })),
+            );
+
+            await withActor(() => driver.generate({
+                prompt: 'a ball rolls',
+                model: 'minimax-hailuo-02',
+                size,
+                input_reference: 'https://example.com/first.png',
+            } as never));
+
+            const body = JSON.parse(
+                fetchSpy.mock.calls[0]![1]!.body as string,
+            );
+            expect(body.resolution).toBe('512P');
+            expect(incrementUsageSpy).toHaveBeenCalledWith(
+                SYSTEM_ACTOR,
+                'minimax-video-generation:minimax-hailuo-02:per-video:512p:6',
+                1,
+                10 * 1_000_000,
+            );
+        },
+    );
+
     it('maps a WIDTHxHEIGHT size onto a tier plus aspect ratio for tier-based models', async () => {
         completeTogetherJob();
 
@@ -762,6 +1075,77 @@ describe('VideoGenerationDriver.generate size unification', () => {
         const sent = togetherSent();
         expect(sent.resolution).toBe('480p');
         expect('ratio' in sent).toBe(false);
+    });
+
+    it('treats a catalog with a 2k or 4k tier as tier-based', async () => {
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    code: 0,
+                    data: { id: 'kl-task', status: 'submitted' },
+                }),
+            ),
+        );
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    code: 0,
+                    data: [
+                        {
+                            id: 'kl-task',
+                            status: 'succeeded',
+                            outputs: [
+                                {
+                                    type: 'video',
+                                    url: 'https://kling/out.mp4',
+                                    duration: '5',
+                                },
+                            ],
+                        },
+                    ],
+                }),
+            ),
+        );
+        await withActor(() =>
+            driver.generate({
+                prompt: 'hi',
+                model: 'kling-3.0',
+                size: '1080x1920',
+            } as never),
+        );
+        const sent = JSON.parse(
+            (fetchSpy.mock.calls[0]![1] as RequestInit).body as string,
+        );
+        expect(sent.settings.resolution).toBe('1080p');
+        expect(sent.settings.aspect_ratio).toBe('9:16');
+
+        fetchSpy.mockResolvedValueOnce(
+            new Response(JSON.stringify({ task_id: 'mm-task' })),
+        );
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    task: {
+                        id: 'mm-task',
+                        status: 'succeeded',
+                        content: { url: 'https://minimax/out.mp4' },
+                    },
+                }),
+            ),
+        );
+        await withActor(() =>
+            driver.generate({
+                prompt: 'hi',
+                model: 'minimax-h3-lite',
+                size: '854x480',
+            } as never),
+        );
+        const sentToMiniMax = JSON.parse(
+            (fetchSpy.mock.calls[2]![1] as RequestInit).body as string,
+        );
+        expect(sentToMiniMax.resolution).toBe('480P');
+        expect(sentToMiniMax.ratio).toBe('16:9');
     });
 
     it('fills width/height from a WIDTHxHEIGHT size for pixel-sized models', async () => {
@@ -807,5 +1191,33 @@ describe('VideoGenerationDriver.generate size unification', () => {
         >;
         expect('width' in second).toBe(false);
         expect('height' in second).toBe(false);
+    });
+});
+
+describe('VideoGenerationDriver cost factor', () => {
+    it('holds and meters at the AI cost factor', async () => {
+        const incrementUsageSpy = vi.spyOn(
+            server.services.metering,
+            'incrementUsage',
+        );
+        const reserveSpy = vi.spyOn(server.services.metering, 'reserveCredits');
+        const metered = () =>
+            incrementUsageSpy.mock.calls.map(([, , , cost]) => cost!);
+        const generate = async (charges: number) => {
+            completeTogetherJob();
+            await withActor(() =>
+                driver.generate({ prompt: 'hi', model: DEFAULT_MODEL } as never),
+            );
+            await vi.waitFor(() => expect(metered()).toHaveLength(charges));
+        };
+        await generate(1);
+        await withAiCostFactorHook(server.clients.event, 2, () => generate(2));
+
+        const [base, factored] = metered();
+        expect(base).toBeGreaterThan(0);
+        expect(factored).toBe(Math.round(base! * 2));
+        const held = reserveSpy.mock.calls.map(([, amount]) => amount);
+        expect(held[0]).toBeGreaterThan(0);
+        expect(held).toEqual([held[0], Math.round(held[0]! * 2)]);
     });
 });

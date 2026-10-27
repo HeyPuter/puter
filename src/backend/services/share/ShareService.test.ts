@@ -17,8 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { installSeatStub } from '../../testFixtures/seatStub.js';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
@@ -824,6 +833,85 @@ describe('ShareService', () => {
             ).toEqual(new Map([[file.uuid, true]]));
         });
 
+        it('still badges an item with a holder too while the owner is off a plan', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: anyone,
+                mode: 'read',
+            });
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            paid.delete(owner.user.uuid);
+            server.services.metering.invalidateActorSubscription(
+                owner.user.uuid,
+            );
+            expect(
+                await server.services.share.shareFlags(owner.actor, [file]),
+            ).toEqual(new Map([[file.uuid, true]]));
+        });
+
+        it('asks about the plan only when an item is shared by link alone', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const recipient = await makeUser();
+            const direct = await makeFile(owner.user);
+            const untouched = await makeFile(owner.user);
+            const linked = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: direct.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+            await share(owner.actor, {
+                uid: linked.uuid,
+                recipient: anyone,
+                mode: 'read',
+            });
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            const asked = () =>
+                subscriptionSpy.mock.calls.filter(
+                    ([actor]) =>
+                        (actor as Actor).user?.uuid === owner.user.uuid,
+                ).length;
+
+            const before = asked();
+            expect(
+                await server.services.share.shareFlags(owner.actor, [
+                    direct,
+                    untouched,
+                ]),
+            ).toEqual(
+                new Map([
+                    [direct.uuid, true],
+                    [untouched.uuid, false],
+                ]),
+            );
+            expect(asked()).toBe(before);
+
+            expect(
+                await server.services.share.shareFlags(owner.actor, [
+                    direct,
+                    untouched,
+                    linked,
+                ]),
+            ).toEqual(
+                new Map([
+                    [direct.uuid, true],
+                    [untouched.uuid, false],
+                    [linked.uuid, true],
+                ]),
+            );
+            expect(asked()).toBe(before + 1);
+        });
+
         it('hands out access, never authority', async () => {
             const owner = await makeUser();
             paid.add(owner.user.uuid);
@@ -1025,6 +1113,66 @@ describe('ShareService', () => {
             expect(await canWrite(stranger.actor, file.path)).toBe(false);
         });
 
+        // A just-moved row can be missing from a lagging replica; a file's
+        // grants go by the uuid in hand regardless.
+        it('goes with a file that changes owner even when its row reads back missing', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+            const grants = () =>
+                server.clients.db.read(
+                    'SELECT * FROM `user_to_user_permissions` WHERE `permission` LIKE ?',
+                    [`fs:${file.uuid}%`],
+                );
+            expect(await grants()).not.toEqual([]);
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+
+            const lagging = vi
+                .spyOn(server.stores.fsEntry, 'getEntriesByIds')
+                .mockResolvedValue(new Map());
+            try {
+                await server.services.share.onEntryOwnerChanged(file);
+            } finally {
+                lagging.mockRestore();
+            }
+
+            expect(await grants()).toEqual([]);
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+        });
+
+        it('goes with a file its owner moves to Trash', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const stranger = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            for (const recipientSpec of [anyone, { email: recipient.email }]) {
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: recipientSpec,
+                    mode: 'read',
+                });
+            }
+
+            const trash = await server.stores.fsEntry.getEntryByPath(
+                `/${owner.user.username}/Trash`,
+            );
+            const trashed = await server.services.fs.move(owner.user.id, {
+                source: file,
+                destinationParent: trash!,
+            });
+
+            expect(await linkRows(file.id)).toEqual([]);
+            for (const reader of [stranger, recipient]) {
+                expect(await canRead(reader.actor, trashed.path)).toBe(false);
+            }
+        });
+
         it('shows the owner a link row another issuer left behind', async () => {
             const owner = await makeUser();
             paid.add(owner.user.uuid);
@@ -1044,6 +1192,115 @@ describe('ShareService', () => {
             ).toContainEqual(
                 expect.objectContaining({ anyone: true, entryUid: file.uuid }),
             );
+        });
+
+        it('goes with a file that changes owner, with its other grants, and nothing else is read', async () => {
+            const owner = await makeUser();
+            paid.add(owner.user.uuid);
+            const newOwner = await makeUser();
+            const stranger = await makeUser();
+            const recipient = await makeUser();
+            const member = await makeUser();
+            const file = await makeFile(owner.user);
+
+            // A group and its share written directly: what this exercises is
+            // the owner change, and teams is optional.
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
+                    '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+                [groupUid, owner.user.id, 'team', 'Owner change', '{}', '{}'],
+            );
+            const [group] = (await server.clients.db.read(
+                'SELECT id FROM `group` WHERE uid = ?',
+                [groupUid],
+            )) as { id: number }[];
+            for (const user of [owner.user, member.user]) {
+                await server.clients.db.write(
+                    'INSERT INTO `jct_user_group` (`user_id`, `group_id`) ' +
+                        'VALUES (?, ?)',
+                    [user.id, group.id],
+                );
+            }
+            for (const recipientSpec of [anyone, { email: recipient.email }]) {
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: recipientSpec,
+                    mode: 'read',
+                });
+            }
+            await server.stores.share.upsertActiveGroup({
+                issuerUserId: owner.user.id,
+                holderGroupId: group.id,
+                fsentryId: file.id,
+                mode: 'read',
+            });
+            for (const reader of [stranger, recipient, member]) {
+                expect(await canRead(reader.actor, file.path)).toBe(true);
+            }
+
+            await server.stores.fsEntry.updateEntry(file.uuid, {
+                userId: newOwner.user.id,
+            });
+            const moved = await server.stores.fsEntry.getEntryByUuid(file.uuid);
+
+            const listByFsentry = vi.spyOn(
+                server.stores.share,
+                'listByFsentry',
+            );
+            const getEntriesByIds = vi.spyOn(
+                server.stores.fsEntry,
+                'getEntriesByIds',
+            );
+            const revokeUserGrants = vi.spyOn(
+                server.stores.permission,
+                'deleteUserUserPermsByPermissionPrefixes',
+            );
+            const revokeGroupGrants = vi.spyOn(
+                server.stores.permission,
+                'deleteUserGroupPermsByPermissionPrefixes',
+            );
+            const deleteRows = vi.spyOn(
+                server.stores.share,
+                'deleteByFsentryIds',
+            );
+            try {
+                await server.services.share.onEntryOwnerChanged(moved!);
+
+                expect(listByFsentry).not.toHaveBeenCalled();
+                expect(getEntriesByIds).not.toHaveBeenCalled();
+                const prefixes = [`fs:${file.uuid}`, `manage:fs:${file.uuid}`];
+                expect(revokeUserGrants).toHaveBeenCalledWith(prefixes);
+                expect(revokeGroupGrants).toHaveBeenCalledWith(prefixes);
+                expect(deleteRows).toHaveBeenCalledWith([file.id]);
+                // Grants go before the rows that record them.
+                expect(
+                    revokeUserGrants.mock.invocationCallOrder[0]!,
+                ).toBeLessThan(revokeGroupGrants.mock.invocationCallOrder[0]!);
+                expect(
+                    revokeGroupGrants.mock.invocationCallOrder[0]!,
+                ).toBeLessThan(deleteRows.mock.invocationCallOrder[0]!);
+            } finally {
+                for (const spy of [
+                    listByFsentry,
+                    getEntriesByIds,
+                    revokeUserGrants,
+                    revokeGroupGrants,
+                    deleteRows,
+                ]) {
+                    spy.mockRestore();
+                }
+            }
+
+            expect(
+                await server.clients.db.read(
+                    'SELECT * FROM `share` WHERE `fsentry_id` = ?',
+                    [file.id],
+                ),
+            ).toEqual([]);
+            for (const reader of [stranger, recipient, member]) {
+                expect(await canRead(reader.actor, file.path)).toBe(false);
+            }
         });
     });
 
@@ -1589,6 +1846,46 @@ describe('ShareService', () => {
                     (i) => i.pending,
                 ),
             ).toBe(false);
+        });
+
+        it('hides what a delegate shared once their own authority is withdrawn outside unshare', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+            expect(
+                (await listSharedByMe(delegate.actor)).items.map(
+                    (i) => i.holder.username,
+                ),
+            ).toEqual([third.user.username]);
+
+            await runWithContext({ actor: owner.actor }, () =>
+                server.services.permission.revokeUserUserPermission(
+                    owner.actor,
+                    delegate.user.username!,
+                    `manage:fs:${file.uuid}`,
+                ),
+            );
+
+            expect((await listSharedByMe(delegate.actor)).items).toEqual([]);
+            // The grant itself stands, so the owner still sees it to revoke.
+            const ownerView = await listSharedByMe(owner.actor);
+            expect(
+                ownerView.items.find(
+                    (i) => i.holder.username === third.user.username,
+                )?.issuer.username,
+            ).toBe(delegate.user.username);
         });
 
         it('reads the app off an invite recorded under the legacy key', async () => {
@@ -2170,6 +2467,52 @@ describe('ShareService', () => {
             expect(issuers).toEqual(
                 new Set([owner.user.username, delegate.user.username]),
             );
+        });
+
+        it('files a recipient leaving under the issuer, naming who acted', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+            await unshare(recipient.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+            });
+
+            const rows = await vi.waitFor(async () => {
+                const found = await server.clients.db.read(
+                    'SELECT `issuer_user_id`, `extra` FROM `audit_user_to_user_permissions` ' +
+                        'WHERE `holder_user_id` = ? AND `action` = ?',
+                    [recipient.user.id, 'revoke'],
+                );
+                expect(found.length).toBeGreaterThan(0);
+                return found;
+            });
+            for (const row of rows) {
+                expect(Number(row.issuer_user_id)).toBe(owner.user.id);
+                const extra =
+                    typeof row.extra === 'string'
+                        ? JSON.parse(row.extra)
+                        : row.extra;
+                expect(extra?.actingUserId).toBe(recipient.user.id);
+            }
+
+            const ownerTrail = await audit(owner.actor, { uid: file.uuid });
+            expect(
+                ownerTrail.items.some(
+                    (i) =>
+                        i.action === 'revoke' &&
+                        i.issuer.username === owner.user.username,
+                ),
+            ).toBe(true);
+            const recipientTrail = await audit(recipient.actor);
+            expect(
+                recipientTrail.items.some((i) => i.entryUid === file.uuid),
+            ).toBe(false);
         });
 
         it('lists what the caller granted when no item is named', async () => {
@@ -2802,52 +3145,6 @@ describe('ShareService', () => {
         expect(await canRead(holder.actor, file.path)).toBe(false);
         expect(await canRead(third.actor, file.path)).toBe(false);
         expect(await canRead(delegate.actor, file.path)).toBe(true);
-    });
-
-    it('leaves a member’s re-shares alone when their manage is not the team’s', async () => {
-        const owner = await makeUser();
-        const member = await makeUser();
-        const bystander = await makeUser();
-        const third = await makeUser();
-        const file = await makeFile(owner.user);
-
-        const team = await server.stores.team.create({
-            ownerUserId: owner.user.id,
-            name: `t-${uuidv4().slice(0, 8)}`,
-        });
-        for (const each of [owner, member, bystander]) {
-            await server.stores.team.addMember(team.uid, each.user.id, {
-                orgOwned: false,
-            });
-        }
-
-        // The member manages the file in their own right; the team grant is
-        // plain read, and is all `bystander` has.
-        await share(owner.actor, {
-            uid: file.uuid,
-            recipient: { username: member.user.username },
-            mode: 'manage',
-        });
-        await share(owner.actor, {
-            uid: file.uuid,
-            recipient: { team: team.uid },
-            mode: 'read',
-        });
-        await share(member.actor, {
-            uid: file.uuid,
-            recipient: { username: third.user.username },
-            mode: 'read',
-        });
-        expect(await canRead(bystander.actor, file.path)).toBe(true);
-
-        await unshare(owner.actor, {
-            uid: file.uuid,
-            recipient: { team: team.uid },
-        });
-
-        expect(await canRead(bystander.actor, file.path)).toBe(false);
-        expect(await canRead(member.actor, file.path)).toBe(true);
-        expect(await canRead(third.actor, file.path)).toBe(true);
     });
 
     it('lets the owner clear a grant a delegate issued', async () => {
@@ -3514,6 +3811,61 @@ describe('ShareService', () => {
                 }),
             );
             expect(byOwner).toHaveLength(3);
+        });
+
+        it("refuses its user's AppData while another app there keeps its data closed", async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const closed = await server.stores.app.create(
+                {
+                    name: `share-app-${uuidv4()}`,
+                    title: 'Closed app',
+                    index_url: `https://share-${uuidv4()}.test/`,
+                    metadata: JSON.stringify({ share_app_data: false }),
+                },
+                { ownerUserId: owner.user.id },
+            );
+            const file = await makeAppDataFile(owner, closed);
+            const appData = await server.stores.fsEntry.getEntryByPath(
+                `/${owner.user.username}/AppData`,
+            );
+            await grantAppReach(owner, app, appData);
+            const input = {
+                uid: appData.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            };
+
+            await expect(share(asApp(owner, app), input)).rejects.toMatchObject(
+                { statusCode: 403 },
+            );
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+
+            // The user can still share it.
+            await share(owner.actor, input);
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+        });
+
+        it("shares its user's AppData while every app there shares", async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeAppDataFile(
+                owner,
+                await makeApp(owner.user.id),
+            );
+            const appData = await server.stores.fsEntry.getEntryByPath(
+                `/${owner.user.username}/AppData`,
+            );
+            await grantAppReach(owner, app, appData);
+
+            await share(asApp(owner, app), {
+                uid: appData.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
         });
     });
 
@@ -4762,44 +5114,6 @@ describe('ShareService', () => {
         );
     });
 
-    it('retires a team share on a descendant when the folder changes owner', async () => {
-        const attacker = await makeUser();
-        const victim = await makeUser();
-        const member = await makeUser();
-        const { dir, file } = await makeDirWithFile(attacker.user);
-
-        const team = await server.stores.team.create({
-            ownerUserId: attacker.user.id,
-            name: `t-${Math.random().toString(36).slice(2, 9)}`,
-        });
-        await server.stores.team.addMember(team.uid, attacker.user.id, {
-            orgOwned: false,
-        });
-        await server.stores.team.addMember(team.uid, member.user.id, {
-            orgOwned: false,
-        });
-        await share(attacker.actor, {
-            uid: file.uuid,
-            recipient: { team: team.uid },
-            mode: 'read',
-        });
-        expect(await canRead(member.actor, file.path)).toBe(true);
-
-        await server.stores.fsEntry.updateEntry(dir.uuid, {
-            userId: victim.user.id,
-        });
-        await server.stores.fsEntry.updateEntry(file.uuid, {
-            userId: victim.user.id,
-        });
-        const moved = await server.stores.fsEntry.getEntryByUuid(dir.uuid);
-        await server.services.share.onEntryOwnerChanged(moved!);
-
-        expect(
-            await server.stores.share.listAllByFsentrySubtree(dir.id),
-        ).toEqual([]);
-        expect(await canRead(member.actor, file.path)).toBe(false);
-    });
-
     it('retires a whole burst of deletions in one flush', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();
@@ -5914,6 +6228,441 @@ describe('ShareService', () => {
             }
             expect(calls).toBe(1);
             expect(reachingCalls).toBeGreaterThan(0);
+        });
+    });
+
+    describe('listings read independent parts together', () => {
+        const failure = (what: string) => new Error(`${what} failed`);
+
+        // These spy on the team store; Teams is optional, so stand one up.
+        beforeEach(() => {
+            installSeatStub(server as never, []);
+        });
+
+        /** Unhandled rejections raised while `fn` runs, and shortly after. */
+        const unhandledDuring = async (fn: () => Promise<void>) => {
+            const seen: unknown[] = [];
+            const onUnhandled = (reason: unknown) => seen.push(reason);
+            process.on('unhandledRejection', onUnhandled);
+            try {
+                await fn();
+                await new Promise((resolve) => setTimeout(resolve, 20));
+            } finally {
+                process.off('unhandledRejection', onUnhandled);
+            }
+            return seen;
+        };
+
+        /** Holds `method`'s next call until the returned release runs. */
+        const holdNextCall = <T extends object>(target: T, method: keyof T) => {
+            const real = (target[method] as (...a: unknown[]) => unknown).bind(
+                target,
+            );
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const spy = vi
+                .spyOn(target, method as never)
+                .mockImplementationOnce((async (...args: unknown[]) => {
+                    await gate;
+                    return real(...args);
+                }) as never);
+            return { spy, release };
+        };
+
+        const sharedWith = async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+            return { owner, recipient, file };
+        };
+
+        const listByMe = (actor: Actor, opts = { includeTotal: true }) =>
+            runWithContext({ actor }, () =>
+                server.services.share.listSharedByMe(actor, opts),
+            );
+
+        it('counts what is shared with the caller alongside the page', async () => {
+            const { recipient, file } = await sharedWith();
+            const held = holdNextCall(server.stores.share, 'listByHolder');
+            const count = vi.spyOn(server.stores.share, 'countByHolder');
+            try {
+                const listing = server.services.share.listSharedWithMe(
+                    recipient.actor,
+                    { includeTotal: true },
+                );
+                await new Promise((resolve) => setImmediate(resolve));
+                expect(count).toHaveBeenCalledTimes(1);
+                held.release();
+                const result = await listing;
+                expect(result.items.map((row) => row.entryUid)).toEqual([
+                    file.uuid,
+                ]);
+                expect(result.total).toBe(1);
+            } finally {
+                held.spy.mockRestore();
+                count.mockRestore();
+            }
+        });
+
+        it('counts nothing shared with the caller unless asked, or for an app', async () => {
+            const { recipient } = await sharedWith();
+            const app = await makeApp(recipient.user.id);
+            const count = vi.spyOn(server.stores.share, 'countByHolder');
+            try {
+                await server.services.share.listSharedWithMe(recipient.actor);
+                await server.services.share.listSharedWithMe(
+                    asApp(recipient, app),
+                    { includeTotal: true },
+                );
+                expect(count).not.toHaveBeenCalled();
+            } finally {
+                count.mockRestore();
+            }
+        });
+
+        it("surfaces the inbound page's failure ahead of the count's", async () => {
+            const { recipient } = await sharedWith();
+            const page = vi
+                .spyOn(server.stores.share, 'listByHolder')
+                .mockRejectedValueOnce(failure('page'));
+            const count = vi
+                .spyOn(server.stores.share, 'countByHolder')
+                .mockRejectedValueOnce(failure('count'));
+            try {
+                const unhandled = await unhandledDuring(async () => {
+                    await expect(
+                        server.services.share.listSharedWithMe(
+                            recipient.actor,
+                            { includeTotal: true },
+                        ),
+                    ).rejects.toThrow('page failed');
+                });
+                expect(unhandled).toEqual([]);
+            } finally {
+                page.mockRestore();
+                count.mockRestore();
+            }
+        });
+
+        it('surfaces an inbound count failure once the page is built', async () => {
+            const { recipient } = await sharedWith();
+            const count = vi
+                .spyOn(server.stores.share, 'countByHolder')
+                .mockRejectedValueOnce(failure('count'));
+            try {
+                await expect(
+                    server.services.share.listSharedWithMe(recipient.actor, {
+                        includeTotal: true,
+                    }),
+                ).rejects.toThrow('count failed');
+            } finally {
+                count.mockRestore();
+            }
+        });
+
+        it('starts the outbound count, team names and plan check early', async () => {
+            const { owner, recipient, file } = await sharedWith();
+            const linked = await makeFile(owner.user);
+            await server.stores.share.upsertAnyone({
+                issuerUserId: owner.user.id,
+                fsentryId: linked.id,
+                mode: 'read',
+            });
+            const plan = vi
+                .spyOn(server.services.metering, 'getActorSubscription')
+                .mockResolvedValue({ id: 'business' } as never);
+            const entries = holdNextCall(
+                server.stores.fsEntry,
+                'getEntriesByIds',
+            );
+            const grants = holdNextCall(
+                server.stores.permission,
+                'readLinkedUserUserPermsForHolders',
+            );
+            const count = vi.spyOn(server.stores.share, 'countOutbound');
+            const teams = vi.spyOn(
+                server.stores.team,
+                'getByIdsIncludingDeleted',
+            );
+            try {
+                const listing = listByMe(owner.actor);
+                await new Promise((resolve) => setImmediate(resolve));
+                expect(count).toHaveBeenCalledTimes(1);
+                expect(teams).toHaveBeenCalledTimes(1);
+                entries.release();
+                await new Promise((resolve) => setTimeout(resolve, 20));
+                expect(plan).toHaveBeenCalled();
+                grants.release();
+                const result = await listing;
+                expect(
+                    result.items.map((row) => [row.entryUid, row.anyone]),
+                ).toEqual(
+                    expect.arrayContaining([
+                        [file.uuid, undefined],
+                        [linked.uuid, true],
+                    ]),
+                );
+                expect(result.items).toHaveLength(2);
+                expect(result.total).toBe(2);
+                expect(
+                    result.items.find((row) => row.entryUid === file.uuid)
+                        ?.holder?.username,
+                ).toBe(recipient.user.username);
+            } finally {
+                plan.mockRestore();
+                entries.spy.mockRestore();
+                grants.spy.mockRestore();
+                count.mockRestore();
+                teams.mockRestore();
+            }
+        });
+
+        it("surfaces the outbound page's failure ahead of the count's", async () => {
+            const { owner } = await sharedWith();
+            const page = vi
+                .spyOn(server.stores.share, 'listOutbound')
+                .mockRejectedValueOnce(failure('page'));
+            const count = vi
+                .spyOn(server.stores.share, 'countOutbound')
+                .mockRejectedValueOnce(failure('count'));
+            try {
+                const unhandled = await unhandledDuring(async () => {
+                    await expect(listByMe(owner.actor)).rejects.toThrow(
+                        'page failed',
+                    );
+                });
+                expect(unhandled).toEqual([]);
+            } finally {
+                page.mockRestore();
+                count.mockRestore();
+            }
+        });
+
+        it("surfaces the entry read's failure ahead of the team names'", async () => {
+            const { owner } = await sharedWith();
+            const entries = vi
+                .spyOn(server.stores.fsEntry, 'getEntriesByIds')
+                .mockRejectedValueOnce(failure('entries'));
+            const teams = vi
+                .spyOn(server.stores.team, 'getByIdsIncludingDeleted')
+                .mockRejectedValueOnce(failure('teams'));
+            try {
+                const unhandled = await unhandledDuring(async () => {
+                    await expect(listByMe(owner.actor)).rejects.toThrow(
+                        'entries failed',
+                    );
+                });
+                expect(unhandled).toEqual([]);
+            } finally {
+                entries.mockRestore();
+                teams.mockRestore();
+            }
+        });
+
+        it("surfaces a grant check's failure ahead of the plan check's", async () => {
+            const { owner } = await sharedWith();
+            const linked = await makeFile(owner.user);
+            await server.stores.share.upsertAnyone({
+                issuerUserId: owner.user.id,
+                fsentryId: linked.id,
+                mode: 'read',
+            });
+            const grants = vi
+                .spyOn(
+                    server.stores.permission,
+                    'readLinkedUserUserPermsForHolders',
+                )
+                .mockRejectedValueOnce(failure('grants'));
+            const plan = vi
+                .spyOn(server.services.metering, 'getActorSubscription')
+                .mockRejectedValueOnce(failure('plan'));
+            try {
+                const unhandled = await unhandledDuring(async () => {
+                    await expect(listByMe(owner.actor)).rejects.toThrow(
+                        'grants failed',
+                    );
+                });
+                expect(unhandled).toEqual([]);
+            } finally {
+                grants.mockRestore();
+                plan.mockRestore();
+            }
+        });
+
+        it('surfaces a plan check failure once the grant checks pass', async () => {
+            const { owner } = await sharedWith();
+            const linked = await makeFile(owner.user);
+            await server.stores.share.upsertAnyone({
+                issuerUserId: owner.user.id,
+                fsentryId: linked.id,
+                mode: 'read',
+            });
+            const plan = vi
+                .spyOn(server.services.metering, 'getActorSubscription')
+                .mockRejectedValueOnce(failure('plan'));
+            try {
+                await expect(listByMe(owner.actor)).rejects.toThrow(
+                    'plan failed',
+                );
+            } finally {
+                plan.mockRestore();
+            }
+        });
+    });
+
+    describe('a team share seen by its own members', () => {
+        // Teams is optional, so the group, its members and its grant are
+        // written directly and the team store is stood up around them.
+        const makeTeam = async (
+            ownerId: number,
+            memberIds: number[],
+        ): Promise<{ id: number; uid: string }> => {
+            const uid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
+                    '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+                [uid, ownerId, 'team', 'Own team', '{}', '{}'],
+            );
+            const [group] = (await server.clients.db.read(
+                'SELECT id FROM `group` WHERE uid = ?',
+                [uid],
+            )) as { id: number }[];
+            for (const userId of [ownerId, ...memberIds]) {
+                await server.clients.db.write(
+                    'INSERT INTO `jct_user_group` (`user_id`, `group_id`) ' +
+                        'VALUES (?, ?)',
+                    [userId, group.id],
+                );
+            }
+            return { id: Number(group.id), uid };
+        };
+
+        const shareWithTeam = async (
+            issuerId: number,
+            team: { id: number },
+            entry: { id: number; uuid: string },
+        ) => {
+            await server.stores.share.upsertActiveGroup({
+                issuerUserId: issuerId,
+                holderGroupId: team.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            await server.stores.permission.upsertUserGroupPerm(
+                team.id,
+                issuerId,
+                `fs:${entry.uuid}:read`,
+                {},
+            );
+        };
+
+        const standUpTeams = (team: { id: number; uid: string }) => {
+            installSeatStub(server as never, []);
+            const store = server.stores.team as unknown as Record<
+                string,
+                unknown
+            >;
+            store.listGroupIdsForUser = async () => [team.id];
+            store.getByIdsIncludingDeleted = async (ids: number[]) =>
+                new Map(
+                    ids
+                        .filter((id) => id === team.id)
+                        .map((id) => [
+                            id,
+                            {
+                                id,
+                                uid: team.uid,
+                                name: 'Own team',
+                                handle: null,
+                            },
+                        ]),
+                );
+        };
+
+        const inbox = (actor: Actor) =>
+            runWithContext({ actor }, () =>
+                server.services.share.listSharedWithMe(actor, {
+                    includeTotal: true,
+                }),
+            );
+
+        it("leaves the sharer's own items out of their Shared view and total", async () => {
+            const sharer = await makeUser();
+            const mate = await makeUser();
+            const team = await makeTeam(sharer.user.id, [mate.user.id]);
+            standUpTeams(team);
+
+            const own = await makeFile(sharer.user);
+            await shareWithTeam(sharer.user.id, team, own);
+            // A teammate's share of something the sharer owns is theirs too.
+            const delegated = await makeFile(sharer.user);
+            await shareWithTeam(mate.user.id, team, delegated);
+            const theirs = await makeFile(mate.user);
+            await shareWithTeam(mate.user.id, team, theirs);
+
+            const mine = await inbox(sharer.actor);
+            expect(mine.items.map((row) => row.entryUid)).toEqual([
+                theirs.uuid,
+            ]);
+            expect(mine.total).toBe(1);
+            expect(mine.items[0].holderTeam).toEqual({
+                uid: team.uid,
+                name: 'Own team',
+                handle: null,
+            });
+
+            // The teammate still has what was shared with them, and not what
+            // they shared themselves.
+            const mates = await inbox(mate.actor);
+            expect(mates.items.map((row) => row.entryUid)).toEqual([own.uuid]);
+            expect(mates.total).toBe(1);
+        });
+
+        it('refuses to let a member leave a share only their team holds', async () => {
+            const sharer = await makeUser();
+            const mate = await makeUser();
+            const team = await makeTeam(sharer.user.id, [mate.user.id]);
+            standUpTeams(team);
+            const file = await makeFile(sharer.user);
+            await shareWithTeam(sharer.user.id, team, file);
+
+            await expect(
+                unshare(mate.actor, {
+                    uid: file.uuid,
+                    recipient: { username: mate.user.username },
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                legacyCode: 'team_share',
+            });
+            expect(await canRead(mate.actor, file.path)).toBe(true);
+        });
+
+        it('still lets a member leave a direct share they also hold through the team', async () => {
+            const sharer = await makeUser();
+            const mate = await makeUser();
+            const team = await makeTeam(sharer.user.id, [mate.user.id]);
+            standUpTeams(team);
+            const file = await makeFile(sharer.user);
+            await shareWithTeam(sharer.user.id, team, file);
+            await share(sharer.actor, {
+                uid: file.uuid,
+                recipient: { email: mate.email },
+                mode: 'read',
+            });
+
+            const result = await unshare(mate.actor, {
+                uid: file.uuid,
+                recipient: { username: mate.user.username },
+            });
+            expect(result.revoked).toBeGreaterThan(0);
         });
     });
 });

@@ -21,9 +21,13 @@ import { statfs } from 'node:fs/promises';
 import { posix as pathPosix } from 'node:path';
 import { assertNormalized } from '../../services/fs/resolveNode.js';
 import { v4 as uuidv4 } from 'uuid';
+import type { WriteResult } from '../../clients/database/DatabaseClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { LayerInstances } from '../../types.js';
-import { runWithConcurrencyLimit } from '../../util/concurrency.js';
+import {
+    runWithConcurrencyLimit,
+    runWithConcurrencyLimitSettled,
+} from '../../util/concurrency.js';
 import { escapeLike } from '../../util/sqlLike.js';
 import {
     keysetPage,
@@ -113,6 +117,11 @@ const sortValue = (
     }
 };
 
+const thumbnailEntryNotFound = () =>
+    new HttpError(404, 'File entry was not found for thumbnail update', {
+        legacyCode: 'not_found',
+    });
+
 const ENTRY_CACHE_TTL_SECONDS = 60;
 const entryCacheKey = (
     by: 'id' | 'uuid' | 'path',
@@ -131,6 +140,13 @@ const BULK_QUERY_CHUNK_SIZE = 200;
 const SUBTREE_PATTERNS_PER_STATEMENT = 500;
 const SUBTREE_PATTERNS_MAX = 5000;
 const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
+// Two replica batcher flushes' worth of lineage lookups in flight.
+const LINEAGE_LOOKUP_CONCURRENCY = 10;
+// Cache refreshes after a batched update; each is a cache read and write.
+const ENTRY_PATCH_CONCURRENCY = 32;
+// Thumbnail text one batched UPDATE carries; inline data URLs run to
+// megabytes, and the statement must stay under the server's packet limit.
+const THUMBNAIL_BATCH_CHARS = 4 * 1024 * 1024;
 // Most entries whose invalidations one node broadcasts per broadcast flush
 // window (~200 bytes an entry); past the cap, invalidations stay local and
 // peers wait out ENTRY_CACHE_TTL_SECONDS.
@@ -399,6 +415,27 @@ export class FSEntryStore extends PuterStore {
                     );
                 }),
             );
+        } catch {
+            // Best effort cache write.
+        }
+    }
+
+    /** `#writeEntryToCache` for many entries, in one round trip. */
+    async #writeEntriesToCache(entries: FSEntry[]): Promise<void> {
+        if (entries.length === 0) return;
+        try {
+            const pipeline = this.clients.redis.pipeline();
+            for (const entry of entries) {
+                const serialized = JSON.stringify(entry);
+                for (const cacheKey of this.#entryCacheKeys(entry)) {
+                    pipeline.setex(
+                        cacheKey,
+                        ENTRY_CACHE_TTL_SECONDS,
+                        serialized,
+                    );
+                }
+            }
+            await pipeline.exec();
         } catch {
             // Best effort cache write.
         }
@@ -766,16 +803,25 @@ export class FSEntryStore extends PuterStore {
 
         // Per-path lineage fallback for entries the bulk SELECT missed —
         // legacy rows with a NULL `path` column (see #resolveEntryByPathLineage).
-        // Sequential to keep the round-trip cost predictable; the common case
-        // is a single missing path.
-        const stillMissing = normalizedPaths.filter(
-            (path) => !entriesByPath.has(path),
+        // Every path of a fresh upload lands here, so the lookups run
+        // concurrently and share batcher flushes; the first failure in path
+        // order is the one surfaced.
+        const stillMissing =
+            options.lineage === false
+                ? []
+                : normalizedPaths.filter((path) => !entriesByPath.has(path));
+        const lineageResults = await runWithConcurrencyLimitSettled(
+            stillMissing,
+            LINEAGE_LOOKUP_CONCURRENCY,
+            async (path) => ({
+                path,
+                entry: await this.#resolveEntryByPathLineage(path),
+            }),
         );
-        for (const path of stillMissing) {
-            const entry = await this.#resolveEntryByPathLineage(path);
-            if (entry) {
-                entriesByPath.set(path, entry);
-            }
+        for (const result of lineageResults) {
+            if (result.status === 'rejected') throw result.reason;
+            const { path, entry } = result.value;
+            if (entry) entriesByPath.set(path, entry);
         }
 
         return entriesByPath;
@@ -825,9 +871,11 @@ export class FSEntryStore extends PuterStore {
         for (const path of candidatePaths) {
             const entry = allEntries.get(path);
             if (entry && !entry.isDir) {
-                throw new HttpError(409, `Path is not a directory: ${path}`, {
-                    legacyCode: 'conflict',
-                });
+                throw new HttpError(
+                    409,
+                    `Path is not a directory: ${pathPosix.basename(path)}`,
+                    { legacyCode: 'conflict' },
+                );
             }
         }
 
@@ -868,7 +916,7 @@ export class FSEntryStore extends PuterStore {
                     if (parentEntry && !parentEntry.isDir) {
                         throw new HttpError(
                             409,
-                            `Path is not a directory: ${parentPath}`,
+                            `Path is not a directory: ${pathPosix.basename(parentPath)}`,
                             { legacyCode: 'conflict' },
                         );
                     }
@@ -930,7 +978,7 @@ export class FSEntryStore extends PuterStore {
                     if (!insertedEntry.isDir) {
                         throw new HttpError(
                             409,
-                            `Path is not a directory: ${path}`,
+                            `Path is not a directory: ${pathPosix.basename(path)}`,
                             { legacyCode: 'conflict' },
                         );
                     }
@@ -949,14 +997,14 @@ export class FSEntryStore extends PuterStore {
                 // path in #ensureDirectoryPath). Surface as 404.
                 throw new HttpError(
                     404,
-                    `Parent path does not exist: ${requiredPath}`,
+                    `Parent path does not exist: ${pathPosix.basename(requiredPath)}`,
                     { legacyCode: 'not_found' },
                 );
             }
             if (!entry.isDir) {
                 throw new HttpError(
                     409,
-                    `Path is not a directory: ${requiredPath}`,
+                    `Path is not a directory: ${pathPosix.basename(requiredPath)}`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -981,7 +1029,7 @@ export class FSEntryStore extends PuterStore {
             if (!existingEntry.isDir) {
                 throw new HttpError(
                     409,
-                    `Path is not a directory: ${normalizedPath}`,
+                    `Path is not a directory: ${pathPosix.basename(normalizedPath)}`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -991,7 +1039,7 @@ export class FSEntryStore extends PuterStore {
         if (!createPaths) {
             throw new HttpError(
                 404,
-                `Parent path does not exist: ${normalizedPath}`,
+                `Parent path does not exist: ${pathPosix.basename(normalizedPath)}`,
                 { legacyCode: 'not_found' },
             );
         }
@@ -1072,14 +1120,14 @@ export class FSEntryStore extends PuterStore {
             // Error become a 500 + page on-call.
             throw new HttpError(
                 404,
-                `Parent path does not exist: ${normalizedPath}`,
+                `Parent path does not exist: ${pathPosix.basename(normalizedPath)}`,
                 { legacyCode: 'not_found' },
             );
         }
         if (!resolvedEntry.isDir) {
             throw new HttpError(
                 409,
-                `Path is not a directory: ${normalizedPath}`,
+                `Path is not a directory: ${pathPosix.basename(normalizedPath)}`,
                 { legacyCode: 'conflict' },
             );
         }
@@ -1150,6 +1198,7 @@ export class FSEntryStore extends PuterStore {
         // segment, then walk down via `parent_uid` chains. Backfills the
         // `path` column on every resolved row so subsequent calls take
         // the fast `WHERE path = ?` branch above.
+        if (options.lineage === false) return null;
         return this.#resolveEntryByPathLineage(normalizedPath);
     }
 
@@ -1180,43 +1229,49 @@ export class FSEntryStore extends PuterStore {
               segments(depth, name) AS (
                 ${segmentRows}
               ),
-              lineage(id, uuid, depth) AS (
-                SELECT f.id, f.uuid, 1
+              lineage(id, uuid, name, depth) AS (
+                SELECT f.id, f.uuid, f.name, 1
                 FROM fsentries f
                 INNER JOIN segments s ON s.depth = 1
                 WHERE f.parent_uid IS NULL AND f.name = s.name
 
                 UNION ALL
 
-                SELECT f.id, f.uuid, l.depth + 1
+                SELECT f.id, f.uuid, f.name, l.depth + 1
                 FROM fsentries f
                 INNER JOIN lineage l ON f.parent_uid = l.uuid
                 INNER JOIN segments s ON s.depth = l.depth + 1
                 WHERE f.name = s.name
               )
-            SELECT id, uuid, depth FROM lineage ORDER BY depth ASC, id ASC
+            SELECT id, uuid, name, depth FROM lineage ORDER BY depth ASC, id ASC
         `;
 
         const rows = (await this.clients.db.read(sql, segments)) as {
             id: number | string;
             uuid: string;
+            name: string;
             depth: number | string;
         }[];
 
         // Take the lowest-id row at each depth (deterministic pick that
         // matches v1's `LIMIT 1` per-segment behaviour).
         const byDepth = new Map<number, { id: number; uuid: string }>();
+        const storedNames: string[] = [];
         for (const r of rows) {
             const depth = Number(r.depth);
             if (!byDepth.has(depth)) {
                 byDepth.set(depth, { id: Number(r.id), uuid: r.uuid });
+                storedNames[depth - 1] = r.name;
             }
         }
         if (byDepth.size !== segments.length) {
             return null;
         }
 
-        await this.#backfillLineagePaths(byDepth, segments);
+        // The stored names, not the caller's spelling: a collation can match
+        // a segment to a name spelled differently, and this runs before any
+        // access check.
+        await this.#backfillLineagePaths(byDepth, storedNames);
 
         const target = byDepth.get(segments.length);
         if (!target) return null;
@@ -1594,60 +1649,112 @@ export class FSEntryStore extends PuterStore {
         uuid: string,
         thumbnail: string | null,
     ): Promise<FSEntry> {
-        const now = Math.floor(Date.now() / 1000);
-        const writeResult = await this.clients.db.write(
-            `UPDATE fsentries
-             SET thumbnail = ?,
-                 modified = ?,
-                 accessed = ?
-             WHERE uuid = ? AND user_id = ?`,
-            [thumbnail, now, now, uuid, userId],
-        );
-        if (typeof writeResult === 'object' && writeResult !== null) {
-            const writeResultRecord = writeResult as unknown as Record<
-                string,
-                unknown
-            >;
-            const anyRowsAffected = writeResultRecord.anyRowsAffected;
-            if (typeof anyRowsAffected === 'boolean' && !anyRowsAffected) {
-                throw new HttpError(
-                    404,
-                    'File entry was not found for thumbnail update',
-                    { legacyCode: 'not_found' },
-                );
-            }
+        const [result] = await this.updateEntryThumbnailsByUuidForUser(userId, [
+            { uuid, thumbnail },
+        ]);
+        if (result?.status !== 'fulfilled') {
+            throw result?.reason ?? thumbnailEntryNotFound();
+        }
+        return result.value;
+    }
 
-            const affectedRowsRaw = writeResultRecord.affectedRows;
-            const affectedRows = Number(affectedRowsRaw);
+    /**
+     * Set the thumbnails of entries `userId` owns with one UPDATE per chunk,
+     * each result in input order: the entry as patched, or why that one failed.
+     * A chunk the UPDATE fails or only partly matches is redone one entry at a
+     * time, which tells the misses apart.
+     */
+    async updateEntryThumbnailsByUuidForUser(
+        userId: number,
+        updates: Array<{ uuid: string; thumbnail: string | null }>,
+    ): Promise<PromiseSettledResult<FSEntry>[]> {
+        const chunks: Array<typeof updates> = [];
+        let chunk: typeof updates = [];
+        let chars = 0;
+        for (const update of updates) {
+            const size = update.thumbnail?.length ?? 0;
             if (
-                affectedRowsRaw !== undefined &&
-                Number.isFinite(affectedRows) &&
-                affectedRows <= 0
+                chunk.length >= BULK_QUERY_CHUNK_SIZE ||
+                (chunk.length > 0 && chars + size > THUMBNAIL_BATCH_CHARS)
             ) {
-                throw new HttpError(
-                    404,
-                    'File entry was not found for thumbnail update',
-                    { legacyCode: 'not_found' },
-                );
+                chunks.push(chunk);
+                chunk = [];
+                chars = 0;
             }
+            chunk.push(update);
+            chars += size;
+        }
+        if (chunk.length > 0) chunks.push(chunk);
+
+        const results: PromiseSettledResult<FSEntry>[] = [];
+        for (const rows of chunks) {
+            results.push(...(await this.#updateThumbnailChunk(userId, rows)));
+        }
+        return results;
+    }
+
+    async #updateThumbnailChunk(
+        userId: number,
+        chunk: Array<{ uuid: string; thumbnail: string | null }>,
+    ): Promise<PromiseSettledResult<FSEntry>[]> {
+        const now = Math.floor(Date.now() / 1000);
+        const oneByOne = () =>
+            runWithConcurrencyLimitSettled(
+                chunk,
+                DEFAULT_DB_CHUNK_CONCURRENCY,
+                ({ uuid, thumbnail }) =>
+                    this.updateEntryThumbnailByUuidForUser(
+                        userId,
+                        uuid,
+                        thumbnail,
+                    ),
+            );
+        let matched: number;
+        try {
+            const writeResult = await this.clients.db.write(
+                `UPDATE fsentries
+                 SET thumbnail = CASE uuid ${chunk.map(() => 'WHEN ? THEN ?').join(' ')} END,
+                     modified = ?,
+                     accessed = ?
+                 WHERE user_id = ? AND uuid IN (${chunk.map(() => '?').join(', ')})`,
+                [
+                    ...chunk.flatMap(({ uuid, thumbnail }) => [
+                        uuid,
+                        thumbnail,
+                    ]),
+                    now,
+                    now,
+                    userId,
+                    ...chunk.map(({ uuid }) => uuid),
+                ],
+            );
+            matched = this.#affectedRows(writeResult);
+        } catch (error) {
+            if (chunk.length > 1) return oneByOne();
+            return [{ status: 'rejected', reason: error }];
+        }
+        if (matched !== chunk.length) {
+            if (chunk.length > 1) return oneByOne();
+            return [{ status: 'rejected', reason: thumbnailEntryNotFound() }];
         }
 
-        // The UPDATE above already proved the row exists and belongs to this
-        // user, and named every column that moved — so the result is knowable
-        // without reading the row back.
-        const updatedEntry = await this.#entryAfterPatch(uuid, {
-            thumbnail,
-            modified: now,
-            accessed: now,
-        });
-        if (!updatedEntry || updatedEntry.userId !== userId) {
-            throw new HttpError(
-                404,
-                'File entry was not found for thumbnail update',
-                { legacyCode: 'not_found' },
-            );
-        }
-        return updatedEntry;
+        // The UPDATE proved each row exists and belongs to this user, and
+        // named every column that moved, so no row needs reading back.
+        return runWithConcurrencyLimitSettled(
+            chunk,
+            ENTRY_PATCH_CONCURRENCY,
+            async ({ uuid, thumbnail }) => {
+                const updatedEntry = await this.#entryAfterPatch(uuid, {
+                    thumbnail,
+                    modified: now,
+                    accessed: now,
+                });
+                if (!updatedEntry || updatedEntry.userId !== userId) {
+                    throw thumbnailEntryNotFound();
+                }
+                return updatedEntry;
+            },
+        );
     }
 
     async resolveParentDirectory(
@@ -1737,14 +1844,14 @@ export class FSEntryStore extends PuterStore {
             if (!parentEntry) {
                 throw new HttpError(
                     404,
-                    `Parent path does not exist: ${normalizedPath}`,
+                    `Parent path does not exist: ${pathPosix.basename(normalizedPath)}`,
                     { legacyCode: 'not_found' },
                 );
             }
             if (!parentEntry.isDir) {
                 throw new HttpError(
                     409,
-                    `Path is not a directory: ${normalizedPath}`,
+                    `Path is not a directory: ${pathPosix.basename(normalizedPath)}`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -1803,14 +1910,14 @@ export class FSEntryStore extends PuterStore {
             if (!entry) {
                 throw new HttpError(
                     404,
-                    `Directory path does not exist: ${request.path}`,
+                    `Directory path does not exist: ${pathPosix.basename(request.path)}`,
                     { legacyCode: 'not_found' },
                 );
             }
             if (!entry.isDir) {
                 throw new HttpError(
                     409,
-                    `Path is not a directory: ${request.path}`,
+                    `Path is not a directory: ${pathPosix.basename(request.path)}`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -1866,7 +1973,7 @@ export class FSEntryStore extends PuterStore {
                 if (Number.isNaN(size) || size < 0) {
                     throw new HttpError(
                         400,
-                        `Invalid size for path ${targetPath}`,
+                        `Invalid size for ${pathPosix.basename(targetPath)}`,
                         { legacyCode: 'bad_request' },
                     );
                 }
@@ -1893,7 +2000,7 @@ export class FSEntryStore extends PuterStore {
             if (duplicatePathSet.has(dedupeKey)) {
                 throw new HttpError(
                     409,
-                    `Batch contains duplicate target path: ${normalizedEntry.targetPath}`,
+                    `Batch contains duplicate target path: ${pathPosix.basename(normalizedEntry.targetPath)}`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -1944,7 +2051,7 @@ export class FSEntryStore extends PuterStore {
                 if (!parentEntry) {
                     throw new HttpError(
                         404,
-                        `Parent directory not found for ${entry.targetPath}`,
+                        `Parent directory not found for ${pathPosix.basename(entry.targetPath)}`,
                         { legacyCode: 'dest_does_not_exist' },
                     );
                 }
@@ -1956,14 +2063,14 @@ export class FSEntryStore extends PuterStore {
                     if (!entry.input.overwrite) {
                         throw new HttpError(
                             409,
-                            `Entry already exists at ${entry.targetPath}`,
+                            `An entry named \`${pathPosix.basename(entry.targetPath)}\` already exists`,
                             { legacyCode: 'conflict' },
                         );
                     }
                     if (existingEntry.isDir) {
                         throw new HttpError(
                             409,
-                            `Cannot overwrite a directory at ${entry.targetPath}`,
+                            `Cannot overwrite a directory: ${pathPosix.basename(entry.targetPath)}`,
                             { legacyCode: 'cannot_overwrite_a_directory' },
                         );
                     }
@@ -2082,6 +2189,7 @@ export class FSEntryStore extends PuterStore {
                 insertCandidates,
                 BULK_QUERY_CHUNK_SIZE,
             );
+            const insertedEntriesByUuid = new Map<string, FSEntry>();
             await runWithConcurrencyLimit(
                 insertChunks,
                 DEFAULT_DB_CHUNK_CONCURRENCY,
@@ -2092,43 +2200,44 @@ export class FSEntryStore extends PuterStore {
 
                     const valuePlaceholders: string[] = [];
                     const values: unknown[] = [];
+                    const rows: FSEntryRow[] = [];
                     for (const entry of insertChunk) {
                         const parentEntry = parentByPath.get(entry.parentPath);
                         if (!parentEntry) {
                             throw new HttpError(
                                 404,
-                                `Parent directory not found for ${entry.targetPath}`,
+                                `Parent directory not found for ${pathPosix.basename(entry.targetPath)}`,
                                 { legacyCode: 'dest_does_not_exist' },
                             );
                         }
 
+                        const row = this.#fileInsertRow(
+                            entry,
+                            parentEntry,
+                            now,
+                        );
+                        rows.push(row);
                         valuePlaceholders.push(
                             `(?, ?, ?, ?, ?, ?, ?, ${this.clients.db.booleanLiteral(false)}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                         );
                         values.push(
-                            entry.input.uuid,
-                            entry.bucket,
-                            entry.bucketRegion,
-                            parentEntry.userId,
-                            parentEntry.id,
-                            parentEntry.uuid,
-                            entry.input.associatedAppId ?? null,
-                            entry.input.isPublic === undefined
-                                ? null
-                                : this.clients.db.booleanValue(
-                                      entry.input.isPublic,
-                                  ),
-                            entry.input.thumbnail ?? null,
-                            this.clients.db.booleanValue(
-                                Boolean(entry.input.immutable),
-                            ),
-                            entry.fileName,
-                            entry.targetPath,
-                            entry.metadataJson,
-                            now,
-                            now,
-                            now,
-                            entry.size,
+                            row.uuid,
+                            row.bucket,
+                            row.bucket_region,
+                            row.user_id,
+                            row.parent_id,
+                            row.parent_uid,
+                            row.associated_app_id,
+                            row.is_public,
+                            row.thumbnail,
+                            row.immutable,
+                            row.name,
+                            row.path,
+                            row.metadata,
+                            row.modified,
+                            row.created,
+                            row.accessed,
+                            row.size,
                         );
                     }
 
@@ -2138,7 +2247,7 @@ export class FSEntryStore extends PuterStore {
                     // detecting uuids missing from the post-INSERT SELECT
                     // and running the same overwrite-or-409 logic the
                     // upfront existence check uses.
-                    await this.clients.db.write(
+                    const written = await this.clients.db.write(
                         `${this.#insertIgnoreIntoFsentriesSql()} (
                             uuid,
                             bucket,
@@ -2161,13 +2270,34 @@ export class FSEntryStore extends PuterStore {
                         ) VALUES ${valuePlaceholders.join(', ')}${this.clients.db.insertIgnoreSuffix()}`,
                         values,
                     );
+
+                    const [onlyRow] = rows;
+                    if (rows.length === 1 && onlyRow) {
+                        const stored = this.#storedAsWritten(onlyRow, written);
+                        if (stored) {
+                            insertedEntriesByUuid.set(
+                                stored.uuid,
+                                this.#mapFSEntryRow(stored),
+                            );
+                        }
+                    }
                 },
             );
 
-            const insertedEntriesByUuid = new Map<string, FSEntry>();
-            if (insertCandidates.length > 0) {
+            if (insertedEntriesByUuid.size > 0) {
+                await Promise.all(
+                    [...insertedEntriesByUuid.values()].map((entry) =>
+                        this.#writeEntryToCache(entry),
+                    ),
+                );
+            }
+
+            const unreadCandidates = insertCandidates.filter(
+                (entry) => !insertedEntriesByUuid.has(entry.input.uuid),
+            );
+            if (unreadCandidates.length > 0) {
                 const insertUuidChunks = this.#chunk(
-                    insertCandidates.map((entry) => entry.input.uuid),
+                    unreadCandidates.map((entry) => entry.input.uuid),
                     BULK_QUERY_CHUNK_SIZE,
                 );
 
@@ -2233,7 +2363,7 @@ export class FSEntryStore extends PuterStore {
                     if (!parentEntry) {
                         throw new HttpError(
                             404,
-                            `Parent directory not found for ${entry.targetPath}`,
+                            `Parent directory not found for ${pathPosix.basename(entry.targetPath)}`,
                             { legacyCode: 'dest_does_not_exist' },
                         );
                     }
@@ -2242,7 +2372,7 @@ export class FSEntryStore extends PuterStore {
                         insertConflictErrors.push(
                             new HttpError(
                                 409,
-                                `Entry already exists at ${entry.targetPath}`,
+                                `An entry named \`${pathPosix.basename(entry.targetPath)}\` already exists`,
                                 { legacyCode: 'conflict' },
                             ),
                         );
@@ -2252,7 +2382,7 @@ export class FSEntryStore extends PuterStore {
                         insertConflictErrors.push(
                             new HttpError(
                                 409,
-                                `Cannot overwrite a directory at ${entry.targetPath}`,
+                                `Cannot overwrite a directory: ${pathPosix.basename(entry.targetPath)}`,
                                 { legacyCode: 'cannot_overwrite_a_directory' },
                             ),
                         );
@@ -2262,7 +2392,7 @@ export class FSEntryStore extends PuterStore {
                         insertConflictErrors.push(
                             new HttpError(
                                 409,
-                                `Entry already exists at ${entry.targetPath}`,
+                                `An entry named \`${pathPosix.basename(entry.targetPath)}\` already exists`,
                                 { legacyCode: 'conflict' },
                             ),
                         );
@@ -2379,6 +2509,89 @@ export class FSEntryStore extends PuterStore {
         return createdEntries;
     }
 
+    /** The columns a file INSERT sets, exactly as sent. */
+    #fileInsertRow(
+        entry: NormalizedEntryWrite,
+        parent: FSEntry,
+        now: number,
+    ): FSEntryRow {
+        return {
+            id: 0,
+            uuid: entry.input.uuid,
+            bucket: entry.bucket,
+            bucket_region: entry.bucketRegion,
+            public_token: null,
+            file_request_token: null,
+            is_shortcut: 0,
+            shortcut_to: null,
+            user_id: parent.userId,
+            parent_id: parent.id,
+            parent_uid: parent.uuid,
+            associated_app_id: entry.input.associatedAppId ?? null,
+            is_dir: this.clients.db.booleanValue(false),
+            layout: null,
+            sort_by: null,
+            sort_order: null,
+            is_public:
+                entry.input.isPublic === undefined
+                    ? null
+                    : this.clients.db.booleanValue(entry.input.isPublic),
+            thumbnail: entry.input.thumbnail ?? null,
+            immutable: this.clients.db.booleanValue(
+                Boolean(entry.input.immutable),
+            ),
+            name: entry.fileName,
+            metadata: entry.metadataJson,
+            modified: now,
+            created: now,
+            accessed: now,
+            size: entry.size,
+            symlink_path: null,
+            is_symlink: 0,
+            path: entry.targetPath,
+            // A row this new has no subdomains.
+            subdomains_agg: null,
+        };
+    }
+
+    /**
+     * `row` with its new id, when the write proves the database stored it as
+     * sent: one row inserted, no warning (a truncated or converted value warns)
+     * and an id. Null otherwise, and for values stored without a warning but
+     * not as sent: a fractional integer is rounded, a lone surrogate replaced.
+     */
+    #storedAsWritten(row: FSEntryRow, written: WriteResult): FSEntryRow | null {
+        const insertId = Number(written.insertId);
+        if (
+            written.affectedRows !== 1 ||
+            written.warningStatus !== 0 ||
+            !Number.isSafeInteger(insertId) ||
+            insertId <= 0
+        ) {
+            return null;
+        }
+        const exactInteger = (value: unknown) =>
+            value === null || Number.isSafeInteger(value);
+        const exactText = (value: unknown) =>
+            value === null ||
+            (typeof value === 'string' && value.isWellFormed());
+        if (
+            ![row.size, row.associated_app_id].every(exactInteger) ||
+            ![
+                row.uuid,
+                row.bucket,
+                row.bucket_region,
+                row.thumbnail,
+                row.name,
+                row.metadata,
+                row.path,
+            ].every(exactText)
+        ) {
+            return null;
+        }
+        return { ...row, id: insertId };
+    }
+
     async createPendingEntry(
         entry: PendingUploadCreateInput,
     ): Promise<PendingUploadSession> {
@@ -2464,11 +2677,11 @@ export class FSEntryStore extends PuterStore {
     }
 
     async completePendingEntry(
-        sessionId: string,
+        session: PendingUploadSession,
         finalData: FSEntryCreateInput,
     ): Promise<FSEntry> {
         const [completedEntry] = await this.batchCompletePendingEntries([
-            { sessionId, finalData },
+            { session, finalData },
         ]);
         if (!completedEntry) {
             throw new Error('Failed to complete pending entry');
@@ -2476,8 +2689,16 @@ export class FSEntryStore extends PuterStore {
         return completedEntry;
     }
 
+    /**
+     * Marks each session completed from the caller's copy rather than a fresh
+     * read: a completion rewrites every field that changes after creation, so
+     * the stored item comes out the same either way.
+     */
     async batchCompletePendingEntries(
-        entries: { sessionId: string; finalData: FSEntryCreateInput }[],
+        entries: {
+            session: PendingUploadSession;
+            finalData: FSEntryCreateInput;
+        }[],
     ): Promise<FSEntry[]> {
         if (entries.length === 0) {
             return [];
@@ -2488,10 +2709,18 @@ export class FSEntryStore extends PuterStore {
             true,
         );
 
-        await this.#markPendingSessionsWithStatus(
-            entries.map((entry) => entry.sessionId),
-            'completed',
-            null,
+        const now = Date.now();
+        // An expired session reads as missing; leave it to the sweep.
+        const live = entries.filter(
+            ({ session }) =>
+                toPendingUploadSessionExpiresAtSeconds(session.expiresAt) >
+                now / 1000,
+        );
+        await this.#writePendingUploadSessions(
+            live.map(({ session }) =>
+                withPendingUploadSessionStatus(session, 'completed', null, now),
+            ),
+            'mark pending upload sessions as completed',
         );
 
         return completedEntries;
@@ -2821,15 +3050,25 @@ export class FSEntryStore extends PuterStore {
         return Number(rows[0]?.n ?? 0);
     }
 
+    /**
+     * Whether `listChildren(parentUid)` would return any row: same key, same
+     * replica. `hasChildren` is the primary read that deletes rely on.
+     */
+    async hasChildrenByParentUid(parentUid: string): Promise<boolean> {
+        const rows = await this.clients.db.read(
+            'SELECT 1 AS present FROM fsentries WHERE parent_uid = ? LIMIT 1',
+            [parentUid],
+        );
+        return rows.length > 0;
+    }
+
     async #finalizeChildEntries(rows: FSEntryRow[]): Promise<FSEntry[]> {
         const entries = rows.map((row) => this.#mapFSEntryRow(row));
         // Heal NULL-path rows before they reach the controller — readdir
         // consumers (GUI, suggested-apps, downstream `pathPosix.dirname`
         // callers) all expect a populated path on every child.
         await this.#healEntriesWithMissingPathsInPlace(entries);
-        await Promise.all(
-            entries.map((entry) => this.#writeEntryToCache(entry)),
-        );
+        await this.#writeEntriesToCache(entries);
         return entries;
     }
 
@@ -3042,6 +3281,7 @@ export class FSEntryStore extends PuterStore {
         pathPrefix: string,
         options: {
             limit?: number;
+            offset?: number;
             cursor?: string | null;
             maxDepth: number;
             sortBy?: DescendantSortField | null;
@@ -3058,13 +3298,21 @@ export class FSEntryStore extends PuterStore {
         const maxSlashes =
             this.#slashCount(normalizedPrefix) + Math.max(1, options.maxDepth);
         const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
-
         const rawPayload = openCursor(
             options.cursor,
             this.config.jwt_secret_v2,
         ) as
             | { v?: unknown; id?: number; s?: string; o?: string; p?: string }
             | undefined;
+        // Recursive listings used to ignore `offset`; a cursor still wins and
+        // an invalid offset is still ignored rather than rejected.
+        const requestedOffset = Number(options.offset);
+        const offset =
+            !rawPayload &&
+            Number.isFinite(requestedOffset) &&
+            requestedOffset > 0
+                ? Math.floor(requestedOffset)
+                : 0;
         // Cursors minted before this listing honored the sort carried only the
         // last path, always ascending.
         const payload =
@@ -3118,6 +3366,7 @@ export class FSEntryStore extends PuterStore {
             maxSlashes,
             ...seekParams,
             limit + 1,
+            offset,
         ];
 
         const rows = (await this.clients.db.read(
@@ -3126,7 +3375,7 @@ export class FSEntryStore extends PuterStore {
              WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}
                AND (LENGTH(path) - LENGTH(REPLACE(path, '/', ''))) <= ? ${seek}
              ORDER BY ${sortExpr} ${dir}${tiebreak ? `, id ${dir}` : ''}
-             LIMIT ?`,
+             LIMIT ? OFFSET ?`,
             params,
         )) as unknown as FSEntryRow[];
 
@@ -3474,27 +3723,7 @@ export class FSEntryStore extends PuterStore {
         );
 
         if (oldPath && oldPath !== '/' && oldPath !== newPath) {
-            const likePattern = `${this.#escapeLikePattern(oldPath)}/%`;
-            // SUBSTR counts characters, not UTF-16 code units.
-            const oldLen = [...oldPath].length;
-            const rewrittenPath = this.clients.db.case({
-                postgres: '? || SUBSTR(path, ?)',
-                otherwise: 'CONCAT(?, SUBSTR(path, ?))',
-            });
-            const groups = await this.#subtreePatterns(oldPath, likePattern, {
-                rootPaths: [oldPath, newPath],
-                primary: true,
-            });
-            for (const patterns of groups) {
-                await this.clients.db.write(
-                    `UPDATE fsentries
-                     SET path = ${rewrittenPath},
-                         modified = ?
-                     WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}`,
-                    [newPath, oldLen + 1, now, userId, ...patterns],
-                );
-            }
-            await this.#invalidateRebasedSubtree(oldPath, newPath, groups);
+            await this.#rebaseOwnedSubtree(userId, oldPath, newPath, now);
         }
 
         // Invalidate root cache under both old and new keys.
@@ -3511,6 +3740,125 @@ export class FSEntryStore extends PuterStore {
             await this.#writeEntryToCache(refreshed);
         }
         return refreshed;
+    }
+
+    // Finishes a home rename that stopped partway: moves the owner's rows under `oldPath` and drops their cached copies and the home's.
+    async rebaseUserSubtree(
+        userId: number,
+        oldPath: string,
+        newPath: string,
+    ): Promise<number> {
+        const from = this.#normalizePath(oldPath);
+        const to = this.#normalizePath(newPath);
+        if (from === '/' || to === '/') {
+            throw new HttpError(
+                400,
+                'Cannot rewrite path prefix to/from root',
+                { legacyCode: 'bad_request' },
+            );
+        }
+        if (from === to) return 0;
+        const moved = await this.#rebaseOwnedSubtree(
+            userId,
+            from,
+            to,
+            Math.floor(Date.now() / 1000),
+        );
+        const homes = (await this.clients.db.pread(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries
+             WHERE user_id = ? AND parent_uid IS NULL AND path IN (?, ?)`,
+            [userId, from, to],
+        )) as unknown as FSEntryRow[];
+        await this.#invalidateEntriesCache(
+            homes.map((row) => this.#mapFSEntryRow(row)),
+        );
+        // A home cached under the old path may no longer have a row there.
+        await this.publishCacheKeys({
+            keys: [entryCacheKey('path', from)],
+            broadcast: this.#takeBroadcastBudget(1) > 0,
+        });
+        return moved;
+    }
+
+    // The owner's rows under `path`, matched as a rewrite matches them, from the primary; `homePath` is where the home row sits if it moved.
+    async countUserSubtree(
+        userId: number,
+        path: string,
+        homePath?: string,
+    ): Promise<number> {
+        const prefix = this.#normalizePath(path);
+        if (prefix === '/') return 0;
+        const groups = await this.#subtreePatterns(
+            prefix,
+            `${this.#escapeLikePattern(prefix)}/%`,
+            {
+                rootPaths: homePath
+                    ? [prefix, this.#normalizePath(homePath)]
+                    : [prefix],
+                primary: true,
+            },
+        );
+        let total = 0;
+        for (const patterns of groups) {
+            const rows = (await this.clients.db.pread(
+                `SELECT COUNT(*) AS n FROM fsentries WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}`,
+                [userId, ...patterns],
+            )) as unknown as { n: number | string }[];
+            total += Number(rows[0]?.n ?? 0);
+        }
+        return total;
+    }
+
+    // The owner-scoped prefix rewrite behind renameUserHome and rebaseUserSubtree.
+    async #rebaseOwnedSubtree(
+        userId: number,
+        oldPath: string,
+        newPath: string,
+        now: number,
+    ): Promise<number> {
+        const likePattern = `${this.#escapeLikePattern(oldPath)}/%`;
+        // SUBSTR counts characters, not UTF-16 code units.
+        const oldLen = [...oldPath].length;
+        const rewrittenPath = this.clients.db.case({
+            postgres: '? || SUBSTR(path, ?)',
+            otherwise: 'CONCAT(?, SUBSTR(path, ?))',
+        });
+        const groups = await this.#subtreePatterns(oldPath, likePattern, {
+            rootPaths: [oldPath, newPath],
+            primary: true,
+        });
+        let affected = 0;
+        let remaining = REBASED_INVALIDATION_MAX;
+        for (const patterns of groups) {
+            // Read before the rewrite: afterwards the owner's rows under
+            // `newPath` include ones already there, which never moved.
+            const moving =
+                remaining > 0
+                    ? ((await this.clients.db.pread(
+                          `SELECT id, uuid, path FROM fsentries
+                           WHERE user_id = ? AND ${this.#pathLikeAny(patterns)} LIMIT ?`,
+                          [userId, ...patterns, remaining],
+                      )) as Array<{ id: number; uuid: string; path: string }>)
+                    : [];
+            const result = await this.clients.db.write(
+                `UPDATE fsentries
+                 SET path = ${rewrittenPath},
+                     modified = ?
+                 WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}`,
+                [newPath, oldLen + 1, now, userId, ...patterns],
+            );
+            affected += this.#affectedRows(result);
+            remaining -= moving.length;
+            await this.#invalidateMovedEntries(
+                moving.map((row) => ({
+                    id: Number(row.id),
+                    uuid: row.uuid,
+                    path: String(row.path),
+                })),
+            );
+        }
+        if (remaining <= 0) this.#warnRebasedCap(newPath);
+        return affected;
     }
 
     // Rewrites path column for every descendant of `oldPrefix` to use `newPrefix`,
@@ -3605,23 +3953,35 @@ export class FSEntryStore extends PuterStore {
                 [...patterns, remaining],
             )) as Array<{ id: number; uuid: string; path: string }>;
             remaining -= rows.length;
-            const moved = rows.map((row) => ({
-                id: Number(row.id),
-                uuid: row.uuid,
-                path: oldPrefix + String(row.path).slice(newPrefix.length),
-            }));
-            await runWithConcurrencyLimit(
-                this.#chunk(moved, BULK_QUERY_CHUNK_SIZE),
-                DEFAULT_DB_CHUNK_CONCURRENCY,
-                (chunk) => this.#invalidateEntriesCache(chunk),
+            await this.#invalidateMovedEntries(
+                rows.map((row) => ({
+                    id: Number(row.id),
+                    uuid: row.uuid,
+                    path: oldPrefix + String(row.path).slice(newPrefix.length),
+                })),
             );
             if (remaining <= 0) {
-                console.warn(
-                    `[FSEntryStore] moved ${REBASED_INVALIDATION_MAX}+ entries under ${newPrefix}; any others expire from cache on their TTL`,
-                );
+                this.#warnRebasedCap(newPrefix);
                 return;
             }
         }
+    }
+
+    /** Drops moved rows' keys, each listed with the path it moved from. */
+    async #invalidateMovedEntries(
+        moved: Array<Pick<FSEntry, 'id' | 'uuid' | 'path'>>,
+    ): Promise<void> {
+        await runWithConcurrencyLimit(
+            this.#chunk(moved, BULK_QUERY_CHUNK_SIZE),
+            DEFAULT_DB_CHUNK_CONCURRENCY,
+            (chunk) => this.#invalidateEntriesCache(chunk),
+        );
+    }
+
+    #warnRebasedCap(newPrefix: string): void {
+        console.warn(
+            `[FSEntryStore] moved ${REBASED_INVALIDATION_MAX}+ entries under ${newPrefix}; any others expire from cache on their TTL`,
+        );
     }
 
     async deleteEntry(entry: FSEntry): Promise<void> {
@@ -3710,15 +4070,18 @@ export class FSEntryStore extends PuterStore {
         const read = opts.consistentRead
             ? this.clients.db.pread.bind(this.clients.db)
             : this.clients.db.read.bind(this.clients.db);
+        const usageRowsPromise = read(
+            `SELECT COALESCE(SUM(size), 0) AS ${this.clients.db.quoteIdentifier('totalUsage')} FROM fsentries WHERE user_id = ?`,
+            [userId],
+        ) as Promise<{ totalUsage: number }[]>;
+        const userRowsPromise = read(
+            `SELECT uuid, free_storage AS ${this.clients.db.quoteIdentifier('freeStorage')} FROM ${this.clients.db.quoteIdentifier('user')} WHERE id = ? LIMIT 1`,
+            [userId],
+        ) as Promise<{ uuid: string; freeStorage: number | null }[]>;
+        const bonusPromise = this.#storageQuotaBonus(userId, userRowsPromise);
         const [usageRows, userRows] = await Promise.all([
-            read(
-                `SELECT COALESCE(SUM(size), 0) AS ${this.clients.db.quoteIdentifier('totalUsage')} FROM fsentries WHERE user_id = ?`,
-                [userId],
-            ) as Promise<{ totalUsage: number }[]>,
-            read(
-                `SELECT free_storage AS ${this.clients.db.quoteIdentifier('freeStorage')} FROM ${this.clients.db.quoteIdentifier('user')} WHERE id = ? LIMIT 1`,
-                [userId],
-            ) as Promise<{ freeStorage: number | null }[]>,
+            usageRowsPromise,
+            userRowsPromise,
         ]);
         const usageRow = usageRows[0];
         const userRow = userRows[0];
@@ -3728,18 +4091,9 @@ export class FSEntryStore extends PuterStore {
             userRow?.freeStorage ?? this.config.storage_capacity ?? 0,
         );
 
-        const event: { userId: number; extra: number } = { userId, extra: 0 };
-        try {
-            await this.clients.event.emitAndWait(
-                'storage.quota.bonus',
-                event,
-                {},
-            );
-        } catch {
-            /* best-effort */
-        }
-        if (Number.isFinite(event.extra) && event.extra > 0) {
-            max += event.extra;
+        const extra = await bonusPromise;
+        if (Number.isFinite(extra) && extra > 0) {
+            max += extra;
         }
 
         if (!this.config.is_storage_limited) {
@@ -3758,6 +4112,34 @@ export class FSEntryStore extends PuterStore {
         }
 
         return { curr, max };
+    }
+
+    /**
+     * What `storage.quota.bonus` listeners add, or 0. They start once the user
+     * row names the uuid to pass them, alongside the usage read, and never
+     * reject: a failed user read is the caller's to surface.
+     */
+    async #storageQuotaBonus(
+        userId: number,
+        userRows: Promise<Array<{ uuid: string }>>,
+    ): Promise<number> {
+        let userUuid: string | undefined;
+        try {
+            userUuid = (await userRows)[0]?.uuid;
+        } catch {
+            return 0;
+        }
+        const event = { userId, ...(userUuid ? { userUuid } : {}), extra: 0 };
+        try {
+            await this.clients.event.emitAndWaitConcurrently(
+                'storage.quota.bonus',
+                event,
+                {},
+            );
+        } catch {
+            /* best-effort */
+        }
+        return event.extra;
     }
 
     async #getFreeDeviceBytes(): Promise<number | null> {

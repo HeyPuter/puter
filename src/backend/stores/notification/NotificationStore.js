@@ -56,7 +56,8 @@ export class NotificationStore extends PuterStore {
     /**
      * A mailbox, newest first. `scope` narrows to one audience/app slice on the
      * way out of the database — `appUid: null` means the rows naming no app,
-     * which is not the same question as "any app".
+     * which is not the same question as "any app". `excludeTypes` leaves rows
+     * of those types out.
      *
      * @param {number} userId
      * @param {{
@@ -67,6 +68,7 @@ export class NotificationStore extends PuterStore {
      *         audiences: readonly string[];
      *         appUid: string | null;
      *     } | null;
+     *     excludeTypes?: readonly string[];
      * }} [opts]
      */
     async listByUserId(
@@ -76,10 +78,18 @@ export class NotificationStore extends PuterStore {
             onlyUnacknowledged = false,
             filter = undefined,
             scope = null,
+            excludeTypes = [],
         } = {},
     ) {
         const where = ['`user_id` = ?'];
         const params = [userId];
+
+        if (excludeTypes.length > 0) {
+            where.push(
+                `\`type\` NOT IN (${excludeTypes.map(() => '?').join(', ')})`,
+            );
+            params.push(...excludeTypes);
+        }
 
         if (onlyUnacknowledged || filter === 'unacknowledged') {
             where.push('`acknowledged` IS NULL');
@@ -127,6 +137,7 @@ export class NotificationStore extends PuterStore {
      * about no app, which is not the same question as "any app". `undefined` is
      * "any app": a session's own generic slice, which spans every app the
      * audience predicate already grants it rather than one named ref.
+     * `excludeTypes` leaves rows of those types out.
      *
      * @param {number} userId
      * @param {{
@@ -134,15 +145,25 @@ export class NotificationStore extends PuterStore {
      *     appUid?: string | null;
      *     after?: number | null;
      *     limit?: number;
+     *     excludeTypes?: readonly string[];
      * }} opts
      */
-    async listScoped(userId, { audience, appUid, after = null, limit = 50 }) {
+    async listScoped(
+        userId,
+        { audience, appUid, after = null, limit = 50, excludeTypes = [] },
+    ) {
         const n = Number(limit);
         const safeLimit = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 50;
         if (safeLimit === 0) return [];
 
         const where = ['`user_id` = ?', '`audience` = ?'];
         const params = [userId, audience];
+        if (excludeTypes.length > 0) {
+            where.push(
+                `\`type\` NOT IN (${excludeTypes.map(() => '?').join(', ')})`,
+            );
+            params.push(...excludeTypes);
+        }
         if (appUid === null) {
             where.push('`app_uid` IS NULL');
         } else if (appUid !== undefined) {

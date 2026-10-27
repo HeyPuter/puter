@@ -268,12 +268,15 @@ export class LocalWorkerService extends PuterService {
                 ownerActor,
                 app.uid,
                 workerName,
+                { workerUid: row.uuid ? String(row.uuid) : undefined },
             );
         } else {
             const session = await this.services.auth.createWorkerSessionToken(
                 ownerActor,
                 ownerUser,
                 workerName,
+                {},
+                { workerUid: row.uuid ? String(row.uuid) : undefined },
             );
 
             authorization = session.token;
@@ -290,6 +293,11 @@ export class LocalWorkerService extends PuterService {
         if (!sourceEntry) {
             throw new Error(
                 `Local: worker ${workerName} source file not found (id=${row.root_dir_id})`,
+            );
+        }
+        if (sourceEntry.userId !== ownerUser.id) {
+            throw new Error(
+                `Local: worker ${workerName} source file is not owned by the worker's owner`,
             );
         }
 

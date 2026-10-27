@@ -239,6 +239,10 @@ export class PermissionService extends PuterService {
         permissionOptions: string | string[],
         scanOptions?: ScanOptions,
     ): Promise<boolean> {
+        const defaultActor = actor.accessToken?.fullAccess
+            ? actor.accessToken.issuer
+            : actor;
+        if (this.#heldByDefault(defaultActor, permissionOptions)) return true;
         const reading = await this.scan(
             actor,
             permissionOptions,
@@ -247,6 +251,53 @@ export class PermissionService extends PuterService {
         );
         const options = PermissionUtil.readingToOptions(reading);
         return options.length > 0;
+    }
+
+    /**
+     * `scan`'s answer, without scanning, for what fixed config grants: a user's
+     * default permissions, and an app's default implicit grants that its user
+     * holds by default. Only while no rule matches any option or parent, since
+     * a rule is the only thing that could change what `scan` reads here.
+     */
+    #heldByDefault(
+        actor: Actor,
+        permissionOptions: string | string[],
+    ): boolean {
+        if (!actor.user?.id) return false;
+        const plainUser = isPlainUserActor(actor);
+        if (!plainUser && !isAppActor(actor)) return false;
+
+        // `getHigherPermissions`, minus exploders, which can't match here.
+        const exploded: string[] = [];
+        const requested = Array.isArray(permissionOptions)
+            ? permissionOptions
+            : [permissionOptions];
+        for (const permission of requested) {
+            if (typeof permission !== 'string') return false;
+            for (const parent of this.getParentPermissions(permission)) {
+                if (
+                    this.rewriters.some((rule) => rule.matches(parent)) ||
+                    this.exploders.some((rule) => rule.matches(parent)) ||
+                    this.implicators.some((rule) => rule.matches(parent))
+                ) {
+                    return false;
+                }
+                if (!isBareFsPermission(parent)) exploded.push(parent);
+            }
+        }
+
+        const held = (grants: Record<string, unknown>, option: string) =>
+            Object.prototype.hasOwnProperty.call(grants, option);
+        if (!exploded.some((option) => held(default_user_permissions, option)))
+            return false;
+        if (plainUser) return true;
+        const implied = default_implicit_user_app_permissions as Record<
+            string,
+            unknown
+        >;
+        return exploded.some(
+            (option) => held(implied, option) && !!implied[option],
+        );
     }
 
     /**
@@ -425,7 +476,9 @@ export class PermissionService extends PuterService {
                 reading.push({ $: 'explode', from: perm, to: higher });
             }
         }
-        options = exploded.flat();
+        // Options explode into overlapping sets; each is evaluated once, in
+        // the order it first appears.
+        options = [...new Set(exploded.flat())];
 
         // -- default user permissions --
         // A group-independent floor every user actor holds, resolved in
@@ -460,12 +513,17 @@ export class PermissionService extends PuterService {
         }
 
         // -- shortcut implicators --
+        const memo = new Map<string, unknown>();
         let shortCircuit = false;
         for (const permission of options) {
             for (const implicator of this.implicators) {
                 if (!implicator.shortcut) continue;
                 if (!implicator.matches(permission)) continue;
-                const implied = await implicator.check({ actor, permission });
+                const implied = await implicator.check({
+                    actor,
+                    permission,
+                    memo,
+                });
                 if (!implied) continue;
                 reading.push({
                     $: 'option',
@@ -492,7 +550,7 @@ export class PermissionService extends PuterService {
             // immediately. Scanners only push into `reading`; they don't
             // read each other's writes, so there are no ordering hazards.
             await Promise.all([
-                this.#scanNonShortcutImplicators(actor, options, reading),
+                this.#scanNonShortcutImplicators(actor, options, reading, memo),
                 this.#scanAccessToken(actor, options, reading),
                 this.#scanUserUser(actor, options, reading, workingState),
                 this.#scanUserGroup(actor, options, reading, workingState),
@@ -528,12 +586,17 @@ export class PermissionService extends PuterService {
         actor: Actor,
         options: string[],
         reading: ReadingNode[],
+        memo: Map<string, unknown>,
     ): Promise<void> {
         for (const permission of options) {
             for (const implicator of this.implicators) {
                 if (implicator.shortcut) continue;
                 if (!implicator.matches(permission)) continue;
-                const implied = await implicator.check({ actor, permission });
+                const implied = await implicator.check({
+                    actor,
+                    permission,
+                    memo,
+                });
                 if (!implied) continue;
                 reading.push({
                     $: 'option',
@@ -566,8 +629,11 @@ export class PermissionService extends PuterService {
         // Account-management endpoints stay closed because they gate on actor
         // type (requireUserActor / session cookie), not permissions.
         if (actor.accessToken.fullAccess) {
-            for (const permission of options) {
-                const issuerReading = await this.scan(issuerActor, permission);
+            const issuerReadings = await Promise.all(
+                options.map((permission) => this.scan(issuerActor, permission)),
+            );
+            for (const [index, permission] of options.entries()) {
+                const issuerReading = issuerReadings[index];
                 reading.push({
                     $: 'path',
                     via: 'access-token',
@@ -1217,6 +1283,7 @@ export class PermissionService extends PuterService {
         permission = await this.rewritePermissionForActor(actor, permission);
         const user = await this.#requireUser(username);
         const issuerId = this.#requireUserId(actor);
+        const grantIssuerId = opts.issuerUserId ?? issuerId;
 
         // Giving up access you hold needs no authority over the permission —
         // it can only ever narrow what you can reach.
@@ -1234,7 +1301,7 @@ export class PermissionService extends PuterService {
         const revoked = await this.stores.permission.deleteUserUserPermByHolder(
             user.id,
             permission,
-            opts.issuerUserId ?? issuerId,
+            grantIssuerId,
         );
 
         // The flat key isn't issuer-scoped, so it may only go once no issuer
@@ -1261,11 +1328,11 @@ export class PermissionService extends PuterService {
             this.#audit(
                 this.stores.permission.auditUserUserPerm({
                     holder_user_id: user.id,
-                    issuer_user_id: issuerId,
+                    issuer_user_id: grantIssuerId,
                     permission,
                     action: 'revoke',
                     reason: meta.reason ?? 'revoked via PermissionService',
-                    extra: this.#auditActorContext(actor),
+                    extra: this.#revokeAuditExtra(actor, grantIssuerId),
                 }),
                 'user-user revoke',
             );
@@ -1278,6 +1345,86 @@ export class PermissionService extends PuterService {
         // it would only cost every listener a read.
         if (revoked) this.#announceRevoked(user.id, null, permission);
         return revoked;
+    }
+
+    /**
+     * {@link revokeUserUserPermission} for several permissions of one holder:
+     * one delete, one flat-view cleanup and one generation bump. Returns the
+     * permissions that were removed, each announced on its own.
+     */
+    async revokeUserUserPermissions(
+        actor: Actor,
+        username: string,
+        permissions: readonly string[],
+        meta: GrantMeta = {},
+        opts: { issuerUserId?: number } = {},
+    ): Promise<string[]> {
+        const rewritten = [
+            ...new Set(
+                await Promise.all(
+                    permissions.map((permission) =>
+                        this.rewritePermissionForActor(actor, permission),
+                    ),
+                ),
+            ),
+        ];
+        if (rewritten.length === 0) return [];
+        const user = await this.#requireUser(username);
+        const issuerId = this.#requireUserId(actor);
+        const grantIssuerId = opts.issuerUserId ?? issuerId;
+
+        if (user.id !== issuerId) {
+            await Promise.all(
+                rewritten.map((permission) =>
+                    this.#assertCanManage(actor, permission),
+                ),
+            );
+        }
+
+        const removed =
+            await this.stores.permission.deleteUserUserPermsByHolder(
+                user.id,
+                rewritten,
+                grantIssuerId,
+            );
+
+        // As the single revoke: the flat key goes only where no issuer's grant
+        // remains, read from the primary the delete just landed on. A database
+        // that matches case-insensitively may have removed a row spelled other
+        // than asked, and its flat key is under that spelling.
+        const spellings = [...new Set([...rewritten, ...removed])];
+        const remaining = new Set(
+            (
+                await this.stores.permission.readLinkedUserUserPermsFromPrimary(
+                    user.id,
+                    spellings,
+                )
+            ).map((row) => row.permission),
+        );
+        await this.stores.permission.delFlatUserPerms(
+            spellings
+                .filter((permission) => !remaining.has(permission))
+                .map((permission) => ({ holderUserId: user.id, permission })),
+        );
+
+        for (const permission of removed) {
+            this.#audit(
+                this.stores.permission.auditUserUserPerm({
+                    holder_user_id: user.id,
+                    issuer_user_id: grantIssuerId,
+                    permission,
+                    action: 'revoke',
+                    reason: meta.reason ?? 'revoked via PermissionService',
+                    extra: this.#revokeAuditExtra(actor, grantIssuerId),
+                }),
+                'user-user revoke',
+            );
+        }
+
+        if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
+        for (const permission of removed)
+            this.#announceRevoked(user.id, null, permission);
+        return removed;
     }
 
     /**
@@ -1301,6 +1448,45 @@ export class PermissionService extends PuterService {
     }
 
     /**
+     * A revoke row is filed under the grant's issuer, so a holder giving up
+     * access never has it in their own trail; who acted goes in `extra`.
+     */
+    #revokeAuditExtra(
+        actor: Actor,
+        grantIssuerId: number,
+    ): Record<string, unknown> | null {
+        const context = this.#auditActorContext(actor);
+        const actingUserId = actor.user?.id;
+        if (actingUserId === undefined || actingUserId === grantIssuerId)
+            return context;
+        return { ...context, actingUserId };
+    }
+
+    /**
+     * Whether this holder has any of `permissions` from this issuer, as a SQL
+     * row or a flat entry: a point lookup, for skipping a revoke with nothing
+     * to remove.
+     */
+    async hasUserUserGrant(
+        holderUserId: number,
+        issuerUserId: number,
+        permissions: readonly string[],
+    ): Promise<boolean> {
+        if (permissions.length === 0) return false;
+        const [rows, flat] = await Promise.all([
+            this.stores.permission.findUserUserPermsByIssuer(
+                holderUserId,
+                issuerUserId,
+                permissions,
+            ),
+            this.stores.permission.getFlatUserPerms(holderUserId, [
+                ...permissions,
+            ]),
+        ]);
+        return rows.length > 0 || flat.some((value) => !value.deleted);
+    }
+
+    /**
      * Withdraw a grant and everything the holder was given beneath it.
      *
      * Prefix implication is what makes the subtree part necessary: a grant on a
@@ -1311,27 +1497,34 @@ export class PermissionService extends PuterService {
      * business.
      *
      * Returns the permissions removed. Each is announced separately, because
-     * each is a distinct thing something may have been standing on.
+     * each is a distinct thing something may have been standing on. Several
+     * roots go in one delete and one generation bump.
      */
     async revokeUserUserPermissionSubtree(
         actor: Actor,
         username: string,
-        permission: string,
+        permission: string | readonly string[],
         meta: GrantMeta = {},
     ): Promise<string[]> {
-        permission = await this.rewritePermissionForActor(actor, permission);
+        const roots = await Promise.all(
+            (typeof permission === 'string' ? [permission] : permission).map(
+                (root) => this.rewritePermissionForActor(actor, root),
+            ),
+        );
         const user = await this.#requireUser(username);
         const issuerId = this.#requireUserId(actor);
 
         if (user.id !== issuerId) {
-            await this.#assertCanManage(actor, permission);
+            await Promise.all(
+                roots.map((root) => this.#assertCanManage(actor, root)),
+            );
         }
 
         const removed =
             await this.stores.permission.deleteUserUserPermSubtreeForHolder(
                 user.id,
                 issuerId,
-                permission,
+                roots,
             );
 
         for (const removedPermission of removed) {
@@ -1410,12 +1603,14 @@ export class PermissionService extends PuterService {
         this.#assertFitsColumn(rewritten);
     }
 
+    /** `resolvedApp` is `appIdentifier`'s row when the caller already read it. */
     async grantUserAppPermission(
         actor: Actor,
         appIdentifier: string,
         permission: string,
         extra: Record<string, unknown> = {},
         meta: GrantMeta = {},
+        resolvedApp?: { id: number; uid: string },
     ): Promise<void> {
         const grantedAs = this.#recordsSource(permission) ? permission : null;
         const askedFor = permission;
@@ -1423,7 +1618,7 @@ export class PermissionService extends PuterService {
         this.assertGrantableFsPermission(permission);
         await this.#assertReachableFsPath(actor, askedFor, permission);
         this.#assertFitsColumn(permission);
-        const app = await this.#requireApp(appIdentifier);
+        const app = resolvedApp ?? (await this.#requireApp(appIdentifier));
         const userId = this.#requireUserId(actor);
 
         // Only this layer writes `grantedAs`, so revoke can trust it.
@@ -1539,11 +1734,12 @@ export class PermissionService extends PuterService {
             this.#announceRevoked(userId, app.uid, removedPermission);
     }
 
+    /** Returns the uid of the app `appIdentifier` resolved to. */
     async revokeUserAppAll(
         actor: Actor,
         appIdentifier: string,
         meta: GrantMeta = {},
-    ): Promise<void> {
+    ): Promise<string> {
         this.#refuseAppActor(actor);
         const app = await this.#requireApp(appIdentifier);
         const userId = this.#requireUserId(actor);
@@ -1566,6 +1762,7 @@ export class PermissionService extends PuterService {
             );
         }
         this.#announceRevoked(userId, app.uid, null);
+        return app.uid;
     }
 
     async grantDevAppPermission(

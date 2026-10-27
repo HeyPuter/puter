@@ -26,6 +26,8 @@ import { HOSTED_ASSET_COOKIES } from '../../../services/auth/AuthService';
 import { MANAGE_PERM_PREFIX } from '../../../services/permission/consts';
 import type { puterStores } from '../../../stores';
 import type { IConfig, LayerInstances } from '../../../types';
+import { awaitLater } from '../../../util/concurrency';
+import { isTrashedPath } from '../../../util/hostedAppBacking';
 import { makeActor } from '../../actor';
 import {
     buildAppCenterFallback,
@@ -60,12 +62,12 @@ import {
  * - Private-app gate via `app.privateAccess.check` — marketplace extension
  *   decides; default is denied + redirect to `app-center`
  * - Range / ETag / Last-Modified passthrough via `fsEntry.readContent`
+ * - Hosts outside the configured domains (`custom_domains_enabled`) map to a site
+ *   via `site.resolveHost`; unclaimed ones 404. Public sites only.
  *
  * Deferred (not yet implemented):
  *
  * - `.at` username-based sites (UUIDv5-keyed `/user/Public`).
- * - Custom domains (subdomains table `domain` column) — requires host validation
- *   to allow arbitrary hostnames first.
  *
  * Site config:
  *
@@ -94,9 +96,19 @@ const isWorkersSourcePath = (urlPath: string): boolean =>
         .split('/')
         .some((segment) => segment.toLowerCase() === WORKERS_FOLDER);
 
-/** Inside some owner's top-level Trash, which is where Delete puts things. */
-const isTrashedPath = (path: string): boolean =>
-    /^\/[^/]+\/Trash(\/|$)/u.test(path);
+/**
+ * Checks the stored path of a looked-up entry. The URL-level guards are not
+ * enough on MySQL: `fsentries.path` is utf8mb4_unicode_ci, so `__wörkers`,
+ * fullwidth or zero-width spellings resolve to the real `__workers` row.
+ */
+const isServableEntryPath = (
+    entryPath: string | null | undefined,
+    rootPath: string,
+): boolean => {
+    if (!entryPath?.startsWith(`${rootPath}/`)) return false;
+    const relPath = entryPath.slice(rootPath.length);
+    return !isWorkersSourcePath(relPath) && !isSiteConfigPath(relPath);
+};
 
 /**
  * Suggested value for `config.hosting_csp`. Not applied unless configured.
@@ -213,29 +225,60 @@ export const createPuterSiteMiddleware = (
         if (!host) return next();
 
         const matched = matchHostingDomain(host);
-        if (!matched) return next();
+        // A host outside every configured domain. Listeners may map it to a
+        // site; an unclaimed one is answered here rather than falling through
+        // to the API/GUI routers.
+        const isCustomHost = !matched && Boolean(req.is_custom_domain);
+        if (!matched && !isCustomHost) return next();
 
-        // Bare hosting domain (e.g. `puter.site`) → redirect to the main site.
-        if (host === matched) {
-            if (domain) {
-                res.redirect(302, `${req.protocol}://${domain}`);
+        let subdomain: string;
+        if (isCustomHost) {
+            const resolveEvent = {
+                host,
+                result: { subdomain: null as string | null },
+            };
+            try {
+                await layers.clients.event.emitAndWait(
+                    'site.resolveHost',
+                    resolveEvent,
+                    {},
+                );
+            } catch {
+                resolveEvent.result.subdomain = null;
+            }
+            const claimed = resolveEvent.result.subdomain;
+            if (typeof claimed !== 'string' || !claimed) {
+                res.status(404).type('text/plain').send('Site not found');
                 return;
             }
-            res.status(404).type('text/plain').send('Subdomain not found');
-            return;
-        }
-
-        // `host` is `<prefix>.<matched>`; subdomain is the left-most label.
-        const prefix = host.slice(0, host.length - matched.length - 1);
-        const subdomain = prefix.split('.')[0] || '';
-
-        if (!subdomain || subdomain === 'www') {
-            if (domain) {
-                res.redirect(302, `${req.protocol}://${domain}`);
+            subdomain = claimed;
+        } else {
+            const hostingDomain = matched as string;
+            // Bare hosting domain (e.g. `puter.site`) → redirect to the main site.
+            if (host === hostingDomain) {
+                if (domain) {
+                    res.redirect(302, `${req.protocol}://${domain}`);
+                    return;
+                }
+                res.status(404).type('text/plain').send('Subdomain not found');
                 return;
             }
-            res.status(404).type('text/plain').send('Subdomain not found');
-            return;
+
+            // `host` is `<prefix>.<matched>`; subdomain is the left-most label.
+            const prefix = host.slice(
+                0,
+                host.length - hostingDomain.length - 1,
+            );
+            subdomain = prefix.split('.')[0] || '';
+
+            if (!subdomain || subdomain === 'www') {
+                if (domain) {
+                    res.redirect(302, `${req.protocol}://${domain}`);
+                    return;
+                }
+                res.status(404).type('text/plain').send('Subdomain not found');
+                return;
+            }
         }
 
         const site = (await layers.stores.subdomain.getBySubdomain(
@@ -255,23 +298,50 @@ export const createPuterSiteMiddleware = (
             return;
         }
 
+        // The hosted app and the site root depend only on the site row, so
+        // both lookups run together. Each is awaited where it is read, so an
+        // early return drops the other and errors surface in the same order.
+        //
         // The subdomain row's `associated_app_id` column is intentionally
         // not consulted — it was previously user-writable without an
         // ownership check (so any value there is either legacy or planted).
         // Resolve "what app does this subdomain host?" directly from
         // `apps.owner_user_id = site.user_id` + `index_url` match against
         // the request host.
-        const associatedApp = (await resolveOwnedAppForHostedSite({
-            req,
-            site: { user_id: site.user_id },
-            db: layers.clients.db,
-            config: hostingCfg,
-        })) as AppRow | null;
+        const appLookup = awaitLater(
+            resolveOwnedAppForHostedSite({
+                req,
+                site: { user_id: site.user_id },
+                appStore: layers.stores.app,
+                config: hostingCfg,
+                // App index URLs name the hosting-domain address, not the
+                // custom host the visitor used.
+                host: isCustomHost
+                    ? `${subdomain}.${hostingDomains[0]}`
+                    : undefined,
+            }),
+        );
+        const rootLookup =
+            site.root_dir_id === null || site.root_dir_id === undefined
+                ? null
+                : awaitLater(
+                      layers.stores.fsEntry.getEntryById(site.root_dir_id),
+                  );
 
+        const associatedApp = (await appLookup) as AppRow | null;
+
+        let hostedVisitorUid: string | undefined;
         const isPrivateApp = Boolean(associatedApp?.is_private);
         const privateApp = isPrivateApp ? associatedApp : null;
 
-        if (isPrivateApp) {
+        if (isCustomHost) {
+            // The private-app gate and its cookies are bound to the private
+            // hosting domain, so these hosts serve public sites only.
+            if (isPrivateApp) {
+                res.status(404).type('text/plain').send('Site not found');
+                return;
+            }
+        } else if (isPrivateApp) {
             // Private apps must run on the private hosting domain. If a
             // visitor arrives via the public domain (puter.site), redirect
             // them to the equivalent private-host URL so the cookie scope
@@ -327,6 +397,8 @@ export const createPuterSiteMiddleware = (
                     );
                 return;
             }
+
+            hostedVisitorUid = identity.userUid;
 
             // Entitlement check runs on every request — matching v1. The
             // sticky cookie is an identity shortcut, not an access cache;
@@ -419,7 +491,7 @@ export const createPuterSiteMiddleware = (
                 res.redirect(302, cleanPath);
                 return;
             }
-        } else if (privateHostingDomains.has(matched)) {
+        } else if (privateHostingDomains.has(matched as string)) {
             // Non-private content landed on the private hosting domain —
             // mirror of the private redirect above. Covers two cases:
             //   - a paid app that just flipped to free (is_private 1→0)
@@ -437,11 +509,8 @@ export const createPuterSiteMiddleware = (
             res.status(404).type('text/plain').send('Subdomain not found');
             return;
         } else {
-            // Public hosted site. Mint the public hosted-actor cookie if
-            // we can identify the visitor — lets the hosted page make
-            // cross-origin requests as the actor without needing a
-            // host-scoped main session cookie. No-op for anonymous
-            // visitors.
+            // Remember the authenticated visitor for asset billing across
+            // requests that do not carry the original app token.
             try {
                 const identity = await resolvePublicHostedIdentity({
                     req,
@@ -454,6 +523,7 @@ export const createPuterSiteMiddleware = (
                     expectedSubdomain: subdomain,
                     expectedHost: host,
                 });
+                hostedVisitorUid = identity.userUid;
                 if (
                     identity.userUid &&
                     !(identity as { hasValidPublicCookie?: boolean })
@@ -495,16 +565,14 @@ export const createPuterSiteMiddleware = (
             return;
         }
 
-        const rootEntry = await layers.stores.fsEntry.getEntryById(
-            site.root_dir_id,
-        );
+        const rootEntry = await rootLookup;
         if (!rootEntry) {
             res.status(404)
                 .type('text/html; charset=UTF-8')
                 .send(SUBDOMAIN_404);
             return;
         }
-        if (!rootEntry.isDir) {
+        if (!rootEntry.isDir || isTrashedPath(rootEntry.path)) {
             res.status(404)
                 .type('text/html; charset=UTF-8')
                 .send(SUBDOMAIN_404);
@@ -514,37 +582,27 @@ export const createPuterSiteMiddleware = (
         // A site rooted in someone else's directory stands on the `manage`
         // grant that authorized publishing it, and serves that whole subtree
         // with the ACL bypassed — so the grant is re-read on every request.
-        // Trash is its own check: a grant is keyed on the node, not its
-        // location, so it survives the owner deleting the directory. Sites
-        // rooted in their publisher's own tree skip all of this.
         if (rootEntry.userId !== site.user_id) {
             let stillPublishable = false;
-            if (!isTrashedPath(rootEntry.path)) {
-                try {
-                    stillPublishable = await layers.services.acl.check(
-                        makeActor({
-                            user: {
-                                id: owner.id,
-                                uuid: owner.uuid,
-                                username: owner.username,
-                            },
-                        }),
-                        {
-                            path: rootEntry.path,
-                            resolveAncestors: () =>
-                                layers.services.fs.getAncestorChain(
-                                    rootEntry.path,
-                                ),
+            try {
+                stillPublishable = await layers.services.acl.check(
+                    makeActor({
+                        user: {
+                            id: owner.id,
+                            uuid: owner.uuid,
+                            username: owner.username,
                         },
-                        MANAGE_PERM_PREFIX,
-                    );
-                } catch (e) {
-                    // Fail closed — an unreadable grant is not a held one.
-                    console.warn(
-                        '[puter-site] publish grant recheck failed',
-                        e,
-                    );
-                }
+                    }),
+                    {
+                        path: rootEntry.path,
+                        resolveAncestors: () =>
+                            layers.services.fs.getAncestorChain(rootEntry.path),
+                    },
+                    MANAGE_PERM_PREFIX,
+                );
+            } catch (e) {
+                // Fail closed — an unreadable grant is not a held one.
+                console.warn('[puter-site] publish grant recheck failed', e);
             }
             if (!stillPublishable) {
                 res.status(404)
@@ -579,24 +637,6 @@ export const createPuterSiteMiddleware = (
         }
         const filePath = rootPath + resolvedUrlPath;
 
-        // Best-effort site config load. A missing / malformed config
-        // never blocks the request — `loadSiteConfig` swallows all
-        // errors and returns null on any failure. The Redis cache
-        // keyed on `rootDirId` keeps the hot path off S3 for the
-        // common case where the same subdomain gets repeat visits.
-        let siteConfig: SiteConfig | null = null;
-        try {
-            siteConfig = await loadSiteConfig({
-                rootPath,
-                rootDirId: rootEntry.id,
-                fsEntryStore: layers.stores.fsEntry,
-                fsService: layers.services.fs,
-                cache: layers.clients.redis,
-            });
-        } catch (e) {
-            console.warn('[puter-site] loadSiteConfig threw', e);
-        }
-
         // Hide the config file from public serving — visitors should
         // see the same 404 as for any other missing path so the
         // deployment shape isn't leaked.
@@ -620,6 +660,9 @@ export const createPuterSiteMiddleware = (
                 pathPosix.join(filePath, 'index.html'),
             );
         }
+        if (entry && !isServableEntryPath(entry.path, rootPath)) {
+            entry = null;
+        }
 
         // Custom error page fallback. On a 404 we consult the site config
         // for a rule and, if one resolves to an existing file, serve that
@@ -629,6 +672,21 @@ export const createPuterSiteMiddleware = (
         // default 404 page rather than looping.
         let statusOverride: number | undefined;
         if (!entry || entry.isDir) {
+            // Best-effort site config load, only needed on a 404. A missing /
+            // malformed config never blocks the request — `loadSiteConfig`
+            // returns null on any failure, and caches by `rootDirId`.
+            let siteConfig: SiteConfig | null = null;
+            try {
+                siteConfig = await loadSiteConfig({
+                    rootPath,
+                    rootDirId: rootEntry.id,
+                    fsEntryStore: layers.stores.fsEntry,
+                    fsService: layers.services.fs,
+                    cache: layers.clients.redis,
+                });
+            } catch (e) {
+                console.warn('[puter-site] loadSiteConfig threw', e);
+            }
             const errorTarget = resolveErrorTarget(siteConfig, 404, rootPath);
             // A config pointing `errors.404.file` into `__workers/` would
             // publish worker source through the error page — refuse it the
@@ -640,7 +698,11 @@ export const createPuterSiteMiddleware = (
                 const candidate = await layers.stores.fsEntry.getEntryByPath(
                     errorTarget.absPath,
                 );
-                if (candidate && !candidate.isDir) {
+                if (
+                    candidate &&
+                    !candidate.isDir &&
+                    isServableEntryPath(candidate.path, rootPath)
+                ) {
                     entry = candidate;
                     statusOverride = errorTarget.status;
                 }
@@ -763,7 +825,22 @@ export const createPuterSiteMiddleware = (
         // hosting is unauthenticated by design, so most visitors are nobody in
         // particular. Set unconditionally because hosting subdomains are not
         // metered by default: this is what opts the response in.
-        req.egressActor = req.actor ?? {
+        let visitorActor = req.actor;
+        if (hostedVisitorUid && visitorActor?.user?.uuid !== hostedVisitorUid) {
+            try {
+                const visitor =
+                    await layers.stores.user.getByUuid(hostedVisitorUid);
+                if (visitor && !visitor.suspended) {
+                    visitorActor = makeActor({
+                        user: visitor,
+                        app: associatedApp ?? undefined,
+                    });
+                }
+            } catch {
+                // Unknown requesters are billed to the site owner.
+            }
+        }
+        req.egressActor = visitorActor ?? {
             user: {
                 uuid: owner.uuid,
                 id: owner.id,

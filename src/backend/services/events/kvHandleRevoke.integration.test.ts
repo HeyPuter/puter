@@ -60,6 +60,7 @@ let stranger: TestUser;
 let delivered: DeliveryEnvelope[];
 
 const events = () => env.server.services.events;
+const shares = () => env.server.services.kvShare;
 
 const settled = (count = 1) =>
     vi.waitFor(() => expect(delivered.length).toBeGreaterThanOrEqual(count), {
@@ -88,10 +89,11 @@ const ownerWrites = (key: string, value: unknown): Promise<unknown> =>
     );
 
 const mint = (prefix = PREFIX) =>
-    events().mintKvHandle(owner.actor, {
-        granteeUsername: guest.username,
-        prefix,
-    });
+    shares().mintKvHandle(
+        owner.actor,
+        { prefix, recipient: { username: guest.username } },
+        { defaultAccess: 'watch' },
+    );
 
 /** A durable `single` row, which is the only kind that holds a backlog. */
 const subscribeDurable = async (handle: string) =>
@@ -182,7 +184,7 @@ describe('revoking a handle', () => {
         );
         expect(await ownerWatches()).toBe(true);
 
-        await events().revokeKvHandle(owner.actor, handle);
+        await shares().revokeKvHandle(owner.actor, handle);
         await suspendedRow(sub.subId);
 
         // The anchor leaves the *owner's* watched set, which is the keyspace a
@@ -211,7 +213,7 @@ describe('revoking a handle', () => {
         await settled();
         expect(delivered[0].subId).toBe(sub.subId);
 
-        await events().revokeKvHandle(owner.actor, handle);
+        await shares().revokeKvHandle(owner.actor, handle);
         delivered.length = 0;
 
         await ownerWrites(`${PREFIX}live:2`, 2);
@@ -229,16 +231,21 @@ describe('revoking a handle', () => {
         const settle = vi.spyOn(events(), 'settleRevokedGrant');
 
         try {
-            await events().revokeKvHandle(owner.actor, handle);
+            await shares().revokeKvHandle(owner.actor, handle);
             await suspendedRow(sub.subId);
 
-            // One announcement, one settle pass, one indexed read of the
-            // holder's rows — no lookup keyed on the handle anywhere.
+            // One grant settle for the holder, and a retired-handle settle
+            // for each side, each a single indexed read of that user's rows —
+            // no lookup keyed on the handle anywhere.
             expect(settle).toHaveBeenCalledTimes(1);
-            expect(byHolder).toHaveBeenCalledTimes(1);
-            expect(byHolder).toHaveBeenCalledWith(guest.id, null, {
-                includeSuspended: true,
-            });
+            expect(
+                byHolder.mock.calls.map(([userId]) => userId).sort(),
+            ).toEqual([guest.id, guest.id, owner.id].sort());
+            for (const call of byHolder.mock.calls)
+                expect(call.slice(1)).toEqual([
+                    null,
+                    { includeSuspended: true },
+                ]);
         } finally {
             byHolder.mockRestore();
             settle.mockRestore();
@@ -250,7 +257,7 @@ describe('revoking a handle', () => {
         const { handle } = await mint();
         const deeper = await mint(`${PREFIX}messages:`);
 
-        await events().revokeKvHandle(owner.actor, handle);
+        await shares().revokeKvHandle(owner.actor, handle);
 
         // The subtree goes with the region: a grant left underneath would keep
         // access to part of what was just taken back.
@@ -271,12 +278,12 @@ describe('revoking a handle', () => {
         const deeper = await mint(`${PREFIX}messages:`);
         expect((await countLive()).total).toBe(before.total + 2);
 
-        await events().revokeKvHandle(owner.actor, handle);
+        await shares().revokeKvHandle(owner.actor, handle);
 
         // The deeper handle's grant died with the subtree revoke above (proven
         // by the sibling case), so its row reading live would disagree with
         // reality — both in the listing and in the slot it appears to hold.
-        const page = await events().listKvHandles(owner.actor, {
+        const page = await shares().listKvHandles(owner.actor, {
             limit: 100,
         });
         const deeperRow = page.items.find((one) => one.handle === deeper.handle);
@@ -289,9 +296,9 @@ describe('revoking a handle', () => {
         const { handle } = await mint();
         const sibling = await mint('workspace:other:');
 
-        await events().revokeKvHandle(owner.actor, handle);
+        await shares().revokeKvHandle(owner.actor, handle);
 
-        const page = await events().listKvHandles(owner.actor, {
+        const page = await shares().listKvHandles(owner.actor, {
             limit: 100,
         });
         const siblingRow = page.items.find(
@@ -303,7 +310,7 @@ describe('revoking a handle', () => {
     it('lets a fresh handle over the same region work, and leaves the old one dead', async () => {
         await clearRows();
         const first = await mint();
-        await events().revokeKvHandle(owner.actor, first.handle);
+        await shares().revokeKvHandle(owner.actor, first.handle);
 
         const second = await mint();
         expect(second.handle).not.toBe(first.handle);
@@ -334,7 +341,7 @@ describe('revoking a handle', () => {
                 : owner.actor;
 
         await expect(
-            events().revokeKvHandle(actor, handle),
+            shares().revokeKvHandle(actor, handle),
         ).rejects.toMatchObject({
             legacyCode: 'subject_does_not_exist',
         });
@@ -345,8 +352,8 @@ describe('revoking a handle', () => {
         // between them leaves a retry to finish the job — which only works if
         // reaching a retired handle again succeeds.
         const { handle } = await mint();
-        const first = await events().revokeKvHandle(owner.actor, handle);
-        const again = await events().revokeKvHandle(owner.actor, handle);
+        const first = await shares().revokeKvHandle(owner.actor, handle);
+        const again = await shares().revokeKvHandle(owner.actor, handle);
         expect(again).toEqual(first);
     });
 
@@ -365,7 +372,7 @@ describe('revoking a handle', () => {
             .spyOn(store, 'retire')
             .mockRejectedValueOnce(new Error('write failed'));
         await expect(
-            events().revokeKvHandle(owner.actor, handle),
+            shares().revokeKvHandle(owner.actor, handle),
         ).rejects.toThrow('write failed');
         failing.mockRestore();
 
@@ -377,7 +384,7 @@ describe('revoking a handle', () => {
         expect(delivered).toEqual([]);
 
         // And the retry converges rather than answering "no such handle".
-        const revoked = await events().revokeKvHandle(owner.actor, handle);
+        const revoked = await shares().revokeKvHandle(owner.actor, handle);
         expect(revoked.handle).toBe(handle);
         expect(await retire(handle, owner.id)).toMatchObject({
             revokedAt: revoked.revokedAt,
@@ -398,7 +405,7 @@ describe('revoking a handle', () => {
         });
 
         await expect(
-            events().revokeKvHandle(appActor, handle),
+            shares().revokeKvHandle(appActor, handle),
         ).rejects.toMatchObject({
             legacyCode: 'events_kv_handle_owner_only',
         });
@@ -408,9 +415,9 @@ describe('revoking a handle', () => {
 describe('the owner`s handle listing', () => {
     it('shows what was shared, retired handles included', async () => {
         const { handle } = await mint();
-        await events().revokeKvHandle(owner.actor, handle);
+        await shares().revokeKvHandle(owner.actor, handle);
 
-        const page = await events().listKvHandles(owner.actor, {
+        const page = await shares().listKvHandles(owner.actor, {
             includeTotal: true,
         });
         const row = page.items.find((one) => one.handle === handle);
@@ -418,7 +425,9 @@ describe('the owner`s handle listing', () => {
         expect(row).toMatchObject({
             prefix: PREFIX,
             appUid: 'os-global',
-            granteeUsername: guest.username,
+            holderUsername: guest.username,
+            access: 'watch',
+            revokedBy: 'owner',
         });
         expect(row?.revokedAt).toBeTypeOf('number');
         expect(page.total).toBe(page.items.length + (page.cursor ? 1 : 0));
@@ -426,7 +435,7 @@ describe('the owner`s handle listing', () => {
 
     it('shows the grantee nothing of the owner`s', async () => {
         await mint();
-        const page = await events().listKvHandles(guest.actor);
+        const page = await shares().listKvHandles(guest.actor);
         expect(page.items).toEqual([]);
     });
 
@@ -434,11 +443,11 @@ describe('the owner`s handle listing', () => {
         await mint();
         await mint();
 
-        const first = await events().listKvHandles(owner.actor, { limit: 1 });
+        const first = await shares().listKvHandles(owner.actor, { limit: 1 });
         expect(first.items).toHaveLength(1);
         expect(first.cursor).toBeTypeOf('string');
 
-        const second = await events().listKvHandles(owner.actor, {
+        const second = await shares().listKvHandles(owner.actor, {
             limit: 1,
             cursor: first.cursor,
         });

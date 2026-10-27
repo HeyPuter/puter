@@ -19,14 +19,16 @@
 
 import UIWindowDisable2FA from '../Settings/UIWindowDisable2FA.js';
 import UIWindow2FASetup from '../UIWindow2FASetup.js';
-import UIWindowChangePassword from '../UIWindowChangePassword.js';
 import UIWindowBlockedSenders from '../UIWindowBlockedSenders.js';
 import UIWindowManageSessions from '../UIWindowManageSessions.js';
 import { isOrgSeat } from './orgSeat.js';
+import { openChangePasswordDialog } from './UIAccountDialogs.js';
 
 const TabSecurity = {
     id: 'security',
-    label: i18n('security'),
+    get label () {
+        return i18n('security');
+    },
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
 
     html () {
@@ -38,7 +40,7 @@ const TabSecurity = {
         // Section header
         h += '<div class="dashboard-section-header">';
         h += `<h2>${i18n('security')}</h2>`;
-        h += '<p>Manage your security settings and sessions</p>';
+        h += `<p>${i18n('security_subtitle')}</p>`;
         h += '</div>';
 
         // Security settings cards
@@ -68,7 +70,7 @@ const TabSecurity = {
         h += '</div>';
         h += '<div class="dashboard-settings-card-info">';
         h += `<strong>${i18n('sessions')}</strong>`;
-        h += '<span>Manage active sessions</span>';
+        h += `<span>${i18n('manage_sessions_hint')}</span>`;
         h += '</div>';
         h += '</div>';
         h += `<button class="button manage-sessions">${i18n('manage_sessions')}</button>`;
@@ -102,7 +104,7 @@ const TabSecurity = {
             h += '</div>';
             h += '</div>';
             h += '<label class="dashboard-switch toggle-2fa-label">';
-            h += `<input type="checkbox" class="toggle-2fa"${user.otp ? ' checked' : ''}>`;
+            h += `<input type="checkbox" class="toggle-2fa"${user.otp ? ' checked' : ''} aria-label="${html_encode(i18n('two_factor', [], false))}">`;
             h += '<span class="dashboard-switch-slider"></span>';
             h += '</label>';
             h += '</div>';
@@ -115,17 +117,16 @@ const TabSecurity = {
     },
 
     init ($el_window) {
-        $el_window.find('.dashboard-section-security .change-password').on('click', function (e) {
-            UIWindowChangePassword({
-                window_options: {
-                    parent_uuid: $el_window.attr('data-element_uuid'),
-                    backdrop: true,
-                    close_on_backdrop_click: true,
-                    parent_center: true,
-                    stay_on_top: true,
-                    has_head: false,
-                },
-            });
+        // These dialogs don't hand focus back when they close; a keyboard
+        // user would be left on <body>, at the top of the page.
+        const returnFocus = (el) => {
+            if ( ! document.activeElement || document.activeElement === document.body ) {
+                el?.focus({ preventScroll: true });
+            }
+        };
+
+        $el_window.find('.dashboard-section-security .change-password').on('click', function () {
+            openChangePasswordDialog({ $container: $el_window, returnFocusTo: this });
         });
 
         $el_window.find('.dashboard-section-security .manage-sessions').on('click', function (e) {
@@ -143,8 +144,10 @@ const TabSecurity = {
         });
 
         $el_window.find('.dashboard-section-security .manage-blocked-senders').on('click', function (e) {
+            const opener = this;
             UIWindowBlockedSenders({
                 window_options: {
+                    on_close: () => setTimeout(() => returnFocus(opener)),
                     parent_uuid: $el_window.attr('data-element_uuid'),
                     backdrop: true,
                     close_on_backdrop_click: true,
@@ -177,9 +180,23 @@ const TabSecurity = {
 
             $toggle.prop('disabled', false);
             $label.removeClass('dashboard-switch-pending');
+            // After the dialog has gone, which can trail its answer.
+            setTimeout(() => returnFocus(this), 250);
+
+            const showState = (on) => {
+                $toggle.prop('checked', on);
+                const $card = $el_window.find('.dashboard-section-security .dashboard-settings-card-2fa');
+                $el_window.find('.dashboard-section-security .user-otp-state').text(i18n(on ? 'two_factor_enabled' : 'two_factor_disabled'));
+                $card.toggleClass('dashboard-settings-card-success', on).toggleClass('dashboard-settings-card-warning', ! on);
+            };
 
             if ( ! succeeded ) {
                 $toggle.prop('checked', ! enabling);
+                // 2FA may have changed regardless: turned on in another tab
+                // (setup then refuses, "already enabled"), or by a code the
+                // server accepted after the dialog was closed.
+                await window.refresh_user_data?.(window.auth_token);
+                if ( typeof window.user?.otp === 'boolean' ) showState(window.user.otp);
                 return;
             }
 
@@ -187,15 +204,7 @@ const TabSecurity = {
             // real 2FA state. The disable dialog already clears window.user.otp;
             // the enable path never set it, so the two directions disagreed.
             if ( window.user ) window.user.otp = enabling;
-
-            const $card = $el_window.find('.dashboard-section-security .dashboard-settings-card-2fa');
-            if ( enabling ) {
-                $el_window.find('.dashboard-section-security .user-otp-state').text(i18n('two_factor_enabled'));
-                $card.removeClass('dashboard-settings-card-warning').addClass('dashboard-settings-card-success');
-            } else {
-                $el_window.find('.dashboard-section-security .user-otp-state').text(i18n('two_factor_disabled'));
-                $card.removeClass('dashboard-settings-card-success').addClass('dashboard-settings-card-warning');
-            }
+            showState(enabling);
         });
     },
 };

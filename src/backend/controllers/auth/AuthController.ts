@@ -33,7 +33,7 @@ import {
     hasVerifiedPhone,
 } from '../../core/http/middleware/gates.js';
 import type { Actor } from '../../core/actor.js';
-import { isPlainUserActor, makeActor } from '../../core/actor.js';
+import { isAppActor, isPlainUserActor, makeActor } from '../../core/actor.js';
 import {
     checkRateLimit,
     consumeRouteRateLimit,
@@ -88,13 +88,16 @@ import {
 import { promoteToVerifiedGroup } from '../../util/userProvisioning.js';
 import {
     assertBoundedManageGrant,
+    assertNewShareSegments,
+    assertPrefixFitsAccess,
     isKvSharePermission,
-} from '../../services/events/kvShares.js';
+} from '../../services/kvShare/kvShares.js';
 import {
     APP_DATA_PERMISSION_PREFIX,
     appDataSharingAllowed,
     parseAppDataPermission,
 } from '../../services/permission/appDataScopes.js';
+import { parseAppGrantablePermission } from '../../services/permission/appGrantable.js';
 import {
     assertCreatablePath,
     isOwnHomePath,
@@ -111,6 +114,7 @@ import { normalizeAbsolutePath } from '../../services/fs/resolveNode.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
 import { startWebSession } from './webSession.js';
+import { completeOidcLoginReturn } from './oidcLoginReturn.js';
 
 const FINGERPRINT_MAX_LENGTH = 128;
 // One consent prompt covers a handful of scopes at most. The cap keeps a
@@ -595,6 +599,7 @@ export class AuthController extends PuterController {
                 user_uid: string;
                 purpose: string;
                 auth_id?: string;
+                oidcContinuation?: unknown;
             }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid token.', {
@@ -628,7 +633,7 @@ export class AuthController extends PuterController {
 
         await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
 
-        await this.#completeLogin(req, res, user);
+        await this.#completeLogin(req, res, user, decoded.oidcContinuation);
     }
 
     // -- Login: recovery code ----------------------------------------
@@ -664,6 +669,7 @@ export class AuthController extends PuterController {
                 user_uid: string;
                 purpose: string;
                 auth_id?: string;
+                oidcContinuation?: unknown;
             }>('otp', token);
         } catch {
             throw new HttpError(400, 'Invalid token.', {
@@ -688,6 +694,11 @@ export class AuthController extends PuterController {
         }
 
         await this.#assertSecondFactorAttemptsRemain(user.uuid);
+        if (typeof code !== 'string') {
+            throw new HttpError(400, 'code must be a string.', {
+                legacyCode: 'bad_request',
+            });
+        }
         const hashed = hashRecoveryCode(code);
         const codes = ((user.otp_recovery_codes as string) || '')
             .split(',')
@@ -700,15 +711,15 @@ export class AuthController extends PuterController {
         }
         await this.#consumeOtpLoginToken(token);
 
-        // Consume the recovery code
-        codes.splice(idx, 1);
-        await this.stores.user.update(user.id, {
-            otp_recovery_codes: codes.join(','),
-        });
+        if (!(await this.stores.user.consumeOtpRecoveryCode(user.id, hashed))) {
+            await this.#recordSecondFactorFailure(user.uuid);
+            res.json({ proceed: false });
+            return;
+        }
 
         await this.#enforceAuthIdMatch(req, user, decoded.auth_id ?? null);
 
-        await this.#completeLogin(req, res, user);
+        await this.#completeLogin(req, res, user, decoded.oidcContinuation);
     }
 
     // -- Signup ------------------------------------------------------
@@ -1932,7 +1943,7 @@ export class AuthController extends PuterController {
         // A seat's address is admin-supplied and never verified, so whoever
         // holds that inbox could take the seat over. Its recovery channel is
         // the team admin's password reset, not this one.
-        if (await this.stores.team.getOrgSeat(user.id)) {
+        if (await this.stores.team?.getOrgSeat(user.id)) {
             res.json({ message: genericMessage });
             return;
         }
@@ -2133,10 +2144,16 @@ export class AuthController extends PuterController {
         const password_hash = await bcrypt.hash(password, 8);
         let result;
         try {
-            result = await this.clients.db.write(
-                'UPDATE `user` SET `password` = ?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL, ' +
-                    '`requires_password_change` = 0, `temp_password_expires_at` = NULL WHERE `id` = ? AND `pass_recovery_token` = ?',
-                [password_hash, user.id, decoded.token],
+            result = await this.stores.user.update(
+                user.id,
+                {
+                    password: password_hash,
+                    pass_recovery_token: null,
+                    change_email_confirm_token: null,
+                    requires_password_change: false,
+                    temp_password_expires_at: null,
+                },
+                { expectedRecoveryToken: decoded.token },
             );
         } catch (e) {
             if (!isOwnedEmailConflict(e)) throw e;
@@ -2152,22 +2169,16 @@ export class AuthController extends PuterController {
                 { legacyCode: 'email_already_in_use' as never },
             );
         }
-        const affected =
-            (result as { affectedRows?: number; changes?: number })
-                ?.affectedRows ??
-            (result as { affectedRows?: number; changes?: number })?.changes ??
-            0;
-        if (affected === 0) {
+        if (!result) {
             throw new HttpError(400, 'Token has already been used.', {
                 legacyCode: 'bad_request',
             });
         }
-        await this.stores.user.invalidateById(user.id);
         // Best effort: the password is already committed, and an audit write
         // must not skip the eviction below.
         await this.services.team
-            .recordPasswordSelfChange(user.id as number)
-            .catch((err: unknown) => {
+            ?.recordPasswordSelfChange(user.id as number)
+            ?.catch((err: unknown) => {
                 console.warn('[team] password self-change audit failed:', err);
             });
 
@@ -2222,8 +2233,8 @@ export class AuthController extends PuterController {
             temp_password_expires_at: null,
         });
         await this.services.team
-            .recordPasswordSelfChange(user.id)
-            .catch((err: unknown) => {
+            ?.recordPasswordSelfChange(user.id)
+            ?.catch((err: unknown) => {
                 console.warn('[team] password self-change audit failed:', err);
             });
 
@@ -2257,7 +2268,7 @@ export class AuthController extends PuterController {
         // A provisioned account's name belongs to the team that made it: the
         // console lists its members by username and the audit log records them
         // by username, so a self-service rename would desync both.
-        if (await this.stores.team.getOrgSeat(req.actor!.user.id!)) {
+        if (await this.stores.team?.getOrgSeat(req.actor!.user.id!)) {
             throw new HttpError(
                 403,
                 'Your team set this username. Ask a team admin to change it.',
@@ -2351,6 +2362,34 @@ export class AuthController extends PuterController {
         res.json({ username: new_username });
     }
 
+    #requireAccountTwoFactor(user: UserRow, code: unknown): void {
+        if (user.otp_enabled) {
+            if (typeof code !== 'string' || !/^\d{6}$/.test(code)) {
+                throw new HttpError(
+                    400,
+                    'Enter the 6-digit code from your authenticator app.',
+                    {
+                        legacyCode: 'bad_request',
+                        fields: { factor: 'otp' },
+                    },
+                );
+            }
+            let verified = false;
+            try {
+                verified =
+                    typeof user.otp_secret === 'string' &&
+                    verifyOtp(user.username, user.otp_secret, code);
+            } catch {
+                // Invalid or unavailable secrets cannot authorize a change.
+            }
+            if (!verified)
+                throw new HttpError(401, 'Incorrect code.', {
+                    legacyCode: 'code_mismatch',
+                    fields: { factor: 'otp' },
+                });
+        }
+    }
+
     @Post('/user-protected/change-email', {
         userProtected: true,
         rateLimit: {
@@ -2363,13 +2402,24 @@ export class AuthController extends PuterController {
     async handleChangeEmail(req: Request, res: Response): Promise<void> {
         // The address is where admin-issued credentials and team notices go;
         // same reasoning as the username and deletion guards above.
-        if (await this.stores.team.getOrgSeat(req.actor!.user.id!)) {
+        if (await this.stores.team?.getOrgSeat(req.actor!.user.id!)) {
             throw new HttpError(
                 403,
                 'Your team set this address. Ask a team admin to change it.',
                 { legacyCode: 'forbidden' },
             );
         }
+
+        const user =
+            req.userProtected?.user ??
+            (await this.stores.user.getById(req.actor!.user.id!, {
+                force: true,
+            }));
+        if (!user)
+            throw new HttpError(404, 'User not found', {
+                legacyCode: 'not_found',
+            });
+        this.#requireAccountTwoFactor(user, req.body?.code);
 
         const { new_email } = req.body ?? {};
         if (!new_email || typeof new_email !== 'string') {
@@ -2412,6 +2462,7 @@ export class AuthController extends PuterController {
                 token: confirm_token,
                 user_id: req.actor!.user.id,
                 purpose: 'change-email',
+                twoFactorVerified: Boolean(user.otp_enabled),
             },
             { expiresIn: '1h' },
         );
@@ -2429,10 +2480,7 @@ export class AuthController extends PuterController {
                 console.warn('[change-email] new-address email failed:', e);
             }
             // Notify the old address too
-            const user = await this.stores.user.getById(req.actor!.user.id!, {
-                force: true,
-            });
-            if (user?.email) {
+            if (user.email) {
                 try {
                     await (
                         this.clients.email as unknown as {
@@ -2489,19 +2537,21 @@ export class AuthController extends PuterController {
             });
         }
 
-        const rows = (await this.clients.db.read(
-            'SELECT * FROM `user` WHERE `change_email_confirm_token` = ? ORDER BY `id` ASC LIMIT 1',
-            [decoded.token],
-        )) as Array<Record<string, unknown>>;
-        const user = rows[0] as
-            | {
-                  id: number;
-                  email_confirmed?: number | boolean;
-                  password?: string | null;
-                  unconfirmed_change_email?: string;
-              }
-            | undefined;
-        if (!user || !user.unconfirmed_change_email) {
+        const user =
+            typeof decoded.user_id === 'number' &&
+            Number.isInteger(decoded.user_id) &&
+            decoded.user_id > 0
+                ? await this.stores.user.getById(decoded.user_id, {
+                      force: true,
+                  })
+                : null;
+        if (
+            !user ||
+            user.change_email_confirm_token !== decoded.token ||
+            typeof user.unconfirmed_change_email !== 'string' ||
+            !user.unconfirmed_change_email ||
+            (user.otp_enabled && decoded.twoFactorVerified !== true)
+        ) {
             throw new HttpError(400, 'Invalid or expired token.', {
                 legacyCode: 'token_expired' as never,
             });
@@ -2951,6 +3001,45 @@ export class AuthController extends PuterController {
     }
 
     /**
+     * Refuses any entry outside the families an app can be granted. Anything
+     * else is a row the backend never checks for an app, or one wider than the
+     * consent prompt can describe.
+     */
+    async #assertAppGrantable(
+        actor: Actor,
+        appIdentifier: string,
+        list: string[],
+    ): Promise<void> {
+        const refuse = (entry: string) =>
+            new HttpError(
+                400,
+                `Permission cannot be granted to an app: ${entry}`,
+                { legacyCode: 'permission_not_grantable' },
+            );
+        let appUid: string | undefined;
+        for (const entry of list) {
+            // A delegation over a whole key-value namespace has no bounded
+            // description; refused with its own code.
+            assertBoundedManageGrant(entry);
+            const parsed = parseAppGrantablePermission(entry, actor.user!.uuid);
+            if (!parsed) throw refuse(entry);
+            if (parsed.family !== 'kvShare') continue;
+            // Held to what a new share's prefix may be, so a consent never
+            // covers shares that could not be made.
+            assertNewShareSegments(parsed.segments);
+            assertPrefixFitsAccess(
+                parsed.ownerUuid,
+                parsed.appUid,
+                parsed.segments.join(':'),
+                parsed.level,
+            );
+            // An app shares regions of its own namespace only.
+            appUid ??= (await this.stores.app.resolveApp(appIdentifier))?.uid;
+            if (parsed.appUid !== appUid) throw refuse(entry);
+        }
+    }
+
+    /**
      * Gate a cross-app data grant: the target must exist, must not have opted
      * out of sharing, and must be named. Also creates the target's AppData
      * directory for an `fs` scope, since it is only created lazily when the app
@@ -3128,6 +3217,7 @@ export class AuthController extends PuterController {
         }
         // 400 on a bad value, before anything else runs. Absent means create.
         const create = parseCreateFlag(req.body?.create);
+        await this.#assertAppGrantable(req.actor!, app_uid, list);
 
         // Validate every entry before writing or creating anything, so a bad
         // one in the list cannot leave a partially-granted set behind: the
@@ -3140,10 +3230,6 @@ export class AuthController extends PuterController {
             kind: FsCreateKind;
         }> = [];
         for (const entry of list) {
-            // A delegation over a whole key-value namespace has no bounded
-            // description, so it is refused where it is asked for rather than
-            // prompted for and then refused at use.
-            assertBoundedManageGrant(entry);
             await this.#prepareAppDataGrant(req.actor!, entry);
             const plan = await this.#planFsPathCreate(
                 req.actor!,
@@ -3241,7 +3327,8 @@ export class AuthController extends PuterController {
     })
     async handleRevokeUserApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body ?? {};
-        const { origin, permission, permissions, meta } = req.body ?? {};
+        const { origin, permission, permissions, meta, deleteData } =
+            req.body ?? {};
         this.#validateAppPermissionParams({
             app_uid,
             origin,
@@ -3257,14 +3344,25 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
+        if (deleteData !== undefined && typeof deleteData !== 'boolean') {
+            throw new HttpError(400, '`deleteData` must be a boolean', {
+                legacyCode: 'bad_request',
+            });
+        }
+        if (deleteData && permission !== '*') {
+            throw new HttpError(
+                400,
+                '`deleteData` only applies when `permission` is "*"',
+                { legacyCode: 'bad_request' },
+            );
+        }
         // Deliberately not gated by the target's sharing flag: a user must
         // always be able to withdraw a grant, whatever the target now says.
         if (permission === '*') {
-            await this.services.permission.revokeUserAppAll(
-                req.actor!,
-                app_uid,
-                meta ?? undefined,
-            );
+            await this.services.auth.uninstallApp(req.actor!, app_uid, {
+                deleteData: deleteData === true,
+                meta: meta ?? undefined,
+            });
         } else {
             for (const entry of list) {
                 await this.services.permission.revokeUserAppPermission(
@@ -3344,11 +3442,28 @@ export class AuthController extends PuterController {
         const unique = [...new Set(permissions)] as string[];
         const result: Record<string, boolean> = {};
 
-        // `fs:` reaches down a tree, and only ACL walks that.
+        // A share grant names its owner and prefix, which its holder is never
+        // told, so asking about one would confirm a guess. `manage:` arms are
+        // the app's own consent and stay answerable.
+        const answerable: string[] = [];
+        for (const permission of unique) {
+            if (
+                typeof permission === 'string' &&
+                isKvSharePermission(permission)
+            )
+                result[permission] = false;
+            else answerable.push(permission);
+        }
+
+        // `fs:` reaches down a tree, and only ACL walks that. An app asking
+        // about itself gets the same answer, so a grant on a parent folder
+        // doesn't read as missing and prompt again.
         const viaAcl = new Set(
-            app_uid ? unique.filter((p) => aclAnswerableFsPermission(p)) : [],
+            app_uid || isAppActor(actor)
+                ? answerable.filter((p) => aclAnswerableFsPermission(p))
+                : [],
         );
-        const viaScan = unique.filter((p) => !viaAcl.has(p));
+        const viaScan = answerable.filter((p) => !viaAcl.has(p));
 
         let granted: Map<string, boolean>;
         try {
@@ -3744,6 +3859,7 @@ export class AuthController extends PuterController {
                 APP_AUTHENTICATED_FLAG,
                 {},
                 {},
+                app,
             );
 
         const tokenPromise: Promise<{ token: string; expiresAt?: number }> =
@@ -3753,6 +3869,7 @@ export class AuthController extends PuterController {
                       token: await this.services.auth.getUserAppToken(
                           req.actor!,
                           app_uid,
+                          app,
                       ),
                   }))();
 
@@ -3855,6 +3972,7 @@ export class AuthController extends PuterController {
             result.token = await this.services.auth.getUserAppToken(
                 req.actor!,
                 app!.uid,
+                app!,
             );
         }
         res.json(result);
@@ -4074,7 +4192,7 @@ export class AuthController extends PuterController {
 
         if (action === 'enable') {
             // A seat has no email by design, so this would bar it forever.
-            const seat = await this.stores.team.getOrgSeat(user.id);
+            const seat = await this.stores.team?.getOrgSeat(user.id);
             if (!user.email_confirmed && !seat) {
                 throw new HttpError(
                     403,
@@ -4148,13 +4266,35 @@ export class AuthController extends PuterController {
                 legacyCode: 'not_found',
             });
 
-        const seat = await this.stores.team.getOrgSeat(user.id);
+        const seat = await this.stores.team?.getOrgSeat(user.id);
         if (seat && Number(seat.require_2fa) === 1) {
             throw new HttpError(
                 409,
                 'Your team requires two-factor authentication, so it cannot be turned off.',
                 { legacyCode: 'conflict' },
             );
+        }
+
+        const code = req.body?.code;
+        if (
+            user.otp_enabled &&
+            typeof code === 'string' &&
+            /^[A-Z0-9]{8}$/.test(code)
+        ) {
+            await this.#assertSecondFactorAttemptsRemain(user.uuid);
+            const consumed = await this.stores.user.consumeOtpRecoveryCode(
+                user.id,
+                hashRecoveryCode(code),
+            );
+            if (!consumed) {
+                await this.#recordSecondFactorFailure(user.uuid);
+                throw new HttpError(401, 'Incorrect code.', {
+                    legacyCode: 'code_mismatch',
+                    fields: { factor: 'otp' },
+                });
+            }
+        } else {
+            this.#requireAccountTwoFactor(user, code);
         }
 
         await this.stores.user.update(user.id, {
@@ -4234,13 +4374,10 @@ export class AuthController extends PuterController {
             throw new HttpError(400, 'No session bound to this actor', {
                 legacyCode: 'session_required' as never,
             });
-        const user = await this.stores.user.getById(req.actor.user.id!);
-        if (!user)
-            throw new HttpError(404, 'User not found', {
-                legacyCode: 'not_found',
-            });
+        // Token auth built this actor from the user's row in this request, and
+        // a deleted user fails it.
         const guiToken = this.services.auth.createGuiToken(
-            user,
+            req.actor.user as UserRow,
             req.actor.session.uid,
         );
         res.json({ token: guiToken });
@@ -4270,13 +4407,9 @@ export class AuthController extends PuterController {
             res.status(400).end();
             return;
         }
-        const user = await this.stores.user.getById(req.actor.user.id!);
-        if (!user) {
-            res.status(404).end();
-            return;
-        }
+        // As in `/get-gui-token`: the actor is the user's row as auth read it.
         const sessionToken = this.services.auth.createSessionTokenForSession(
-            user,
+            req.actor.user as UserRow,
             req.actor.session.uid,
         );
         res.cookie(this.config.cookie_name ?? 'puter_token', sessionToken, {
@@ -4372,11 +4505,14 @@ export class AuthController extends PuterController {
         }
 
         const token = signStepUpToken(this.services.token, user as never);
-        res.cookie(
-            STEP_UP_COOKIE_NAME,
-            token,
-            stepUpCookieOptions(this.config),
-        );
+        const isApiHost = req.subdomains?.at(-1) === 'api';
+        if (!isApiHost) {
+            res.cookie(
+                STEP_UP_COOKIE_NAME,
+                token,
+                stepUpCookieOptions(this.config),
+            );
+        }
 
         // A browser reads its elevation back from the httpOnly cookie and never
         // needs the raw value; handing it to page JS would put the second factor
@@ -4385,7 +4521,9 @@ export class AuthController extends PuterController {
         // password/TOTP — this only avoids needless exposure, it isn't a gate.
         const cookieName = this.config.cookie_name ?? 'puter_token';
         const usedSessionCookie =
-            !!req.token && req.token === req.cookies?.[cookieName];
+            !isApiHost &&
+            !!req.token &&
+            req.token === req.cookies?.[cookieName];
         res.json(
             usedSessionCookie ? { elevated: true } : { elevated: true, token },
         );
@@ -4406,7 +4544,7 @@ export class AuthController extends PuterController {
         const userId = req.actor!.user.id!;
         // The team owns the account and is billed for it; only they may close
         // it, through the console that keeps the audit trail.
-        if (await this.stores.team.getOrgSeat(userId)) {
+        if (await this.stores.team?.getOrgSeat(userId)) {
             throw new HttpError(
                 403,
                 'Your team owns this account. Ask a team admin to remove it.',
@@ -4416,7 +4554,7 @@ export class AuthController extends PuterController {
         // The other direction: deleting an owner sets `owner_user_id` NULL and
         // cascades their membership, leaving a team no one can administer —
         // not even an admin, since every team route resolves by membership.
-        if (await this.stores.team.countOwned(userId)) {
+        if (await this.stores.team?.countOwned(userId)) {
             throw new HttpError(
                 403,
                 'Delete the teams you own before closing this account.',
@@ -4425,7 +4563,7 @@ export class AuthController extends PuterController {
         }
         // A deleted team's seats are suspended, not gone, and only its owner
         // can retire them.
-        if (await this.stores.team.countOwnedTeamsWithAccounts(userId)) {
+        if (await this.stores.team?.countOwnedTeamsWithAccounts(userId)) {
             throw new HttpError(
                 403,
                 'Close the accounts your teams created before closing this one.',
@@ -4578,7 +4716,15 @@ export class AuthController extends PuterController {
         req: Request,
         res: Response,
         user: UserRow,
+        oidcContinuation?: unknown,
     ): Promise<void> {
+        const redirectUrl =
+            oidcContinuation === undefined
+                ? undefined
+                : completeOidcLoginReturn(res, user, oidcContinuation, {
+                      config: this.config,
+                      oidc: this.services.oidc,
+                  });
         const gui_token = await startWebSession(req, res, user, {
             config: this.config,
             auth: this.services.auth,
@@ -4604,6 +4750,7 @@ export class AuthController extends PuterController {
             next_step: 'complete',
             token: gui_token,
             user: details,
+            ...(redirectUrl ? { redirectUrl } : {}),
         });
     }
 }

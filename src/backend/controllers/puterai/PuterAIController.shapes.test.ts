@@ -30,7 +30,8 @@
  */
 
 import crypto from 'node:crypto';
-import { Readable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
+import { finished } from 'node:stream/promises';
 import type { Request, Response } from 'express';
 import {
     afterAll,
@@ -1530,25 +1531,34 @@ describe('PuterAIController videoProxy upstream handling', () => {
             } as unknown as Response);
 
             const handler = captureGet('/puterai/video/proxy');
-            const { res, captured } = makeRes();
+            // The body is piped, so the response has to be a real stream.
             const sink: Buffer[] = [];
-            (res as unknown as Record<string, unknown>).write = (
-                chunk: Buffer,
-            ) => {
-                sink.push(Buffer.from(chunk));
-                return true;
-            };
-            (res as unknown as Record<string, unknown>).emit = () => true;
+            const headers: Record<string, string> = {};
+            const res = Object.assign(
+                new Writable({
+                    write(chunk: Buffer, _enc, cb) {
+                        sink.push(Buffer.from(chunk));
+                        cb();
+                    },
+                }),
+                {
+                    setHeader: (k: string, v: string) => {
+                        headers[k] = v;
+                    },
+                },
+            ) as unknown as Response;
 
             await handler(makeReq({ query: signedQuery('vid1') }), res);
-            await settleStream();
+            await finished(res as unknown as Writable);
 
             expect(fetchSpy).toHaveBeenCalledWith(
                 expect.stringContaining(
                     'vid1:download?alt=media&key=gemini-test-key',
                 ),
+                { signal: expect.any(AbortSignal) },
             );
-            expect(captured.headers['Content-Type']).toBe('video/mp4');
+            expect(headers['Content-Type']).toBe('video/mp4');
+            expect(Buffer.concat(sink).toString('utf8')).toBe('video-bytes');
         });
     });
 

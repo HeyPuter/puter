@@ -478,12 +478,17 @@ $(document).bind('keydown', async function (e) {
     //-----------------------------------------------------------------------
     if ( e.which === 27 ) {
         // close open context menus
+        const closedMenu = $('.context-menu').length > 0;
         $('.context-menu').remove();
 
         // close the Launch Popover if it's open
         $('.launch-popover').closest('.popover').fadeOut(200, function () {
             $('.launch-popover').closest('.popover').remove();
         });
+
+        // That Escape was the menu's; later handlers must not also act on it
+        // (clear a Files selection, close its preview).
+        if ( closedMenu ) e.stopImmediatePropagation();
     }
 });
 
@@ -905,7 +910,11 @@ $(document).bind('keyup keydown', async function (e) {
     // Undo
     // ctrl/command + z, will undo last action
     //-----------------------------------------------------------------------------
-    if ( (e.ctrlKey || e.metaKey) && e.which === 90 ) {
+    // Not in a text field, whose own undo is what the user means: the last
+    // file action could be an upload, which Undo deletes outright. Once per
+    // press: releasing Z with Ctrl/Cmd still held would undo a second action.
+    if ( (e.ctrlKey || e.metaKey) && e.which === 90 && e.type === 'keydown'
+        && ! $(focused_el).is('input, textarea, [contenteditable]') ) {
         window.undo_last_action();
         return false;
     }

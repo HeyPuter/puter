@@ -243,8 +243,8 @@ export class MistralAIProvider implements IChatProvider {
                 // signal is passed; a stream is bounded by its caller instead.
                 {
                     signal: stream
-                        ? Context.get('abortSignal')
-                        : withSdkTimeout(Context.get('abortSignal')),
+                        ? Context.get('upstreamSignal')
+                        : withSdkTimeout(Context.get('upstreamSignal')),
                 },
             );
         } catch (e) {

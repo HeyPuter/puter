@@ -41,6 +41,7 @@ import {
     isAccountContext,
     isAppActor,
     isPlainUserActor,
+    viaWorkerOf,
 } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -67,14 +68,20 @@ import type {
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { puterStores } from '../../stores/index.js';
 import type { LayerInstances } from '../../types.js';
-import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import {
+    awaitLater,
+    runWithConcurrencyLimitSettled,
+} from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { AclMode } from '../acl/ACLService.js';
 import type { puterServices } from '../index.js';
 import {
     APP_DATA_FS_MODE_CLASSES,
+    appDataOwnerOf,
     appDataPermission,
     appDataSharingAllowed,
+    carriesClosedAppData,
+    closedAppDataOwners,
 } from '../permission/appDataScopes.js';
 import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
@@ -142,11 +149,8 @@ const foreignAppDataOwner = (
     username: string,
     ownAppUid: string,
 ): string | null => {
-    const segments = path.split('/');
-    if (segments[1] !== username || segments[2]?.toLowerCase() !== 'appdata') {
-        return null;
-    }
-    const appUid = segments[3];
+    if (path.split('/')[1] !== username) return null;
+    const appUid = appDataOwnerOf(path);
     if (!appUid || appUid === ownAppUid) return null;
     return appUid;
 };
@@ -166,10 +170,19 @@ const isAppDataRootPath = (path: string): boolean => {
     );
 };
 
+/** Ends a subtree removal whose `proceed` check said to stop. */
+class RemovalStopped extends Error {}
+
 const isNoSuchKeyError = (err: unknown): boolean => {
     if (!err || typeof err !== 'object') return false;
     const e = err as { name?: unknown; Code?: unknown };
     return e.name === 'NoSuchKey' || e.Code === 'NoSuchKey';
+};
+
+const isInvalidRangeError = (err: unknown): boolean => {
+    if (!err || typeof err !== 'object') return false;
+    const e = err as { name?: unknown; Code?: unknown };
+    return e.name === 'InvalidRange' || e.Code === 'InvalidRange';
 };
 
 /** Also recorded as the failure reason on a session refused for it. */
@@ -293,12 +306,18 @@ export class FSService extends PuterService {
      * Overridable so tests can split a page of directories.
      */
     static SUBTREE_WALK_PARENTS = 100;
+    /** Rows one page of `listDirectoryPages` reads. Overridable for tests. */
+    static LISTING_PAGE_SIZE = 1000;
 
     declare protected stores: LayerInstances<typeof puterStores>;
     declare protected services: LayerInstances<typeof puterServices>;
 
     override onServerStart(): void {
         this.#registerPermissionRules();
+        this.clients.event.on('app.uninstalled', async (_key, data) => {
+            if (!data?.deleteData) return;
+            void this.#removeUninstalledAppData(data.userId, data.appUid);
+        });
     }
 
     /**
@@ -829,7 +848,7 @@ export class FSService extends PuterService {
                     if (pathReservedInBatch) {
                         throw new HttpError(
                             409,
-                            `Batch contains duplicate target path: ${normalizedInput.path}`,
+                            `Batch contains duplicate target path: ${pathPosix.basename(normalizedInput.path)}`,
                             { legacyCode: 'conflict' },
                         );
                     }
@@ -850,7 +869,7 @@ export class FSService extends PuterService {
                 } else if (pathReservedInBatch) {
                     throw new HttpError(
                         409,
-                        `Batch contains duplicate target path: ${normalizedInput.path}`,
+                        `Batch contains duplicate target path: ${pathPosix.basename(normalizedInput.path)}`,
                         { legacyCode: 'conflict' },
                     );
                 }
@@ -2322,7 +2341,7 @@ export class FSService extends PuterService {
             if (directoryPathSet.has(targetPath)) {
                 throw new HttpError(
                     409,
-                    `Batch contains duplicate target path: ${targetPath}`,
+                    `Batch contains duplicate target path: ${pathPosix.basename(targetPath)}`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -2742,9 +2761,11 @@ export class FSService extends PuterService {
         });
     }
 
+    /** `preloadedSession`: the caller's read of `request.uploadId`, reused. */
     async signMultipartParts(
         userId: number,
         request: SignMultipartPartsRequest,
+        preloadedSession?: PendingUploadSession,
     ): Promise<SignMultipartPartsResponse> {
         if (!request?.uploadId) {
             throw new HttpError(400, 'Missing uploadId', {
@@ -2774,9 +2795,11 @@ export class FSService extends PuterService {
             });
         }
 
-        const session = await this.stores.fsEntry.getPendingEntryBySessionId(
-            request.uploadId,
-        );
+        const session =
+            preloadedSession ??
+            (await this.stores.fsEntry.getPendingEntryBySessionId(
+                request.uploadId,
+            ));
         if (!session) {
             throw new HttpError(404, 'Upload session was not found', {
                 legacyCode: 'not_found',
@@ -3006,6 +3029,8 @@ export class FSService extends PuterService {
         userId: number,
         completeWriteRequest: CompleteWriteRequest,
     ): Promise<CompleteWriteResponse> {
+        // Read here, not taken from the caller's access check: an abort or a
+        // second completion landing during that check must still get a 409.
         const session = await this.stores.fsEntry.getPendingEntryBySessionId(
             completeWriteRequest.uploadId,
         );
@@ -3118,7 +3143,7 @@ export class FSService extends PuterService {
             }
 
             const fsEntry = await this.stores.fsEntry.completePendingEntry(
-                session.sessionId,
+                session,
                 createInput,
             );
             await this.#settleSessionUploadReservations([session]);
@@ -3167,6 +3192,7 @@ export class FSService extends PuterService {
             );
         }
 
+        // Read fresh for the same reason as completeUrlWrite.
         const sessions =
             await this.stores.fsEntry.getPendingEntriesBySessionIds(uploadIds);
         const completionItems: Array<{
@@ -3367,7 +3393,7 @@ export class FSService extends PuterService {
         const completedEntries =
             await this.stores.fsEntry.batchCompletePendingEntries(
                 completionItems.map((item) => ({
-                    sessionId: item.session.sessionId,
+                    session: item.session,
                     finalData: item.finalData,
                 })),
             );
@@ -3640,23 +3666,33 @@ export class FSService extends PuterService {
         await this.#cleanupPreparedBatchUploads(preparedBatch, uploadedItems);
     }
 
-    async updateEntryThumbnail(
+    /**
+     * Set thumbnails on entries `userId` owns, each result in input order: the
+     * updated entry, or why that one failed.
+     */
+    async updateEntryThumbnails(
         userId: number,
-        entryUuid: string,
-        thumbnail: string | null,
-    ): Promise<FSEntry> {
-        if (typeof entryUuid !== 'string' || entryUuid.length === 0) {
-            throw new HttpError(
-                400,
-                'Invalid file entry identifier for thumbnail update',
-                { legacyCode: 'bad_request' },
+        updates: Array<{ uuid: string; thumbnail: string | null }>,
+    ): Promise<PromiseSettledResult<FSEntry>[]> {
+        const isValid = ({ uuid }: { uuid: string }) =>
+            typeof uuid === 'string' && uuid.length > 0;
+        const stored =
+            await this.stores.fsEntry.updateEntryThumbnailsByUuidForUser(
+                userId,
+                updates.filter(isValid),
             );
-        }
-
-        return this.stores.fsEntry.updateEntryThumbnailByUuidForUser(
-            userId,
-            entryUuid,
-            thumbnail,
+        let next = 0;
+        return updates.map((update): PromiseSettledResult<FSEntry> =>
+            isValid(update)
+                ? stored[next++]
+                : {
+                      status: 'rejected',
+                      reason: new HttpError(
+                          400,
+                          'Invalid file entry identifier for thumbnail update',
+                          { legacyCode: 'bad_request' },
+                      ),
+                  },
         );
     }
 
@@ -3704,6 +3740,19 @@ export class FSService extends PuterService {
         return this.stores.fsEntry.listChildrenPage(parentUid, options);
     }
 
+    /** A directory's children in name order, for listings with no paging. */
+    async *listDirectoryPages(parentUid: string): AsyncGenerator<FSEntry[]> {
+        let cursor: string | undefined;
+        do {
+            const page = await this.stores.fsEntry.listChildrenPage(parentUid, {
+                limit: FSService.LISTING_PAGE_SIZE,
+                cursor,
+            });
+            yield page.entries;
+            cursor = page.cursor;
+        } while (cursor);
+    }
+
     async countDirectory(parentUid: string): Promise<number> {
         return this.stores.fsEntry.countChildren(parentUid);
     }
@@ -3718,13 +3767,36 @@ export class FSService extends PuterService {
         path: string,
         options: {
             limit?: number;
+            offset?: number;
             cursor?: string | null;
             maxDepth: number;
             sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
             sortOrder?: 'asc' | 'desc' | null;
         },
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
-        return this.stores.fsEntry.listDescendantsPage(userId, path, options);
+        const page = await this.stores.fsEntry.listDescendantsPage(
+            userId,
+            path,
+            options,
+        );
+        // Listing a home or AppData reaches into every app's AppData.
+        const app = (Context.get('actor') as Actor | undefined)?.effectiveApp;
+        if (!app) return page;
+        const closed = await closedAppDataOwners(
+            this.stores.app,
+            page.entries.map((entry) => entry.path),
+            app.uid,
+        );
+        if (closed.size === 0) return page;
+        return {
+            ...page,
+            entries: page.entries.filter(
+                (entry) =>
+                    !closed.has(
+                        appDataOwnerOf(entry.path)?.toLowerCase() ?? '',
+                    ),
+            ),
+        };
     }
 
     async countDirectoryTree(
@@ -3827,7 +3899,8 @@ export class FSService extends PuterService {
                 {
                     bucket: this.stores.s3Object.resolveBucket(entry.bucket),
                     objectKey,
-                    range: options.range,
+                    // The store refuses every range on a zero-byte object.
+                    range: entry.size === 0 ? undefined : options.range,
                 },
                 this.stores.s3Object.resolveRegion(entry.bucketRegion),
             );
@@ -3841,6 +3914,13 @@ export class FSService extends PuterService {
                     fields: {
                         uid: entry.uuid,
                     },
+                });
+            }
+            // Range starts at or past the end of the object.
+            if (isInvalidRangeError(err)) {
+                throw new HttpError(416, 'Requested range not satisfiable', {
+                    legacyCode: 'bad_request',
+                    cause: err,
                 });
             }
             throw err;
@@ -3929,10 +4009,10 @@ export class FSService extends PuterService {
 
     /**
      * Resolve or create a parent directory for a given target path. Returns the
-     * parent entry. Throws 400 if the path has no parent (root) or 404 when
-     * parents are missing and create is disabled.
+     * parent entry. Throws 400 synchronously if the path has no parent (root),
+     * and rejects with 404 when parents are missing and create is disabled.
      */
-    async #resolveOrCreateParent(
+    #resolveOrCreateParent(
         userId: number,
         targetPath: string,
         createMissingParents: boolean,
@@ -3974,14 +4054,22 @@ export class FSService extends PuterService {
         },
     ): Promise<FSEntry> {
         const targetPath = input.path.trim();
-        const parent = await this.#resolveOrCreateParent(
+        const parentLookup = this.#resolveOrCreateParent(
             userId,
             targetPath,
             !!input.createMissingParents,
         );
+        // Looked up alongside the parent, but awaited after it so the parent's
+        // error still comes first. A target whose parent is still being created
+        // reads as missing; a concurrent create lands in the unique-violation
+        // handler below.
+        const existingLookup = awaitLater(
+            this.stores.fsEntry.getEntryByPath(targetPath),
+        );
+        const parent = await parentLookup;
 
         let name = pathPosix.basename(targetPath);
-        const existing = await this.stores.fsEntry.getEntryByPath(targetPath);
+        const existing = await existingLookup;
         if (existing) {
             if (existing.isDir) {
                 if (input.dedupeName) {
@@ -4001,7 +4089,7 @@ export class FSService extends PuterService {
             } else {
                 throw new HttpError(
                     409,
-                    `An entry already exists at ${targetPath}`,
+                    `An entry named \`${name}\` already exists`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -4035,7 +4123,7 @@ export class FSService extends PuterService {
             if (raced) {
                 throw new HttpError(
                     409,
-                    `An entry already exists at ${insertedPath}`,
+                    `An entry named \`${name}\` already exists`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -4098,6 +4186,7 @@ export class FSService extends PuterService {
         if (entry.name === newName) return entry;
         this.#assertAppDataRootsStay(entry.path);
         await this.#assertCrossAppDeleteAllowed(entry.path);
+        await this.#assertCarriesNoClosedAppData(entry, 'rename');
 
         const parentPath = pathPosix.dirname(entry.path);
         const newPath =
@@ -4106,9 +4195,11 @@ export class FSService extends PuterService {
         // Reject if another entry already owns the target path.
         const collision = await this.stores.fsEntry.getEntryByPath(newPath);
         if (collision && collision.uuid !== entry.uuid) {
-            throw new HttpError(409, `An entry already exists at ${newPath}`, {
-                legacyCode: 'conflict',
-            });
+            throw new HttpError(
+                409,
+                `An entry named \`${newName}\` already exists`,
+                { legacyCode: 'conflict' },
+            );
         }
 
         const updated = await this.stores.fsEntry.updateEntry(entry.uuid, {
@@ -4163,7 +4254,7 @@ export class FSService extends PuterService {
             } else {
                 throw new HttpError(
                     409,
-                    `An entry already exists at ${childPath}`,
+                    `An entry named \`${name}\` already exists`,
                     { legacyCode: 'conflict' },
                 );
             }
@@ -4268,6 +4359,22 @@ export class FSService extends PuterService {
             'Only the account owner can rename or move AppData folders',
             { legacyCode: 'forbidden' },
         );
+    }
+
+    /** An app may not carry another app's closed AppData out of AppData. */
+    async #assertCarriesNoClosedAppData(
+        source: FSEntry,
+        verb: string,
+    ): Promise<void> {
+        const app = (Context.get('actor') as Actor | undefined)?.effectiveApp;
+        if (!app) return;
+        if (await carriesClosedAppData(this.stores, source, app.uid)) {
+            throw new HttpError(
+                403,
+                `Cannot ${verb} a folder holding another app's private data`,
+                { legacyCode: 'forbidden' },
+            );
+        }
     }
 
     /**
@@ -4465,27 +4572,111 @@ export class FSService extends PuterService {
     /**
      * Delete a directory's contents a page at a time, leaves first, so neither
      * memory nor a single statement grows with the subtree: a page's files go
-     * as it is read, a directory once everything under it has.
+     * as it is read, a directory once everything under it has. With `proceed`,
+     * each batch is deleted only while it answers true; false if it stopped.
      */
     async #removeDescendants(
         root: FSEntry,
         survivors: () => Promise<AncestorChain>,
-    ): Promise<void> {
+        proceed?: () => Promise<boolean>,
+    ): Promise<boolean> {
         const removeEntries = async (entries: FSEntry[]) => {
             if (entries.length === 0) return;
+            if (proceed && !(await proceed())) throw new RemovalStopped();
             // S3 objects are batched per bucket+region.
             await this.#removeDescendantsStorage(entries);
             await this.stores.fsEntry.deleteEntries(entries);
             this.#emitRemoveEvents(entries, survivors);
         };
-        await this.#walkSubtree(
-            root,
-            async (page) => {
-                await removeEntries(page.filter((entry) => !entry.isDir));
-                return page.filter((entry) => entry.isDir);
-            },
-            removeEntries,
-        );
+        try {
+            await this.#walkSubtree(
+                root,
+                async (page) => {
+                    await removeEntries(page.filter((entry) => !entry.isDir));
+                    return page.filter((entry) => entry.isDir);
+                },
+                removeEntries,
+            );
+        } catch (err) {
+            if (err instanceof RemovalStopped) return false;
+            throw err;
+        }
+        return true;
+    }
+
+    /**
+     * Delete `/<user>/AppData/<app-uid>` once the user removed the app with its
+     * data. Stops if the user authorizes the app again, so files written after
+     * that are kept. A failure is logged, not retried.
+     */
+    async #removeUninstalledAppData(
+        userId: number,
+        appUid: string,
+    ): Promise<void> {
+        if (!userId || !appUid || ['.', '..'].includes(appUid)) return;
+        if (appUid.includes('/')) return;
+        try {
+            const username = (await this.stores.user.getById(userId))?.username;
+            if (!username) return;
+            const path = `/${username}/AppData/${appUid}`;
+            const root = await this.stores.fsEntry.getEntryByPath(path, {
+                lineage: false,
+                skipCache: true,
+            });
+            // The path column's collation also matches other spellings.
+            if (!root?.isDir || root.path !== path || root.userId !== userId)
+                return;
+            if (await this.#subtreeHostsContent(root)) {
+                console.warn(
+                    `[fs] kept uninstalled app data at ${path}: it hosts a site or worker`,
+                );
+                return;
+            }
+
+            const appId = (await this.stores.app.getByUid(appUid))?.id;
+            const stillUninstalled = async () =>
+                typeof appId !== 'number' ||
+                (
+                    await this.stores.permission.listUserAppPermsFromPrimary(
+                        userId,
+                        appId,
+                    )
+                ).length === 0;
+            if (!(await stillUninstalled())) return;
+
+            const survivors = this.#memoizedChain(pathPosix.dirname(path));
+            const emptied = await this.#removeDescendants(
+                root,
+                survivors,
+                stillUninstalled,
+            );
+            if (!emptied || !(await stillUninstalled())) return;
+            await this.stores.fsEntry.deleteEntry(root);
+            this.#emitRemoveEvents([root], survivors);
+        } catch (err) {
+            console.warn('[fs] uninstalled app data removal failed', err);
+        }
+    }
+
+    /** Whether a site or worker is rooted at `root` or anywhere below it. */
+    async #subtreeHostsContent(root: FSEntry): Promise<boolean> {
+        const hosts = (entry: FSEntry) =>
+            entry.subdomains.length > 0 || entry.workers.length > 0;
+        if (hosts(root)) return true;
+        try {
+            await this.#walkSubtree(
+                root,
+                async (page) => {
+                    if (page.some(hosts)) throw new RemovalStopped();
+                    return page.filter((entry) => entry.isDir);
+                },
+                async () => {},
+            );
+        } catch (err) {
+            if (err instanceof RemovalStopped) return true;
+            throw err;
+        }
+        return false;
     }
 
     /**
@@ -4711,6 +4902,7 @@ export class FSService extends PuterService {
         const actor = Context.get('actor') as Actor | undefined;
         const actingUserId = actor?.user?.id;
         const handlerDepth = handlerDepthOf(actor);
+        const viaWorker = viaWorkerOf(actor);
         const movedFromChain = movedFrom && {
             path: movedFrom.path,
             ancestors: () => fsEntry.getAncestorChain(movedFrom.path),
@@ -4724,6 +4916,7 @@ export class FSService extends PuterService {
                         events.dispatchFs(key, entry, {
                             actingUserId,
                             handlerDepth,
+                            viaWorker,
                             ancestors: () => ancestors(entry),
                             ...(movedFromChain
                                 ? { movedFrom: movedFromChain }
@@ -4840,6 +5033,7 @@ export class FSService extends PuterService {
         // The source only: moving *into* another app's AppData is a write, and
         // ACL plus the fs:write class already cover that.
         await this.#assertCrossAppDeleteAllowed(source.path);
+        await this.#assertCarriesNoClosedAppData(source, 'move');
         await this.#assertCanRestructure(source, userId);
         // Write inside a shared folder reorganizes it, it does not empty it.
         if (
@@ -4859,7 +5053,8 @@ export class FSService extends PuterService {
         }
         if (
             source.isDir &&
-            destinationParent.path.startsWith(`${source.path}/`)
+            (destinationParent.uuid === source.uuid ||
+                destinationParent.path.startsWith(`${source.path}/`))
         ) {
             throw new HttpError(400, 'Cannot move a directory into itself', {
                 legacyCode: 'cannot_move_directory_into_itself',
@@ -4867,9 +5062,14 @@ export class FSService extends PuterService {
         }
 
         // Authorized without write there, so a collision must not answer.
+        const actor = Context.get('actor') as Actor | undefined;
         const intoSomeoneElsesTrash =
             isOwnersTrash(source, destinationParent) &&
             destinationParent.userId !== userId;
+        const intoRestrictedTrash =
+            isOwnersTrash(source, destinationParent) &&
+            (intoSomeoneElsesTrash ||
+                (actor !== undefined && !isAccountContext(actor)));
 
         let name = input.newName ?? source.name;
         this.#assertUsableName(name);
@@ -4897,11 +5097,12 @@ export class FSService extends PuterService {
         if (collision && collision.uuid !== source.uuid) {
             name = await this.#resolveMoveCollision(
                 userId,
+                source,
                 collision,
                 destinationParent,
                 name,
                 input,
-                { intoSomeoneElsesTrash },
+                { intoRestrictedTrash },
             );
         }
 
@@ -4949,11 +5150,12 @@ export class FSService extends PuterService {
             if (raced && raced.uuid !== source.uuid) {
                 name = await this.#resolveMoveCollision(
                     userId,
+                    source,
                     raced,
                     destinationParent,
                     name,
                     input,
-                    { intoSomeoneElsesTrash },
+                    { intoRestrictedTrash },
                 );
             }
             updated = await applyMove(name);
@@ -5011,17 +5213,19 @@ export class FSService extends PuterService {
      */
     async #resolveMoveCollision(
         userId: number,
+        source: FSEntry,
         occupant: FSEntry,
         destinationParent: FSEntry,
         name: string,
         input: { overwrite?: boolean; dedupeName?: boolean },
-        opts: { intoSomeoneElsesTrash?: boolean } = {},
+        opts: { intoRestrictedTrash?: boolean } = {},
     ): Promise<string> {
         // Ahead of `overwrite`: no write here, so a collision destroys nothing.
-        if (opts.intoSomeoneElsesTrash) {
+        if (opts.intoRestrictedTrash) {
             return this.#findDedupedName(destinationParent, name);
         }
         if (input.overwrite) {
+            this.#assertNotReplacingAncestor(source, occupant);
             await this.remove(userId, { entry: occupant, recursive: true });
             return name;
         }
@@ -5031,14 +5235,24 @@ export class FSService extends PuterService {
         // v1 wire contract: clients (the GUI's move/paste flows among them)
         // key on `item_with_same_name_exists` + `entry_name` to offer a
         // replace/skip prompt.
-        throw new HttpError(
-            409,
-            `An entry already exists at ${occupant.path}`,
-            {
-                legacyCode: 'item_with_same_name_exists',
-                fields: { entry_name: name },
-            },
-        );
+        throw new HttpError(409, `An entry named \`${name}\` already exists`, {
+            legacyCode: 'item_with_same_name_exists',
+            fields: { entry_name: name },
+        });
+    }
+
+    /**
+     * Refuse to overwrite a directory the source sits inside: removing it would
+     * take the source down with it.
+     */
+    #assertNotReplacingAncestor(source: FSEntry, occupant: FSEntry): void {
+        if (occupant.isDir && source.path.startsWith(`${occupant.path}/`)) {
+            throw new HttpError(
+                400,
+                `Cannot replace \`${occupant.name}\`: it contains the item being moved or copied`,
+                { legacyCode: 'bad_request' },
+            );
+        }
     }
 
     /**
@@ -5077,6 +5291,7 @@ export class FSService extends PuterService {
                 { legacyCode: 'cannot_copy_directory_into_itself' },
             );
         }
+        await this.#assertCarriesNoClosedAppData(source, 'copy');
 
         let name = input.newName ?? source.name;
         this.#assertUsableName(name);
@@ -5086,6 +5301,8 @@ export class FSService extends PuterService {
                 : `${destinationParent.path}/${name}`;
 
         const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
+        // Overwriting the source would delete it before it is read.
+        const replacesSource = collision?.uuid === source.uuid;
 
         // A copy duplicates the bytes for real, so it costs the same against
         // the allowance as writing them. Check before the overwrite below
@@ -5101,25 +5318,30 @@ export class FSService extends PuterService {
         await this.#assertStorageAllowance(
             allowance.ownerId,
             await this.#entryStorageSize(source),
-            collision && input.overwrite
+            collision && input.overwrite && !replacesSource
                 ? await this.#entryStorageSize(collision)
                 : 0,
             allowance.max,
         );
 
         if (collision) {
-            if (input.overwrite) {
+            if (input.overwrite && !replacesSource) {
+                this.#assertNotReplacingAncestor(source, collision);
                 await this.remove(userId, {
                     entry: collision,
                     recursive: true,
                 });
             } else if (input.dedupeName) {
                 name = await this.#findDedupedName(destinationParent, name);
+            } else if (input.overwrite) {
+                throw new HttpError(400, 'Cannot copy an item over itself', {
+                    legacyCode: 'bad_request',
+                });
             } else {
                 // v1 wire contract, as in move() above.
                 throw new HttpError(
                     409,
-                    `An entry already exists at ${targetPath}`,
+                    `An entry named \`${name}\` already exists`,
                     {
                         legacyCode: 'item_with_same_name_exists',
                         fields: { entry_name: name },

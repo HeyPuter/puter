@@ -28,6 +28,7 @@ export const append_signed_item_params = (searchParams, file_signature, itemPath
     searchParams.append('puter.item.uid', file_signature.uid);
     searchParams.append('puter.item.path', itemPath);
     searchParams.append('puter.item.name', file_signature.fsentry_name);
+    searchParams.append('puter.item.is_dir', file_signature.fsentry_is_dir ? 'true' : 'false');
     searchParams.append('puter.item.read_url', file_signature.read_url);
     // Read-only shares carry no write_url; appending undefined stringifies it to "undefined", a truthy invalid URL that stops the editor opening the file.
     if ( file_signature.write_url ) {

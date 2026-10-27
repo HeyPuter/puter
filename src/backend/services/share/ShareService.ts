@@ -27,18 +27,22 @@ import {
     type Actor,
 } from '../../core/actor';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
-import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import {
+    awaitLater,
+    runWithConcurrencyLimitSettled,
+} from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
     abuseKey,
     cleanEmail,
     isBlockedEmail,
     isProviderCanonicalized,
+    isSameAddress,
     isStorableEmail,
 } from '../../util/email.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
 import type { UserUserAuditFilter } from '../../stores/permission/PermissionStore';
-import { type TeamRow } from '../../stores/team/TeamStore';
+import { type TeamRow } from '../../core/teams.js';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { AclMode } from '../acl/ACLService';
 import {
@@ -51,10 +55,18 @@ import {
     actorHasSubscription,
     assertActorHasSubscription,
 } from '../metering/enforcement.js';
+import { carriesClosedAppData } from '../permission/appDataScopes';
 import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import { SubscriptionCache } from '../events/subscriptionCache.js';
+import { KV_SHARE_ACCESS_LEVELS, kvShareRoot } from '../kvShare/kvShares.js';
 import { PuterService } from '../types';
+import {
+    BLOCK_ALL_SHARES_KEY,
+    blocksAllShares,
+    recipientNotAcceptingShares,
+    refusesSharesFrom,
+} from './shareBlocks.js';
 
 // -- Types ------------------------------------------------------------
 
@@ -282,21 +294,6 @@ const RETIRE_CHUNK_SIZE = 100;
 
 /** Shares one user may create per UTC day, absent a config override. */
 export const DEFAULT_DAILY_SHARE_LIMIT = 200;
-
-/**
- * Where "refuse shares from everyone" lives on the user row.
- *
- * A key in the existing `metadata` blob rather than a column of its own: the
- * share path already holds the recipient's row by the time it asks, so reading
- * it costs nothing either way, and a one-bit preference doesn't earn a
- * migration per dialect.
- */
-const BLOCK_ALL_SHARES_KEY = 'blockAllShares';
-
-/** Whether this account refuses shares from everyone. */
-export const blocksAllShares = (
-    user: Pick<UserRow, 'metadata'> | null,
-): boolean => Boolean(user?.metadata?.[BLOCK_ALL_SHARES_KEY]);
 
 /**
  * What a share recipient's browser is told about someone else's entry.
@@ -972,6 +969,15 @@ export class ShareService extends PuterService {
         // exist" may only be observed by someone entitled to share.
         const entry = await this.#resolveEntry(input, actor);
         await this.#assertCanManage(actor, entry, mode);
+        // The recipient reads as a user, past the per-app opt-out.
+        const app = actor.effectiveApp;
+        if (app && (await carriesClosedAppData(this.stores, entry, app.uid))) {
+            throw new HttpError(
+                403,
+                "Cannot share a folder holding another app's private data",
+                { legacyCode: 'forbidden' },
+            );
+        }
         const resolved = await this.#resolveRecipient(input.recipient);
 
         if (resolved.kind === 'anyone') {
@@ -984,7 +990,7 @@ export class ShareService extends PuterService {
             // Handles are public, so without this anyone could push files into
             // every member's inbox by naming one.
             if (
-                !(await this.stores.team.isMember(resolved.team.uid, issuerId))
+                !(await this.stores.team?.isMember(resolved.team.uid, issuerId))
             ) {
                 throw new HttpError(404, 'Team does not exist', {
                     legacyCode: 'team_not_found',
@@ -1344,7 +1350,10 @@ export class ShareService extends PuterService {
         if (resolved.kind === 'anyone') {
             await this.#assertCanManage(actor, entry);
             this.#assertOwnsLinkShare(actor, entry, issuerId);
-            const removed = await this.stores.share.deleteAnyone(entry.id);
+            const removed = await this.stores.share.deleteAnyone(
+                entry.id,
+                entry.uuid,
+            );
             return { revoked: removed ? 1 : 0 };
         }
         // Nothing was granted, so there is only the invitation to take back.
@@ -1415,6 +1424,22 @@ export class ShareService extends PuterService {
                       ),
                   ]
                 : await this.#issuersGranting(entry, holder.id);
+        // Held only through a team: there is nothing of the caller's own to
+        // drop, and the team's grant is not theirs to withdraw.
+        if (
+            isLeaving &&
+            issuers.length === 0 &&
+            (
+                await this.stores.permission.readUserGroupPerms(
+                    holder.id,
+                    entryPermissions(entry.uuid),
+                )
+            ).length > 0
+        ) {
+            throw new HttpError(409, 'cannot leave a share held by your team', {
+                legacyCode: 'team_share',
+            });
+        }
         if (!isOwner && !isLeaving) {
             issuers = issuers.filter((issuer) => issuer === issuerId);
         }
@@ -1704,7 +1729,7 @@ export class ShareService extends PuterService {
                 ),
             ),
             // Deleted teams included: their grants are still revocable.
-            this.stores.team.getByIdsIncludingDeleted(
+            this.#teamsByIds(
                 rows.map((row: { holder_group_id: number }) =>
                     Number(row.holder_group_id),
                 ),
@@ -1853,9 +1878,14 @@ export class ShareService extends PuterService {
      * issuer's recipients access under an owner who never agreed to them.
      */
     async onEntryOwnerChanged(entry: FSEntry): Promise<void> {
-        const rows = entry.isDir
-            ? await this.stores.share.listAllByFsentrySubtree(entry.id)
-            : await this.stores.share.listByFsentry(entry.id);
+        // A file's share rows can only name the file itself, so there is
+        // nothing to list or hydrate.
+        if (!entry.isDir) {
+            await this.onEntryDeleted([entry.uuid]);
+            await this.stores.share.deleteByFsentryIds([entry.id]);
+            return;
+        }
+        const rows = await this.stores.share.listAllByFsentrySubtree(entry.id);
         const fsentryIds = [
             ...new Set([
                 entry.id,
@@ -1904,13 +1934,31 @@ export class ShareService extends PuterService {
     }> {
         const holderId = this.#requireUserId(actor);
         // Resolved once; team shares ride the caller's own page.
-        const groupIds = await this.stores.team.listGroupIdsForUser(holderId);
+        const groupIds =
+            (await this.stores.team?.listGroupIdsForUser(holderId)) ?? [];
+        // Account-wide, so only for a caller acting as the account.
+        const totalLookup =
+            opts.includeTotal && isAccountContext(actor)
+                ? awaitLater(
+                      this.stores.share.countByHolder(holderId, { groupIds }),
+                  )
+                : null;
         const page = await this.stores.share.listByHolder(holderId, {
             limit: opts.limit,
             cursor: opts.cursor,
             groupIds,
         });
 
+        // Named, so a client can tell a team share from one made to the caller.
+        const teamsLookup = awaitLater(
+            this.#teamsByIds(
+                page.items
+                    .filter((row: OutboundShareRow) => row.holder_group_id)
+                    .map((row: OutboundShareRow) =>
+                        Number(row.holder_group_id),
+                    ),
+            ),
+        );
         const entries = await this.stores.fsEntry.getEntriesByIds(
             page.items.map((row: { fsentry_id: number }) => row.fsentry_id),
         );
@@ -1933,6 +1981,7 @@ export class ShareService extends PuterService {
             this.#liveGrants(holderId, [...entries.values()]),
             this.#reachableBy(actor, [...entries.values()]),
         ]);
+        const teamsById = await teamsLookup;
 
         const items: ResolvedShare[] = [];
         for (const row of page.items) {
@@ -1940,6 +1989,9 @@ export class ShareService extends PuterService {
             if (!entry || this.#isTrashed(entry)) continue;
             if (!live.has(entry.uuid)) continue;
             if (!reachable.has(entry.uuid)) continue;
+            const team = row.holder_group_id
+                ? teamsById.get(Number(row.holder_group_id))
+                : undefined;
             items.push(
                 this.#resolvedShareRow(row, entry, issuers, {
                     entryMeta: true,
@@ -1947,6 +1999,15 @@ export class ShareService extends PuterService {
                     // the recipient's.
                     provenance: false,
                     holderUsername: actor.user.username ?? null,
+                    ...(team
+                        ? {
+                              holderTeam: {
+                                  uid: team.uid,
+                                  name: team.name,
+                                  handle: team.handle,
+                              },
+                          }
+                        : {}),
                 }),
             );
         }
@@ -1954,14 +2015,7 @@ export class ShareService extends PuterService {
         return {
             items,
             ...(page.cursor ? { cursor: page.cursor } : {}),
-            // Account-wide, so only for a caller acting as the account.
-            ...(opts.includeTotal && isAccountContext(actor)
-                ? {
-                      total: await this.stores.share.countByHolder(holderId, {
-                          groupIds,
-                      }),
-                  }
-                : {}),
+            ...(totalLookup ? { total: await totalLookup } : {}),
         };
     }
 
@@ -1999,6 +2053,13 @@ export class ShareService extends PuterService {
                 ...(opts.includeTotal ? { total: 0 } : {}),
             };
         }
+        const totalLookup = opts.includeTotal
+            ? awaitLater(
+                  this.stores.share.countOutbound(userId, {
+                      appUid: scope.appUid,
+                  }),
+              )
+            : null;
         const page = await this.stores.share.listOutbound(userId, {
             limit: opts.limit,
             cursor: opts.cursor,
@@ -2006,6 +2067,14 @@ export class ShareService extends PuterService {
         });
         const rows: OutboundShareRow[] = page.items;
 
+        // Named so the listing can say which team, not just that it is one.
+        const teamsLookup = awaitLater(
+            this.#teamsByIds(
+                rows
+                    .filter((row) => row.holder_group_id)
+                    .map((row) => Number(row.holder_group_id)),
+            ),
+        );
         const entries = await this.stores.fsEntry.getEntriesByIds(
             rows.map((row) => Number(row.fsentry_id)),
         );
@@ -2020,43 +2089,38 @@ export class ShareService extends PuterService {
         const nodeById = new Map<number, FSEntry>(
             [...entries.values()].map((entry) => [entry.id, entry]),
         );
-        // Named so the listing can say which team, not just that it is one.
-        const teamsById = await this.stores.team.getByIdsIncludingDeleted(
-            rows
-                .filter((row) => row.holder_group_id)
-                .map((row) => Number(row.holder_group_id)),
-        );
+        const teamsById = await teamsLookup;
+        // Link rows are the caller's own (owner-only by construction), so one
+        // answer covers them all; only asked when there is one to show.
+        const linkCoveredLookup = rows.some((row) => row.anyone)
+            ? awaitLater(this.#linkSharingCovered(actor))
+            : null;
         // Three bounds. A claimed row needs the grant *this issuer* made to
         // still be there — on the pair alone, a grant withdrawn outside
         // `unshare` stays listed while anyone else grants the same holder the
-        // same node. An invite needs its issuer to still hold the authority it
-        // would grant, or a revoked delegate keeps reading the entry's name
-        // and size out of invites that can never be claimed. And an app sees
-        // only the part of any of it the credential reaches in its own right.
-        const [stillReaches, pendingAllowed, reachable, liveGroupGrants] =
+        // same node. An invite, and any row a delegate issued on a node they
+        // don't own, needs its issuer to still hold the authority it granted,
+        // or a revoked delegate keeps reading the entry's name, size and
+        // thumbnail. And an app sees only the part of any of it the
+        // credential reaches in its own right.
+        const [stillReaches, issuerAllowed, reachable, liveGroupGrants] =
             await Promise.all([
                 this.#reachingGrants(rows, nodeById),
-                this.#pendingStillAuthorized(
-                    // Group and link rows have no holder user but are not
-                    // invites.
-                    rows.filter(
-                        (row) =>
-                            !row.holder_user_id &&
-                            !row.holder_group_id &&
-                            !row.anyone,
-                    ),
+                this.#issuerStillAuthorized(
+                    rows.filter((row) => {
+                        if (row.anyone) return false;
+                        const pending =
+                            !row.holder_user_id && !row.holder_group_id;
+                        const node = nodeById.get(Number(row.fsentry_id));
+                        return pending || node?.userId !== userId;
+                    }),
                     nodeById,
                     users,
                 ),
                 this.#reachableBy(actor, [...entries.values()]),
                 this.#liveGroupGrants(rows, nodeById),
             ]);
-
-        // Link rows are the caller's own (owner-only by construction), so one
-        // answer covers them all; only asked when there is one to show.
-        const linkCovered = rows.some((row) => row.anyone)
-            ? await this.#linkSharingCovered(actor)
-            : true;
+        const linkCovered = linkCoveredLookup ? await linkCoveredLookup : true;
 
         const items: ResolvedShare[] = [];
         for (const row of rows) {
@@ -2068,7 +2132,10 @@ export class ShareService extends PuterService {
             const anyone = Boolean(row.anyone);
             const pending =
                 !anyone && !row.holder_user_id && !row.holder_group_id;
-            if (pending && !pendingAllowed.has(row.uid)) continue;
+            const delegated = !anyone && entry.userId !== userId;
+            if ((pending || delegated) && !issuerAllowed.has(row.uid)) {
+                continue;
+            }
             // Its liveness is the grant, not a holder's reach.
             if (anyone) {
                 // Silent while the plan is lapsed, so not listed either.
@@ -2109,13 +2176,7 @@ export class ShareService extends PuterService {
         return {
             items,
             ...(page.cursor ? { cursor: page.cursor } : {}),
-            ...(opts.includeTotal
-                ? {
-                      total: await this.stores.share.countOutbound(userId, {
-                          appUid: scope.appUid,
-                      }),
-                  }
-                : {}),
+            ...(totalLookup ? { total: await totalLookup } : {}),
         };
     }
 
@@ -2223,15 +2284,19 @@ export class ShareService extends PuterService {
         if (row.anyone) {
             await this.#assertCanManage(actor, entry);
             this.#assertOwnsLinkShare(actor, entry, userId);
-            const removed = await this.stores.share.deleteAnyone(entry.id);
+            const removed = await this.stores.share.deleteAnyone(
+                entry.id,
+                entry.uuid,
+            );
             return { revoked: removed ? 1 : 0 };
         }
 
         // Not an invite: deleting the row alone leaves every member's access.
         if (row.holder_group_id) {
-            const team = await this.stores.team.getByIdIncludingDeleted(
-                Number(row.holder_group_id),
-            );
+            const team =
+                (await this.stores.team?.getByIdIncludingDeleted(
+                    Number(row.holder_group_id),
+                )) ?? null;
             if (!team) throw notFound();
             await this.#assertCanManage(actor, entry);
             return this.#unshareTeam(
@@ -2289,13 +2354,19 @@ export class ShareService extends PuterService {
     }> {
         const userId = this.#requireUserId(actor);
 
+        // A key-value share's grant names its owner and prefix, which its
+        // holder is never told, so only the owner sees those rows.
+        const ownedRoots = {
+            roots: KV_SHARE_ACCESS_LEVELS.map(kvShareRoot),
+            ownerUuid: actor.user.uuid ?? '',
+        };
         let filter: UserUserAuditFilter;
         if (target.uid || target.path) {
             const entry = await this.#resolveEntry(target, actor);
             await this.#assertCanManage(actor, entry);
-            filter = { permissions: entryPermissions(entry.uuid) };
+            filter = { permissions: entryPermissions(entry.uuid), ownedRoots };
         } else {
-            filter = { issuerUserId: userId };
+            filter = { issuerUserId: userId, ownedRoots };
         }
 
         const page = await this.stores.permission.listUserUserAudit(filter, {
@@ -2505,7 +2576,7 @@ export class ShareService extends PuterService {
         // The team itself, so whoever manages the node can see it is shared
         // with one and take it back from here.
         const liveGroup = await this.#liveGroupGrants(groupRows, nodeById);
-        const teamsById = await this.stores.team.getByIdsIncludingDeleted(
+        const teamsById = await this.#teamsByIds(
             groupRows.map((row) => Number(row.holder_group_id)),
         );
         const groups: ResolvedShare[] = groupRows
@@ -2555,13 +2626,22 @@ export class ShareService extends PuterService {
         );
         if (own.length === 0) return new Map();
 
-        // A link share nobody can use must not badge the item as shared.
-        const sharedIds = await this.stores.share.getSharedFsentryIds(
+        const shared = await this.stores.share.getSharedFsentryIds(
             own.map((entry) => entry.id),
-            { includeAnyone: await this.#linkSharingCovered(actor) },
         );
+        // A link share nobody can use must not badge the item as shared, so
+        // the plan is asked only when some item's only share is a link.
+        const linkCovered = [...shared.values()].some((direct) => !direct)
+            ? await this.#linkSharingCovered(actor)
+            : false;
         return new Map(
-            own.map((entry) => [entry.uuid, sharedIds.has(entry.id)]),
+            own.map((entry) => {
+                const direct = shared.get(entry.id);
+                return [
+                    entry.uuid,
+                    direct === true || (direct === false && linkCovered),
+                ];
+            }),
         );
     }
 
@@ -2690,13 +2770,8 @@ export class ShareService extends PuterService {
      * switch is free; only a caller who cleared it pays for the pair lookup.
      */
     async #assertNotBlocked(issuer: number, holder: UserRow): Promise<void> {
-        const blocked =
-            blocksAllShares(holder) ||
-            (await this.stores.userBlock.isBlocked(holder.id, issuer));
-        if (!blocked) return;
-        throw new HttpError(403, 'recipient is not accepting shares', {
-            legacyCode: 'recipient_not_accepting_shares',
-        });
+        if (await refusesSharesFrom(this.stores.userBlock, holder, issuer))
+            throw recipientNotAcceptingShares();
     }
 
     // -- Internals ----------------------------------------------------
@@ -2764,11 +2839,11 @@ export class ShareService extends PuterService {
                 // stopped accepting shares — from this sender, or from anyone
                 // — since it was sent.
                 if (
-                    blocksAllShares(holder) ||
-                    (await this.stores.userBlock.isBlocked(
-                        holderUserId,
+                    await refusesSharesFrom(
+                        this.stores.userBlock,
+                        holder,
                         Number(row.issuer_user_id),
-                    ))
+                    )
                 ) {
                     await this.stores.share.deleteByUid(row.uid);
                     continue;
@@ -3088,7 +3163,10 @@ export class ShareService extends PuterService {
 
         let issuers: number[];
         if (onlyIssuer !== undefined) issuers = [onlyIssuer];
-        else if (actingApp) issuers = await indexedIssuers();
+        else if (actingApp)
+            issuers = (await indexedIssuers()).filter(
+                (id) => isOwner || id === issuerId,
+            );
         else if (isOwner) issuers = [...(await indexedIssuers()), issuerId];
         else issuers = [issuerId];
         // Nothing of the app's own to withdraw, so nothing downstream either.
@@ -3123,10 +3201,10 @@ export class ShareService extends PuterService {
             );
             // One walk: two members can have re-shared to each other.
             const seen = new Set<number>();
-            for (const memberId of await this.stores.team.memberIdsAmong(
+            for (const memberId of (await this.stores.team?.memberIdsAmong(
                 team.uid,
                 candidates,
-            )) {
+            )) ?? []) {
                 // Nor does what a member re-shared on `manage` held elsewhere —
                 // another person's grant, another team's, or a folder above.
                 if (
@@ -3347,18 +3425,16 @@ export class ShareService extends PuterService {
     }
 
     /**
-     * Of `rows` (unclaimed invites), the uids whose issuer still holds the
-     * authority the invite would grant. A dead invite can never become access —
-     * claiming re-authorizes — but listed it would keep publishing the entry's
-     * name and size to an issuer whose own access was revoked.
-     *
-     * The owner's invites are theirs by definition; only a delegate's cost a
-     * check, and those are rare on any page.
-     */
-    /**
      * Group rows on this page whose grant is still there. The index row and the
      * grant are separate writes, so a row can outlive what it records.
      */
+    /** Empty where the deployment has no teams, so a group grant finds none. */
+    async #teamsByIds(ids: number[]): Promise<Map<number, TeamRow>> {
+        return (
+            (await this.stores.team?.getByIdsIncludingDeleted(ids)) ?? new Map()
+        );
+    }
+
     async #liveGroupGrants(
         rows: OutboundShareRow[],
         nodeById: Map<number, FSEntry>,
@@ -3403,29 +3479,47 @@ export class ShareService extends PuterService {
         return live;
     }
 
-    async #pendingStillAuthorized(
+    /**
+     * Of `rows`, the uids whose issuer still holds the authority the row
+     * grants. A dead invite can never become access, and a delegate's dead
+     * grant is not theirs to revoke, but listed either would keep publishing
+     * the entry to an issuer whose own access was withdrawn.
+     *
+     * The owner's rows are theirs by definition; a delegate's cost one check
+     * per issuer, node and mode.
+     */
+    async #issuerStillAuthorized(
         rows: OutboundShareRow[],
         nodeById: Map<number, FSEntry>,
         users: Map<number, UserRow>,
     ): Promise<Set<string>> {
         const allowed = new Set<string>();
-        const toCheck: OutboundShareRow[] = [];
+        const toCheck = new Map<string, OutboundShareRow[]>();
         for (const row of rows) {
             const entry = nodeById.get(Number(row.fsentry_id));
             const issuer = users.get(Number(row.issuer_user_id));
             if (!entry || !issuer?.username) continue;
-            if (entry.userId === issuer.id) allowed.add(row.uid);
-            else toCheck.push(row);
+            if (entry.userId === issuer.id) {
+                allowed.add(row.uid);
+                continue;
+            }
+            const key = `${issuer.id}:${entry.id}:${row.mode}`;
+            toCheck.set(key, [...(toCheck.get(key) ?? []), row]);
         }
-        await runWithConcurrencyLimitSettled(toCheck, 8, async (row) => {
-            const entry = nodeById.get(Number(row.fsentry_id)) as FSEntry;
-            const issuer = users.get(Number(row.issuer_user_id)) as UserRow;
-            const ok = await this.services.permission.canManagePermission(
-                this.#actorFor(issuer),
-                entryPermissionForMode(entry.uuid, String(row.mode)),
-            );
-            if (ok) allowed.add(row.uid);
-        });
+        await runWithConcurrencyLimitSettled(
+            [...toCheck.values()],
+            8,
+            async (group) => {
+                const row = group[0] as OutboundShareRow;
+                const entry = nodeById.get(Number(row.fsentry_id)) as FSEntry;
+                const issuer = users.get(Number(row.issuer_user_id)) as UserRow;
+                const ok = await this.services.permission.canManagePermission(
+                    this.#actorFor(issuer),
+                    entryPermissionForMode(entry.uuid, String(row.mode)),
+                );
+                if (ok) for (const each of group) allowed.add(each.uid);
+            },
+        );
         return allowed;
     }
 
@@ -3519,9 +3613,9 @@ export class ShareService extends PuterService {
         }
 
         const team = uid
-            ? await this.stores.team.getByUid(uid)
+            ? await this.stores.team?.getByUid(uid)
             : // Filters soft-deleted, so a released handle 404s until reclaimed.
-              await this.stores.team.getByHandle(handle!);
+              await this.stores.team?.getByHandle(handle!);
         if (!team) {
             throw new HttpError(404, 'Team does not exist', {
                 legacyCode: 'team_not_found',
@@ -3569,9 +3663,8 @@ export class ShareService extends PuterService {
     async #addressOwner(email: string): Promise<UserRow | null> {
         const owner = await this.stores.user.findEmailOwner(email);
         if (!owner?.email) return owner ?? null;
-        const sameAddress =
-            owner.email.trim().toLowerCase() === email.trim().toLowerCase();
-        if (sameAddress || isProviderCanonicalized(email)) return owner;
+        if (isSameAddress(owner.email, email) || isProviderCanonicalized(email))
+            return owner;
         return null;
     }
 

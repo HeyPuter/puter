@@ -151,32 +151,42 @@ export const toOpenAIChatMessages = (
 /**
  * Moves a message's `tool_use` blocks into OpenAI `tool_calls`, in place. True
  * when this call created `tool_calls`. `canonicalId` keeps the Responses item
- * id a replayed call carries.
+ * id a replayed call carries. `preserveOrder` appends the hoisted calls in
+ * content order instead of reversed. `extraContent` keeps Gemini's
+ * `extra_content`, which other vendors may reject as an unknown field.
  */
-const hoistToolUseBlocks = (msg, { canonicalId = false } = {}) => {
+const hoistToolUseBlocks = (
+    msg,
+    { canonicalId = false, preserveOrder = false, extraContent = false } = {},
+) => {
     const content = msg.content;
-    let hoisted = false;
+    const calls = [];
     for (let i = content.length - 1; i >= 0; i--) {
         const block = content[i];
         if (block.type !== 'tool_use') continue;
-        if (!msg.tool_calls) {
-            msg.tool_calls = [];
-            hoisted = true;
-        }
-        msg.tool_calls.push({
+        calls.push({
             id: block.id,
             ...(canonicalId ? { canonical_id: block.canonical_id } : {}),
             type: 'function',
             function: {
                 name: block.name,
-                arguments: JSON.stringify(block.input),
+                // A replayed OpenAI-shaped call arrives with `input` already
+                // serialized; encoding it again sends a JSON string literal.
+                arguments:
+                    typeof block.input === 'string'
+                        ? block.input
+                        : JSON.stringify(block.input),
             },
-            ...(block.extra_content
+            ...(extraContent && block.extra_content
                 ? { extra_content: block.extra_content }
                 : {}),
         });
         content.splice(i, 1);
     }
+    if (!calls.length) return false;
+    const hoisted = !msg.tool_calls;
+    msg.tool_calls ??= [];
+    msg.tool_calls.push(...(preserveOrder ? calls.reverse() : calls));
     return hoisted;
 };
 
@@ -185,9 +195,23 @@ const hoistToolUseBlocks = (msg, { canonicalId = false } = {}) => {
  * make changes in-place.
  *
  * @param {Message[]} messages - Array of normalized messages
+ * @param {{
+ *     preserveToolCallOrder?: boolean;
+ *     keepExtraContent?: boolean;
+ *     keepAssistantContent?: boolean;
+ * }} [opts]
+ *   `preserveToolCallOrder` keeps a turn's tool calls in the order the model made
+ *   them. `keepExtraContent` keeps each tool call's `extra_content`.
  * @returns {Message[]} - Array of messages in OpenAI format
  */
-export const process_input_messages = async (messages) => {
+export const process_input_messages = async (
+    messages,
+    {
+        preserveToolCallOrder = false,
+        keepExtraContent = false,
+        keepAssistantContent = false,
+    } = {},
+) => {
     for (const msg of messages) {
         if (!msg.content) continue;
         if (typeof msg.content !== 'object') continue;
@@ -203,7 +227,18 @@ export const process_input_messages = async (messages) => {
             }
         }
 
-        if (hoistToolUseBlocks(msg)) msg.content = null;
+        if (
+            hoistToolUseBlocks(msg, {
+                preserveOrder: preserveToolCallOrder,
+                extraContent: keepExtraContent,
+            })
+        )
+            msg.content =
+                keepAssistantContent &&
+                msg.role === 'assistant' &&
+                content.length
+                    ? content
+                    : null;
 
         // coerce tool results
         // (we assume multiple tool results were already split into separate messages)
@@ -414,9 +449,6 @@ export const process_input_messages_responses_api = async (messages) => {
                     id: toolCall.canonical_id,
                     name: toolCall.function.name,
                     arguments: toolCall.function.arguments,
-                    ...(toolCall.extra_content
-                        ? { extra_content: toolCall.extra_content }
-                        : {}),
                 });
             }
             continue;
@@ -456,11 +488,22 @@ export const extractMeteredUsage = (usage) => {
  * @param {import('openai/resources/completions.mjs').CompletionUsage | undefined} usage
  */
 export const splitCachedPrompt = (usage) => {
-    const cachedTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    const details = usage?.prompt_tokens_details;
+    const cachedTokens = details?.cached_tokens ?? 0;
+    // Moonshot counts the prompt tokens it wrote to its prefix cache here;
+    // they're billed at the model's write rate, not the plain prompt rate.
+    const writeTokens =
+        typeof details?.cache_write_tokens === 'number'
+            ? details.cache_write_tokens
+            : undefined;
     return {
-        prompt_tokens: (usage?.prompt_tokens ?? 0) - cachedTokens,
+        prompt_tokens:
+            (usage?.prompt_tokens ?? 0) - cachedTokens - (writeTokens ?? 0),
         completion_tokens: usage?.completion_tokens ?? 0,
         cached_tokens: cachedTokens,
+        ...(writeTokens !== undefined
+            ? { cache_write_tokens: writeTokens }
+            : {}),
     };
 };
 
@@ -637,8 +680,9 @@ export const create_chat_stream_handler =
             }
         }
 
-        Context.get('abortSignal')?.throwIfAborted();
         if (!finish_reason && !last_usage) {
+            // Some SDKs end an aborted stream as if it were complete.
+            Context.get('upstreamSignal')?.throwIfAborted();
             throw new Error('Stream ended before completion');
         }
 
@@ -648,11 +692,15 @@ export const create_chat_stream_handler =
         // the upstream had already produced *and* skipped its billing. Leave
         // the usage undefined instead; the driver charges an estimate for a
         // stream that produced output nobody reported.
+        let usageDetails;
         const usage = last_usage
             ? usage_calculator({
                   usage: last_usage,
                   extra_content: last_extra_content,
                   setUsageCosts: (c) => chatStream.setUsageCosts(c),
+                  setUsageDetails: (d) => {
+                      usageDetails = d;
+                  },
               })
             : undefined;
         // The calculator just metered. Reported here, not only via `end`:
@@ -665,7 +713,7 @@ export const create_chat_stream_handler =
         } else if (opened_tool_blocks.length > 0) {
             chatStream.setStop({ reason: 'tool_use' });
         }
-        const usageDetails = usageDetailsFromTrackedUsage(usage);
+        usageDetails ??= usageDetailsFromTrackedUsage(usage);
         if (usageDetails) chatStream.setUsageDetails(usageDetails);
 
         if (mode === 'text') textblock.end();
@@ -806,8 +854,11 @@ export const create_chat_stream_handler_responses_api =
             }
         }
 
-        Context.get('abortSignal')?.throwIfAborted();
-        if (!completed) throw new Error('Stream ended before completion');
+        if (!completed) {
+            // Some SDKs end an aborted stream as if it were complete.
+            Context.get('upstreamSignal')?.throwIfAborted();
+            throw new Error('Stream ended before completion');
+        }
 
         // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
         // Missing usage is left undefined rather than fed to the calculator —
@@ -869,6 +920,9 @@ export const handle_completion_output = async (
      *     usage_calculator: (args: {
      *         usage: import('openai/resources/completions.mjs').CompletionUsage;
      *         setUsageCosts: (costs: Record<string, number>) => void;
+     *         setUsageDetails: (
+     *             details: import('../types.js').UsageDetails,
+     *         ) => void;
      *     }) => unknown;
      * }}
      */
@@ -907,7 +961,7 @@ export const handle_completion_output = async (
             typeof upstreamMessage === 'string' && upstreamMessage
                 ? upstreamMessage
                 : 'no completion was returned',
-            { legacyCode: 'bad_response' },
+            { legacyCode: 'bad_response', cause: completion?.error },
         );
     }
 
@@ -924,12 +978,15 @@ export const handle_completion_output = async (
               setUsageCosts: (c) => {
                   ret.usageCosts = c;
               },
+              setUsageDetails: (d) => {
+                  ret.usageDetails = d;
+              },
           })
         : {
               input_tokens: completion_usage.prompt_tokens,
               output_tokens: completion_usage.completion_tokens,
           };
-    if (usage_calculator) {
+    if (usage_calculator && ret.usageDetails === undefined) {
         const usageDetails = usageDetailsFromTrackedUsage(ret.usage);
         if (usageDetails) ret.usageDetails = usageDetails;
     }

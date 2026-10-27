@@ -33,6 +33,8 @@ import UIWindowPhoneVerificationRequired from './UI/UIWindowPhoneVerificationReq
 import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequired.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import UIWindowLogin from './UI/UIWindowLogin.js';
+import UIWindowLogin2FA from './UI/UIWindowLogin2FA.js';
+import { takeOidcLoginChallenge } from './helpers/authRedirect.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
@@ -85,7 +87,13 @@ import { ThemeService } from './services/ThemeService.js';
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
-import { deliversTokenAtBoot, relationshipIsConsent, runsUserAppTokenExchange } from './util/popupAuth.js';
+import {
+    deliversTokenAtBoot,
+    relationshipIsConsent,
+    relaysTokenAtBoot,
+    resolveOpenerOrigin,
+    runsUserAppTokenExchange,
+} from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
 /**
@@ -237,6 +245,20 @@ const postAuthActions = async (action) => {
     // Dashboard mode
     // -------------------------------------------------------------------------------------
     else if ( window.is_dashboard_mode ) {
+        // Paint in the language this browser last loaded, so the dashboard
+        // doesn't wait on the saved preferences; a different saved language
+        // reloads into it.
+        window.locale = window.resolve_language(window.user_preferences.language);
+        const painted_language = window.locale;
+        const painted_hidden = !! window.user_preferences.show_hidden_files;
+        window.load_user_preferences().then(() => {
+            if ( window.locale !== painted_language ) {
+                location.reload();
+            } else if ( !! window.user_preferences.show_hidden_files !== painted_hidden
+                && window.dashboard_object?.currentPath ) {
+                window.dashboard_object.renderDirectory(window.dashboard_object.currentPath);
+            }
+        });
         const el_dashboard_promise = UIDashboard();
         // Direct landing on /app/<name>: open the app in the dashboard the
         // same way a tile launch does. The dashboard's route is slotted
@@ -319,6 +341,7 @@ const postAuthActions = async (action) => {
                     // No dashboard window — no intro; still launch.
                 }
                 const app_obj = await app_info_promise;
+                let launched = false;
                 launch_app({
                     name: app_name,
                     maximized: true,
@@ -332,10 +355,12 @@ const postAuthActions = async (action) => {
                         },
                     } : {}),
                     window_options: { morph_from_dashboard_tile: true },
+                }).then((outcome) => {
+                    launched = outcome?.launchResult?.launched !== false;
                 }).catch((err) => {
                     console.error(`Failed to launch ${app_name} from URL:`, err);
                 }).finally(() => {
-                    TabApps.settleDeepLinkLaunch(app_name, tile);
+                    TabApps.settleDeepLinkLaunch(app_name, tile, launched);
                 });
             })();
         }
@@ -351,8 +376,10 @@ const postAuthActions = async (action) => {
         // rule as the postMessage hand-off below — otherwise adding one query
         // parameter to a `request-permission` URL turns the permission prompt
         // into a token grant, and skips the prompt entirely.
-        let isolated = window.url_query_params.get("cross_origin_isolated") === 'true'
-            && deliversTokenAtBoot(action);
+        let isolated = relaysTokenAtBoot(
+            action,
+            window.url_query_params.get('cross_origin_isolated') === 'true',
+        );
         let session = window.url_query_params.get('signin_session');
 
         // Signing the opener in is something the user has to have asked for.
@@ -527,6 +554,15 @@ const postAuthActions = async (action) => {
         };
         window.deliverPopupTokenToOpener = deliver_token_with_answer;
 
+        // The Cancel button closes the popup before on_close runs, so pickers
+        // report through onDialogCancel too. Escape only reaches on_close.
+        const tell_opener_cancelled = (msg) => {
+            window.opener?.postMessage({
+                msg,
+                original_msg_id: msg_id,
+            }, '*');
+        };
+
         if ( action === 'show-open-file-picker' ) {
             let options = window.url_query_params.get('options');
             options = JSON.parse(options ?? '{}');
@@ -550,12 +586,8 @@ const postAuthActions = async (action) => {
                 iframe_msg_uid: msg_id,
                 center: true,
                 initiating_app_uuid: app_uid,
-                on_close: function () {
-                    window.opener.postMessage({
-                        msg: 'fileOpenCanceled',
-                        original_msg_id: msg_id,
-                    }, '*');
-                },
+                onDialogCancel: () => tell_opener_cancelled('fileOpenCancelled'),
+                on_close: () => tell_opener_cancelled('fileOpenCancelled'),
             });
         }
         //--------------------------------------------------------------------------------------
@@ -580,12 +612,8 @@ const postAuthActions = async (action) => {
                 iframe_msg_uid: msg_id,
                 center: true,
                 initiating_app_uuid: app_uid,
-                on_close: function () {
-                    window.opener.postMessage({
-                        msg: 'directoryOpenCanceled',
-                        original_msg_id: msg_id,
-                    }, '*');
-                },
+                onDialogCancel: () => tell_opener_cancelled('directoryOpenCancelled'),
+                on_close: () => tell_opener_cancelled('directoryOpenCancelled'),
             });
         }
         //--------------------------------------------------------------------------------------
@@ -624,12 +652,8 @@ const postAuthActions = async (action) => {
                     iframe_msg_uid: msg_id,
                     center: true,
                     initiating_app_uuid: app_uid,
-                        on_close: function () {
-                        window.opener.postMessage({
-                            msg: 'fileSaveCanceled',
-                            original_msg_id: msg_id,
-                        }, '*');
-                    },
+                    onDialogCancel: () => tell_opener_cancelled('fileSaveCancelled'),
+                    on_close: () => tell_opener_cancelled('fileSaveCancelled'),
                     onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
                         $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
                         let busy_init_ts = Date.now();
@@ -1261,6 +1285,7 @@ window.showTurnstileChallenge = function (options) {
 };
 
 window.initgui = async function (options) {
+    const oidcChallenge = takeOidcLoginChallenge();
     const url = new URL(window.location).href;
     window.url = url;
     // Route segments with a leading `/desktop` dropped, so the route checks
@@ -1355,7 +1380,7 @@ window.initgui = async function (options) {
     // Appends a viewport meta tag to the head of the document, ensuring optimal display on mobile devices.
     // This tag sets the width of the viewport to the device width, and locks the zoom level to 1 (prevents user scaling).
     $('head').append(
-        '<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">',
     );
 
     // will hold the result of the whoami API call
@@ -1378,6 +1403,20 @@ window.initgui = async function (options) {
     // federated sign-in hop that would navigate the popup away and lose the
     // action. See util/popupAuth.js.
     window.gui_action = action;
+
+    if (action === 'oidc-2fa') {
+        const result = oidcChallenge?.token && await UIWindowLogin2FA(oidcChallenge.token);
+        if (result?.redirectUrl) {
+            const target = new URL(result.redirectUrl, window.location.origin);
+            if (target.origin === window.location.origin) {
+                await window.update_auth_data(result.token, result.user);
+                window.location.replace(target.href);
+                return;
+            }
+        }
+        window.location.replace(oidcChallenge?.retryUrl || '/action/login');
+        return;
+    }
 
     //--------------------------------------------------------------------------------------
     // Determine if we are in full-page mode
@@ -1487,14 +1526,19 @@ window.initgui = async function (options) {
             window.url_query_params.get('msg_id'),
             action,
         );
-        window.openerOrigin =
-            window.oidcPopupReturn?.opener_origin || document.referrer;
-        if (!window.openerOrigin) {
-            try {
-                window.openerOrigin = await requestOpenerOrigin();
-            } catch (e) {
-                throw new Error('No referrer found');
-            }
+        try {
+            window.openerOrigin = await resolveOpenerOrigin({
+                relaysToken: relaysTokenAtBoot(
+                    action,
+                    window.url_query_params.get('cross_origin_isolated') ===
+                        'true',
+                ),
+                oidcOpenerOrigin: window.oidcPopupReturn?.opener_origin,
+                referrer: document.referrer,
+                askOpener: requestOpenerOrigin,
+            });
+        } catch (e) {
+            throw new Error('No referrer found');
         }
 
         // Everything below needs an origin to identify the opener by.

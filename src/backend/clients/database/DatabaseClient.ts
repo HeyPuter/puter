@@ -28,6 +28,12 @@ export interface WriteResult {
     insertId: number | bigint;
     affectedRows: number;
     anyRowsAffected: boolean;
+    /**
+     * Warnings the statement raised; nonzero means a value may have been stored
+     * differently from how it was sent. Absent when the engine can't vouch that
+     * a clean insert stored exactly what was sent, on a fresh id.
+     */
+    warningStatus?: number;
 }
 
 export interface BatchEntry {
@@ -132,25 +138,27 @@ export class AbstractDatabaseClient extends PuterClient {
 
     /**
      * Like `read()`, but an empty or failed replica read falls back to the
-     * primary, so replication lag can't hide a row that was just written. The
-     * primary read starts alongside the replica one rather than after it.
-     * Without a replica this is a single `read()`.
+     * primary, so replication lag can't hide a row that was just written. By
+     * default the primary read starts alongside the replica one; `race: false`
+     * reads the primary only after the replica returns empty or fails. Without
+     * a replica this is a single `read()`.
      */
     @Span('db.tryHardRead', (query: string) => ({ 'db.statement': query }))
     async tryHardRead(
         query: string,
         params: unknown[] = [],
+        { race = true }: { race?: boolean } = {},
     ): Promise<Record<string, unknown>[]> {
         if (!this.hasReadReplica()) return this.read(query, params);
 
-        const primary = settle(this.pread(query, params));
+        const primary = race ? settle(this.pread(query, params)) : null;
         try {
             const rows = await this.replicaRead(query, params);
             if (rows.length > 0) return rows;
         } catch {
             // replica failed — fall through to primary
         }
-        const result = await primary;
+        const result = await (primary ?? settle(this.pread(query, params)));
         if ('error' in result) throw result.error;
         return result.value;
     }
@@ -328,6 +336,30 @@ export class AbstractDatabaseClient extends PuterClient {
                 .join(', ')}]`,
             otherwise: `JSON_UNQUOTE(JSON_EXTRACT(${jsonExpression}, ${this.sqlStringLiteral(sqlitePath)}))`,
         });
+    }
+
+    /**
+     * Whole `periodSeconds` buckets since the epoch, from a unix-seconds
+     * column. MySQL's `/` yields a decimal, which would split a bucket.
+     */
+    periodBucket(secondsExpression: string, periodSeconds: number): string {
+        return this.case({
+            mysql: `(${secondsExpression} DIV ${periodSeconds})`,
+            otherwise: `(${secondsExpression} / ${periodSeconds})`,
+        });
+    }
+
+    /**
+     * Counts each (`userExpression`, bucket) pair once. `COUNT(DISTINCT a, b)`
+     * is MySQL-only, so the pair folds into one number — injective while the
+     * bucket stays under the multiplier, which hourly reaches in the 2980s.
+     */
+    countDistinctUserPeriods(
+        userExpression: string,
+        secondsExpression: string,
+        periodSeconds: number,
+    ): string {
+        return `COUNT(DISTINCT ${userExpression} * 10000000 + ${this.periodBucket(secondsExpression, periodSeconds)})`;
     }
 
     nullCoalesce(...expressions: readonly string[]): string {

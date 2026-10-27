@@ -25,6 +25,7 @@ const quietLogger = () => {
 
 const makePuter = () => ({
     env: 'app',
+    defaultGUIOrigin: 'https://puter.com',
     authToken: 'token-1',
     APIOrigin: 'https://api.test',
     appID: 'app-1',
@@ -73,11 +74,23 @@ describe('AppConnection', () => {
 
     const fromChild = (data) => ({
         source: parentWindow,
+        origin: 'https://puter.com',
         data: {
             appInstanceID: 'child-1',
             targetAppInstanceID: 'instance-1',
             ...data,
         },
+    });
+
+    it('ignores connection messages from the parent at another origin', async () => {
+        const conn = connect();
+        const onMessage = vi.fn();
+        conn.on('message', onMessage);
+        await deliver({
+            ...fromChild({ msg: 'messageToApp', contents: 'forged' }),
+            origin: 'https://other.test',
+        });
+        expect(onMessage).not.toHaveBeenCalled();
     });
 
     it('stops listening once the target app closes', async () => {
@@ -121,6 +134,35 @@ describe('AppConnection', () => {
 });
 
 describe('host replies (env: app)', () => {
+    it('rejects launchApp when the desktop replies with a handler error', async () => {
+        const ui = makeUI();
+        const result = ui.launchApp('missing-app');
+        const rejection = expect(result).rejects.toMatchObject({
+            code: 'ipc_handler_failed',
+        });
+        await vi.waitFor(() => expect(parentPostMessage).toHaveBeenCalled());
+        const { uuid } = parentPostMessage.mock.calls.at(-1)[0];
+        await deliver({
+            source: parentWindow,
+            origin: 'https://puter.com',
+            data: {
+                $SCOPE,
+                id: uuid,
+                args: [
+                    {
+                        $: 'puter-ipc-error',
+                        error: {
+                            code: 'ipc_handler_failed',
+                            message: 'The request could not be completed.',
+                        },
+                    },
+                ],
+            },
+        });
+        await rejection;
+        expect(ui.util.rpc.callbackManager.callbacks.size).toBe(0);
+    });
+
     it('frees an IPC reply callback once the reply arrives', async () => {
         const ui = makeUI();
         const { callbackManager } = ui.util.rpc;
@@ -133,6 +175,14 @@ describe('host replies (env: app)', () => {
 
         await deliver({
             source: parentWindow,
+            origin: 'https://other.test',
+            data: { $SCOPE, id: uuid, args: [{ wasOpen: false }] },
+        });
+        expect(callbackManager.callbacks.size).toBe(before + 1);
+
+        await deliver({
+            source: parentWindow,
+            origin: 'https://puter.com',
             data: { $SCOPE, id: uuid, args: [{ wasOpen: true }] },
         });
 
@@ -156,10 +206,12 @@ describe('host replies (env: app)', () => {
 
         await deliver({
             source: parentWindow,
+            origin: 'https://puter.com',
             data: { msg, original_msg_id: uuid, ...fields },
         });
         await deliver({
             source: parentWindow,
+            origin: 'https://puter.com',
             data: {
                 msg: 'broadcast',
                 name: 'localeChanged',
@@ -179,6 +231,7 @@ describe('host replies (env: app)', () => {
         await expect(
             deliver({
                 source: parentWindow,
+                origin: 'https://puter.com',
                 data: { msg: 'error', original_msg_id: 1, error: failure },
             }),
         ).resolves.toBeUndefined();
@@ -194,9 +247,47 @@ describe('host replies (env: app)', () => {
         await expect(
             deliver({
                 source: parentWindow,
+                origin: 'https://puter.com',
                 data: { msg: 'itemsOpened', msg_id: 1 },
             }),
         ).resolves.toBeUndefined();
         expect(error).toHaveBeenCalled();
+    });
+});
+
+describe('launch items', () => {
+    const launchSearch = (extra = '') =>
+        '?puter.item.name=docs&puter.item.uid=uid-1&puter.item.path=%2Fu%2Fdocs'
+        + `&puter.item.read_url=${encodeURIComponent('https://api.test/file?uid=uid-1')}${extra}`;
+
+    it('marks a launched folder as a directory', () => {
+        vi.stubGlobal('location', { search: launchSearch('&puter.item.is_dir=true') });
+        const launched = vi.fn();
+        const opened = vi.fn();
+        const ui = makeUI();
+        ui.onLaunchedWithItems(launched);
+        ui.onItemsOpened(opened);
+
+        for ( const callback of [launched, opened] ) {
+            const [[item]] = callback.mock.calls[0];
+            expect(item.name).toBe('docs');
+            expect(item.isDirectory).toBe(true);
+        }
+    });
+
+    it('treats a launched item without the flag as a file', () => {
+        vi.stubGlobal('location', { search: launchSearch() });
+        const launched = vi.fn();
+        makeUI().onLaunchedWithItems(launched);
+
+        expect(launched.mock.calls[0][0][0].isDirectory).toBe(false);
+    });
+
+    it('calls back with nothing when the app was not launched with an item', () => {
+        vi.stubGlobal('location', { search: '' });
+        const launched = vi.fn();
+        makeUI().onLaunchedWithItems(launched);
+
+        expect(launched).not.toHaveBeenCalled();
     });
 });

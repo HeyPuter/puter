@@ -19,23 +19,35 @@
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
-import { addonCreditsRemaining, usageBudget } from './usageBudget.js';
+import { addonCreditsRemaining, meterPercent, monthlyUsageOrThrow, usageBudget } from './usageBudget.js';
+import { getMonthlyUsage, getStorageSpace } from './usageRequests.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
+import { filterLaunchableApps } from '../../helpers/launchAppsList.js';
 import { isOrgSeat, orgSeatTeamName } from './orgSeat.js';
+import { intlLocale } from '../../i18n/intlLocale.js';
 
 // How long a completed usage load stays fresh enough to skip a repeat. Long
 // enough to absorb the init/onActivate/routing burst on a single dashboard
 // open, short enough that a user watching the panel still sees movement.
 const USAGE_REFRESH_DEBOUNCE_MS = 5_000;
 
+// How long the plan card waits for the subscription read before giving up.
+const PLAN_REQUEST_TIMEOUT_MS = 15_000;
+
+// Whether "Recently used" has its list: until the first answer it says
+// nothing, rather than "No recent apps yet", and a failed first load says so.
+let recentAppsState = 'loading';
+
 function buildRecentAppsHTML() {
     let h = '';
 
-    if (window.launch_apps?.recent?.length > 0) {
+    // Show up to 6 recent apps (2 columns x 3 rows); drop entries the backend
+    // marks unlaunchable so a deleted or reclaimed app leaves the panel.
+    const recentApps = filterLaunchableApps(window.launch_apps?.recent).slice(0, 6);
+
+    if (recentApps.length > 0) {
         h += '<div class="bento-recent-apps-grid">';
 
-        // Show up to 6 recent apps (2 columns x 3 rows)
-        const recentApps = window.launch_apps.recent.slice(0, 6);
         for (const app_info of recentApps) {
             // External apps (not owned by a Puter user) can report an opaque
             // app-… id as their title (uid === name === title); in that case show
@@ -50,14 +62,16 @@ function buildRecentAppsHTML() {
                 app_info.target_link = app_info.index_url;
             }
 
-            h += `<div class="bento-recent-app" data-app-name="${html_encode(app_info.name)}" data-target-link="${html_encode(app_info.target_link)}">`;
-            // Icon
-            h += `<img class="bento-recent-app-icon" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
+            h += `<button type="button" class="bento-recent-app" data-app-name="${html_encode(app_info.name)}" data-target-link="${html_encode(app_info.target_link)}">`;
+            // Icon (the title names the button)
+            h += `<img class="bento-recent-app-icon" alt="" ${appIconAttrs(app_info, window.icons['app.svg'])}>`;
             // Title
             h += `<span class="bento-recent-app-title">${html_encode(app_info.title)}</span>`;
-            h += '</div>';
+            h += '</button>';
         }
         h += '</div>';
+    } else if (recentAppsState === 'loading') {
+        h += '<div class="bento-recent-apps-empty" aria-busy="true"></div>';
     } else {
         h += '<div class="bento-recent-apps-empty">';
         h +=
@@ -67,8 +81,12 @@ function buildRecentAppsHTML() {
         h +=
             '<rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>';
         h += '</svg>';
-        h += '<p>No recent apps yet</p>';
-        h += '<span>Apps you use will appear here</span>';
+        if (recentAppsState === 'failed') {
+            h += `<p>${i18n('apps_load_failed')}</p>`;
+        } else {
+            h += `<p>${i18n('no_recent_apps')}</p>`;
+            h += `<span>${i18n('no_recent_apps_hint')}</span>`;
+        }
         h += '</div>';
     }
 
@@ -83,7 +101,7 @@ function buildUsageHTML() {
     h +=
         '<div class="bento-usage-section bento-usage-card bento-plan-section">';
     h +=
-        '<a href="#" class="bento-usage-card-header bento-plan-header" data-target-tab="usage">';
+        '<a href="#usage" class="bento-usage-card-header bento-plan-header" data-target-tab="usage">';
     h += `<h3>${i18n('your_plan')}</h3>`;
     h += '<span class="bento-usage-card-arrow">›</span>';
     h += '</a>';
@@ -95,13 +113,13 @@ function buildUsageHTML() {
     h += '<div class="bento-plan-warning" style="display: none;"></div>';
     h += '<div class="bento-plan-note" style="display: none;"></div>';
     h +=
-        '<a href="#" class="bento-plan-upgrade" style="display: none;">Upgrade →</a>';
+        `<a href="#" class="bento-plan-upgrade" style="display: none;">${i18n('plan_upgrade_link')}</a>`;
     h += '</div>';
 
     // Storage section
     h += '<div class="bento-usage-section bento-usage-card">';
-    h += '<a href="#" class="bento-usage-card-header" data-target-tab="usage">';
-    h += `<h3>Your ${i18n('Storage')}</h3>`;
+    h += '<a href="#usage" class="bento-usage-card-header" data-target-tab="usage">';
+    h += `<h3>${i18n('your_storage')}</h3>`;
     h += '<span class="bento-usage-card-arrow">›</span>';
     h += '</a>';
     h += '<div class="bento-usage-card-bar-wrapper">';
@@ -109,16 +127,19 @@ function buildUsageHTML() {
     h += '</div>';
     h += '<div class="bento-usage-card-info">';
     h +=
-        '<span class="bento-usage-card-used bento-storage-used">-- Used</span>';
+        `<span class="bento-usage-card-used bento-storage-used">${i18n('amount_used', { amount: '--' })}</span>`;
     h +=
-        '<span class="bento-usage-card-details"><span class="bento-storage-percent">--%</span> of <span class="bento-storage-capacity">--</span></span>';
+        `<span class="bento-usage-card-details">${i18n('usage_percent_of_capacity', {
+            percent: '<span class="bento-storage-percent">--%</span>',
+            capacity: '<span class="bento-storage-capacity">--</span>',
+        }, false)}</span>`;
     h += '</div>';
     h += '</div>';
 
     // Resources section
     h += '<div class="bento-usage-section bento-usage-card">';
-    h += '<a href="#" class="bento-usage-card-header" data-target-tab="usage">';
-    h += `<h3>Your ${i18n('Resources')}</h3>`;
+    h += '<a href="#usage" class="bento-usage-card-header" data-target-tab="usage">';
+    h += `<h3>${i18n('your_resources')}</h3>`;
     h += '<span class="bento-usage-card-arrow">›</span>';
     h += '</a>';
     h += '<div class="bento-usage-card-bar-wrapper">';
@@ -126,9 +147,12 @@ function buildUsageHTML() {
     h += '</div>';
     h += '<div class="bento-usage-card-info">';
     h +=
-        '<span class="bento-usage-card-used bento-resources-used">-- Used</span>';
+        `<span class="bento-usage-card-used bento-resources-used">${i18n('amount_used', { amount: '--' })}</span>`;
     h +=
-        '<span class="bento-usage-card-details"><span class="bento-resources-percent">--%</span> of <span class="bento-resources-capacity">--</span></span>';
+        `<span class="bento-usage-card-details">${i18n('usage_percent_of_capacity', {
+            percent: '<span class="bento-resources-percent">--%</span>',
+            capacity: '<span class="bento-resources-capacity">--</span>',
+        }, false)}</span>`;
     h +=
         '<span class="bento-usage-card-details bento-resources-addon" style="display: none;"></span>';
     h += '</div>';
@@ -153,12 +177,14 @@ function formatTrialEnd(trialEndsAt) {
         0,
         Math.ceil((date.getTime() - Date.now()) / 86400000),
     );
+    // In the dashboard's language, which the sentences around it are in.
+    const locale = intlLocale(window.locale);
     return {
-        short: date.toLocaleDateString(undefined, {
+        short: date.toLocaleDateString(locale, {
             month: 'short',
             day: 'numeric',
         }),
-        long: date.toLocaleDateString(undefined, {
+        long: date.toLocaleDateString(locale, {
             year: 'numeric',
             month: 'long',
             day: 'numeric',
@@ -166,10 +192,10 @@ function formatTrialEnd(trialEndsAt) {
         days,
         countdown:
             days === 0
-                ? 'ends today'
+                ? i18n('trial_ends_today', [], false)
                 : days === 1
-                  ? '1 day left'
-                  : `${days} days left`,
+                  ? i18n('trial_one_day_left', [], false)
+                  : i18n('trial_days_left', { days }, false),
     };
 }
 
@@ -177,18 +203,23 @@ function formatTrialEnd(trialEndsAt) {
 // Null when the trial gets the plan's full usage.
 function trialUsageNote(fraction, planName) {
     if (!(fraction > 0 && fraction < 1)) return null;
-    const share = fraction === 0.5 ? 'half' : `${Math.round(fraction * 100)}%`;
+    const share =
+        fraction === 0.5
+            ? i18n('trial_usage_half', [], false)
+            : `${Math.round(fraction * 100)}%`;
     const multiple = Math.round((1 / fraction) * 10) / 10;
-    return `Trial includes ${share} of ${planName}'s usage; the paid plan gives you ${multiple}×.`;
+    return i18n('trial_usage_note', { share, plan: planName, multiple }, false);
 }
 
 const TabHome = {
     id: 'home',
-    label: 'Home',
+    get label () {
+        return i18n('home');
+    },
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
 
     html() {
-        const username = window.user?.username || 'User';
+        const username = window.user?.username || i18n('user', [], false);
         const profilePicture =
             window.user?.profile?.picture || window.icons['profile.svg'];
 
@@ -219,17 +250,17 @@ const TabHome = {
         // Recent apps card (rectangle)
         h += '<div class="bento-card bento-recent">';
         h +=
-            '<a href="#" class="bento-card-fancy-header" data-target-tab="apps">';
+            '<a href="#apps" class="bento-card-fancy-header" data-target-tab="apps">';
         h += '<div class="bento-card-fancy-icon bento-card-fancy-icon-apps">';
         h +=
             '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>';
         h += '</div>';
         h += '<div class="bento-card-fancy-text">';
-        h += '<h2>Apps</h2>';
+        h += `<h2>${i18n('apps')}</h2>`;
         h += '<span class="bento-card-fancy-subtitle">';
         h +=
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
-        h += 'Recently used';
+        h += i18n('recently_used');
         h += '</span>';
         h += '</div>';
         h += '</a>';
@@ -241,7 +272,7 @@ const TabHome = {
         // Usage card (spans full width on second row)
         h += '<div class="bento-card bento-usage">';
         h +=
-            '<a href="#" class="bento-card-fancy-header" data-target-tab="usage">';
+            '<a href="#usage" class="bento-card-fancy-header" data-target-tab="usage">';
         h += '<div class="bento-card-fancy-icon bento-card-fancy-icon-usage">';
         h +=
             '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 4a.5.5 0 0 1 .5.5V6a.5.5 0 0 1-1 0V4.5A.5.5 0 0 1 8 4M3.732 5.732a.5.5 0 0 1 .707 0l.915.914a.5.5 0 1 1-.708.708l-.914-.915a.5.5 0 0 1 0-.707M2 10a.5.5 0 0 1 .5-.5h1.586a.5.5 0 0 1 0 1H2.5A.5.5 0 0 1 2 10m9.5 0a.5.5 0 0 1 .5-.5h1.5a.5.5 0 0 1 0 1H12a.5.5 0 0 1-.5-.5m.754-4.246a.39.39 0 0 0-.527-.02L7.547 9.31a.91.91 0 1 0 1.302 1.258l3.434-4.297a.39.39 0 0 0-.029-.518z"/><path fill-rule="evenodd" d="M0 10a8 8 0 1 1 15.547 2.661c-.442 1.253-1.845 1.602-2.932 1.25C11.309 13.488 9.475 13 8 13c-1.474 0-3.31.488-4.615.911-1.087.352-2.49.003-2.932-1.25A8 8 0 0 1 0 10m8-7a7 7 0 0 0-6.603 9.329c.203.575.923.876 1.68.63C4.397 12.533 6.358 12 8 12s3.604.532 4.923.96c.757.245 1.477-.056 1.68-.631A7 7 0 0 0 8 3"/></svg>';
@@ -251,7 +282,7 @@ const TabHome = {
         h += '<span class="bento-card-fancy-subtitle">';
         h +=
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>';
-        h += 'Monthly overview';
+        h += i18n('monthly_overview');
         h += '</span>';
         h += '</div>';
         h += '</a>';
@@ -273,7 +304,7 @@ const TabHome = {
         h += '<span class="bento-card-fancy-subtitle">';
         h +=
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>';
-        h += 'Switch to the desktop interface';
+        h += i18n('open_desktop_hint');
         h += '</span>';
         h += '</div>';
         h += '<span class="bento-desktop-arrow">›</span>';
@@ -295,7 +326,11 @@ const TabHome = {
         // Deliberate refreshes (subscription changed, returning from the
         // billing portal) must bypass the freshness window — they exist to
         // replace state we already know is stale.
-        const refresh = () => this.loadUsageData($el_window, { force: true });
+        // Recently used too: an app opened in another browser tab moves up it.
+        const refresh = () => {
+            this.loadUsageData($el_window, { force: true });
+            this.loadRecentApps($el_window);
+        };
         const refreshAndBroadcast = async () => {
             // Pull fresh whoami, then broadcast. The dispatched event is handled
             // by the `refresh` listener below, so we don't call refresh() here —
@@ -332,18 +367,33 @@ const TabHome = {
                 scheduleRefreshAndBroadcast();
         };
         document.addEventListener('visibilitychange', onVisibility);
-        window.addEventListener('focus', scheduleRefreshAndBroadcast);
+        // `focus` also fires whenever focus comes back from an app's iframe,
+        // which never left Puter; only a return from another window counts.
+        let leftPage = false;
+        window.addEventListener('blur', () => {
+            setTimeout(() => {
+                leftPage = !document.hasFocus();
+            }, 0);
+        });
+        window.addEventListener('focus', () => {
+            if (!leftPage) return;
+            leftPage = false;
+            scheduleRefreshAndBroadcast();
+        });
 
         // Handle app clicks
         $el_window.on('click', '.bento-recent-app', function (e) {
             e.preventDefault();
             e.stopPropagation();
+            // The first click of a double-click already opened the app; the
+            // second would open another tab of it, as an Apps tile won't.
+            if ((e.detail ?? 0) > 1) return;
             const appName = $(this).attr('data-app-name');
             const targetLink = $(this).attr('data-target-link');
             if (targetLink && targetLink !== '') {
                 window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if (appName) {
-                window.open(`/app/${appName}`, '_blank', 'noopener,noreferrer');
+                window.open(`/app/${encodeURIComponent(appName)}`, '_blank', 'noopener,noreferrer');
             }
         });
 
@@ -352,6 +402,9 @@ const TabHome = {
             'click',
             '.bento-view-more, .bento-usage-card-header, .bento-card-fancy-header[data-target-tab]',
             function (e) {
+                // A modified click opens the tab in a new browser tab, natively,
+                // as on the sidebar.
+                if (e.metaKey || e.ctrlKey || e.shiftKey) return;
                 e.preventDefault();
                 const targetTab = $(this).attr('data-target-tab');
                 if (targetTab) {
@@ -369,7 +422,10 @@ const TabHome = {
         $el_window.on('click', '.bento-save-account-warning', function (e) {
             e.preventDefault();
             e.stopPropagation();
+            // As from the user menu: the temporary username comes prefilled.
             UIWindowSaveAccount({
+                send_confirmation_code: false,
+                default_username: window.user.username,
                 window_options: {
                     backdrop: true,
                     close_on_backdrop_click: true,
@@ -389,21 +445,36 @@ const TabHome = {
 
     async loadRecentApps($el_window) {
         // Always refetch: gating on an empty list froze "Recently used" for the
-        // whole session (apps launched after load never appeared). loadUsageData
-        // refreshes on the same activate/focus triggers, so this stays in step.
+        // whole session (apps launched after load never appeared). It refreshes
+        // on the same activate/focus triggers as loadUsageData.
+        // Only the newest request may write: an older one answering last
+        // would put a stale list back.
+        const seq = (this._recentAppsSeq = (this._recentAppsSeq ?? 0) + 1);
+        const request = $.ajax({
+            url: `${window.api_origin}/get-launch-apps?icon_size=64`,
+            type: 'GET',
+            async: true,
+            contentType: 'application/json',
+            headers: {
+                Authorization: `Bearer ${window.auth_token}`,
+            },
+        });
+        // The Apps tab joins this at dashboard open instead of sending its own.
+        window.launch_apps_request = request;
         try {
-            window.launch_apps = await $.ajax({
-                url: `${window.api_origin}/get-launch-apps?icon_size=64`,
-                type: 'GET',
-                async: true,
-                contentType: 'application/json',
-                headers: {
-                    Authorization: `Bearer ${window.auth_token}`,
-                },
-            });
+            const launchApps = await request;
+            if (seq !== this._recentAppsSeq) return;
+            window.launch_apps = launchApps;
+            recentAppsState = 'loaded';
         } catch (e) {
             console.error('Failed to load launch apps:', e);
+            // A list already shown stays; it is only out of date.
+            if (recentAppsState === 'loading') recentAppsState = 'failed';
+        } finally {
+            if (window.launch_apps_request === request)
+                window.launch_apps_request = null;
         }
+        if (seq !== this._recentAppsSeq) return;
         $el_window
             .find('.bento-recent-apps-container')
             .html(buildRecentAppsHTML());
@@ -420,7 +491,18 @@ const TabHome = {
     // precisely to pull new state (subscription change, returning from the
     // billing portal) — those must never be served a cached decision.
     async loadUsageData($el_window, { force = false } = {}) {
-        if (this._usageLoadInFlight) return this._usageLoadInFlight;
+        if (this._usageLoadInFlight) {
+            if (!force) return this._usageLoadInFlight;
+            // The running load may have read the state before the change
+            // that forced this one, so run once more after it.
+            this._usageForcedReload ??= this._usageLoadInFlight
+                .catch(() => {})
+                .then(() => {
+                    this._usageForcedReload = null;
+                    return this.loadUsageData($el_window, { force: true });
+                });
+            return this._usageForcedReload;
+        }
         if (
             !force &&
             this._usageLoadedAt &&
@@ -445,14 +527,24 @@ const TabHome = {
      */
     async _renderPlanCard($el_window) {
         let subscription = null;
+        // A self-hosted install has no billing routes; its users have the
+        // plan every account starts on, with nothing to upgrade to (no
+        // upgrade dialog either, which only hosted Puter loads).
+        let noBilling = false;
         try {
+            // fetch has no timeout of its own; one that never answers would
+            // hold every later refresh of the cards behind it.
             const resp = await fetch(
                 `${window.api_origin}/marketplace/subscriptions/current`,
-                { headers: { Authorization: `Bearer ${puter.authToken}` } },
+                {
+                    headers: { Authorization: `Bearer ${puter.authToken}` },
+                    signal: AbortSignal.timeout?.(PLAN_REQUEST_TIMEOUT_MS),
+                },
             );
+            noBilling = resp.status === 404;
             // A refusal is not a free plan: a seat owing a password change 403s.
-            if (!resp.ok) return;
-            const data = await resp.json();
+            if (!resp.ok && !noBilling) return;
+            const data = noBilling ? null : await resp.json();
             subscription = data?.subscription ?? null;
         } catch (e) {
             console.error('Failed to load plan data:', e);
@@ -497,11 +589,9 @@ const TabHome = {
 
             if (hasSubscription) {
                 if (pastDue) {
-                    $badge.text('Payment past due').addClass('past-due');
+                    $badge.text(i18n('plan_past_due', [], false)).addClass('past-due');
                     $warning
-                        .text(
-                            'Your last payment failed. Update your payment method to keep your subscription — access will be revoked shortly.',
-                        )
+                        .text(i18n('plan_past_due_warning', [], false))
                         .show();
                 } else if (trialing) {
                     // This is a glance surface sitting between two usage
@@ -512,8 +602,8 @@ const TabHome = {
                     $badge
                         .text(
                             trialEnds
-                                ? `Free trial · ${trialEnds.countdown}`
-                                : 'Free trial',
+                                ? i18n('free_trial_countdown', { countdown: trialEnds.countdown }, false)
+                                : i18n('free_trial', [], false),
                         )
                         .addClass('trial');
                     const usage = trialUsageNote(
@@ -524,34 +614,39 @@ const TabHome = {
                         .text(
                             (usage ? `${usage} ` : '') +
                                 (trialEnds
-                                    ? `First charge ${trialEnds.short} unless you cancel.`
-                                    : 'Continues as a paid plan when the trial ends.'),
+                                    ? i18n('trial_first_charge', { date: trialEnds.short }, false)
+                                    : i18n('trial_continues_paid', [], false)),
                         )
                         .show();
                 } else {
-                    $badge.text('Current').addClass('active');
+                    $badge.text(i18n('plan_current', [], false)).addClass('active');
                 }
-                $el_window.find('.bento-plan-upgrade').text('Manage →').show();
+                $el_window.find('.bento-plan-upgrade').text(i18n('plan_manage_link', [], false)).show();
             } else {
                 $badge
                     .text(
                         seat
                             ? i18n('plan_team_seat')
-                            : 'Upgrade for more features',
+                            : i18n('plan_upgrade_hint', [], false),
                     )
                     .addClass('free');
                 // Reset the label too — otherwise it keeps saying "Manage →"
                 // after a subscription lapses/cancels.
-                $el_window.find('.bento-plan-upgrade').text('Upgrade →').show();
+                $el_window.find('.bento-plan-upgrade').text(i18n('plan_upgrade_link', [], false)).show();
             }
 
             // A seat cannot change its plan, so name who can.
             if (seat && teamName) {
-                $note.text(i18n('plan_team_managed', [teamName])).show();
+                $note.text(i18n('plan_team_managed', [teamName], false)).show();
             }
 
             // A seat's plan is the team's; the link only reaches a refusal.
             if (seat) {
+                $el_window.find('.bento-plan-upgrade').hide();
+            }
+
+            if (noBilling && typeof window.UIUpgradeAccount !== 'function') {
+                $badge.text('').removeClass('free');
                 $el_window.find('.bento-plan-upgrade').hide();
             }
 
@@ -570,25 +665,29 @@ const TabHome = {
     },
 
     async _loadUsageDataUncached($el_window) {
-        await this._renderPlanCard($el_window);
+        // Side by side: neither meter needs the plan, and a slow plan read
+        // must not hold them at "--".
+        await Promise.all([
+            this._renderPlanCard($el_window),
+            this._renderStorageCard($el_window),
+            this._renderResourcesCard($el_window),
+        ]);
+    },
 
-        // Load storage data
+    async _renderStorageCard($el_window) {
         try {
-            const res = await puter.fs.space();
+            const res = await getStorageSpace();
+            // On a self-hosted install the disk's use, Puter's files with it;
+            // the meter measures the same amount the card names.
+            const general_used = res.host_used || res.used;
             // Guard capacity 0 — 0/0 would render literally as "NaN%".
-            let usage_percentage = res.capacity
-                ? ((res.used / res.capacity) * 100).toFixed(0)
-                : '0';
-            usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;
-
-            let general_used = res.used;
-            if (res.host_used) {
-                general_used = res.host_used;
-            }
+            const usage_percentage = res.capacity
+                ? Math.min(100, meterPercent((general_used / res.capacity) * 100))
+                : 0;
 
             $el_window
                 .find('.bento-storage-used')
-                .text(`${window.byte_format(general_used)} Used`);
+                .text(i18n('amount_used', { amount: window.byte_format(general_used) }, false));
             $el_window
                 .find('.bento-storage-capacity')
                 .text(window.byte_format(res.capacity));
@@ -602,10 +701,11 @@ const TabHome = {
         } catch (e) {
             console.error('Failed to load storage data:', e);
         }
+    },
 
-        // Load monthly usage data
+    async _renderResourcesCard($el_window) {
         try {
-            const res = await puter.auth.getMonthlyUsage();
+            const res = monthlyUsageOrThrow(await getMonthlyUsage());
             const budget = usageBudget(res.usage, res.allowanceInfo);
             const addonLeft = addonCreditsRemaining(res.allowanceInfo);
             // The server reports credits (already scaled) or raw amounts
@@ -617,12 +717,12 @@ const TabHome = {
 
             $el_window
                 .find('.bento-resources-used')
-                .text(`${amount(budget.used)} Used`);
+                .text(i18n('amount_used', { amount: amount(budget.used) }, false));
             $el_window
                 .find('.bento-resources-capacity')
                 .text(
                     inCredits
-                        ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'credits' : 'monthly_credits')}`
+                        ? `${amount(budget.capacity)} ${i18n(addonLeft === null ? 'usage_credits' : 'monthly_credits')}`
                         : amount(budget.capacity),
                 );
             $el_window

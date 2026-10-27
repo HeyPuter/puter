@@ -409,6 +409,44 @@ describe('SubdomainDriver app-actor scoping', () => {
         }
     });
 
+    it('will not update or delete a worker row, even for the app that deployed it', async () => {
+        const { actor, userId } = await makeUser();
+        const app = await seedApp(userId, 'worker-app');
+        const name = `workers.puter.${uniqueName('wk')}`;
+        const row = await seedRow(userId, name, app.id);
+
+        // Dropping the row here would leave the script deployed with no
+        // handle left to destroy it, so worker lifecycle stays in the
+        // workers driver. Same 404 as a miss for the same reason as `read`.
+        for (const who of [asApp(actor, app), actor]) {
+            for (const args of [
+                { uid: row.uuid },
+                { id: { subdomain: name } },
+            ]) {
+                await expect(
+                    withActor(who, () => driver.delete(args)),
+                ).rejects.toMatchObject({
+                    statusCode: 404,
+                    legacyCode: 'not_found',
+                });
+                await expect(
+                    withActor(who, () =>
+                        driver.update({
+                            ...args,
+                            object: { root_dir: '~/Public' },
+                        }),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 404,
+                    legacyCode: 'not_found',
+                });
+            }
+        }
+
+        const after = await server.stores.subdomain.getByUuid(String(row.uuid));
+        expect(after?.subdomain).toBe(name);
+    });
+
     it('scopes select to the acting app', async () => {
         const { actor, userId } = await makeUser();
         const app = await seedApp(userId, 'listing-app');
@@ -533,6 +571,24 @@ describe('SubdomainDriver.update field handling', () => {
         // A null domain round-trips as the empty string in the wire shape.
         expect(cleared.domain).toBe('');
         expect(cleared.associated_app).toBeNull();
+    });
+
+    it('disconnects the directory when root_dir is null', async () => {
+        const { actor } = await makeUser();
+        const name = uniqueName('unlink');
+        await createSubdomain(actor, name);
+
+        // The shape `puter.hosting.update(name, null)` sends.
+        const updated = (await withActor(actor, () =>
+            driver.update({
+                id: { subdomain: name },
+                object: { root_dir: null },
+            }),
+        )) as Record<string, unknown>;
+
+        expect(updated.root_dir).toBeNull();
+        const row = await server.stores.subdomain.getBySubdomain(name);
+        expect(row?.root_dir_id ?? null).toBeNull();
     });
 
     it('rejects repointing root_dir at a path that does not exist', async () => {

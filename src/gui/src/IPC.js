@@ -38,6 +38,8 @@ import UIWindowSignup from './UI/UIWindowSignup.js';
 import UINotification from './UI/UINotification.js';
 
 import { renewGodmodeToken } from './helpers/godmodeTokens.js';
+import { ipc_target_window } from './helpers/ipcTargetWindow.js';
+import { addItemWatcher } from './helpers/watchItems.js';
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
 import TeePromise from './util/TeePromise.js';
@@ -158,8 +160,17 @@ const ipc_listener = async (event, handled) => {
         // Registered IPC handlers are an object with a `handle()`
         // method. We call it "spec" here, meaning specification.
         const spec = window.ipc_handlers[event.data.msg];
-        let retval = await spec.handler(event.data.parameters, { msg_id, ipc_context });
-
+        let retval;
+        try {
+            retval = await spec.handler(event.data.parameters, { msg_id, ipc_context });
+        } catch ( e ) {
+            console.error(`IPC handler ${event.data.msg} failed`, e);
+            // Generic on purpose: the error text stays out of the app.
+            retval = {
+                $: 'puter-ipc-error',
+                error: { code: 'ipc_handler_failed', message: 'The request could not be completed.' },
+            };
+        }
         puter.util.rpc.send(iframe.contentWindow, msg_id, retval);
 
         return;
@@ -503,49 +514,64 @@ const ipc_listener = async (event, handled) => {
         // app-side promise only settles when a message with its id comes back
         // — so a rejected call is answered anyway rather than left hanging
         // forever. Logged here because that is the only place it is visible.
-        puter.kv.set({
-            key: event.data.key,
-            value: event.data.value,
-            app_uid: app_uuid,
-        }).catch(err => console.warn('kv.setItem failed for app:', err)).then(() => {
-            // send confirmation to requester window
-            target_iframe.contentWindow.postMessage({
-                original_msg_id: msg_id,
-            }, '*');
-        });
+        // These run on the user's session, so without an explicit app namespace
+        // they would land in the desktop's own account-wide settings.
+        if ( app_uuid ) {
+            try {
+                await puter.kv.set({
+                    key: event.data.key,
+                    value: event.data.value,
+                    optConfig: { appUuid: app_uuid },
+                });
+            } catch ( err ) {
+                console.warn('kv.setItem failed for app:', err);
+            }
+        }
+        // send confirmation to requester window
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id,
+        }, '*');
     }
     //--------------------------------------------------------
     // getItem
     //--------------------------------------------------------
     else if ( event.data.msg === 'getItem' && event.data.key ) {
-        puter.kv.get({
-            key: event.data.key,
-            app_uid: app_uuid,
-        }).catch(err => {
-            console.warn('kv.getItem failed for app:', err);
-            return null;
-        }).then((result) => {
-            // send confirmation to requester window
-            target_iframe.contentWindow.postMessage({
-                original_msg_id: msg_id,
-                msg: 'getItemSucceeded',
-                value: result ?? null,
-            }, '*');
-        });
+        let result = null;
+        if ( app_uuid ) {
+            try {
+                result = await puter.kv.get({
+                    key: event.data.key,
+                    optConfig: { appUuid: app_uuid },
+                });
+            } catch ( err ) {
+                console.warn('kv.getItem failed for app:', err);
+            }
+        }
+        // send confirmation to requester window
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id,
+            msg: 'getItemSucceeded',
+            value: result ?? null,
+        }, '*');
     }
     //--------------------------------------------------------
     // removeItem
     //--------------------------------------------------------
     else if ( event.data.msg === 'removeItem' && event.data.key ) {
-        puter.kv.del({
-            key: event.data.key,
-            app_uid: app_uuid,
-        }).catch(err => console.warn('kv.removeItem failed for app:', err)).then(() => {
-            // send confirmation to requester window
-            target_iframe.contentWindow.postMessage({
-                original_msg_id: msg_id,
-            }, '*');
-        });
+        if ( app_uuid ) {
+            try {
+                await puter.kv.del({
+                    key: event.data.key,
+                    optConfig: { appUuid: app_uuid },
+                });
+            } catch ( err ) {
+                console.warn('kv.removeItem failed for app:', err);
+            }
+        }
+        // send confirmation to requester window
+        target_iframe.contentWindow.postMessage({
+            original_msg_id: msg_id,
+        }, '*');
     }
     //--------------------------------------------------------
     // showOpenFilePicker
@@ -648,6 +674,12 @@ const ipc_listener = async (event, handled) => {
             path: `/${ window.user.username }/Desktop`,
             // this is the uuid of the window to which this dialog will return
             parent_uuid: event.data.appInstanceID,
+            onDialogCancel: () => {
+                target_iframe.contentWindow.postMessage({
+                    msg: 'directoryOpenCancelled',
+                    original_msg_id: msg_id,
+                }, '*');
+            },
             show_maximize_button: false,
             show_minimize_button: false,
             title: 'Open',
@@ -663,17 +695,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowTitle
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowTitle' && event.data.new_title !== undefined ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1014,17 +1036,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowWidth
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowWidth' && event.data.width !== undefined ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1049,17 +1061,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowHeight
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowHeight' && event.data.height !== undefined ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1086,17 +1088,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowSize
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowSize' && (event.data.width !== undefined || event.data.height !== undefined) ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1134,17 +1126,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowPosition
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowPosition' && (event.data.x !== undefined || event.data.y !== undefined) ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1194,17 +1176,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowX
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowX' && (event.data.x !== undefined) ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1238,17 +1210,7 @@ const ipc_listener = async (event, handled) => {
     // setWindowY
     //--------------------------------------------------------
     else if ( event.data.msg === 'setWindowY' && (event.data.y !== undefined) ) {
-        let el_window;
-        // specific window
-        if ( event.data.window_id )
-        {
-            el_window = $(`.window[data-element_uuid="${html_encode(event.data.window_id)}"]`);
-        }
-        // app window
-        else
-        {
-            el_window = window.window_for_app_instance(event.data.appInstanceID);
-        }
+        const el_window = ipc_target_window(event.data.appInstanceID, event.data.window_id);
 
         // window not found
         if ( !el_window || el_window.length === 0 )
@@ -1282,12 +1244,8 @@ const ipc_listener = async (event, handled) => {
     // watchItem
     //--------------------------------------------------------
     else if ( event.data.msg === 'watchItem' && event.data.item_uid !== undefined ) {
-        if ( ! window.watchItems[event.data.item_uid] )
-        {
-            window.watchItems[event.data.item_uid] = [];
-        }
-
-        window.watchItems[event.data.item_uid].push(event.data.appInstanceID);
+        // Taken only for a file this app can see; see `helpers/watchItems.js`.
+        addItemWatcher(event.data.item_uid, event.data.appInstanceID, app_uuid);
     }
     //--------------------------------------------------------
     // readAppDataFile
@@ -1595,65 +1553,18 @@ const ipc_listener = async (event, handled) => {
         $(target_iframe).get(0).focus({ preventScroll: true });
     }
     //--------------------------------------------------------
-    // setWallpaper
-    //--------------------------------------------------------
-    else if ( event.data.msg === 'setWallpaper' ) {
-        // Auth
-        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
-        {
-            return;
-        }
-
-        // No options?
-        if ( ! event.data.options )
-        {
-            event.data.options = {};
-        }
-
-        // /set-desktop-bg
-        try {
-            await $.ajax({
-                url: `${window.api_origin }/set-desktop-bg`,
-                type: 'POST',
-                data: JSON.stringify({
-                    url: event.data.readURL,
-                    fit: event.data.options.fit ?? 'cover',
-                    color: event.data.options.color,
-                }),
-                async: true,
-                contentType: 'application/json',
-                headers: {
-                    'Authorization': `Bearer ${window.auth_token}`,
-                },
-                statusCode: {
-                    401: function (xhr) {
-                        window.handle401(xhr);
-                    },
-                },
-            });
-
-            // Set wallpaper
-            window.set_desktop_background({
-                url: event.data.readURL,
-                fit: event.data.options.fit ?? 'cover',
-                color: event.data.options.color,
-            });
-
-            // Send success to app
-            target_iframe.contentWindow.postMessage({
-                msg: 'wallpaperSet',
-                original_msg_id: msg_id,
-            }, '*');
-            $(target_iframe).get(0).focus({ preventScroll: true });
-        } catch ( err ) {
-            console.error(err);
-        }
-    }
-
-    //--------------------------------------------------------
     // showSaveFilePicker
     //--------------------------------------------------------
     else if ( event.data.msg === 'showSaveFilePicker' ) {
+        // Only copy and move have a matching consent prompt; refuse anything else.
+        if ( event.data.source_path && !['copy', 'move'].includes(event.data.save_type) ) {
+            target_iframe.contentWindow.postMessage({
+                msg: 'fileSaveCancelled',
+                original_msg_id: msg_id,
+            }, '*');
+            return;
+        }
+
         //auth
         if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
         {
@@ -1854,14 +1765,14 @@ const ipc_listener = async (event, handled) => {
                         await puter.fs.delete(target_path);
                     }
 
-                    if ( save_type === 'copy' ) {
+                    if ( save_type === 'move' ) {
+                        await puter.fs.move(source_path, target_path);
+                    } else {
                         const target_dir = path.dirname(target_path);
                         const new_name = path.basename(target_path);
                         await puter.fs.copy(source_path, target_dir, {
                             newName: new_name,
                         });
-                    } else {
-                        await puter.fs.move(source_path, target_path);
                     }
                     node = await puter.fs.stat(target_path);
                 },

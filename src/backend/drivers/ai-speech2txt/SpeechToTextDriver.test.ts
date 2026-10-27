@@ -49,6 +49,7 @@ import { PuterServer } from '../../server.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { withAiCostFactorHook } from '../integrationTestUtil.js';
 import type { SpeechToTextDriver } from './SpeechToTextDriver.js';
 import { SPEECH_TO_TEXT_COSTS } from './costs.js';
 
@@ -194,10 +195,10 @@ describe('SpeechToTextDriver.getReportedCosts', () => {
     it('mirrors every entry in costs.ts as a per-second line item', () => {
         const reported = driver.getReportedCosts();
 
-        // One extra line item comes from the xAI provider, which the
-        // driver aggregates alongside OpenAI's catalogue.
+        // The driver aggregates the xAI line item and Gemini's two token
+        // rates alongside OpenAI's catalogue.
         expect(reported).toHaveLength(
-            Object.keys(SPEECH_TO_TEXT_COSTS).length + 1,
+            Object.keys(SPEECH_TO_TEXT_COSTS).length + 3,
         );
         for (const [usageType, ucentsPerUnit] of Object.entries(
             SPEECH_TO_TEXT_COSTS,
@@ -522,6 +523,24 @@ describe('SpeechToTextDriver model selection and payload shape', () => {
         expect(sent.timestamp_granularities).toBeUndefined();
     });
 
+    it('accepts but does not forward chunking or known-speaker options', async () => {
+        const { actor } = await makeUser();
+        transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
+
+        const result = await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                chunking_strategy: 'auto',
+                known_speaker_names: ['agent'],
+            }),
+        );
+
+        expect(result).toEqual({ text: 'x' });
+        const sent = transcriptionsCreateMock.mock.calls[0]![0];
+        expect(sent.chunking_strategy).toBeUndefined();
+        expect(sent.known_speaker_names).toBeUndefined();
+    });
+
     it('passes extra_body through verbatim', async () => {
         const { actor } = await makeUser();
         transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
@@ -663,6 +682,34 @@ describe('SpeechToTextDriver metering', () => {
         const expected = SPEECH_TO_TEXT_COSTS[usageType] * 2;
         const creditCall = hasCreditsSpy.mock.calls[0]!;
         expect(creditCall[1]).toBe(expected);
+    });
+
+    it('holds and meters at the AI cost factor', async () => {
+        const { actor } = await makeUser();
+        const usageType = 'openai:gpt-transcribe:second';
+        const metered = () =>
+            incrementUsageSpy.mock.calls
+                .filter(([, type]) => type === usageType)
+                .map(([, , , cost]) => cost);
+        const transcribe = async (charges: number) => {
+            transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
+            await withActor(actor, () =>
+                driver.transcribe({
+                    file: dataUrl(Buffer.alloc(32000, 0), 'audio/mp3'),
+                    model: 'gpt-transcribe',
+                }),
+            );
+            await vi.waitFor(() => expect(metered()).toHaveLength(charges));
+        };
+        await transcribe(1);
+        await withAiCostFactorHook(server.clients.event, 2, () =>
+            transcribe(2),
+        );
+
+        const [base, factored] = metered();
+        expect(factored).toBe(base! * 2);
+        const held = hasCreditsSpy.mock.calls.map(([, amount]) => amount);
+        expect(held).toEqual([base, base! * 2]);
     });
 });
 

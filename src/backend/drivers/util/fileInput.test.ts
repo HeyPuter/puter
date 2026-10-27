@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
@@ -420,6 +422,43 @@ describe('loadFileInput FS path', () => {
             legacyCode: 'input_too_large',
         });
     });
+
+    it('rejects the load when storage fails partway through the read', async () => {
+        const { actor, userId } = await makeUser();
+        const path = `/${actor.user!.username!}/Documents/cut-off.bin`;
+        const entry = await withActor(actor, () =>
+            writeFile(userId, path, Buffer.alloc(64, 0x42)),
+        );
+        // The storage client is the boundary: one chunk, then the
+        // connection drops.
+        const client = server.clients.s3.get(
+            server.stores.s3Object.resolveRegion(entry.bucketRegion),
+        );
+        const send = client.send.bind(client);
+        const spy = vi.spyOn(client, 'send').mockImplementation(((
+            command: unknown,
+        ) => {
+            if (!(command instanceof GetObjectCommand)) {
+                return send(command as never);
+            }
+            let reads = 0;
+            const body = new Readable({
+                read() {
+                    reads += 1;
+                    if (reads === 1) this.push(Buffer.alloc(16, 0x42));
+                    else this.destroy(new Error('aborted'));
+                },
+            });
+            return Promise.resolve({ Body: body, ContentLength: 64 });
+        }) as never);
+        try {
+            await expect(callLoadFileInput(actor, path)).rejects.toThrow(
+                'aborted',
+            );
+        } finally {
+            spy.mockRestore();
+        }
+    });
 });
 
 // ── resolveFileInput ───────────────────────────────────────────────
@@ -559,5 +598,23 @@ describe('loadFileInput web URL', () => {
         ).rejects.toMatchObject({ statusCode: 413 });
         expect(state.cancelled).toBe(true);
         expect(state.pulls).toBeLessThan(chunks.length);
+    });
+
+    it('cancels the body of a failed response', async () => {
+        const { actor } = await makeUser();
+        const { body, state } = chunkedBody([Buffer.alloc(32)]);
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(body, { status: 404 }),
+        );
+
+        await expect(
+            callLoadFileInput(actor, 'https://example.com/missing.mp4', {
+                acceptWebInput: true,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Failed to fetch URL (status 404)',
+        });
+        expect(state.cancelled).toBe(true);
     });
 });

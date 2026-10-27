@@ -27,6 +27,9 @@ import { PuterService } from '../types.js';
  */
 const PROVISIONED_FSENTRY_COUNT = 8;
 
+/** Apps read per page when listing the ones an account owns. */
+const OWNED_APPS_PAGE = 500;
+
 /**
  * Account-lifecycle operations that more than one caller needs: deleting an
  * account and everything hanging off it, and measuring whether an account has
@@ -69,7 +72,8 @@ export class UserAccountService extends PuterService {
         }
 
         // Same reason, one table over: the membership row cascades on delete.
-        const seat = await this.services.team.captureSeatForBilling(userId);
+        const seat =
+            (await this.services.team?.captureSeatForBilling(userId)) ?? null;
 
         // The SQL rows cascade with the user; the flat entries are keyed on the
         // holder, so without this the access outlives the issuer.
@@ -100,6 +104,22 @@ export class UserAccountService extends PuterService {
             console.warn('[cascade-delete-user] subdomain cleanup failed:', e);
         }
 
+        // The user's apps cascade away with the row, with no `app.changed`, so
+        // `user.delete` names them for what was tied to them.
+        let appUids: string[] = [];
+        try {
+            appUids = await this.#ownedAppUids(userId);
+        } catch (e) {
+            console.warn('[cascade-delete-user] owned-app lookup failed:', e);
+        }
+        // Record them first so a hosted origin doesn't hand their uids to the
+        // subdomain's next owner.
+        await this.stores.app.recordDeletedForOwner(userId);
+        // Other users' sites and workers tied to those apps cascade too.
+        const appSites = await this.stores.subdomain.listAppCascade({
+            ownerUserId: userId,
+        });
+
         // Sessions FK is SET NULL, so delete explicitly to avoid dangling rows.
         await this.clients.db.write(
             'DELETE FROM `sessions` WHERE `user_id` = ?',
@@ -110,6 +130,7 @@ export class UserAccountService extends PuterService {
         ]);
         if (cachedIdentity) await this.stores.user.markDeleted(cachedIdentity);
         else await this.stores.user.invalidateById(userId);
+        await this.stores.subdomain.forgetCascadeDeleted(appSites);
 
         if (issuedRefs.length > 0) {
             try {
@@ -120,6 +141,17 @@ export class UserAccountService extends PuterService {
                     e,
                 );
             }
+        }
+
+        // Grants the account held live in the flat view under its id, which
+        // nothing else removes.
+        try {
+            await this.stores.permission.purgeFlatUserPermsHeldBy(userId);
+        } catch (e) {
+            console.warn(
+                '[cascade-delete-user] held-grant flat purge failed:',
+                e,
+            );
         }
 
         // Fire-and-forget: let listeners purge external state tied to the
@@ -133,6 +165,7 @@ export class UserAccountService extends PuterService {
                     user_id: userId,
                     user_uuid: userUuid,
                     stripe_customer_id: stripeCustomerId,
+                    appUids,
                 },
                 {},
             );
@@ -140,17 +173,33 @@ export class UserAccountService extends PuterService {
             // ignore — event emission shouldn't block deletion
         }
         // Tells prod to stop charging the owner for this seat.
-        this.services.team.emitSeatDeleted(seat);
+        this.services.team?.emitSeatDeleted(seat);
         // The membership row cascaded away, so anything keyed on it is stale.
         if (seat) {
             try {
-                await this.services.team.forgetSeat(seat);
+                await this.services.team?.forgetSeat(seat);
             } catch (e) {
                 console.warn(
                     '[cascade-delete-user] seat cache cleanup failed:',
                     e,
                 );
             }
+        }
+    }
+
+    /** The uids of every app this user owns, a page at a time. */
+    async #ownedAppUids(userId: number): Promise<string[]> {
+        const uids: string[] = [];
+        let afterId: number | undefined;
+        for (;;) {
+            const apps = (await this.stores.app.list({
+                ownerUserId: userId,
+                afterId,
+                limit: OWNED_APPS_PAGE,
+            })) as Array<{ id: number; uid: string }>;
+            uids.push(...apps.map((app) => app.uid));
+            if (apps.length < OWNED_APPS_PAGE) return uids;
+            afterId = apps[apps.length - 1]!.id;
         }
     }
 

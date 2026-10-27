@@ -14,6 +14,12 @@
  * Suites can read the resulting tags from `t.env.capabilities`.
  */
 
+import { fileURLToPath } from 'node:url';
+
+const IN_TREE_EXTENSIONS = fileURLToPath(
+    new URL('../../../../../extensions', import.meta.url),
+);
+
 type ConfigOverrides = Record<string, unknown>;
 
 type CapabilityMapping = {
@@ -40,6 +46,22 @@ const MAPPINGS: CapabilityMapping[] = [
         capability: 'net.wisp',
         envVars: ['PUTER_TEST_WISP_SERVER'],
         configOverrides: ([server]) => ({ wisp: { server } }),
+    },
+    {
+        // Teams registers its own routes, so the suite needs a build that
+        // provides them: the var points at a directory supplying the
+        // feature. Arrays replace on merge, so the in-tree directory the
+        // client env always loads has to be named again alongside it.
+        capability: 'teams',
+        envVars: ['PUTER_TEST_TEAMS_EXTENSION'],
+        configOverrides: ([dir]) => ({
+            teams_enabled: true,
+            // The shipped default is 1, and the suite creates a team per case
+            // against one shared account.
+            max_teams_per_user: 100,
+            import_ts_extensions: true,
+            extensions: [IN_TREE_EXTENSIONS, dir],
+        }),
     },
     aiProvider('ai.openai', 'PUTER_TEST_AI_OPENAI_API_KEY', 'openai-completion'),
     aiProvider('ai.claude', 'PUTER_TEST_AI_CLAUDE_API_KEY', 'claude'),
@@ -100,15 +122,12 @@ export const loadPuterJsTestOptions = (
         unlimitedMetering: true,
         // `puter.events` is a socket surface, so the suite needs the server
         // half switched on. Off, every subscribe answers `events_disabled` and
-        // the suite would only ever cover that one branch.
-        events: { enabled: true },
-        // Off, `/teams` isn't registered at all and the whole suite would only
-        // ever cover the 404 branch.
-        teams_enabled: true,
-        // The shipped default is 1, and the suite creates a team per case
-        // against one shared account, so every case after the first would
-        // fail on `team_limit_reached` rather than on what it tests.
-        max_teams_per_user: 100,
+        // the suite would only ever cover that one branch. Share handles are
+        // on too: `watch` shares and `kv:<handle>` subjects need `kvHandles`,
+        // and `read`/`write` shares and handle-addressed KV calls need
+        // `kv.shareHandles`.
+        events: { enabled: true, kvHandles: true },
+        kv: { shareHandles: true },
     };
 
     for (const mapping of MAPPINGS) {

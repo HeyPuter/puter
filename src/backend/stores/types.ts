@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { TeamStoreContract } from '../core/teams.js';
+
 import type { puterClients } from '../clients';
 import type { IExtensionClientInstances } from '../clients/types';
 import type { IConfig, LayerInstances, WithLifecycle } from '../types';
@@ -30,6 +32,8 @@ export interface IPuterStoreInstances {}
 
 /** Extension-augmentable store registry; see `IExtensionClientInstances`. */
 export interface IExtensionStoreInstances {
+    /** Teams ships separately; boot guarantees it when `teams_enabled` is on. */
+    team?: TeamStoreContract;
     [key: string]: unknown;
 }
 
@@ -46,8 +50,9 @@ export type IPuterStore<T extends WithLifecycle = WithLifecycle> = new (
 
 const DEFAULT_BROADCAST_REFRESH_TTL_SECONDS = 15 * 60;
 
-// Tombstone lifetime; must outlast replica lag.
-export const CACHE_TOMBSTONE_TTL_SECONDS = 60;
+// Tombstone lifetime, counted from each node's own receipt; must outlast
+// replica lag at the receiving node.
+export const CACHE_TOMBSTONE_TTL_SECONDS = 5;
 export const CACHE_TOMBSTONE_SUFFIX = ':deleted';
 
 /** A tombstone marker rather than a cached row; peers must set it, not drop it. */
@@ -458,6 +463,31 @@ export const PuterStore = class PuterStore implements WithLifecycle {
      */
     protected async isCacheKeyTombstoned(keys: string[]): Promise<boolean> {
         return (await this.tombstonedCacheKeys(keys)).size > 0;
+    }
+
+    /**
+     * `key`'s cached value and whether it is tombstoned, in one round trip.
+     * `raw` is null under a tombstone. Fails open.
+     */
+    protected async readCacheUnlessDeleted(
+        key: string,
+    ): Promise<{ tombstoned: boolean; raw: string | null }> {
+        try {
+            const results =
+                (await this.clients.redis
+                    .pipeline()
+                    .exists(key + CACHE_TOMBSTONE_SUFFIX)
+                    .get(key)
+                    .exec()) ?? [];
+            const tombstoned = Number(results[0]?.[1]) > 0;
+            const raw = results[1]?.[1];
+            return {
+                tombstoned,
+                raw: !tombstoned && typeof raw === 'string' ? raw : null,
+            };
+        } catch {
+            return { tombstoned: false, raw: null };
+        }
     }
 
     /** Which of `keys` were deleted within the tombstone window. Fails open. */

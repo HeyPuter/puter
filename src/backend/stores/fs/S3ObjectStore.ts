@@ -41,6 +41,7 @@ import type {
     MultipartCompleteInput,
     ServerUploadInput,
     SignedMultipartPartUrlsInput,
+    SignedReadInput,
     SignedUploadInput,
     SignedUploadPart,
     SignedUploadResult,
@@ -366,6 +367,35 @@ export class S3ObjectStore extends PuterStore {
         );
     }
 
+    /**
+     * A presigned GET for handing one object to a third party that fetches it
+     * itself. The expiry is clamped like the upload URLs.
+     */
+    @Span('s3.createSignedReadUrl')
+    async createSignedReadUrl(
+        input: SignedReadInput,
+        region: string,
+    ): Promise<string> {
+        const presignClient = this.#getPresignClientForRegion(region);
+        // Counted at signing, like the upload URLs: the fetch never reaches us.
+        recordStorageOps('read');
+        return getSignedUrl(
+            presignClient,
+            new GetObjectCommand({
+                Bucket: input.bucket,
+                Key: input.objectKey,
+                ...(input.contentType
+                    ? { ResponseContentType: input.contentType }
+                    : {}),
+            }),
+            {
+                expiresIn: clampSignedUploadExpirySeconds(
+                    input.expiresInSeconds,
+                ),
+            },
+        );
+    }
+
     @Span('s3.completeMultipartUpload')
     async completeMultipartUpload(
         input: MultipartCompleteInput,
@@ -649,6 +679,15 @@ export class S3ObjectStore extends PuterStore {
                 : Readable.fromWeb(
                       body as unknown as import('node:stream/web').ReadableStream,
                   );
+        // The body can fail before its consumer attaches (the connection drops
+        // while the caller is still awaiting something else), and an 'error'
+        // with no listener exits the process. Consumers still get the error
+        // through their own listener, pipeline or iterator.
+        stream.on('error', (err) => {
+            if (stream.listenerCount('error') === 1) {
+                console.warn('[s3] object stream failed with no reader', err);
+            }
+        });
 
         return {
             body: stream,

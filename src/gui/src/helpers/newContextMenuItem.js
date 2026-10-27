@@ -60,18 +60,18 @@ const new_context_menu_item = function (dirname, append_to_element) {
         },
         // Web Link
         {
-            html: 'Web Link',
+            html: i18n('web_link'),
             icon: `<img src="${html_encode(window.icons['link.svg'])}" class="ctx-item-icon ctx-item-icon-monochrome">`,
             onClick: async function () {
                 // Prompt user for URL
                 const url = await UIPrompt({
-                    message: 'Enter the URL for the web link:',
+                    message: i18n('web_link_url_prompt', [], false),
                     placeholder: 'https://example.com',
                     defaultValue: 'https://',
                     validator: (value) => {
                         // Simple URL validation
                         return value.startsWith('http://') || value.startsWith('https://') ?
-                            true : 'Please enter a valid URL starting with http:// or https://';
+                            true : i18n('web_link_invalid_url', [], false);
                     },
                 });
 
@@ -130,7 +130,7 @@ const new_context_menu_item = function (dirname, append_to_element) {
                         });
                     } catch ( error ) {
                         console.error('Error creating web link:', error);
-                        UIAlert(`Error creating web link: ${ error.message}`);
+                        UIAlert(i18n('web_link_create_failed', [error.message], false));
                     }
                 }
             },
@@ -187,7 +187,7 @@ router.get('/*page', ({request, params}) => {
 
         // User templates
         baseItems.push({
-            html: 'User templates',
+            html: i18n('user_templates'),
             icon: `<img src="${html_encode(window.icons['file-template.svg'])}" class="ctx-item-icon">`,
             items: window.file_templates.map(template => ({
                 html: template.html,

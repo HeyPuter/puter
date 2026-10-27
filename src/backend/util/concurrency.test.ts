@@ -19,6 +19,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    awaitLater,
     runWithConcurrencyLimit,
     runWithConcurrencyLimitSettled,
 } from './concurrency.ts';
@@ -192,5 +193,31 @@ describe('runWithConcurrencyLimitSettled', () => {
                 async (value) => value,
             ),
         ).rejects.toThrow('Missing value at index 0');
+    });
+});
+
+describe('awaitLater', () => {
+    it('leaves no unhandled rejection when the promise is never awaited', async () => {
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => unhandled.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            awaitLater(Promise.reject(new Error('never awaited')));
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            expect(unhandled).toEqual([]);
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+        }
+    });
+
+    it('still rejects where it is awaited', async () => {
+        const failure = new Error('surfaced');
+        const started = awaitLater(Promise.reject(failure));
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        await expect(started).rejects.toBe(failure);
+    });
+
+    it('resolves to the same value', async () => {
+        expect(await awaitLater(Promise.resolve(42))).toBe(42);
     });
 });

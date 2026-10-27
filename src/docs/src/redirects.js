@@ -20,6 +20,8 @@ const redirects = {
     '/Perms/requestWriteDocuments': '/Perms/request',
     '/Perms/requestWritePictures': '/Perms/request',
     '/Perms/requestWriteVideos': '/Perms/request',
+    // The raw-permission-string example became the `fs` resource example.
+    '/playground/perms-request-permission': '/playground/perms-request-fs',
 
     // Only the account's own session can call `updateProfile()`, so it is
     // not documented for apps.

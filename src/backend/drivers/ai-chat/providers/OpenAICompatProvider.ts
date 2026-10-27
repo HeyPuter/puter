@@ -28,6 +28,7 @@ import type {
     IChatProvider,
     ICompleteArguments,
     PuterMessage,
+    UsageDetails,
 } from '../types.js';
 import {
     contextLengthRetryParams,
@@ -40,6 +41,7 @@ import {
     meterChatUsage,
     type MeterChatUsageOptions,
 } from '../utils/meterChatUsage.js';
+import { catalogPrice, costKeys } from '../utils/pricing.js';
 import { normalizeModelKey } from '../utils/modelRouting.js';
 import * as OpenAIUtil from '../utils/OpenAIUtil.js';
 import {
@@ -72,6 +74,7 @@ export interface ChatCompletionsClient {
 export type UsageSource = {
     usage: CompletionUsage;
     setUsageCosts: (costs: Record<string, number>) => void;
+    setUsageDetails?: (details: UsageDetails) => void;
 } & Record<string, unknown>;
 
 /**
@@ -83,6 +86,7 @@ export interface OpenAICompatOptions {
     defaultModel: string;
     /** A static catalog; a gateway overrides `models()` instead. */
     models?: () => IChatModel[];
+    requireTokenPrices?: boolean;
     /** Usage is recorded under `<prefix>:<id>`; the bare id when omitted. */
     meteringPrefix?: string;
     /** Stripped from the catalog id to get the model name on the wire. */
@@ -155,11 +159,23 @@ export class OpenAICompatProvider implements IChatProvider {
     async complete(
         args: ICompleteArguments,
         resolved?: IChatModel,
+        attemptPricingTime?: Date,
     ): Promise<IChatCompleteResult> {
         const options = this.#options;
         const model = resolved ?? (await this.resolveModel(args.model));
+        if (options.requireTokenPrices) {
+            const { inputKey, outputKey } = costKeys(model);
+            if (
+                catalogPrice(model.costs[inputKey]) === undefined ||
+                catalogPrice(model.costs[outputKey]) === undefined
+            ) {
+                throw new HttpError(503, 'Model pricing is unavailable', {
+                    legacyCode: 'model_pricing_unavailable',
+                });
+            }
+        }
         const actor = Context.get('actor');
-        const signal = Context.get('abortSignal');
+        const signal = Context.get('upstreamSignal');
 
         let messages = args.messages;
         if (
@@ -175,7 +191,12 @@ export class OpenAICompatProvider implements IChatProvider {
             });
         }
         messages = this.prepareMessages(
-            await OpenAIUtil.process_input_messages(messages),
+            await OpenAIUtil.process_input_messages(messages, {
+                preserveToolCallOrder: this.preservesToolCallOrder(model),
+                keepExtraContent: this.keepsToolCallExtraContent(model),
+                keepAssistantContent: this.preservesAssistantContent(model),
+            }),
+            model,
         );
 
         const tools = args.tools
@@ -213,6 +234,7 @@ export class OpenAICompatProvider implements IChatProvider {
         };
         const params = this.vendorParams(shared, args, model, actor);
 
+        let pricingTime = attemptPricingTime ?? new Date();
         let completion;
         try {
             completion = await options.client.chat.completions.create(
@@ -228,6 +250,7 @@ export class OpenAICompatProvider implements IChatProvider {
                       )
                     : undefined;
             if (!retryParams) throw e;
+            pricingTime = attemptPricingTime ?? new Date();
             completion = await options.client.chat.completions.create(
                 retryParams as never,
                 { signal },
@@ -244,17 +267,18 @@ export class OpenAICompatProvider implements IChatProvider {
                   }
                 : {}),
             usage_calculator: (source: UsageSource) => {
-                const { usage, meterOptions } = this.meteredUsage(
+                const { usage, meterOptions, usageDetails } = this.meteredUsage(
                     source,
                     model,
                 );
+                if (usageDetails) source.setUsageDetails?.(usageDetails);
                 const metered = meterChatUsage(
                     this.#metering,
                     actor,
                     this.meteringModelKey(model.id),
                     model,
                     usage,
-                    meterOptions,
+                    { ...meterOptions, pricingTime },
                 );
                 source.setUsageCosts(metered.costs);
                 return this.reportedUsage(metered.usage);
@@ -292,8 +316,29 @@ export class OpenAICompatProvider implements IChatProvider {
 
     // -- Vendor hooks ---------------------------------------------------
 
+    /** Whether a replayed turn's tool calls must keep the model's order. */
+    protected preservesToolCallOrder(_model: IChatModel): boolean {
+        return false;
+    }
+
+    /** Whether replayed tool calls keep their vendor `extra_content`. */
+    protected keepsToolCallExtraContent(_model: IChatModel): boolean {
+        return false;
+    }
+
+    /**
+     * Whether a replayed assistant turn keeps its text beside hoisted tool
+     * calls.
+     */
+    protected preservesAssistantContent(_model: IChatModel): boolean {
+        return false;
+    }
+
     /** Last pass over the messages, after `process_input_messages`. */
-    protected prepareMessages(messages: PuterMessage[]): PuterMessage[] {
+    protected prepareMessages(
+        messages: PuterMessage[],
+        _model: IChatModel,
+    ): PuterMessage[] {
         return messages;
     }
 
@@ -307,11 +352,18 @@ export class OpenAICompatProvider implements IChatProvider {
         return params;
     }
 
-    /** The usage a completion meters as, and how it's billed. */
+    /**
+     * The usage a completion meters as, and how it's billed. `usageDetails`
+     * replaces the breakdown otherwise derived from `usage`.
+     */
     protected meteredUsage(
         source: UsageSource,
         _model: IChatModel,
-    ): { usage: Record<string, number>; meterOptions?: MeterChatUsageOptions } {
+    ): {
+        usage: Record<string, number>;
+        meterOptions?: MeterChatUsageOptions;
+        usageDetails?: UsageDetails;
+    } {
         return { usage: OpenAIUtil.splitCachedPrompt(source.usage) };
     }
 

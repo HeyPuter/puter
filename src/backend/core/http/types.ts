@@ -28,7 +28,12 @@ import type { Actor } from '../actor';
  * it instead of accepting any token that authenticates.
  */
 export type TokenSource =
-    'body' | 'header' | 'x-api-key' | 'cookie' | 'query' | 'handshake';
+    | 'body'
+    | 'header'
+    | 'x-api-key'
+    | 'cookie'
+    | 'query'
+    | 'handshake';
 
 /** Express router methods plus the WebDAV verbs some endpoints use. */
 export type RouteMethod =
@@ -334,6 +339,9 @@ export const ROUTES_METADATA_KEY = '__puterRoutes' as const;
 /** Internal: the property name used to stash a controller's path prefix. */
 export const PREFIX_METADATA_KEY = '__puterControllerPrefix' as const;
 
+/** How long a browser may cache a CORS preflight reply, in seconds. */
+export const PREFLIGHT_MAX_AGE = '86400';
+
 // -- Type narrowing helpers ------------------------------------------
 //
 // When a route declares a gate option (requireAuth, requireUserActor,
@@ -359,7 +367,8 @@ type AuthImplyingOptions =
     | { requireCardVerified: true }
     | {
           requireAnyVerified:
-              readonly VerificationFactor[] | VerificationFactor[];
+              | readonly VerificationFactor[]
+              | VerificationFactor[];
       }
     | { requireSubscription: true | readonly string[] | string[] }
     | { requireReputation: string };

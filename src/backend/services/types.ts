@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { TeamServiceContract } from '../core/teams.js';
+
 import type { puterClients } from '../clients';
 import type { IExtensionClientInstances } from '../clients/types';
 import type {
@@ -34,6 +36,8 @@ export interface IPuterServiceInstances {}
 
 /** Extension-augmentable service registry; see `IExtensionClientInstances`. */
 export interface IExtensionServiceInstances {
+    /** Teams ships separately; boot guarantees it when `teams_enabled` is on. */
+    team?: TeamServiceContract;
     [key: string]: unknown;
 }
 

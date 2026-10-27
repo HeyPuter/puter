@@ -1,3 +1,22 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 /* ======================================
    Dashboard
    ====================================== */
@@ -17,6 +36,10 @@
     --select-tint: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.1);
     --select-tint-strong: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.2);
     --select-ring: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.4);
+    /* --select-color is 3.7:1 on white, short of the 4.5:1 text needs: the
+       same hue, darker, for text in it (5.3:1) and fills under white text. */
+    --select-text: hsl(var(--select-hue), var(--select-saturation), 45%);
+    --select-fill: hsl(var(--select-hue), var(--select-saturation), 45%);
 
     --dashboard-text: #444;
     --dashboard-border: #e0e0e0;
@@ -27,12 +50,15 @@
 
     --dashboard-text-primary: #1e293b;
     --dashboard-text-secondary: #666;
-    --dashboard-text-tertiary: #888;
+    --dashboard-text-tertiary: #707070;
     --dashboard-text-heading: #333;
     --dashboard-text-card-title: #1a1a1a;
     --dashboard-text-username: #414b62;
     --dashboard-text-hint: #64748b;
-    --dashboard-text-muted: #94a3b8;
+    /* Muted and tertiary text still clear 4.5:1 on the cards and sidebar;
+       disabled controls keep the fainter grey. */
+    --dashboard-text-muted: #5f6b7d;
+    --dashboard-text-disabled: #94a3b8;
 
     --dashboard-card-background: #ffffff;
     --dashboard-content-background: #fcfcfd;
@@ -41,8 +67,12 @@
     --dashboard-avatar-background: #ddd;
     --dashboard-input-background: rgb(245, 247, 249);
 
-    --dashboard-link: #5271ff;
-    --dashboard-link-hover: #3d5bd9;
+    /* Link text: 4.5:1 or better on the cards and the content background. */
+    --dashboard-link: #3d5bd9;
+    --dashboard-link-hover: #2f4bc0;
+    /* Primary button fills, under white text: 4.5:1 or better in both themes. */
+    --dashboard-button-primary: #4a67f5;
+    --dashboard-button-primary-hover: #3d5bd9;
 
     --dashboard-warning-icon: #ffbb00;
     --dashboard-warning-background: #fef3c7;
@@ -60,9 +90,9 @@
 
     --dashboard-success-background: #e6ffed;
     --dashboard-success-border: #08bf4e;
-    --dashboard-success-text: #03933a;
+    --dashboard-success-text: #15803d;
 
-    --dashboard-danger-text: #dc2626;
+    --dashboard-danger-text: #b91c1c;
     --dashboard-danger-background: #fef2f2;
     --dashboard-danger-border: #fecaca;
     --dashboard-error-text: #dc2626;
@@ -138,22 +168,27 @@ body {
         --select-tint: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.16);
         --select-tint-strong: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.28);
         --select-ring: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.5);
+        /* Lighter on dark surfaces (5.5:1 on the cards); fills keep theirs. */
+        --select-text: hsl(var(--select-hue), var(--select-saturation), 65%);
 
         --dashboard-text: #d4d4d4;
         --dashboard-border: #3d3d3d;
         --dashboard-background: #1e1e1e;
-        --dashboard-hover: #2a2a2a;
+        /* As far off the dark cards and sidebar as light mode's hover is
+           off white; #2a2a2a barely differed from them. */
+        --dashboard-hover: #333333;
         --dashboard-icon: #888;
         --dashboard-sidebar-background: #252525;
 
         --dashboard-text-primary: #e2e8f0;
         --dashboard-text-secondary: #a1a1aa;
-        --dashboard-text-tertiary: #71717a;
+        --dashboard-text-tertiary: #94949c;
         --dashboard-text-heading: #f4f4f5;
         --dashboard-text-card-title: #fafafa;
         --dashboard-text-username: #c4cad6;
         --dashboard-text-hint: #94a3b8;
-        --dashboard-text-muted: #64748b;
+        --dashboard-text-muted: #8b95a5;
+        --dashboard-text-disabled: #64748b;
 
         --dashboard-card-background: #262626;
         --dashboard-content-background: #1e1e1e;
@@ -164,6 +199,9 @@ body {
 
         --dashboard-link: #6b8cff;
         --dashboard-link-hover: #8aa4ff;
+        /* Hover darkens here too: the lighter link-hover fails under white text. */
+        --dashboard-button-primary: #4a67f5;
+        --dashboard-button-primary-hover: #3d5bd9;
 
         --dashboard-warning-icon: #fbbf24;
         --dashboard-warning-background: #422006;
@@ -246,11 +284,12 @@ body {
 }
 
 .dashboard-sidebar {
-    width: 250px;
-    min-width: 200px;
+    /* The safe-area insets clear a landscape phone's notch; elsewhere they're 0. */
+    width: calc(250px + env(safe-area-inset-left, 0px));
+    min-width: calc(200px + env(safe-area-inset-left, 0px));
     background: var(--dashboard-sidebar-background);
     border-right: 1px solid var(--dashboard-border);
-    padding: 16px 12px;
+    padding: 16px 12px 16px calc(12px + env(safe-area-inset-left, 0px));
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
@@ -343,65 +382,71 @@ body {
     display: none;
 }
 
-.dashboard-sidebar-collapse-toggle:hover {
-    background: var(--dashboard-hover);
-    color: var(--dashboard-text);
+@media (hover: hover) {
+    .dashboard-sidebar-collapse-toggle:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text);
+    }
 }
 
-/* Collapsed sidebar state */
-.dashboard-sidebar.collapsed {
-    width: 50px;
-    min-width: 50px;
-    padding: 16px 6px;
-}
+/* Collapsed sidebar state. Desktop only: below the drawer breakpoint the
+   collapse toggle is hidden, so a remembered collapse would strand the
+   drawer as an unlabeled icon strip. */
+@media (min-width: 769px) {
+    .dashboard-sidebar.collapsed {
+        width: calc(50px + env(safe-area-inset-left, 0px));
+        min-width: calc(50px + env(safe-area-inset-left, 0px));
+        padding: 16px 6px 16px calc(6px + env(safe-area-inset-left, 0px));
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-header {
-    justify-content: center;
-    padding: 4px 0 12px;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-header {
+        justify-content: center;
+        padding: 4px 0 12px;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-logo,
-.dashboard-sidebar.collapsed .dashboard-sidebar-team {
-    display: none;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-logo,
+    .dashboard-sidebar.collapsed .dashboard-sidebar-team {
+        display: none;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-close {
-    display: none;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-close {
+        display: none;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-open {
-    display: block;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-collapse-toggle .sidebar-toggle-open {
+        display: block;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-item {
-    justify-content: center;
-    padding: 10px;
-    gap: 0;
-    overflow: hidden;
-    font-size: 0;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-item {
+        justify-content: center;
+        padding: 10px;
+        gap: 0;
+        overflow: hidden;
+        font-size: 0;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-item svg {
-    flex-shrink: 0;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-item svg {
+        flex-shrink: 0;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-sidebar-separator {
-    margin: 8px 4px;
-}
+    .dashboard-sidebar.collapsed .dashboard-sidebar-separator {
+        margin: 8px 4px;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-user-options {
-    padding-top: 8px;
-}
+    .dashboard-sidebar.collapsed .dashboard-user-options {
+        padding-top: 8px;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-user-btn {
-    justify-content: center;
-    padding: 10px;
-    gap: 0;
-}
+    .dashboard-sidebar.collapsed .dashboard-user-btn {
+        justify-content: center;
+        padding: 10px;
+        gap: 0;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-user-name,
-.dashboard-sidebar.collapsed .dashboard-user-chevron {
-    display: none;
+    .dashboard-sidebar.collapsed .dashboard-user-name,
+    .dashboard-sidebar.collapsed .dashboard-user-chevron {
+        display: none;
+    }
 }
 
 /* Tooltip for collapsed sidebar */
@@ -415,7 +460,9 @@ body {
     color: var(--dashboard-text);
     white-space: nowrap;
     pointer-events: none;
-    z-index: 1000;
+    /* On body, so above the dashboard window, whose z-index climbs with
+       every click (focusWindow); same band as the notification toasts. */
+    z-index: 999999999;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     opacity: 0;
     transition: opacity 0.15s ease;
@@ -464,11 +511,33 @@ body {
     }
 }
 
+@media (pointer: coarse) {
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .dashboard-sidebar-close {
+        position: relative;
+    }
+
+    .dashboard-sidebar-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+}
+
 .dashboard-sidebar-nav {
     flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    /* Scrolls on short viewports (a landscape phone's drawer) so the lower
+       tabs stay reachable */
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .dashboard-sidebar-separator {
@@ -512,15 +581,17 @@ body {
 }
 
 /* Keyboard focus on the sidebar's controls: swap the UA's default blue
-   ring for the dashboard's own selection ring, hugging the control's
+   ring for the dashboard's own selection color, hugging the control's
    rounded corners from the inside. :focus-visible only, so a mouse click
-   (which also focuses these) never paints it. */
+   (which also focuses these) never paints it. A 2px ring is the only sign
+   of focus here, so it is the solid color: --select-ring's translucent
+   one is 1.6:1 against the surfaces, under the 3:1 a focus ring needs. */
 .dashboard-sidebar-item:focus-visible,
 .dashboard-user-btn:focus-visible,
 .dashboard-sidebar-toggle:focus-visible,
 .dashboard-sidebar-collapse-toggle:focus-visible,
 .dashboard-sidebar-close:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: -2px;
 }
 
@@ -535,6 +606,12 @@ body {
     display: flex;
     align-items: center;
     gap: 10px;
+    width: 100%;
+    border: none;
+    background: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
     padding: 10px 12px;
     border-radius: 6px;
     cursor: pointer;
@@ -587,7 +664,7 @@ body {
 
 .dashboard-content {
     flex: 1;
-    padding: 24px 32px;
+    padding: 24px calc(32px + env(safe-area-inset-right, 0px)) 24px 32px;
     overflow-y: auto;
     overflow-x: hidden;
     background: var(--dashboard-content-background);
@@ -626,6 +703,17 @@ body {
         background: linear-gradient(to bottom, rgba(30, 30, 30, 0) 0%, rgba(30, 30, 30, 0.85) 40%, rgba(30, 30, 30, 1) 100%);
     }
 
+    .usage-table-show-less {
+        color: #9ca3af;
+        border-color: #4b5563;
+    }
+
+    .usage-table-show-less:hover {
+        background: #374151;
+        border-color: #6b7280;
+        color: #d1d5db;
+    }
+
     .dashboard-section-billing .billing-card {
         background: var(--dashboard-card-background);
     }
@@ -646,7 +734,7 @@ body {
 /* Dashboard Apps */
 
 .dashboard-content.apps {
-    padding: 0;
+    padding: 0 env(safe-area-inset-right, 0px) 0 0;
 }
 
 .dashboard-section-apps {
@@ -791,6 +879,34 @@ body {
 .myapps-icon-clear {
     pointer-events: auto;
     cursor: pointer;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+}
+
+.myapps-icon-clear svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.myapps-icon-clear:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+    /* Keeps its 16px look and hit-tests at 44x44. */
+    .myapps-icon-clear::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 
 @media (hover: hover) {
@@ -1027,6 +1143,17 @@ input.myapps-search:disabled {
     opacity: 0.85;
 }
 
+/* Touch: the same 7px dot, in a 24px target; at 17px apiece, side by side,
+   a tap easily lands on the neighbor. */
+@media (pointer: coarse) {
+    .myapps-pager-dot,
+    .myapps-group-dot {
+        width: 24px;
+        height: 24px;
+        padding: 8.5px;
+    }
+}
+
 @media (hover: hover) {
     .myapps-pager-dot:not(.active):hover,
     .myapps-group-dot:not(.active):hover {
@@ -1065,6 +1192,12 @@ input.myapps-search:disabled {
 .myapps-pager-arrow svg {
     width: 16px;
     height: 16px;
+}
+
+/* An arrow with no page to go to leaves the accessibility tree once faded. */
+.myapps-pager-arrow.myapps-pager-arrow-hidden {
+    visibility: hidden;
+    transition: opacity 0.15s ease, background 0.15s ease, visibility 0s 0.15s;
 }
 
 .myapps-pager-arrow-prev {
@@ -1150,6 +1283,13 @@ input.myapps-search:disabled {
 
 .myapps-tile:focus-visible .myapps-tile-icon {
     transform: scale(1.08);
+}
+
+/* The enlargement alone is easy to miss; a ring says which tile has focus. */
+.myapps-tile:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: 2px;
+    border-radius: 14px;
 }
 
 /* Uninstall: the tile shrinks away in place, then the surviving tiles
@@ -1491,15 +1631,23 @@ input.myapps-group-name:focus {
     z-index: 300;
 }
 .myapps-modal {
+    /* Mounted outside .dashboard's border-box rule; the caps keep the card
+       inside a 16px gutter on narrow phones */
+    box-sizing: border-box;
     background: var(--dashboard-card-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 12px;
     padding: 24px;
-    min-width: 320px;
-    max-width: 400px;
+    min-width: min(370px, calc(100vw - 32px));
+    max-width: min(450px, calc(100vw - 32px));
+    /* Scrolls rather than spilling past both edges in a short viewport
+       (landscape phone, on-screen keyboard up) */
+    max-height: calc(100% - 32px);
+    overflow-y: auto;
     box-shadow: 0 8px 32px var(--dashboard-shadow-medium);
 }
 .myapps-modal h3 {
+    overflow-wrap: anywhere;
     margin: 0 0 8px;
     font-size: 16px;
     font-weight: 600;
@@ -1509,6 +1657,19 @@ input.myapps-group-name:focus {
     margin: 0 0 16px;
     font-size: 14px;
     color: var(--dashboard-text-secondary);
+}
+.myapps-modal-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 16px;
+    font-size: 14px;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+}
+.myapps-modal-option input {
+    margin: 0;
+    cursor: pointer;
 }
 .myapps-modal-buttons {
     display: flex;
@@ -1523,6 +1684,11 @@ input.myapps-group-name:focus {
     cursor: pointer;
     transition: background 0.15s, opacity 0.15s;
 }
+@media (pointer: coarse) {
+    .myapps-modal-btn {
+        min-height: 44px;
+    }
+}
 .myapps-modal-cancel {
     background: var(--dashboard-card-background);
     color: var(--dashboard-text-primary);
@@ -1533,9 +1699,9 @@ input.myapps-group-name:focus {
     }
 }
 .myapps-modal-confirm {
-    background: #e53935;
+    background: #d32f2f;
     color: #fff;
-    border-color: #e53935;
+    border-color: #d32f2f;
 }
 @media (hover: hover) {
     .myapps-modal-confirm:hover {
@@ -1598,7 +1764,9 @@ input.myapps-group-name:focus {
 
 .app-feedback-modal {
     width: min(440px, 100%);
-    max-height: calc(100vh - 40px);
+    /* dvh: on phones 100vh is the viewport with the browser bars hidden,
+       taller than what's visible while they show. */
+    max-height: calc(100dvh - 40px);
     overflow-y: auto;
     background: var(--afb-bg);
     color: var(--afb-fg);
@@ -1625,6 +1793,7 @@ input.myapps-group-name:focus {
     font-weight: 600;
 }
 .app-feedback-x {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1638,6 +1807,18 @@ input.myapps-group-name:focus {
     color: var(--afb-muted);
     cursor: pointer;
     transition: background-color 0.12s ease, color 0.12s ease;
+}
+@media (pointer: coarse) {
+    /* Keeps its 30px look and hit-tests at 44x44. */
+    .app-feedback-x::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 .app-feedback-x svg {
     width: 16px;
@@ -1757,22 +1938,21 @@ input.myapps-group-name:focus {
     }
 }
 .app-feedback-btn-primary {
-    border-color: #088ef0;
-    background: linear-gradient(#34a5f8, #088ef0);
+    border-color: var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
     color: #fff;
 }
 @media (hover: hover) {
     /* Must out-rank .app-feedback-btn:hover:not(:disabled) above, which
        would otherwise repaint the primary button with the light hover bg. */
     .app-feedback-btn.app-feedback-btn-primary:hover:not(:disabled) {
-        filter: brightness(1.05);
-        background: linear-gradient(#34a5f8, #088ef0);
+        border-color: var(--dashboard-button-primary-hover);
+        background: var(--dashboard-button-primary-hover);
     }
 }
 .app-feedback-btn-primary:disabled {
     opacity: 0.5;
     cursor: default;
-    filter: none;
 }
 /* Cancel/X are disabled while a submit is in flight. */
 .app-feedback-btn:disabled,
@@ -1814,9 +1994,12 @@ input.myapps-group-name:focus {
     }
     .app-feedback-modal {
         width: 100%;
-        max-height: 92vh;
+        max-height: 92dvh;
         border-radius: 14px 14px 0 0;
         transform: translateY(16px);
+        /* Flush with the bottom edge: keep the actions above the home
+           indicator. */
+        padding-bottom: env(safe-area-inset-bottom, 0px);
     }
     .app-feedback-open .app-feedback-modal {
         transform: none;
@@ -1926,6 +2109,7 @@ input.myapps-group-name:focus {
     margin: 0;
 }
 .myapps-add-back {
+    position: relative;
     flex: none;
     display: flex;
     align-items: center;
@@ -1941,6 +2125,18 @@ input.myapps-group-name:focus {
     background: none;
     color: var(--dashboard-text-secondary);
     cursor: pointer;
+}
+@media (pointer: coarse) {
+    /* Keeps its 26px look and hit-tests at 44x44. */
+    .myapps-add-back::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 .myapps-add-back svg {
     width: 17px;
@@ -1985,8 +2181,8 @@ p.myapps-add-error {
     color: var(--dashboard-error-text);
 }
 .myapps-add-send {
-    background: var(--select-color);
-    border-color: var(--select-color);
+    background: var(--select-fill);
+    border-color: var(--select-fill);
     color: #fff;
 }
 @media (hover: hover) {
@@ -2033,16 +2229,21 @@ p.myapps-add-error {
     opacity: 0;
     transition: opacity 200ms ease;
     z-index: 1000;
+    /* Fading out after a close, it must not take the next click. */
+    pointer-events: none;
 }
 .item-props-overlay.item-props-show {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .item-props-modal {
     display: flex;
     flex-direction: column;
     width: min(460px, 100%);
-    max-height: min(600px, 85vh);
+    /* 100%: within the overlay, which is the visible height; vh is the
+       largest one, and with the browser's bars showing overflows it. */
+    max-height: min(600px, 85vh, 100%);
     background: var(--dashboard-card-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 14px;
@@ -2104,6 +2305,7 @@ p.myapps-add-error {
     color: var(--dashboard-text-muted);
 }
 .item-props-close {
+    position: relative;
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -2117,6 +2319,18 @@ p.myapps-add-error {
     color: var(--dashboard-text-secondary);
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
+}
+@media (pointer: coarse) {
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .item-props-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 @media (hover: hover) {
     .item-props-close:hover {
@@ -2210,12 +2424,31 @@ p.myapps-add-error {
 }
 .item-props-disassociate {
     margin-left: 8px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    font: inherit;
     font-size: 12px;
     color: var(--dashboard-danger-text);
     cursor: pointer;
 }
 .item-props-disassociate:hover {
     text-decoration: underline;
+}
+.item-props-disassociate:disabled {
+    opacity: 0.5;
+    cursor: default;
+    text-decoration: none;
+}
+.item-props-modal:focus {
+    outline: none;
+}
+.item-props-close:focus-visible,
+.item-props-tab:focus-visible,
+.item-props-disassociate:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
 }
 
 /* Versions */
@@ -2232,6 +2465,33 @@ p.myapps-add-error {
 .item-props-version-meta {
     font-size: 13px;
     color: var(--dashboard-text-primary);
+}
+.item-props-person {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    vertical-align: middle;
+}
+.item-props-avatar {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
+}
+@media (prefers-color-scheme: dark) {
+    .item-props-avatar {
+        background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 76%);
+    }
 }
 .item-props-version-id {
     font-size: 11px;
@@ -2254,7 +2514,7 @@ p.myapps-add-error {
     .item-props-modal {
         width: 100%;
         max-width: none;
-        max-height: 88vh;
+        max-height: min(88vh, 100%);
         border-radius: 16px 16px 0 0;
         border-bottom: none;
         transform: translateY(24px);
@@ -2262,12 +2522,24 @@ p.myapps-add-error {
     .item-props-overlay.item-props-show .item-props-modal {
         transform: translateY(0);
     }
+    /* Flush with the bottom edge, like the share sheet: clear the home
+       indicator. */
+    .item-props-body {
+        padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    }
     .item-props-row {
         flex-direction: column;
         gap: 3px;
     }
     .item-props-label {
         flex-basis: auto;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .item-props-overlay,
+    .item-props-modal {
+        transition: none;
     }
 }
 
@@ -2287,16 +2559,20 @@ p.myapps-add-error {
     opacity: 0;
     transition: opacity 200ms ease;
     z-index: 1000;
+    /* Fading out after a close, it must not take the next click. */
+    pointer-events: none;
 }
 .share-modal-overlay.share-modal-show {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .share-modal {
     display: flex;
     flex-direction: column;
     width: min(440px, 100%);
-    max-height: min(620px, 85vh);
+    /* 100%: within the overlay (see .item-props-modal). */
+    max-height: min(620px, 85vh, 100%);
     background: var(--dashboard-card-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 14px;
@@ -2494,6 +2770,35 @@ button.share-modal-title-sub:focus-visible {
     padding: 16px 18px 18px;
 }
 
+/* Footer: the status line, then Copy link and Done. Outside the scrolling
+   body, so a message is in view wherever the list is scrolled to. */
+.share-modal-footer {
+    flex-shrink: 0;
+    padding: 12px 18px 14px;
+    border-top: 1px solid var(--dashboard-border);
+}
+.share-modal-footer-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.share-modal-done {
+    margin-left: auto;
+}
+.share-modal-copy-link {
+    gap: 6px;
+}
+.share-modal-copy-link[hidden] {
+    display: none;
+}
+.share-modal-copy-icon {
+    display: flex;
+}
+.share-modal-copy-link.share-modal-copied {
+    border-color: var(--dashboard-success-border);
+    color: var(--dashboard-success-text);
+}
+
 /* Add people. style.css's input[type=text] / select rules match these
    controls at the SAME specificity, so everything must be spelled out here
    (twice for focus — input[type=text]:focus sets padding 7px / border 2px).
@@ -2502,12 +2807,25 @@ button.share-modal-title-sub:focus-visible {
     display: flex;
     gap: 8px;
 }
+.share-modal-add-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+    animation: share-modal-reveal 150ms ease-out;
+}
+.share-modal-add-actions[hidden] {
+    display: none;
+}
+@keyframes share-modal-reveal {
+    from { opacity: 0; transform: translateX(6px); }
+}
 input.share-modal-recipient {
     -webkit-appearance: none;
     appearance: none;
     box-sizing: border-box;
     flex: 1 1 auto;
     width: auto;
+    height: 36px;
     min-width: 0;
     /* On narrow screens the placeholder outgrows the field; fade it out
        with an ellipsis instead of clipping mid-letter. */
@@ -2558,6 +2876,9 @@ select.share-modal-mode,
 select.share-modal-link-mode {
     flex-shrink: 0;
 }
+select.share-modal-mode {
+    height: 36px;
+}
 select.share-modal-mode:focus,
 select.share-modal-link-access:focus,
 select.share-modal-link-mode:focus,
@@ -2599,56 +2920,75 @@ select.share-modal-row-mode:disabled {
 }
 
 /* General access: the owner's switch between people-only and anyone with
-   the link, below the people and team controls. The copy button is the team
-   button's quieter sibling. */
+   the link, as one row shaped like a person's — an icon where the avatar
+   goes, the switch and what it means, and the level on the right. */
 .share-modal-general {
-    margin-top: 18px;
-    padding-top: 16px;
-    border-top: 1px solid var(--dashboard-border);
+    margin-top: 20px;
 }
 
 .share-modal-general .share-modal-heading {
-    margin: 0 0 8px;
+    margin: 0 0 6px;
 }
 
 .share-modal-general-row {
     display: flex;
-    gap: 8px;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 0;
 }
 
-select.share-modal-link-access {
+.share-modal-general-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--dashboard-hover);
+    color: var(--dashboard-text-secondary);
+    transition: background 0.15s, color 0.15s;
+}
+
+.share-modal-general-icon.share-modal-general-icon-open {
+    background: var(--dashboard-success-background);
+    color: var(--dashboard-success-text);
+}
+
+.share-modal-general-text {
     flex: 1 1 auto;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+/* Reads as the row's title; the padding lets the hover fill reach past the
+   text while the text itself lines up with the note below. */
+select.share-modal-link-access {
+    max-width: calc(100% + 8px);
+    margin-left: -8px;
+    padding: 3px 24px 3px 8px;
+    border-color: transparent;
+    background-color: transparent;
+    background-position: right 6px center;
+    font-size: 13.5px;
+    font-weight: 600;
+    field-sizing: content;
+}
+select.share-modal-link-access:focus {
+    padding: 3px 24px 3px 8px;
+}
+@media (hover: hover) {
+    select.share-modal-link-access:hover:not(:disabled) {
+        background-color: var(--dashboard-hover);
+    }
 }
 
 .share-modal-general-note {
-    margin: 8px 0 0;
-    font-size: 12.5px;
-    line-height: 1.45;
-    color: var(--dashboard-text-hint);
-}
-
-.share-modal-copy-link {
-    width: 100%;
-    height: 38px;
-    margin-top: 10px;
-    padding: 0 16px;
-    border: 1px solid var(--dashboard-border);
-    border-radius: 10px;
-    background: transparent;
-    font-size: 13.5px;
-    font-weight: 600;
-    font-family: inherit;
-    color: var(--dashboard-text-primary);
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-}
-
-@media (hover: hover) {
-    .share-modal-copy-link:hover:not(:disabled) {
-        background: var(--dashboard-card-background);
-        border-color: var(--dashboard-text-hint);
-    }
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--dashboard-text-muted);
 }
 
 .share-modal-submit {
@@ -2656,14 +2996,14 @@ select.share-modal-link-access {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    width: 100%;
-    margin-top: 10px;
+    flex-shrink: 0;
+    box-sizing: border-box;
     padding: 0 16px;
-    height: 38px;
-    border: 1px solid var(--dashboard-link);
-    border-radius: 10px;
-    background: var(--dashboard-link);
-    font-size: 13.5px;
+    height: 36px;
+    border: 1px solid var(--dashboard-button-primary);
+    border-radius: 8px;
+    background: var(--dashboard-button-primary);
+    font-size: 13px;
     font-weight: 600;
     font-family: inherit;
     color: #fff;
@@ -2672,8 +3012,8 @@ select.share-modal-link-access {
 }
 @media (hover: hover) {
     .share-modal-submit:hover:not(:disabled) {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
+        background: var(--dashboard-button-primary-hover);
+        border-color: var(--dashboard-button-primary-hover);
     }
 }
 .share-modal-submit:focus-visible {
@@ -2683,13 +3023,13 @@ select.share-modal-link-access {
 .share-modal-submit:disabled {
     background: var(--dashboard-input-background);
     border-color: var(--dashboard-border);
-    color: var(--dashboard-text-muted);
+    color: var(--dashboard-text-disabled);
     cursor: default;
 }
 /* In flight it is disabled too, but should read as working, not empty */
 .share-modal-submit.share-modal-btn-busy:disabled {
-    background: var(--dashboard-link);
-    border-color: var(--dashboard-link);
+    background: var(--dashboard-button-primary);
+    border-color: var(--dashboard-button-primary);
     color: #fff;
     opacity: 0.75;
 }
@@ -2726,16 +3066,16 @@ select.share-modal-link-access {
    display:none — a live region revealed in the same frame as its text is
    unreliably announced, so it stays in the a11y tree between messages. */
 .share-modal-status {
-    margin-top: 12px;
-    padding: 9px 12px;
+    margin-bottom: 10px;
+    padding: 8px 12px;
     border: 1px solid transparent;
     border-radius: 8px;
-    font-size: 13px;
+    font-size: 12.5px;
     line-height: 1.45;
     word-break: break-word;
 }
 .share-modal-status:empty {
-    margin-top: 0;
+    margin-bottom: 0;
     padding: 0;
     border-width: 0;
 }
@@ -2752,33 +3092,32 @@ select.share-modal-link-access {
 
 /* Access list */
 .share-modal-heading {
-    margin: 18px 0 2px;
     font-size: 13px;
     font-weight: 600;
     color: var(--dashboard-text-secondary);
+}
+.share-modal-list {
+    margin-top: 10px;
 }
 .share-modal-row {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 9px 0;
-    border-bottom: 1px solid var(--dashboard-border);
-}
-.share-modal-row:last-child {
-    border-bottom: none;
+    min-height: 32px;
+    padding: 5px 0;
 }
 .share-modal-avatar {
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     font-size: 13px;
     font-weight: 600;
     background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
-    color: hsl(var(--share-avatar-hue, 213), 45%, 38%);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
 }
 .share-modal-row-who {
     flex: 1 1 auto;
@@ -2817,7 +3156,7 @@ select.share-modal-link-access {
     font-family: inherit;
     font-size: 12px;
     font-weight: 600;
-    color: var(--select-color);
+    color: var(--select-text);
     cursor: pointer;
 }
 @media (hover: hover) {
@@ -2840,49 +3179,40 @@ select.share-modal-link-access {
     font-size: 12.5px;
     color: var(--dashboard-text-secondary);
 }
+select.share-modal-link-mode,
 select.share-modal-row-mode {
     flex-shrink: 0;
+    max-width: 50%;
     padding: 5px 24px 5px 8px;
     border-color: transparent;
     background-color: transparent;
     font-size: 12.5px;
     color: var(--dashboard-text-secondary);
     background-position: right 6px center;
+    /* Sized to the level on show rather than the longest entry ("Remove
+       access"), so the chevron sits next to the text. Where unsupported,
+       the text at least hugs the chevron. */
+    field-sizing: content;
+    text-align-last: right;
+}
+select.share-modal-row-mode option,
+select.share-modal-link-mode option {
+    text-align: left;
+}
+select.share-modal-row-mode option.share-modal-option-danger {
+    color: var(--dashboard-danger-text);
 }
 @media (hover: hover) {
+    select.share-modal-link-mode:hover:not(:disabled),
     select.share-modal-row-mode:hover:not(:disabled) {
         background-color: var(--dashboard-hover);
         color: var(--dashboard-text-primary);
     }
 }
+select.share-modal-link-mode:focus,
 select.share-modal-row-mode:focus {
     padding: 5px 24px 5px 8px;
     border: 1px solid var(--select-color);
-}
-.share-modal-revoke {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    padding: 0;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--dashboard-text-secondary);
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-}
-@media (hover: hover) {
-    .share-modal-revoke:hover:not(:disabled) {
-        background: var(--dashboard-danger-background);
-        color: var(--dashboard-danger-text);
-    }
-}
-.share-modal-revoke:focus-visible {
-    outline: none;
-    box-shadow: 0 0 0 3px var(--select-ring);
 }
 .share-modal-empty {
     margin: 0;
@@ -2950,20 +3280,17 @@ select.share-modal-row-mode:focus {
     cursor: default;
 }
 
-/* Touch: every control clears 44px. The icon buttons keep their 30-32px
-   visuals but hit-test at 44x44 via a centered pseudo-element (the 10px
-   gap to the row's select and the 18px between rows absorb the overhang
-   without overlap); everything else grows for real via min-height, which
-   holds whatever the inherited line-height turns out to be.
+/* Touch: every control clears 44px. The close button keeps its 32px
+   visual but hit-tests at 44x44 via a centered pseudo-element; everything
+   else grows for real via min-height, which holds whatever the inherited
+   line-height turns out to be.
    This block sits below every base rule it overrides — a media query
    adds no specificity, so source order decides. */
 @media (pointer: coarse) {
-    .share-modal-close,
-    .share-modal-revoke {
+    .share-modal-close {
         position: relative;
     }
-    .share-modal-close::before,
-    .share-modal-revoke::before {
+    .share-modal-close::before {
         content: '';
         position: absolute;
         left: 50%;
@@ -2993,11 +3320,11 @@ select.share-modal-row-mode:focus {
     select.share-modal-mode,
     select.share-modal-mode:focus,
     select.share-modal-link-access,
-    select.share-modal-link-access:focus,
-    select.share-modal-link-mode,
-    select.share-modal-link-mode:focus {
+    select.share-modal-link-access:focus {
         min-height: 44px;
     }
+    select.share-modal-link-mode,
+    select.share-modal-link-mode:focus,
     select.share-modal-row-mode,
     select.share-modal-row-mode:focus {
         min-height: 44px;
@@ -3020,7 +3347,7 @@ select.share-modal-row-mode:focus {
     .share-modal-avatar,
     .share-modal .share-suggest-avatar {
         background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
-        color: hsl(var(--share-avatar-hue, 213), 55%, 72%);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 76%);
     }
     /* Restated after the rule above, which would otherwise repaint the glyph
        variant with a hue it does not carry. */
@@ -3030,6 +3357,8 @@ select.share-modal-row-mode:focus {
     }
     /* Chevron: slate-400, lighter than the light theme's stroke */
     select.share-modal-mode,
+    select.share-modal-link-access,
+    select.share-modal-link-mode,
     select.share-modal-row-mode {
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
     }
@@ -3044,7 +3373,7 @@ select.share-modal-row-mode:focus {
     .share-modal {
         width: 100%;
         max-width: none;
-        max-height: 88vh;
+        max-height: min(88vh, 100%);
         border-radius: 16px 16px 0 0;
         border-bottom: none;
         transform: translateY(24px);
@@ -3053,9 +3382,14 @@ select.share-modal-row-mode:focus {
         transform: translateY(0);
     }
     /* The sheet sits flush with the physical bottom edge (viewport-fit=
-       cover), so the scrollable body clears the home indicator itself. */
-    .share-modal-body {
-        padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+       cover), so the footer clears the home indicator itself. */
+    .share-modal-footer {
+        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+    }
+    /* Copy link and Done split the row rather than stacking. */
+    .share-modal-footer-row .dashboard-dialog-btn {
+        flex: 1 1 0;
+        min-width: 0;
     }
 }
 
@@ -3063,6 +3397,9 @@ select.share-modal-row-mode:focus {
     .share-modal-overlay,
     .share-modal {
         transition: none;
+    }
+    .share-modal-add-actions {
+        animation: none;
     }
     .share-modal-spinner {
         animation-duration: 1.6s;
@@ -3361,8 +3698,8 @@ select.share-modal-row-mode:focus {
     color: var(--dashboard-text-primary);
 }
 .profile-crop-save {
-    border: 1px solid var(--dashboard-link);
-    background: var(--dashboard-link);
+    border: 1px solid var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
     color: #fff;
 }
 @media (hover: hover) {
@@ -3370,8 +3707,8 @@ select.share-modal-row-mode:focus {
         background: var(--dashboard-sidebar-background);
     }
     .profile-crop-save:hover:not(:disabled) {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
+        background: var(--dashboard-button-primary-hover);
+        border-color: var(--dashboard-button-primary-hover);
     }
 }
 .profile-crop-btn-quiet:focus-visible,
@@ -3382,7 +3719,7 @@ select.share-modal-row-mode:focus {
 .profile-crop-save:disabled {
     background: var(--dashboard-input-background);
     border-color: var(--dashboard-border);
-    color: var(--dashboard-text-muted);
+    color: var(--dashboard-text-disabled);
     cursor: default;
 }
 
@@ -3435,7 +3772,7 @@ select.share-modal-row-mode:focus {
     .profile-crop-modal {
         width: 100%;
         max-width: none;
-        max-height: 92vh;
+        max-height: 92dvh;
         border-radius: 16px 16px 0 0;
         border-bottom: none;
         transform: translateY(24px);
@@ -3730,12 +4067,6 @@ body.myapps-reordering .myapps-tile {
     body.myapps-reordering .myapps-tile.myapps-tile-merge-armed .myapps-tile-icon {
         transition: none;
     }
-
-    .dashboard-sidebar,
-    .dashboard-sidebar-scrim,
-    .dashboard-sidebar-toggle {
-        transition: none;
-    }
 }
 
 /* Dashboard files */
@@ -3747,7 +4078,7 @@ body.myapps-reordering .myapps-tile {
    so a vh-sized list overhung the clipped content box and its last rows could
    never be scrolled into view. */
 .dashboard-content.files {
-    padding: 0 0 0 10px;
+    padding: 0 env(safe-area-inset-right, 0px) 0 10px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -3784,12 +4115,20 @@ body.myapps-reordering .myapps-tile {
     top: 0;
     width: 200px;
     padding: 16px 0;
+    /* A short viewport (landscape phone, small window) scrolls the folders
+       rather than cutting the last ones off */
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
 }
 
 .dashboard-section-files .directories ul {
     list-style: none;
     padding: 0;
     margin: 0;
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
 }
 
 .dashboard-section-files .directories li {
@@ -3818,7 +4157,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .directories li.active {
-    color: var(--select-color);
+    color: var(--select-text);
     font-weight: 500;
 }
 
@@ -3827,15 +4166,16 @@ body.myapps-reordering .myapps-tile {
     height: auto;
 }
 
+/* Trash sits at the column's foot (20px up, with the column's padding)
+   when there's room, and after Shared when there isn't. */
 .dashboard-section-files .directories li[data-folder="Trash"] {
-    position: fixed;
-    bottom: 0;
-    margin-bottom: 20px;
-    width: 150px;
+    margin-top: auto;
+    margin-bottom: 4px;
     height: 38px;
 }
 
 .dashboard-section-files .directory-contents {
+    container: files-list / inline-size;
     position: relative;
     width: calc(100% - 160px);
     display: flex;
@@ -3862,6 +4202,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard .path-nav-buttons {
+    flex-shrink: 0;
     padding: 4px 10px 4px 0px;
     display: flex;
     justify-content: center;
@@ -3879,6 +4220,31 @@ body.myapps-reordering .myapps-tile {
     background-color: transparent;
 }
 
+/* 36px touch targets in the same 28px footprint (they're <img>s, so no
+   pseudo-element hit area) */
+@media (pointer: coarse) {
+    .dashboard .path-btn {
+        width: 36px;
+        padding: 8px;
+        margin: -4px;
+    }
+
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .dashboard-section-files .header .path-action-btn {
+        position: relative;
+    }
+
+    .dashboard-section-files .header .path-action-btn::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+}
+
 @media (hover: hover) {
     .dashboard .path-btn:hover {
         background-color: #EEE;
@@ -3889,6 +4255,10 @@ body.myapps-reordering .myapps-tile {
 @media (prefers-color-scheme: dark) {
     .path-btn {
         filter: invert(1) hue-rotate(180deg);
+    }
+    /* A black chevron; uninverted it disappears into the dark header. */
+    .dashboard-section-files .path-seperator {
+        filter: invert(1);
     }
     @media (hover: hover) {
         /* The hover chip is light (#EEE) even in dark mode, so the icon must
@@ -3905,6 +4275,16 @@ body.myapps-reordering .myapps-tile {
     display: flex;
     align-items: center;
     margin-left: 10px;
+    /* A deep path scrolls inside its row (kept at its end by
+       revealCurrentCrumb) instead of wrapping or pushing the actions out. */
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+}
+
+.dashboard-section-files .header .path-breadcrumbs::-webkit-scrollbar {
+    display: none;
 }
 
 .dashboard-section-files .header .path-breadcrumbs:empty + .path-actions {
@@ -3937,6 +4317,21 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* Keyboard focus on the folder sidebar, crumbs, nav arrows, and Home's
+   Shared/Trash rows */
+.dashboard-section-files .directories li:focus-visible,
+.dashboard-section-files .files-tab .files .row.place-row:focus-visible,
+.dashboard-section-files .header .path .dirname:focus-visible,
+.dashboard-section-files .header .path-btn:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -2px;
+}
+
+/* Holds the focus while the keys move the selection, which marks the place. */
+.dashboard-section-files .files-tab .files:focus {
+    outline: none;
+}
+
 .dashboard-section-files .header .path-btn-disabled {
     opacity: 0.1;
     pointer-events: none;
@@ -3967,6 +4362,22 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* Dark mode keeps the toolbar's light hover chip (see .path-btn), so what sits
+   on it goes dark; at rest the action icons match the inverted nav arrows. */
+@media (prefers-color-scheme: dark) {
+    .dashboard-section-files .header .path-action-btn {
+        color: #a3a3a3;
+    }
+    @media (hover: hover) {
+        .dashboard-section-files .header .path-action-btn:hover {
+            color: #5c5c5c;
+        }
+        .dashboard-section-files .header .path .dirname:hover {
+            color: #3f3f46;
+        }
+    }
+}
+
 .dashboard-section-files .header .path .dirname.drop-target {
     color: var(--dashboard-text);
     background-color: rgba(59, 130, 246, 0.15);
@@ -3974,9 +4385,9 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .header .path .dirname.context-menu-active {
-    color: var(--dashboard-background);
-    background-color: var(--select-color);
-    border: 1px solid var(--select-color);
+    color: #fff;
+    background-color: var(--select-fill);
+    border: 1px solid var(--select-fill);
 }
 
 .dashboard-section-files .header .columns {
@@ -4076,7 +4487,7 @@ body.myapps-reordering .myapps-tile {
 
 .dashboard-section-files .row .item-name,
 .dashboard-section-files .header .columns .item-name {
-    /* text-overflow: ellipsis; */
+    text-overflow: ellipsis;
     white-space: nowrap;
     overflow: hidden;
     max-width: unset;
@@ -4155,6 +4566,14 @@ body.myapps-reordering .myapps-tile {
     pointer-events: none;
 }
 
+/* Without hover there is no reveal, so touch screens show it at rest as
+   quietly as the row's other metadata. */
+@media (hover: none) {
+    .dashboard-section-files .row .item-more {
+        color: var(--dashboard-text-tertiary);
+    }
+}
+
 @media (hover: hover) {
     .dashboard-section-files .row:hover .item-more {
         color: var(--dashboard-text);
@@ -4187,7 +4606,8 @@ body.myapps-reordering .myapps-tile {
 
 .files-drag-ghost {
     pointer-events: none;
-    z-index: 10000;
+    /* On body, above the dashboard window (see the sidebar tooltip). */
+    z-index: 999999999;
     opacity: 0.95;
     animation: files-drag-ghost-in 120ms ease-out;
 }
@@ -4268,7 +4688,7 @@ body.myapps-reordering .myapps-tile {
     padding: 0 6px;
     box-sizing: border-box;
     border-radius: 10px;
-    background: var(--select-color);
+    background: var(--select-fill);
     color: #fff;
     font-size: 11px;
     font-weight: 600;
@@ -4318,7 +4738,7 @@ body.myapps-reordering .myapps-tile {
     position: absolute;
     bottom: 32px;
     right: 32px;
-    background: #ef4444;
+    background: #dc2626;
     color: white;
     padding: 16px 32px;
     border-radius: 6px;
@@ -4332,7 +4752,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .drag-cancel-zone.drag-cancel-hover {
-    background: #dc2626;
+    background: #b91c1c;
     transform: scale(1.05);
 }
 
@@ -4427,7 +4847,6 @@ body.myapps-reordering .myapps-tile {
     transform: translateX(-50%) translateY(0);
     opacity: 1;
     visibility: visible;
-    z-index: 99999999999999999;
 }
 
 .dashboard-section-files .files-selection-actions.rubberband-active {
@@ -4527,8 +4946,8 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .files-tab .files .row.selected .item-checkbox .checkbox-icon {
-    background: var(--primary-color, #3b82f6);
-    border-color: var(--primary-color, #3b82f6);
+    background: var(--select-color);
+    border-color: var(--select-color);
 }
 
 .dashboard-section-files .files-tab .files .row.selected .item-checkbox .checkbox-icon::after {
@@ -4564,7 +4983,7 @@ body.myapps-reordering .myapps-tile {
     height: 7px;
     right: 2px;
     bottom: 2px;
-    box-shadow: 0 0 0 1px white;
+    box-shadow: 0 0 0 1px var(--dashboard-background);
 }
 
 .dashboard-section-files .files-tab .files.files-list-view .row .item-icon img {
@@ -4585,9 +5004,211 @@ body.myapps-reordering .myapps-tile {
     color: var(--dashboard-text-tertiary);
 }
 
+/* On a touch screen the '⋯' is a 20x23 target beside a row whose tap opens
+   the item, so a near miss opened the item instead of the menu. It takes the
+   row's height and a finger's width. (Two-row rows get a 44px square below.) */
+@media (pointer: coarse) {
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-more {
+        position: relative;
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-more::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 32px;
+        transform: translate(-50%, -50%);
+    }
+}
+
 .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-size,
 .dashboard-section-files .files-tab .files.files-list-view .row.selected .item-modified {
     color: inherit;
+}
+
+/* -- Shared view: who shared each item --
+   The "Shared by" column, a sharer line on grid tiles, and the people filter.
+   TabFiles.js sets .shared-view on the Shared view only. */
+.dashboard-section-files .files-tab:not(.shared-view) .header .columns .item-shared-by,
+.dashboard-section-files .files-tab:not(.shared-view) .header .columns [data-resize="sharedBy"] {
+    display: none;
+}
+
+/* Its two-word label fits on one line, ending in an ellipsis once narrowed. */
+.dashboard-section-files .header .columns .item-shared-by .sortable-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-section-files .row .item-shared-by {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 0 10px;
+    color: var(--dashboard-text-tertiary);
+}
+
+.dashboard-section-files .row.selected .item-shared-by {
+    color: inherit;
+}
+
+.dashboard-section-files .item-shared-by-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The share modal's initial-and-color avatar, at row size. */
+.dashboard-section-files .item-shared-by-avatar,
+.dashboard-section-files .sharer-chip-avatar {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 1;
+    background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
+}
+
+@media (prefers-color-scheme: dark) {
+    .dashboard-section-files .item-shared-by-avatar,
+    .dashboard-section-files .sharer-chip-avatar {
+        background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 76%);
+    }
+}
+
+/* Grid tiles: the sharer on a line under the name. */
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-metadata {
+    max-width: 100%;
+    min-width: 0;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-shared-by {
+    justify-content: center;
+    gap: 5px;
+    margin-top: -4px;
+    padding: 0;
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view .row .item-shared-by-avatar {
+    width: 16px;
+    height: 16px;
+    font-size: 9px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-shared-by {
+    font-size: 11px;
+}
+
+/* People filter: one chip per person, scrolling sideways when they don't fit.
+   The edges fade inside the bar's own padding, so a chip at rest never does. */
+.dashboard-section-files .shared-people-filter {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+}
+
+.dashboard-section-files .shared-people-filter[hidden] {
+    display: none;
+}
+
+.dashboard-section-files .shared-people-filter::-webkit-scrollbar {
+    display: none;
+}
+
+.dashboard-section-files .sharer-chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 220px;
+    height: 30px;
+    padding: 0 10px;
+    box-sizing: border-box;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 999px;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text);
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+/* The avatar sits in the chip's rounded end, as an input chip's does. */
+.dashboard-section-files .sharer-chip-avatar {
+    margin-left: -6px;
+}
+
+.dashboard-section-files .sharer-chip-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-section-files .sharer-chip-count {
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    color: var(--dashboard-text-muted);
+}
+
+@media (hover: hover) {
+    .dashboard-section-files .sharer-chip:hover {
+        background: var(--select-tint-weak);
+        border-color: var(--select-tint-strong);
+    }
+}
+
+.dashboard-section-files .sharer-chip.active {
+    background: var(--select-tint);
+    border-color: var(--select-ring);
+    color: var(--select-text);
+}
+
+.dashboard-section-files .sharer-chip.active .sharer-chip-count {
+    color: inherit;
+}
+
+/* Inset, so the bar's scroll box doesn't clip the ring. */
+.dashboard-section-files .sharer-chip:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -2px;
+}
+
+@media (pointer: coarse) {
+    .dashboard-section-files .sharer-chip {
+        height: 36px;
+        font-size: 13px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-section-files .sharer-chip {
+        transition: none;
+    }
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view {
@@ -4617,6 +5238,13 @@ body.myapps-reordering .myapps-tile {
     filter: none;
 }
 
+@media (prefers-color-scheme: dark) {
+    /* A black glyph, lost on the dark row: drawn light instead. */
+    .dashboard-section-files .files-tab .files.files-list-view .row img.item-has-website-url-badge {
+        filter: invert(1);
+    }
+}
+
 /* Badges live top-LEFT in grid view; the top-right corner belongs to the
    hover '⋯' button (.item-more) and they must not overlap. */
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-badges {
@@ -4640,6 +5268,14 @@ body.myapps-reordering .myapps-tile {
     /* the desktop UI's .item-badge drop-shadow filters look muddy on the
        dashboard's flat tiles */
     filter: none;
+}
+
+@media (prefers-color-scheme: dark) {
+    /* A black glyph, lost on a dark disc; it gets the white one the shortcut
+       and worker badges carry. */
+    .dashboard-section-files .files-tab .files.files-grid-view .row img.item-has-website-url-badge {
+        background: #ffffff;
+    }
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row {
@@ -4673,6 +5309,22 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files.files-grid-view .row.selected {
     background-color: var(--select-tint);
     border-color: var(--select-ring);
+}
+
+/* Drop target and spring-load dwell, as in the list: the grid rules above
+   out-rank the shared ones. A pixel of padding pays for the wider border,
+   so the tile doesn't shift. */
+.dashboard-section-files .files-tab .files.files-grid-view .row.folder.ui-droppable-hover,
+.dashboard-section-files .files-tab .files.files-grid-view .row.folder.dwell-opening {
+    padding: 11px;
+    background-color: rgba(59, 130, 246, 0.1);
+    border: 2px dashed var(--select-color);
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view .row.folder.dwell-opening {
+    background-image: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 100%, transparent 100%);
+    background-size: 0% 100%;
+    background-repeat: no-repeat;
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-icon {
@@ -4726,6 +5378,9 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-name-wrapper {
     width: 100%;
     display: block;
+    /* Above the tile-sized badge layer, which would take the hover that
+       shows a shortened name in full. */
+    position: relative;
 }
 
 @media (hover: hover) {
@@ -4776,6 +5431,11 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row {
     padding: 8px;
     gap: 6px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row.folder.ui-droppable-hover,
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row.folder.dwell-opening {
+    padding: 7px;
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-icon {
@@ -5143,9 +5803,11 @@ body.myapps-reordering .myapps-tile {
     .dashboard-tab-content.myapps-tab {
         padding-bottom: max(6px, env(safe-area-inset-bottom));
         --myapps-tile-w: 72px;
-        --myapps-tile-h: 74px;
+        /* icon 52 + label margin 10 + one label line (~16); the row gap
+           gives back the 4px so the row pitch stays 104px */
+        --myapps-tile-h: 78px;
         --myapps-gap-x: 12px;
-        --myapps-gap-y: 30px;
+        --myapps-gap-y: 26px;
         --myapps-icon-size: 52px;
     }
 
@@ -5190,6 +5852,16 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* After the drawer rules above, which it has to override. */
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-sidebar,
+    .dashboard-sidebar.open,
+    .dashboard-sidebar-scrim,
+    .dashboard-sidebar-toggle {
+        transition: none;
+    }
+}
+
 /* Three columns rather than four once four (4x72 + 3x12 + the card's padding)
    no longer fits a phone's width. */
 @media (max-width: 400px) {
@@ -5206,7 +5878,12 @@ body.myapps-reordering .myapps-tile {
 /* Image preview popover */
 .image-preview-popover {
     position: fixed;
-    z-index: 9999;
+    /* On body, above the dashboard window (see the sidebar tooltip). */
+    z-index: 999999999;
+    /* Sized to the image, within the bounds showImagePreview sets */
+    box-sizing: border-box;
+    width: max-content;
+    min-width: 160px;
     background: var(--dashboard-background);
     border: 1px solid var(--dashboard-border);
     border-radius: 8px;
@@ -5221,11 +5898,14 @@ body.myapps-reordering .myapps-tile {
 .image-preview-popover img {
     max-width: 100%;
     max-height: 70vh;
+    /* Shrinks to leave the name room in a short listing */
+    min-height: 0;
     object-fit: contain;
     border-radius: 4px;
 }
 
 .image-preview-name {
+    flex-shrink: 0;
     font-size: 14px;
     color: var(--dashboard-text);
     text-align: center;
@@ -5235,39 +5915,27 @@ body.myapps-reordering .myapps-tile {
     white-space: nowrap;
 }
 
-/* Mobile phone optimizations */
-/* The Shared/Trash rows on Home exist for phones, where the directories
-   sidebar below is hidden; while the sidebar is visible they'd be redundant.
-   Same breakpoint as the sidebar rule so the two never both show or both hide. */
-@media (min-width: 481px) {
-    .dashboard-section-files .files-tab .files .row.place-row {
-        display: none !important;
-    }
-}
-
-@media (max-width: 480px) {
-    .dashboard-content.files {
-        padding: 0;
-    }
-
-    /* Hide directories sidebar */
-    .dashboard-section-files .directories {
-        display: none;
-    }
-
-    /* Full width for directory contents */
-    .dashboard-section-files .directory-contents {
-        width: 100%;
-        border-left: none;
-    }
-
-    .dashboard-section-files .directory-contents .header {
-        margin-bottom: 12px;
-    }
-
-    /* Hide column headers */
+/* Narrow listings (phones, and tablets or small windows once the sidebar
+   and folder column take their share) drop the columns for two-row rows;
+   the size and modified columns would otherwise squeeze names to a few
+   characters. */
+@container files-list (max-width: 480px) {
     .dashboard-section-files .header .columns {
         display: none;
+    }
+
+    /* Two tiles a row: the 170px column minimum left a single 330px tile
+       per row on a 360px phone. The icon box shrinks with the tile instead
+       of overflowing it. Compact grid keeps its own smaller minimum. */
+    .dashboard-section-files .files-tab .files.files-grid-view:not(.files-grid-view-sm) {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-section-files .files-tab .files.files-grid-view:not(.files-grid-view-sm) .row .item-icon {
+        width: 100%;
+        max-width: 150px;
+        height: auto;
+        aspect-ratio: 1;
     }
 
     /* Two-row header layout */
@@ -5282,7 +5950,6 @@ body.myapps-reordering .myapps-tile {
         width: 100%;
         margin: 0 0 8px 0;
         padding-bottom: 8px;
-        margin-left: 50px;
         flex-wrap: nowrap;
         white-space: nowrap;
         overflow-x: auto;
@@ -5373,28 +6040,138 @@ body.myapps-reordering .myapps-tile {
         margin: 0 6px;
     }
 
+    /* Shared view: the sharer leads the second line. */
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-shared-by {
+        flex: 0 1 auto;
+        gap: 4px;
+        padding: 0;
+        font-size: 11px;
+        line-height: 24px;
+        color: var(--dashboard-text-muted);
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-shared-by-avatar {
+        width: 16px;
+        height: 16px;
+        font-size: 9px;
+    }
+
+    .dashboard-section-files .files-tab .files.files-list-view .row .item-shared-by:not(:empty)::after {
+        content: '•';
+        flex: none;
+        margin: 0 6px 0 2px;
+    }
+
+    /* A long sharer name ends in an ellipsis instead of pushing the date off
+       the row and under the ⋯ button, which the name line keeps clear too. */
+    .dashboard-section-files .files-tab.shared-view .files.files-list-view .row .item-metadata {
+        min-width: 0;
+        padding-right: 40px;
+    }
+
+    .dashboard-section-files .files-tab.shared-view .files.files-list-view .row .item-size,
+    .dashboard-section-files .files-tab.shared-view .files.files-list-view .row .item-modified {
+        flex: none;
+    }
+
     /* Hide outer spacers */
     .dashboard-section-files .files-tab .files.files-list-view .row > .col-spacer {
         display: none;
     }
 
-    /* Hide more button (use long-press for context menu on touch) */
+    /* More button pinned to the row's right edge */
     .dashboard-section-files .files-tab .files.files-list-view .row .item-more {
         position: absolute;
         right: 10px;
     }
 
-    /* Adjust footer position - full width since sidebar is hidden */
+    /* On touch it's a 40x23 target beside a row whose tap opens the item,
+       so a near miss opened the item instead of the menu. The two-row rows
+       are tall enough for a 44px square hit area. */
+    @media (pointer: coarse) {
+        .dashboard-section-files .files-tab .files.files-list-view .row .item-more::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 44px;
+            height: 44px;
+            transform: translate(-50%, -50%);
+        }
+    }
+}
+
+/* Mobile phone optimizations */
+/* The Shared/Trash rows on Home exist for phones, where the directories
+   sidebar below is hidden; while the sidebar is visible they'd be redundant.
+   Same breakpoint as the sidebar rule so the two never both show or both hide. */
+@media (min-width: 481px) {
+    .dashboard-section-files .files-tab .files .row.place-row {
+        display: none !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .dashboard-content.files {
+        padding: 0;
+    }
+
+    /* Hide directories sidebar */
+    .dashboard-section-files .directories {
+        display: none;
+    }
+
+    /* Full width for directory contents */
+    .dashboard-section-files .directory-contents {
+        width: 100%;
+        border-left: none;
+    }
+
+    .dashboard-section-files .directory-contents .header {
+        margin-bottom: 12px;
+    }
+
+    /* Clear the fixed menu button beside the crumbs, and match its height:
+       a shorter row put the arrows below under the button's tap area, so
+       the top of Back opened the menu. */
+    .dashboard-section-files .header .path-breadcrumbs {
+        margin-left: 50px;
+        box-sizing: content-box;
+        min-height: 40px;
+    }
+
+    /* Finger-sized crumbs, in that row */
+    @media (pointer: coarse) {
+        .dashboard-section-files .header .path .dirname {
+            padding: 8px 6px;
+        }
+    }
+
+    /* Adjust footer position - full width since sidebar is hidden. It sits
+       on the bottom edge, so it grows to keep its text above the home
+       indicator; the list and the action bar move up with it. */
     .dashboard-section-files .files-footer {
         left: 0;
-        padding: 0;
+        padding: 0 0 env(safe-area-inset-bottom, 0px);
+        height: calc(30px + env(safe-area-inset-bottom, 0px));
+    }
+
+    .dashboard-section-files .files {
+        padding-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+    }
+
+    /* The grids keep their own padding and clear the footer with a margin,
+       which has to grow with the footer as well. (Select mode makes room
+       for its bar, safe area included, below.) */
+    .dashboard-section-files .files-tab:not(.select-mode-active) .files.files-grid-view {
+        margin-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
     }
 
     /* Mobile: Floating selection actions - icon-only, full width */
     .dashboard-section-files .files-selection-actions {
         left: 0;
         right: 0;
-        bottom: 38px;
+        bottom: calc(38px + env(safe-area-inset-bottom, 0px));
         transform: translateX(0) translateY(100px);
         border-radius: 0;
         justify-content: center;
@@ -5403,6 +6180,11 @@ body.myapps-reordering .myapps-tile {
 
     .dashboard-section-files .files-selection-actions.visible {
         transform: translateX(0) translateY(0);
+    }
+
+    /* Room to scroll the last rows above the bar (38px up, ~64px tall) */
+    .dashboard-section-files .files-tab.select-mode-active .files {
+        padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px));
     }
 
     .dashboard-section-files .selection-action-btn span {
@@ -5420,7 +6202,7 @@ body.myapps-reordering .myapps-tile {
     }
 
     .dashboard-section-files .header .path-action-btn.select-mode-btn.active {
-        background: var(--primary-color, #3b82f6);
+        background: var(--select-color);
         color: white;
         border-radius: 6px;
     }
@@ -5452,7 +6234,7 @@ body.myapps-reordering .myapps-tile {
     /* Mobile: Show Done button in floating action bar during select mode */
     .dashboard-section-files .files-tab.select-mode-active .files-selection-actions .done-btn {
         display: flex;
-        background: var(--primary-color, #3b82f6);
+        background: var(--select-color);
         color: white;
         padding: 5px;
         margin-left: 8px;
@@ -5474,6 +6256,12 @@ body.myapps-reordering .myapps-tile {
        stand in for the hidden sidebar. A divider under the pair separates them
        from Home's own folders; they only navigate, so select mode gives them
        no checkbox and keeps their layout. */
+    /* Item rows get position: relative from jQuery UI draggable; place rows
+       aren't draggable, and their '⋯' would anchor to the list instead. */
+    .dashboard-section-files .files-tab .files .row.place-row {
+        position: relative;
+    }
+
     .dashboard-section-files .files-tab .files.files-list-view .row.place-row[data-place="Trash"] {
         border-bottom: 1px solid var(--dashboard-border);
         border-radius: 0;
@@ -5677,6 +6465,12 @@ body.myapps-reordering .myapps-tile {
     color: inherit;
 }
 
+/* Inset: the card's rounded overflow clip would cut an outer ring. */
+.dashboard .bento-card-fancy-header:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -2px;
+}
+
 .dashboard .bento-recent > .bento-card-fancy-header {
     background-color: var(--dashboard-bento-apps-header-bg);
 }
@@ -5760,12 +6554,21 @@ body.myapps-reordering .myapps-tile {
 .dashboard .bento-recent-apps-container {
     flex: 1;
     padding: 16px 24px 24px;
+    container-type: inline-size;
 }
 
 .dashboard .bento-recent-apps-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px 20px;
+}
+
+/* One column once the card is too narrow for two readable names (the
+   two-column Home on a portrait tablet) */
+@container (max-width: 340px) {
+    .dashboard .bento-recent-apps-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 /* Hide apps beyond 6 on smaller screens */
@@ -5789,10 +6592,23 @@ body.myapps-reordering .myapps-tile {
     flex-direction: row;
     align-items: center;
     padding: 8px 0;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    font: inherit;
+    color: inherit;
     cursor: pointer;
     transition: transform 0.15s ease;
     gap: 12px;
     width: 200px;
+    /* Narrower columns (a tablet's half-width card) shrink the row, and the
+       title ellipsizes, instead of the second column spilling out of the card */
+    max-width: 100%;
+}
+
+.dashboard .bento-recent-app:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: 2px;
 }
 
 @media (hover: hover) {
@@ -6139,6 +6955,12 @@ body.myapps-reordering .myapps-tile {
         min-height: 180px;
     }
 
+    /* The desktop minimum matches the square welcome card beside it; in one
+       column it only left the card half empty under a few apps. */
+    .dashboard .bento-recent {
+        min-height: 0;
+    }
+
     .dashboard .bento-welcome-inner {
         padding: 20px;
     }
@@ -6333,6 +7155,8 @@ body.myapps-reordering .myapps-tile {
     display: flex;
     flex-direction: column;
     gap: 4px;
+    /* Lets a long username or email wrap inside the card, not run past it. */
+    min-width: 0;
 }
 
 .dashboard-profile-info h3 {
@@ -6340,12 +7164,14 @@ body.myapps-reordering .myapps-tile {
     font-size: 22px;
     font-weight: 700;
     color: var(--dashboard-text-primary);
+    overflow-wrap: anywhere;
 }
 
 .dashboard-profile-info p {
     margin: 0;
     font-size: 14px;
     color: var(--dashboard-text-hint);
+    overflow-wrap: anywhere;
 }
 
 .dashboard-profile-hint {
@@ -6466,8 +7292,10 @@ body.myapps-reordering .myapps-tile {
     transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.dashboard-settings-card .button:hover {
-    background: var(--dashboard-sidebar-background);
+@media (hover: hover) {
+    .dashboard-settings-card .button:hover {
+        background: var(--dashboard-sidebar-background);
+    }
 }
 
 .dashboard-settings-card .button:focus-visible {
@@ -6487,7 +7315,7 @@ body.myapps-reordering .myapps-tile {
 .dashboard-settings-card .button:disabled {
     background: var(--dashboard-card-background) !important;
     border-color: var(--dashboard-border) !important;
-    color: var(--dashboard-text-muted) !important;
+    color: var(--dashboard-text-disabled) !important;
     text-shadow: none !important;
 }
 
@@ -6547,6 +7375,12 @@ body.myapps-reordering .myapps-tile {
     border-radius: 50%;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
     transition: transform 0.2s ease;
+}
+
+/* Off, the track is barely darker than the card it sits on (1.2:1 on the
+   2FA warning card); its outline is what shows the control is there. */
+.dashboard-switch input:not(:checked) + .dashboard-switch-slider {
+    box-shadow: inset 0 0 0 1px var(--dashboard-text-hint);
 }
 
 .dashboard-switch input:checked + .dashboard-switch-slider {
@@ -6622,10 +7456,38 @@ body.myapps-reordering .myapps-tile {
     line-height: 1.5;
 }
 
+/* The same focus ring as the settings cards' buttons; the base style.css
+   rule drops the outline. */
+.dashboard-danger-card .button:focus-visible {
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+/* style.css's red puts the white label at 4.4:1; this is the dashboard
+   dialogs' danger red, at 5.3:1. */
+.dashboard-danger-card .button-danger {
+    border-color: #d90707;
+    background: #d90707;
+}
+
+@media (hover: hover) {
+    .dashboard-danger-card .button-danger:hover {
+        border-color: #b80606;
+        background: #b80606;
+    }
+}
+
 /* Responsive styles for Account tab */
 @media (max-width: 768px) {
     .dashboard-tab-content {
         padding: 0 16px;
+    }
+
+    /* These sit in the content area's own 16px gutter, which Apps (padded
+       above) doesn't have; a second gutter would inset them past the other
+       tabs and the menu button. */
+    .dashboard-section-account .dashboard-tab-content,
+    .dashboard-section-security .dashboard-tab-content {
+        padding: 0;
     }
 
     .dashboard-section-header h2 {
@@ -6706,7 +7568,9 @@ body.myapps-reordering .myapps-tile {
     transform: scale(0.9);
     opacity: 0;
     transition: transform 200ms ease-in-out, opacity 200ms ease-in-out;
-    max-height: calc(100vh - 40px);
+    /* dvh: ContextMenu.js places the menu within the visible height, which
+       on phones is less than 100vh while the browser bars show. */
+    max-height: calc(100dvh - 40px);
     display: flex;
     flex-direction: column;
 }
@@ -6714,6 +7578,30 @@ body.myapps-reordering .myapps-tile {
 .context-menu-modal-backdrop.show .context-menu-modal-dialog {
     transform: scale(1);
     opacity: 1;
+}
+
+/* The dialog takes focus only to hand it to its items. */
+.context-menu-modal-dialog:focus {
+    outline: none;
+}
+
+/* Inset, so the dialog's rounded clip doesn't cut the ring off. */
+.context-menu-modal-dialog .context-menu-item:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -2px;
+}
+
+/* Reduced motion: these still fade, but don't scale or slide into place. */
+@media (prefers-reduced-motion: reduce) {
+    .context-menu-modal-dialog {
+        transition: opacity 200ms ease-in-out;
+    }
+    .dashboard-section-files .files-selection-actions {
+        transition: opacity 0.25s ease, visibility 0.25s ease;
+    }
+    .app-feedback-modal {
+        transition: none;
+    }
 }
 
 /* Title shown at top of context menu (e.g. filename) */
@@ -6748,6 +7636,12 @@ body.myapps-reordering .myapps-tile {
     text-align: left;
     transition: background-color 150ms ease-in-out;
     font-family: inherit;
+}
+
+@media (pointer: coarse) {
+    .context-menu-modal-dialog .context-menu-item {
+        min-height: 44px;
+    }
 }
 
 .context-menu-modal-dialog .context-menu-item:last-child {
@@ -6853,6 +7747,19 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* "No files in this directory." and "couldn't be opened", in place of rows */
+.files-notice {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0 16px;
+    text-align: center;
+    color: var(--dashboard-text-tertiary);
+    pointer-events: none;
+}
+
 /* ======================================
    Files Loading Spinner
    ====================================== */
@@ -6864,7 +7771,9 @@ body.myapps-reordering .myapps-tile {
     width: 100%;
     height: 100%;
     /* background-color: var(--dashboard-background); */
-    z-index: 2147483647;
+    /* Above the rows only: below the footer (10) and selection bar (15), and
+       never over the mobile drawer, its scrim or the dashboard's modals. */
+    z-index: 9;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -7307,7 +8216,10 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     width: 100%;
     border: none;
     background: none;
-    font: inherit;
+    /* Family and line height only: font-size and weight come from
+       .dashboard-sidebar-item, so the bell matches its neighbors. */
+    font-family: inherit;
+    line-height: inherit;
     text-align: left;
     margin-bottom: 6px;
     -webkit-tap-highlight-color: transparent;
@@ -7339,7 +8251,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     height: 20px;
     padding: 0 6px;
     border-radius: 10px;
-    background: var(--select-color);
+    background: var(--select-fill);
     color: #fff;
     font-size: 11px;
     font-weight: 600;
@@ -7365,13 +8277,15 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     box-shadow: 0 0 0 2px var(--dashboard-sidebar-background);
 }
 
-.dashboard-sidebar.collapsed .dashboard-notifications-badge,
-.dashboard-sidebar.collapsed .dashboard-notifications-btn-label {
-    display: none;
-}
+@media (min-width: 769px) {
+    .dashboard-sidebar.collapsed .dashboard-notifications-badge,
+    .dashboard-sidebar.collapsed .dashboard-notifications-btn-label {
+        display: none;
+    }
 
-.dashboard-sidebar.collapsed .dashboard-notifications-btn.has-unread .dashboard-notifications-dot {
-    display: block;
+    .dashboard-sidebar.collapsed .dashboard-notifications-btn.has-unread .dashboard-notifications-dot {
+        display: block;
+    }
 }
 
 /* Bell rings once when the count goes up */
@@ -7522,11 +8436,25 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 }
 
 .dashboard-notifications-close {
+    position: relative;
     width: 30px;
     height: 30px;
     padding: 0;
     justify-content: center;
     color: var(--dashboard-text-muted);
+}
+
+@media (pointer: coarse) {
+    /* Keeps its 30px look and hit-tests at 44x44. */
+    .dashboard-notifications-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
 }
 
 .dashboard-notifications-close svg {
@@ -7774,7 +8702,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 .dashboard-notifications-mark-all:focus-visible,
 .dashboard-notifications-close:focus-visible,
 .dashboard-notifications-retry:focus-visible {
-    outline: 2px solid var(--select-ring);
+    outline: 2px solid var(--select-color);
     outline-offset: -2px;
 }
 
@@ -7887,9 +8815,11 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     margin-bottom: 10px;
 }
 
-/* Screen-reader-only: the live region for arrivals, and a row's unread state */
+/* Screen-reader-only: the live region for arrivals, a row's unread state,
+   and what the Apps search found */
 .dashboard-notifications-live,
-.dashboard-notification-sr {
+.dashboard-notification-sr,
+.myapps-search-status {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -7905,6 +8835,12 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 /* -- Bottom sheet below the drawer breakpoint -- */
 
 @media (max-width: 768px) {
+    /* Track the drawer's 20px nav icons */
+    .dashboard-notifications-btn-icon {
+        width: 20px;
+        height: 20px;
+    }
+
     .dashboard-notifications-scrim {
         display: block;
         position: fixed;
@@ -7985,7 +8921,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
    while one is open must still be seen. Under context menus. */
 body.dashboard-mode .notification-container {
     top: 12px;
-    right: 12px;
+    right: calc(12px + env(safe-area-inset-right, 0px));
     z-index: 999999999;
 }
 
@@ -8030,8 +8966,9 @@ body.dashboard-mode .notifications-close-all {
 }
 
 @media (prefers-color-scheme: dark) {
+    /* The invert turns the white disc and dark cross into a dark disc
+       with a white cross. */
     body.dashboard-mode .notification-close {
-        background: var(--dashboard-card-background);
         filter: invert(1) drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
     }
 }
@@ -8061,964 +8998,6 @@ body.dashboard-mode .notifications-close-all {
 
 
 /* ======================================
-   Teams tab
-   ====================================== */
-
-/* Kept in the DOM for screen readers; a tooltip or layout carries it visually. */
-.dashboard-section-teams .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-}
-
-.teams-panel {
-    padding: 22px 24px;
-}
-
-/* -- Buttons: the settings cards' outline style, one accent for the primary -- */
-
-.dashboard-section-teams .button {
-    height: 36px;
-    line-height: 34px;
-    padding: 0 16px;
-    color: var(--dashboard-text-primary);
-    background: var(--dashboard-card-background);
-    border-color: var(--dashboard-border);
-    border-radius: 10px;
-    font-size: 13.5px;
-    font-weight: 600;
-    font-family: inherit;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.dashboard-section-teams .button-small {
-    height: 30px;
-    line-height: 28px;
-    padding: 0 12px;
-    font-size: 13px;
-}
-
-@media (hover: hover) {
-    .dashboard-section-teams .button:hover {
-        background: var(--dashboard-sidebar-background);
-    }
-}
-
-.dashboard-section-teams .button:focus-visible {
-    border-color: var(--select-color);
-    box-shadow: 0 0 0 3px var(--select-ring);
-}
-
-.dashboard-section-teams .button:active {
-    background: var(--dashboard-hover);
-    border-color: var(--dashboard-border);
-    color: var(--dashboard-text-primary);
-    box-shadow: none;
-}
-
-/* Base .button:disabled hard-codes light greys with !important. */
-.dashboard-section-teams .button:disabled {
-    background: var(--dashboard-card-background) !important;
-    border-color: var(--dashboard-border) !important;
-    color: var(--dashboard-text-muted) !important;
-    text-shadow: none !important;
-}
-
-.dashboard-section-teams .button-primary {
-    background: var(--dashboard-link);
-    border-color: var(--dashboard-link);
-    color: #fff;
-}
-
-@media (hover: hover) {
-    .dashboard-section-teams .button-primary:hover {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
-    }
-}
-
-.dashboard-section-teams .button-primary:active {
-    background: var(--dashboard-link-hover);
-    border-color: var(--dashboard-link-hover);
-    color: #fff;
-}
-
-.dashboard-section-teams .button-primary:disabled {
-    background: var(--dashboard-link) !important;
-    border-color: var(--dashboard-link) !important;
-    color: #fff !important;
-    opacity: 0.6;
-}
-
-.dashboard-section-teams .button-danger {
-    background: #f00808;
-    border-color: #f00808;
-    color: #fff;
-}
-
-@media (hover: hover) {
-    .dashboard-section-teams .button-danger:hover {
-        background: #d90707;
-        border-color: #d90707;
-    }
-}
-
-.dashboard-section-teams .button-danger:active {
-    background: #c20606;
-    border-color: #c20606;
-    color: #fff;
-}
-
-/* -- Hero: the selected team -- */
-
-.teams-hero {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-}
-
-.teams-hero-main {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    min-width: 0;
-}
-
-/* Lettered tile in place of a picture; hue comes from the name, per row. */
-.teams-avatar {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 10px;
-    flex-shrink: 0;
-    font-size: 13px;
-    font-weight: 600;
-    background: hsl(var(--teams-avatar-hue, 213) 70% 94%);
-    color: hsl(var(--teams-avatar-hue, 213) 55% 38%);
-    user-select: none;
-}
-
-.teams-avatar-lg {
-    width: 52px;
-    height: 52px;
-    border-radius: 14px;
-    font-size: 20px;
-    font-weight: 700;
-}
-
-.teams-info {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-}
-
-.teams-info-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    min-width: 0;
-}
-
-.teams-info strong {
-    font-size: 17px;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    color: var(--dashboard-text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.teams-role {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding: 2px 7px;
-    border-radius: 999px;
-    background: var(--select-tint);
-    color: var(--select-color);
-    white-space: nowrap;
-}
-
-.teams-info-meta {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    font-size: 13px;
-    color: var(--dashboard-text-hint);
-}
-
-.teams-dot {
-    margin: 0 6px;
-    color: var(--dashboard-text-muted);
-}
-
-.teams-hero-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-}
-
-.teams-picker-select {
-    height: 36px;
-    max-width: 220px;
-    padding: 0 32px 0 12px;
-    border: 1px solid var(--dashboard-border);
-    border-radius: 10px;
-    background-color: var(--dashboard-card-background);
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    background-size: 16px;
-    color: var(--dashboard-text-primary);
-    font-family: inherit;
-    font-size: 13.5px;
-    font-weight: 600;
-    appearance: none;
-    -webkit-appearance: none;
-    cursor: pointer;
-    text-overflow: ellipsis;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.teams-picker-select:focus-visible {
-    outline: none;
-    border-color: var(--select-color);
-    box-shadow: 0 0 0 3px var(--select-ring);
-}
-
-/* -- Card headings -- */
-
-.teams-card-head {
-    margin-bottom: 16px;
-}
-
-.teams-panel h3 {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 0;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--dashboard-text-card-title);
-}
-
-.teams-count {
-    display: inline-block;
-    min-width: 20px;
-    padding: 0 7px;
-    border-radius: 999px;
-    line-height: 20px;
-    text-align: center;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--dashboard-text-hint);
-    background: var(--dashboard-input-background);
-}
-
-.teams-panel-hint {
-    margin: 4px 0 0;
-    font-size: 13px;
-    line-height: 1.5;
-    color: var(--dashboard-text-hint);
-}
-
-.teams-empty {
-    margin: 0;
-    padding: 6px 0 2px;
-    font-size: 13px;
-    color: var(--dashboard-text-hint);
-}
-
-/* -- Directory: a settings row with the shared switch -- */
-
-.teams-directory .dashboard-settings-card-info span {
-    white-space: normal;
-    line-height: 1.45;
-}
-
-.teams-directory-toggle {
-    margin: 0;
-}
-
-/* -- Add an account -- */
-
-.teams-form {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-    gap: 10px;
-    align-items: end;
-}
-
-.teams-field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
-}
-
-.teams-field label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--dashboard-text-secondary);
-}
-
-.teams-form input {
-    width: 100%;
-    height: 36px;
-    padding: 0 12px;
-    border: 1px solid var(--dashboard-border);
-    border-radius: 10px;
-    background: var(--dashboard-input-background);
-    color: var(--dashboard-text-primary);
-    font-family: inherit;
-    font-size: 14px;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
-}
-
-.teams-form input:focus {
-    outline: none;
-    border-color: var(--select-color);
-    background: var(--dashboard-card-background);
-    box-shadow: 0 0 0 3px var(--select-ring);
-}
-
-.teams-field-help {
-    margin: 10px 0 0;
-    font-size: 12.5px;
-    line-height: 1.5;
-    color: var(--dashboard-text-muted);
-}
-
-.dashboard-section-teams .teams-busy {
-    opacity: 0.75;
-}
-
-/* Shown once and never retrievable, so it is deliberately hard to miss. */
-.teams-credential {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin-top: 16px;
-    padding: 14px 16px;
-    border: 1px solid var(--dashboard-warning-border);
-    border-radius: 12px;
-    background: var(--dashboard-warning-background);
-    color: var(--dashboard-warning-text);
-    font-size: 13px;
-}
-
-.teams-credential-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-}
-
-.teams-credential-head strong {
-    font-size: 13.5px;
-    font-weight: 600;
-    line-height: 1.4;
-}
-
-.teams-credential-dismiss {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    margin: -4px -6px 0 0;
-    padding: 0;
-    border: 0;
-    border-radius: 8px;
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
-    opacity: 0.7;
-    flex-shrink: 0;
-}
-
-@media (hover: hover) {
-    .teams-credential-dismiss:hover {
-        opacity: 1;
-        background: rgba(0, 0, 0, 0.06);
-    }
-}
-
-.teams-credential-dismiss:focus-visible {
-    outline: none;
-    opacity: 1;
-    box-shadow: 0 0 0 3px var(--select-ring);
-}
-
-.teams-credential-dismiss svg {
-    width: 14px;
-    height: 14px;
-}
-
-.teams-credential-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.teams-credential-value {
-    flex: 1;
-    min-width: 0;
-    padding: 8px 12px;
-    border: 1px solid var(--dashboard-warning-border);
-    border-radius: 8px;
-    background: var(--dashboard-card-background);
-    color: var(--dashboard-text-primary);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 15px;
-    letter-spacing: 0.02em;
-    user-select: all;
-    word-break: break-all;
-    outline: none;
-}
-
-.teams-credential-value:focus-visible {
-    box-shadow: 0 0 0 3px var(--select-ring);
-}
-
-.dashboard-section-teams .teams-credential-copy {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 34px;
-    padding: 0 12px;
-}
-
-.teams-credential-copy svg {
-    width: 14px;
-    height: 14px;
-}
-
-.dashboard-section-teams .teams-copied {
-    color: var(--dashboard-success-text);
-    border-color: var(--dashboard-success-border);
-}
-
-.teams-credential-note {
-    line-height: 1.5;
-}
-
-/* -- Tables: hairlines only, no grid -- */
-
-.teams-table-wrapper {
-    overflow-x: auto;
-}
-
-.teams-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13.5px;
-    color: var(--dashboard-text-primary);
-}
-
-.teams-table th {
-    padding: 0 10px 10px;
-    border-bottom: 1px solid var(--dashboard-border);
-    text-align: left;
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--dashboard-text-muted);
-    white-space: nowrap;
-}
-
-.teams-table td {
-    padding: 12px 10px;
-    border-bottom: 1px solid var(--dashboard-border);
-    vertical-align: middle;
-}
-
-.teams-table th:first-child,
-.teams-table td:first-child {
-    padding-left: 0;
-}
-
-.teams-table th:last-child,
-.teams-table td:last-child {
-    padding-right: 0;
-}
-
-.teams-table tbody tr:last-child td {
-    border-bottom: none;
-    padding-bottom: 4px;
-}
-
-.teams-identity {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    min-width: 0;
-}
-
-.teams-identity-text {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    min-width: 0;
-}
-
-.teams-identity-name {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.teams-identity-sub {
-    font-size: 12px;
-    color: var(--dashboard-text-hint);
-}
-
-.teams-you {
-    padding: 1px 6px;
-    border-radius: 999px;
-    font-size: 10.5px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    background: var(--dashboard-input-background);
-    color: var(--dashboard-text-hint);
-}
-
-.teams-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12.5px;
-    font-weight: 500;
-    white-space: nowrap;
-}
-
-.teams-status::before {
-    content: "";
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: currentColor;
-}
-
-.teams-status-active {
-    color: var(--dashboard-success-text);
-}
-
-.teams-status-disabled {
-    color: var(--dashboard-text-muted);
-}
-
-/* Suspended accounts stay legible: they are still on the bill. */
-.teams-member-disabled td,
-.teams-member-disabled .teams-identity-sub {
-    color: var(--dashboard-text-muted);
-}
-
-.teams-member-disabled .teams-avatar {
-    filter: grayscale(1);
-    opacity: 0.7;
-}
-
-.teams-cell-actions {
-    width: 1%;
-    text-align: right;
-    white-space: nowrap;
-}
-
-.teams-member-actions {
-    display: inline-flex;
-    justify-content: flex-end;
-    gap: 4px;
-}
-
-.dashboard-section-teams .teams-member-actions .button-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    line-height: 1;
-    border-radius: 8px;
-    border-color: transparent;
-    background: transparent;
-    color: var(--dashboard-text-secondary);
-    box-shadow: none;
-}
-
-@media (hover: hover) {
-    .dashboard-section-teams .teams-member-actions .button-icon:hover {
-        background: var(--dashboard-input-background);
-        color: var(--dashboard-text-primary);
-    }
-
-    .dashboard-section-teams .teams-member-actions .button-icon.button-danger:hover {
-        background: var(--dashboard-danger-background);
-        color: var(--dashboard-danger-text);
-    }
-}
-
-.dashboard-section-teams .teams-member-actions .button-icon:active {
-    background: var(--dashboard-hover);
-    color: var(--dashboard-text-primary);
-}
-
-.dashboard-section-teams .teams-member-actions .button-icon:focus-visible {
-    border-color: var(--select-color);
-    box-shadow: 0 0 0 3px var(--select-ring);
-}
-
-.teams-member-actions .button-icon svg {
-    width: 16px;
-    height: 16px;
-}
-
-.teams-cell-action {
-    font-weight: 500;
-}
-
-.teams-audit-reason {
-    font-weight: 400;
-    color: var(--dashboard-text-muted);
-}
-
-.teams-cell-when {
-    color: var(--dashboard-text-hint);
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-}
-
-.teams-pager {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid var(--dashboard-border);
-    flex-wrap: wrap;
-}
-
-.teams-pager-count {
-    font-size: 13px;
-    color: var(--dashboard-text-hint);
-    font-variant-numeric: tabular-nums;
-}
-
-.teams-pager-buttons {
-    display: flex;
-    gap: 8px;
-}
-
-/* -- Roster (member view) -- */
-
-.teams-roster {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-}
-
-.teams-roster-name {
-    padding: 10px 0;
-    border-bottom: 1px solid var(--dashboard-border);
-}
-
-.teams-roster-name:last-child {
-    border-bottom: none;
-    padding-bottom: 2px;
-}
-
-/* -- Empty / error states -- */
-
-.teams-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    padding: 40px 24px 44px;
-}
-
-.teams-state-art {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 56px;
-    height: 56px;
-    margin-bottom: 16px;
-    border-radius: 50%;
-    background: var(--select-tint);
-    color: var(--select-color);
-}
-
-.teams-state-art svg {
-    width: 26px;
-    height: 26px;
-}
-
-.teams-state-warning .teams-state-art {
-    background: var(--dashboard-warning-background);
-    color: var(--dashboard-warning-text);
-}
-
-.teams-state h3 {
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--dashboard-text-primary);
-}
-
-.teams-state .teams-panel-hint {
-    max-width: 400px;
-    margin-top: 6px;
-}
-
-.teams-state .button {
-    margin-top: 20px;
-}
-
-/* -- Loading skeleton -- */
-
-.teams-skeleton {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.teams-skeleton-card {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-}
-
-.teams-skeleton-card > span {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.teams-skeleton-card i,
-.teams-skeleton-tile {
-    display: block;
-    height: 12px;
-    border-radius: 6px;
-    background: linear-gradient(90deg, var(--dashboard-hover) 25%, var(--dashboard-border) 50%, var(--dashboard-hover) 75%);
-    background-size: 200% 100%;
-    animation: teams-shimmer 1.4s linear infinite;
-}
-
-.teams-skeleton-tile {
-    width: 52px;
-    height: 52px;
-    border-radius: 14px;
-    flex-shrink: 0;
-}
-
-@keyframes teams-shimmer {
-    from { background-position: 200% 0; }
-    to { background-position: -200% 0; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .teams-skeleton-card i,
-    .teams-skeleton-tile {
-        animation: none;
-    }
-}
-
-/* -- Plan picker (rendered by the billing extension) -- */
-
-.teams-plan-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.teams-plan-option {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    border: 1px solid var(--dashboard-border);
-    border-radius: 8px;
-}
-
-.teams-plan-name {
-    font-weight: 500;
-    color: var(--dashboard-text);
-}
-
-.teams-plan-price {
-    flex: 1;
-    font-size: 13px;
-    color: var(--dashboard-text-hint);
-}
-
-.teams-plan-badge,
-.teams-plan-status {
-    font-size: 12px;
-    color: var(--dashboard-text-muted);
-}
-
-/* -- Dark mode -- */
-
-@media (prefers-color-scheme: dark) {
-    .teams-avatar {
-        background: hsl(var(--teams-avatar-hue, 213) 35% 24%);
-        color: hsl(var(--teams-avatar-hue, 213) 70% 80%);
-    }
-
-    .teams-credential-dismiss:hover {
-        background: rgba(255, 255, 255, 0.08);
-    }
-}
-
-/* -- Phone: cards stack, tables become labelled rows -- */
-
-@media (max-width: 768px) {
-    .teams-panel {
-        padding: 18px 16px;
-    }
-
-    .teams-hero {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 16px;
-    }
-
-    .teams-hero-actions {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .teams-hero-actions .button,
-    .teams-picker-select {
-        width: 100%;
-        max-width: none;
-    }
-
-    .teams-form {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .teams-form .button {
-        width: 100%;
-    }
-
-    .teams-table thead {
-        display: none;
-    }
-
-    .teams-table,
-    .teams-table tbody,
-    .teams-table tr,
-    .teams-table td {
-        display: block;
-    }
-
-    .teams-table tr {
-        padding: 12px 0;
-        border-bottom: 1px solid var(--dashboard-border);
-    }
-
-    .teams-table tbody tr:last-child {
-        border-bottom: none;
-        padding-bottom: 2px;
-    }
-
-    .teams-table td,
-    .teams-table th:first-child,
-    .teams-table td:first-child,
-    .teams-table tbody tr:last-child td {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        padding: 4px 0;
-        border: none;
-    }
-
-    .teams-table td[data-label]::before {
-        content: attr(data-label);
-        flex-shrink: 0;
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--dashboard-text-muted);
-    }
-
-    .teams-cell-identity {
-        padding-bottom: 8px !important;
-    }
-
-    .teams-cell-actions {
-        width: auto;
-        justify-content: flex-end;
-        padding-top: 8px !important;
-    }
-
-    .teams-cell-actions:empty {
-        display: none;
-    }
-
-    /* Touch targets, with an edge: nothing hovers here to reveal them. */
-    .dashboard-section-teams .teams-member-actions .button-icon {
-        width: 40px;
-        height: 40px;
-        border-color: var(--dashboard-border);
-    }
-
-    /* The settings cards stack on phones; a switch reads better beside its label. */
-    .dashboard-section-teams .teams-directory {
-        flex-direction: row;
-        align-items: center;
-    }
-
-    .teams-cell-when {
-        white-space: normal;
-        text-align: right;
-    }
-
-    .teams-credential-row {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .dashboard-section-teams .teams-credential-copy {
-        justify-content: center;
-    }
-
-    .teams-pager {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .teams-pager-buttons .button {
-        flex: 1;
-    }
-}
-
-/* ======================================
    Dashboard dialog (confirm / alert / prompt)
    ====================================== */
 
@@ -9034,10 +9013,13 @@ body.dashboard-mode .notifications-close-all {
     opacity: 0;
     transition: opacity 200ms ease;
     z-index: 1000;
+    /* Fading out after a close, it must not take the next click. */
+    pointer-events: none;
 }
 
 .dashboard-dialog-overlay.dashboard-dialog-show {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .dashboard-dialog {
@@ -9121,8 +9103,13 @@ body.dashboard-mode .notifications-close-all {
     display: flex;
     align-items: flex-start;
     gap: 14px;
+    /* Shrinks and scrolls when the card is taller than the screen, so the
+       header and footer stay put. */
+    flex: 1 1 auto;
+    min-height: 0;
     padding: 20px 18px;
     overflow-y: auto;
+    overscroll-behavior: contain;
 }
 
 .dashboard-dialog-icon {
@@ -9188,9 +9175,13 @@ body.dashboard-mode .notifications-close-all {
     color: var(--dashboard-text-secondary);
 }
 
-.dashboard-dialog-input {
+/* Scoped under the card so it outranks style.css's global
+   `input[type=text]` padding and its 2px `:focus` border. */
+.dashboard-dialog .dashboard-dialog-input {
+    display: block;
     width: 100%;
     height: 38px;
+    margin: 0;
     padding: 0 12px;
     border: 1px solid var(--dashboard-border);
     border-radius: 10px;
@@ -9202,8 +9193,10 @@ body.dashboard-mode .notifications-close-all {
     transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
 }
 
-.dashboard-dialog-input:focus {
+.dashboard-dialog .dashboard-dialog-input:focus {
+    padding: 0 12px;
     outline: none;
+    border-width: 1px;
     border-color: var(--select-color);
     background: var(--dashboard-card-background);
     box-shadow: 0 0 0 3px var(--select-ring);
@@ -9238,14 +9231,14 @@ body.dashboard-mode .notifications-close-all {
 }
 
 .dashboard-dialog-btn-primary {
-    border-color: var(--dashboard-link);
-    background: var(--dashboard-link);
+    border-color: var(--dashboard-button-primary);
+    background: var(--dashboard-button-primary);
     color: #fff;
 }
 
 .dashboard-dialog-btn-danger {
-    border-color: #f00808;
-    background: #f00808;
+    border-color: #d90707;
+    background: #d90707;
     color: #fff;
 }
 
@@ -9255,13 +9248,13 @@ body.dashboard-mode .notifications-close-all {
     }
 
     .dashboard-dialog-btn-primary:hover {
-        background: var(--dashboard-link-hover);
-        border-color: var(--dashboard-link-hover);
+        background: var(--dashboard-button-primary-hover);
+        border-color: var(--dashboard-button-primary-hover);
     }
 
     .dashboard-dialog-btn-danger:hover {
-        background: #d90707;
-        border-color: #d90707;
+        background: #b80606;
+        border-color: #b80606;
     }
 }
 
@@ -9276,6 +9269,37 @@ body.dashboard-mode .notifications-close-all {
         height: auto;
         padding: 10px 18px;
     }
+
+    /* Keeps its 32px look and hit-tests at 44x44. */
+    .dashboard-dialog-close {
+        position: relative;
+    }
+
+    .dashboard-dialog-close::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+
+    /* 44px tall, and 16px text so iOS doesn't zoom in on focus. The
+       .device-phone line outranks style.css's 17px phone inputs. */
+    .dashboard-dialog .dashboard-dialog-input,
+    .dashboard-dialog .dashboard-dialog-input:focus,
+    .device-phone .dashboard-dialog .dashboard-dialog-input {
+        height: 44px;
+        font-size: 16px;
+    }
+}
+
+/* Short screens (a phone on its side): give the card more of the height. */
+@media (max-height: 500px) {
+    .dashboard-dialog-overlay {
+        padding: 12px 24px;
+    }
 }
 
 /* Mobile: dock to the bottom as a slide-up sheet, like the other modals. */
@@ -9288,7 +9312,9 @@ body.dashboard-mode .notifications-close-all {
     .dashboard-dialog {
         width: 100%;
         max-width: none;
-        max-height: 92vh;
+        /* The overlay shrinks to what an on-screen keyboard leaves visible
+           (see dashboardOverlay.js); the sheet shrinks with it. */
+        max-height: min(92vh, calc(100% - 8px));
         border-radius: 16px 16px 0 0;
         border-bottom: none;
         transform: translateY(24px);
@@ -9303,8 +9329,30 @@ body.dashboard-mode .notifications-close-all {
         padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
     }
 
+    /* Above a keyboard the home indicator is out of the way. */
+    .dashboard-dialog-overlay-keyboard .dashboard-dialog-footer {
+        padding-bottom: 14px;
+    }
+
     .dashboard-dialog-btn {
         width: 100%;
+    }
+
+    /* A form's buttons share one row, leaving the fields as much of the
+       screen as a keyboard allows. */
+    .dashboard-form-dialog .dashboard-dialog-footer {
+        flex-direction: row;
+    }
+
+    .dashboard-form-dialog .dashboard-dialog-btn {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    /* The tone icon sits above the content so fields keep the full width. */
+    .dashboard-form-dialog .dashboard-dialog-body {
+        flex-direction: column;
+        align-items: stretch;
     }
 }
 
@@ -9313,4 +9361,405 @@ body.dashboard-mode .notifications-close-all {
     .dashboard-dialog {
         transition: none;
     }
+}
+
+
+/* ======================================
+   Dashboard form dialog (account changes)
+   ====================================== */
+
+.dashboard-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dashboard-form-field[hidden] {
+    display: none;
+}
+
+/* margin and text-shadow undo style.css's global `label` rule; its white
+   shadow ghosts the text on the dark theme. */
+.dashboard-form-label {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dashboard-text-secondary);
+    text-shadow: none;
+}
+
+.dashboard-form-hint {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--dashboard-text-muted);
+}
+
+.dashboard-dialog .dashboard-dialog-input[aria-invalid='true'] {
+    border-color: var(--dashboard-danger-text);
+}
+
+.dashboard-dialog .dashboard-dialog-input:disabled {
+    opacity: 0.6;
+}
+
+.dashboard-dialog textarea.dashboard-dialog-input,
+.dashboard-dialog textarea.dashboard-dialog-input:focus {
+    height: auto;
+    min-height: 96px;
+    padding: 9px 12px;
+    line-height: 1.45;
+    resize: vertical;
+}
+
+.dashboard-dialog select.dashboard-dialog-input,
+.dashboard-dialog select.dashboard-dialog-input:focus {
+    -webkit-appearance: none;
+    appearance: none;
+    padding: 0 34px 0 12px;
+    /* Chevron stroke: slate-500, as on the share dialog's selects. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+    .dashboard-dialog select.dashboard-dialog-input,
+    .dashboard-dialog select.dashboard-dialog-input:focus {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    }
+}
+
+/* A text field with fixed text after it (a domain), drawn as one box. */
+.dashboard-form-affix {
+    display: flex;
+    align-items: center;
+    height: 38px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-input-background);
+    box-sizing: border-box;
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+.dashboard-form-affix:focus-within {
+    border-color: var(--select-color);
+    background: var(--dashboard-card-background);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-form-affix:has([aria-invalid='true']) {
+    border-color: var(--dashboard-danger-text);
+}
+
+.dashboard-dialog .dashboard-form-affix .dashboard-dialog-input,
+.dashboard-dialog .dashboard-form-affix .dashboard-dialog-input:focus {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0 2px 0 12px;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    text-align: right;
+}
+
+/* Locked while the form submits: dim the whole box, suffix included, as
+   one field rather than the input alone. */
+.dashboard-form-affix:has(:disabled) {
+    opacity: 0.6;
+}
+
+.dashboard-dialog .dashboard-form-affix .dashboard-dialog-input:disabled {
+    opacity: 1;
+}
+
+.dashboard-form-suffix {
+    flex-shrink: 0;
+    max-width: 60%;
+    padding-right: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    color: var(--dashboard-text-muted);
+    cursor: text;
+}
+
+@media (pointer: coarse) {
+    .dashboard-form-affix {
+        height: 44px;
+    }
+
+    .dashboard-form-suffix {
+        font-size: 16px;
+    }
+}
+
+/* A switch sits beside its label and hint, as on the settings cards. */
+.dashboard-form-switch-field {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.dashboard-form-switch-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.dashboard-form-switch-field .dashboard-form-label {
+    font-size: 13px;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+}
+
+/* Password fields carry a show/hide toggle inside the box. */
+.dashboard-form-secret {
+    position: relative;
+}
+
+.dashboard-dialog .dashboard-form-secret .dashboard-dialog-input,
+.dashboard-dialog .dashboard-form-secret .dashboard-dialog-input:focus {
+    padding-right: 44px;
+}
+
+.dashboard-form-reveal {
+    position: absolute;
+    top: 50%;
+    right: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-muted);
+    cursor: pointer;
+    transform: translateY(-50%);
+    transition: background 0.15s, color 0.15s;
+}
+
+.dashboard-form-reveal svg {
+    width: 18px;
+    height: 18px;
+}
+
+@media (hover: hover) {
+    .dashboard-form-reveal:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+
+.dashboard-form-reveal:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+@media (pointer: coarse) {
+    .dashboard-form-reveal {
+        width: 40px;
+        height: 40px;
+        right: 2px;
+    }
+}
+
+/* Status line (aria-live). Collapses when empty rather than going
+   display:none so it stays in the a11y tree; the negative margin swallows
+   the content column's gap it would otherwise still claim. */
+.dashboard-form-status {
+    padding: 9px 12px;
+    white-space: pre-line;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+}
+
+.dashboard-form-status:empty {
+    padding: 0;
+    border-width: 0;
+    margin-top: -14px;
+}
+
+.dashboard-form-status-error {
+    border-color: var(--dashboard-danger-border);
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
+}
+
+.dashboard-form-status-info {
+    border-color: var(--dashboard-notice-border);
+    background: var(--dashboard-notice-background);
+    color: var(--dashboard-notice-text);
+}
+
+/* Submit: a spinner while the change is in flight. */
+.dashboard-form-spinner {
+    display: none;
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    margin-right: 8px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    box-sizing: border-box;
+    animation: dashboard-form-spin 0.7s linear infinite;
+}
+
+.dashboard-form-busy .dashboard-form-spinner {
+    display: inline-block;
+}
+
+.dashboard-form-submit:disabled {
+    opacity: 0.75;
+    cursor: default;
+}
+
+@keyframes dashboard-form-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Done state */
+.dashboard-form-done {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 0;
+    text-align: center;
+}
+
+.dashboard-form-done svg {
+    width: 44px;
+    height: 44px;
+    color: var(--dashboard-success-text);
+}
+
+.dashboard-form-done p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--dashboard-text-primary);
+    overflow-wrap: anywhere;
+}
+
+/* API token, shown once */
+.dashboard-token-warning {
+    padding: 10px 12px;
+    border: 1px solid var(--dashboard-warning-border);
+    border-radius: 8px;
+    background: var(--dashboard-warning-background);
+    color: var(--dashboard-warning-text);
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+/* A value to copy: the API token, a published address. */
+.dashboard-copy-row {
+    display: flex;
+    gap: 8px;
+}
+
+.dashboard-dialog .dashboard-dialog-input.dashboard-copy-value {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+}
+
+/* 16px, like the other dialog inputs on touch, so iOS doesn't zoom on focus. */
+@media (pointer: coarse) {
+    .dashboard-dialog .dashboard-dialog-input.dashboard-copy-value {
+        font-size: 16px;
+    }
+}
+
+.dashboard-copy-row .dashboard-dialog-btn {
+    flex-shrink: 0;
+}
+
+/* A square button holding only an icon, as in a compact copy row. */
+.dashboard-dialog-btn.dashboard-icon-btn {
+    min-width: 36px;
+    width: 36px;
+    padding: 0;
+    color: var(--dashboard-text-secondary);
+    text-decoration: none;
+}
+
+.dashboard-icon-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+@media (pointer: coarse) {
+    .dashboard-dialog-btn.dashboard-icon-btn {
+        min-width: 44px;
+        width: 44px;
+        padding: 0;
+    }
+}
+
+.dashboard-token-sessions {
+    display: inline;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--dashboard-link);
+    font: inherit;
+    cursor: pointer;
+}
+
+@media (hover: hover) {
+    .dashboard-token-sessions:hover {
+        text-decoration: underline;
+    }
+}
+
+.dashboard-token-sessions:focus-visible {
+    outline: none;
+    border-radius: 4px;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+@media (max-width: 600px) {
+    .dashboard-copy-row:not(.dashboard-copy-row-compact) {
+        flex-direction: column;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-form-spinner {
+        animation-duration: 1.6s;
+    }
+}
+
+/* A person's profile picture, laid over their initial once it loads. The
+   element selector outranks each avatar's own color, dark mode included. */
+span[data-avatar-user].has-picture {
+    position: relative;
+    overflow: hidden;
+    color: transparent;
+}
+span[data-avatar-user] > .avatar-picture {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: inherit;
+    pointer-events: none;
 }

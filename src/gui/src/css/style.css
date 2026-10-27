@@ -5036,16 +5036,6 @@ html.dark-mode .usage-table-fade-overlay {
     color: #374151;
 }
 
-html.dark-mode .usage-table-show-less {
-    color: #9ca3af;
-    border-color: #4b5563;
-}
-
-html.dark-mode .usage-table-show-less:hover {
-    background: #374151;
-    border-color: #6b7280;
-    color: #d1d5db;
-}
 
 
 .driver-usage-details-content-table {
@@ -5092,6 +5082,23 @@ html.dark-mode .usage-table-show-less:hover {
     background-color: var(--dashboard-shadow-light);
 }
 
+.driver-usage-details-content-table thead th .usage-sort-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+}
+
+.driver-usage-details-content-table thead th .usage-sort-btn:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
 .driver-usage-details-content-table thead th .sort-icon {
     margin-left: 4px;
     display: inline-flex;
@@ -5119,6 +5126,14 @@ html.dark-mode .usage-table-show-less:hover {
 
 .driver-usage-details-content-table td:first-child {
     width: 50%;
+}
+
+/* On a phone, units and cost keep every digit; the resource name is the
+   column that gives way. */
+@media (max-width: 480px) {
+    .dashboard-section-usage .driver-usage-details-content-table td:not(:first-child) {
+        max-width: none;
+    }
 }
 .version {
     font-size: 9px;
@@ -5230,37 +5245,6 @@ html.dark-mode .usage-table-show-less:hover {
     border-radius: 4px;
     border: 1px solid rgb(215 2 2);
     text-align: center;
-}
-
-.account-deletion-confirmation-prompt {
-    text-align: center;
-    font-size: 16px;
-    padding: 20px;
-    font-weight: 400;
-    margin: -10px 10px 20px 10px;
-    -webkit-font-smoothing: antialiased;
-    color: #5f626d;
-}
-
-.account-deletion-confirmation-icon {
-    width: 70px;
-    margin: 20px auto 20px;
-    display: block;
-    margin-bottom: 20px;
-}
-
-.proceed-with-user-deletion {
-    margin-bottom: 20px;
-}
-
-.confirm-temporary-user-deletion {
-    width: 100%;
-    margin-bottom: 20px;
-}
-
-.confirm-user-deletion-password {
-    width: 100%;
-    margin-bottom: 20px;
 }
 
 /* ==========================================================================
@@ -6385,57 +6369,6 @@ html.dark-mode .usage-table-show-less:hover {
     white-space: nowrap;
 }
 
-/************************************************************
- * AI Button
- ************************************************************/
-
-.btn-send-ai{
-    margin-top: 10px;
-}
-.btn-show-ai{
-    display: none;
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 30px;
-    height: 30px;
-    background-color: #ffffff;
-    z-index: 2;
-    width: 15px;
-    height: 15px;
-    padding: 5px;
-    top: 5px;
-    right: 5px;
-    border-radius: 5px;
-    background: linear-gradient(to bottom, #f8f8f8, #e0e0e0);
-    cursor: pointer;
-}
-.btn-show-ai svg{
-    width: 100%;
-    height: 100%;
-}
-.btn-show-ai:hover{
-    background: linear-gradient(to bottom, #f8f8f8, #eae9e9);
-}
-
-.device-desktop .btn-show-ai {
-    display: block;
-}
-
-.fullpage-mode .btn-show-ai{
-    display: none;
-}
-
-.btn-hide-ai{
-    display: none;
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 30px;
-    height: 30px;
-    z-index: 5;
-}
-
 .update-usage-details{
     float: right;
     background: none;
@@ -6947,7 +6880,7 @@ html.dark-mode .usage-table-show-less:hover {
     font-size: 12.5px;
     font-weight: 600;
     background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
-    color: hsl(var(--share-avatar-hue, 213), 45%, 38%);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 28%);
 }
 
 /* A team is not a person, so it gets a glyph rather than an initial. */

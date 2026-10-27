@@ -72,7 +72,7 @@ function replayXhr (response, success_cb, error_cb, resolve_func, reject_func) {
     const newSpec = { ...spec, _replayed: true };
     const newXhr = buildXhr(newSpec);
     setupXhrEventHandlers(newXhr, success_cb, error_cb, resolve_func, reject_func);
-    newXhr.send(spec.body);
+    newXhr.send(typeof newSpec.buildBody === 'function' ? newSpec.buildBody() : spec.body);
     return true;
 }
 
@@ -98,7 +98,8 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
     // error - unauthorized
     if ( response.status === 401 ) {
         const spec = response._puterReq;
-        const reauth = await resolveReauth(resp, {
+        // A replay's 401 is final: one sign-in per call.
+        const reauth = spec?._replayed ? null : await resolveReauth(resp, {
             interactive: spec?.interactiveReauth !== false,
             sentToken: spec?._sentAuthToken,
         });
@@ -138,7 +139,7 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
         return reject_func(resp);
     }
     // error - other
-    else if ( response.status !== 200 ) {
+    else if ( response.status < 200 || response.status >= 300 ) {
         // if error callback is provided, call it
         if ( error_cb && typeof error_cb === 'function' )
         {

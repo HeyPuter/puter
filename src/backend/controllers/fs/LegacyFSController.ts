@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { Team2faLookup } from '../../core/http/middleware/gates.js';
 import Busboy from 'busboy';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
@@ -25,11 +26,13 @@ import {
     assertResolvedActor,
     isAccessTokenActor,
     isAppActor,
+    isPlainUserActor,
     makeActor,
 } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { RouteOptions } from '../../core/http/index.js';
+import { pipeToResponse } from '../../core/http/pipeToResponse.js';
 import {
     assertNotSuspended,
     assertTeam2fa,
@@ -51,6 +54,7 @@ import {
 } from '../../util/fileSigning.js';
 import { APP_ICON_SIZES } from '../../util/appIcon.js';
 import { toAppSummary } from '../../util/appView.js';
+import { awaitLater } from '../../util/concurrency.js';
 import {
     joinChildPath,
     normalizeAbsolutePath,
@@ -92,6 +96,7 @@ import {
     assertAccess,
     assertCanCreate,
     assertCanMoveInto,
+    contextBoundStream,
     emitGuiItemEvent,
     expandClientPath,
     findOverwriteTarget,
@@ -99,7 +104,9 @@ import {
     getString,
     type GuiItemEventName,
     loadLegacyAssociatedApps,
+    rangeForEntry,
     replacedByMove,
+    resolveReadRange,
     resolveV1Selector,
     signEntry,
     signingConfigFromAppConfig,
@@ -209,12 +216,19 @@ export class LegacyFSController extends PuterController {
         // Limits come from `./limits` and carry an explicit `scope`, so these
         // draw from the same per-user budget as their v2 counterparts rather
         // than handing a caller a second allowance for the same operation.
-        const mutate = { ...apiOptions, rateLimit: FS_MUTATE_LIMIT };
-        // Read-side routes admit scoped access tokens: the ACL check each
-        // handler runs already intersects a token's grant with its issuer's,
-        // so the token reaches exactly what it was minted for. That is what a
-        // background events handler acts through — its `user` is a token
-        // scoped to the subscription's grant.
+        //
+        // The entry routes — reads and writes alike — admit scoped access
+        // tokens: the ACL check each handler runs already intersects a token's
+        // grant with its issuer's, so the token reaches exactly what it was
+        // minted for. That is what a background events handler acts through —
+        // its `user` is a token scoped to the subscription's grant — and it
+        // matches what WebDAV admits. Routes reaching past a single entry
+        // (search, df, sign, the app helpers) stay closed to them.
+        const mutate = {
+            ...apiOptions,
+            allowAccessToken: true,
+            rateLimit: FS_MUTATE_LIMIT,
+        } as RouteOptions;
         const reads = { ...apiOptions, allowAccessToken: true } as RouteOptions;
         router.post('/stat', { ...reads, rateLimit: FS_STAT_LIMIT }, this.stat);
         router.post(
@@ -264,6 +278,8 @@ export class LegacyFSController extends PuterController {
             '/batch',
             {
                 ...spends,
+                // Every op authorizes its own target.
+                allowAccessToken: true,
                 rateLimit: FS_BATCH_LIMIT,
                 concurrent: FS_BATCH_CONCURRENT,
             },
@@ -368,7 +384,9 @@ export class LegacyFSController extends PuterController {
 
                 let recent: unknown[] = [];
                 const userId = req.actor?.user?.id;
-                if (userId) {
+                // `recent=0`: a caller that only shows `recommended`.
+                const wantsRecent = req.query.recent !== '0';
+                if (userId && wantsRecent) {
                     const recentUids = await this.stores.app.getRecentAppOpens(
                         userId,
                         { limit: 10 },
@@ -405,9 +423,9 @@ export class LegacyFSController extends PuterController {
                         return {
                             ...toAppSummary(app, {
                                 config: this.config,
+                                apiBaseUrl: this.config.api_base_url,
                                 iconSize,
                             }),
-                            icon: app.icon ?? null,
                             index_url: backingGone ? null : app.index_url,
                             ...(backingGone
                                 ? { privateAccess: buildHostedBackingDenial() }
@@ -494,6 +512,16 @@ export class LegacyFSController extends PuterController {
             'see',
         );
 
+        // Started early but awaited where it used to run, so its error still
+        // surfaces after the ones below. awaitLater covers the early exits
+        // that never reach that await.
+        const subtreeSize =
+            entry.isDir && getBoolean(body, 'return_size')
+                ? awaitLater(
+                      this.services.fs.getSubtreeSize(userId, entry.path),
+                  )
+                : null;
+
         const [suggestedApps, appsById, shareFlags, parentUid] =
             await Promise.all([
                 this.services.suggestedApps.getSuggestedApps(entry),
@@ -521,12 +549,7 @@ export class LegacyFSController extends PuterController {
         });
 
         // Optional hydrations:
-        if (entry.isDir && getBoolean(body, 'return_size')) {
-            shaped.size = await this.services.fs.getSubtreeSize(
-                userId,
-                entry.path,
-            );
-        }
+        if (subtreeSize) shaped.size = await subtreeSize;
         // `return_versions` has no parity yet; the empty array keeps `forEach`
         // callers working. `return_owner` is a no-op — `owner` is always set.
         if (getBoolean(body, 'return_versions')) shaped.versions = [];
@@ -783,10 +806,23 @@ export class LegacyFSController extends PuterController {
             this.stores.fsEntry,
             body.source,
         );
-        const destinationParent = await resolveV1Selector(
+        const destination = await resolveV1Selector(
             this.stores.fsEntry,
             body.destination,
         );
+        // A file destination names the copy itself, replaced only with
+        // `overwrite`.
+        let newName = getString(body, 'new_name');
+        let destinationParent = destination;
+        if (!destination.isDir && !newName && destination.parentUid) {
+            const parent = await this.stores.fsEntry.getEntryByUuid(
+                destination.parentUid,
+            );
+            if (parent) {
+                destinationParent = parent;
+                newName = destination.name;
+            }
+        }
 
         await assertAccess(
             this.services.acl,
@@ -811,14 +847,14 @@ export class LegacyFSController extends PuterController {
             ? await findOverwriteTarget(
                   this.stores.fsEntry,
                   destinationParent,
-                  getString(body, 'new_name') ?? source.name,
+                  newName ?? source.name,
               )
             : null;
 
         const copy = await this.services.fs.copy(userId, {
             source,
             destinationParent,
-            newName: getString(body, 'new_name'),
+            newName,
             overwrite: overwriteRequested,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
         });
@@ -914,7 +950,9 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                Record<string, unknown> | null | undefined,
+                | Record<string, unknown>
+                | null
+                | undefined,
         });
         const overwrittenEntry = replacedByMove(overwriteTarget, moved, name);
         const oldPath = source.path;
@@ -1269,10 +1307,10 @@ export class LegacyFSController extends PuterController {
             });
         }
 
-        const range =
-            typeof req.headers.range === 'string'
-                ? req.headers.range
-                : undefined;
+        const range = rangeForEntry(
+            entry,
+            resolveReadRange(req.headers.range, query),
+        );
         const download = await this.services.fs.readContent(entry, {
             range,
         });
@@ -1305,10 +1343,7 @@ export class LegacyFSController extends PuterController {
         );
         res.status(range ? 206 : 200);
 
-        download.body.on('error', (err) => {
-            res.destroy(err);
-        });
-        download.body.pipe(res);
+        void pipeToResponse(download.body, res);
     };
 
     tokenRead = async (req: Request, res: Response): Promise<void> => {
@@ -1333,7 +1368,7 @@ export class LegacyFSController extends PuterController {
         // that guard every other authenticated FS route have to run here.
         assertNotSuspended(actor!.user);
         assertVerifiedAccount(actor!.user);
-        await assertTeam2fa(actor!.user, this.stores.team);
+        await assertTeam2fa(actor!.user, this.stores.team as Team2faLookup);
 
         req.actor = assertResolvedActor(actor!);
         Context.set('actor', actor);
@@ -1391,7 +1426,8 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            (SignedFile & { path?: string }) | Record<string, never>;
+            | (SignedFile & { path?: string })
+            | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1439,11 +1475,13 @@ export class LegacyFSController extends PuterController {
                 }
 
                 // ACL: always require read; downgrade write→read silently.
+                // One descriptor for both modes reads the chain at most once.
+                const descriptor = this.services.acl.fsDescriptor(entry.path);
                 await assertAccess(
                     this.services.acl,
                     this.services.fs,
                     actor,
-                    entry.path,
+                    descriptor,
                     'read',
                 );
                 let finalAction: 'read' | 'write' = 'read';
@@ -1455,7 +1493,7 @@ export class LegacyFSController extends PuterController {
                     // publishes the descriptor, so there is nothing to hide.
                     const writeOk = await this.services.acl.check(
                         actor,
-                        this.services.acl.fsDescriptor(entry.path),
+                        descriptor,
                         'write',
                     );
                     finalAction = writeOk ? 'write' : 'read';
@@ -1773,22 +1811,50 @@ export class LegacyFSController extends PuterController {
         // owner, so the layout it reveals is theirs to reveal, and the child
         // signatures expire; the paths are the only part that outlives them.
         if (entry.isDir) {
-            const children = await this.services.fs.listDirectory(entry.uuid);
-            const signedChildren = children.map((child) => {
+            const signChild = (child: FSEntry) => {
                 const { write_url: _, ...rest } = signEntry(child, signingCfg, {
                     ttlSeconds: NON_OWNER_SIGNATURE_TTL_SECONDS,
                 });
                 return { ...rest, path: maskEntryPath(child) };
-            });
-            res.json(signedChildren);
+            };
+            const pages = this.services.fs.listDirectoryPages(entry.uuid);
+            const first = await pages.next();
+            const firstPage = first.done ? [] : first.value;
+            const second = await pages.next();
+            if (second.done) {
+                res.json(firstPage.map(signChild));
+                return;
+            }
+
+            // Past one page the listing streams, so a large folder isn't held
+            // in memory whole. A failure partway cuts the response off.
+            const secondPage = second.value;
+            const serialize = (child: FSEntry) =>
+                JSON.stringify(signChild(child));
+            async function* allPages() {
+                yield firstPage;
+                yield secondPage;
+                yield* pages;
+            }
+            async function* body() {
+                let separator = '[';
+                for await (const page of allPages()) {
+                    if (page.length === 0) continue;
+                    yield separator + page.map(serialize).join(',');
+                    separator = ',';
+                }
+                yield separator === '[' ? '[]' : ']';
+            }
+            res.type('application/json');
+            await pipeToResponse(contextBoundStream(body()), res);
             return;
         }
 
         // File: stream bytes with Range support.
-        const range =
-            typeof req.headers.range === 'string'
-                ? req.headers.range
-                : undefined;
+        const range = rangeForEntry(
+            entry,
+            resolveReadRange(req.headers.range, query),
+        );
         const download = await this.services.fs.readContent(entry, {
             range,
         });
@@ -1819,10 +1885,7 @@ export class LegacyFSController extends PuterController {
         );
         res.status(range ? 206 : 200);
 
-        download.body.on('error', (err) => {
-            res.destroy(err);
-        });
-        download.body.pipe(res);
+        void pipeToResponse(download.body, res);
     };
 
     /** GET|POST /df — user storage allowance. */
@@ -1981,12 +2044,20 @@ export class LegacyFSController extends PuterController {
      */
     checkAppAcl = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
+        // Sessions only: for an app, this would be a window onto its neighbours' grants.
+        if (!isPlainUserActor(actor))
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
         const body = asRecord(req.body);
 
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            'see' | 'list' | 'read' | 'write';
+            | 'see'
+            | 'list'
+            | 'read'
+            | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',
@@ -2008,7 +2079,7 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'subject_does_not_exist',
             });
 
-        let app: { uid: string } | null = null;
+        let app: { uid: string; id: number } | null = null;
         if (typeof appRef === 'string') {
             app =
                 (await this.stores.app.getByUid(appRef)) ??
@@ -2022,7 +2093,7 @@ export class LegacyFSController extends PuterController {
         // Build an actor-under-user shape for the check.
         const actorForApp = makeActor({
             user: actor.user,
-            app: { uid: (app as { uid: string }).uid },
+            app: { uid: app.uid, id: app.id },
         });
         const allowed = await acl.check(actorForApp, descriptor, mode);
         res.json({ allowed });
@@ -2070,10 +2141,12 @@ export class LegacyFSController extends PuterController {
         // by default, so opt in by naming the downloader as who pays.
         req.egressActor = actor;
 
-        const range =
+        const range = rangeForEntry(
+            entry,
             typeof req.headers.range === 'string'
                 ? req.headers.range
-                : undefined;
+                : undefined,
+        );
         const download = await this.services.fs.readContent(entry, {
             range,
         });
@@ -2092,10 +2165,7 @@ export class LegacyFSController extends PuterController {
         );
         res.status(range ? 206 : 200);
 
-        download.body.on('error', (err) => {
-            res.destroy(err);
-        });
-        download.body.pipe(res);
+        void pipeToResponse(download.body, res);
     };
 
     async #emitGuiEvent(

@@ -43,6 +43,10 @@ import { once } from 'node:events';
 import { Agent as httpsAgent } from 'node:https';
 import { HttpError } from '../../core/http';
 import type { IConfig, IDynamoConfig } from '../../types';
+import {
+    awsCredentialsFrom,
+    type AwsCredentials,
+} from '../../util/awsCredentials.js';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { Span } from '../../util/span.js';
@@ -248,7 +252,19 @@ export class DDBClient extends PuterClient {
     }
 
     @Span('ddb.put', (table: string) => ({ 'db.table': table }))
-    async put<T extends Record<string, unknown>>(table: string, item: T) {
+    async put<T extends Record<string, unknown>>(
+        table: string,
+        item: T,
+        opts?: {
+            /** Refused (`ConditionalCheckFailedException`) unless it holds. */
+            condition?: {
+                expression: string;
+                names?: Record<string, string>;
+                values?: Record<string, unknown>;
+            };
+        },
+    ) {
+        const condition = opts?.condition;
         const client = await this.#getDocumentClient();
         return sendRepairingValues(
             item,
@@ -258,6 +274,23 @@ export class DDBClient extends PuterClient {
                         TableName: table,
                         Item: itemToWrite,
                         ReturnConsumedCapacity: 'TOTAL',
+                        ...(condition
+                            ? {
+                                  ConditionExpression: condition.expression,
+                                  ...(condition.names
+                                      ? {
+                                            ExpressionAttributeNames:
+                                                condition.names,
+                                        }
+                                      : {}),
+                                  ...(condition.values
+                                      ? {
+                                            ExpressionAttributeValues:
+                                                condition.values,
+                                        }
+                                      : {}),
+                              }
+                            : {}),
                     }),
                 ),
             () => `a put to ${table}`,
@@ -501,6 +534,8 @@ export class DDBClient extends PuterClient {
             scanIndexForward?: boolean;
             beginsWith?: { key: string; value: string };
             select?: 'COUNT';
+            /** Attributes to return instead of the whole item. */
+            projection?: string[];
             filter?: {
                 expression: string;
                 values?: Record<string, unknown>;
@@ -541,6 +576,10 @@ export class DDBClient extends PuterClient {
             Object.assign(expressionAttributeValues, options.filter.values);
             Object.assign(expressionAttributeNames, options.filter.names);
         }
+        const projection = (options?.projection ?? []).map((name) => {
+            expressionAttributeNames[`#p_${name}`] = name;
+            return `#p_${name}`;
+        });
 
         const command = new QueryCommand({
             TableName: table,
@@ -555,6 +594,9 @@ export class DDBClient extends PuterClient {
                 ? { FilterExpression: options.filter.expression }
                 : {}),
             ...(options?.select ? { Select: options.select } : {}),
+            ...(projection.length > 0
+                ? { ProjectionExpression: projection.join(', ') }
+                : {}),
             ...(options?.scanIndexForward !== undefined
                 ? { ScanIndexForward: options.scanIndexForward }
                 : {}),
@@ -688,17 +730,15 @@ export class DDBClient extends PuterClient {
     }
 
     #bindAwsClient() {
-        const accessKeyId = this.#ddbConfig.aws?.access_key;
-        const secretAccessKey = this.#ddbConfig.aws?.secret_key;
-
-        if (!accessKeyId || !secretAccessKey) {
+        const credentials = awsCredentialsFrom(this.#ddbConfig.aws);
+        if (!credentials) {
             throw new Error(
-                'DynamoDB aws config requires both `access_key` and `secret_key`',
+                'DynamoDB aws config requires both `access_key` and `secret_key`, or `useCredentialChain`',
             );
         }
 
         this.#bindClient({
-            credentials: { accessKeyId, secretAccessKey },
+            credentials,
             region: this.#ddbConfig.aws?.region || 'us-west-2',
             endpoint: this.#ddbConfig.endpoint,
         });
@@ -720,7 +760,7 @@ export class DDBClient extends PuterClient {
         region,
         endpoint,
     }: {
-        credentials: { accessKeyId: string; secretAccessKey: string };
+        credentials: AwsCredentials;
         region: string;
         endpoint?: string;
     }) {

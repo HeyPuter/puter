@@ -128,6 +128,10 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [86, ['0091_icloud-dot-significance.sql']],
     [87, ['0092_share-entry-owner.sql']],
     [88, ['0093_fsentries-parent-uid-index.sql']],
+    [89, ['0094_deleted-apps.sql']],
+    [90, ['0095_kv-share-handle-levels.sql']],
+    [91, ['0096_kv-share-handle-quota-indexes.sql']],
+    [92, ['0097_user-to-user-holder-permission-index.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {
@@ -206,6 +210,9 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
             insertId: info.lastInsertRowid,
             affectedRows: info.changes,
             anyRowsAffected: info.changes > 0,
+            // No warningStatus: SQLite raises none, but a new row can reuse a
+            // deleted row's rowid that other tables still name, so a clean
+            // insert doesn't prove the row is all the caller sent.
         };
     }
 

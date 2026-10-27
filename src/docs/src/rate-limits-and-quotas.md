@@ -46,7 +46,8 @@ The main costs:
 For AI:
 
 - A streamed response that stops before the model reports its token counts (an upstream error mid-stream, for example) is charged on an estimate of what was streamed. A request that produced no output is free.
-- In-flight chat, image generation, video generation, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`; a per-second video is first shortened to what the balance still covers.
+- AI model rates can change. Check the [AI model directory](https://developer.puter.com/ai/models/) for current pricing.
+- In-flight chat, image generation, video generation, text-to-speech, speech-to-text and voice-changer requests reserve the most they could cost until they finish, then settle at their real cost. If several expensive requests start at once and the balance can't cover all of them, the later ones fail with `402 insufficient_funds`; a per-second video is first shortened to what the balance still covers. Gemini Omni video is the exception. Its reservation is an estimate, because Google can return more output tokens than requested, and it settles at the tokens actually used even when they cost more (see [Video generation](#video-generation)).
 
 ## Rate limits
 
@@ -64,14 +65,29 @@ Shared by chat, image generation, video, TTS, speech and OCR. Each interface and
 | Input                                          | Limit            |
 | ---------------------------------------------- | ---------------- |
 | Text for `txt2speech()`                        | 3,000 characters |
+| Text for `txt2speech()`, Kling                 | 1,000 characters |
+| Gemini `instructions` for `txt2speech()`       | 3,000 characters |
 | Audio for `speech2speech()`                    | 25 MiB           |
+| Audio for `speech2txt()`, Gemini               | 10 MiB           |
 | Image inlined in a chat message                | 5 MB             |
 | File attached to a chat message, Claude models | 30 MB            |
 | File attached to a chat message, OpenAI models | 5 MB             |
 
 An input over its limit is rejected before it reaches the model, as is an image URL that doesn't finish downloading within 30 seconds. OCR input limits are under [OCR](#ocr).
 
-Text-to-speech calls to ElevenLabs, xAI and Speechify time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`.
+The standard chat timeout is 10 minutes for a response to start, or to finish if it isn't streamed. Stream durations depend on the provider. Native Gemini applies the 10-minute timeout to the whole response, including streaming. Groq uses 60 seconds to start a response. Mistral streams have no timeout of their own. If the caller disconnects, a stream that's still running gets 10 more minutes to finish, and is then stopped. See the [AI model directory](https://developer.puter.com/ai/models/) for model specifications.
+
+GPT-6.1 Terra has a 1,050,000-token context window and a maximum output of 128,000 tokens. Requests with more than 272,000 input tokens are charged at twice the input and cache rates and 1.5 times the output rate for the whole request.
+
+A `gemini-4-argon` response that isn't streamed is capped at 32,768 output tokens, and a larger `max_tokens` is lowered to that cap. Streaming uses the model-directory limit.
+
+Text-to-speech calls to ElevenLabs, xAI, Speechify, Kling and Gemini time out after 2 minutes; xAI speech-to-text and voice-changer calls after 10 minutes, upload included. A call that times out before any audio or transcript comes back fails with `504 upstream_timeout`. For Gemini, the 2 minutes cover the whole reply, audio included.
+
+A Gemini text-to-speech reply is capped at 64 MiB, enough for the full audio budget. A readable Gemini text-to-speech reply is charged for the token usage it reports, even when it fails or returns no audio. A reply that times out or exceeds the cap reports no usage, so it is charged the full reservation and fails with `504 upstream_timeout` or `400 input_too_large`; split long text into shorter requests. Requests with an unreadable reply are not charged.
+
+Every Gemini text-to-speech request reserves credit for the models' full published budget of 8,192 input tokens and 16,384 audio tokens, at the model's current rate. Each request also limits Gemini's output to 16,384 tokens. An incomplete reply fails with `502 upstream_failed`. If the reply is readable within the size and time limits, it is charged for the usage it reports. The reservation is the same for any `text` and `instructions`, in any language. A request fails with `402 insufficient_funds` unless your available credit covers the whole reservation, even when the text is short. When the request ends, the unused part is released and you're charged only for the usage Gemini reports. The reservation isn't a cap on the charge. If Gemini reports more tokens than its published limits, the charge follows the report.
+
+Gemini speech-to-text first counts the audio's tokens, which times out after 30 seconds and reads at most 64 KiB of reply. The transcription itself times out after 10 minutes, upload and reply included. A transcript is limited to 8,192 output tokens and its reply to 2 MiB. A longer transcript or larger reply fails with `502 upstream_failed`. Gemini itself limits audio to 1 hour, or 30 minutes with word timestamps or speaker labels. Each request reserves the counted audio tokens plus 8,192 output tokens for up to 11 minutes.
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
@@ -101,9 +117,48 @@ A web search is metered at a flat per-request rate in addition to the tokens it 
 | Cloudflare | Output dimensions are clamped per side: FLUX.2 256–1920; Lucid Origin 64–2500; Phoenix 64–2048; SDXL and Inpainting 256–2048. Schnell is fixed at 1024×1024. One reference image on FLUX.2 and Inpainting models. Steps: Schnell 1–8; Lucid Origin 1–40; Phoenix and FLUX.2 Dev 1–50; Klein exactly 4; SDXL and Inpainting 1–20. |
 | Replicate | At most 10 references, or the model's lower limit; FLUX 1.1 Pro accepts one. Each fetched reference is capped at 30 MB. Riverflow accepts at most two fonts. Native options follow each model's schema. For other models with width/height controls, dimensions round to multiples of 8 and clamp to the schema bounds (64–4096 per side if none are given). Predictions expire after 10 minutes and are polled every 2 seconds. Cancellation cleanup polls for up to 30 seconds, plus an in-flight request. Network timeouts: 90 seconds for creation, 30 seconds for other requests. |
 | BytePlus | Pro: 10 references; other Seedream models: 14. |
+| Kling | `kling-v3-omni` and `kling-image-o1`: 10 references; `kling-v3` and `kling-v2-1`: one. Prompt up to 2,500 characters. Each reference is a JPEG or PNG up to 10 MB. Jobs are polled every 2 seconds for up to 5 minutes, then fail with `504 upstream_timeout` and aren't charged. Each call to Kling times out after 60 seconds. |
 | BytePlus explicit output size | Pro: 921,600–4,624,220 total pixels. Lite and 4.5: 3,686,400–16,777,216. 4.0: 921,600–16,777,216. All require integer dimensions and an aspect ratio between 1:16 and 16:1. Sizes under 921,600 total pixels are treated as aspect-ratio hints, not exact sizes. |
 
 See [`txt2img()`](/AI/txt2img) for provider-specific options and supported models.
+
+### Video generation
+
+[`puter.ai.txt2vid()`](/AI/txt2vid) waits up to 14 minutes for a clip. These limits apply to Gemini Omni (`gemini-omni-1.1-flash`) on top of the AI limits above:
+
+| Limit | Value |
+|-------|-------|
+| Prompt | 4,000 characters |
+| Starting image | One PNG, JPEG or WebP image, 5 MiB. A URL is fetched with a 30-second timeout |
+| Source video (`inputVideo`) | One MP4, QuickTime or WebM video, 32 MiB and 10 seconds, or 1 MiB as a `data:` URI. A URL is fetched with a 60-second timeout |
+| Input tokens, prompt and image or video together | 131,072 |
+| Requested output tokens | 65,536 |
+| Input token count | 30-second timeout, 64 KiB reply |
+| Generation | 14-minute timeout, reply and clip included. 64 MiB reply |
+| Reservation | Counted input tokens, plus 173,760 video tokens and 65,536 text and thinking tokens, about $3.63 plus input. A source video isn't counted and adds 16,000 input tokens, about $0.02. Held for up to 15 minutes |
+
+A longer prompt, a larger image or video, or input over the token limit fails with `bad_request` (`413 input_too_large` for an image over 5 MiB, a video over 32 MiB, or a `data:` URI video over 1 MiB) before generation starts. A source video over 10 seconds fails with `400 upstream_bad_request` from Google. A reply over 64 MiB fails with `502 upstream_failed`, and a generation that runs past 14 minutes fails with `504 upstream_timeout`. Neither is charged.
+
+The reservation is a conservative estimate based on verified generation usage, not a maximum charge. Google can return more output than the requested 65,536 tokens, and the charge is for the input, video, output and thinking tokens Google reports, even when that's more than the reservation. A reply that reports token usage is charged for it even when the reply failed or has no usable clip.
+
+Kling video models take a prompt of up to 3,072 characters (Kling 3.0 models) or 2,500 (the others, and Kling 3.0 Turbo with `input_reference`). Kling 3.0 Omni and Kling O1 take a source video (`inputVideo`) as a URL or as a Puter file of up to 200 MiB, which fails with `413 input_too_large` above that. Kling fetches either one itself. A Puter file is passed as a link that works for 19 minutes. The source must be an MP4 or QuickTime video of 3 to 15.5 seconds (10 on Kling O1). Kling rejects a source outside its limits, or one it can't decode, with `upstream_bad_request`, and the request isn't charged. An edit holds the price of a 16-second clip (10 on Kling O1). Each call to Kling times out after 60 seconds, and a job is polled every 5 seconds.
+
+MiniMax video models take a prompt of up to 7,000 characters (H3 models) or 2,000 (Hailuo models), and up to 5 images as frames and references together (2 on H3 Max and Hailuo 02, 1 on Hailuo 2.3 and 2.3 Fast). Hailuo 2.3 Fast requires a first-frame image. Hailuo 02 supports first and last frames together at `768p` or `1080p`, and a first frame alone at `512p`. MiniMax fetches an image URL itself, and a Puter file is sent inline. Each call to MiniMax times out after 60 seconds, and a job is polled every 5 seconds.
+
+FLUX 3 on Together AI takes a source video (`inputVideo`) of up to 32 MiB as a Puter file, or up to 1 MiB as a `data:` URI. A larger one fails with `413 input_too_large` before the job starts. A Puter file is passed to Together AI as a link that works for 19 minutes, and a URL is passed as is. Together AI fetches either one.
+
+### Puter file media inputs
+
+Image and video inputs to [`txt2img()`](/AI/txt2img/) and [`txt2vid()`](/AI/txt2vid/) can name files in the user's Puter filesystem:
+
+| Limit | Value |
+|-------|-------|
+| Image files per request | 32 |
+| Image files per request, combined size | 32 MiB |
+| Image file formats | PNG, JPEG, WebP or GIF |
+| Source video file | See the model's source video limits above |
+
+puter.js uploads a `Blob`, a `File` or a `data:` URI over 1 MiB to a temporary Puter file for the call. It counts against the user's storage until puter.js deletes it after the call.
 
 ### Remote chat image inlining
 
@@ -135,6 +190,8 @@ Before the provider runs, the balance must cover every page the call can be bill
 
 ### Key-value store
 
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
+
 | Limit                           | Paid | Free | Anonymous |
 | ------------------------------- | ---- | ---- | --------- |
 | `get` / `set` / etc. per 10 s   | 400  | 400  | 200       |
@@ -147,13 +204,17 @@ Sizes are the same for every account:
 | Size                      | Limit                                     |
 | ------------------------- | ----------------------------------------- |
 | Key                       | 1 KB                                      |
+| Key, through a share handle | 768 bytes (UTF-8)                       |
+| `list()` pattern, through a share handle | 768 bytes (UTF-8)            |
 | Value                     | 400 KB                                    |
 | Any number inside a value | ±9,007,199,254,740,991 (2<sup>53</sup>−1) |
 | Path nesting (`add`/`update`/`incr`/`decr`/`remove`) | 31 levels |
 | Path segments in one call, all paths together | 1,500 |
 | Nesting depth of a value, counting its path | 32 levels |
 
-A key or value over its size limit is rejected. A number out of range is not rejected: it's stored clamped to the bound, and `NaN` is stored as `null` (as `JSON.stringify()` does). This applies at any depth inside an object or array. Store values that must stay exact past 2<sup>53</sup>, such as large ids or running totals, as strings.
+A key or value over its size limit is rejected. A key you pass with a share handle is relative to the handle, and its 768-byte limit stays the same whatever the length of the shared prefix. An empty key or a longer one is refused with `kv_handle_key_invalid`, and so is a longer `list()` pattern.
+
+A number out of range is not rejected: it's stored clamped to the bound, and `NaN` is stored as `null` (as `JSON.stringify()` does). This applies at any depth inside an object or array. Store values that must stay exact past 2<sup>53</sup>, such as large ids or running totals, as strings.
 
 A path such as `a.b.c` may chain at most 31 levels, and one call's paths at most 1,500 segments together. All of a call's paths go into one write of limited size, so in practice a call fits about 140 short paths (about 60 for `incr` and `decr`), fewer when the paths are long. A value nests at most 32 levels deep: the stored value is the first level, and each object or array inside it, or path segment above it, adds one, so `{ a: { b: 1 } }` stored with `set()` is 3 levels deep and written by `update()` at `x.y` is 5; `add()` counts the list it appends to as one more. Past any of these, the call rejects with `bad_request`.
 
@@ -205,6 +266,7 @@ Per minute unless stated:
 | Signed-URL reads | 3,000/min | Per network |
 | Signed-URL writes | 600/min | Per network |
 | Signed-URL concurrent requests | 60 | Per network |
+| Thumbnail read URLs | Valid for at least 6 days and 23 hours, refreshed hourly | Per URL |
 | `getReadURL()` (shared with all access-token creation) | 20/hour | |
 | `revokeReadURL()` | 60/min | |
 
@@ -248,8 +310,11 @@ The last two apply to an `fs:` permission request for a path that doesn't exist 
 | Concurrent requests | 10 | Per network |
 | Failed sign-ins | 10 per 15 min | Per account being signed into |
 | Failed sign-ins | 50 per 15 min | Per network |
+| Lock timeout | Up to 1 hour | Per lock |
 
 Successful sign-ins don't count. Over either sign-in limit, `dav` answers `429` until the window passes, even for the right password, so a client retrying a stale password keeps itself locked out: fix the password, then wait. This only affects `dav`; the desktop, the API and `puter.auth` keep working.
+
+A `LOCK` gets the `Timeout` the client asks for, up to 1 hour, and the response states the timeout granted. Refresh the lock before it runs out to keep it.
 
 For long-lived mounts, sign in with a `-token` username and an API token as the password. That skips the per-account sign-in limit, and the token can be revoked from the dashboard without changing the account password.
 
@@ -349,8 +414,8 @@ Available only where the deployment has teams turned on; elsewhere `puter.teams`
 The mutation and read budgets are per user, per app, not per team: administering several teams spends one budget.
 
 - **Seats.** A seat is a Puter account the team creates and its owner pays for. Over the seat limit, provisioning fails with `seat_limit_reached`; over the team limit, creation fails with `team_limit_reached`. Both errors include the limit in `fields.limit`.
-- **Seat plan.** A seat on a team with no paid tier is on the `org_seat_free` plan, which gets **half** the free allowance and the free rate limits. A seat on a paid team tier gets that tier.
-- **Changing the seat limit.** The limit follows the owner's plan, so upgrading raises it immediately. Lowering it never disables anyone; a team over the new limit just can't add seats until it's back under.
+- **Seat plan.** A seat on a team with no paid tier is on the `org_seat_free` plan, which gets **half** the free allowance and the free rate limits. A seat on a paid team tier gets that tier. A seat beyond the owner's current seat limit is on `org_seat_over_cap`, which has no allowance: only purchased credit can be spent.
+- **Changing the seat limit.** The limit follows the owner's plan, so upgrading raises it immediately. Lowering it disables no one, but a team over the new limit can't add seats, and its newest seats beyond the limit lose their allowance until the team is back under or the owner upgrades. Seats count oldest first, a suspended seat included, and a change reaches seats within about a minute.
 - **Deployment config.** `max_seats_per_team_free` and `max_seats_per_team_paid` set the two seat limits; a plan registered with `teamSeatCap` uses its own instead. `max_seats_per_team` sets one flat limit that overrides all of them. `max_teams_per_user` sets the team limit. These apply to every team on the deployment.
 - **Password resets.** A reset returns a temporary password once, valid for 24 hours. Until the member sets their own password, every request except signing in fails with `password_change_required`.
 - **Required 2FA.** A team can require two-factor authentication for the accounts it created (not for members who joined with their own accounts). Until a seat sets it up, every request except signing in and setting up 2FA fails with `two_factor_required`. The owner needs 2FA to turn this on, and can clear a member's second factor if they lose their device; the reset is logged and the member is emailed.
@@ -360,22 +425,30 @@ The mutation and read budgets are per user, per app, not per team: administering
 
 ### Events
 
-See [Events](/Events/) for an overview, [`onLocal()`](/Events/onLocal/#gaps) for gap markers, and [`onPersistent()`](/Events/onPersistent/#suspended-subscriptions) for suspension.
+See [Events](/Events/) for an overview, [`onLocal()`](/Events/subjects/#gaps) for gap markers, and [`onPersistent()`](/Events/onPersistent/#suspended-subscriptions) for suspension.
 
 #### What an account can hold
+
+<div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
 
 | Limit                                | Scope              | Paid | Free | Anonymous |
 | ------------------------------------ | ------------------ | ---- | ---- | --------- |
 | Persistent subscriptions             | Per user, all apps | 500  | 100  | 0         |
 | Persistent subscriptions             | Per user, per app  | 100  | 25   | 0         |
-| KV share handles                     | Per user, all apps | 512  | 200  | 0         |
-| KV share handles                     | Per user, per app  | 512  | 128  | 0         |
+| KV share handles                     | Per user, all apps | 25,000 | 5,000 | 0       |
+| KV share handles                     | Per user, per app  | 10,000 | 2,000 | 0       |
+| KV share handles with one other user | Per owner and holder | 256  | 256  | 0         |
 | Session subscriptions                | Per connection     | 50   | 50   | 50        |
 
 - Over a subscription limit: `events_subscription_limit`. Over a share-handle limit: `events_kv_handle_limit_reached`.
 - Anonymous accounts get `events_durable_requires_account` for persistent subscriptions and `events_kv_handle_requires_account` for share handles.
-- Unsubscribing or revoking frees a slot immediately. Revoked handles stay listed but don't count.
+- Unsubscribing or revoking frees a slot immediately. Revoked handles don't count. They stay in [`puter.kv.listSharedByMe()`](/KV/listSharedByMe/) for 30 days after they stop, and are then deleted.
+- A [`puter.kv.share()`](/KV/share/) call with several recipients is refused as a whole with `events_kv_handle_limit_reached` when its new shares would go over the all-apps or per-app limit. Sharing a prefix again with a user who already has it takes no slot. The limit per holder applies to each recipient on its own, and a recipient over it gets the error on their own item.
 - A share handle minted without naming an app counts only toward the all-apps limit.
+- A share's key prefix has a length limit that depends on the app's uid and the access level. For an app uid of the usual form, `app-` and a uuid, the prefix without its trailing `:` can be at most 168 characters for `watch`, 163 for `read`, and 162 for `write`. In the store that belongs to no app, it can be at most 199, 194, and 193. A longer prefix is refused with `invalid_kv_share_prefix`.
+- The consent an app asks for with [`puter.perms.request('kvShare', …)`](/Perms/request/) names a prefix too. Its limit is 7 characters lower, so 161, 156, and 155 for an app uid of the usual form.
+- Calls through a share handle read the handle from a cache that keeps it for up to 60 seconds. When a share stops while a wider share of the same holder still covers its keys, calls through the stopped handle can keep working for up to 60 seconds. Without a wider share, access ends right away.
+- A share's label may be at most 128 characters and 512 bytes (UTF-8), with at most 3 combining marks on one character. A longer label is refused with `kv_share_label_invalid`.
 
 #### How many subscriptions one event reaches
 
@@ -388,7 +461,7 @@ Counted per event, per region:
 
 - KV limits follow the plan of the **key's owner**, not the writer's or the subscribers'. If the owner's plan can't be looked up, the free numbers apply. A server with no metering uses the paid numbers.
 - They count subscriptions, not people. A user with three tabs open counts three times.
-- Past the limit, the next subscriptions get a [gap marker](/Events/onLocal/#gaps) instead of the event (up to the same number again), and any after that get nothing. With 1,100 subscriptions on a paid owner's key: 512 get the event, 512 get a gap, 76 get nothing.
+- Past the limit, the next subscriptions get a [gap marker](/Events/subjects/#gaps) instead of the event (up to the same number again), and any after that get nothing. With 1,100 subscriptions on a paid owner's key: 512 get the event, 512 get a gap, 76 get nothing.
 - The region that handles the write delivers to every persistent subscription plus its own connected clients. Other regions deliver only to their own connected clients. So persistent subscriptions share one budget per event, while session subscriptions spread across regions can reach more in total.
 - `includeValue` values are left out of every delivery for a change when more than **128** subscriptions match it (whatever the owner's plan), when the filter-check limit stops the count early, or when the value is over **16 KB**.
 
@@ -400,13 +473,17 @@ Counted per event, per region:
 | `unsubscribe`                                     | 600/min  | Per user, all apps |
 | Acknowledgements                                  | 600/min  | Per user, all apps |
 | Share-handle mint / revoke                        | 60/min   | Per user, all apps |
+| Recipients of `kv.share()`                        | 300/min, 2,000/hour | Per user, all apps |
+| `kv.share.received` notifications                 | 5/hour   | Per owner and holder |
 | Handler publish / remove                          | 60/min   | Per user, all apps |
 | Subscription and share-handle listings (combined) | 120/min  | Per user, per app  |
 | Handler listings                                  | 120/min  | Per user, per app  |
 | Events worker listings                            | 120/min  | Per user, per app  |
 | `fetch()`                                         | 120/min  | Per user, per app  |
 
-Over any of these: `too_many_requests`. Listing pages hold up to 200 items. A `fetch()` page defaults to 50 events and holds up to 200.
+Over any of these: `too_many_requests`, except `kv.share.received` notifications: a share past that limit is still made, and the holder isn't notified about it. Listing pages hold up to 200 items.
+
+A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients. Each one counts toward the recipient budget, and the call counts once toward the mint budget. When the recipients don't all fit in the recipient budget, the whole call fails with `too_many_requests`, and the part that did fit still counts. A `fetch()` page defaults to 50 events and holds up to 200.
 
 Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one.
 
@@ -493,7 +570,7 @@ When the holder's balance runs out, deliveries stop and persistent subscriptions
 
 ### Networking
 
-[`puter.net`](/Networking/) sockets connect through a relay that takes a single-use token. A page fetches one token when it opens its first socket and reuses the connection for later sockets; `puter.net.generateWispV1URL()` fetches a new one on every call.
+[`puter.net`](/Networking/) sockets connect through a relay that takes a token. Each token is valid for 24 hours, or until the session that created it ends. A page fetches one token when it opens its first socket and reuses the connection for later sockets; `puter.net.generateWispV1URL()` fetches a new one on every call.
 
 | Limit                     | Paid | Free | Anonymous |
 | ------------------------- | ---- | ---- | --------- |

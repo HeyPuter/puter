@@ -28,7 +28,7 @@ An object with the following properties:
 - `path` (String) - The path to the directory to read. Required when passing options as the only argument.
 - `uid` (String) (optional) - The UID of the directory to read.
 - `limit` (Number) (optional) - Maximum number of entries to return.
-- `offset` (Number) (optional) - Skips the given number of entries. Prefer `cursor` for paging through large directories.
+- `offset` (Number) (optional) - Skips the given number of entries. Prefer `cursor` for paging through large directories. On a `recursive` listing, `offset` is ignored when a `cursor` is passed; start with `offset`, then follow the returned `cursor`.
 - `sortBy` (String) (optional) - Sort field: `name`, `modified`, `type`, or `size`. Default is `name`. With `recursive`, sorting by `name` orders by full path, so each directory's contents stay together; the other fields sort across the whole subtree.
 - `sortOrder` (String) (optional) - `asc` or `desc`. Default is `asc`.
 - `recursive` (Boolean) (optional) - If `true`, the contents of subdirectories are listed too. Defaults to `false`.
@@ -49,7 +49,7 @@ When the request includes `cursor` (even `null`) or `includeTotal`, or is `recur
 - `cursor` (String) (optional): Present while more pages exist; pass it to the next call.
 - `total` (Number) (optional): Total entry count, present when `includeTotal` was set.
 
-Requests without pagination params keep returning the full listing as a plain array, so existing code is unaffected — under the hood the SDK now fetches it page by page.
+Without pagination params, the full listing is returned as a plain array.
 
 With `stream: true`, the method returns an async iterator of page objects instead:
 

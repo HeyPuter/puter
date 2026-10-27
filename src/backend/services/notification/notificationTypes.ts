@@ -38,6 +38,12 @@ export interface NotificationType {
     appScoped: boolean;
     /** Whether `notifyUpdate` may fold a later one into an open row. */
     groupable: boolean;
+    /**
+     * `false` keeps the type off the account's own desktop: out of the
+     * whole-mailbox listing, the unread replay and the desktop wire. Apps still
+     * read it through its subject. Absent means it shows there.
+     */
+    accountMailbox?: false;
     /** Where a delivery of this type publishes. */
     subject: (ref: NotificationSubjectRef) => string;
 }
@@ -109,6 +115,16 @@ export const NOTIFICATION_TYPES = [
         groupable: false,
         subject: subjectFor('developer'),
     },
+    // A key-value share is news inside the app whose data it is, and nowhere
+    // else: the desktop has nothing to open it with.
+    {
+        type: 'kv.share.received',
+        audience: 'app-user',
+        appScoped: true,
+        groupable: false,
+        accountMailbox: false,
+        subject: subjectFor('app-user'),
+    },
 ] as const satisfies readonly NotificationType[];
 
 /** Every registered type name; what `notify` accepts. */
@@ -124,6 +140,16 @@ const BY_NAME = new Map<string, NotificationType>(
 export const findNotificationType = (
     type: string,
 ): NotificationType | undefined => BY_NAME.get(type);
+
+/** Types kept off the account's own desktop; see `accountMailbox`. */
+export const OUTSIDE_ACCOUNT_MAILBOX_TYPES: readonly string[] =
+    NOTIFICATION_TYPES.filter(
+        (entry: NotificationType) => entry.accountMailbox === false,
+    ).map((entry) => entry.type);
+
+/** Whether rows of this type belong on the account's own desktop. */
+export const inAccountMailbox = (type: unknown): boolean =>
+    typeof type !== 'string' || !OUTSIDE_ACCOUNT_MAILBOX_TYPES.includes(type);
 
 /**
  * The registry entry for a write, or a throw. `account` rows never name an app;

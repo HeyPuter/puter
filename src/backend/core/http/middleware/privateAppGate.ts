@@ -18,14 +18,14 @@
  * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
-import type { AbstractDatabaseClient } from '@heyputer/backend/src/clients/database/DatabaseClient';
 import type { Request } from 'express';
 import {
     HOSTED_ASSET_COOKIES,
     type AuthService,
 } from '../../../services/auth/AuthService';
+import type { AppStore } from '../../../stores/app/AppStore.js';
 import type { IConfig } from '../../../types';
-import type { Actor } from '../../actor';
+import { isAccessTokenActor, isAccountContext, type Actor } from '../../actor';
 
 /**
  * Support helpers for the private-app access gate — ported from v1's
@@ -193,13 +193,15 @@ export function subdomainFromHost(
 export async function resolveOwnedAppForHostedSite(opts: {
     req: Request;
     site: SubdomainLike;
-    db: AbstractDatabaseClient;
+    appStore: Pick<AppStore, 'listOwnedByIndexUrlCandidates'>;
     config: PrivateHostingConfig;
     requirePrivate?: boolean;
+    /** Match against this hosting-domain host instead of the request's. */
+    host?: string;
 }): Promise<AppLike | null> {
     if (!opts.site?.user_id) return null;
 
-    const host = normalizeHost(opts.req.hostname);
+    const host = normalizeHost(opts.host ?? opts.req.hostname);
     if (!host) return null;
 
     const hostedSubdomain = subdomainFromHost(host, [
@@ -215,7 +217,7 @@ export async function resolveOwnedAppForHostedSite(opts: {
     const hostCandidates = new Set<string>();
     hostCandidates.add(host);
     const headerHost =
-        typeof opts.req.headers?.host === 'string'
+        !opts.host && typeof opts.req.headers?.host === 'string'
             ? opts.req.headers.host.trim().toLowerCase()
             : '';
     if (headerHost) hostCandidates.add(headerHost);
@@ -247,15 +249,11 @@ export async function resolveOwnedAppForHostedSite(opts: {
     const uniqueCandidates = [...new Set(urlCandidates)];
     if (uniqueCandidates.length === 0) return null;
 
-    const privateFilter = opts.requirePrivate
-        ? `AND \`is_private\` = ${opts.db.booleanLiteral(true)} `
-        : '';
-    const placeholders = uniqueCandidates.map(() => '?').join(', ');
     // Ambiguity fails closed: a private row wins; `id` keeps it deterministic.
-    const orderClause = `ORDER BY CASE WHEN \`is_private\` = ${opts.db.booleanLiteral(true)} THEN 0 ELSE 1 END, \`id\``;
-    const rows = await opts.db.read(
-        `SELECT * FROM apps WHERE owner_user_id = ? ${privateFilter}AND index_url IN (${placeholders}) ${orderClause} LIMIT 2`,
-        [opts.site.user_id, ...uniqueCandidates],
+    const rows = await opts.appStore.listOwnedByIndexUrlCandidates(
+        opts.site.user_id,
+        uniqueCandidates,
+        { requirePrivate: opts.requirePrivate },
     );
     if (rows.length === 0) return null;
     if (rows.length > 1) {
@@ -462,11 +460,15 @@ export async function resolvePrivateIdentity(opts: {
  * "No app anywhere in the chain" is the portable case, so read `effectiveApp` —
  * an app-issued access token has no `app` of its own and would otherwise pass
  * as a plain session on any private host.
+ *
+ * A scoped access token (a read URL, whoever issued it) is never the account
+ * here: the hosted cookie minted from it would outlive the token's revocation.
  */
 function actorMatchesExpectedApp(
     actor: Actor,
     expectedAppUid: string | undefined,
 ): boolean {
+    if (isAccessTokenActor(actor) && !isAccountContext(actor)) return false;
     if (!expectedAppUid) return true;
     const app = actor.effectiveApp;
     if (!app) return true;
@@ -474,9 +476,8 @@ function actorMatchesExpectedApp(
 }
 
 /**
- * Mirror of `resolvePrivateIdentity` for public hosted apps. Reads the sticky
- * `puter.public.hosted.actor.token` cookie first, then the same
- * session/bootstrap fallbacks.
+ * Fresh authenticated identities replace the sticky public billing cookie when
+ * the visitor switches accounts.
  */
 export async function resolvePublicHostedIdentity(opts: {
     req: Request;
@@ -497,37 +498,6 @@ export async function resolvePublicHostedIdentity(opts: {
 
     const cookies = (req as Request & { cookies?: Record<string, string> })
         .cookies;
-
-    const { name: publicCookieNameV2, legacyName: publicCookieNameLegacy } =
-        HOSTED_ASSET_COOKIES.public;
-    const publicCookieToken =
-        (typeof cookies?.[publicCookieNameV2] === 'string'
-            ? cookies[publicCookieNameV2]
-            : null) ??
-        (typeof cookies?.[publicCookieNameLegacy] === 'string'
-            ? cookies[publicCookieNameLegacy]
-            : null);
-    if (publicCookieToken) {
-        try {
-            const claims = await authService.verifyHostedAssetToken(
-                'public',
-                publicCookieToken,
-                {
-                    appUid: expectedAppUid,
-                    subdomain: expectedSubdomain,
-                    host: expectedHost,
-                },
-            );
-            return {
-                source: 'public-cookie',
-                userUid: claims.userUid,
-                sessionUuid: claims.sessionUuid,
-                hasValidPublicCookie: true,
-            };
-        } catch {
-            /* fall through — v1-signed cookies land here and get re-minted */
-        }
-    }
 
     const existingActor = req.actor;
     if (
@@ -581,6 +551,37 @@ export async function resolvePublicHostedIdentity(opts: {
             }
         } catch {
             /* fall through */
+        }
+    }
+
+    const { name: publicCookieNameV2, legacyName: publicCookieNameLegacy } =
+        HOSTED_ASSET_COOKIES.public;
+    const publicCookieToken =
+        (typeof cookies?.[publicCookieNameV2] === 'string'
+            ? cookies[publicCookieNameV2]
+            : null) ??
+        (typeof cookies?.[publicCookieNameLegacy] === 'string'
+            ? cookies[publicCookieNameLegacy]
+            : null);
+    if (publicCookieToken) {
+        try {
+            const claims = await authService.verifyHostedAssetToken(
+                'public',
+                publicCookieToken,
+                {
+                    appUid: expectedAppUid,
+                    subdomain: expectedSubdomain,
+                    host: expectedHost,
+                },
+            );
+            return {
+                source: 'public-cookie',
+                userUid: claims.userUid,
+                sessionUuid: claims.sessionUuid,
+                hasValidPublicCookie: true,
+            };
+        } catch {
+            /* fall through — v1-signed cookies land here and get re-minted */
         }
     }
 

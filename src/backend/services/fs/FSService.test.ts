@@ -3316,6 +3316,29 @@ describe('FSService reads', () => {
         consoleError.mockRestore();
     });
 
+    it('reports 416 when the range starts past the end of the object', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/short.txt`,
+            'abc',
+        );
+        const getObjectStream = vi
+            .spyOn(server.stores.s3Object, 'getObjectStream')
+            .mockRejectedValueOnce(
+                Object.assign(new Error('range not satisfiable'), {
+                    name: 'InvalidRange',
+                }),
+            );
+
+        const error = await caught(() =>
+            fs.readContent(entry, { range: 'bytes=10-' }),
+        );
+        expect(error.statusCode).toBe(416);
+        expect(await entryAt(user, '/Documents/short.txt')).not.toBeNull();
+
+        getObjectStream.mockRestore();
+    });
+
     it('propagates a non-NoSuchKey storage failure unchanged', async () => {
         const entry = await writeFile(
             user,
@@ -3610,6 +3633,136 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         }
     });
 
+    describe('parent and target lookups', () => {
+        const store = () => server.stores.fsEntry;
+        const realGetEntryByPath = () =>
+            (Object.getPrototypeOf(store()) as ReturnType<typeof store>)
+                .getEntryByPath;
+
+        it('looks the target up while the parent lookup is still in flight', async () => {
+            const parentPath = `${user.home}/Documents`;
+            const path = `${parentPath}/alongside`;
+            const original = realGetEntryByPath();
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const looked: string[] = [];
+            const spy = vi
+                .spyOn(store(), 'getEntryByPath')
+                .mockImplementation(async (candidate, options) => {
+                    looked.push(candidate);
+                    if (candidate === parentPath) await gate;
+                    return original.call(store(), candidate, options);
+                });
+            try {
+                const pending = fs.mkdir(user.userId, { path });
+                await vi.waitFor(() =>
+                    expect(looked).toEqual(
+                        expect.arrayContaining([parentPath, path]),
+                    ),
+                );
+                release();
+                const created = await pending;
+                expect(created.path).toBe(path);
+                expect(created.isDir).toBe(true);
+            } finally {
+                release();
+                spy.mockRestore();
+            }
+        });
+
+        it('surfaces the parent error ahead of a failed target lookup, leaving nothing unhandled', async () => {
+            const path = `${user.home}/Documents/nowhere/target`;
+            const original = realGetEntryByPath();
+            const spy = vi
+                .spyOn(store(), 'getEntryByPath')
+                .mockImplementation(async (candidate, options) => {
+                    if (candidate === path) throw new Error('replica down');
+                    return original.call(store(), candidate, options);
+                });
+            try {
+                const error = await caught(() =>
+                    fs.mkdir(user.userId, { path }),
+                );
+                expect(error.statusCode).toBe(404);
+                expect(error.legacyCode).toBe('not_found');
+
+                // With the parent in place, the target's own failure surfaces.
+                await fs.mkdir(user.userId, {
+                    path: `${user.home}/Documents/nowhere`,
+                });
+                await expect(fs.mkdir(user.userId, { path })).rejects.toThrow(
+                    'replica down',
+                );
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('writes and emits nothing when the parent is missing or a file', async () => {
+            await writeFile(user, `${user.home}/Documents/a-file`, 'x');
+            const cases = [
+                [`${user.home}/Documents/absent/target`, 404],
+                [`${user.home}/Documents/a-file/target`, 409],
+            ] as const;
+            for (const [path, status] of cases) {
+                const lookups = vi.spyOn(store(), 'getEntryByPath');
+                const writes = vi.spyOn(server.clients.db, 'write');
+                const emits = vi.spyOn(server.clients.event, 'emit');
+                try {
+                    const error = await caught(() =>
+                        fs.mkdir(user.userId, { path }),
+                    );
+                    expect(error.statusCode).toBe(status);
+                    // The target was looked up, and that lookup changed nothing.
+                    expect(lookups).toHaveBeenCalledWith(path);
+                    expect(
+                        writes.mock.calls.filter(([sql]) =>
+                            /fsentries/i.test(String(sql)),
+                        ),
+                    ).toEqual([]);
+                    expect(
+                        emits.mock.calls.filter(([key]) =>
+                            String(key).startsWith('fs.'),
+                        ),
+                    ).toEqual([]);
+                } finally {
+                    lookups.mockRestore();
+                    writes.mockRestore();
+                    emits.mockRestore();
+                }
+                await expect(store().getEntryByPath(path)).resolves.toBeNull();
+            }
+        });
+
+        it('refuses a root path before looking anything up', async () => {
+            const spy = vi.spyOn(store(), 'getEntryByPath');
+            try {
+                const error = await caught(() =>
+                    fs.mkdir(user.userId, { path: '/toplevel' }),
+                );
+                expect(error.statusCode).toBe(400);
+                expect(spy).not.toHaveBeenCalled();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('creates missing parents and then the target', async () => {
+            const path = `${user.home}/Documents/fresh-parent/fresh-child`;
+            const created = await fs.mkdir(user.userId, {
+                path,
+                createMissingParents: true,
+            });
+            expect(created.path).toBe(path);
+            const parent = await store().getEntryByPath(
+                `${user.home}/Documents/fresh-parent`,
+            );
+            expect(created.parentUid).toBe(parent!.uuid);
+        });
+    });
+
     /**
      * Reproduce losing the mkdir race against a concurrent writer: the
      * existence probe finds nothing (it ran before the other writer's commit)
@@ -3659,7 +3812,9 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         try {
             const error = await caught(() => fs.mkdir(user.userId, { path }));
             expect(error.statusCode).toBe(409);
-            expect(error.message).toContain(path);
+            expect(error.message).toBe(
+                'An entry named `racedfile` already exists',
+            );
         } finally {
             await restore();
         }
@@ -3884,10 +4039,23 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
     });
 
     it('rejects a thumbnail update without an entry identifier', async () => {
-        const error = await caught(() =>
-            fs.updateEntryThumbnail(user.userId, '', 'data:image/png;base64,A'),
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/thumb-blank.txt`,
+            'x',
         );
-        expect(error.statusCode).toBe(400);
+        const [blank, valid] = await fs.updateEntryThumbnails(user.userId, [
+            { uuid: '', thumbnail: 'data:image/png;base64,A' },
+            { uuid: entry.uuid, thumbnail: 'data:image/png;base64,B' },
+        ]);
+        expect(blank).toMatchObject({
+            status: 'rejected',
+            reason: { statusCode: 400 },
+        });
+        expect(valid).toMatchObject({
+            status: 'fulfilled',
+            value: { thumbnail: 'data:image/png;base64,B' },
+        });
     });
 
     it('updates a thumbnail on an owned entry', async () => {
@@ -3896,12 +4064,13 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
             `${user.home}/Documents/thumb.txt`,
             'x',
         );
-        const updated = await fs.updateEntryThumbnail(
-            user.userId,
-            entry.uuid,
-            'data:image/png;base64,AAA',
-        );
-        expect(updated.thumbnail).toBe('data:image/png;base64,AAA');
+        const [updated] = await fs.updateEntryThumbnails(user.userId, [
+            { uuid: entry.uuid, thumbnail: 'data:image/png;base64,AAA' },
+        ]);
+        expect(updated).toMatchObject({
+            status: 'fulfilled',
+            value: { thumbnail: 'data:image/png;base64,AAA' },
+        });
     });
 });
 
@@ -4531,6 +4700,14 @@ describe('FSService move', () => {
             }),
         );
         expect(intoItself.legacyCode).toBe('cannot_move_directory_into_itself');
+
+        const ontoItself = await caught(() =>
+            fs.move(user.userId, {
+                source: dir,
+                destinationParent: dir,
+            }),
+        );
+        expect(ontoItself.legacyCode).toBe('cannot_move_directory_into_itself');
     });
 
     it('handles a destination collision by conflict, overwrite or dedupe', async () => {
@@ -4570,6 +4747,25 @@ describe('FSService move', () => {
         });
         expect(overwritten.path).toBe(`${user.home}/Desktop/coll.txt`);
         expect(await readBack(overwritten)).toBe('winner');
+    });
+
+    it('refuses to overwrite a directory the moved entry sits inside', async () => {
+        const outer = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/nest/photos/photos`,
+            createMissingParents: true,
+        });
+        await writeFile(user, `${user.home}/Documents/nest/photos/photos/a.txt`, 'keep');
+        const nest = (await entryAt(user, '/Documents/nest'))!;
+
+        const refused = await caught(() =>
+            fs.move(user.userId, {
+                source: outer,
+                destinationParent: nest,
+                overwrite: true,
+            }),
+        );
+        expect(refused.statusCode).toBe(400);
+        expect(await entryAt(user, '/Documents/nest/photos/photos/a.txt')).toBeTruthy();
     });
 
     /**
@@ -4859,6 +5055,25 @@ describe('FSService copy', () => {
                 )
             ).legacyCode,
         ).toBe('cannot_copy_directory_into_itself');
+    });
+
+    it('refuses to overwrite a directory the copied entry sits inside', async () => {
+        const inner = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/cp-nest/photos/photos`,
+            createMissingParents: true,
+        });
+        await writeFile(user, `${user.home}/Documents/cp-nest/photos/photos/a.txt`, 'keep');
+        const nest = (await entryAt(user, '/Documents/cp-nest'))!;
+
+        const refused = await caught(() =>
+            fs.copy(user.userId, {
+                source: inner,
+                destinationParent: nest,
+                overwrite: true,
+            }),
+        );
+        expect(refused.statusCode).toBe(400);
+        expect(await entryAt(user, '/Documents/cp-nest/photos/photos/a.txt')).toBeTruthy();
     });
 
     it('handles a destination collision by conflict, overwrite or dedupe', async () => {
@@ -6285,6 +6500,106 @@ describe('FSService — cross-app AppData access', () => {
         expect(
             await server.stores.fsEntry.getEntryByPath(contactsFile.path),
         ).toBeFalsy();
+    });
+
+    // -- Carrying AppData out of AppData ---------------------------------
+
+    describe('the AppData folder or home as a whole', () => {
+        let appData: FSEntry;
+        let desktop: FSEntry;
+        let closedUid: string;
+        let closedFile: FSEntry;
+
+        beforeEach(async () => {
+            const closed = await makeRealApp(owner.userId, {
+                metadata: JSON.stringify({ share_app_data: false }),
+            });
+            closedUid = closed.uid;
+            closedFile = await seedAppData(closed.uid);
+            appData = (await entryAt(owner, '/AppData'))!;
+            desktop = (await entryAt(owner, '/Desktop'))!;
+        });
+
+        it('refuses an app copying, moving or renaming it past a closed app', async () => {
+            const into = { source: appData, destinationParent: desktop };
+            await expect(
+                asCalendar(() =>
+                    fs.copy(owner.userId, { ...into, newName: 'grab' }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+                asCalendar(() =>
+                    fs.move(owner.userId, { ...into, newName: 'grab' }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+                asCalendar(() => fs.rename(owner.userId, appData, 'grab')),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            expect(await entryAt(owner, '/Desktop/grab')).toBeFalsy();
+            expect(await entryAt(owner, '/grab')).toBeFalsy();
+
+            // The home carries the same folder.
+            const home = (await entryAt(owner, ''))!;
+            const elsewhere = (await entryAt(await makeUser(), '/Desktop'))!;
+            await expect(
+                asCalendar(() =>
+                    fs.copy(owner.userId, {
+                        source: home,
+                        destinationParent: elsewhere,
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('lets the user copy it', async () => {
+            await runWithContext({ actor: owner.actor }, () =>
+                fs.copy(owner.userId, {
+                    source: appData,
+                    destinationParent: desktop,
+                    newName: 'grab',
+                }),
+            );
+            expect(
+                await entryAt(owner, `/Desktop/grab/${closedUid}/state.json`),
+            ).toBeTruthy();
+        });
+
+        it('lets an app copy it while every other app shares', async () => {
+            await fs.remove(owner.userId, {
+                entry: (await entryAt(owner, `/AppData/${closedUid}`))!,
+                recursive: true,
+            });
+            await asCalendar(() =>
+                fs.copy(owner.userId, {
+                    source: appData,
+                    destinationParent: desktop,
+                    newName: 'grab',
+                }),
+            );
+            expect(
+                await entryAt(
+                    owner,
+                    `/Desktop/grab/${contacts.uid}/state.json`,
+                ),
+            ).toBeTruthy();
+        });
+
+        it("leaves a closed app's entries out of an app's recursive listing", async () => {
+            const list = () =>
+                fs.listDirectoryTreePage(owner.userId, owner.home, {
+                    maxDepth: 10,
+                    limit: 1000,
+                });
+            const paths = (await asCalendar(list)).entries.map((e) => e.path);
+            expect(paths).toContain(contactsFile.path);
+            expect(paths).not.toContain(closedFile.path);
+            expect(paths).not.toContain(`${owner.home}/AppData/${closedUid}`);
+
+            const asUser = await runWithContext({ actor: owner.actor }, list);
+            expect(asUser.entries.map((e) => e.path)).toContain(
+                closedFile.path,
+            );
+        });
     });
 });
 

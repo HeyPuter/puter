@@ -23,6 +23,7 @@ import i18n from '../i18n/i18n.js';
 import launch_app from './launchApp.js';
 import path from '../lib/path.js';
 import item_icon from './itemIcon.js';
+import { resolve_default_app } from './defaultApp.js';
 import { is_window_on_screen, user_facing_windows } from './windowVisibility.js';
 
 // Files whose app launch is still in flight, by file uid. Between the click
@@ -283,22 +284,6 @@ Please try recreating the link.`);
         }
     }
     //----------------------------------------------------------------
-    // Does the user have a preference for this file type?
-    //----------------------------------------------------------------
-    else if ( !associated_app_name && !is_dir && window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`] ) {
-        const launch_promise = launch_app({
-            name: window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`],
-            file_path: item_path,
-            window_title: path.basename(item_path),
-            maximized: options.maximized ?? window.is_dashboard_mode,
-            file_uid: file_uid,
-        });
-        if ( target_file_uid ) {
-            launching_file_uids.set(target_file_uid, Date.now());
-            launch_promise.finally(() => launching_file_uids.delete(target_file_uid));
-        }
-    }
-    //----------------------------------------------------------------
     // Is there an app associated with this item?
     //----------------------------------------------------------------
     else if ( associated_app_name !== '' ) {
@@ -346,6 +331,21 @@ Please try recreating the link.`);
         // find no window to restore yet — mark the file as launching so
         // the dashboard reuse branch above swallows re-clicks meanwhile.
         if ( target_file_uid ) launching_file_uids.set(target_file_uid, Date.now());
+
+        // Does the user have a preference for this file type?
+        const default_app = await resolve_default_app({ uid: fsuid, path: item_path });
+        if ( default_app ) {
+            const launch_promise = launch_app({
+                name: default_app.name,
+                app_obj: default_app,
+                file_path: item_path,
+                window_title: path.basename(item_path),
+                maximized: options.maximized ?? window.is_dashboard_mode,
+                file_uid: file_uid,
+            });
+            if ( target_file_uid ) launch_promise.finally(() => launching_file_uids.delete(target_file_uid));
+            return;
+        }
 
         // get all info needed to open an item
         try {

@@ -18,7 +18,7 @@
  */
 
 import { TOTP } from 'otpauth';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { createSecret as otpCreateSecret } from '../../services/auth/OTPUtil.js';
@@ -28,7 +28,6 @@ import {
     setupPuterTestEnv,
     type PuterTestEnv,
 } from '../../testUtil.js';
-import type { IConfig } from '../../types';
 
 /**
  * HTTP-level coverage for `/auth/revoke-own-access-token` — the route that
@@ -424,7 +423,7 @@ describe('2FA enrollment over HTTP', () => {
     let env: PuterTestEnv;
 
     beforeAll(async () => {
-        env = await setupPuterTestEnv({ teams_enabled: true } as IConfig);
+        env = await setupPuterTestEnv();
     }, 120_000);
 
     afterAll(async () => {
@@ -561,56 +560,6 @@ describe('2FA enrollment over HTTP', () => {
         expect((await otpState(account.userId)).enabled).toBe(true);
     });
 
-    it('lets a seat its team holds for 2FA enroll through the same gate', async () => {
-        const owner = await makeAccount();
-        // The rule can only be turned on by an owner who has 2FA.
-        await env.server.stores.user.update(owner.userId, { otp_enabled: 1 });
-        await env.server.stores.user.invalidateById(owner.userId);
-        const team = await env.server.services.team.createTeam(owner.userId, {
-            name: 'Acme',
-        });
-        const seatName = `seat_${uniq()}`;
-        const { userId, temporaryPassword } =
-            await env.server.services.team.provisionAccount(
-                team.uid,
-                owner.userId,
-                { username: seatName },
-            );
-        await env.server.services.team.updateTeam(team.uid, owner.userId, {
-            require2fa: true,
-        });
-        const { token } = await env.server.services.auth.createSessionToken(
-            (await env.server.stores.user.getById(userId))!,
-        );
-
-        // First sign-in replaces the temporary password.
-        const changed = await protectedPost(
-            '/user-protected/change-password',
-            token,
-            { password: temporaryPassword, new_pass: 'seat-own-password' },
-        );
-        expect(changed.status).toBe(200);
-
-        const held = await fetch(new URL('/teams', env.apiOrigin), {
-            headers: { authorization: `Bearer ${token}` },
-        });
-        expect(held.status).toBe(403);
-        expect(await held.text()).toContain('two_factor_required');
-
-        const res = await setup(token, { password: 'seat-own-password' });
-        expect(res.status).toBe(200);
-        const { secret } = (await res.json()) as { secret: string };
-        const enabled = await configure(token, 'enable', {
-            code: liveTotp(seatName, secret),
-        });
-        expect(enabled.status).toBe(200);
-        expect((await otpState(userId)).enabled).toBe(true);
-
-        const released = await fetch(new URL('/teams', env.apiOrigin), {
-            headers: { authorization: `Bearer ${token}` },
-        });
-        expect(released.status).toBe(200);
-    });
 });
 
 /**
@@ -678,5 +627,91 @@ describe('temp-account reauth over HTTP', () => {
             headers: { authorization: `Bearer ${body.token}` },
         });
         expect(who.status).toBe(200);
+    });
+});
+
+describe('session token helpers over HTTP', () => {
+    let env: PuterTestEnv;
+
+    beforeAll(async () => {
+        env = await setupPuterTestEnv();
+    }, 120_000);
+
+    afterAll(async () => {
+        await env?.shutdown();
+    }, 120_000);
+
+    const signupTemp = async () => {
+        const res = await fetch(new URL('/signup', env.origin), {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ is_temp: true }),
+        });
+        expect(res.status).toBe(200);
+        return (await res.json()) as { token: string; user: { uuid: string } };
+    };
+
+    const get = (path: string, token: string) =>
+        fetch(new URL(path, env.origin), {
+            headers: { authorization: `Bearer ${token}` },
+        });
+
+    const claims = (token: string) =>
+        env.server.services.token.verify('auth', token) as {
+            type: string;
+            user_uid: string;
+            session_uid: string;
+        };
+
+    it('mint tokens for the session the request authenticated with', async () => {
+        const { token, user } = await signupTemp();
+        const session = claims(token);
+        const row = await env.server.stores.user.getByUuid(user.uuid);
+        const getById = vi.spyOn(env.server.stores.user, 'getById');
+        try {
+            const gui = await get('/get-gui-token', token);
+            expect(gui.status).toBe(200);
+            const { token: guiToken } = (await gui.json()) as {
+                token: string;
+            };
+            expect(claims(guiToken)).toMatchObject({
+                type: 'gui',
+                user_uid: user.uuid,
+                session_uid: session.session_uid,
+            });
+
+            const sync = await get('/session/sync-cookie', token);
+            expect(sync.status).toBe(204);
+            const cookie = sync.headers.get('set-cookie') ?? '';
+            const cookieToken = /puter_auth_token=([^;]+)/.exec(cookie)?.[1];
+            expect(claims(cookieToken!)).toMatchObject({
+                type: 'session',
+                user_uid: user.uuid,
+                session_uid: session.session_uid,
+            });
+
+            // The user is the row token auth already read.
+            expect(getById.mock.calls.filter(([id]) => id === row!.id)).toEqual(
+                [],
+            );
+        } finally {
+            getById.mockRestore();
+        }
+    });
+
+    it("refuse a deleted account's session before either handler runs", async () => {
+        const { token, user } = await signupTemp();
+        const row = await env.server.stores.user.getByUuid(user.uuid);
+        await env.server.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
+            row!.id,
+        ]);
+        await env.server.stores.user.markDeleted(row!);
+
+        expect((await get('/get-gui-token', token)).status).toBe(401);
+        const sync = await get('/session/sync-cookie', token);
+        expect(sync.status).toBe(401);
+        expect(sync.headers.get('set-cookie') ?? '').not.toContain(
+            'puter_auth_token=',
+        );
     });
 });

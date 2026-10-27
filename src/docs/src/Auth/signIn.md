@@ -33,6 +33,8 @@ puter.auth.signIn(options)
 
 - `request_auth`: A boolean value that asks the popup to let the user re-pick their account, even when your site already holds a token for them. Puter otherwise skips that prompt for a site it has seen before. Useful for an explicit "switch account" button.
 
+Each call completes from its own sign-in window, including when multiple calls run at once.
+
 ## Return value
 
 A `Promise` that will resolve to a [`SignInResult`](/Objects/signinresult/) object when the user has signed in.

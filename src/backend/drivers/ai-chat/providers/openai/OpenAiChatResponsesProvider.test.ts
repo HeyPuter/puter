@@ -224,6 +224,7 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
     });
 
     it.each([
+        ['gpt-6.1-terra', '2026-06-01', '2026-10-26', 100, 5, 500],
         ['gpt-6.1-sol', '2026-04-30', '2026-09-29', 200, 10, 1000],
         ['gpt-6-sol', '2026-04-20', '2026-09-22', 200, 20, 1000],
         ['gpt-6-luna', '2026-05-18', '2026-09-22', 10, 1, 50],
@@ -244,6 +245,7 @@ describe('OpenAiResponsesChatProvider model catalog', () => {
                     tokens: 1_000_000,
                     prompt_tokens: input,
                     cached_tokens: cached,
+                    cache_write_tokens: input * 1.25,
                     completion_tokens: output,
                 },
                 context: 1_050_000,
@@ -332,6 +334,7 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         'gpt-6-luna',
         'gpt-6-astra',
         'gpt-6.1-sol',
+        'gpt-6.1-terra',
         'gpt-5.6',
         'openai/gpt-5.6',
         'openai/gpt-5.6-luna',
@@ -367,7 +370,7 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         },
     );
 
-    it.each(['gpt-5.6-luna', 'gpt-6-luna'])(
+    it.each(['gpt-5.6-luna', 'gpt-6-luna', 'gpt-6.1-terra'])(
         'preserves sampling with reasoning disabled for %s',
         async (model) => {
             const { provider } = makeProvider();
@@ -620,7 +623,13 @@ describe('OpenAiResponsesChatProvider.complete request shape', () => {
         expect(gpt41Args).not.toHaveProperty('verbosity');
     });
 
-    it.each(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'])(
+    it.each([
+        'gpt-6-astra',
+        'gpt-6.1-sol',
+        'gpt-6.1-terra',
+        'gpt-6-sol',
+        'gpt-6-luna',
+    ])(
         'maps flat controls to Responses options for %s aliases',
         async (model) => {
             const { provider } = makeProvider();
@@ -860,47 +869,51 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
         });
     });
 
-    it('bills the whole request at long-context rates past 272K input tokens', async () => {
-        const sol = OPEN_AI_MODELS.find((m) => m.id === 'gpt-6-sol')!;
-        const { provider } = makeProvider();
-        responsesCreateMock.mockResolvedValueOnce({
-            output: [{ role: 'assistant' }],
-            output_text: 'hi',
-            usage: {
-                input_tokens: 300_000,
-                output_tokens: 10_000,
-                input_tokens_details: {
-                    cached_tokens: 50_000,
-                    cache_write_tokens: 20_000,
+    it.each([
+        ['gpt-6-sol', 119],
+        ['gpt-6.1-terra', 59],
+    ] as const)(
+        'bills %s at long-context rates past 272K input tokens',
+        async (modelId, total) => {
+            const model = OPEN_AI_MODELS.find((m) => m.id === modelId)!;
+            const { provider } = makeProvider();
+            responsesCreateMock.mockResolvedValueOnce({
+                output: [{ role: 'assistant' }],
+                output_text: 'hi',
+                usage: {
+                    input_tokens: 300_000,
+                    output_tokens: 10_000,
+                    input_tokens_details: {
+                        cached_tokens: 50_000,
+                        cache_write_tokens: 20_000,
+                    },
                 },
-            },
-        });
+            });
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'gpt-6-sol',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
+            await withTestActor(() =>
+                provider.complete({
+                    model: modelId,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
 
-        const [, , , overrides] = recordSpy.mock.calls[0]!;
-        // $0.92 + $0.02 + $0.10 + $0.15 = $1.19, against $0.62 at the
-        // standard rates.
-        expect(overrides).toEqual({
-            prompt_tokens: 230_000 * Number(sol.costs.prompt_tokens) * 2,
-            cached_tokens: 50_000 * Number(sol.costs.cached_tokens) * 2,
-            cache_write_tokens:
-                20_000 * Number(sol.costs.cache_write_tokens) * 2,
-            completion_tokens:
-                10_000 * Number(sol.costs.completion_tokens) * 1.5,
-        });
-        const totalCents =
-            Object.values(overrides as Record<string, number>).reduce(
-                (a, b) => a + b,
-                0,
-            ) / 1_000_000;
-        expect(totalCents).toBeCloseTo(119);
-    });
+            const [, , , overrides] = recordSpy.mock.calls[0]!;
+            expect(overrides).toEqual({
+                prompt_tokens: 230_000 * Number(model.costs.prompt_tokens) * 2,
+                cached_tokens: 50_000 * Number(model.costs.cached_tokens) * 2,
+                cache_write_tokens:
+                    20_000 * Number(model.costs.cache_write_tokens) * 2,
+                completion_tokens:
+                    10_000 * Number(model.costs.completion_tokens) * 1.5,
+            });
+            const totalCents =
+                Object.values(overrides as Record<string, number>).reduce(
+                    (a, b) => a + b,
+                    0,
+                ) / 1_000_000;
+            expect(totalCents).toBeCloseTo(total);
+        },
+    );
 
     it('bills cached tokens at the input rate when the model prices no cache read', async () => {
         // gpt-5.4-pro is responses-API-only and its catalogue entry has no

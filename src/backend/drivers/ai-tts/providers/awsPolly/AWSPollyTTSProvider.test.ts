@@ -20,13 +20,14 @@
 /**
  * Offline unit tests for AWSPollyTTSProvider.
  *
- * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) and constructs AWSPollyTTSProvider directly against the live
- * wired `MeteringService`. The AWS Polly SDK is mocked at the module
- * boundary — that's the real network egress point. Covers voice
- * resolution (caller-supplied, language-derived, default-per-engine
- * fallback), SSML routing, request shape into SynthesizeSpeechCommand,
- * engine validation, and cost reporting.
+ * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock redis) and
+ * constructs AWSPollyTTSProvider directly against the live wired
+ * `MeteringService`. The AWS Polly SDK is mocked at the module boundary —
+ * that's the real network egress point. Covers voice resolution
+ * (caller-supplied, language-derived, default-per-engine fallback), SSML
+ * routing, request shape into SynthesizeSpeechCommand, engine validation, and
+ * cost reporting. The public AWS price list is served from recorded fixtures
+ * through a stubbed global `fetch`.
  */
 
 import { Readable } from 'node:stream';
@@ -52,6 +53,8 @@ import {
 } from '../../../integrationTestUtil.js';
 import { AWSPollyTTSProvider } from './AWSPollyTTSProvider.js';
 import { AWS_POLLY_COSTS } from './costs.js';
+import usEast1PriceList from './fixtures/us-east-1.json';
+import usWest2PriceList from './fixtures/us-west-2.json';
 
 // ── AWS Polly SDK mock ──────────────────────────────────────────────
 
@@ -80,6 +83,7 @@ vi.mock('@aws-sdk/client-polly', async () => {
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
+let priceFetch: MockInstance<typeof fetch>;
 let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
@@ -97,8 +101,7 @@ const aiMetering = () =>
 
 const makeProvider = (region?: string) =>
     new AWSPollyTTSProvider(aiMetering(), {
-        access_key: 'AKIA-TEST',
-        secret_key: 'secret',
+        credentials: { accessKeyId: 'AKIA-TEST', secretAccessKey: 'secret' },
         region,
     });
 
@@ -145,22 +148,46 @@ const sendDispatch = (
         AudioStream: Readable.from([Buffer.from('synthesized-audio')]),
     }),
 ) =>
-    pollySendMock.mockImplementation((cmd: { constructor: { name: string } }) => {
-        if (cmd.constructor.name === 'DescribeVoicesCommand') {
-            return Promise.resolve(onDescribe());
-        }
-        return Promise.resolve(onSynthesize());
-    });
+    pollySendMock.mockImplementation(
+        (cmd: { constructor: { name: string } }) => {
+            if (cmd.constructor.name === 'DescribeVoicesCommand') {
+                return Promise.resolve(onDescribe());
+            }
+            return Promise.resolve(onSynthesize());
+        },
+    );
+
+const PRICE_LISTS: Record<string, unknown> = {
+    'us-west-2': usWest2PriceList,
+    'us-east-1': usEast1PriceList,
+};
+
+/** Serves the recorded price list for whichever region's URL is requested. */
+const servePriceLists =
+    (lists: Record<string, unknown> = PRICE_LISTS) =>
+    async (url: string | URL | Request) => {
+        const region = /\/current\/([^/]+)\/index\.json$/.exec(
+            String(url),
+        )?.[1];
+        const list = region && lists[region];
+        return list
+            ? Response.json(list)
+            : new Response('not found', { status: 404 });
+    };
 
 beforeEach(() => {
     pollySendMock.mockReset();
     pollyCtor.mockReset();
+    priceFetch = vi.fn(servePriceLists());
+    vi.stubGlobal('fetch', priceFetch);
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
 afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
 });
 
 // ── Client construction ─────────────────────────────────────────────
@@ -493,5 +520,250 @@ describe('AWSPollyTTSProvider.synthesize error paths', () => {
             ),
         ).rejects.toBe(apiError);
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+});
+
+// ── Published price list ────────────────────────────────────────────
+
+const NEURAL_SKU = '9NHBTCP8TY24SED9';
+
+/** The us-west-2 price list with neural repriced to `usd` per character. */
+const westWithNeuralAt = (usd: string) => {
+    const list = structuredClone(usWest2PriceList) as Record<string, any>;
+    const term = Object.values(list.terms.OnDemand[NEURAL_SKU])[0] as any;
+    (Object.values(term.priceDimensions)[0] as any).pricePerUnit.USD = usd;
+    return list;
+};
+
+const synthesizeAndDrain = async (
+    provider: AWSPollyTTSProvider,
+    args: { text: string; engine: string },
+) => {
+    await readStreamResult(
+        await withTestActor(() =>
+            provider.synthesize({ ...args, voice: 'Joanna' }),
+        ),
+    );
+};
+
+describe('AWSPollyTTSProvider published pricing', () => {
+    it('prices engines from the synthesis region and keeps curated rates the region omits', async () => {
+        priceFetch.mockImplementation(
+            servePriceLists({ 'us-west-2': westWithNeuralAt('0.0000170000') }),
+        );
+        const provider = makeProvider();
+        const engines = await provider.listEngines();
+        const price = (id: string) =>
+            engines.find((e) => e.id === id)?.pricing_per_million_chars;
+
+        expect(price('neural')).toBe(17);
+        expect(price('standard')).toBe(4);
+        expect(price('generative')).toBe(30);
+        // us-west-2 publishes no Long-Form SKU.
+        expect(price('long-form')).toBe(AWS_POLLY_COSTS['long-form'] / 100);
+        expect(priceFetch).toHaveBeenCalledTimes(1);
+        expect(String(priceFetch.mock.calls[0]![0])).toBe(
+            'https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonPolly/current/us-west-2/index.json',
+        );
+    });
+
+    it('reads the configured region, which is also where synthesis goes', async () => {
+        sendDispatch();
+        const provider = makeProvider('us-east-1');
+        await synthesizeAndDrain(provider, {
+            text: 'chapter one',
+            engine: 'long-form',
+        });
+
+        expect(String(priceFetch.mock.calls[0]![0])).toContain(
+            '/current/us-east-1/index.json',
+        );
+        expect(pollyCtor).toHaveBeenCalledWith(
+            expect.objectContaining({ region: 'us-east-1' }),
+        );
+        const [, usageType, , cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toBe('aws-polly:long-form:character');
+        expect(cost).toBe(10000 * 'chapter one'.length);
+    });
+
+    it('holds and charges each engine at its own published rate', async () => {
+        priceFetch.mockImplementation(
+            servePriceLists({ 'us-west-2': westWithNeuralAt('0.0000170000') }),
+        );
+        sendDispatch();
+        const provider = makeProvider();
+
+        await synthesizeAndDrain(provider, { text: 'hello', engine: 'neural' });
+        await synthesizeAndDrain(provider, {
+            text: 'hello',
+            engine: 'generative',
+        });
+
+        expect(hasCreditsSpy.mock.calls.map((c) => c[1])).toEqual([
+            1700 * 5,
+            3000 * 5,
+        ]);
+        expect(
+            incrementUsageSpy.mock.calls.map(([, type, count, cost]) => [
+                type,
+                count,
+                cost,
+            ]),
+        ).toEqual([
+            ['aws-polly:neural:character', 5, 1700 * 5],
+            ['aws-polly:generative:character', 5, 3000 * 5],
+        ]);
+    });
+
+    it('bills a request at the rate it was quoted even if prices refresh mid-synthesis', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        priceFetch.mockImplementation(
+            servePriceLists({ 'us-west-2': westWithNeuralAt('0.0000170000') }),
+        );
+        const provider = makeProvider();
+        let refreshedNeural: number | undefined;
+        sendDispatch(undefined, () => {
+            // The cached price list expires and AWS reprices while audio streams.
+            vi.setSystemTime(Date.now() + 60 * 60 * 1000);
+            priceFetch.mockImplementation(
+                servePriceLists({
+                    'us-west-2': westWithNeuralAt('0.0000190000'),
+                }),
+            );
+            return {
+                AudioStream: Readable.from([Buffer.from('synthesized-audio')]),
+            };
+        });
+
+        const result = await withTestActor(() =>
+            provider.synthesize({
+                text: 'hello',
+                engine: 'neural',
+                voice: 'Joanna',
+            }),
+        );
+        refreshedNeural = (await provider.listEngines()).find(
+            (e) => e.id === 'neural',
+        )?.pricing_per_million_chars;
+        await readStreamResult(result);
+
+        expect(refreshedNeural).toBe(19);
+        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(1700 * 5);
+        expect(incrementUsageSpy.mock.calls[0]![3]).toBe(1700 * 5);
+    });
+
+    it('shares one price list fetch between concurrent requests', async () => {
+        let release!: () => void;
+        const gate = new Promise<void>((r) => (release = r));
+        priceFetch.mockImplementation(async (url) => {
+            await gate;
+            return servePriceLists()(url);
+        });
+        sendDispatch();
+        const provider = makeProvider();
+
+        const pending = Promise.all([
+            provider.listEngines(),
+            synthesizeAndDrain(provider, { text: 'a', engine: 'neural' }),
+            synthesizeAndDrain(provider, { text: 'b', engine: 'standard' }),
+        ]);
+        release();
+        await pending;
+
+        expect(priceFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses curated rates when the price list cannot be fetched', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        priceFetch.mockRejectedValue(new Error('network down'));
+        sendDispatch();
+        const provider = makeProvider();
+
+        await synthesizeAndDrain(provider, { text: 'hello', engine: 'neural' });
+
+        expect(incrementUsageSpy.mock.calls[0]![3]).toBe(
+            AWS_POLLY_COSTS.neural * 5,
+        );
+        expect(provider.getReportedCosts()).toEqual(
+            Object.entries(AWS_POLLY_COSTS).map(([engine, ucentsPerUnit]) => ({
+                usageType: `aws-polly:${engine}:character`,
+                ucentsPerUnit,
+                unit: 'character',
+                source: 'driver:aiTts/aws-polly',
+            })),
+        );
+    });
+
+    it('keeps the last published rate when a refresh fails or omits an engine', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        priceFetch.mockImplementation(
+            servePriceLists({ 'us-west-2': westWithNeuralAt('0.0000170000') }),
+        );
+        const provider = makeProvider();
+        const neuralPrice = async () =>
+            (await provider.listEngines()).find((e) => e.id === 'neural')
+                ?.pricing_per_million_chars;
+        expect(await neuralPrice()).toBe(17);
+
+        vi.setSystemTime(Date.now() + 60 * 60 * 1000);
+        priceFetch.mockImplementation(
+            servePriceLists({ 'us-west-2': { offerCode: 'Malformed' } }),
+        );
+        expect(await neuralPrice()).toBe(17);
+
+        // The neural SKU's term vanishes from an otherwise valid list.
+        vi.setSystemTime(Date.now() + 60 * 60 * 1000);
+        const withoutNeural = structuredClone(usWest2PriceList) as any;
+        delete withoutNeural.terms.OnDemand[NEURAL_SKU];
+        priceFetch.mockImplementation(
+            servePriceLists({ 'us-west-2': withoutNeural }),
+        );
+        expect(await neuralPrice()).toBe(17);
+        expect(priceFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('reports the rates it last loaded as its per-character costs', async () => {
+        priceFetch.mockImplementation(
+            servePriceLists({ 'us-west-2': westWithNeuralAt('0.0000170000') }),
+        );
+        const provider = makeProvider();
+        // Nothing has been loaded yet, so the curated table is what bills.
+        expect(provider.getReportedCosts()).toContainEqual(
+            expect.objectContaining({
+                usageType: 'aws-polly:neural:character',
+                ucentsPerUnit: AWS_POLLY_COSTS.neural,
+            }),
+        );
+
+        await provider.listEngines();
+        expect(provider.getReportedCosts()).toContainEqual(
+            expect.objectContaining({
+                usageType: 'aws-polly:neural:character',
+                ucentsPerUnit: 1700,
+            }),
+        );
+    });
+
+    it('never fetches prices for a region that is not a plain AWS region code', async () => {
+        const provider = makeProvider('us-west-2/../../x');
+        const engines = await provider.listEngines();
+        expect(priceFetch).not.toHaveBeenCalled();
+        expect(
+            engines.find((e) => e.id === 'neural')?.pricing_per_million_chars,
+        ).toBe(AWS_POLLY_COSTS.neural / 100);
+    });
+
+    it('does not load prices for test_mode or rejected requests', async () => {
+        const provider = makeProvider();
+        await withTestActor(() =>
+            provider.synthesize({ text: 'hi', test_mode: true }),
+        );
+        await expect(
+            withTestActor(() =>
+                provider.synthesize({ text: 'hi', engine: 'fake-engine' }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(priceFetch).not.toHaveBeenCalled();
     });
 });

@@ -34,81 +34,8 @@ import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 import { is_owned_by_me } from '../helpers/pathOwner.js';
 import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/sharedAccess.js';
-
-const AI_APP_NAME = 'ai';
-
-const parseItemMetadataForAI = (metadata) => {
-    if ( ! metadata ) {
-        return undefined;
-    }
-    try {
-        return JSON.parse(metadata);
-    } catch ( error ) {
-        console.warn('Failed to parse item metadata for AI payload.', error);
-        return undefined;
-    }
-};
-
-const buildAIPayloadFromItems = ($elements) => {
-    return $elements.get().map((element) => {
-        const $element = $(element);
-        return {
-            uid: $element.attr('data-uid'),
-            path: $element.attr('data-path'),
-            name: $element.attr('data-name'),
-            is_dir: $element.attr('data-is_dir') === '1',
-            is_shortcut: $element.attr('data-is_shortcut') === '1',
-            shortcut_to: $element.attr('data-shortcut_to') || undefined,
-            shortcut_to_path: $element.attr('data-shortcut_to_path') || undefined,
-            size: $element.attr('data-size') || undefined,
-            type: $element.attr('data-type') || undefined,
-            modified: $element.attr('data-modified') || undefined,
-            metadata: parseItemMetadataForAI($element.attr('data-metadata')),
-        };
-    });
-};
-
-const ensureAIAppIframe = async () => {
-    let $aiWindow = $(`.window[data-app="${AI_APP_NAME}"]`);
-    if ( $aiWindow.length === 0 ) {
-        try {
-            await launch_app({ name: AI_APP_NAME });
-        } catch ( error ) {
-            console.error('Failed to launch AI app.', error);
-            return null;
-        }
-        $aiWindow = $(`.window[data-app="${AI_APP_NAME}"]`);
-    }
-
-    if ( $aiWindow.length === 0 ) {
-        return null;
-    }
-
-    $aiWindow.makeWindowVisible();
-    const iframe = $aiWindow.find('.window-app-iframe').get(0);
-    return iframe ?? null;
-};
-
-const sendSelectionToAIApp = async ($elements) => {
-    const items = buildAIPayloadFromItems($elements);
-    if ( items.length === 0 ) {
-        return;
-    }
-
-    const aiIframe = await ensureAIAppIframe();
-    if ( !aiIframe || !aiIframe.contentWindow ) {
-        await UIAlert({
-            message: i18n('ai_app_unavailable'),
-        });
-        return;
-    }
-
-    aiIframe.contentWindow.postMessage({
-        msg: 'ai:openFsEntries',
-        items,
-        source: 'desktop-context-menu',
-    }, '*');
-};
+import { is_default_app } from '../helpers/defaultApp.js';
+import openWithAI from '../helpers/openWithAI.js';
 
 async function UIItem (options) {
     const matching_appendto_count = $(options.appendTo).length;
@@ -137,6 +64,7 @@ async function UIItem (options) {
     options.is_shared = options.is_shared === true;
     options.share_mode = options.share_mode ?? '';
     options.shared_by = options.shared_by ?? '';
+    options.is_team_share = options.is_team_share ?? false;
     options.owner = options.owner ?? '';
     options.metadata = options.metadata ?? '';
     options.multiselectable = (options.multiselectable === undefined || options.multiselectable === true) ? true : false;
@@ -174,6 +102,7 @@ async function UIItem (options) {
                 data-is_shared="${options.is_shared ? 1 : 0}"
                 data-share_mode="${html_encode(options.share_mode)}"
                 data-shared_by="${html_encode(options.shared_by)}"
+                data-is_team_share="${options.is_team_share ? 1 : 0}"
                 data-owner="${html_encode(options.owner)}"
                 data-has_website="${show_website_badge ? 1 : 0 }" 
                 data-website_url = "${website_url ? html_encode(website_url) : ''}"
@@ -972,20 +901,6 @@ async function UIItem (options) {
             }
             if ( ! are_trashed ) {
                 // -------------------------------------------
-                // Open in AI
-                // -------------------------------------------
-                menu_items.push({
-                    html: i18n('open_in_ai'),
-                    onClick: async function () {
-                        await sendSelectionToAIApp($selected_items);
-                    },
-                });
-                // -------------------------------------------
-                // -
-                // -------------------------------------------
-                menu_items.push({ is_divider: true });
-
-                // -------------------------------------------
                 // Donwload
                 // -------------------------------------------
                 menu_items.push({
@@ -1192,6 +1107,18 @@ async function UIItem (options) {
                 });
 
                 // -------------------------------------------
+                // Open with AI
+                // -------------------------------------------
+                if ( ! is_trash ) {
+                    menu_items.push({
+                        html: i18n('open_with_ai'),
+                        onClick: function () {
+                            openWithAI(el_item);
+                        },
+                    });
+                }
+
+                // -------------------------------------------
                 // -
                 // -------------------------------------------
                 if ( options.associated_app_name || is_trash )
@@ -1228,7 +1155,7 @@ async function UIItem (options) {
                             onClick: async function () {
                                 var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
                                 if (
-                                    window.user_preferences[`default_apps${extension}`] !== suggested_app.name
+                                    ! is_default_app(window.user_preferences[`default_apps${extension}`], suggested_app)
                                     &&
                                     (
                                         (!window.user_preferences[`default_apps${extension}`] && index > 0)
@@ -1251,7 +1178,7 @@ async function UIItem (options) {
                                         ],
                                     });
                                     if ( (alert_resp) === 'yes' ) {
-                                        window.user_preferences[`default_apps${ extension}`] = suggested_app.name;
+                                        window.user_preferences[`default_apps${ extension}`] = suggested_app.uuid;
                                         window.mutate_user_preferences(window.user_preferences);
                                     }
                                 }
@@ -1304,18 +1231,6 @@ async function UIItem (options) {
                 }
             }
             // -------------------------------------------
-            // Open in AI
-            // -------------------------------------------
-            if ( !is_trashed && !is_trash ) {
-                menu_items.push({
-                    html: i18n('open_in_ai'),
-                    onClick: async function () {
-                        await sendSelectionToAIApp($(el_item));
-                    },
-                });
-            }
-
-            // -------------------------------------------
             // Publish As Website
             // -------------------------------------------
             if ( !is_trashed && !is_trash && options.is_dir ) {
@@ -1335,7 +1250,8 @@ async function UIItem (options) {
             //-------------------------------------------
             // Publish as Worker
             // -------------------------------------------
-            if ( !is_trashed && !is_trash && !options.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js') ) {
+            // The backend refuses deploys from a file someone else owns.
+            if ( !is_trashed && !is_trash && !is_not_mine && !options.is_dir && $(el_item).attr('data-name').toLowerCase().endsWith('.js') ) {
                 menu_items.push({
                     html: i18n('publish_as_serverless_worker'),
                     onClick: async function () {
@@ -1617,7 +1533,8 @@ async function UIItem (options) {
             // Someone else owns this, so deleting it would move their file into
             // our trash — which the backend refuses. Give up our own access
             // instead, which is what "remove it from my view" actually means.
-            if ( is_shared_root ) {
+            // A team share isn't the member's to leave.
+            if ( is_shared_root && $(el_item).attr('data-is_team_share') !== '1' ) {
                 menu_items.push({
                     html: i18n('share_remove_from_shared'),
                     onClick: async function () {
@@ -1945,7 +1862,7 @@ window.activate_item_name_editor = async function (el_item) {
     }
     // files in trash cannot be renamed, user should be notified with an Alert.
     else if ( path.dirname($(el_item).attr('data-path')) === window.trash_path ) {
-        UIAlert(i18n('items_in_trash_cannot_be_renamed'));
+        UIAlert(i18n('items_in_trash_cannot_be_renamed', [], false));
         return;
     }
     // Someone else's item is renameable only with write on it (files, not
@@ -1965,11 +1882,6 @@ window.activate_item_name_editor = async function (el_item) {
     $(el_item_name_editor).show();
     $(el_item_name_editor).focus();
     $(el_item_name_editor).addClass('item-name-editor-active');
-
-    // html-decode the content of the item name editor, this is necessary because the item name is html-encoded when displayed
-    // but the item name editor is not html-encoded. If we remove this line, the item name editor will display the html-encoded
-    // version of the item name after a successful name edit.
-    $(el_item_name_editor).val(html_decode($(el_item_name_editor).val()));
 
     // select all text before extension
     const item_name = $(el_item).attr('data-name');

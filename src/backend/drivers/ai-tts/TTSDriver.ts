@@ -19,6 +19,7 @@
 
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { awsCredentialsFrom } from '../../util/awsCredentials.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import {
@@ -26,11 +27,13 @@ import {
     withAiCostFactor,
 } from '../util/aiCostFactor.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import { usesGoogleGeminiEndpoint } from '../util/geminiRest.js';
 import { ProviderRegistry, readProviderKey } from '../util/providerRegistry.js';
 import { TTS_CATALOG, TTS_DRIVER_ALIASES } from './providerAliases.js';
 import { AWSPollyTTSProvider } from './providers/awsPolly/AWSPollyTTSProvider.js';
 import { ElevenLabsTTSProvider } from './providers/elevenlabs/ElevenLabsTTSProvider.js';
 import { GeminiTTSProvider } from './providers/gemini/GeminiTTSProvider.js';
+import { KlingTTSProvider } from './providers/kling/KlingTTSProvider.js';
 import { OpenAITTSProvider } from './providers/openai/OpenAITTSProvider.js';
 import { SpeechifyTTSProvider } from './providers/speechify/SpeechifyTTSProvider.js';
 import { XAITTSProvider } from './providers/xai/XAITTSProvider.js';
@@ -239,26 +242,27 @@ export class TTSDriver extends PuterDriver {
         const polly = providers['aws-polly'];
         const pollyAws = (polly?.aws ?? polly) as
             Record<string, unknown> | undefined;
-        const pollyAccessKey = pollyAws?.access_key as string | undefined;
-        const pollySecretKey = pollyAws?.secret_key as string | undefined;
-        if (pollyAccessKey && pollySecretKey) {
+        const pollyCredentials = awsCredentialsFrom(pollyAws);
+        if (pollyCredentials) {
             register(
                 'aws-polly',
                 () =>
                     new AWSPollyTTSProvider(m, {
-                        access_key: pollyAccessKey,
-                        secret_key: pollySecretKey,
+                        credentials: pollyCredentials,
                         region: (pollyAws?.region ?? polly?.region) as
                             string | undefined,
                     }),
             );
         }
 
+        // Gemini TTS only calls Google, so it skips a block whose key belongs
+        // to a custom `apiBaseUrl`.
         register('gemini', () =>
             keyed(
                 (apiKey) => new GeminiTTSProvider(m, { apiKey }),
-                providers['gemini'],
-                providers['gemini-tts'],
+                ...[providers['gemini'], providers['gemini-tts']].filter(
+                    (cfg) => usesGoogleGeminiEndpoint(cfg?.apiBaseUrl),
+                ),
             ),
         );
         register('xai', () =>
@@ -273,6 +277,18 @@ export class TTSDriver extends PuterDriver {
                 (apiKey) => new SpeechifyTTSProvider(m, { apiKey }),
                 providers['speechify'],
                 providers['speechify-tts'],
+            ),
+        );
+        // One `kling` key covers video, image and TTS.
+        register('kling', () =>
+            keyed(
+                (apiKey) =>
+                    new KlingTTSProvider(m, {
+                        apiKey,
+                        apiBaseUrl: providers['kling']?.apiBaseUrl as
+                            string | undefined,
+                    }),
+                providers['kling'],
             ),
         );
     }

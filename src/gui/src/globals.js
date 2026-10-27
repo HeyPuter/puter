@@ -108,7 +108,7 @@ try {
 if ( window.user_preferences === null ) {
     window.user_preferences = {
         show_hidden_files: false,
-        language: navigator.language.split('-')[0] || navigator.userLanguage || 'en',
+        language: null,
     };
 }
 
@@ -134,7 +134,6 @@ window.show_twitter_link = true;
 window.animate_window_opening = true;
 window.animate_window_closing = true;
 window.desktop_loading_fade_delay = (window.first_visit_ever && window.first_visit_animation ? 6000 : 1000);
-window.watchItems = [];
 window.appdata_signatures = {};
 window.appCallbackFunctions = [];
 
@@ -229,9 +228,6 @@ window.file_templates = [];
 
 // default language
 window.locale = 'en';
-
-// the width of the panel
-window.PANEL_WIDTH = 400;
 
 // the transaction class
 window.Transaction = class {

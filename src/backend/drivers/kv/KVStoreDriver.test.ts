@@ -14,7 +14,10 @@ import {
     APP_DATA_KV_METHOD_OPS,
     appDataPermission,
 } from '../../services/permission/appDataScopes.ts';
+import { kvNamespace } from '../../stores/systemKv/SystemKVStore.ts';
 import { createTestUser, setupTestServer } from '../../testUtil.ts';
+import type { IConfig } from '../../types.ts';
+import { sealCursor, unsealCursor } from '../../util/pagination.ts';
 import { KV_COSTS } from './costs.ts';
 import type { KVStoreDriver } from './KVStoreDriver.ts';
 import {
@@ -1368,6 +1371,75 @@ describe('KVStoreDriver', () => {
             );
         });
 
+        it('lets the expire op set an expiry without the delete class', async () => {
+            const { owner, calendar, contacts, calendarActor } = await setup();
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'expire'),
+            );
+            expect(
+                await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.expire({ key: 'entry', ttl: 60, optConfig }),
+                ),
+            ).toBe(true);
+        });
+
+        it('returns no value from remove without read access', async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            await inCtx(
+                () =>
+                    target.set({
+                        key: 'doc',
+                        value: { token: 'secret', x: 1 },
+                    }),
+                contactsActor,
+            );
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'remove'),
+            );
+            const remove = (paths: string[]) =>
+                crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.remove({ key: 'doc', paths, optConfig }),
+                );
+
+            // A missing top-level path and a missing nested one both remove
+            // nothing; neither may hand back the stored value.
+            expect(await remove(['nope'])).toBeNull();
+            expect(await remove(['also.missing'])).toBeNull();
+            expect(await remove(['x'])).toBeNull();
+            expect(
+                await inCtx(() => target.get({ key: 'doc' }), contactsActor),
+            ).toEqual({ token: 'secret' });
+        });
+
+        it('returns the updated value from remove with read access too', async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            await inCtx(
+                () => target.set({ key: 'doc', value: { a: 1, b: 2 } }),
+                contactsActor,
+            );
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'remove'),
+            );
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'get'),
+            );
+            expect(
+                await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.remove({ key: 'doc', paths: ['a'], optConfig }),
+                ),
+            ).toEqual({ b: 2 });
+        });
+
         // -- Compatibility -------------------------------------------------
 
         it('does not consult permissions for an own-namespace call', async () => {
@@ -1481,6 +1553,301 @@ describe('KVStoreDriver', () => {
                 contactsActor,
             )) as string[];
             expect(own).toContain('token');
+        });
+
+        // -- Cross-app cursors ----------------------------------------------
+
+        const secret = () =>
+            (target as unknown as { config: IConfig }).config.jwt_secret_v2;
+
+        /** A cursor as the server reads it, its key decoded, or null. */
+        const opened = (cursor: string) => {
+            const payload = unsealCursor(cursor, secret());
+            return payload
+                ? {
+                      ...payload,
+                      k: Buffer.from(String(payload.k), 'base64url').toString(
+                          'utf8',
+                      ),
+                  }
+                : null;
+        };
+
+        /** Everything a cursor shows to the server and to a base64 decoder. */
+        const revealed = (cursor: string) =>
+            [
+                JSON.stringify(opened(cursor)),
+                Buffer.from(cursor, 'base64').toString('utf8'),
+                Buffer.from(cursor, 'base64url').toString('utf8'),
+            ].join('\n');
+
+        const encode = (payload: unknown) =>
+            Buffer.from(JSON.stringify(payload)).toString('base64');
+
+        type Page = { items: string[]; cursor?: string; total?: number };
+
+        const writeAs = (
+            actorForCall: Actor,
+            key: string,
+            disableSharing = false,
+        ) =>
+            inCtx(
+                () =>
+                    target.set({
+                        key,
+                        value: key,
+                        ...(disableSharing
+                            ? { optConfig: { disableSharing: true } }
+                            : {}),
+                    }),
+                actorForCall,
+            );
+
+        it('resumes a cross-app page after a private entry it skipped, padding every cursor to one length', async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            await writeAs(contactsActor, 'a-hidden-oauth-token-name', true);
+            await writeAs(contactsActor, 'b');
+            await writeAs(contactsActor, 'c-a-much-longer-public-key-name');
+            await grant(owner, calendar.uid, appDataPermission(contacts.uid));
+            const page = (cursor?: string) =>
+                crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.list({
+                        as: 'keys',
+                        limit: 1,
+                        ...(cursor ? { cursor } : {}),
+                        optConfig,
+                    }),
+                ) as Promise<Page>;
+
+            // The scan's first row is the private one.
+            const first = await page();
+            expect(first.items).toEqual(['b']);
+            expect(revealed(first.cursor!)).not.toContain('hidden-oauth');
+            expect(opened(first.cursor!)?.k).toBe('b');
+
+            const second = await page(first.cursor);
+            expect(second.items).toEqual(['c-a-much-longer-public-key-name']);
+            expect(second.cursor!.length).toBe(first.cursor!.length);
+        });
+
+        // Over a thousand writes and reads: slow when the whole suite runs.
+        it('pads a cursor left on a long run of private entries to the same length', async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            // More than one call reads past, so the page ends on a hidden row.
+            const hidden = Array.from(
+                { length: 1100 },
+                (_, i) => `h-hidden-${String(i).padStart(4, '0')}`,
+            );
+            for (let at = 0; at < hidden.length; at += 1000)
+                await inCtx(
+                    () =>
+                        target.batchPut({
+                            items: hidden
+                                .slice(at, at + 1000)
+                                .map((key) => ({ key, value: 1 })),
+                            optConfig: { disableSharing: true },
+                        }),
+                    contactsActor,
+                );
+            await writeAs(contactsActor, 'z');
+            await grant(owner, calendar.uid, appDataPermission(contacts.uid));
+
+            const keys: string[] = [];
+            const cursors: string[] = [];
+            let emptyPages = 0;
+            let cursor: string | undefined;
+            for (let pages = 0; pages < 10; pages++) {
+                const page = (await crossApp(
+                    calendarActor,
+                    contacts.uid,
+                    (optConfig) =>
+                        target.list({
+                            as: 'keys',
+                            limit: 1,
+                            ...(cursor ? { cursor } : {}),
+                            optConfig,
+                        }),
+                )) as Page;
+                keys.push(...page.items);
+                if (page.items.length === 0) emptyPages++;
+                cursor = page.cursor;
+                if (!cursor) break;
+                cursors.push(cursor);
+                expect(
+                    Buffer.from(cursor, 'base64').toString('utf8'),
+                ).not.toContain('h-hidden');
+            }
+            expect(keys).toEqual(['entry', 'z']);
+            expect(emptyPages).toBeGreaterThan(0);
+            expect(new Set(cursors.map((c) => c.length)).size).toBe(1);
+        }, 30_000);
+
+        describe('paging a namespace with private entries in it', () => {
+            // Lengths differ, so an unpadded cursor would show which it is.
+            const PUBLIC = [
+                'entry',
+                'k1',
+                'k3-longer',
+                'k4',
+                'k6-longest-of-all',
+            ];
+            const PRIVATE = ['k2', 'k5', 'k7', 'k8'];
+
+            const seeded = async () => {
+                const fixture = await setup();
+                for (const key of PUBLIC.slice(1))
+                    await writeAs(fixture.contactsActor, key);
+                for (const key of PRIVATE)
+                    await writeAs(fixture.contactsActor, key, true);
+                await grant(
+                    fixture.owner,
+                    fixture.calendar.uid,
+                    appDataPermission(fixture.contacts.uid),
+                );
+                return fixture;
+            };
+
+            it.each(
+                [false, true].flatMap((reverse) =>
+                    [false, true].map((includeTotal) => ({
+                        reverse,
+                        includeTotal,
+                    })),
+                ),
+            )(
+                'returns every public entry once, reverse $reverse, includeTotal $includeTotal',
+                async ({ reverse, includeTotal }) => {
+                    const { contacts, calendarActor } = await seeded();
+                    const keys: string[] = [];
+                    const lengths = new Set<number>();
+                    let cursor: string | undefined;
+                    let pages = 0;
+                    do {
+                        const page = (await crossApp(
+                            calendarActor,
+                            contacts.uid,
+                            (optConfig) =>
+                                target.list({
+                                    as: 'keys',
+                                    limit: 2,
+                                    ...(reverse ? { reverse } : {}),
+                                    ...(includeTotal ? { includeTotal } : {}),
+                                    ...(cursor ? { cursor } : {}),
+                                    optConfig,
+                                }),
+                        )) as Page;
+                        keys.push(...page.items);
+                        if (includeTotal)
+                            expect(page.total).toBe(PUBLIC.length);
+                        cursor = page.cursor;
+                        if (cursor) {
+                            lengths.add(cursor.length);
+                            const position = opened(cursor);
+                            expect(position).not.toBeNull();
+                            expect(PRIVATE).not.toContain(position!.k);
+                        }
+                        pages++;
+                    } while (cursor && pages < 10);
+
+                    expect(keys).toEqual(
+                        reverse ? [...PUBLIC].reverse() : PUBLIC,
+                    );
+                    expect(lengths.size).toBe(1);
+                },
+            );
+
+            it('still reads a plain cursor from before they were sealed, and seals the next one', async () => {
+                const { owner, contacts, calendarActor } = await seeded();
+                const namespace = kvNamespace(owner.user.uuid!, contacts.uid);
+                const list = (cursor: unknown, limit = 10) =>
+                    crossApp(calendarActor, contacts.uid, (optConfig) =>
+                        target.list({ as: 'keys', limit, cursor, optConfig }),
+                    ) as Promise<Page>;
+
+                expect(
+                    (await list(encode({ namespace, key: 'k1' }))).items,
+                ).toEqual(PUBLIC.slice(2));
+                expect(
+                    (
+                        await list(
+                            encode({
+                                reverse: true,
+                                key: { namespace, key: 'k4' },
+                            }),
+                        )
+                    ).items,
+                ).toEqual(PUBLIC.slice(0, 3).reverse());
+
+                const next = await list(encode({ namespace, key: 'k1' }), 1);
+                expect(next.items).toEqual(['k3-longer']);
+                expect(opened(next.cursor!)).toMatchObject({ k: 'k3-longer' });
+            });
+
+            it('refuses a plain or sealed cursor for another namespace', async () => {
+                const { owner, calendar, contacts, calendarActor } =
+                    await seeded();
+                const other = await makeRealApp(owner.user.id!);
+                await writeAs(asApp(owner, other), 'k1');
+                await writeAs(asApp(owner, other), 'k2');
+                await grant(owner, calendar.uid, appDataPermission(other.uid));
+                const fromOther = (
+                    (await crossApp(calendarActor, other.uid, (optConfig) =>
+                        target.list({ as: 'keys', limit: 1, optConfig }),
+                    )) as Page
+                ).cursor!;
+                await writeAs(calendarActor, 'own-1');
+                await writeAs(calendarActor, 'own-2');
+                const ownCursor = (
+                    (await inCtx(
+                        () => target.list({ as: 'keys', limit: 1 }),
+                        calendarActor,
+                    )) as Page
+                ).cursor!;
+                const elsewhere = kvNamespace(owner.user.uuid!, other.uid);
+                const stranger = kvNamespace('someone-else', contacts.uid);
+
+                const forged: unknown[] = [
+                    fromOther,
+                    encode({ namespace: elsewhere, key: 'k1' }),
+                    encode({ namespace: stranger, key: 'k1' }),
+                    { namespace: elsewhere, key: 'k1' },
+                    encode({
+                        reverse: true,
+                        key: { namespace: elsewhere, key: 'k1' },
+                    }),
+                    encode({
+                        namespace: kvNamespace(owner.user.uuid!, contacts.uid),
+                        key: 'k1',
+                        extra: true,
+                    }),
+                    sealCursor({ id: 1 }, secret()),
+                    sealCursor(
+                        {
+                            s: elsewhere,
+                            k: Buffer.from('k1').toString('base64url'),
+                        },
+                        secret(),
+                    ),
+                    ownCursor,
+                ];
+                for (const cursor of forged)
+                    await expect(
+                        crossApp(calendarActor, contacts.uid, (optConfig) =>
+                            target.list({
+                                as: 'keys',
+                                limit: 1,
+                                cursor,
+                                optConfig,
+                            }),
+                        ),
+                        JSON.stringify(cursor),
+                    ).rejects.toMatchObject({
+                        statusCode: 400,
+                        message: 'invalid kv: cursor',
+                    });
+            });
         });
 
         it('refuses cross-app writes and deletes against a private entry', async () => {

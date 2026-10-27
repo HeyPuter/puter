@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { installSeatStub } from '../../testFixtures/seatStub.js';
 import type { Request, RequestHandler, Response } from 'express';
 import {
     afterAll,
@@ -233,20 +234,14 @@ const callRoute = async (
     );
 };
 
-const oidc = (): OIDCService =>
-    server.services.oidc as unknown as OIDCService;
+const oidc = (): OIDCService => server.services.oidc as unknown as OIDCService;
 
 // ── GET /auth/oidc/providers ────────────────────────────────────────
 
 describe('OIDCController GET /auth/oidc/providers', () => {
     it('lists every provider whose config validates', async () => {
         const { res, captured } = makeRes();
-        await callRoute(
-            'get',
-            '/auth/oidc/providers',
-            makeReq({}),
-            res,
-        );
+        await callRoute('get', '/auth/oidc/providers', makeReq({}), res);
         // We configured a single `custom` provider; the live service
         // walks the config and returns its id.
         expect(captured.body).toEqual({ providers: ['custom'] });
@@ -417,9 +412,9 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
                 }),
                 res,
             );
-            const state = new URL(
-                captured.redirectUrl ?? '',
-            ).searchParams.get('state');
+            const state = new URL(captured.redirectUrl ?? '').searchParams.get(
+                'state',
+            );
             const decoded = oidc().verifyState(state!);
             expect(String(decoded?.redirect_uri)).toBe(TEST_ORIGIN);
         }
@@ -624,10 +619,7 @@ describe('OIDCController login callback', () => {
 
         // The real OIDCService linked the new user — verify via the
         // live store.
-        const linkedUser = await oidc().findUserByProviderSub(
-            'custom',
-            sub,
-        );
+        const linkedUser = await oidc().findUserByProviderSub('custom', sub);
         expect(linkedUser).not.toBeNull();
         expect(linkedUser?.email).toBe(email);
     });
@@ -791,14 +783,12 @@ describe('OIDCController login callback', () => {
         // Seed by running the linked-sub path first via createUserFromOIDC.
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
         const email = `oidc-${Math.random().toString(36).slice(2, 8)}@test.local`;
-        const created = await runWithContext(
-            { req: makeReq({}) },
-            () =>
-                oidc().createUserFromOIDC('custom', {
-                    sub,
-                    email,
-                    email_verified: true,
-                }),
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
         );
         expect(created.success).toBe(true);
         const firstUserId = created.user!.id;
@@ -838,14 +828,12 @@ describe('OIDCController login callback', () => {
     it('redirects with auth_error when the user is suspended', async () => {
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
         const email = `sus-${Math.random().toString(36).slice(2, 8)}@test.local`;
-        const created = await runWithContext(
-            { req: makeReq({}) },
-            () =>
-                oidc().createUserFromOIDC('custom', {
-                    sub,
-                    email,
-                    email_verified: true,
-                }),
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
         );
         expect(created.success).toBe(true);
         // Flip the suspended bit on the existing row.
@@ -980,14 +968,12 @@ describe('OIDCController login callback', () => {
     it('keeps an /app/<name> landing in the error redirect (suspended user)', async () => {
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
         const email = `sus-app-${Math.random().toString(36).slice(2, 8)}@test.local`;
-        const created = await runWithContext(
-            { req: makeReq({}) },
-            () =>
-                oidc().createUserFromOIDC('custom', {
-                    sub,
-                    email,
-                    email_verified: true,
-                }),
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
         );
         expect(created.success).toBe(true);
         await server.stores.user.update(created.user!.id, { suspended: 1 });
@@ -1075,14 +1061,12 @@ describe('OIDCController login callback', () => {
     it('uses popup-style error URL (msg_id + opener_origin) when the popup-state user is suspended', async () => {
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
         const email = `pop-sus-${Math.random().toString(36).slice(2, 8)}@test.local`;
-        const created = await runWithContext(
-            { req: makeReq({}) },
-            () =>
-                oidc().createUserFromOIDC('custom', {
-                    sub,
-                    email,
-                    email_verified: true,
-                }),
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
         );
         expect(created.success).toBe(true);
         await server.stores.user.update(created.user!.id, { suspended: 1 });
@@ -1232,13 +1216,7 @@ describe('OIDCController login callback', () => {
             email,
             free_storage: 100 * 1024 * 1024,
         });
-        const team = await server.stores.team.create({
-            ownerUserId: owner.id,
-            name: 'Acme',
-        });
-        await server.stores.team.addMember(team.uid, seat.id, {
-            orgOwned: true,
-        });
+        installSeatStub(server as never, [seat.id]);
         // Provisioning issues a temporary password once the seat exists.
         await server.stores.user.update(seat.id, { password: 'hashed' });
         return seat;
@@ -1334,14 +1312,12 @@ describe('OIDCController signup veto (abuse harness)', () => {
         const email = `veto-${Math.random().toString(36).slice(2, 8)}@test.local`;
         vetoWithTrail(email, 'trail-svc-1');
 
-        const created = await runWithContext(
-            { req: makeReq({}) },
-            () =>
-                oidc().createUserFromOIDC('custom', {
-                    sub: `sub-${Math.random().toString(36).slice(2, 8)}`,
-                    email,
-                    email_verified: true,
-                }),
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub: `sub-${Math.random().toString(36).slice(2, 8)}`,
+                email,
+                email_verified: true,
+            }),
         );
         expect(created.success).toBe(false);
         expect(created.code).toBe('signup_blocked');
@@ -1676,14 +1652,12 @@ describe('OIDCController signup callback', () => {
         // resolves to `linked-sub` rather than creating a new user.
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
         const email = `existing-${Math.random().toString(36).slice(2, 8)}@test.local`;
-        const created = await runWithContext(
-            { req: makeReq({}) },
-            () =>
-                oidc().createUserFromOIDC('custom', {
-                    sub,
-                    email,
-                    email_verified: true,
-                }),
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
         );
         expect(created.success).toBe(true);
 
@@ -1755,14 +1729,12 @@ describe('OIDCController signup callback', () => {
     it('redirects suspended users to action=signup with message=account_suspended', async () => {
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
         const email = `sus-${Math.random().toString(36).slice(2, 8)}@test.local`;
-        const created = await runWithContext(
-            { req: makeReq({}) },
-            () =>
-                oidc().createUserFromOIDC('custom', {
-                    sub,
-                    email,
-                    email_verified: true,
-                }),
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
         );
         expect(created.success).toBe(true);
         await server.stores.user.update(created.user!.id, { suspended: 1 });
@@ -1899,14 +1871,12 @@ describe('OIDCController revalidate callback', () => {
         // The linked account exists, but state.user_uuid points at someone else.
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
         const email = `reval-${Math.random().toString(36).slice(2, 8)}@test.local`;
-        const created = await runWithContext(
-            { req: makeReq({}) },
-            () =>
-                oidc().createUserFromOIDC('custom', {
-                    sub,
-                    email,
-                    email_verified: true,
-                }),
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
         );
         expect(created.success).toBe(true);
 
@@ -1938,14 +1908,12 @@ describe('OIDCController revalidate callback', () => {
     it('happy path: sets the revalidation cookie and redirects to redirect-done', async () => {
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
         const email = `reval-${Math.random().toString(36).slice(2, 8)}@test.local`;
-        const created = await runWithContext(
-            { req: makeReq({}) },
-            () =>
-                oidc().createUserFromOIDC('custom', {
-                    sub,
-                    email,
-                    email_verified: true,
-                }),
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
         );
         expect(created.success).toBe(true);
         const userUuid = created.user!.uuid;
@@ -1992,14 +1960,12 @@ describe('OIDCController revalidate callback', () => {
     it('falls back to /auth/revalidate-done when state.redirect_uri is cross-origin', async () => {
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
         const email = `reval-${Math.random().toString(36).slice(2, 8)}@test.local`;
-        const created = await runWithContext(
-            { req: makeReq({}) },
-            () =>
-                oidc().createUserFromOIDC('custom', {
-                    sub,
-                    email,
-                    email_verified: true,
-                }),
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
         );
         expect(created.success).toBe(true);
         const userUuid = created.user!.uuid;
@@ -2038,12 +2004,7 @@ describe('OIDCController revalidate callback', () => {
 describe('OIDCController GET /auth/revalidate-done', () => {
     it('renders the postMessage HTML body with the configured origin', async () => {
         const { res, captured } = makeRes();
-        await callRoute(
-            'get',
-            '/auth/revalidate-done',
-            makeReq({}),
-            res,
-        );
+        await callRoute('get', '/auth/revalidate-done', makeReq({}), res);
         expect(captured.contentType).toContain('text/html');
         const body = String(captured.body);
         expect(body).toContain('puter-revalidate-done');
@@ -2057,9 +2018,9 @@ describe('OIDCController GET /auth/revalidate-done', () => {
 /**
  * The proof exists because the popup return leg states two things the popup
  * cannot check — the opener's origin and that a login completed — and a URL
- * built from a verified `state` is byte-identical to one anybody can type.
- * The opener's origin picks the app a token is minted for, so it has to be
- * attested rather than read.
+ * built from a verified `state` is byte-identical to one anybody can type. The
+ * opener's origin picks the app a token is minted for, so it has to be attested
+ * rather than read.
  */
 describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
     const NONCE = 'binding-nonce';

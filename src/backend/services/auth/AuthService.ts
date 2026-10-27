@@ -27,19 +27,23 @@ import {
 } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import { WEB_AND_EXTENSION_PROTOCOLS } from '../../util/validation.js';
+import { awaitLater } from '../../util/concurrency.js';
 import {
     ASSET_WINDOW_SECONDS,
     GODMODE_TOKEN_MAX_AGE_SECONDS,
     GODMODE_TOKEN_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
 } from '../../stores/session/SessionStore.js';
+import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { LayerInstances } from '../../types';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { isGodmodeApp } from '../../util/godmodeApps.js';
 import { Span } from '../../util/span.js';
 import type { puterServices } from '../index';
+import { EVENTS_WORKER_SESSION_NAME } from '../events/workerRuntime.js';
 import { FULL_API_ACCESS, PERMISSION_MAX_LEN } from '../permission/consts';
+import type { GrantMeta } from '../permission/PermissionService.js';
 import { PuterService } from '../types';
 import type {
     AccessTokenPayload,
@@ -70,6 +74,11 @@ const SESSION_PURGE_SPAN = 5000;
 const SESSION_PURGE_PAUSE_MS = 50;
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
+
+const positiveUserId = (value: unknown): number | null => {
+    const id = typeof value === 'string' ? Number(value) : value;
+    return typeof id === 'number' && Number.isInteger(id) && id > 0 ? id : null;
+};
 
 /**
  * Hosted-asset cookie names by kind. `name` is what gets set; `legacyName` is
@@ -401,7 +410,11 @@ export class AuthService extends PuterService {
         user: UserRow,
         sessionUuid: string,
         authId: string,
-        opts: { worker?: boolean; workerName?: string } = {},
+        opts: {
+            worker?: boolean;
+            workerName?: string;
+            workerUid?: string;
+        } = {},
     ): string {
         const claims: Record<string, unknown> = {
             type,
@@ -416,6 +429,7 @@ export class AuthService extends PuterService {
         };
         if (opts.worker) claims.worker = true;
         if (opts.workerName) claims.worker_name = opts.workerName;
+        if (opts.workerUid) claims.worker_uid = opts.workerUid;
         return this.services.token.sign('auth', claims);
     }
 
@@ -426,13 +440,15 @@ export class AuthService extends PuterService {
      * the row and returns the same stable token. Expires after
      * `WORKER_WINDOW_SECONDS` (effectively infinite). The emitted JWT carries
      * `worker: true` and `worker_name` so downstream code can tell a worker
-     * session from a user-driven one without a DB round-trip.
+     * session from a user-driven one without a DB round-trip. `workerUid` binds
+     * the token to the worker's subdomain row, so it stops working with it.
      */
     async createWorkerSessionToken(
         actor: Actor,
         user: UserRow,
         workerName: string,
         meta: Record<string, unknown> = {},
+        { workerUid }: { workerUid?: string } = {},
     ): Promise<{
         session: Record<string, unknown>;
         token: string;
@@ -464,14 +480,14 @@ export class AuthService extends PuterService {
             user,
             session.uuid as string,
             auth_id,
-            { worker: true, workerName },
+            { worker: true, workerName, workerUid },
         );
         const gui_token = this.#signSessionTypeToken(
             'gui',
             user,
             session.uuid as string,
             auth_id,
-            { worker: true, workerName },
+            { worker: true, workerName, workerUid },
         );
 
         return { session, token, gui_token };
@@ -489,13 +505,18 @@ export class AuthService extends PuterService {
      * handler runs deep; `expiresInSeconds` bounds a token that carries one.
      * Refuses an actor that is itself running behind a handler — the minted
      * token would outlive any one run, so stamping it with the caller's depth
-     * would only delay the escape, not close it.
+     * would only delay the escape, not close it. `workerUid` binds the token to
+     * the worker's subdomain row, so it stops working with it.
      */
     async createWorkerAppToken(
         actor: Actor,
         appUid: string,
         workerName: string,
-        options: { handlerDepth?: number; expiresInSeconds?: number } = {},
+        options: {
+            handlerDepth?: number;
+            expiresInSeconds?: number;
+            workerUid?: string;
+        } = {},
     ): Promise<string> {
         if (!actor.user) {
             throw new HttpError(403, 'Actor must be a user', {
@@ -546,6 +567,7 @@ export class AuthService extends PuterService {
                 auth_id,
                 worker: true,
                 worker_name: workerName,
+                ...(options.workerUid ? { worker_uid: options.workerUid } : {}),
                 ...(options.handlerDepth
                     ? { handler_depth: options.handlerDepth }
                     : {}),
@@ -739,9 +761,22 @@ export class AuthService extends PuterService {
                     ),
             ),
         ];
+        // One batched read; a uid it doesn't answer exactly (gone, differently
+        // cased, or the batch failed) gets its own lookup, as before.
+        let batched = new Map<string, Record<string, unknown>>();
+        try {
+            batched = await this.stores.app.getByUids(appUids);
+        } catch {
+            // Every uid falls back to its own lookup.
+        }
         const apps = new Map<string, Record<string, unknown>>();
         await Promise.all(
             appUids.map(async (uid) => {
+                const hit = batched.get(uid);
+                if (hit) {
+                    apps.set(uid, hit);
+                    return;
+                }
                 try {
                     const app = await this.stores.app.getByUid(uid);
                     if (app) apps.set(uid, app);
@@ -877,17 +912,104 @@ export class AuthService extends PuterService {
      * user-driven UI flow and exempts workers + standalone access tokens by
      * design.
      *
-     * Iterates each top-level row through `revokeCascade` so derived rows
-     * (asset under web, app-issued access tokens under their app session)
-     * follow via the parent_session_id link.
+     * Cascades from every row so derived rows (asset under web, app-issued
+     * access tokens under their app session) follow via the parent_session_id
+     * link.
      */
     async revokeAllSessionsForUserId(userId: number): Promise<void> {
         if (!userId) return;
-        const rows = await this.stores.session.getByUserId(userId);
-        for (const row of rows) {
-            this.#announceRevocation(
-                await this.stores.session.revokeCascade(row.uuid as string),
-            );
+        const rows = await this.stores.session.getByUserId(userId, {
+            primary: true,
+        });
+        await this.#revokeCascades(rows.map((row) => row.uuid as string));
+    }
+
+    async #revokeCascades(rootUuids: string[]): Promise<void> {
+        if (rootUuids.length === 0) return;
+        const revoked = (await this.stores.session.revokeCascades(
+            rootUuids,
+        )) as { userId: number; uuids: string[] }[];
+        for (const entry of revoked) this.#announceRevocation(entry);
+    }
+
+    /**
+     * Delete every session of a worker that no longer exists, whoever minted
+     * it: worker names are unique, so nothing else can be using them.
+     */
+    async deleteWorkerSessionsByName(workerName: string): Promise<void> {
+        if (!workerName) return;
+        await this.#deleteWorkerSessions({ workerName });
+    }
+
+    /**
+     * A user removing an app: every grant they gave it and the sessions of the
+     * workers it deployed for them go, then `app.uninstalled` tells listeners,
+     * which delete the app's data in the account when `deleteData` is set.
+     */
+    async uninstallApp(
+        actor: Actor,
+        appIdentifier: string,
+        {
+            deleteData = false,
+            meta,
+        }: { deleteData?: boolean; meta?: GrantMeta } = {},
+    ): Promise<void> {
+        const appUid = await this.services.permission.revokeUserAppAll(
+            actor,
+            appIdentifier,
+            meta,
+        );
+        const userId = actor.user!.id as number;
+        await this.#deleteWorkerSessionsForApp(userId, appUid);
+        await this.clients.event.emitAndWait(
+            'app.uninstalled',
+            { userId, userUuid: actor.user!.uuid!, appUid, deleteData },
+            {},
+        );
+    }
+
+    /**
+     * Delete the sessions of the workers an app deployed for this user. Their
+     * tokens would otherwise act as the app; the workers keep running.
+     */
+    async #deleteWorkerSessionsForApp(
+        userId: number,
+        appUid: string,
+    ): Promise<void> {
+        if (!userId || !appUid) return;
+        const descendants = await this.stores.app.listOwnedDescendantUids(
+            userId,
+            appUid,
+        );
+        const appUids = [...new Set<string>([appUid, ...descendants])];
+        for (let offset = 0; offset < appUids.length; offset += 200) {
+            await this.#deleteWorkerSessions({
+                userId,
+                appUids: appUids.slice(offset, offset + 200),
+            });
+        }
+    }
+
+    async #deleteWorkerSessions(filter: {
+        workerName?: string;
+        userId?: number;
+        appUids?: string[];
+    }): Promise<void> {
+        const deleted = (await this.stores.session.deleteWorkerSessions(
+            filter,
+        )) as { uuid: string; userId: number; accessTokenUid: string | null }[];
+        const byUser = new Map<number, string[]>();
+        for (const row of deleted) {
+            byUser.set(row.userId, [
+                ...(byUser.get(row.userId) ?? []),
+                row.uuid,
+            ]);
+            if (row.accessTokenUid) {
+                await this.#dropAccessTokenGrants(row.accessTokenUid);
+            }
+        }
+        for (const [userId, uuids] of byUser) {
+            this.#announceRevocation({ userId, uuids });
         }
     }
 
@@ -901,14 +1023,14 @@ export class AuthService extends PuterService {
      */
     async revokeInteractiveSessionsForUserId(userId: number): Promise<void> {
         if (!userId) return;
-        const rows = await this.stores.session.getByUserId(userId);
-        for (const row of rows) {
-            if (row.kind === 'web' || row.kind === 'app') {
-                this.#announceRevocation(
-                    await this.stores.session.revokeCascade(row.uuid as string),
-                );
-            }
-        }
+        const rows = await this.stores.session.getByUserId(userId, {
+            primary: true,
+        });
+        await this.#revokeCascades(
+            rows
+                .filter((row) => row.kind === 'web' || row.kind === 'app')
+                .map((row) => row.uuid as string),
+        );
     }
 
     async revokeAllSessions(
@@ -923,19 +1045,17 @@ export class AuthService extends PuterService {
         const currentUuid = actor.session?.uid;
         const rows = await this.stores.session.getByUserId(
             actor.user.id as number,
+            { primary: true },
         );
-        for (const row of rows) {
-            if (row.kind === 'web') {
-                if (!opts.includeCurrent && row.uuid === currentUuid) continue;
-                this.#announceRevocation(
-                    await this.stores.session.revokeCascade(row.uuid as string),
-                );
-            } else if (row.kind === 'app' && opts.includeApps) {
-                this.#announceRevocation(
-                    await this.stores.session.revokeCascade(row.uuid as string),
-                );
-            }
-        }
+        await this.#revokeCascades(
+            rows
+                .filter((row) =>
+                    row.kind === 'web'
+                        ? opts.includeCurrent || row.uuid !== currentUuid
+                        : row.kind === 'app' && opts.includeApps,
+                )
+                .map((row) => row.uuid as string),
+        );
     }
 
     // -- App / origin resolution -------------------------------------
@@ -1056,15 +1176,64 @@ export class AuthService extends PuterService {
         const prefetched =
             gen0Uids.length > 0
                 ? await this.stores.app.getByUids(gen0Uids)
-                : new Map<string, { index_url?: unknown }>();
+                : new Map<
+                      string,
+                      { index_url?: unknown; owner_user_id?: unknown }
+                  >();
+
+        // Likewise the deleted app's owner for each hosted gen-0 uid with no
+        // row, and the site owner each owner gets compared against.
+        const deletedGen0Uids = missedAppOrigins
+            .filter(
+                (appOrigin) =>
+                    !prefetched.has(gen0ByAppOrigin.get(appOrigin)!) &&
+                    this.#hostedSubdomainForOrigin(appOrigin) !== null,
+            )
+            .map((appOrigin) => gen0ByAppOrigin.get(appOrigin)!);
+        const deletedOwners =
+            deletedGen0Uids.length > 0
+                ? await this.stores.app.getDeletedOwnersByUids(deletedGen0Uids)
+                : new Map<string, number | null>();
+        const subdomainByAppOrigin = new Map<string, string>();
+        for (const appOrigin of missedAppOrigins) {
+            const gen0Uid = gen0ByAppOrigin.get(appOrigin)!;
+            const row = prefetched.get(gen0Uid);
+            const ownerId = row
+                ? positiveUserId(row.owner_user_id)
+                : (deletedOwners.get(gen0Uid) ?? null);
+            const subdomain = this.#hostedSubdomainForOrigin(appOrigin);
+            if (ownerId !== null && subdomain) {
+                subdomainByAppOrigin.set(appOrigin, subdomain);
+            }
+        }
+        const siteRows =
+            subdomainByAppOrigin.size > 0
+                ? await this.stores.subdomain.getBySubdomains([
+                      ...subdomainByAppOrigin.values(),
+                  ])
+                : new Map<string, { user_id?: unknown }>();
+        const getSiteOwnerId = (appOrigin: string) => {
+            const subdomain = subdomainByAppOrigin.get(appOrigin);
+            const row = subdomain ? siteRows.get(subdomain) : undefined;
+            return row
+                ? Promise.resolve(positiveUserId(row.user_id))
+                : this.#siteOwnerIdForOrigin(appOrigin);
+        };
 
         const derivedByAppOrigin = new Map<string, string>();
         for (const appOrigin of missedAppOrigins) {
             const gen0Uid = gen0ByAppOrigin.get(appOrigin)!;
-            const uid = await this.#derivedAppUidForOrigin(appOrigin, (uid) =>
-                uid === gen0Uid
-                    ? Promise.resolve(prefetched.get(uid) ?? null)
-                    : this.stores.app.getByUid(uid),
+            const uid = await this.#derivedAppUidForOrigin(
+                appOrigin,
+                (uid) =>
+                    uid === gen0Uid
+                        ? Promise.resolve(prefetched.get(uid) ?? null)
+                        : this.stores.app.getByUid(uid),
+                getSiteOwnerId,
+                (uid) =>
+                    uid === gen0Uid
+                        ? Promise.resolve(deletedOwners.get(uid))
+                        : this.#deletedAppOwnerId(uid),
             );
             derivedByAppOrigin.set(appOrigin, uid);
         }
@@ -1110,31 +1279,61 @@ export class AuthService extends PuterService {
      * `app-<uuidv5(origin)>`, unless that uid's row now lives at another
      * origin. A repointed row keeps its uid (and the data and grants keyed to
      * it), so the origin it left moves on to a successor uid instead of
-     * resolving to someone's app it no longer serves. `getByUid` is injectable
-     * so a batch caller can serve prefetched rows.
+     * resolving to someone's app it no longer serves. The same goes for a row
+     * whose hosted site is now registered to another user, and for a deleted
+     * app's uid on a hosted site its owner no longer holds. The lookups are
+     * injectable so a batch caller can serve prefetched rows.
      */
     async #derivedAppUidForOrigin(
         origin: string,
         getByUid: (
             uid: string,
-        ) => Promise<{ index_url?: unknown } | null | undefined> = (uid) =>
-            this.stores.app.getByUid(uid),
+        ) => Promise<
+            { index_url?: unknown; owner_user_id?: unknown } | null | undefined
+        > = (uid) => this.stores.app.getByUid(uid),
+        getSiteOwnerId: (origin: string) => Promise<number | null> = (o) =>
+            this.#siteOwnerIdForOrigin(o),
+        getDeletedOwnerId: (
+            uid: string,
+        ) => Promise<number | null | undefined> = (uid) =>
+            this.#deletedAppOwnerId(uid),
     ): Promise<string> {
+        const hosted = this.#hostedSubdomainForOrigin(origin) !== null;
         for (let gen = 0; gen <= MAX_ORIGIN_UID_GENERATIONS; gen++) {
             const uid = this.#originUid(origin, gen);
             const app = await getByUid(uid);
-            if (!app) return uid;
-            if (
-                typeof app.index_url === 'string' &&
-                (await this.#appOriginFor(app.index_url)) === origin
-            ) {
-                return uid;
+            if (!app) {
+                if (!hosted) return uid;
+                const deletedOwnerId = await getDeletedOwnerId(uid);
+                if (deletedOwnerId === undefined) return uid;
+                if (
+                    deletedOwnerId !== null &&
+                    deletedOwnerId === (await getSiteOwnerId(origin))
+                ) {
+                    return uid;
+                }
+                continue;
             }
+            if (
+                typeof app.index_url !== 'string' ||
+                (await this.#appOriginFor(app.index_url)) !== origin
+            ) {
+                continue;
+            }
+            const appOwnerId = positiveUserId(app.owner_user_id);
+            if (appOwnerId === null) return uid;
+            const siteOwnerId = await getSiteOwnerId(origin);
+            if (siteOwnerId === null || siteOwnerId === appOwnerId) return uid;
         }
         // Past the cap the uid stops being derivable, but the row created for
         // it records this origin as its index_url, so the canonical lookup
         // finds it from then on.
         return `app-${uuidv4()}`;
+    }
+
+    /** Owner of the deleted app that held `uid`; undefined if none did. */
+    async #deletedAppOwnerId(uid: string): Promise<number | null | undefined> {
+        return (await this.stores.app.getDeletedOwnersByUids([uid])).get(uid);
     }
 
     /**
@@ -1147,25 +1346,65 @@ export class AuthService extends PuterService {
      * rows.
      */
     async subdomainOwnerIdFromOrigin(origin: string): Promise<number | null> {
+        const subdomain = this.#hostedSubdomainForOrigin(origin);
+        if (!subdomain) return null;
+        const row = await this.stores.subdomain.getBySubdomain(subdomain);
+        return positiveUserId(row?.user_id);
+    }
+
+    /**
+     * Whether `indexUrl` is on a hosted site, or on an origin whose app
+     * identity resolves to an app, owned by someone other than `ownerUserId`. A
+     * private app wins its origin's identity, so an app shouldn't become or
+     * stay private where this is true. Index urls below the origin root never
+     * resolve from an origin, so only the site owner counts for them.
+     */
+    async originHeldByOtherUser(
+        indexUrl: string,
+        ownerUserId: number,
+    ): Promise<boolean> {
+        const origin = await this.#appOriginFor(indexUrl);
+        if (!origin) return false;
+        const siteOwnerId = await this.#siteOwnerIdForOrigin(origin);
+        if (siteOwnerId !== null) return siteOwnerId !== ownerUserId;
+
+        const path = new URL(indexUrl).pathname.toLowerCase();
+        if (path !== '/' && path !== '/index.html') return false;
+        const holderUid = await this.#findCanonicalAppUidForOrigin(origin);
+        const holder = holderUid
+            ? await this.stores.app.getByUid(holderUid)
+            : null;
+        const holderId = positiveUserId(holder?.owner_user_id);
+        return holderId !== null && holderId !== ownerUserId;
+    }
+
+    /**
+     * {@link subdomainOwnerIdFromOrigin}, confirmed against the primary on a
+     * miss so a site registered a moment ago isn't read as unregistered.
+     */
+    async #siteOwnerIdForOrigin(origin: string): Promise<number | null> {
+        const subdomain = this.#hostedSubdomainForOrigin(origin);
+        if (!subdomain) return null;
+        const row =
+            (await this.stores.subdomain.getBySubdomain(subdomain)) ??
+            (await this.stores.subdomain.getBySubdomain(subdomain, {
+                primary: true,
+            }));
+        return positiveUserId(row?.user_id);
+    }
+
+    #hostedSubdomainForOrigin(origin: string): string | null {
         let parsed: URL;
         try {
             parsed = new URL(origin);
         } catch {
             return null;
         }
-        const subdomain = this.#hostedSubdomainForHost(
+        return this.#hostedSubdomainForHost(
             parsed.host.toLowerCase(),
             parsed.hostname.toLowerCase(),
             this.#getHostingDomains(),
         );
-        if (!subdomain) return null;
-        const row = await this.stores.subdomain.getBySubdomain(subdomain);
-        const ownerId = row?.user_id;
-        return typeof ownerId === 'number' &&
-            Number.isInteger(ownerId) &&
-            ownerId > 0
-            ? ownerId
-            : null;
     }
 
     /**
@@ -1497,7 +1736,12 @@ export class AuthService extends PuterService {
         return result;
     }
 
-    async getUserAppToken(actor: Actor, appUid: string): Promise<string> {
+    /** `app` is `appUid`'s row when the caller already read it. */
+    async getUserAppToken(
+        actor: Actor,
+        appUid: string,
+        app?: { created_epoch?: unknown },
+    ): Promise<string> {
         if (!actor.user)
             throw new HttpError(403, 'Actor must be a user', {
                 legacyCode: 'forbidden',
@@ -1508,7 +1752,7 @@ export class AuthService extends PuterService {
         // the app row's `last_ip` / `last_user_agent` start NULL and get
         // populated later via `SessionStore.touch` on the first verified
         // request that carries those headers.
-        const app = await this.stores.app.getByUid(appUid);
+        app ??= await this.stores.app.getByUid(appUid);
         const appSession = await this.stores.session.getOrCreateApp(
             actor.user.id,
             appUid,
@@ -1544,7 +1788,7 @@ export class AuthService extends PuterService {
      * does. Its row hangs off that session, so signing out or revoking it takes
      * the token along. The JWT has no `exp` and stays the same across renewals,
      * so copies an app handed elsewhere keep working; the row's expiry is what
-     * lapses, 12h after the desktop stops asking. A lapsed row is never
+     * lapses, at most 12h after the desktop stops asking. A lapsed row is never
      * revived, and one past its max age is replaced and revoked.
      */
     async getGodmodeAppToken(
@@ -1565,13 +1809,12 @@ export class AuthService extends PuterService {
         }
 
         const authId = this.#authIdFor(actor.user as UserRow);
-        const expiresAt = nowSeconds() + GODMODE_TOKEN_WINDOW_SECONDS;
         const minted = await this.stores.session.getOrCreateGodmodeToken(
             actor.user.id,
             {
                 parentSessionUid: actor.session.uid,
                 appUid: app.uid,
-                expiresAt,
+                expiresAt: nowSeconds() + GODMODE_TOKEN_WINDOW_SECONDS,
                 maxAgeSeconds: GODMODE_TOKEN_MAX_AGE_SECONDS,
                 label: app.title || app.name || null,
                 auth_id: authId,
@@ -1595,7 +1838,7 @@ export class AuthService extends PuterService {
             full_access: true,
             godmode_app_uid: app.uid,
         });
-        return { token, expiresAt };
+        return { token, expiresAt: Number(row.expires_at) };
     }
 
     /**
@@ -1662,7 +1905,7 @@ export class AuthService extends PuterService {
         },
     ): Promise<string> {
         const { assetSessionUuid, authId } =
-            await this.#mintAssetSessionContext(claims.sessionUuid);
+            await this.#mintAssetSessionContext(claims.sessionUuid, kind);
         return this.services.token.sign('hosted-asset', {
             kind,
             version: '2',
@@ -1680,22 +1923,12 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Materialize the `kind='asset'` session row that the cookie's
-     * `session_uuid` claim points at. Parented to the web session so a logout
-     * cascade kills every asset cookie minted under it. Both fields are `null`
-     * only when the caller didn't supply a web session at all — the cookie
-     * still mints unparented and without an `auth_id` claim (matches v1
-     * behavior for access-token-minted cookies that aren't tied to an
-     * interactive session).
-     *
-     * If the caller DID supply a `webSessionUuid` but the lookup misses (row
-     * revoked / expired between mint request and this lookup), throw —
-     * otherwise we'd quietly emit an unparented "ghost" cookie that has no
-     * revocation hook for 7 days. The extra check piggybacks on the lookup we
-     * already had to do, so no added perf cost.
+     * Public cookies reuse the parent; private cookies get a child with an
+     * asset expiry.
      */
     async #mintAssetSessionContext(
         webSessionUuid: string | undefined,
+        kind: HostedAssetKind,
     ): Promise<{ assetSessionUuid: string | null; authId: string | null }> {
         if (!webSessionUuid) return { assetSessionUuid: null, authId: null };
         const webSession = await this.stores.session.getByUuid(webSessionUuid);
@@ -1706,6 +1939,8 @@ export class AuthService extends PuterService {
         }
         const authId =
             ((webSession as SessionRow).auth_id as string | null) ?? null;
+        if (kind === 'public')
+            return { assetSessionUuid: webSessionUuid, authId };
         const row = await this.stores.session.create(
             (webSession as SessionRow).user_id as number,
             {
@@ -1721,9 +1956,10 @@ export class AuthService extends PuterService {
     /**
      * Verify a hosted-asset cookie of `kind` against what the request expects,
      * and that the session it was minted under still exists and isn't revoked:
-     * `getByUuid` filters on `revoked_at IS NULL`, so a logout cascade
-     * invalidates every cookie minted under that web session. A cookie minted
-     * without a session (from an access-token actor) has nothing to bind.
+     * `getByUuid` filters on `revoked_at IS NULL`, so revoking the minting
+     * session invalidates the cookie. Only the leaf row is checked; see
+     * `#mintAssetSessionContext` for the godmode case. A cookie minted without
+     * a session (from an access-token actor) has nothing to bind.
      */
     async verifyHostedAssetToken(
         kind: HostedAssetKind,
@@ -2273,22 +2509,55 @@ export class AuthService extends PuterService {
         }
     }
 
+    /**
+     * A worker credential lives only as long as the worker it was minted for.
+     * Tokens minted before `worker_uid` existed are held to the worker's name
+     * and owner instead.
+     */
+    async #workerStillDeployed(
+        decoded: {
+            worker?: boolean;
+            worker_name?: string;
+            worker_uid?: string;
+        },
+        userId: number,
+    ): Promise<boolean> {
+        if (!decoded.worker) return true;
+        // Events handler sessions have no worker row; EventsService retires them.
+        if (decoded.worker_name === EVENTS_WORKER_SESSION_NAME) return true;
+        if (!decoded.worker_name) return false;
+        const row = await this.stores.subdomain.getBySubdomain(
+            `${WORKER_SUBDOMAIN_PREFIX}${decoded.worker_name}`,
+        );
+        if (!row || Number(row.user_id) !== Number(userId)) return false;
+        return !decoded.worker_uid || row.uuid === decoded.worker_uid;
+    }
+
     async #actorFromSessionToken(
         decoded: SessionTokenPayload,
         ctx: AuthenticateContext = {},
     ): Promise<AuthResult> {
-        const user = await this.stores.user.getByUuid(decoded.user_uid);
-        if (!user) return { invalid: true };
-
         // v2 tokens prefer `session_uid`; v1 only carries `uuid`. Both
         // store the web-session uuid.
         const sessionUuid = decoded.session_uid ?? decoded.uuid;
 
-        const rawRow = sessionUuid
-            ? ((await this.stores.session.getByUuidAny(
-                  sessionUuid,
-              )) as SessionRow | null)
+        // Read together, awaited in the order the checks below need them.
+        const userLookup = this.stores.user.getByUuid(decoded.user_uid);
+        const sessionLookup = sessionUuid
+            ? awaitLater(
+                  this.stores.session.getByUuidAny(
+                      sessionUuid,
+                  ) as Promise<SessionRow | null>,
+              )
             : null;
+
+        const user = await userLookup;
+        if (!user) return { invalid: true };
+        const deployed = awaitLater(
+            this.#workerStillDeployed(decoded, user.id as number),
+        );
+
+        const rawRow = sessionLookup ? await sessionLookup : null;
 
         // Only a browser session gets a reauth token back. A worker credential
         // rides the same token type, so check both the claim and the row.
@@ -2303,6 +2572,7 @@ export class AuthService extends PuterService {
         const session: SessionRow | null = rawRow;
 
         if (!session) return { invalid: true };
+        if (!(await deployed)) return { invalid: true };
 
         void this.#touchSession(session.uuid, user.id, ctx);
 
@@ -2313,21 +2583,30 @@ export class AuthService extends PuterService {
         decoded: AppUnderUserTokenPayload,
         ctx: AuthenticateContext = {},
     ): Promise<AuthResult> {
-        const user = await this.stores.user.getByUuid(decoded.user_uid);
-        if (!user) return { invalid: true };
+        // Read together, awaited in the order the checks below need them.
+        const userLookup = this.stores.user.getByUuid(decoded.user_uid);
+        const appLookup = awaitLater(this.stores.app.getByUid(decoded.app_uid));
+        const sessionLookup = decoded.session_uid
+            ? awaitLater(
+                  this.stores.session.getByUuidAny(
+                      decoded.session_uid,
+                  ) as Promise<SessionRow | null>,
+              )
+            : null;
 
-        const app = await this.stores.app.getByUid(decoded.app_uid);
+        const user = await userLookup;
+        if (!user) return { invalid: true };
+        const deployed = awaitLater(
+            this.#workerStillDeployed(decoded, user.id as number),
+        );
+
+        const app = await appLookup;
         if (!app) return { invalid: true };
 
         const blocked = await this.#appOriginBlock(app);
         if (blocked) return { blocked };
 
-        let rawRow: SessionRow | null = null;
-        if (decoded.session_uid) {
-            rawRow = (await this.stores.session.getByUuidAny(
-                decoded.session_uid,
-            )) as SessionRow | null;
-        }
+        const rawRow = sessionLookup ? await sessionLookup : null;
 
         // An app token never carries `auth_id` on its reauth result: only a
         // user's own session/GUI token can be reattached via a reauth token.
@@ -2347,6 +2626,7 @@ export class AuthService extends PuterService {
         if (notBefore !== null && createdAt > 0 && createdAt < notBefore) {
             return { reauth: { reason: 'session_revoked' } };
         }
+        if (!(await deployed)) return { invalid: true };
 
         void this.#touchSession(session.uuid, user.id, ctx);
 
@@ -2395,15 +2675,44 @@ export class AuthService extends PuterService {
     ): Promise<AuthResult> {
         if (!decoded.token_uid || !decoded.user_uid) return { invalid: true };
 
-        const user = await this.stores.user.getByUuid(decoded.user_uid);
+        // Read together, awaited in the order the checks below need them. The
+        // parent is read once its child row names it.
+        const userLookup = this.stores.user.getByUuid(decoded.user_uid);
+        const sessionLookup = decoded.session_uid
+            ? awaitLater(
+                  this.stores.session.getByUuidAny(
+                      decoded.session_uid,
+                  ) as Promise<SessionRow | null>,
+              )
+            : null;
+        const parentLookup = sessionLookup
+            ? awaitLater(
+                  (async () => {
+                      const row = await sessionLookup;
+                      if (!row?.parent_session_id) return null;
+                      return (await this.stores.session.getByUuidAny(
+                          row.parent_session_id,
+                      )) as SessionRow | null;
+                  })(),
+              )
+            : null;
+        const appLookup = decoded.app_uid
+            ? awaitLater(this.stores.app.getByUid(decoded.app_uid))
+            : null;
+        const godmodeAppLookup =
+            decoded.godmode_app_uid !== undefined &&
+            !decoded.app_uid &&
+            decoded.full_access === true
+                ? awaitLater(this.stores.app.getByUid(decoded.godmode_app_uid))
+                : null;
+
+        const user = await userLookup;
         if (!user) return { invalid: true };
 
         let session: SessionRow | null = null;
         let parentSession: SessionRow | null = null;
-        if (decoded.session_uid) {
-            const rawRow = (await this.stores.session.getByUuidAny(
-                decoded.session_uid,
-            )) as SessionRow | null;
+        if (sessionLookup && parentLookup) {
+            const rawRow = await sessionLookup;
             // No `auth_id` on an access token's reauth result: a reauth token
             // is only ever minted for the user's own session/GUI token.
             const ended = this.#endedSession(rawRow);
@@ -2412,9 +2721,7 @@ export class AuthService extends PuterService {
             // A token minted under another session (an app's, a godmode
             // token's, the desktop's) lives no longer than that session does.
             if (rawRow.parent_session_id) {
-                const parent = (await this.stores.session.getByUuidAny(
-                    rawRow.parent_session_id,
-                )) as SessionRow | null;
+                const parent = await parentLookup;
                 if (!parent) return { reauth: { reason: 'session_revoked' } };
                 const parentEnded = this.#endedSession(parent);
                 if (parentEnded) return parentEnded;
@@ -2424,8 +2731,8 @@ export class AuthService extends PuterService {
         }
 
         let authorizer: Actor;
-        if (decoded.app_uid) {
-            const app = await this.stores.app.getByUid(decoded.app_uid);
+        if (appLookup) {
+            const app = await appLookup;
             if (!app) return { invalid: true };
             const blocked = await this.#appOriginBlock(app);
             if (blocked) return { blocked };
@@ -2446,10 +2753,8 @@ export class AuthService extends PuterService {
         // A godmode token stops working once its app is gone or demoted.
         let godmodeApp: { uid: string; id: number } | null = null;
         if (decoded.godmode_app_uid !== undefined) {
-            if (decoded.app_uid || decoded.full_access !== true) {
-                return { invalid: true };
-            }
-            const app = await this.stores.app.getByUid(decoded.godmode_app_uid);
+            if (!godmodeAppLookup) return { invalid: true };
+            const app = await godmodeAppLookup;
             if (!app || !isGodmodeApp(app)) return { invalid: true };
             godmodeApp = { uid: app.uid, id: app.id };
         }
@@ -2540,6 +2845,15 @@ export class AuthService extends PuterService {
             requires_card_verification:
                 user.requires_card_verification ?? false,
         };
+    }
+
+    /**
+     * A session-less actor for a user whose password was verified outside a
+     * token (WebDAV Basic auth). Same row→actor mapping as the token paths, so
+     * the account gates see every flag they read.
+     */
+    buildPasswordActor(user: UserRow): Actor {
+        return this.#buildUserActor(user, null);
     }
 
     #buildUserActor(user: UserRow, session: SessionRow | null): Actor {

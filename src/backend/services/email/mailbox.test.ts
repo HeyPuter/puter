@@ -70,6 +70,13 @@ describe('addresses', () => {
             'dan@puterstaging.email',
         ]);
     });
+
+    test('a username with capitals yields lowercase addresses', () => {
+        expect(puterEmailAddressesOf('Dan')).toEqual([
+            'dan@puter.email',
+            'dan@puterstaging.email',
+        ]);
+    });
 });
 
 describe('account eligibility', () => {

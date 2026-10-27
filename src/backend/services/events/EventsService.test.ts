@@ -51,8 +51,9 @@ import {
     EVENTS_UNSUBSCRIBE_VERB,
     type DeliveryEnvelope,
     type EventSocket,
+    type KvDispatchOptions,
 } from './EventsService.js';
-import { kvSharePermission } from './kvShares.js';
+import { kvSharePermission } from '../kvShare/kvShares.js';
 import { FILTER_EVALUATIONS_PER_EVENT } from './matcher.js';
 import { SUBSCRIPTION_CACHE_TTL_MS } from './subscriptionCache.js';
 import { kvAnchorToken } from './subjects.js';
@@ -203,6 +204,15 @@ let handles: Map<string, KvShareHandle>;
 
 const kvShareHandleStore = {
     getByHandle: async (handle: string) => handles.get(handle) ?? null,
+    getLive: async (handle: string) => {
+        const row = handles.get(handle);
+        if (!row || row.revokedAt !== null) return null;
+        return {
+            row,
+            ownerUuid: `user-${row.ownerUserId}`,
+            ownerSuspended: false,
+        };
+    },
 };
 
 /** Apps the cross-app gate can be asked about, and what they share. */
@@ -1082,6 +1092,76 @@ describe('cold-region rebuild concurrency', () => {
             await dispatch(file);
             await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
+            expect(sent).toHaveLength(1);
+        } finally {
+            warm.mockRestore();
+        }
+    });
+});
+
+describe('a cold process cache', () => {
+    /** A watcher made on another process, so this one's cache stays cold. */
+    const addRemoteWatcher = (documents: FSEntry) =>
+        store.add({
+            subId: `remote-sub-${seq}`,
+            socketId: 'remote-socket',
+            holderUserId: userId,
+            ownerUserId: userId,
+            subject: `fs:${documents.uid}`,
+            token: `f#${documents.uid}`,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+            op: null,
+            appUid: null,
+            permission: 'list',
+        });
+
+    it('answers a warm region in one pipeline, without consulting the table', async () => {
+        const { file } = seedTree();
+        await store.markRegionWarm(userId);
+        const warm = vi.spyOn(durableSubscriptionStore, 'warmRegion');
+        commands = [];
+        try {
+            await expect(dispatch(file)).resolves.toBe(false);
+            expect(commands).toEqual(['pipeline']);
+            expect(warm).not.toHaveBeenCalled();
+        } finally {
+            warm.mockRestore();
+        }
+    });
+
+    it('sees a watcher in that same pipeline', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        await addRemoteWatcher(documents);
+        await store.markRegionWarm(userId);
+        const warm = vi.spyOn(durableSubscriptionStore, 'warmRegion');
+        try {
+            await dispatch(file);
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+            expect(sent).toHaveLength(1);
+            expect(warm).not.toHaveBeenCalled();
+        } finally {
+            warm.mockRestore();
+        }
+    });
+
+    it('rebuilds a cold region, then answers from what the rebuild found', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        const warm = vi
+            .spyOn(durableSubscriptionStore, 'warmRegion')
+            .mockImplementation(async (ownerUserId: number) => {
+                // A rebuild that finds rows the first look did not.
+                await addRemoteWatcher(documents);
+                await store.markRegionWarm(ownerUserId);
+                return true;
+            });
+        try {
+            await dispatch(file);
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+            expect(warm).toHaveBeenCalledTimes(1);
             expect(sent).toHaveLength(1);
         } finally {
             warm.mockRestore();
@@ -2038,6 +2118,7 @@ it('sends only the projected shape, never an internal row', async () => {
         'subject',
         'ts',
         'uid',
+        'viaWorker',
     ]);
     expect(sent[0].envelope.event).not.toHaveProperty('userId');
 });
@@ -2484,6 +2565,47 @@ describe('delivering a kv change', () => {
         expect(sent).toEqual([]);
     });
 
+    it('tells a subscriber the change was theirs only when they made it', async () => {
+        vi.useFakeTimers();
+        await subscribeKv(`kv:${OWN_APP}:cart`);
+        const write = (options: KvDispatchOptions) =>
+            service.dispatchKv(
+                {
+                    userId,
+                    namespace: `v1:user-${userId}:${OWN_APP}`,
+                    keys: ['cart'],
+                    op: 'set',
+                },
+                options,
+            );
+
+        // One window each: writes to one key inside a window coalesce.
+        for (const options of [
+            { actingUserId: userId },
+            { actingUserId: userId + 1 },
+            {},
+            { actingUserId: userId, viaWorker: true },
+        ]) {
+            await write(options);
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+        }
+
+        expect(
+            sent.map(({ envelope }) => {
+                const { self, viaWorker } = envelope.event as {
+                    self: boolean;
+                    viaWorker: boolean;
+                };
+                return { self, viaWorker };
+            }),
+        ).toEqual([
+            { self: true, viaWorker: false },
+            { self: false, viaWorker: false },
+            { self: false, viaWorker: false },
+            { self: true, viaWorker: true },
+        ]);
+    });
+
     it('sends only the projected shape', async () => {
         vi.useFakeTimers();
         await subscribeKv(`kv:${OWN_APP}:cart`);
@@ -2499,6 +2621,7 @@ describe('delivering a kv change', () => {
             'seq',
             'subject',
             'ts',
+            'viaWorker',
         ]);
     });
 });
@@ -2773,6 +2896,7 @@ describe('the cross-app kv gate', () => {
             'seq',
             'subject',
             'ts',
+            'viaWorker',
         ]);
     });
 
@@ -2881,8 +3005,10 @@ describe('cross-user kv handles', () => {
             appUid: OWN_APP,
             keyPrefix: PREFIX,
             permission,
+            label: null,
             createdAt: 0,
             revokedAt: null,
+            revokedBy: null,
             ...overrides,
         };
         handles.set(row.handle, row);

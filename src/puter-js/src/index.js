@@ -25,9 +25,7 @@ import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
 import FSItem from './modules/FSItem.js';
 import { Hosting } from './modules/hosting/index.js';
 import { KV } from './modules/kv/index.js';
-import { PSocket } from './modules/networking/PSocket.js';
-import { PTLSSocket } from './modules/networking/PTLS.js';
-import { pFetch } from './modules/networking/requests.js';
+import { netAPI } from './modules/networking/index.js';
 import { OS } from './modules/os/index.js';
 import { Perms } from './modules/perms/index.js';
 import PuterDialog from './modules/PuterDialog.js';
@@ -724,8 +722,6 @@ export class Puter {
         // When SDK is loaded in GUI the initiation process should start when the DOM is ready. This is because
         // the SDK needs to show a dialog to the user to ask for permission to access their Puter account.
         else if (this.env === 'web') {
-            // initialize submodules
-            this.initSubmodules();
             try {
                 const storedToken = this.normalizeAuthTokenCandidate(
                     localStorage.getItem(STORAGE_KEY_V2),
@@ -755,6 +751,8 @@ export class Puter {
                 // Handle the error here
                 console.error('Error accessing localStorage:', error);
             }
+
+            this.initSubmodules();
 
             // Print a CTA for developers to publish their app on the Puter App Store
             this.printDevCTA();
@@ -799,36 +797,7 @@ export class Puter {
         })();
 
         /** @type {import('./modules/networking/types.js').Networking} */
-        this.net = {
-            /**
-             * Mints a relay URL (server + single-use token) for speaking
-             * the Wisp v1 protocol directly, which is what the sockets
-             * below do for you.
-             *
-             * @returns {Promise<string>}
-             */
-            generateWispV1URL: async () => {
-                const { token: wispToken, server: wispServer } = await (
-                    await fetchUrl(
-                        `${this.APIOrigin}/wisp/relay-token/create`,
-                        {
-                            method: 'POST',
-                            includePuterAuth: true,
-                            headers: {
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({}),
-                        },
-                    )
-                ).json();
-                return `${wispServer}/${wispToken}/`;
-            },
-            Socket: PSocket,
-            tls: {
-                TLSSocket: PTLSSocket,
-            },
-            fetch: pFetch,
-        };
+        this.net = netAPI;
 
         // Initialize network connectivity monitoring and cache purging
         this.initNetworkMonitoring();
@@ -2046,9 +2015,14 @@ globalThis.addEventListener &&
                 '*',
             );
         } else if (event.data.msg === 'puter.token') {
+            if (puter.auth?.pendingSignInMessageIds_?.has(event.data.msg_id))
+                return;
             if (!puter.tokenSourceAllowed_(event.source)) {
                 return;
             }
+            // Could be a late reply from an old popup; the flow that owns the
+            // prompt settles its own failures.
+            if (event.data.success === false) return;
             // Set the authToken property
             puter.setAuthToken(event.data.token);
             // update appID only when token does not include app identity
@@ -2069,7 +2043,8 @@ globalThis.addEventListener &&
                 // Not awaited: the waiting sign-ins below settle first.
                 (async () => {
                     try {
-                        puter.onAuth(await puter.getUser());
+                        const user = await puter.whoamiCache_;
+                        puter.onAuth(user ?? (await puter.getUser()));
                     } catch (e) {
                         console.error(e);
                     }

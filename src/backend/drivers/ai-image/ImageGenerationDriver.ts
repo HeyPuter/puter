@@ -32,11 +32,14 @@ import {
     resolveOutputPath,
     saveGeneratedMediaToFS,
 } from '../util/generatedMedia.js';
+import { readPuterImageInputs } from '../util/mediaInput.js';
 import { ModelCatalog } from '../util/modelCatalog.js';
+import { CATALOG_TTL_MS } from '../ai-chat/utils/cachedRemoteCatalog.js';
 import { readProviderKey } from '../util/providerRegistry.js';
 import { BytePlusImageProvider } from './providers/byteplus/BytePlusImageProvider.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
 import { GeminiImageProvider } from './providers/gemini/GeminiImageProvider.js';
+import { KlingImageProvider } from './providers/kling/KlingImageProvider.js';
 import { OpenAiImageProvider } from './providers/openai/OpenAiImageProvider.js';
 import { ReplicateImageGenerationProvider } from './providers/replicate/ReplicateImageGenerationProvider.js';
 import { resolveImageSize } from './imageDimensions.js';
@@ -71,6 +74,7 @@ export class ImageGenerationDriver extends PuterDriver {
         'xai-image-generation',
         'replicate-image-generation',
         'byteplus-image-generation',
+        'kling-image-generation',
     ];
     readonly isDefault = true;
 
@@ -86,6 +90,13 @@ export class ImageGenerationDriver extends PuterDriver {
         { provider: string; reason?: string }
     >();
     #catalog = new ModelCatalog<IImageModel>([], [], 'aiImage');
+    #modelMapRefresh: ReturnType<typeof setInterval> | undefined;
+    /**
+     * The model map rebuild in flight. Providers adopt their refreshed prices
+     * as each catalog lands, before the map is swapped, so generate() waits
+     * this out to bill only prices the driver publishes.
+     */
+    #modelMapBuild: Promise<void> | undefined;
 
     /** Metering scoped to this driver. Lazy: services wire up after drivers. */
     get #aiMetering(): AiMeteringService {
@@ -98,12 +109,16 @@ export class ImageGenerationDriver extends PuterDriver {
 
     override async onServerStart() {
         this.#registerProviders();
-        await this.#buildModelMap();
-        this.#catalog = new ModelCatalog(
-            this.#listModels(),
-            Object.values(this.#modelIdMap).flat(),
-            'aiImage',
-        );
+        await this.#refreshModelMap();
+        // Remote price catalogs expire; rebuild so listings track billing.
+        this.#modelMapRefresh = setInterval(() => {
+            void this.#refreshModelMap();
+        }, CATALOG_TTL_MS);
+        this.#modelMapRefresh.unref?.();
+    }
+
+    override onServerShutdown() {
+        clearInterval(this.#modelMapRefresh);
     }
 
     async models(): Promise<IImageModel[]> {
@@ -179,6 +194,10 @@ export class ImageGenerationDriver extends PuterDriver {
         const resolvedOutputPath = puterOutputPath
             ? await resolveOutputPath(this.services, actor, puterOutputPath)
             : undefined;
+
+        // Last await before provider.generate() takes its price snapshot:
+        // from here routing and pricing both read the published map.
+        while (this.#modelMapBuild) await this.#modelMapBuild.catch(() => {});
 
         let modelId =
             typeof args.model === 'string'
@@ -312,7 +331,12 @@ export class ImageGenerationDriver extends PuterDriver {
             {},
         );
 
-        const result = await provider.generate(request);
+        // After the audit log, which records the paths rather than the bytes.
+        const result = await provider.generate(
+            request.test_mode
+                ? request
+                : await this.#withPuterImagesInlined(actor, request),
+        );
 
         if (resolvedOutputPath) {
             await saveGeneratedMediaToFS(
@@ -325,6 +349,34 @@ export class ImageGenerationDriver extends PuterDriver {
         }
 
         return result;
+    }
+
+    /**
+     * `request` with image inputs given as Puter file paths read within the
+     * caller's access and replaced by data URIs. `request` is left as is.
+     */
+    async #withPuterImagesInlined(
+        actor: Actor,
+        request: IGenerateParams,
+    ): Promise<IGenerateParams> {
+        const { input_image: inputImage, input_images: inputImages } = request;
+        const inlined = await readPuterImageInputs(
+            { stores: this.stores, fs: this.services.fs },
+            actor,
+            [inputImage, request.maskImage, ...(inputImages ?? [])],
+        );
+        if (inlined.size === 0) return request;
+
+        const swap = <T>(value: T): T | string =>
+            (typeof value === 'string' && inlined.get(value)) || value;
+        return {
+            ...request,
+            ...(inputImage && { input_image: swap(inputImage) }),
+            ...(inputImages && { input_images: inputImages.map(swap) }),
+            ...(request.maskImage != null && {
+                maskImage: swap(request.maskImage),
+            }),
+        };
     }
 
     #registerProviders() {
@@ -429,23 +481,50 @@ export class ImageGenerationDriver extends PuterDriver {
                     m,
                 );
         }
+
+        // One `kling` key covers video, image and TTS.
+        const klingCfg = (providers['kling-image-generation'] ??
+            providers['kling']) as Record<string, unknown> | undefined;
+        const klingKey = readProviderKey(klingCfg);
+        if (klingKey) {
+            this.#providers['kling-image-generation'] = new KlingImageProvider(
+                {
+                    apiKey: klingKey,
+                    apiBaseUrl: klingCfg?.apiBaseUrl as string | undefined,
+                },
+                m,
+            );
+        }
+    }
+
+    /** Rebuilds the model map; overlapping callers share one rebuild. */
+    #refreshModelMap(): Promise<void> {
+        this.#modelMapBuild ??= this.#buildModelMap().finally(() => {
+            this.#modelMapBuild = undefined;
+        });
+        return this.#modelMapBuild;
     }
 
     async #buildModelMap() {
+        const catalogs = await Promise.all(
+            Object.entries(this.#providers).map(
+                async ([providerName, provider]) =>
+                    [providerName, provider, await provider.models()] as const,
+            ),
+        );
+        // Everything below is synchronous, so requests never see a half-built map.
         this.#modelIdMap = Object.create(null);
         this.#excludedModelIdMap = Object.create(null);
         this.#retiredModelAliases.clear();
         const models: IImageModel[] = [];
-        for (const [providerName, provider] of Object.entries(
-            this.#providers,
-        )) {
+        for (const [providerName, provider, entries] of catalogs) {
             for (const alias of provider.retiredModelAliases ?? []) {
                 this.#retiredModelAliases.set(alias.trim().toLowerCase(), {
                     provider: providerName,
                     reason: provider.retiredModelReasons?.[alias],
                 });
             }
-            for (const entry of await provider.models()) {
+            for (const entry of entries) {
                 models.push({ ...entry, provider: providerName });
             }
         }
@@ -494,6 +573,11 @@ export class ImageGenerationDriver extends PuterDriver {
                 register(alias, model);
             }
         }
+        this.#catalog = new ModelCatalog(
+            this.#listModels(),
+            Object.values(this.#modelIdMap).flat(),
+            'aiImage',
+        );
     }
 
     #resolveModel(modelId: string, provider?: string): IImageModel | null {

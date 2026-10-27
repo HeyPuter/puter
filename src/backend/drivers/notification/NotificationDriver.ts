@@ -36,6 +36,7 @@ import {
 } from '../../services/notification/notificationAudience.js';
 import {
     NOTIFICATION_VALUE_MAX_BYTES,
+    OUTSIDE_ACCOUNT_MAILBOX_TYPES,
     resolveNotificationWrite,
     type NotificationTypeName,
 } from '../../services/notification/notificationTypes.js';
@@ -221,7 +222,13 @@ export class NotificationDriver extends PuterDriver {
             scope: MailboxScope | null;
             filter?: string;
             onlyUnacknowledged?: boolean;
+            excludeTypes?: readonly string[];
         } = { limit, scope };
+        // The whole mailbox, or a slice naming no app, is the desktop's view of
+        // it, which leaves out the types only an app has a use for. A slice
+        // naming the app still returns them.
+        if (scope === null || scope.appUid === undefined)
+            query.excludeTypes = OUTSIDE_ACCOUNT_MAILBOX_TYPES;
 
         switch (predicateName) {
             case 'unseen':

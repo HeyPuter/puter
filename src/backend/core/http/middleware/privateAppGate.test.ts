@@ -669,7 +669,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
@@ -684,7 +684,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.app.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
@@ -700,7 +700,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: a.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out).toBeNull();
@@ -716,7 +716,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
@@ -732,7 +732,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
             requirePrivate: true,
         });
@@ -753,18 +753,54 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.app.puter.localhost'),
             site: { user_id: owner.id },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out?.uid).toBe(app.uid);
         expect(Boolean(out?.is_private)).toBe(true);
     });
 
+    it('leaves columns the gate never reads, such as an inline icon, out of the match', async () => {
+        const owner = await makeUser();
+        const app = await createPrivateApp(
+            owner.id,
+            'http://beans.site.puter.localhost/',
+        );
+        await server.clients.db.write(
+            'UPDATE `apps` SET `icon` = ?, `description` = ? WHERE `uid` = ?',
+            [`data:image/png;base64,${'A'.repeat(512)}`, 'about', app.uid],
+        );
+        const out = await resolveOwnedAppForHostedSite({
+            req: reqOf('beans.site.puter.localhost'),
+            site: { user_id: owner.id },
+            appStore: server.stores.app,
+            config: baseConfig(),
+        });
+        expect(Object.keys(out!).sort()).toEqual([
+            'id',
+            'index_url',
+            'is_private',
+            'name',
+            'owner_user_id',
+            'title',
+            'uid',
+        ]);
+        expect(out).toMatchObject({
+            id: app.id,
+            uid: app.uid,
+            name: `private-${app.uid}`,
+            title: `private-${app.uid}`,
+            owner_user_id: owner.id,
+            index_url: 'http://beans.site.puter.localhost/',
+        });
+        expect(Boolean(out!.is_private)).toBe(true);
+    });
+
     it('returns null when the site has no owner', async () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf('beans.site.puter.localhost'),
             site: { user_id: null },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out).toBeNull();
@@ -774,7 +810,7 @@ describe('resolveOwnedAppForHostedSite', () => {
         const out = await resolveOwnedAppForHostedSite({
             req: reqOf(''),
             site: { user_id: 1 },
-            db: server.clients.db,
+            appStore: server.stores.app,
             config: baseConfig(),
         });
         expect(out).toBeNull();
@@ -914,7 +950,8 @@ describe('resolvePrivateIdentity', () => {
         expect(out.userUid).toBeUndefined();
     });
 
-    it('accepts an app-issued access token minted for the target app', async () => {
+    it('ignores an app-issued access token even for the target app', async () => {
+        // A scoped token (e.g. a read URL) is not the account, whoever issued it.
         const user = await makeUser();
         const targetUid = `app-target-${uuidv4()}`;
         const issuer = makeActor({
@@ -934,11 +971,11 @@ describe('resolvePrivateIdentity', () => {
             sessionCookieName: 'puter_auth_token',
             expectedAppUid: targetUid,
         });
-        expect(out.source).toBe('session-cookie');
-        expect(out.userUid).toBe(user.uuid);
+        expect(out.source).toBe('none');
+        expect(out.userUid).toBeUndefined();
     });
 
-    it('still accepts a user-issued access token, which is portable', async () => {
+    it('ignores a user-issued scoped access token', async () => {
         const user = await makeUser();
         const issuer = makeActor({ user: { uuid: user.uuid } });
         const out = await resolvePrivateIdentity({
@@ -947,7 +984,46 @@ describe('resolvePrivateIdentity', () => {
                 actor: makeActor({
                     user: { uuid: user.uuid },
                     accessToken: { uid: `tok-${uuidv4()}`, issuer },
-                    session: { uid: 'sess-1' },
+                }),
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+            expectedAppUid: `app-target-${uuidv4()}`,
+        });
+        expect(out.source).toBe('none');
+        expect(out.userUid).toBeUndefined();
+    });
+
+    it('ignores a scoped access token when the host has no app', async () => {
+        const user = await makeUser();
+        const issuer = makeActor({ user: { uuid: user.uuid } });
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                actor: makeActor({
+                    user: { uuid: user.uuid },
+                    accessToken: { uid: `tok-${uuidv4()}`, issuer },
+                }),
+            }),
+            authService,
+            sessionCookieName: 'puter_auth_token',
+        });
+        expect(out.source).toBe('none');
+    });
+
+    it('accepts a full-access token, which holds the account', async () => {
+        const user = await makeUser();
+        const issuer = makeActor({ user: { uuid: user.uuid } });
+        const out = await resolvePrivateIdentity({
+            req: reqOf({
+                cookies: {},
+                actor: makeActor({
+                    user: { uuid: user.uuid },
+                    accessToken: {
+                        uid: `tok-${uuidv4()}`,
+                        issuer,
+                        fullAccess: true,
+                    },
                 }),
             }),
             authService,

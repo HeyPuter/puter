@@ -23,6 +23,7 @@ import { imageDataUri } from '../../imageOutput.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import { Context } from '../../../../core/context.js';
+import { cachedRemoteCatalog } from '../../../ai-chat/utils/cachedRemoteCatalog.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type {
     IGenerateParams,
@@ -33,6 +34,7 @@ import {
     CLOUDFLARE_IMAGE_GENERATION_MODELS,
     CloudflareImageModel,
 } from './models.js';
+import { fetchCloudflareImageCatalog } from './catalog.js';
 import {
     assertInputImageString,
     fetchImageBytes,
@@ -66,6 +68,12 @@ export class CloudflareImageProvider implements IImageProvider {
     #accountId: string;
     #apiBaseUrl: string;
     #meteringService: AiMeteringService;
+    /**
+     * The catalog last handed to the driver; generate() bills from it so a
+     * hold, its metering and the advertised price always agree.
+     */
+    #models: CloudflareImageModel[] = CLOUDFLARE_IMAGE_GENERATION_MODELS;
+    #catalog: () => Promise<CloudflareImageModel[]>;
 
     constructor(
         config: {
@@ -80,10 +88,25 @@ export class CloudflareImageProvider implements IImageProvider {
         this.#apiBaseUrl =
             config.apiBaseUrl || 'https://api.cloudflare.com/client/v4';
         this.#meteringService = meteringService;
+        this.#catalog = cachedRemoteCatalog({
+            name: 'Cloudflare image pricing',
+            fetch: (signal, previous) =>
+                fetchCloudflareImageCatalog(
+                    {
+                        apiToken: this.#apiToken,
+                        accountId: this.#accountId,
+                        apiBaseUrl: this.#apiBaseUrl,
+                    },
+                    signal,
+                    previous,
+                ),
+            fallback: CLOUDFLARE_IMAGE_GENERATION_MODELS,
+        });
     }
 
-    models(): IImageModel[] {
-        return CLOUDFLARE_IMAGE_GENERATION_MODELS;
+    async models(): Promise<IImageModel[]> {
+        this.#models = await this.#catalog();
+        return this.#models;
     }
 
     getDefaultModel(): string {
@@ -185,6 +208,8 @@ export class CloudflareImageProvider implements IImageProvider {
         }
 
         const steps = this.#resolveSteps(selectedModel, options);
+        // selectedModel comes from the published snapshot, so its costs price
+        // both the credit hold and the recorded usage.
         const costComponents = this.#estimateCost(selectedModel, ratio, steps, {
             hasInputImage: !!inputImage,
         });
@@ -233,7 +258,7 @@ export class CloudflareImageProvider implements IImageProvider {
     }
 
     #getModel(model?: string): CloudflareImageModel {
-        const models = CLOUDFLARE_IMAGE_GENERATION_MODELS;
+        const models = this.#models;
         const found = models.find(
             (m) => m.id === model || m.aliases?.includes(model ?? ''),
         );

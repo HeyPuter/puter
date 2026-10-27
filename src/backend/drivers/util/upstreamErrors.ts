@@ -92,6 +92,17 @@ export const isUpstreamTimeoutError = (err: unknown): boolean => {
     );
 };
 
+/**
+ * A request ran past its overall deadline. It reads as a timeout, but it means
+ * the request was long, not that the route is down.
+ */
+export class UpstreamDeadlineError extends Error {
+    constructor(message: string, options?: ErrorOptions) {
+        super(message, options);
+        this.name = 'TimeoutError';
+    }
+}
+
 /** The connection to an upstream provider dropped or never opened. */
 export const isUpstreamConnectionError = (err: unknown): boolean => {
     const e = asShape(err);
@@ -126,7 +137,7 @@ const MAX_UPSTREAM_MESSAGE_LENGTH = 300;
 
 /** Model-side content filters, as worded in provider failure payloads. */
 export const CONTENT_FILTER_PATTERN =
-    /\bnsfw\b|sensitive|content[\s_-]?policy|moderation|safety|\bunsafe\b|\bflagged\b|prohibited|\bE005\b/i;
+    /\bnsfw\b|sensitive|content[\s_-]?policy|moderation|safety|\bunsafe\b|\bflagged\b|prohibited|risk[\s_-]?control|\bE005\b/i;
 
 /** Provider messages that indicate the account cannot fund another request. */
 export const CREDIT_EXHAUSTION_PATTERN =

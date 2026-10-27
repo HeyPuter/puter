@@ -17,13 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { describe, expect, it } from 'vitest';
+import { Writable } from 'node:stream';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Context, runWithContext } from '../../core/context.js';
+import type { PuterServer } from '../../server.js';
+import { createTestUser, setupTestServer } from '../../testUtil.js';
 import {
     asRecord,
+    contextBoundStream,
     fsEntryMimeType,
     getBoolean,
     getString,
     loadLegacyAssociatedApps,
+    rangeForEntry,
+    resolveReadRange,
     signEntry,
     signEntryThumbnail,
     signingConfigFromAppConfig,
@@ -360,7 +367,7 @@ describe('toLegacyEntry', () => {
 
     it('probes for children to set is_empty on a directory', async () => {
         const fsEntryStore = {
-            listChildren: async () => [{ uuid: 'child' }],
+            hasChildrenByParentUid: async () => true,
         } as never;
         const shaped = await toLegacyEntry(
             undefined,
@@ -373,7 +380,7 @@ describe('toLegacyEntry', () => {
 
     it('treats a failed child probe as non-empty rather than throwing', async () => {
         const fsEntryStore = {
-            listChildren: async () => {
+            hasChildrenByParentUid: async () => {
                 throw new Error('db down');
             },
         } as never;
@@ -383,6 +390,61 @@ describe('toLegacyEntry', () => {
             { fsEntryStore },
         );
         expect(shaped.is_empty).toBe(false);
+    });
+
+    it('leaves is_empty unset for a directory with no store to ask', async () => {
+        const shaped = await toLegacyEntry(
+            undefined,
+            baseEntry({ isDir: true }),
+        );
+        expect(shaped).not.toHaveProperty('is_empty');
+    });
+
+    it('runs the child probe, owner and thumbnail lookups together, keeping key order', async () => {
+        const started: string[] = [];
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const fsEntryStore = {
+            hasChildrenByParentUid: async () => {
+                started.push('children');
+                await gate;
+                return false;
+            },
+        } as never;
+        const userStore = {
+            getById: async () => {
+                started.push('owner');
+                await gate;
+                return { username: 'alice' };
+            },
+        };
+        const eventClient = {
+            emitAndWait: async (_key: string, data: { thumbnail: string }) => {
+                started.push('thumbnail');
+                await gate;
+                data.thumbnail = 'https://signed.example/t.png';
+            },
+        } as never;
+
+        const pending = toLegacyEntry(
+            eventClient,
+            baseEntry({ isDir: true, thumbnail: 's3://bucket/t.png' }),
+            { fsEntryStore, userStore },
+        );
+        await vi.waitFor(() => expect(started).toHaveLength(3));
+        release();
+        const shaped = await pending;
+
+        expect(shaped).toMatchObject({
+            is_empty: true,
+            owner: { username: 'alice' },
+            thumbnail: 'https://signed.example/t.png',
+        });
+        const keys = Object.keys(shaped);
+        expect(keys.slice(-2)).toEqual(['is_empty', 'owner']);
+        expect(keys.indexOf('thumbnail')).toBe(keys.indexOf('is_public') + 1);
     });
 
     it('hydrates the owner as a username-only object', async () => {
@@ -520,5 +582,177 @@ describe('signEntry', () => {
             ttlSeconds: 30,
         });
         expect(inSeconds(signed.expires)).toBeLessThanOrEqual(30);
+    });
+});
+
+describe('toLegacyEntry is_empty against stored children', () => {
+    let server: PuterServer;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+    }, 60_000);
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('reports an empty directory as empty, and one with a child as not', async () => {
+        const username = `lfh${Math.random().toString(36).slice(2, 10)}`;
+        await createTestUser(server, { username, password: 'lfh-password' });
+        const fsEntryStore = server.stores.fsEntry;
+        const dir = await fsEntryStore.createNonFileEntry({
+            parent: (await fsEntryStore.getEntryByPath(
+                `/${username}/Documents`,
+            ))!,
+            name: 'maybe-empty',
+            kind: 'directory',
+        });
+        const shape = async () =>
+            toLegacyEntry(
+                undefined,
+                (await fsEntryStore.getEntryByUuid(dir.uuid))!,
+                { fsEntryStore },
+            );
+
+        expect((await shape()).is_empty).toBe(true);
+        await fsEntryStore.createNonFileEntry({
+            parent: dir,
+            name: 'child',
+            kind: 'directory',
+        });
+        expect((await shape()).is_empty).toBe(false);
+    });
+});
+
+describe('resolveReadRange', () => {
+    it('returns the explicit headersRange when provided', () => {
+        expect(
+            resolveReadRange('bytes=10-20', { offset: 0, byte_count: 5 }),
+        ).toBe('bytes=10-20');
+    });
+
+    it('returns undefined when neither headersRange nor range query params are present', () => {
+        expect(resolveReadRange(undefined, {})).toBeUndefined();
+        expect(resolveReadRange('', {})).toBeUndefined();
+    });
+
+    it('derives a byte range from offset and byte_count', () => {
+        expect(resolveReadRange(undefined, { offset: 0, byte_count: 5 })).toBe(
+            'bytes=0-4',
+        );
+        expect(
+            resolveReadRange(undefined, { offset: 10, byte_count: 20 }),
+        ).toBe('bytes=10-29');
+        expect(
+            resolveReadRange(undefined, { offset: '4', byte_count: '6' }),
+        ).toBe('bytes=4-9');
+    });
+
+    it('derives an open range when only offset is provided', () => {
+        expect(resolveReadRange(undefined, { offset: 10 })).toBe('bytes=10-');
+        expect(resolveReadRange(undefined, { offset: '0' })).toBe('bytes=0-');
+    });
+
+    it('derives a prefix range when only byte_count is provided', () => {
+        expect(resolveReadRange(undefined, { byte_count: 15 })).toBe(
+            'bytes=0-14',
+        );
+        expect(resolveReadRange(undefined, { byte_count: '1' })).toBe(
+            'bytes=0-0',
+        );
+    });
+
+    it('throws 400 on invalid or negative offset', () => {
+        expect(() =>
+            resolveReadRange(undefined, { offset: -1, byte_count: 10 }),
+        ).toThrow('Invalid offset');
+        expect(() =>
+            resolveReadRange(undefined, { offset: 1.5, byte_count: 10 }),
+        ).toThrow('Invalid offset');
+        expect(() =>
+            resolveReadRange(undefined, { offset: 'abc', byte_count: 10 }),
+        ).toThrow('Invalid offset');
+    });
+
+    it('throws 400 on non-decimal or unsafe numeric strings', () => {
+        for (const offset of [
+            '1e3',
+            '0x10',
+            ' 4',
+            '1e21',
+            '9007199254740993',
+        ]) {
+            expect(() => resolveReadRange(undefined, { offset })).toThrow(
+                'Invalid offset',
+            );
+        }
+        expect(() =>
+            resolveReadRange(undefined, {
+                offset: String(Number.MAX_SAFE_INTEGER),
+                byte_count: '3',
+            }),
+        ).toThrow('Invalid byte_count');
+    });
+
+    it('throws 400 on non-positive or invalid byte_count', () => {
+        expect(() =>
+            resolveReadRange(undefined, { offset: 0, byte_count: 0 }),
+        ).toThrow('Invalid byte_count');
+        expect(() =>
+            resolveReadRange(undefined, { offset: 0, byte_count: -5 }),
+        ).toThrow('Invalid byte_count');
+        expect(() =>
+            resolveReadRange(undefined, { offset: 0, byte_count: 2.5 }),
+        ).toThrow('Invalid byte_count');
+        expect(() =>
+            resolveReadRange(undefined, { offset: 0, byte_count: 'xyz' }),
+        ).toThrow('Invalid byte_count');
+    });
+});
+
+describe('rangeForEntry', () => {
+    it('drops the range for an empty file only', () => {
+        const entry = (size: number) => ({ size }) as FSEntry;
+        expect(rangeForEntry(entry(0), 'bytes=0-511')).toBeUndefined();
+        expect(rangeForEntry(entry(10), 'bytes=0-4')).toBe('bytes=0-4');
+    });
+});
+
+describe('contextBoundStream', () => {
+    it("reads every chunk in the caller's context", async () => {
+        // A sink slower than the source that completes writes from outside
+        // any request, so later chunks are asked for from its drain.
+        const pending: Array<() => void> = [];
+        const flush = runWithContext({}, () =>
+            setInterval(() => pending.splice(0).forEach((done) => done()), 5),
+        );
+        const sink = new Writable({
+            highWaterMark: 1,
+            write(_chunk, _encoding, done) {
+                pending.push(done);
+            },
+        });
+        const seen: unknown[] = [];
+        try {
+            await runWithContext({ actor: 'caller' as never }, async () => {
+                async function* chunks() {
+                    for (let i = 0; i < 40; i++) {
+                        await new Promise((resolve) => setTimeout(resolve, 1));
+                        seen.push(Context.get('actor'));
+                        yield 'x';
+                    }
+                }
+                await new Promise((resolve, reject) => {
+                    contextBoundStream(chunks())
+                        .pipe(sink)
+                        .on('finish', resolve)
+                        .on('error', reject);
+                });
+            });
+        } finally {
+            clearInterval(flush);
+        }
+        expect(seen).toHaveLength(40);
+        expect(seen.every((actor) => actor === 'caller')).toBe(true);
     });
 });

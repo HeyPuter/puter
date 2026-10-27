@@ -22,18 +22,22 @@ import { usdPerMToken } from '../../utils/pricing.js';
 
 const K = 1_000;
 
+// Advertise only media types handled by the chat adapter.
+const imageInput = ['text', 'image'];
+
 const textModel = (
     id: string,
     name: string,
     context: number,
     maxTokens: number,
     costs: IChatModel['costs'],
+    input: string[] = ['text'],
 ): IChatModel => ({
     puterId: `z-ai:z-ai/${id}`,
     id,
     name,
     aliases: [`z-ai/${id}`, `zai/${id}`],
-    modalities: { input: ['text'], output: ['text'] },
+    modalities: { input, output: ['text'] },
     open_weights: false,
     tool_call: true,
     context,
@@ -62,6 +66,7 @@ export const ZAI_MODELS: IChatModel[] = [
         1_000 * K,
         128 * K,
         usdPerMToken(0.15, 0.5, 0.03),
+        imageInput,
     ),
     textModel(
         'glm-5.3-flashx',
@@ -69,6 +74,7 @@ export const ZAI_MODELS: IChatModel[] = [
         1_000 * K,
         128 * K,
         usdPerMToken(0.37, 1.25, 0.075),
+        imageInput,
     ),
     textModel(
         'glm-5.2',

@@ -24,6 +24,7 @@ import {
     isSystemActor,
     SYSTEM_ACTOR,
     SYSTEM_ACTOR_UUID,
+    viaWorkerOf,
 } from '../../core/actor';
 import { HttpError } from '../../core/http';
 import {
@@ -130,6 +131,12 @@ export interface KVOpts {
      */
     namespaceAppUuid?: string;
     /**
+     * Namespace override that wins over the actor's own user — how a share
+     * holder addresses the owner's data. Set only by the KV driver, after its
+     * handle check has passed.
+     */
+    namespaceUser?: { uuid: string; id: number };
+    /**
      * Files system data under its own partition of the system namespace, so a
      * high-volume key family doesn't share one partition key with the rest of
      * the internal state. Honored only for the system actor; reads must name
@@ -149,7 +156,8 @@ export const KV_GLOBAL_APP_KEY = 'os-global';
 const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${KV_GLOBAL_APP_KEY}`;
 // The extra segment keeps a partition from parsing as a user's namespace.
 const SYSTEM_PARTITION_PREFIX = `${SYSTEM_NAMESPACE}:`;
-const MAX_KEY_BYTES = 1024;
+/** Longest key the store accepts, in UTF-8 bytes. */
+export const KV_MAX_KEY_BYTES = 1024;
 
 /**
  * Whether a write was refused because the condition it carried no longer held.
@@ -178,6 +186,10 @@ const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
 // is bounded; cursors are the recommended way to page.
 const MAX_LIST_OFFSET = 5000;
 const MAX_FILL_PAGES = 10;
+/** Items one purge query reads before deleting them. */
+const PURGE_PAGE_ITEMS = 1000;
+/** Most items one query reads while a foreign listing skips hidden entries. */
+const MAX_HIDDEN_SKIP_READ = 1000;
 // Cache keys carried by one invalidation broadcast. A peer applies them in a
 // single pass either way; the cap only keeps an individual message a sane size.
 const KV_CACHE_BROADCAST_CHUNK = 500;
@@ -187,6 +199,20 @@ const KV_CACHE_BROADCAST_CHUNK = 500;
  * caller data can neither collide with it nor set it.
  */
 export const KV_PRIVATE_ATTR = 'noShare';
+
+/**
+ * Prefix of the attribute where a fenced `incr` records the last token it
+ * applied for its writer. Beside `value`, so readers never see it.
+ */
+const KV_FENCE_ATTR_PREFIX = 'fence_';
+
+/**
+ * An `incr` refused because the item already holds its writer's token, or a
+ * later one: the write was applied before, so it must not be applied again.
+ */
+export class KvFencedWriteError extends Error {
+    override name = 'KvFencedWriteError';
+}
 
 /** `[key]` when the item carries the private flag, else nothing. */
 const privateKeys = (
@@ -224,6 +250,31 @@ const expiredRowFilter = (now: number) => {
     const live = liveRowFilter(now);
     return { ...live, expression: `NOT (${live.expression})` };
 };
+
+/** No item, or an expired one: where an `onlyIfAbsent` write may land. */
+const absentRowCondition = (now: number) => {
+    const expired = expiredRowFilter(now);
+    return {
+        expression: `attribute_not_exists(#key) OR (${expired.expression})`,
+        names: { ...expired.names, '#key': 'key' },
+        values: expired.values,
+    };
+};
+
+/** No live private entry: where a write into a foreign namespace may land. */
+const notPrivateCondition = (now: number) => {
+    const expired = expiredRowFilter(now);
+    return {
+        expression: `attribute_not_exists(#privAttr) OR (${expired.expression})`,
+        names: { ...expired.names, '#privAttr': KV_PRIVATE_ATTR },
+        values: expired.values,
+    };
+};
+
+const privateEntryError = (): HttpError =>
+    new HttpError(403, 'kv: this entry is private to the app that wrote it', {
+        legacyCode: 'forbidden',
+    });
 
 /**
  * A timestamp at or before now is stored as `floor(now)` rather than as-is, so
@@ -305,13 +356,14 @@ const isNestingTooDeep = (err: unknown): boolean =>
 const MAX_LIVE_WRITE_ATTEMPTS = 3;
 
 /**
- * Expired entries, plus private ones for a cross-app caller. Filtered in the
- * query rather than afterwards so `includeTotal`'s COUNT excludes them too — a
- * total counting rows the caller can't see would leak what the flag hides.
+ * Expired entries, plus private ones for a caller in a foreign namespace.
+ * Filtered in the query rather than afterwards so `includeTotal`'s COUNT
+ * excludes them too — a total counting rows the caller can't see would leak
+ * what the flag hides.
  */
-const listFilter = (now: number, crossApp: boolean) => {
+const listFilter = (now: number, foreign: boolean) => {
     const live = liveRowFilter(now);
-    if (!crossApp) return live;
+    if (!foreign) return live;
     return {
         expression: `(${live.expression}) AND attribute_not_exists(#privAttr)`,
         names: { ...live.names, '#privAttr': KV_PRIVATE_ATTR },
@@ -347,7 +399,12 @@ const addUsage = (a: KVUsage, b: KVUsage): KVUsage => ({
 
 const ensureActor = (opts?: KVOpts): Actor => opts?.actor ?? SYSTEM_ACTOR;
 
-const isCrossApp = (opts?: KVOpts): boolean => Boolean(opts?.namespaceAppUuid);
+/**
+ * Another app's namespace, or another user's: where private entries read as
+ * absent and refuse writes.
+ */
+const isForeignNamespace = (opts?: KVOpts): boolean =>
+    Boolean(opts?.namespaceAppUuid || opts?.namespaceUser);
 
 // `effectiveApp`, not `app`, so the namespace agrees with the gate the driver
 // applied: both read an access-token actor as the app that issued it, rather
@@ -364,7 +421,7 @@ const getNamespace = (actor: Actor, opts?: KVOpts): string => {
         actor.effectiveApp?.uid ??
         opts?.appUuid ??
         KV_GLOBAL_APP_KEY;
-    return kvNamespace(actor.user.uuid!, appUuid);
+    return kvNamespace(opts?.namespaceUser?.uuid ?? actor.user.uuid!, appUuid);
 };
 
 /** The namespace one user's data for one app lives in. */
@@ -391,10 +448,10 @@ const assertKey = (key: string): void => {
         throw new HttpError(400, 'kv: key is empty', {
             legacyCode: 'bad_request',
         });
-    if (Buffer.byteLength(key, 'utf8') > MAX_KEY_BYTES) {
+    if (Buffer.byteLength(key, 'utf8') > KV_MAX_KEY_BYTES) {
         throw new HttpError(
             400,
-            `kv: key exceeds ${MAX_KEY_BYTES} byte limit`,
+            `kv: key exceeds ${KV_MAX_KEY_BYTES} byte limit`,
             { legacyCode: 'bad_request' },
         );
     }
@@ -1399,7 +1456,7 @@ export class SystemKVStore extends PuterStore {
      * the change.
      */
     async #committed(
-        actor: Actor,
+        opts: KVOpts | undefined,
         namespace: string,
         keys: string[],
         op: KvMutation,
@@ -1407,7 +1464,7 @@ export class SystemKVStore extends PuterStore {
         noShareKeys?: string[],
     ): Promise<void> {
         await this.#invalidate(namespace, keys);
-        this.#emitMutation(actor, namespace, keys, op, values, noShareKeys);
+        this.#emitMutation(opts, namespace, keys, op, values, noShareKeys);
     }
 
     /**
@@ -1415,24 +1472,32 @@ export class SystemKVStore extends PuterStore {
      * large namespace doesn't turn into an unbounded event.
      */
     #emitMutation(
-        actor: Actor,
+        opts: KVOpts | undefined,
         namespace: string,
         keys: string[],
         op: KvMutation,
         values?: unknown[],
         noShareKeys?: string[],
     ): void {
+        const actor = ensureActor(opts);
         // Internal system data has no subscribable subject, and it is written
         // often enough that the emit itself would be the cost.
         if (isSystemActor(actor)) return;
-        const userId = actor.user?.id;
+        // Dispatch keys on the namespace's owner, who is not the writer when a
+        // share holder wrote it.
+        const userId = opts?.namespaceUser?.id ?? actor.user?.id;
         if (typeof userId !== 'number') return;
+        const actingUserId = actor.user?.id;
+        const writer = {
+            ...(typeof actingUserId === 'number' ? { actingUserId } : {}),
+            ...(viaWorkerOf(actor) ? { viaWorker: true as const } : {}),
+        };
 
         try {
             if (op === 'flush') {
                 this.clients.event.emit(
                     'kv.flushed',
-                    { namespace, userId },
+                    { namespace, userId, ...writer },
                     {},
                 );
                 return;
@@ -1457,6 +1522,7 @@ export class SystemKVStore extends PuterStore {
                     ...(actor.handlerDepth
                         ? { handlerDepth: actor.handlerDepth }
                         : {}),
+                    ...writer,
                 },
                 {},
             );
@@ -1699,16 +1765,17 @@ export class SystemKVStore extends PuterStore {
     // -- Public API ---------------------------------------------------
 
     /**
-     * Refuse a cross-app mutation against a private entry. Not atomic with the
-     * write that follows, so one in-flight write can still land on an entry the
-     * owner flags in between.
+     * Refuse a path write into a foreign namespace against a private entry. Not
+     * atomic with the write that follows, so one in-flight write can still land
+     * on an entry the owner flags in between; `set` and `del` carry the check
+     * in their own write instead.
      */
     async #assertNotPrivate(
         namespace: string,
         key: string,
         opts?: KVOpts,
     ): Promise<KVUsage> {
-        if (!isCrossApp(opts)) return emptyUsage();
+        if (!isForeignNamespace(opts)) return emptyUsage();
         let response = await this.clients.dynamo.get(this.tableName, {
             namespace,
             key,
@@ -1739,11 +1806,7 @@ export class SystemKVStore extends PuterStore {
             response.Item?.[KV_PRIVATE_ATTR] &&
             !isExpiredTtl(response.Item.ttl, Date.now() / 1000)
         ) {
-            throw new HttpError(
-                403,
-                'kv: this entry is private to the app that wrote it',
-                { legacyCode: 'forbidden' },
-            );
+            throw privateEntryError();
         }
         // Returned rather than swallowed: the probe is a real read, and a caller
         // that did not pay for it is under-billed for the operation.
@@ -1759,7 +1822,7 @@ export class SystemKVStore extends PuterStore {
         keys: string[],
         opts?: KVOpts,
     ): Promise<KVUsage> {
-        if (!isCrossApp(opts) || keys.length === 0) return emptyUsage();
+        if (!isForeignNamespace(opts) || keys.length === 0) return emptyUsage();
         const { entries, usage } = await this.getBatches(namespace, keys);
         const now = Date.now() / 1000;
 
@@ -1797,13 +1860,7 @@ export class SystemKVStore extends PuterStore {
         const isPrivate = confirmedEntries.some(
             (entry) => entry?.noShare && !isExpiredTtl(entry.ttl, now),
         );
-        if (isPrivate) {
-            throw new HttpError(
-                403,
-                'kv: this entry is private to the app that wrote it',
-                { legacyCode: 'forbidden' },
-            );
-        }
+        if (isPrivate) throw privateEntryError();
         return addUsage(usage, recheckUsage);
     }
 
@@ -1934,6 +1991,34 @@ export class SystemKVStore extends PuterStore {
         }
     }
 
+    /**
+     * A write whose condition may refuse it, retried once after settling a row
+     * the condition reads as live but reads treat as expired (a legacy text or
+     * boolean `ttl`). `response` is `null` when the condition still refuses.
+     */
+    async #writeUnlessRefused<R>(
+        namespace: string,
+        key: string,
+        write: () => Promise<R>,
+    ): Promise<{ response: R | null; usage: KVUsage }> {
+        try {
+            return { response: await write(), usage: emptyUsage() };
+        } catch (e) {
+            if (!isConditionRefused(e)) throw e;
+        }
+        // A refused conditional write still consumes capacity.
+        const usage = addUsage(
+            writeUsage(1),
+            await this.#dropIfExpired(namespace, key),
+        );
+        try {
+            return { response: await write(), usage };
+        } catch (e) {
+            if (!isConditionRefused(e)) throw e;
+            return { response: null, usage: addUsage(usage, writeUsage(1)) };
+        }
+    }
+
     async get(
         {
             key,
@@ -1943,7 +2028,7 @@ export class SystemKVStore extends PuterStore {
     ): Promise<KVResult<unknown | null | (unknown | null)[]>> {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
-        const crossApp = isCrossApp(opts);
+        const foreign = isForeignNamespace(opts);
         const multi = Array.isArray(key);
         const keys = multi ? key : [key];
 
@@ -2014,19 +2099,24 @@ export class SystemKVStore extends PuterStore {
             if (!entry) return null;
             if (isExpiredTtl(entry.ttl, now)) return null;
             // Absent rather than refused: the flag must not confirm the key.
-            if (crossApp && entry.noShare) return null;
+            if (foreign && entry.noShare) return null;
             return entry.value ?? null;
         });
 
         return { res: multi ? values : values[0], usage };
     }
 
+    /**
+     * `res` is `false` only for an `onlyIfAbsent` write that found a live
+     * entry, which is left as it was.
+     */
     async set(
         {
             key,
             value,
             expireAt,
             disableSharing,
+            onlyIfAbsent,
         }: {
             key: string;
             value: unknown;
@@ -2037,6 +2127,11 @@ export class SystemKVStore extends PuterStore {
              * on a later write is how the owner re-shares the entry.
              */
             disableSharing?: boolean;
+            /**
+             * Write only when no live entry holds the key; an expired one that
+             * hasn't been swept counts as absent.
+             */
+            onlyIfAbsent?: boolean;
         },
         opts?: KVOpts,
     ): Promise<KVResult<boolean>> {
@@ -2045,23 +2140,51 @@ export class SystemKVStore extends PuterStore {
         const ttl = coerceExpiry(expireAt, 'expireAt');
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
-        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
+        // The put carries the check rather than a read before it: any live
+        // entry refuses `onlyIfAbsent`, which covers a private one too.
+        const now = Date.now() / 1000;
+        const condition = onlyIfAbsent
+            ? absentRowCondition(now)
+            : isForeignNamespace(opts)
+              ? notPrivateCondition(now)
+              : undefined;
 
-        let response: Awaited<ReturnType<typeof this.clients.dynamo.put>>;
+        const put = () =>
+            this.clients.dynamo.put(
+                this.tableName,
+                {
+                    namespace,
+                    key,
+                    value,
+                    ...(ttl ? { ttl: storedExpiry(ttl) } : {}),
+                    ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
+                },
+                condition ? { condition } : undefined,
+            );
+        let response: Awaited<ReturnType<typeof put>> | null;
+        let settleUsage = emptyUsage();
         try {
-            response = await this.clients.dynamo.put(this.tableName, {
-                namespace,
-                key,
-                value,
-                ...(ttl ? { ttl: storedExpiry(ttl) } : {}),
-                ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
-            });
+            if (condition) {
+                const outcome = await this.#writeUnlessRefused(
+                    namespace,
+                    key,
+                    put,
+                );
+                response = outcome.response;
+                settleUsage = outcome.usage;
+            } else {
+                response = await put();
+            }
         } catch (e) {
             if (isNestingTooDeep(e)) throw tooDeeplyNestedError(undefined, e);
             throw e;
         }
+        if (response === null) {
+            if (onlyIfAbsent) return { res: false, usage: settleUsage };
+            throw privateEntryError();
+        }
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'set',
@@ -2072,7 +2195,7 @@ export class SystemKVStore extends PuterStore {
         return {
             res: true,
             usage: addUsage(
-                probeUsage,
+                settleUsage,
                 writeUsage(
                     response.ConsumedCapacity?.CapacityUnits as
                         number | undefined,
@@ -2149,7 +2272,7 @@ export class SystemKVStore extends PuterStore {
             throw e;
         }
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [...byKey.keys()],
             'set',
@@ -2175,17 +2298,28 @@ export class SystemKVStore extends PuterStore {
         assertKey(key);
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
-        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
+        // The delete carries the private-entry check rather than a read first.
+        const condition = isForeignNamespace(opts)
+            ? notPrivateCondition(Date.now() / 1000)
+            : undefined;
 
         // The old item is only worth reading back for the private-key check,
         // which a system write never needs an event for anyway.
-        const response = await this.clients.dynamo.del(
-            this.tableName,
-            { namespace, key },
-            { returnOld: !isSystemActor(actor) },
-        );
+        const del = () =>
+            this.clients.dynamo.del(
+                this.tableName,
+                { namespace, key },
+                {
+                    returnOld: !isSystemActor(actor),
+                    ...(condition ? { condition } : {}),
+                },
+            );
+        const { response, usage: settleUsage } = condition
+            ? await this.#writeUnlessRefused(namespace, key, del)
+            : { response: await del(), usage: emptyUsage() };
+        if (response === null) throw privateEntryError();
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'del',
@@ -2195,7 +2329,7 @@ export class SystemKVStore extends PuterStore {
         return {
             res: true,
             usage: addUsage(
-                probeUsage,
+                settleUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
                         number | undefined) ?? 1,
@@ -2224,7 +2358,7 @@ export class SystemKVStore extends PuterStore {
             { returnOld: true },
         );
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'del',
@@ -2286,15 +2420,15 @@ export class SystemKVStore extends PuterStore {
             })),
         );
         await this.#committed(
-            actor,
+            opts,
             namespace,
             uniqueKeys,
             'del',
             uniqueKeys.map((): unknown => null),
             // A batch delete reports no prior state, so a same-app batch is
-            // marked private wholesale; a cross-app caller was already
-            // refused any private key.
-            isCrossApp(opts) ? undefined : uniqueKeys,
+            // marked private wholesale; a foreign caller was already refused
+            // any private key.
+            isForeignNamespace(opts) ? undefined : uniqueKeys,
         );
         const units =
             response.ConsumedCapacity?.reduce(
@@ -2318,6 +2452,7 @@ export class SystemKVStore extends PuterStore {
             includeTotal,
             fetchUntilFull,
             reverse,
+            keyPrefix,
         }: {
             as?: 'keys' | 'values' | 'entries';
             limit?: number;
@@ -2327,6 +2462,12 @@ export class SystemKVStore extends PuterStore {
             includeTotal?: boolean;
             fetchUntilFull?: boolean;
             reverse?: boolean;
+            /**
+             * Confines the listing to keys under this prefix, with `pattern`
+             * read below it. Taken as-is, where `pattern` is trimmed, so no
+             * pattern can widen it.
+             */
+            keyPrefix?: string;
         },
         opts?: KVOpts,
     ): Promise<
@@ -2394,7 +2535,7 @@ export class SystemKVStore extends PuterStore {
             }
         }
         const effectiveReverse = reverse ?? cursorReverse;
-        const normalizedPattern = normalizePattern(pattern);
+        const scanPrefix = `${keyPrefix ?? ''}${normalizePattern(pattern) ?? ''}`;
 
         if (pageKey !== undefined && normalizedOffset !== undefined) {
             throw new HttpError(
@@ -2443,15 +2584,15 @@ export class SystemKVStore extends PuterStore {
                 false,
                 {
                     scanIndexForward: !effectiveReverse,
-                    ...(normalizedPattern
+                    ...(scanPrefix
                         ? {
                               beginsWith: {
                                   key: 'key',
-                                  value: normalizedPattern,
+                                  value: scanPrefix,
                               },
                           }
                         : {}),
-                    filter: listFilter(now, isCrossApp(opts)),
+                    filter: listFilter(now, isForeignNamespace(opts)),
                     ...(select ? { select } : {}),
                 },
             );
@@ -2487,6 +2628,9 @@ export class SystemKVStore extends PuterStore {
             }
         }
 
+        // Another namespace's page goes on past entries it hides, reading
+        // further each time, so its cursor can sit on an entry it shows.
+        const foreign = isForeignNamespace(opts);
         const collected: Array<Record<string, unknown>> = [];
         let nextKey = startKey;
         if (!exhausted) {
@@ -2495,7 +2639,13 @@ export class SystemKVStore extends PuterStore {
                 const want = normalizedLimit
                     ? normalizedLimit - collected.length
                     : 0;
-                const response = await runQuery(want, nextKey);
+                const skipping = foreign && pages > 0 && collected.length === 0;
+                const response = await runQuery(
+                    skipping
+                        ? Math.min(want * 2 ** pages, MAX_HIDDEN_SKIP_READ)
+                        : want,
+                    nextKey,
+                );
                 collected.push(
                     ...((response.Items ?? []) as Array<
                         Record<string, unknown>
@@ -2509,7 +2659,7 @@ export class SystemKVStore extends PuterStore {
                     // result is complete rather than capped at one response.
                     if (!nextKey) break;
                 } else if (
-                    !fetchUntilFull ||
+                    (!fetchUntilFull && !(foreign && collected.length === 0)) ||
                     collected.length >= normalizedLimit ||
                     !nextKey ||
                     pages >= MAX_FILL_PAGES
@@ -2517,6 +2667,16 @@ export class SystemKVStore extends PuterStore {
                     break;
                 }
             } while (true);
+        }
+
+        // The scan may have stopped on a private entry, so a foreign cursor
+        // resumes after the last entry kept, which a read-ahead can overshoot.
+        let resumeKey = nextKey;
+        if (foreign && normalizedLimit !== undefined) {
+            const overshot = collected.splice(normalizedLimit).length > 0;
+            const last = collected[collected.length - 1];
+            if (last && (nextKey || overshot))
+                resumeKey = { namespace, key: last.key };
         }
 
         const entries = collected
@@ -2546,9 +2706,9 @@ export class SystemKVStore extends PuterStore {
         }
 
         const nextCursor = encodeCursor(
-            nextKey && effectiveReverse
-                ? { reverse: true, key: nextKey }
-                : nextKey,
+            resumeKey && effectiveReverse
+                ? { reverse: true, key: resumeKey }
+                : resumeKey,
         );
         return {
             res: {
@@ -2572,54 +2732,110 @@ export class SystemKVStore extends PuterStore {
         let pageKey: Record<string, unknown> | undefined;
         try {
             do {
-                const response = await this.clients.dynamo.query(
-                    this.tableName,
-                    { namespace },
-                    0,
-                    pageKey,
-                );
-                usage = addUsage(
-                    usage,
-                    readUsage(
-                        response.ConsumedCapacity?.CapacityUnits as
-                            number | undefined,
-                    ),
-                );
-                const keys = (response.Items ?? []).map((entry) =>
-                    String(entry.key),
-                );
-                if (keys.length > 0) {
-                    try {
-                        const deleted = await this.clients.dynamo.batchDel(
-                            keys.map((key) => ({
-                                table: this.tableName,
-                                key: { namespace, key },
-                            })),
-                        );
-                        usage = addUsage(
-                            usage,
-                            writeUsage(
-                                deleted.ConsumedCapacity?.reduce(
-                                    (acc, curr) =>
-                                        acc + Number(curr.CapacityUnits ?? 0),
-                                    0,
-                                ) ?? 0,
-                            ),
-                        );
-                    } finally {
-                        // A failed batch may still have deleted some of
-                        // these, so their cached reads go either way.
-                        await this.#invalidate(namespace, keys);
-                    }
-                }
-                pageKey = response.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                const page = await this.#deletePage(namespace, pageKey, {
+                    consistent: false,
+                });
+                usage = addUsage(usage, page.usage);
+                pageKey = page.pageKey;
             } while (pageKey);
         } finally {
-            this.#emitMutation(actor, namespace, [], 'flush');
+            this.#emitMutation(opts, namespace, [], 'flush');
         }
 
         return { res: true, usage };
+    }
+
+    /**
+     * Delete up to `maxItems` items of one user's app namespace, as the
+     * platform: no mutation events and no usage. Idempotent; `done` once the
+     * namespace is empty.
+     */
+    async purgeNamespace(
+        namespace: string,
+        { maxItems }: { maxItems: number },
+    ): Promise<{ deleted: number; done: boolean }> {
+        const parsed = parseKvNamespace(namespace);
+        if (
+            !parsed ||
+            parsed.userUuid === SYSTEM_ACTOR_UUID ||
+            kvNamespace(parsed.userUuid, parsed.appUid) !== namespace
+        )
+            throw new Error(`kv: not a user namespace: ${namespace}`);
+        if (!Number.isInteger(maxItems) || maxItems < 1)
+            throw new Error('kv: maxItems must be a positive integer');
+
+        let deleted = 0;
+        let pageKey: Record<string, unknown> | undefined;
+        while (deleted < maxItems) {
+            const page = await this.#deletePage(namespace, pageKey, {
+                limit: Math.min(maxItems - deleted, PURGE_PAGE_ITEMS),
+                consistent: true,
+            });
+            deleted += page.deleted;
+            pageKey = page.pageKey;
+            if (!pageKey) return { deleted, done: true };
+        }
+        return { deleted, done: false };
+    }
+
+    /**
+     * One page of `namespace` deleted, starting after `pageKey`. Reads only the
+     * keys; `pageKey` comes back while more items may remain. A purge reads
+     * strongly consistent, so a stale empty page can't end it early; a flush
+     * keeps the eventually consistent read its usage is billed on.
+     */
+    async #deletePage(
+        namespace: string,
+        pageKey: Record<string, unknown> | undefined,
+        { limit = 0, consistent }: { limit?: number; consistent: boolean },
+    ): Promise<{
+        deleted: number;
+        usage: KVUsage;
+        pageKey?: Record<string, unknown>;
+    }> {
+        const response = await this.clients.dynamo.query(
+            this.tableName,
+            { namespace },
+            limit,
+            pageKey,
+            '',
+            consistent,
+            { projection: ['namespace', 'key'] },
+        );
+        let usage = readUsage(
+            response.ConsumedCapacity?.CapacityUnits as number | undefined,
+        );
+        const keys = (response.Items ?? []).map((entry) => String(entry.key));
+        if (keys.length > 0) {
+            try {
+                const deleted = await this.clients.dynamo.batchDel(
+                    keys.map((key) => ({
+                        table: this.tableName,
+                        key: { namespace, key },
+                    })),
+                );
+                usage = addUsage(
+                    usage,
+                    writeUsage(
+                        deleted.ConsumedCapacity?.reduce(
+                            (acc, curr) =>
+                                acc + Number(curr.CapacityUnits ?? 0),
+                            0,
+                        ) ?? 0,
+                    ),
+                );
+            } finally {
+                // A failed batch may still have deleted some of these, so
+                // their cached reads go either way.
+                await this.#invalidate(namespace, keys);
+            }
+        }
+        return {
+            deleted: keys.length,
+            usage,
+            pageKey: response.LastEvaluatedKey as
+                Record<string, unknown> | undefined,
+        };
     }
 
     async expireAt(
@@ -2637,7 +2853,7 @@ export class SystemKVStore extends PuterStore {
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
         const { usage, isPrivate } = await this.rawExpireAt(namespace, key, ts);
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'expire',
@@ -2667,7 +2883,7 @@ export class SystemKVStore extends PuterStore {
             timestamp,
         );
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'expire',
@@ -2677,12 +2893,24 @@ export class SystemKVStore extends PuterStore {
         return { res: true, usage: addUsage(probeUsage, usage) };
     }
 
+    /**
+     * `fence` makes the increment apply at most once per token: it is refused
+     * with `KvFencedWriteError` when the item already holds `fence.token` or a
+     * later one from the same writer. A writer's tokens must increase in the
+     * order its writes to a key are applied.
+     */
     async incr<T extends Record<string, number>>(
         {
             key,
             pathAndAmountMap,
             expireAt,
-        }: { key: string; pathAndAmountMap: T; expireAt?: number | null },
+            fence,
+        }: {
+            key: string;
+            pathAndAmountMap: T;
+            expireAt?: number | null;
+            fence?: { writer: string; token: number };
+        },
         opts?: KVOpts,
     ): Promise<
         KVResult<T extends { '': number } ? number : RecursiveRecord<number>>
@@ -2724,20 +2952,42 @@ export class SystemKVStore extends PuterStore {
             renderer.names['#ttl'] = 'ttl';
         }
 
+        if (fence) {
+            setStatements.push('#fence = :fenceToken');
+            valueAttributeValues[':fenceToken'] = fence.token;
+            renderer.names['#fence'] = `${KV_FENCE_ATTR_PREFIX}${fence.writer}`;
+        }
+
         const updateExpression = `SET ${setStatements.join(', ')}`;
         // Only applies to a writable (or missing) row — a stale expired one,
         // or a legacy row whose ttl a condition can't read, refuses so the
         // caller settles it instead of building on top of it.
-        const runUpdate = () => {
+        const runUpdate = async () => {
             const live = writableRowFilter(Date.now() / 1000);
-            return this.clients.dynamo.update(
-                this.tableName,
-                { key, namespace },
-                updateExpression,
-                { ...valueAttributeValues, ...live.values },
-                { ...renderer.names, ...live.names },
-                { condition: live.expression },
-            );
+            const condition = fence
+                ? `(${live.expression}) AND (attribute_not_exists(#fence) OR #fence < :fenceToken)`
+                : live.expression;
+            try {
+                return await this.clients.dynamo.update(
+                    this.tableName,
+                    { key, namespace },
+                    updateExpression,
+                    { ...valueAttributeValues, ...live.values },
+                    { ...renderer.names, ...live.names },
+                    { condition },
+                );
+            } catch (e) {
+                if (
+                    fence &&
+                    isConditionRefused(e) &&
+                    (await this.#holdsFence(namespace, key, fence))
+                ) {
+                    throw new KvFencedWriteError(
+                        `kv: ${key} already applied token ${fence.token}`,
+                    );
+                }
+                throw e;
+            }
         };
 
         // Most increments land on an item whose parent maps already exist (a
@@ -2765,7 +3015,7 @@ export class SystemKVStore extends PuterStore {
             throw pathWriteError(e, 'incr', key, paths);
         }
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'set',
@@ -2787,6 +3037,22 @@ export class SystemKVStore extends PuterStore {
         );
 
         return { res: response.Attributes?.value, usage };
+    }
+
+    /** Whether a live `key` already holds `fence.token` or a later one. */
+    async #holdsFence(
+        namespace: string,
+        key: string,
+        fence: { writer: string; token: number },
+    ): Promise<boolean> {
+        const { Item: item } = await this.clients.dynamo.get(
+            this.tableName,
+            { namespace, key },
+            true,
+        );
+        if (!item || isExpiredTtl(item.ttl, Date.now() / 1000)) return false;
+        const held = item[`${KV_FENCE_ATTR_PREFIX}${fence.writer}`];
+        return typeof held === 'number' && held >= fence.token;
     }
 
     async decr<T extends Record<string, number>>(
@@ -2885,7 +3151,7 @@ export class SystemKVStore extends PuterStore {
             throw pathWriteError(e, 'add', key, paths);
         }
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'set',
@@ -2964,7 +3230,7 @@ export class SystemKVStore extends PuterStore {
                 };
             }
             await this.#committed(
-                actor,
+                opts,
                 namespace,
                 [key],
                 'set',
@@ -3004,6 +3270,7 @@ export class SystemKVStore extends PuterStore {
             key,
             pathAndValueMap,
             ttl,
+            onlyIfAbsent,
         }: {
             key: string;
             pathAndValueMap: Record<string, unknown>;
@@ -3012,6 +3279,11 @@ export class SystemKVStore extends PuterStore {
              * key's TTL; `null` removes it.
              */
             ttl?: number | null;
+            /**
+             * Leave paths that already hold a value as they are. The returned
+             * value shows which value each path ended up with.
+             */
+            onlyIfAbsent?: boolean;
         },
         opts?: KVOpts,
     ): Promise<KVResult<unknown>> {
@@ -3038,7 +3310,9 @@ export class SystemKVStore extends PuterStore {
         const renderer = new PathExpressionRenderer();
         const setStatements = pathTokens.map((tokens, idx) => {
             const attrName = renderer.path(tokens);
-            return `${attrName} = :value${idx}`;
+            return onlyIfAbsent
+                ? `${attrName} = if_not_exists(${attrName}, :value${idx})`
+                : `${attrName} = :value${idx}`;
         });
         const valueAttributeValues: Record<string, unknown> = Object.entries(
             pathAndValueMap,
@@ -3102,7 +3376,7 @@ export class SystemKVStore extends PuterStore {
         }
 
         await this.#committed(
-            actor,
+            opts,
             namespace,
             [key],
             'set',

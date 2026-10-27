@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 89;
+const CURRENT_SCHEMA_VERSION = 93;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -930,6 +930,7 @@ describe('SqliteDatabaseClient — query interface', () => {
             affectedRows: 1,
             anyRowsAffected: true,
         });
+        expect(inserted).not.toHaveProperty('warningStatus');
 
         const missed = await client.write(
             'UPDATE `widget` SET `name` = ? WHERE `id` = ?',

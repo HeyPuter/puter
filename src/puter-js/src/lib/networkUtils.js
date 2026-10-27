@@ -88,18 +88,26 @@ function resolveBackgroundReauth(resp, sentToken) {
  *   reauth-recoverable 401 and the caller should handle it normally.
  */
 async function resolveReauth(resp, { interactive = true, sentToken } = {}) {
+    const needsReauth =
+        resp?.code === 'reauth_required' || resp?.code === 'token_auth_failed';
+    if (
+        needsReauth &&
+        sentToken &&
+        puter.authToken &&
+        sentToken !== puter.authToken
+    ) {
+        return { action: 'replay' };
+    }
+    if (
+        needsReauth &&
+        puter.env === 'app' &&
+        !puter.isGodmodeToken_?.(sentToken ?? puter.authToken)
+    ) {
+        return { action: 'reject', error: { status: 401, ...resp } };
+    }
     // A godmode app's token expires on schedule and the desktop renews it.
     // Asking shows no UI, so background requests ask too.
-    if (
-        (resp?.code === 'reauth_required' ||
-            resp?.code === 'token_auth_failed') &&
-        puter.env === 'app' &&
-        puter.isGodmodeToken_?.(sentToken ?? puter.authToken)
-    ) {
-        // Renewed while this request was in flight.
-        if (sentToken && puter.authToken && sentToken !== puter.authToken) {
-            return { action: 'replay' };
-        }
+    if (needsReauth && puter.env === 'app') {
         try {
             await puter.triggerReauth({
                 reason: resp.reason ?? 'token_expired',
@@ -143,6 +151,7 @@ async function resolveReauth(resp, { interactive = true, sentToken } = {}) {
         try {
             puter.resetAuthToken();
             await puter.ui.authenticateWithPuter();
+            return { action: 'replay' };
         } catch (e) {
             return {
                 action: 'reject',
@@ -292,6 +301,22 @@ function buildXhr(spec, { readSafe = false } = {}) {
     const origSend = xhr.send.bind(xhr);
     xhr.send = function (body) {
         spec.body = body;
+        // Body-token requests: builders that know the token say so, so large
+        // driver bodies aren't parsed just to read it.
+        if (typeof spec.bodyAuthToken === 'function') {
+            const token = spec.bodyAuthToken();
+            if (typeof token === 'string' && token) spec._sentAuthToken = token;
+        } else if (
+            typeof body === 'string' &&
+            body.startsWith('{') &&
+            body.includes('"auth_token"')
+        ) {
+            try {
+                const token = JSON.parse(body).auth_token;
+                if (typeof token === 'string' && token)
+                    spec._sentAuthToken = token;
+            } catch {}
+        }
         // An upload listener makes the browser preflight a cross-origin
         // request. One carrying a bearer is preflighted already; driver calls
         // go out as simple requests and must stay that way.
@@ -767,7 +792,7 @@ async function classifyRetry(outcome, ctx) {
     if (outcome.networkError) return transientRetry(ctx);
 
     const { xhr, status } = outcome;
-    if (outcome.parsed === undefined) {
+    if (outcome.parsed === undefined && [401, 403, 429].includes(status)) {
         outcome.parsed = await bodyJson(xhr).catch(() => null);
     }
     const parsed = outcome.parsed;
@@ -928,6 +953,10 @@ function dedupe(key, factory, { windowMs = 2000 } = {}) {
  * @param {Object} [opts.headers] - Extra request headers (undefined/null values
  *   skipped).
  * @param {string | Blob | ArrayBuffer | FormData | null} [opts.body]
+ * @param {() => string | Blob | ArrayBuffer | FormData | null} [opts.buildBody]
+ *   Rebuilds the body for each attempt.
+ * @param {() => string | null | undefined} [opts.bodyAuthToken] The token the
+ *   built body carries, recorded for reauth.
  * @param {'' | 'text' | 'json' | 'blob' | 'arraybuffer'} [opts.responseType='']
  *   Default is `''`
  * @param {boolean} [opts.withCredentials=true] Default is `true`
@@ -956,6 +985,8 @@ function fetchUrl(url, opts = {}) {
         method = 'GET',
         headers = {},
         body = null,
+        buildBody,
+        bodyAuthToken,
         responseType = '',
         withCredentials = true,
         signal,
@@ -980,6 +1011,8 @@ function fetchUrl(url, opts = {}) {
         withCredentials,
         responseType,
         body,
+        buildBody,
+        bodyAuthToken,
         signal,
         logId,
         interactiveReauth,
@@ -1251,6 +1284,7 @@ async function driverCall(call, opts = {}) {
         responseType,
         // Rebuilt per attempt, so a reauth replay carries the fresh token.
         buildBody: () => callBody(call, puter),
+        bodyAuthToken: () => puter.authToken,
         timeout,
         signal,
     };
@@ -1319,7 +1353,8 @@ async function driverCallEnvelope(call) {
         const resp = await fetchUrl(`${puter.APIOrigin}/drivers/call`, {
             method: 'POST',
             headers: { 'Content-Type': DRIVER_CONTENT_TYPE },
-            body: callBody(call, puter),
+            buildBody: () => callBody(call, puter),
+            bodyAuthToken: () => puter.authToken,
         });
 
         // TODO: parser for Content-Type

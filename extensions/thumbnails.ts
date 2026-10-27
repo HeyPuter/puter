@@ -307,6 +307,9 @@ export const handleThumbnailRead = async (
     const thumb = entry.thumbnail;
     if (typeof thumb !== 'string' || !thumb) return;
     const presignClient = deps.s3Presign;
+    const signingDate = new Date(
+        Math.floor(Date.now() / 3_600_000) * 3_600_000,
+    );
 
     if (isStoragePointer(thumb, deps.bucketEndpoint)) {
         const key = resolveThumbnailKey(thumb);
@@ -319,7 +322,7 @@ export const handleThumbnailRead = async (
         entry.thumbnail = await getSignedUrl(
             presignClient,
             new GetObjectCommand({ Bucket: deps.bucketName, Key: key }),
-            { expiresIn: 604800 },
+            { expiresIn: 604800, signingDate },
         );
     } else if (thumb.startsWith('data')) {
         // Move an inline thumbnail into storage. The row only takes the new
@@ -373,7 +376,7 @@ export const handleThumbnailRead = async (
         entry.thumbnail = await getSignedUrl(
             presignClient,
             new GetObjectCommand({ Bucket: deps.bucketName, Key: key }),
-            { expiresIn: 604800 },
+            { expiresIn: 604800, signingDate },
         );
     }
 };

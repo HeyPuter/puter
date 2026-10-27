@@ -331,8 +331,31 @@ describe('process_input_messages', () => {
         ]);
     });
 
-    it('preserves extra_content on hoisted tool calls', async () => {
+    it("keeps a replayed call's serialized arguments verbatim", async () => {
+        // An OpenAI-shaped `tool_calls` entry normalizes with its arguments
+        // still a JSON string.
         const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'call_1',
+                        name: 'lookup',
+                        input: '{"q":"puter"}',
+                    },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages(messages)) as Array<{
+            tool_calls: Array<{ function: { arguments: string } }>;
+        }>;
+        expect(out!.tool_calls[0]!.function.arguments).toBe('{"q":"puter"}');
+    });
+
+    describe('tool call extra_content', () => {
+        const turn = (): Array<Record<string, unknown>> => [
             {
                 role: 'assistant',
                 content: [
@@ -346,12 +369,73 @@ describe('process_input_messages', () => {
                 ],
             },
         ];
+        const firstCall = (out: unknown[]) =>
+            (
+                (out[0] as Record<string, unknown>).tool_calls as Array<
+                    Record<string, unknown>
+                >
+            )[0]!;
 
-        const [out] = (await process_input_messages(messages)) as Array<
-            Record<string, unknown>
-        >;
-        const calls = out!.tool_calls as Array<Record<string, unknown>>;
-        expect(calls[0]?.extra_content).toEqual({ hint: 'metadata' });
+        it('drops it by default', async () => {
+            const out = await process_input_messages(turn());
+            expect(firstCall(out)).not.toHaveProperty('extra_content');
+        });
+
+        it('keeps it when asked', async () => {
+            const out = await process_input_messages(turn(), {
+                keepExtraContent: true,
+            });
+            expect(firstCall(out).extra_content).toEqual({ hint: 'metadata' });
+        });
+    });
+
+    describe('parallel tool call order', () => {
+        const parallelTurn = (): Array<Record<string, unknown>> => [
+            {
+                role: 'assistant',
+                content: [
+                    { type: 'tool_use', id: 'a', name: 'first', input: {} },
+                    { type: 'tool_use', id: 'b', name: 'second', input: {} },
+                ],
+            },
+        ];
+        const callIds = (out: unknown[]) =>
+            (
+                (out[0] as Record<string, unknown>).tool_calls as Array<{
+                    id: string;
+                }>
+            ).map((call) => call.id);
+
+        it('keeps the existing reversed order by default', async () => {
+            expect(callIds(await process_input_messages(parallelTurn()))).toEqual(
+                ['b', 'a'],
+            );
+        });
+
+        it('keeps content order when asked to', async () => {
+            expect(
+                callIds(
+                    await process_input_messages(parallelTurn(), {
+                        preserveToolCallOrder: true,
+                    }),
+                ),
+            ).toEqual(['a', 'b']);
+        });
+
+        it('appends after tool_calls the message already had, without reordering them', async () => {
+            const [turn] = parallelTurn();
+            turn!.tool_calls = [
+                { id: 'y', type: 'function', function: { name: 'y', arguments: '{}' } },
+                { id: 'x', type: 'function', function: { name: 'x', arguments: '{}' } },
+            ];
+            expect(
+                callIds(
+                    await process_input_messages([turn!], {
+                        preserveToolCallOrder: true,
+                    }),
+                ),
+            ).toEqual(['y', 'x', 'a', 'b']);
+        });
     });
 
     it('coerces tool_result blocks into a top-level tool message', async () => {
@@ -711,6 +795,28 @@ describe('process_input_messages_responses_api', () => {
         expect(out!.content).toBeUndefined();
     });
 
+    it("keeps a replayed call's serialized arguments verbatim", async () => {
+        const messages: Array<Record<string, unknown>> = [
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'call_1',
+                        name: 'lookup',
+                        input: '{"q":"puter"}',
+                    },
+                ],
+            },
+        ];
+
+        const [out] = (await process_input_messages_responses_api(
+            messages,
+        )) as Array<Record<string, unknown>>;
+        expect(out!.type).toBe('function_call');
+        expect(out!.arguments).toBe('{"q":"puter"}');
+    });
+
     it('rewrites tool_result blocks into function_call_output', async () => {
         const messages: Array<Record<string, unknown>> = [
             {
@@ -825,6 +931,35 @@ describe('splitCachedPrompt', () => {
             prompt_tokens: 0,
             completion_tokens: 0,
             cached_tokens: 0,
+        });
+    });
+
+    it('takes cache writes out of prompt_tokens under their own key', () => {
+        expect(
+            splitCachedPrompt({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                prompt_tokens_details: { cached_tokens: 3, cache_write_tokens: 4 },
+            }),
+        ).toEqual({
+            prompt_tokens: 3,
+            completion_tokens: 5,
+            cached_tokens: 3,
+            cache_write_tokens: 4,
+        });
+    });
+
+    it('leaves cache writes out when the upstream reports no count', () => {
+        expect(
+            splitCachedPrompt({
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                prompt_tokens_details: { cached_tokens: 3, cache_write_tokens: null },
+            }),
+        ).toEqual({
+            prompt_tokens: 7,
+            completion_tokens: 5,
+            cached_tokens: 3,
         });
     });
 });
@@ -1858,7 +1993,7 @@ describe('cancelled upstream iterators', () => {
             const harness = makeCapturingChatStream();
             await expect(
                 withTestActor(() => {
-                    Context.set('abortSignal', abort.signal);
+                    Context.set('upstreamSignal', abort.signal);
                     return handler({
                         completion,
                         usage_calculator: usageCalculator,
@@ -1869,6 +2004,58 @@ describe('cancelled upstream iterators', () => {
                 { type: 'text', text: 'partial' },
             ]);
             expect(usageCalculator).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each([
+        [
+            'chat completions',
+            create_chat_stream_handler,
+            [
+                { choices: [{ delta: { content: 'partial' } }] },
+                {
+                    choices: [],
+                    usage: { prompt_tokens: 3, completion_tokens: 5 },
+                },
+            ],
+        ],
+        [
+            'responses',
+            create_chat_stream_handler_responses_api,
+            [
+                { type: 'response.output_text.delta', delta: 'partial' },
+                {
+                    type: 'response.completed',
+                    response: {
+                        status: 'completed',
+                        usage: { input_tokens: 3, output_tokens: 5 },
+                    },
+                },
+            ],
+        ],
+    ])(
+        'meters %s usage that arrived before the caller left',
+        async (_name, handler, chunks) => {
+            const abort = new AbortController();
+            const usageCalculator = vi.fn(() => ({ output_tokens: 5 }));
+            const completion = {
+                async *[Symbol.asyncIterator]() {
+                    yield* chunks;
+                    abort.abort();
+                },
+            };
+            const harness = makeCapturingChatStream();
+            await withTestActor(() => {
+                Context.set('abortSignal', abort.signal);
+                return handler({
+                    completion,
+                    usage_calculator: usageCalculator,
+                })({ chatStream: harness.chatStream });
+            });
+            expect(usageCalculator).toHaveBeenCalledTimes(1);
+            expect(harness.chatStream.reportedUsage).toEqual({
+                output_tokens: 5,
+            });
         },
     );
 });

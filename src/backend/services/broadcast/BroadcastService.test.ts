@@ -646,18 +646,26 @@ describe('BroadcastService outbound body budget', () => {
         ids: string[];
         bytes: number;
         delivered: boolean;
+        nonce: number;
     }
 
     let server: PuterServer;
     let warn: ReturnType<typeof vi.spyOn>;
     let downPeerAnswers = true;
+    /** While set, the down peer holds each request until it settles, then fails. */
+    let downPeerHang: Promise<void> | null = null;
     const posts: Post[] = [];
 
-    const answerAsPeer = async (request: { url: string; data: string }) => {
+    const answerAsPeer = async (request: {
+        url: string;
+        data: string;
+        headers: Record<string, string>;
+    }) => {
         const peer: PeerName = request.url.includes('peer-down')
             ? 'down'
             : 'up';
         const bytes = Buffer.byteLength(request.data);
+        const nonce = Number(request.headers['X-Broadcast-Nonce']);
         const ids = (
             JSON.parse(request.data) as {
                 events: { key: string; data: { id: string } }[];
@@ -665,12 +673,17 @@ describe('BroadcastService outbound body budget', () => {
         ).events
             .filter((event) => event.key === EVENT_KEY)
             .map((event) => event.data.id);
+        if (peer === 'down' && downPeerHang) {
+            await downPeerHang;
+            posts.push({ peer, ids, bytes, delivered: false, nonce });
+            throw new Error('timeout of 15000ms exceeded');
+        }
         if (peer === 'down' && !downPeerAnswers) {
-            posts.push({ peer, ids, bytes, delivered: false });
+            posts.push({ peer, ids, bytes, delivered: false, nonce });
             throw new Error('connect ECONNREFUSED');
         }
         const delivered = bytes <= PEER_BODY_LIMIT;
-        posts.push({ peer, ids, bytes, delivered });
+        posts.push({ peer, ids, bytes, delivered, nonce });
         return delivered
             ? { status: 200, statusText: 'OK', data: 'ok' }
             : { status: 413, statusText: 'Payload Too Large', data: '' };
@@ -723,6 +736,8 @@ describe('BroadcastService outbound body budget', () => {
                 outbound_flush_ms: 25,
                 outboundMaxBodyBytes: MAX_BODY_BYTES,
             },
+            // Peers are reached over https, which is where the agent applies.
+            protocol: 'https',
         } as never);
     });
 
@@ -734,6 +749,7 @@ describe('BroadcastService outbound body budget', () => {
     beforeEach(() => {
         posts.length = 0;
         downPeerAnswers = true;
+        downPeerHang = null;
         axiosRequestMock.mockReset();
         axiosRequestMock.mockImplementation(answerAsPeer);
     });
@@ -778,6 +794,64 @@ describe('BroadcastService outbound body budget', () => {
             .slice(0, -1)
             .reduce((sum, id) => sum + eventBytes(id), 0);
         expect(backlogBytes).toBeLessThanOrEqual(4 * MAX_BODY_BYTES);
+    });
+
+    it('keeps delivering to healthy peers while one hangs, then catches it up in order', async () => {
+        let release!: () => void;
+        downPeerHang = new Promise((resolve) => {
+            release = resolve;
+        });
+        try {
+            const first = emit(['hang-0', 'hang-1']);
+            // Answered while the hung peer still holds its request.
+            await waitForFlush(() => deliveredIds('up').includes('hang-1'));
+            expect(attempted('down', 'hang-0')).toBe(false);
+
+            // Queued behind the flush the hung peer is holding open.
+            const second = emit(['hang-2']);
+            downPeerHang = null;
+            release();
+            await waitForFlush(() => deliveredIds('down').includes('hang-2'));
+
+            const all = [...first, ...second];
+            expect(deliveredIds('down')).toEqual(all);
+            expect(deliveredIds('up')).toEqual(all);
+            // Each peer draws on its own nonce counter, in its own send order.
+            for (const peer of ['down', 'up'] as const) {
+                const nonces = posts
+                    .filter((post) => post.peer === peer)
+                    .map((post) => post.nonce);
+                expect(nonces).toEqual([...nonces].sort((a, b) => a - b));
+                expect(new Set(nonces).size).toBe(nonces.length);
+            }
+        } finally {
+            release();
+        }
+    });
+
+    it('sends every webhook over its own keep-alive agent, certs unchecked as before', async () => {
+        emit(['agent-check']);
+        await waitForFlush(() => deliveredIds('up').includes('agent-check'));
+
+        const requests = axiosRequestMock.mock.calls.map(
+            (call) =>
+                call[0] as {
+                    url: string;
+                    httpsAgent?: {
+                        keepAlive?: boolean;
+                        maxSockets?: number;
+                        options?: { rejectUnauthorized?: boolean };
+                    };
+                },
+        );
+        expect(requests.length).toBeGreaterThan(0);
+        for (const request of requests) {
+            expect(request.url.startsWith('https:')).toBe(true);
+            expect(request.httpsAgent?.keepAlive).toBe(true);
+            expect(request.httpsAgent?.options?.rejectUnauthorized).toBe(false);
+            // Not the addressed pool: a flush never waits behind its cap.
+            expect(request.httpsAgent?.maxSockets).toBe(Infinity);
+        }
     });
 
     it('drops an event too large for any body and delivers the rest', async () => {

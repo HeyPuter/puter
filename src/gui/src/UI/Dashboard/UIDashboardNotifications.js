@@ -21,12 +21,12 @@ import UINotification from '../UINotification.js';
 import { reveal_dashboard } from '../UIWindow.js';
 import { listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
 import { applyToastMark, createNotificationFeed } from '../../helpers/notificationFeed.js';
+import { formatAbsoluteTime, formatRelativeTime } from '../../i18n/formatTime.js';
 import {
     badgeLabel,
-    formatAbsoluteTime,
-    formatRelativeTime,
     glyphKey,
     isUnread,
+    listedEntries,
     mergeEntries,
     notificationTarget,
     planBurstToasts,
@@ -53,6 +53,12 @@ const ACK_CONCURRENCY = 6;
 
 /** How many of the most recent notifications the panel lists, read or not. */
 const HISTORY_LIMIT = 30;
+
+/**
+ * Rows a listing asks for: past HISTORY_LIMIT for the ones the panel hides
+ * and for older unread ones, which it lists too. The driver's maximum.
+ */
+const LISTING_LIMIT = 200;
 
 /** Matches the panel's CSS transition; `hidden` is set once it has run. */
 const CLOSE_ANIMATION_MS = 180;
@@ -317,6 +323,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     };
 
     const render = () => {
+        const hadFocus = $panel[0].contains(document.activeElement);
         const count = unreadCount(entries);
         const label = badgeLabel(count);
 
@@ -340,6 +347,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const was = isOpen ? focusedRow() : null;
         $list.html(entries.map(rowHtml).join(''));
         restoreFocus(was);
+        // A control this render hid (Mark all read, Retry) took focus with
+        // it; keep it in the panel rather than on the page behind.
+        if ( isOpen && hadFocus && ! $panel[0].contains(document.activeElement) ) {
+            $panel[0].focus({ preventScroll: true });
+        }
         justAdded.clear();
         if ( isOpen ) for ( const entry of entries ) surfaced.add(entry.uid);
     };
@@ -360,10 +372,10 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         loadFailed = false;
         if ( ! loaded ) render();
         listingRequestedAt = Date.now();
-        loading = listNotifications({ predicate: 'all', limit: HISTORY_LIMIT })
+        loading = listNotifications({ predicate: 'all', limit: LISTING_LIMIT })
             .then((rows) => {
                 const now = Date.now();
-                const server = rows.map((row) => toEntry(row, now)).filter(Boolean);
+                const server = listedEntries(rows, now, HISTORY_LIMIT);
                 // Acked since this listing was requested: unread in its snapshot.
                 // Anything acked before it is settled and can be forgotten.
                 const readSince = new Set();
@@ -467,7 +479,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             icon: toastIconFor(notification),
             value: notification,
             timeout: TOAST_TIMEOUT_MS,
-            click: () => void reveal_dashboard().then(() => actOn(entry)),
+            // With nothing to open on the dashboard, a click only dismisses;
+            // it mustn't send the apps the user is working in away.
+            click: () => {
+                if ( notificationTarget(notification) === null ) void markRead(entry.uid);
+                else void reveal_dashboard().then(() => actOn(entry));
+            },
             // The ✕ is a dismissal; timing out is not, so `close` alone acks.
             close: () => void markRead(entry.uid),
         });
@@ -586,7 +603,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
 
         $(window).on('resize.dashboard-notifications', position);
         $(document).on('pointerdown.dashboard-notifications', (e) => {
-            if ( $(e.target).closest('.dashboard-notifications-panel, .dashboard-notifications-btn').length ) return;
+            // The sheet's scrim closes on click, so the tap can't fall through.
+            if ( $(e.target).closest('.dashboard-notifications-panel, .dashboard-notifications-btn, .dashboard-notifications-scrim').length ) return;
             close({ restoreFocus: false });
         });
         $(document).on('keydown.dashboard-notifications', (e) => {
@@ -631,6 +649,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             const target = previousFocus && document.contains(previousFocus) ? previousFocus : $trigger[0];
             try {
                 target.focus({ preventScroll: true });
+                // The bell is in the mobile drawer, closed under the sheet;
+                // the drawer's toggle stands in for it.
+                if ( document.activeElement !== target ) {
+                    $('.dashboard-sidebar-toggle:visible')[0]?.focus({ preventScroll: true });
+                }
             } catch { /* best effort */ }
         }
         previousFocus = null;
@@ -703,10 +726,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     socket.on('notif.ack', ({ uid }) => {
         if ( ! uid ) return;
         $(`.notification[data-uid="${html_encode(uid)}"]`).closest('.notification-wrapper').remove();
-        if ( ! entries.some((e) => e.uid === uid && isUnread(e)) ) return;
-        // Read in another tab: a listing already in flight predates it too.
+        // Read in another tab: a listing already in flight predates it too,
+        // even one bringing an entry this tab hasn't seen yet.
         const now = Date.now();
         acked.set(uid, now);
+        if ( ! entries.some((e) => e.uid === uid && isUnread(e)) ) return;
         entries = setReadAt(entries, uid, now);
         render();
     });

@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import {
     formatCredits,
     formatDollarsFromMicrocents,
@@ -58,19 +58,38 @@ describe('formatCredits', () => {
 });
 
 describe('formatDollarsFromMicrocents', () => {
-    beforeEach(() => {
-        globalThis.window = globalThis.window ?? {};
-        globalThis.window.number_format = vi.fn(
-            (n, { decimals, prefix }) => `${prefix}${n.toFixed(decimals)}`,
-        );
-    });
-
-    afterEach(() => {
-        delete globalThis.window.number_format;
-    });
-
     it('renders the raw-amount dollar string for unscaled deployments', () => {
         expect(formatDollarsFromMicrocents(37_000_000)).toBe('$0.37');
         expect(formatDollarsFromMicrocents(undefined)).toBe('$0.00');
+    });
+
+    it('never renders a nonzero sub-cent amount as $0.00', () => {
+        expect(formatDollarsFromMicrocents(40_000)).toBe('<$0.01');
+        expect(formatDollarsFromMicrocents(-40_000)).toBe('-<$0.01');
+        expect(formatDollarsFromMicrocents(0)).toBe('$0.00');
+        expect(formatDollarsFromMicrocents(600_000)).toBe('$0.01');
+    });
+});
+
+describe('amounts in the dashboard\'s language', () => {
+    beforeEach(() => {
+        globalThis.window = globalThis.window ?? {};
+        globalThis.window.locale = 'de';
+    });
+
+    afterEach(() => {
+        delete globalThis.window.locale;
+    });
+
+    it('separates thousands and decimals as the language does', () => {
+        expect(formatCredits(9000)).toBe('9.000');
+        expect(formatCredits(2.5)).toBe('2,5');
+        expect(formatCredits(0.001)).toBe('<0,01');
+        expect(formatDollarsFromMicrocents(123_450_000_000).replace(/\s/g, ' ')).toBe('1.234,50 $');
+    });
+
+    it("reads Puter's codes that aren't BCP 47 tags", () => {
+        globalThis.window.locale = 'br';
+        expect(formatCredits(9000.5)).toBe('9.001');
     });
 });

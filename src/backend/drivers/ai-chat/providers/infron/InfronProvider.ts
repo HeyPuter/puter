@@ -22,6 +22,7 @@ import { OpenAI } from 'openai';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IChatModel } from '../../types.js';
 import { cachedRemoteCatalog } from '../../utils/cachedRemoteCatalog.js';
+import { catalogPrice } from '../../utils/pricing.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
 import {
     type ChatProviderConfig,
@@ -69,8 +70,8 @@ const DEFAULT_SERVICE_TIER = 'standard';
 
 /** What one tier of a model costs, in USD per million tokens. */
 type InfronTierPrices = {
-    prompt: number;
-    completion: number;
+    prompt?: number;
+    completion?: number;
     context?: number;
 };
 
@@ -84,10 +85,14 @@ const pricesByTier = (model: InfronApiModel) => {
     for (const offer of model.providers ?? []) {
         const tier = offer.service_tier;
         if (!tier) continue;
-        const prompt = offer.prompt_price ?? 0;
-        const completion = offer.completion_price ?? 0;
+        const prompt = catalogPrice(offer.prompt_price);
+        const completion = catalogPrice(offer.completion_price);
         const seen = byTier.get(tier);
-        if (seen && seen.prompt + seen.completion <= prompt + completion) {
+        if (
+            seen &&
+            (seen.prompt ?? Infinity) + (seen.completion ?? Infinity) <=
+                (prompt ?? Infinity) + (completion ?? Infinity)
+        ) {
             continue;
         }
         byTier.set(tier, { prompt, completion, context: offer.context_length });
@@ -137,7 +142,9 @@ const coerceModel = (
     const shortId = model.id.split('/').slice(1).join('/');
     // Catalog prices are USD per million tokens; costs are microcents per
     // token, so the conversion is ×100.
-    const promptCost = Math.round(prices.prompt * 100);
+    const promptCost = catalogPrice(prices.prompt, 100);
+    const completionCost = catalogPrice(prices.completion, 100);
+    const requestCost = catalogPrice(model.min_request_price, 100_000_000);
     return {
         id: `infron:${model.id}${suffix}`,
         name: `${model.display_name || model.id} (Infron${tier ? `, ${tier}` : ''})`,
@@ -159,17 +166,13 @@ const coerceModel = (
         output_cost_key: 'completion',
         costs: {
             tokens: 1_000_000,
-            prompt: promptCost,
-            completion: Math.round(prices.completion * 100),
-            // The catalog carries no cache-read price; charge the full
-            // prompt rate in the fallback path so cached tokens are never
-            // billed below list. The normal path bills the
-            // gateway-reported cost instead.
-            input_cache_read: promptCost,
-            // USD per request → microcents per request.
-            request: Math.round(
-                (model.min_request_price ?? 0) * 1_000_000 * 100,
-            ),
+            ...(promptCost !== undefined
+                ? { prompt: promptCost, input_cache_read: promptCost }
+                : {}),
+            ...(completionCost !== undefined
+                ? { completion: completionCost }
+                : {}),
+            ...(requestCost !== undefined ? { request: requestCost } : {}),
         },
     };
 };
@@ -194,6 +197,7 @@ export class InfronProvider extends OpenAICompatProvider {
                 baseURL: apiBaseUrl,
                 ...sdkClientOptions(),
             }),
+            requireTokenPrices: true,
             defaultModel: 'infron:qwen/qwen3.5-flash',
             passthrough: ['temperature'],
             // Infron reports `cost` at the top level of the response; a
@@ -229,8 +233,11 @@ export class InfronProvider extends OpenAICompatProvider {
                 Authorization: `Bearer ${this.#apiKey}`,
             },
             signal,
+            maxContentLength: 8 * 1024 * 1024,
         });
-        const models: InfronApiModel[] = resp.data.data ?? [];
+        if (!Array.isArray(resp.data?.data))
+            throw new Error('Invalid Infron catalog');
+        const models: InfronApiModel[] = resp.data.data;
         const coerced_models: IChatModel[] = [];
         for (const model of models) {
             // The catalog mixes chat with image/video/embedding/search
@@ -243,8 +250,8 @@ export class InfronProvider extends OpenAICompatProvider {
             }
             const byTier = pricesByTier(model);
             const defaultPrices = byTier.get(DEFAULT_SERVICE_TIER) ?? {
-                prompt: model.min_prompt_price ?? 0,
-                completion: model.min_completion_price ?? 0,
+                prompt: catalogPrice(model.min_prompt_price),
+                completion: catalogPrice(model.min_completion_price),
             };
             // The unsuffixed id is the default tier; every other tier the
             // model sells gets its own `…:<tier>` id so callers can ask for
@@ -304,7 +311,9 @@ export class InfronProvider extends OpenAICompatProvider {
             // The gateway-reported cost when there is one; the catalog's
             // per-token prices otherwise.
             meterOptions:
-                typeof cost === 'number' ? { authoritativeUsd: cost } : {},
+                catalogPrice(cost) !== undefined
+                    ? { authoritativeUsd: cost }
+                    : {},
         };
     }
 }

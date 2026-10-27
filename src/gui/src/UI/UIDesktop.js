@@ -49,6 +49,7 @@ import { notificationTarget } from './Dashboard/notificationCenter.js';
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import UIWindowSearch from './UIWindowSearch.js';
+import { resolve_default_app } from '../helpers/defaultApp.js';
 
 async function UIDesktop (options) {
     // start a transaction if we're not in embedded or fullpage mode
@@ -382,17 +383,18 @@ async function UIDesktop (options) {
         $(`.item[data-uid='${item.uid}']`).find('.item-icon-thumb').attr('src', new_icon);
         $(`.item[data-uid='${item.uid}']`).find('.item-icon-icon').attr('src', new_icon);
 
-        // Set new data-name
-        $(`.item[data-uid='${item.uid}']`).attr('data-name', html_encode(item.name));
-        $(`.window-${item.uid}`).attr('data-name', html_encode(item.name));
+        // Set new data-name. Attributes and form values are stored raw
+        // (.attr()/.val() don't parse HTML), as rename_file writes them.
+        $(`.item[data-uid='${item.uid}']`).attr('data-name', item.name);
+        $(`.window-${item.uid}`).attr('data-name', item.name);
 
         // Set new title attribute
-        $(`.item[data-uid='${item.uid}']`).attr('title', html_encode(item.name));
-        $(`.window-${options.uid}`).attr('title', html_encode(item.name));
+        $(`.item[data-uid='${item.uid}']`).attr('title', item.name);
+        $(`.window-${item.uid}`).attr('title', item.name);
 
         // Set new value for item-name-editor
-        $(`.item[data-uid='${item.uid}'] .item-name-editor`).val(html_encode(item.name));
-        $(`.item[data-uid='${item.uid}'] .item-name`).attr('title', html_encode(item.name));
+        $(`.item[data-uid='${item.uid}'] .item-name-editor`).val(item.name);
+        $(`.item[data-uid='${item.uid}'] .item-name`).attr('title', item.name);
 
         // Set new data-path
         const new_path = item.path;
@@ -615,17 +617,18 @@ async function UIDesktop (options) {
         const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await item_icon(item)).image);
         $(`.item[data-uid='${item.uid}']`).find('.item-icon-icon').attr('src', new_icon);
 
-        // Set new data-name
-        $(`.item[data-uid='${item.uid}']`).attr('data-name', html_encode(item.name));
-        $(`.window-${item.uid}`).attr('data-name', html_encode(item.name));
+        // Set new data-name. Attributes and form values are stored raw
+        // (.attr()/.val() don't parse HTML), as rename_file writes them.
+        $(`.item[data-uid='${item.uid}']`).attr('data-name', item.name);
+        $(`.window-${item.uid}`).attr('data-name', item.name);
 
         // Set new title attribute
-        $(`.item[data-uid='${item.uid}']`).attr('title', html_encode(item.name));
-        $(`.window-${options.uid}`).attr('title', html_encode(item.name));
+        $(`.item[data-uid='${item.uid}']`).attr('title', item.name);
+        $(`.window-${item.uid}`).attr('title', item.name);
 
         // Set new value for item-name-editor
-        $(`.item[data-uid='${item.uid}'] .item-name-editor`).val(html_encode(item.name));
-        $(`.item[data-uid='${item.uid}'] .item-name`).attr('title', html_encode(item.name));
+        $(`.item[data-uid='${item.uid}'] .item-name-editor`).val(item.name);
+        $(`.item[data-uid='${item.uid}'] .item-name`).attr('title', item.name);
 
         // Set new data-path
         const new_path = item.path;
@@ -704,10 +707,6 @@ async function UIDesktop (options) {
                 data-sort_order="${!options.desktop_fsentry?.sort_order ? 'asc' : options.desktop_fsentry.sort_order}"
                 data-path="${html_encode(window.desktop_path)}"
             >`;
-
-    // show AI button
-    h += '<div class="btn-show-ai"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sparkles-icon lucide-sparkles"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></svg></div>';
-
     h += '</div>';
 
     // Get window sidebar width
@@ -721,7 +720,15 @@ async function UIDesktop (options) {
 
     // load window sidebar items from KV
     puter.kv.get('sidebar_items').then(async (val) => {
-        window.sidebar_items = val;
+        // UIWindow parses this and reads `item.path` while building every
+        // explorer window, so a malformed value is dropped for the defaults.
+        let items = null;
+        try {
+            items = JSON.parse(val);
+        } catch { /* keep the defaults */ }
+        if ( Array.isArray(items) && items.every(item => typeof item?.path === 'string') ) {
+            window.sidebar_items = val;
+        }
     // Catch on the chain rather than the read, so a failure leaves whatever is
     // already there instead of overwriting it with a fallback.
     }).catch(err => console.warn('Could not load sidebar_items:', err));
@@ -731,37 +738,7 @@ async function UIDesktop (options) {
         window.history.pushState(null, document.title, window.location.pathname);
     }
 
-    //show_hidden_files
-    let show_hidden_files = false;
-    try {
-        show_hidden_files = JSON.parse(await puter.kv.get('user_preferences.show_hidden_files'));
-    } catch (e) {
-        console.error('Error loading show_hidden_files', e);
-    }
-
-    // language
-    let language = 'en';
-    try {
-        language = await puter.kv.get('user_preferences.language');
-    } catch (e) {
-        console.error('Error loading language', e);
-    }
-
-    // update local user preferences
-    const user_preferences = {
-        show_hidden_files: show_hidden_files,
-        language: language,
-    };
-
-    // update default apps
-    {
-        const entries = await puter.kv.list('user_preferences.default_apps.*', true).catch(() => []);
-        for ( const entry of entries ) {
-            user_preferences[entry.key.substring(17)] = entry.value;
-        }
-
-        window.update_user_preferences(user_preferences);
-    }
+    await window.load_user_preferences();
 
     // Append to <body>
     $('body').append(h);
@@ -1288,21 +1265,6 @@ async function UIDesktop (options) {
     window.dispatchEvent(new CustomEvent('desktop:ready'));
     globalThis.services.emit('gui:ready');
 
-    //--------------------------------------------------------
-    // Open the AI app (best-effort — the `ai` app isn't seeded
-    // in OSS, so swallow 404s / token failures silently here
-    // instead of surfacing a "Couldn't open" alert at boot).
-    //--------------------------------------------------------
-    launch_app({
-        name: 'ai',
-        silent_on_failure: true,
-        window_options: {
-            is_panel: true,
-        },
-    }).catch(err => {
-        console.debug('auto-launch of ai panel skipped:', err?.message ?? err);
-    });
-
     //--------------------------------------------------------------------------------------
     // Determine if an app was launched from URL
     // i.e. https://puter.com/app/<app_name>
@@ -1785,12 +1747,11 @@ async function UIDesktop (options) {
                 return;
             }
 
-            const ext_pref =
-                window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`];
-
-            if ( ext_pref ) {
+            const default_app = await resolve_default_app({ uid: stat.uid, path: item_path });
+            if ( default_app ) {
                 launch_app({
-                    name: ext_pref,
+                    name: default_app.name,
+                    app_obj: default_app,
                     file_path: item_path,
                 });
                 return;
@@ -2236,15 +2197,18 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
     // -------------------------------------------
     // Load available languages
     // -------------------------------------------
-    const supportedLanguagesItems = window.listSupportedLanguages().map(lang => {
-        return {
-            html: lang.name,
-            icon: window.locale === lang.code ? '✓' : '',
-            onClick: async function () {
-                changeLanguage(lang.code);
-            },
-        };
-    });
+    const supportedLanguagesItems = window.listSupportedLanguages()
+        .slice()
+        .sort((a, b) => a.english_name.localeCompare(b.english_name, 'en'))
+        .map(lang => {
+            return {
+                html: lang.name,
+                icon: window.locale === lang.code ? '✓' : '',
+                onClick: async function () {
+                    await changeLanguage(lang.code);
+                },
+            };
+        });
 
     UIContextMenu({
         id: 'user-options-menu',
@@ -2252,6 +2216,13 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
         position: { top: pos.top + 28, left: pos.left + pos.width - 15 },
         items: [
             ...items,
+            //--------------------------------------------------
+            // Change Language
+            //--------------------------------------------------
+            {
+                html: i18n('change_language'),
+                items: supportedLanguagesItems,
+            },
             //--------------------------------------------------
             // Settings
             //--------------------------------------------------
@@ -2599,9 +2570,5 @@ window.toggleDesktopIcons = function () {
     puter.kv.set('desktop_icons_hidden', window.desktop_icons_hidden.toString())
         .catch(err => console.warn('Could not save desktop_icons_hidden:', err));
 };
-
-$(document).on('click', '.btn-show-ai', function () {
-    $('.window[data-app="ai"]').makeWindowVisible();
-});
 
 export default UIDesktop;

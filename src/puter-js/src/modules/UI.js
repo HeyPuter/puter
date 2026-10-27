@@ -262,8 +262,16 @@ const createDeferred = () => {
     return { promise, resolve, reject };
 };
 
-const FILE_SAVE_CANCELLED = Symbol('FILE_SAVE_CANCELLED');
-const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
+const PICKER_CANCELLED = Symbol('PICKER_CANCELLED');
+// The popup pickers in older GUI builds spell these with one `l`.
+const PICKER_CANCEL_MSGS = new Set([
+    'fileOpenCancelled',
+    'fileOpenCanceled',
+    'fileSaveCancelled',
+    'fileSaveCanceled',
+    'directoryOpenCancelled',
+    'directoryOpenCanceled',
+]);
 
 // A consent prompt covers a handful of scopes at most, and the popup carries
 // them in its URL.
@@ -276,6 +284,14 @@ const pipError = (name, message) => {
     const err = new Error(message);
     err.name = name;
     return err;
+};
+
+const getGUIOrigin = (origin) => {
+    try {
+        return new URL(origin).origin;
+    } catch {
+        return null;
+    }
 };
 
 const MAX_REQUESTED_PERMISSIONS = 16;
@@ -347,12 +363,13 @@ export class AppConnection extends EventListener {
             target,
         }).info(`AppConnection created to ${target}`, this);
 
-        // TODO: Set this.#puterOrigin to the puter origin
+        this.#puterOrigin = getGUIOrigin(puter.defaultGUIOrigin);
 
         const onMessage = event => {
             // Relayed by the host environment; a window that guessed an
             // appInstanceID must not be able to forge one directly.
-            if ( event.source !== this.messageTarget ) return;
+            if ( event.source !== this.messageTarget ||
+                ! this.#puterOrigin || event.origin !== this.#puterOrigin ) return;
             if ( ! event.data ) return;
 
             if ( event.data.msg === 'messageToApp' ) {
@@ -544,19 +561,6 @@ export class UIModule extends EventListener {
     // these windows, so a repeated picker reuses one entry.
     #pickerPopups = new Set();
 
-    // Canonical origin of the GUI we open popups on. The popup's messages
-    // arrive tagged with the browser's serialization of its origin, while
-    // `defaultGUIOrigin` is configuration-supplied text that may carry a
-    // trailing slash, an explicit default port or a stray path. Null when it
-    // can't be parsed, which no popup reply can then match.
-    #guiOrigin () {
-        try {
-            return new URL(puter.defaultGUIOrigin).origin;
-        } catch (e) {
-            return null;
-        }
-    }
-
     #trackPickerPopup (popup) {
         // Also shared with the SDK, whose token handler pins on the same set.
         puter.trackOpenedWindow_?.(popup);
@@ -566,11 +570,10 @@ export class UIModule extends EventListener {
 
     // Whether a message on the window may drive this module.
     #isTrustedMessageSource (e) {
-        // `app` env: the host frame relays everything. Its origin is whatever
-        // the deployment is served from, so pin the window instead — that
-        // keeps locally-hosted and self-hosted GUIs working while still
-        // rejecting a sibling app iframe or a third-party page that framed us.
-        if ( this.messageTarget ) return e.source === this.messageTarget;
+        if ( this.messageTarget ) {
+            return e.source === this.messageTarget &&
+                e.origin === getGUIOrigin(puter.defaultGUIOrigin);
+        }
 
         // `web` env (a third-party site): there is no host frame to pin. The
         // picker popups we opened post back directly, and always from the GUI
@@ -578,7 +581,7 @@ export class UIModule extends EventListener {
         // window too when we can still see it: the picker calls
         // window.close() right after posting, and a discarded browsing
         // context can leave `event.source` null.
-        const guiOrigin = this.#guiOrigin();
+        const guiOrigin = getGUIOrigin(puter.defaultGUIOrigin);
         if ( ! guiOrigin || e.origin !== guiOrigin ) return false;
         if ( ! e.source ) return this.#pickerPopups.size > 0;
         return this.#pickerPopups.has(e.source);
@@ -608,6 +611,19 @@ export class UIModule extends EventListener {
         callback(value);
     }
 
+    // A cancelled picker leaves its promise pending and settles only
+    // `undefinedOnCancel`, with `undefined`.
+    #registerPickerCallback (msgId, resolve, undefinedOnCancel) {
+        this.#callbackFunctions[msgId] = (result) => {
+            if ( result === PICKER_CANCELLED ) {
+                undefinedOnCancel.resolve(undefined);
+                return;
+            }
+            undefinedOnCancel.resolve(result);
+            resolve(result);
+        };
+    }
+
     #postMessageAsync (name, args = {}) {
         return new Promise(resolve => {
             this.#postMessageWithCallback(name, resolve, args);
@@ -617,6 +633,7 @@ export class UIModule extends EventListener {
     #postMessageWithObject (name, value) {
         const dehydrator = this.util.rpc.getDehydrator({
             target: this.messageTarget,
+            origin: getGUIOrigin(puter.defaultGUIOrigin),
         });
         this.messageTarget?.postMessage({
             msg: name,
@@ -638,7 +655,10 @@ export class UIModule extends EventListener {
                 done_setting_resolve();
             });
         });
-        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget, { once: true });
+        const callback_id = this.util.rpc.registerCallback(resolve, this.messageTarget, {
+            once: true,
+            origin: getGUIOrigin(puter.defaultGUIOrigin),
+        });
         this.messageTarget?.postMessage({
             $: 'puter-ipc',
             v: 2,
@@ -649,6 +669,7 @@ export class UIModule extends EventListener {
             uuid: callback_id,
         }, '*');
         const ret = await p;
+        if (ret?.$ === 'puter-ipc-error') throw ret.error;
         if ( callback ) callback(ret);
         return ret;
     };
@@ -928,13 +949,8 @@ export class UIModule extends EventListener {
                     // execute callback
                     this.#callbackFunctions[e.data.original_msg_id](new FSItem(e.data.saved_file));
                 }
-                else if ( e.data.msg === 'fileSaveCancelled' ) {
-                    // execute callback
-                    this.#callbackFunctions[e.data.original_msg_id](FILE_SAVE_CANCELLED);
-                }
-                else if ( e.data.msg === 'fileOpenCancelled' ) {
-                    // execute callback
-                    this.#callbackFunctions[e.data.original_msg_id](FILE_OPEN_CANCELLED);
+                else if ( PICKER_CANCEL_MSGS.has(e.data.msg) ) {
+                    this.#callbackFunctions[e.data.original_msg_id](PICKER_CANCELLED);
                 }
                 else {
                     // execute callback
@@ -1052,6 +1068,36 @@ export class UIModule extends EventListener {
      * @param {(items: FSItem[]) => void} callback
      * @returns {void}
      */
+    /**
+     * The item the app was launched with, read from the `puter.item.*` URL
+     * params the host appends, or null when there is none.
+     *
+     * @returns {FSItem|null}
+     */
+    #launchItemFromURL () {
+        const URLParams = new URLSearchParams(globalThis.location.search);
+        if ( !URLParams.has('puter.item.name') || !URLParams.has('puter.item.uid') || !URLParams.has('puter.item.read_url') ) {
+            return null;
+        }
+        let fpath = URLParams.get('puter.item.path');
+        if ( !fpath.startsWith('~/') && !fpath.startsWith('/') ) {
+            fpath = `~/${fpath}`;
+        }
+        return new FSItem({
+            name: URLParams.get('puter.item.name'),
+            path: fpath,
+            uid: URLParams.get('puter.item.uid'),
+            is_dir: URLParams.get('puter.item.is_dir') === 'true',
+            readURL: URLParams.get('puter.item.read_url'),
+            writeURL: URLParams.get('puter.item.write_url'),
+            metadataURL: URLParams.get('puter.item.metadata_url'),
+            size: URLParams.get('puter.item.size'),
+            accessed: URLParams.get('puter.item.accessed'),
+            modified: URLParams.get('puter.item.modified'),
+            created: URLParams.get('puter.item.created'),
+        });
+    }
+
     onItemsOpened (callback) {
         // DEPRECATED - this is also called when items are dropped on the app, which in new versions should be handled
         // with the 'drop' event.
@@ -1061,27 +1107,9 @@ export class UIModule extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onItemsOpened) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if ( ! this.#onItemsOpened ) {
-            let URLParams = new URLSearchParams(globalThis.location.search);
-            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ) {
-                let fpath = URLParams.get('puter.item.path');
-
-                if ( !fpath.startsWith('~/') && !fpath.startsWith('/') )
-                {
-                    fpath = `~/${fpath}`;
-                }
-
-                callback([new FSItem({
-                    name: URLParams.get('puter.item.name'),
-                    path: fpath,
-                    uid: URLParams.get('puter.item.uid'),
-                    readURL: URLParams.get('puter.item.read_url'),
-                    writeURL: URLParams.get('puter.item.write_url'),
-                    metadataURL: URLParams.get('puter.item.metadata_url'),
-                    size: URLParams.get('puter.item.size'),
-                    accessed: URLParams.get('puter.item.accessed'),
-                    modified: URLParams.get('puter.item.modified'),
-                    created: URLParams.get('puter.item.created'),
-                })]);
+            const launchItem = this.#launchItemFromURL();
+            if ( launchItem ) {
+                callback([launchItem]);
             }
         }
 
@@ -1117,27 +1145,9 @@ export class UIModule extends EventListener {
         // This should also be done only the very first time the callback is set (hence the if(!this.#onLaunchedWithItems) check) since
         // the URL parameters will be checked every time the callback is set which can cause problems if the callback is set multiple times.
         if ( ! this.#onLaunchedWithItems ) {
-            let URLParams = new URLSearchParams(globalThis.location.search);
-            if ( URLParams.has('puter.item.name') && URLParams.has('puter.item.uid') && URLParams.has('puter.item.read_url') ) {
-                let fpath = URLParams.get('puter.item.path');
-
-                if ( !fpath.startsWith('~/') && !fpath.startsWith('/') )
-                {
-                    fpath = `~/${fpath}`;
-                }
-
-                callback([new FSItem({
-                    name: URLParams.get('puter.item.name'),
-                    path: fpath,
-                    uid: URLParams.get('puter.item.uid'),
-                    readURL: URLParams.get('puter.item.read_url'),
-                    writeURL: URLParams.get('puter.item.write_url'),
-                    metadataURL: URLParams.get('puter.item.metadata_url'),
-                    size: URLParams.get('puter.item.size'),
-                    accessed: URLParams.get('puter.item.accessed'),
-                    modified: URLParams.get('puter.item.modified'),
-                    created: URLParams.get('puter.item.created'),
-                })]);
+            const launchItem = this.#launchItemFromURL();
+            if ( launchItem ) {
+                callback([launchItem]);
             }
         }
 
@@ -1310,14 +1320,17 @@ export class UIModule extends EventListener {
 
     /**
      * Shows a directory picker over the user's Puter storage. Resolves to one
-     * `FSItem`, or an array of them when multiple selection is allowed.
+     * `FSItem`, or an array of them when multiple selection is allowed. The
+     * returned promise also carries `undefinedOnCancel`, which resolves to
+     * `undefined` instead of staying pending when the user cancels.
      *
      * @param {{ multiple?: boolean }} [options]
      * @param {(value: FSItem | FSItem[]) => void} [callback]
-     * @returns {Promise<FSItem | FSItem[]>}
+     * @returns {CancelAwarePromise<FSItem | FSItem[]>}
      */
     showDirectoryPicker (options, callback) {
-        return new Promise((resolve, reject) => {
+        const undefinedOnCancel = createDeferred();
+        const resolveOnlyPromise = new Promise((resolve, reject) => {
             if ( ! globalThis.open ) {
                 return reject('This API is not compatible in Web Workers.');
             }
@@ -1348,9 +1361,10 @@ export class UIModule extends EventListener {
                 ));
             }
 
-            //register callback
-            this.#callbackFunctions[msg_id] = resolve;
+            this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });
+        resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
+        return resolveOnlyPromise;
     };
 
     /**
@@ -1361,7 +1375,7 @@ export class UIModule extends EventListener {
      *
      * @param {{ multiple?: boolean, accept?: string }} [options]
      * @param {(value: FSItem | FSItem[]) => void} [callback]
-     * @returns {Promise<FSItem | FSItem[]>}
+     * @returns {CancelAwarePromise<FSItem | FSItem[]>}
      */
     showOpenFilePicker (options, callback) {
         const undefinedOnCancel = createDeferred();
@@ -1392,16 +1406,7 @@ export class UIModule extends EventListener {
                     `toolbar=no, location=no, directories=no, status=no, menubar=no, scrollbars=no, resizable=no, copyhistory=no, width=${w}, height=${h}, top=${top}, left=${left}`,
                 ));
             }
-            //register callback
-            this.#callbackFunctions[msg_id] = (maybe_result) => {
-                // Only resolve cancel events if this was called with `.undefinedOnCancel`
-                if ( maybe_result === FILE_OPEN_CANCELLED ) {
-                    undefinedOnCancel.resolve(undefined);
-                    return;
-                }
-                undefinedOnCancel.resolve(maybe_result);
-                resolve(maybe_result);
-            };
+            this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });
         resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
         return resolveOnlyPromise;
@@ -1550,7 +1555,7 @@ export class UIModule extends EventListener {
      *   or the path of an existing file when 'move' or 'copy'
      * @param {string} [suggestedName] name to prefill in the dialog
      * @param {'url' | 'move' | 'copy'} [type] how `content` is read; inferred as 'url' for a URL
-     * @returns {Promise<FSItem>}
+     * @returns {CancelAwarePromise<FSItem>}
      */
     showSaveFilePicker (content, suggestedName, type) {
         const undefinedOnCancel = createDeferred();
@@ -1627,16 +1632,7 @@ export class UIModule extends EventListener {
                 // Same window, for the picker's own reply on the main listener.
                 this.#trackPickerPopup(popup);
             }
-            //register callback
-            this.#callbackFunctions[msg_id] = (maybe_result) => {
-                // Only resolve cancel events if this was called with `.undefinedOnCancel`
-                if ( maybe_result === FILE_SAVE_CANCELLED ) {
-                    undefinedOnCancel.resolve(undefined);
-                    return;
-                }
-                undefinedOnCancel.resolve(maybe_result);
-                resolve(maybe_result);
-            };
+            this.#registerPickerCallback(msg_id, resolve, undefinedOnCancel);
         });
 
         resolveOnlyPromise.undefinedOnCancel = undefinedOnCancel.promise;
@@ -1901,6 +1897,8 @@ export class UIModule extends EventListener {
      * @returns {Promise<boolean>} `true` only if the permission was granted.
      * @throws {{ message: string, code: 'invalid_argument' }} if `create` is
      *   set to anything but `true`, `false`, `'dir'`, or `'file'`.
+     * @deprecated Use `puter.perms.request()` with a resource, such as
+     *   `puter.perms.request('fs', { path, access })`.
      */
     async requestPermission (options) {
         const create = options?.create;
@@ -2618,11 +2616,6 @@ export class UIModule extends EventListener {
         return puter.auth.signIn({ request_auth: true }).then(
             () => {
                 settle(true);
-                if ( puter.onAuth && typeof puter.onAuth === 'function' ) {
-                    puter.getUser().then((user) => {
-                        puter.onAuth(user);
-                    });
-                }
             },
             (err) => {
                 settle(false);

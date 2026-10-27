@@ -4,7 +4,7 @@ description: Retrieves the current language/locale code from the Puter environme
 platforms: [apps]
 ---
 
-Retrieves the current language/locale code from the Puter environment. This function communicates with the host environment to get the active language setting.
+Retrieves the current language/locale code from the Puter environment.
 
 ## Syntax
 ```js

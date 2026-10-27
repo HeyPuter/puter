@@ -21,6 +21,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
+import { extensionStore } from '../../extensions.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { decodeCursor } from '../../util/pagination.js';
@@ -192,6 +193,105 @@ describe('AppDriver.create', () => {
         ).rejects.toMatchObject({
             statusCode: 400,
             message: /system host/,
+        });
+    });
+
+    describe('with a claimed subdomain', () => {
+        const claimed = 'claimed-app-host';
+
+        beforeAll(() => {
+            extensionStore.claimedSubdomains.set(claimed, {
+                authorize: () => true,
+            });
+        });
+
+        afterAll(() => {
+            extensionStore.claimedSubdomains.delete(claimed);
+        });
+
+        it.each([
+            ['exactly', `https://${claimed}.puter.localhost/`],
+            [
+                'in uppercase',
+                `https://${claimed.toUpperCase()}.PUTER.localhost/`,
+            ],
+            ['with a port', `http://${claimed}.puter.localhost:4100/app.html`],
+        ])(
+            'rejects an index_url on it %s with 400',
+            async (_label, index_url) => {
+                const { actor } = await makeUser();
+                await expect(
+                    withActor(actor, () =>
+                        driver.create({
+                            object: {
+                                name: uniqueName('claimed-host'),
+                                title: 't',
+                                index_url,
+                            },
+                        }),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    message: /system host/,
+                });
+            },
+        );
+
+        it.each([
+            ['exactly', `https://${claimed}.puter.localhost/`],
+            [
+                'in uppercase',
+                `https://${claimed.toUpperCase()}.PUTER.localhost/`,
+            ],
+            ['with a port', `http://${claimed}.puter.localhost:4100/app.html`],
+        ])(
+            'rejects updating an index_url onto it %s with 400',
+            async (_label, index_url) => {
+                const { actor } = await makeUser();
+                const created = await withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            name: uniqueName('claimed-host-upd'),
+                            title: 't',
+                            index_url: uniqueIndexUrl(),
+                        },
+                    }),
+                );
+                await expect(
+                    withActor(actor, () =>
+                        driver.update({
+                            uid: created.uid,
+                            object: { index_url },
+                        }),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    message: /system host/,
+                });
+            },
+        );
+
+        it.each([
+            [
+                'an unclaimed sibling subdomain',
+                'https://not-claimed-app-host.puter.localhost/',
+            ],
+            [
+                'a host nested under the claim',
+                `https://x.${claimed}.puter.localhost/`,
+            ],
+        ])('allows an index_url on %s', async (_label, index_url) => {
+            const { actor } = await makeUser();
+            const created = await withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('claimed-sibling'),
+                        title: 't',
+                        index_url,
+                    },
+                }),
+            );
+            expect(created.index_url).toBe(index_url);
         });
     });
 
@@ -955,6 +1055,34 @@ describe('AppDriver.create additional branches', () => {
         );
     });
 
+    it('returns the new filetype_associations from a filetype-only update of a cached app', async () => {
+        const { actor } = await makeUser();
+        const created = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('ftu'),
+                    title: 't',
+                    index_url: uniqueIndexUrl(),
+                    filetype_associations: ['txt'],
+                },
+            }),
+        );
+        // Let the post-write window lapse so the row is cached again.
+        for (const key of await server.clients.redis.keys('apps:*:deleted')) {
+            await server.clients.redis.del(key);
+        }
+        await server.stores.app.getByUid(created.uid as string);
+        await new Promise((r) => setTimeout(r, 20));
+
+        const updated = await withActor(actor, () =>
+            driver.update({
+                uid: created.uid as string,
+                object: { filetype_associations: ['csv'] },
+            }),
+        );
+        expect(updated.filetype_associations).toEqual(['csv']);
+    });
+
     it('rejects too-long title with 400', async () => {
         const { actor } = await makeUser();
         await expect(
@@ -1294,6 +1422,78 @@ describe('AppDriver.update additional branches', () => {
         expect(updated.filetype_associations).toEqual(
             expect.arrayContaining(['md', 'csv']),
         );
+    });
+
+    describe('a private app moving its index_url', () => {
+        const createApp = async (actor: Actor, indexUrl: string) =>
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('pv'),
+                        title: 't',
+                        index_url: indexUrl,
+                    },
+                }),
+            );
+        const makePrivate = async (app: Record<string, unknown>) => {
+            await server.clients.db.write(
+                'UPDATE `apps` SET `is_private` = 1 WHERE `uid` = ?',
+                [app.uid],
+            );
+            await server.stores.app.invalidateByUid(app.uid as string);
+        };
+
+        it('refuses an origin another user’s app already resolves to', async () => {
+            const other = await makeUser();
+            const target = uniqueIndexUrl();
+            const theirs = await createApp(other.actor, target);
+            const { actor } = await makeUser();
+            const mine = await createApp(actor, uniqueIndexUrl());
+            await makePrivate(mine);
+
+            await expect(
+                withActor(actor, () =>
+                    driver.update({
+                        uid: mine.uid,
+                        object: { index_url: target },
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            expect(
+                await server.services.auth.appUidFromOrigin(
+                    new URL(target).origin,
+                ),
+            ).toBe(theirs.uid);
+        });
+
+        it('allows an unclaimed origin, a path below another user’s origin, and a public app', async () => {
+            const other = await makeUser();
+            const target = uniqueIndexUrl();
+            await createApp(other.actor, target);
+            const { actor } = await makeUser();
+            const mine = await createApp(actor, uniqueIndexUrl());
+            await makePrivate(mine);
+
+            const fresh = uniqueIndexUrl();
+            const moved = await withActor(actor, () =>
+                driver.update({ uid: mine.uid, object: { index_url: fresh } }),
+            );
+            expect(moved.index_url).toBe(fresh);
+            const below = `${target}app/`;
+            const nested = await withActor(actor, () =>
+                driver.update({ uid: mine.uid, object: { index_url: below } }),
+            );
+            expect(nested.index_url).toBe(below);
+
+            const publicApp = await createApp(actor, uniqueIndexUrl());
+            const copied = await withActor(actor, () =>
+                driver.update({
+                    uid: publicApp.uid,
+                    object: { index_url: target },
+                }),
+            );
+            expect(copied.index_url).toBe(target);
+        });
     });
 });
 
@@ -2122,7 +2322,10 @@ describe('AppDriver.select query-count regression', () => {
         expect(large.itemCount).toBe(30);
         // Sanity check the classifier actually saw the shapes it's counting.
         expect(small.counts.indexUrlIn).toBeGreaterThan(0);
-        expect(small.counts.subdomains).toBeGreaterThan(0);
+        // Live and dangling backings both come from the warm subdomain cache
+        // (negative entries included), so no subdomains read on either path.
+        expect(small.counts.subdomains).toBe(0);
+        expect(small.pread).toBe(0);
 
         expect(large.counts).toEqual(small.counts);
         expect(large.pread).toBe(small.pread);

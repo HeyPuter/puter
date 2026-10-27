@@ -10,6 +10,7 @@ const recipeTags = {
     perms: 'Permissions',
     fs: 'File System',
     kv: 'Key-Value',
+    events: 'Events',
     hosting: 'Hosting',
     workers: 'Workers',
     email: 'Email',
@@ -17,6 +18,7 @@ const recipeTags = {
     teams: 'Teams',
     performance: 'Performance',
     'data-modeling': 'Data Modeling',
+    net: 'Networking',
 };
 
 module.exports = recipeTags;

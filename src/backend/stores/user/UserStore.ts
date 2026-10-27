@@ -18,7 +18,7 @@
  */
 
 import { isUniqueViolation } from '../../util/dbError.js';
-import { cleanEmail } from '../../util/email.js';
+import { cleanEmail, isSameAddress } from '../../util/email.js';
 import { normalizeReferralCode } from '../../util/referralCode.js';
 import { PuterStore } from '../types';
 
@@ -316,7 +316,9 @@ export class UserStore extends PuterStore {
                     const rows = (
                         primary
                             ? await this.clients.db.pread(sql, chunk)
-                            : await this.clients.db.tryHardRead(sql, chunk)
+                            : await this.clients.db.tryHardRead(sql, chunk, {
+                                  race: false,
+                              })
                     ) as Array<Record<string, unknown>>;
                     for (const row of rows) users.push(this.#normalizeRow(row));
                 }
@@ -341,14 +343,16 @@ export class UserStore extends PuterStore {
     ): Promise<UserRow | null> {
         if (!cleanEmailValue) return null;
         if (!isStorableAsLatin1(cleanEmailValue)) return null;
-        const sql = `SELECT \`id\` FROM \`user\` WHERE \`clean_email\` = ? ${EMAIL_OWNER_ORDER} LIMIT 1`;
+        const sql = `SELECT \`id\`, \`clean_email\` FROM \`user\` WHERE \`clean_email\` = ? ${EMAIL_OWNER_ORDER} LIMIT 1`;
         const rows = (await (opts.force
             ? this.clients.db.pread(sql, [cleanEmailValue])
             : this.clients.db.tryHardRead(sql, [cleanEmailValue]))) as Array<{
             id: number;
+            clean_email: string | null;
         }>;
         const row = rows[0];
-        if (!row) return null;
+        if (!row || !isSameAddress(row.clean_email, cleanEmailValue))
+            return null;
         return this.getById(row.id as number, opts);
     }
 
@@ -428,8 +432,8 @@ export class UserStore extends PuterStore {
 
         // Replication-aware read: on `force` (or a tombstoned key), go
         // straight to the primary (`pread`) to bypass replica lag for hot
-        // reads (e.g., immediately after a signup). Otherwise `tryHardRead`
-        // parallels primary + replica and prefers whichever returns rows.
+        // reads (e.g., immediately after a signup). Otherwise the primary is
+        // only read when the replica returns no match or fails.
         // `id`, `uuid` and `username` are UNIQUE, so at most one row matches and
         // the optimizer drops the ordering. `email` is not — multiple rows may
         // legitimately hold the same address while unconfirmed, so without an
@@ -445,14 +449,53 @@ export class UserStore extends PuterStore {
             async (primary) => {
                 const rows = primary
                     ? await this.clients.db.pread(sql, [value])
-                    : await this.clients.db.tryHardRead(sql, [value]);
-                return rows[0] ? this.#normalizeRow(rows[0]) : null;
+                    : await this.clients.db.tryHardRead(sql, [value], {
+                          race: false,
+                      });
+                const row = rows[0];
+                if (!row) return null;
+                if (
+                    prop === 'email' &&
+                    !isSameAddress(row.email as string, String(value))
+                )
+                    return null;
+                return this.#normalizeRow(row);
             },
             { skipRead: !cached, primary: force },
         );
     }
 
     // -- Writes -------------------------------------------------------
+
+    /** Consume one recovery hash without losing a concurrent code consumption. */
+    async consumeOtpRecoveryCode(
+        userId: number,
+        hash: string,
+    ): Promise<boolean> {
+        // A set contains ten codes. Retry only conflicts, always from the primary.
+        for (let attempt = 0; attempt < 10; attempt++) {
+            const user = await this.getById(userId, { force: true });
+            const previous = user?.otp_recovery_codes;
+            if (typeof previous !== 'string') return false;
+            const codes = previous.split(',').filter(Boolean);
+            const index = codes.indexOf(hash);
+            if (index === -1) return false;
+            codes.splice(index, 1);
+            if (
+                await this.#write(
+                    userId,
+                    { otp_recovery_codes: codes.join(',') },
+                    this.clients.db.case({
+                        mysql: 'BINARY `otp_recovery_codes` = BINARY ?',
+                        otherwise: '`otp_recovery_codes` = ?',
+                    }),
+                    [previous],
+                )
+            )
+                return true;
+        }
+        return false;
+    }
 
     /**
      * Merge-update a user's `metadata` JSON blob. Reads current value, applies
@@ -581,11 +624,26 @@ export class UserStore extends PuterStore {
      * names for ergonomic call sites. Never take column names from request
      * bodies.
      */
+    async update(userId: number, patch: Record<string, unknown>): Promise<void>;
     async update(
         userId: number,
         patch: Record<string, unknown>,
-    ): Promise<void> {
-        await this.#write(userId, patch);
+        options: { expectedRecoveryToken: string },
+    ): Promise<boolean>;
+    async update(
+        userId: number,
+        patch: Record<string, unknown>,
+        { expectedRecoveryToken }: { expectedRecoveryToken?: string } = {},
+    ): Promise<boolean | void> {
+        const updated = await this.#write(
+            userId,
+            patch,
+            expectedRecoveryToken === undefined
+                ? undefined
+                : '`pass_recovery_token` = ?',
+            expectedRecoveryToken === undefined ? [] : [expectedRecoveryToken],
+        );
+        if (expectedRecoveryToken !== undefined) return updated;
     }
 
     /**
@@ -660,15 +718,14 @@ export class UserStore extends PuterStore {
     }
 
     /**
-     * Shared write path for `update` / `claimPlaceholder` /
-     * `clearUnconfirmedEmail` / `claimReferralCode`. `guard` is extra SQL ANDed
-     * into the WHERE clause; the write is reported as lost when it matches no
-     * row.
+     * Cache-aware write path. `guard` is extra SQL ANDed into the WHERE clause;
+     * a guarded write reports false when it matches no row.
      */
     async #write(
         userId: number,
         patch: Record<string, unknown>,
         guard?: string,
+        guardValues: unknown[] = [],
     ): Promise<boolean> {
         const dbPatch: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(patch)) {
@@ -697,6 +754,20 @@ export class UserStore extends PuterStore {
         const touchesIdentity = keys.some((k) =>
             (USER_ID_PROPERTIES as readonly string[]).includes(k),
         );
+        const touchesSecurity =
+            touchesIdentity ||
+            keys.some((key) =>
+                [
+                    'password',
+                    'suspended',
+                    'email_confirmed',
+                    'requires_password_change',
+                    'temp_password_expires_at',
+                    'otp_enabled',
+                    'otp_secret',
+                    'otp_recovery_codes',
+                ].includes(key),
+            );
         const before = touchesIdentity
             ? await this.getByProperty('id', userId, { force: true })
             : null;
@@ -704,7 +775,7 @@ export class UserStore extends PuterStore {
         const result = await this.clients.db.write(
             `UPDATE \`user\` SET ${setClause} WHERE \`id\` = ?` +
                 (guard ? ` AND ${guard}` : ''),
-            [...values, userId],
+            [...values, userId, ...guardValues],
         );
 
         // Nothing was written, so there are no cache keys to retire.
@@ -726,10 +797,25 @@ export class UserStore extends PuterStore {
             }
         }
 
-        if (fresh) {
+        if (touchesSecurity) {
+            await this.tombstoneCacheKeys([
+                ...new Set([
+                    this.#cache.key('id', userId),
+                    ...(before ? this.#cacheKeysToWrite(before) : []),
+                    ...(fresh ? this.#cacheKeysToWrite(fresh) : []),
+                ]),
+            ]);
+        } else if (fresh) {
             await this.#cache.refresh(fresh);
         } else {
             await this.invalidateById(userId);
+        }
+        if (Object.hasOwn(patch, 'suspended')) {
+            this.clients.event.emit(
+                patch.suspended ? 'user.suspended' : 'user.unsuspended',
+                { userId },
+                {},
+            );
         }
         return true;
     }
@@ -754,11 +840,12 @@ export class UserStore extends PuterStore {
 
     /**
      * The account other than `userId` that has already confirmed this address,
-     * if there is one. Matches raw + canonical, exactly like
-     * `unconfirmOthersByEmail`, and is meant to run immediately before it: a
-     * confirmed row proved access to the inbox, so it is refused rather than
-     * demoted. Everything that lookup leaves behind is an unconfirmed row,
-     * which is what `unconfirmOthersByEmail` is for.
+     * if there is one. Matches raw + canonical like `unconfirmOthersByEmail`
+     * (plus the accent variants it skips, which only refuses more), and is
+     * meant to run immediately before it: a confirmed row proved access to the
+     * inbox, so it is refused rather than demoted. Everything that lookup
+     * leaves behind is an unconfirmed row, which is what
+     * `unconfirmOthersByEmail` is for.
      *
      * Reads the primary — the confirmation it guards is about to write.
      */
@@ -787,10 +874,20 @@ export class UserStore extends PuterStore {
         // straight to SQL, so without their pre-image we don't know which
         // cache keys it retires — and a cached copy still carries the address
         // that was just revoked, which would keep answering lookups for it.
-        const stripped = (await this.clients.db.pread(
+        const matched = (await this.clients.db.pread(
             'SELECT * FROM `user` WHERE `id` != ? AND (`email` = ? OR `clean_email` = ?)',
             [userId, email, cleanEmailValue],
         )) as Array<Record<string, unknown>>;
+        // The collation also matches accent variants, which are other addresses.
+        const stripped = matched.filter(
+            (row) =>
+                isSameAddress(row.email as string | null, email) ||
+                isSameAddress(
+                    row.clean_email as string | null,
+                    cleanEmailValue,
+                ),
+        );
+        if (stripped.length === 0) return;
 
         await this.clients.db.write(
             `UPDATE \`user\`
@@ -800,12 +897,12 @@ export class UserStore extends PuterStore {
                     \`requires_email_confirmation\` = ?,
                     \`email_confirm_code\` = NULL,
                     \`email_confirm_token\` = NULL
-              WHERE \`id\` != ?
+              WHERE \`id\` IN (${stripped.map(() => '?').join(', ')})
                 AND (\`email\` = ? OR \`clean_email\` = ?)`,
             [
                 this.clients.db.booleanValue(false),
                 this.clients.db.booleanValue(false),
-                userId,
+                ...stripped.map((row) => row.id),
                 email,
                 cleanEmailValue,
             ],

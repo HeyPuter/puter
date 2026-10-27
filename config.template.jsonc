@@ -7,9 +7,8 @@
     // Each setting lives at exactly one canonical key — there are no fallback
     // aliases. Values shown are illustrative, not production secrets.
     //
-    // Keys consumed only by closed-source / hosted-prod extensions (clickhouse,
-    // cacheUpdateHandler, pages, prodMeteringAndBilling, …) are intentionally
-    // omitted.
+    // Keys consumed only by closed-source / hosted-prod extensions are
+    // intentionally omitted.
 
     // ── Environment / identity ──────────────────────────────────────────
     "config_name": "template",
@@ -35,7 +34,7 @@
     // Idle keep-alive timeout in ms. Must stay above the idle timeout of any
     // proxy in front, or the proxy reuses connections this server has closed
     // and its clients see 502s.
-    "keep_alive_timeout": 620000,
+    "keep_alive_timeout": 920000,
     "protocol": "http",
     "domain": "puter.localhost",
     // Fully-qualified externally-visible URL. Computed from protocol/domain/
@@ -216,7 +215,9 @@
         // "bootstrapTables": true,
         "path": "",
         // Credentials. NOTE: snake_case here, unlike `s3.s3Config` below.
-        // For dynamodb-local, any non-empty values work.
+        // For dynamodb-local, any non-empty values work. On AWS,
+        // `"useCredentialChain": true` uses the default credential chain
+        // instead of keys.
         "aws": {
             "access_key": "",
             "secret_key": "",
@@ -314,7 +315,8 @@
     // The tables ship either way and sit inert; this gates whether `/teams`
     // is registered at all, so with it off the paths do not exist rather than
     // existing and refusing. It is also the backout: turning it off removes
-    // the feature without touching data.
+    // the feature without touching data. Teams ships as an extension; on,
+    // the server refuses to boot unless one registers it.
     "teams_enabled": false,
     //
     // Live teams one user may own. Soft-deleted ones do not count, so
@@ -431,6 +433,8 @@
         "mistral": { "apiKey": "" },
         "xai": { "apiKey": "" },
         "moonshot": { "apiKey": "" },
+        // MiniMax. One key powers chat and video generation (H3, Hailuo);
+        // video calls go to the same host, beside the chat API's `/v1`.
         "minimax": {
             "apiKey": "",
             "apiBaseUrl": "https://api.minimax.io/v1"
@@ -451,6 +455,10 @@
             "apiKey": "",
             "apiBaseUrl": "https://ark.ap-southeast.bytepluses.com/api/v3"
         },
+        // Kling AI. One API key (not the legacy AccessKey/SecretKey pair)
+        // powers video generation, image generation and TTS; `apiBaseUrl`
+        // defaults to https://api-singapore.klingai.com.
+        "kling": { "apiKey": "" },
         "zai": { "apiKey": "" },
         "alibaba": { "apiKey": "" },
         "hoonify": {
@@ -489,6 +497,8 @@
             "defaultVoiceId": "",
             "speechToSpeechModelId": ""
         },
+        // Both AWS providers also take `"useCredentialChain": true` in place
+        // of keys, like `dynamo.aws`.
         "aws-polly": {
             "access_key": "",
             "secret_key": "",

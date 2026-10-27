@@ -1,5 +1,28 @@
 import { suite } from '../harness/types.ts';
-import type { TestContext } from '../harness/types.ts';
+import type {
+    SuiteTest,
+    SuiteTestSpec,
+    TestContext,
+} from '../harness/types.ts';
+
+/**
+ * Teams registers its own routes, so every test here needs a build that has
+ * it. Applied to the whole suite rather than each test: without the
+ * capability the runners report them skipped, not failed.
+ */
+const CLIENT_SIDE = new Set([
+    'create with a blank name rejects before reaching the server',
+]);
+
+const needsTeams = (
+    tests: Record<string, SuiteTest>,
+): Record<string, SuiteTestSpec> =>
+    Object.fromEntries(
+        Object.entries(tests).map(([name, fn]) => [
+            name,
+            CLIENT_SIDE.has(name) ? fn : { requires: ['teams'], fn },
+        ]),
+    );
 
 /**
  * Handles and usernames are unique across the whole deployment, and the suites
@@ -12,7 +35,7 @@ type Team = { uid: string; name: string | null; handle: string | null; isOwner: 
 const makeTeam = async (t: TestContext, label: string): Promise<Team> =>
     (await t.puter.teams.create({ name: `Teams Suite ${label}`, handle: `ts-${label}-${tag()}` })) as Team;
 
-export default suite('teams', {
+export default suite('teams', needsTeams({
     'create returns the team with the caller as owner': async (t) => {
         const team = await makeTeam(t, 'create');
         t.assert.ok(typeof team.uid === 'string' && team.uid.length > 0, 'uid should be set');
@@ -244,4 +267,4 @@ export default suite('teams', {
         });
         t.assert.ok(resp.status >= 400, `a non-member read should be refused, got ${resp.status}`);
     },
-});
+}));

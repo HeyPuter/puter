@@ -172,10 +172,10 @@ describe('picker replies on a third-party site (env: web)', () => {
     });
 });
 
-// The clickjacking fix this regressed from: an app iframe must only take
-// messages from its host frame, whatever origin that frame is served on.
+// App messages require both the configured GUI origin and host frame.
 describe('host messages inside the desktop (env: app)', () => {
-    it('accepts a reply from the host frame', async () => {
+    it('accepts a reply from the configured host frame', async () => {
+        puter.defaultGUIOrigin = 'https://self-hosted.test';
         const ui = makeUI('app');
         const promise = ui.showOpenFilePicker();
 
@@ -194,5 +194,67 @@ describe('host messages inside the desktop (env: app)', () => {
         await deliver({ source: sibling, origin: GUI_ORIGIN, data: filePicked(1) });
 
         await expect(settled(promise)).resolves.toBe(PENDING);
+    });
+});
+
+// GUI popups and the desktop host have spelled the cancel replies both ways.
+describe('picker cancel', () => {
+    const PICKERS = [
+        {
+            name: 'showOpenFilePicker',
+            open: (ui) => ui.showOpenFilePicker(),
+            popup: 'Puter: Open File',
+            msgs: ['fileOpenCancelled', 'fileOpenCanceled'],
+        },
+        {
+            name: 'showDirectoryPicker',
+            open: (ui) => ui.showDirectoryPicker(),
+            popup: 'Puter: Open Directory',
+            msgs: ['directoryOpenCancelled', 'directoryOpenCanceled'],
+        },
+        {
+            name: 'showSaveFilePicker',
+            open: (ui) => ui.showSaveFilePicker('hello', 'a.txt'),
+            popup: 'Puter: Save File',
+            msgs: ['fileSaveCancelled', 'fileSaveCanceled'],
+        },
+    ];
+    const CASES = PICKERS.flatMap((picker) =>
+        picker.msgs.map((msg) => [picker.name, msg, picker]));
+
+    it.each(CASES)('%s on a third-party site handles %s', async (_name, msg, picker) => {
+        const ui = makeUI('web');
+        const promise = picker.open(ui);
+        const popup = openedPopups.get(picker.popup);
+
+        // The popup reads msg_id from its URL, so it echoes a string.
+        await deliver({ source: popup, origin: GUI_ORIGIN, data: { msg, original_msg_id: '1' } });
+
+        await expect(promise.undefinedOnCancel).resolves.toBeUndefined();
+        await expect(settled(promise)).resolves.toBe(PENDING);
+    });
+
+    it.each(PICKERS.map((picker) => [picker.name, picker]))('%s inside the desktop handles the host cancel', async (_name, picker) => {
+        const ui = makeUI('app');
+        const promise = picker.open(ui);
+
+        await deliver({
+            source: parentWindow,
+            origin: GUI_ORIGIN,
+            data: { msg: picker.msgs[0], original_msg_id: 1 },
+        });
+
+        await expect(promise.undefinedOnCancel).resolves.toBeUndefined();
+        await expect(settled(promise)).resolves.toBe(PENDING);
+    });
+
+    it('resolves undefinedOnCancel with the picked item', async () => {
+        const ui = makeUI('web');
+        const promise = ui.showOpenFilePicker();
+
+        await deliver({ source: null, origin: GUI_ORIGIN, data: filePicked(1) });
+
+        await expect(promise).resolves.toMatchObject({ name: 'a.txt' });
+        await expect(promise.undefinedOnCancel).resolves.toMatchObject({ name: 'a.txt' });
     });
 });

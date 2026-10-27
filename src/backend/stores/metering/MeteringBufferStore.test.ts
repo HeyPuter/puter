@@ -1396,6 +1396,82 @@ describe('MeteringBufferStore', () => {
             expect([...new Set(Object.values(stored))]).toEqual([1]);
         });
 
+        /** Mark this test's one outstanding claim as abandoned. */
+        const ageClaim = async () => {
+            const tag = bucketTag(key);
+            const pending = await server.clients.redis.hgetall(
+                `meter:pending:{${tag}}`,
+            );
+            const nonce = Object.keys(pending)[0]!;
+            await server.clients.redis.hset(
+                `meter:pending:{${tag}}`,
+                nonce,
+                `${Date.now() - 60_000}:${key}`,
+            );
+        };
+
+        it('applies a re-driven write once when the first copy already landed', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+
+            // The write reaches the store, but its answer never comes back.
+            const passThrough = kv.incr.bind(kv);
+            const lost = vi
+                .spyOn(kv, 'incr')
+                .mockImplementationOnce(
+                    async (...args: Parameters<typeof kv.incr>) => {
+                        await passThrough(...args);
+                        throw new Error('request timed out');
+                    },
+                );
+            await target.flushCycle();
+            lost.mockRestore();
+            expect(await storedTotal(key)).toBe(5);
+
+            await ageClaim();
+            await target.flushCycle();
+
+            expect(await storedTotal(key)).toBe(5);
+            expect(
+                await server.clients.redis.hgetall(
+                    `meter:pending:{${bucketTag(key)}}`,
+                ),
+            ).toEqual({});
+        });
+
+        it('applies a re-driven write whose first copy never landed', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+            const boom = vi
+                .spyOn(kv, 'incr')
+                .mockRejectedValueOnce(new Error('request timed out'));
+            await target.flushCycle();
+            boom.mockRestore();
+
+            await ageClaim();
+            await target.flushCycle();
+
+            expect(await storedTotal(key)).toBe(5);
+        });
+
+        it('holds a counter back while an earlier claim on it is outstanding', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+            const boom = vi
+                .spyOn(kv, 'incr')
+                .mockRejectedValueOnce(new Error('store unavailable'));
+            await target.flushCycle();
+            boom.mockRestore();
+
+            // A later write landing first would get the earlier one refused as
+            // already applied, so the new increment waits its turn.
+            await target.incr({ key, pathAndAmountMap: { total: 3 } });
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(0);
+
+            await ageClaim();
+            await target.flushCycle();
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(8);
+        });
+
         it('leaves the claim in place when the write onward fails', async () => {
             await target.incr({ key, pathAndAmountMap: { total: 5 } });
             const boom = vi

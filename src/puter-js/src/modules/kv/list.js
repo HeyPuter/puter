@@ -138,7 +138,9 @@ const failList = (stream, error) =>
  *   list(pattern, returnValues)
  *   list(options)
  *
- * An `optConfig` object may trail any positional form.
+ * An `optConfig` object may trail any positional form. With
+ * `optConfig.handle`, every request (each page included) lists the region
+ * another user shared, and keys are relative to it.
  *
  * @this {import('./index.js').KVModule}
  * @param {string | boolean
@@ -177,7 +179,10 @@ export function list (patternOrOptions, returnValuesOrOptConfig, maybeOptConfig)
         returnValues = !!input.returnValues;
         if ( isObject(input.optConfig) ) {
             options.optConfig = input.optConfig;
-        } else if ( isOptConfigShorthand(input) ) {
+        } else if ( isOptConfigShorthand(input) || typeof input.handle === 'string' ) {
+            // Only here, not in `isOptConfigShorthand`: elsewhere an object
+            // with a `handle` key can be a path map. A handle that isn't a
+            // string was never sent, so it still isn't.
             if ( stream ) {
                 const optConfig = { ...input };
                 delete optConfig.stream;

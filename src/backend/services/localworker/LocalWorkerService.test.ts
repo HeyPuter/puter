@@ -21,7 +21,10 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { SubdomainRow } from '../../stores/subdomain/SubdomainStore.js';
+import {
+    WORKER_SUBDOMAIN_PREFIX,
+    type SubdomainRow,
+} from '../../stores/subdomain/SubdomainStore.js';
 import type { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
 import { getWorkerPreamble } from '../../drivers/workers/WorkerDriver.js';
@@ -82,6 +85,18 @@ const subdomainRow = (over: Partial<SubdomainRow>): SubdomainRow =>
         ...over,
     }) as SubdomainRow;
 
+/** A stored worker row: the minted token is only valid while it exists. */
+const seedWorkerRow = async (
+    workerName: string,
+    over: { root_dir_id: number; app_owner?: number },
+): Promise<SubdomainRow> =>
+    (await server.stores.subdomain.create({
+        userId: ownerUserId,
+        subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+        rootDirId: over.root_dir_id,
+        appOwner: over.app_owner ?? null,
+    })) as unknown as SubdomainRow;
+
 describe('LocalWorkerService.reconstructDeployArgs', () => {
     it('mints a user-scoped worker session token and prepends the preamble', async () => {
         const src = await writeSource(
@@ -91,7 +106,7 @@ describe('LocalWorkerService.reconstructDeployArgs', () => {
         const [name, authorization, code] =
             await localWorkers.reconstructDeployArgs(
                 'worker-a',
-                subdomainRow({ root_dir_id: src.id }),
+                await seedWorkerRow('worker-a', { root_dir_id: src.id }),
             );
 
         const source = "export default { fetch: () => new Response('a') };";
@@ -130,7 +145,10 @@ describe('LocalWorkerService.reconstructDeployArgs', () => {
 
         const [, authorization] = await localWorkers.reconstructDeployArgs(
             'worker-b',
-            subdomainRow({ root_dir_id: src.id, app_owner: app.id }),
+            await seedWorkerRow('worker-b', {
+                root_dir_id: src.id,
+                app_owner: app.id,
+            }),
         );
 
         const auth = await server.services.auth.authenticate(authorization);
@@ -173,6 +191,36 @@ describe('LocalWorkerService.reconstructDeployArgs', () => {
                 subdomainRow({ root_dir_id: 999_999 }),
             ),
         ).rejects.toThrow(/source file not found/);
+    });
+
+    it('refuses a worker whose source file belongs to another user', async () => {
+        const other = await createTestUser(server, {
+            username: 'lws-other',
+            password: 'local-worker-password',
+        });
+        const otherRow = (await server.stores.user.getByUsername(
+            other.username,
+        ))!;
+        const path = `/${other.username}/worker-f.js`;
+        await server.services.fs.write(otherRow.id, {
+            fileMetadata: {
+                path,
+                size: 2,
+                contentType: 'text/javascript',
+                overwrite: true,
+            },
+            fileContent: Readable.from(Buffer.from('//')),
+        });
+        const foreign = await server.stores.fsEntry.getEntryByPath(path);
+
+        await expect(
+            localWorkers.reconstructDeployArgs(
+                'worker-f',
+                await seedWorkerRow('worker-f', {
+                    root_dir_id: foreign!.id as number,
+                }),
+            ),
+        ).rejects.toThrow(/not owned by the worker's owner/);
     });
 });
 

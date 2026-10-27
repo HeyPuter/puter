@@ -22,8 +22,14 @@ import { readFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { PuterServer } from '../../server.ts';
+import { PermissionUtil } from '../../services/permission/permissionUtil.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import { decodeCursor } from '../../util/pagination.ts';
+import { CACHE_TOMBSTONE_SUFFIX } from '../types.ts';
+import {
+    FLAT_PERM_SCAN_CONCURRENCY,
+    U2U_CACHE_MAX_ROWS,
+} from './PermissionStore.ts';
 
 describe('PermissionStore', () => {
     let server: PuterServer;
@@ -78,6 +84,140 @@ describe('PermissionStore', () => {
             expect(await store.getFlatUserPerms(holder.id, [perm])).toEqual([]);
         });
 
+        const seedGrants = async (
+            holderId: number,
+            issuerId: number,
+            count: number,
+        ): Promise<string[]> => {
+            const perms = Array.from(
+                { length: count },
+                () => `fs:${uuidv4()}:read`,
+            );
+            await server.clients.db.write(
+                'INSERT INTO `user_to_user_permissions` (`holder_user_id`, `issuer_user_id`, `permission`, `extra`) VALUES ' +
+                    perms.map(() => '(?, ?, ?, ?)').join(', '),
+                perms.flatMap((perm) => [holderId, issuerId, perm, '{}']),
+            );
+            return perms;
+        };
+        const cachedRowSet = async (holderId: number) =>
+            JSON.parse(
+                (await server.clients.redis.get(
+                    `perms:u2u:holder:${holderId}`,
+                )) ?? 'null',
+            );
+
+        it('caches a small holder whole and reads it back from the cache', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const [perm] = await seedGrants(holder.id, issuer.id, 3);
+
+            expect(
+                await store.readLinkedUserUserPerms(holder.id, [perm]),
+            ).toHaveLength(1);
+            await vi.waitFor(async () =>
+                expect(await cachedRowSet(holder.id)).toHaveLength(3),
+            );
+        });
+
+        it('reads only the named permissions for a holder past the cache cap', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const perms = await seedGrants(
+                holder.id,
+                issuer.id,
+                U2U_CACHE_MAX_ROWS + 1,
+            );
+            const reads = vi.spyOn(server.clients.db, 'read');
+            try {
+                const rows = await store.readLinkedUserUserPerms(holder.id, [
+                    perms[7],
+                    `fs:${uuidv4()}:read`,
+                ]);
+                expect(rows.map((row) => row.permission)).toEqual([perms[7]]);
+                await vi.waitFor(async () =>
+                    expect(await cachedRowSet(holder.id)).toBe('too-many'),
+                );
+
+                // Warm: the marker, then one read naming the permission.
+                reads.mockClear();
+                expect(
+                    await store.readLinkedUserUserPerms(holder.id, [perms[9]]),
+                ).toHaveLength(1);
+                expect(reads).toHaveBeenCalledTimes(1);
+                expect(reads.mock.calls[0][1]).toEqual([holder.id, perms[9]]);
+            } finally {
+                reads.mockRestore();
+            }
+        });
+
+        it('reads a holder past the cache cap from the primary on the read-after-write path', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const perms = await seedGrants(
+                holder.id,
+                issuer.id,
+                U2U_CACHE_MAX_ROWS + 1,
+            );
+            const preads = vi.spyOn(server.clients.db, 'pread');
+            try {
+                expect(
+                    await store.readLinkedUserUserPermsFromPrimary(holder.id, [
+                        perms[3],
+                    ]),
+                ).toHaveLength(1);
+                expect(preads).toHaveBeenCalledTimes(2);
+            } finally {
+                preads.mockRestore();
+            }
+        });
+
+        it('matches permissions exactly, whatever the column collation', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const uid = uuidv4();
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                `kv:${uid}:Docs`,
+                {},
+            );
+            await seedGrants(holder.id, issuer.id, U2U_CACHE_MAX_ROWS);
+
+            expect(
+                await store.readLinkedUserUserPerms(holder.id, [
+                    `kv:${uid}:docs`,
+                ]),
+            ).toEqual([]);
+        });
+
+        it('reads the named permissions off the holder-permission index', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const perms = await seedGrants(
+                holder.id,
+                issuer.id,
+                U2U_CACHE_MAX_ROWS + 1,
+            );
+            const reads = vi.spyOn(server.clients.db, 'read');
+            let statement: unknown[] = [];
+            try {
+                await store.readLinkedUserUserPerms(holder.id, [perms[0]]);
+                statement = reads.mock.calls.find(([sql]) =>
+                    /`permission` IN/.test(String(sql)),
+                ) as unknown[];
+            } finally {
+                reads.mockRestore();
+            }
+            const plan = (await server.clients.db.read(
+                `EXPLAIN QUERY PLAN ${statement[0]}`,
+                statement[1] as unknown[],
+            )) as Array<{ detail: string }>;
+            expect(plan.map((step) => step.detail).join('; ')).toMatch(
+                /idx_user_to_user_permissions_holder_permission/,
+            );
+        });
+
         it('returns nothing for an empty permission list', async () => {
             const holder = await makeUser();
             expect(await store.getFlatUserPerms(holder.id, [])).toEqual([]);
@@ -126,6 +266,31 @@ describe('PermissionStore', () => {
             expect(values).toEqual([{ permission: present }]);
         });
 
+        it("purges every one of a holder's entries across pages, and only theirs", async () => {
+            const holder = await makeUser();
+            const other = await makeUser();
+            const perms = Array.from(
+                { length: 520 },
+                (_, i) => `fs:${uuidv4()}:p${i}:read`,
+            );
+            await server.stores.kv.batchPut({
+                items: perms.map((permission) => ({
+                    key: PermissionUtil.join('perm', String(holder.id), permission),
+                    value: { permission },
+                })),
+            });
+            await store.setFlatUserPerm(other.id, perms[0], {
+                permission: perms[0],
+            });
+
+            expect(await store.purgeFlatUserPermsHeldBy(holder.id)).toBe(520);
+            expect(await store.getFlatUserPerms(holder.id, perms)).toEqual([]);
+            expect(await store.getFlatUserPerms(other.id, [perms[0]])).toEqual([
+                { permission: perms[0] },
+            ]);
+            expect(await store.purgeFlatUserPermsHeldBy(holder.id)).toBe(0);
+        });
+
         it('scopes entries per holder', async () => {
             const a = await makeUser();
             const b = await makeUser();
@@ -139,6 +304,82 @@ describe('PermissionStore', () => {
     // -- user → app ----------------------------------------------------
 
     describe('user-to-app permissions', () => {
+        it('does not cache a read that raced a revoke', async () => {
+            const user = await makeUser();
+            const app = await makeApp(user.id);
+            await store.upsertUserAppPerm(user.id, app.id, 'driver:kv', {});
+            await server.clients.redis.del(
+                `perms:u2a:${user.id}:${app.id}${CACHE_TOMBSTONE_SUFFIX}`,
+            );
+            let startLookup!: () => void;
+            const started = new Promise<void>((resolve) => {
+                startLookup = resolve;
+            });
+            let releaseLookup!: () => void;
+            const gate = new Promise<void>((resolve) => {
+                releaseLookup = resolve;
+            });
+            let held = false;
+            const dbRead = server.clients.db.read.bind(server.clients.db);
+            const spy = vi
+                .spyOn(server.clients.db, 'read')
+                .mockImplementation(async (query, params) => {
+                    const rows = await dbRead(query, params);
+                    if (
+                        !held &&
+                        query.includes('FROM `user_to_app_permissions`') &&
+                        params?.[0] === user.id &&
+                        params?.[1] === app.id
+                    ) {
+                        held = true;
+                        startLookup();
+                        await gate;
+                    }
+                    return rows;
+                });
+            try {
+                const stale = store.hasUserAppPerm(
+                    user.id,
+                    app.id,
+                    'driver:kv',
+                );
+                await started;
+                await store.deleteUserAppPerm(user.id, app.id, 'driver:kv');
+                releaseLookup();
+                expect(await stale).toBe(true);
+                await new Promise((resolve) => setTimeout(resolve, 20));
+                // Removing the marker stands in for its expiry.
+                await server.clients.redis.del(
+                    `perms:u2a:${user.id}:${app.id}${CACHE_TOMBSTONE_SUFFIX}`,
+                );
+                expect(
+                    await server.clients.redis.get(
+                        `perms:u2a:${user.id}:${app.id}`,
+                    ),
+                ).toBeNull();
+                expect(
+                    await store.hasUserAppPerm(user.id, app.id, 'driver:kv'),
+                ).toBe(false);
+            } finally {
+                releaseLookup();
+                spy.mockRestore();
+            }
+        });
+
+        it('does not re-read the primary on revoke', async () => {
+            const user = await makeUser();
+            const app = await makeApp(user.id);
+            await store.upsertUserAppPerm(user.id, app.id, 'driver:kv', {});
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            try {
+                await store.deleteUserAppPerm(user.id, app.id, 'driver:kv');
+                await store.deleteUserAppAll(user.id, app.id);
+                expect(pread).not.toHaveBeenCalled();
+            } finally {
+                pread.mockRestore();
+            }
+        });
+
         it('upserts, reads back the decoded extra, and reports membership', async () => {
             const user = await makeUser();
             const app = await makeApp(user.id);
@@ -180,23 +421,22 @@ describe('PermissionStore', () => {
             expect(rows[0].extra).toEqual({ v: 2 });
         });
 
-        it('re-fills the cache from the primary when a grant is revoked', async () => {
+        it('reads the primary while a revoked grant is marked changed', async () => {
             const user = await makeUser();
             const app = await makeApp(user.id);
             await store.upsertUserAppPerm(user.id, app.id, 'driver:kv', {});
             // Warm it, so a revoke has something to leave behind.
             await store.hasUserAppPerm(user.id, app.id, 'driver:kv');
 
-            const read = vi.spyOn(server.clients.db, 'read');
+            const read = vi.spyOn(server.clients.db, 'pread');
             try {
                 await store.deleteUserAppPerm(user.id, app.id, 'driver:kv');
                 read.mockClear();
-                // Answered from the re-filled cache, not from a replica that
-                // may still carry the row that was just removed.
+                // The replica may still carry the row that was removed.
                 expect(
                     await store.hasUserAppPerm(user.id, app.id, 'driver:kv'),
                 ).toBe(false);
-                expect(read).not.toHaveBeenCalled();
+                expect(read).toHaveBeenCalled();
             } finally {
                 read.mockRestore();
             }
@@ -415,6 +655,15 @@ describe('PermissionStore', () => {
     // -- dev → app -----------------------------------------------------
 
     describe('dev-to-app permissions', () => {
+        it('matches a grant stored in another case, as the column collation did', async () => {
+            const dev = await makeUser();
+            const app = await makeApp(dev.id);
+            await store.upsertDevAppPerm(dev.id, app.id, 'Dev:Read', {});
+
+            const rows = await store.readDevAppPerms(app.id, ['dev:read']);
+            expect(rows.map((r) => r.permission)).toEqual(['Dev:Read']);
+        });
+
         it('upserts, reads, and deletes the developer grants for an app', async () => {
             const dev = await makeUser();
             const app = await makeApp(dev.id);
@@ -459,6 +708,103 @@ describe('PermissionStore', () => {
         it('returns nothing for an empty permission list', async () => {
             const app = await makeApp((await makeUser()).id);
             expect(await store.readDevAppPerms(app.id, [])).toEqual([]);
+        });
+
+        const d2aKey = (appId: number) => `perms:d2a:${appId}`;
+        const warmDevAppCache = async (appId: number, perms: string[]) => {
+            await server.clients.redis.del(
+                `${d2aKey(appId)}${CACHE_TOMBSTONE_SUFFIX}`,
+            );
+            await store.readDevAppPerms(appId, perms);
+            await vi.waitFor(async () =>
+                expect(
+                    await server.clients.redis.get(d2aKey(appId)),
+                ).not.toBeNull(),
+            );
+        };
+
+        it('serves repeat reads for an app from the cache', async () => {
+            const dev = await makeUser();
+            const app = await makeApp(dev.id);
+            await store.upsertDevAppPerm(dev.id, app.id, 'dev:cached', {
+                scope: 'c',
+            });
+            await warmDevAppCache(app.id, ['dev:cached']);
+
+            const spy = vi.spyOn(server.clients.db, 'read');
+            try {
+                const rows = await store.readDevAppPerms(app.id, [
+                    'dev:cached',
+                    'dev:other',
+                ]);
+                expect(rows.map((r) => [r.permission, r.extra])).toEqual([
+                    ['dev:cached', { scope: 'c' }],
+                ]);
+                expect(
+                    spy.mock.calls.filter(([q]) =>
+                        String(q).includes('dev_to_app_permissions'),
+                    ),
+                ).toHaveLength(0);
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('every mutator drops the cached grants on this node and its peers', async () => {
+            const dev = await makeUser();
+            const app = await makeApp(dev.id);
+            const emit = vi.spyOn(server.clients.event, 'emit');
+            const broadcastD2a = () =>
+                emit.mock.calls.some(
+                    ([name, payload]) =>
+                        name === 'outer.cacheUpdate' &&
+                        (payload as { cacheKey: string[] }).cacheKey.includes(
+                            d2aKey(app.id),
+                        ),
+                );
+            try {
+                await warmDevAppCache(app.id, ['dev:a']);
+                emit.mockClear();
+                await store.upsertDevAppPerm(dev.id, app.id, 'dev:a', {});
+                expect(broadcastD2a()).toBe(true);
+                expect(
+                    (await store.readDevAppPerms(app.id, ['dev:a'])).length,
+                ).toBe(1);
+
+                await warmDevAppCache(app.id, ['dev:a']);
+                emit.mockClear();
+                await store.deleteDevAppPerm(dev.id, app.id, 'dev:a');
+                expect(broadcastD2a()).toBe(true);
+                expect(await store.readDevAppPerms(app.id, ['dev:a'])).toEqual(
+                    [],
+                );
+
+                await store.upsertDevAppPerm(dev.id, app.id, 'dev:b', {});
+                await warmDevAppCache(app.id, ['dev:b']);
+                emit.mockClear();
+                await store.deleteDevAppAll(dev.id, app.id);
+                expect(broadcastD2a()).toBe(true);
+                expect(await store.readDevAppPerms(app.id, ['dev:b'])).toEqual(
+                    [],
+                );
+
+                const prefix = `app-data:${uuidv4()}`;
+                await store.upsertDevAppPerm(
+                    dev.id,
+                    app.id,
+                    `${prefix}:fs`,
+                    {},
+                );
+                await warmDevAppCache(app.id, [`${prefix}:fs`]);
+                emit.mockClear();
+                await store.deleteAppGrantsByPermissionPrefix(prefix);
+                expect(broadcastD2a()).toBe(true);
+                expect(
+                    await store.readDevAppPerms(app.id, [`${prefix}:fs`]),
+                ).toEqual([]);
+            } finally {
+                emit.mockRestore();
+            }
         });
 
         it('records a developer audit row', async () => {
@@ -1230,6 +1576,172 @@ describe('PermissionStore', () => {
                     `${region}:messages`,
                 ]),
             ).toHaveLength(2);
+        });
+
+        it('takes several roots in one delete', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const roots = ['kv-share:owner:app:a', 'kv-share-read:owner:app:b'];
+            for (const permission of [...roots, `${roots[0]}:deep`])
+                await store.upsertUserUserPerm(
+                    holder.id,
+                    issuer.id,
+                    permission,
+                    {},
+                );
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                'kv-share:owner:app:c',
+                {},
+            );
+
+            const removed = await store.deleteUserUserPermSubtreeForHolder(
+                holder.id,
+                issuer.id,
+                roots,
+            );
+            expect(removed.sort()).toEqual(
+                [...roots, `${roots[0]}:deep`].sort(),
+            );
+            expect(
+                await store.readLinkedUserUserPerms(holder.id, [
+                    'kv-share:owner:app:c',
+                ]),
+            ).toHaveLength(1);
+        });
+
+        it('scans flat entries a few roots at a time, once per outermost root', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const outer = Array.from(
+                { length: 12 },
+                (_, i) => `kv-share:owner:app:r${i}`,
+            );
+            const nested = outer.map((root) => `${root}:deep`);
+            for (const root of outer) {
+                await store.upsertUserUserPerm(holder.id, issuer.id, root, {});
+                await store.setFlatUserPerm(holder.id, root, {
+                    permission: root,
+                    issuer_user_id: issuer.id,
+                });
+            }
+            // Flat only, beneath a nested root: the outer scan has to find it.
+            const orphan = `${nested[0]}:orphan`;
+            await store.setFlatUserPerm(holder.id, orphan, {
+                permission: orphan,
+                issuer_user_id: issuer.id,
+            });
+
+            const holderPrefix = PermissionUtil.join('perm', String(holder.id));
+            const dynamo = server.clients.dynamo;
+            const query = dynamo.query.bind(dynamo);
+            const scanned: string[] = [];
+            let inFlight = 0;
+            let peak = 0;
+            const spy = vi
+                .spyOn(dynamo, 'query')
+                .mockImplementation(async (...args) => {
+                    const prefix = args[6]?.beginsWith?.value;
+                    if (!prefix?.startsWith(holderPrefix))
+                        return query(...args);
+                    scanned.push(prefix);
+                    peak = Math.max(peak, ++inFlight);
+                    try {
+                        await new Promise((resolve) => setTimeout(resolve, 5));
+                        return await query(...args);
+                    } finally {
+                        inFlight--;
+                    }
+                });
+            let removed: string[];
+            try {
+                removed = await store.deleteUserUserPermSubtreeForHolder(
+                    holder.id,
+                    issuer.id,
+                    [...outer, ...nested, outer[0]],
+                );
+            } finally {
+                spy.mockRestore();
+            }
+
+            expect(peak).toBeGreaterThan(1);
+            expect(peak).toBeLessThanOrEqual(FLAT_PERM_SCAN_CONCURRENCY);
+            expect(scanned.sort()).toEqual(
+                outer
+                    .map((root) =>
+                        PermissionUtil.join('perm', String(holder.id), root),
+                    )
+                    .sort(),
+            );
+            expect(removed.sort()).toEqual([...outer].sort());
+            expect(
+                await store.getFlatUserPerms(holder.id, [...outer, orphan]),
+            ).toEqual([]);
+        });
+
+        it('deletes several exact grants of one issuer in one statement, reporting the ones it found', async () => {
+            const issuer = await makeUser();
+            const other = await makeUser();
+            const holder = await makeUser();
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                'kv-share:o:a:x',
+                {},
+            );
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                'kv-share:o:a:x:deep',
+                {},
+            );
+            await store.upsertUserUserPerm(
+                holder.id,
+                other.id,
+                'kv-share-read:o:a:x',
+                {},
+            );
+
+            const write = vi.spyOn(server.clients.db, 'write');
+            let removed: string[];
+            try {
+                removed = await store.deleteUserUserPermsByHolder(
+                    holder.id,
+                    [
+                        'kv-share:o:a:x',
+                        'kv-share-read:o:a:x',
+                        'kv-share-write:o:a:x',
+                    ],
+                    issuer.id,
+                );
+                expect(
+                    write.mock.calls.filter(([sql]) =>
+                        String(sql).startsWith('DELETE'),
+                    ),
+                ).toHaveLength(1);
+            } finally {
+                write.mockRestore();
+            }
+            expect(removed).toEqual(['kv-share:o:a:x']);
+            // Exact, not a subtree, and never another issuer's grant.
+            expect(
+                (
+                    await store.readLinkedUserUserPerms(holder.id, [
+                        'kv-share:o:a:x:deep',
+                        'kv-share-read:o:a:x',
+                    ])
+                )
+                    .map((row) => row.permission)
+                    .sort(),
+            ).toEqual(['kv-share-read:o:a:x', 'kv-share:o:a:x:deep']);
+            expect(
+                await store.deleteUserUserPermsByHolder(
+                    holder.id,
+                    [],
+                    issuer.id,
+                ),
+            ).toEqual([]);
         });
 
         it('leaves another issuer`s subtree grant standing', async () => {

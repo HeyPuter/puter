@@ -20,6 +20,15 @@
 const nonNegative = (value) => Number.isFinite(value) ? Math.max(0, value) : 0;
 
 /**
+ * A meter's share as a whole percent. 100% reads as spent, so a meter with
+ * anything left shows 99% at most.
+ *
+ * @param {number} share - The share, 0-100 (or past 100 when overspent).
+ * @returns {number}
+ */
+export const meterPercent = (share) => (share < 100 ? Math.min(99, Math.round(share)) : Math.round(share));
+
+/**
  * @typedef {Object} UsageBudget
  * @property {number} used - Allowance-charged spend, in the server's units.
  * @property {number} capacity - The monthly plan allowance.
@@ -55,7 +64,7 @@ export const usageBudget = (usage, allowanceInfo) => {
     return {
         used,
         capacity,
-        percent: Math.round(share),
+        percent: meterPercent(share),
         barPercent: Math.max(0, Math.min(100, share)),
     };
 };
@@ -72,4 +81,19 @@ export const addonCreditsRemaining = (allowanceInfo) => {
     const purchased = nonNegative(addons.purchasedCredits);
     if ( ! (purchased > 0) ) return null;
     return Math.max(0, purchased - nonNegative(addons.consumedPurchaseCredits));
+};
+
+/**
+ * `getMonthlyUsage()` resolves with whatever body the server answered, an
+ * error included. Throws unless that body is a usage report, so a failed
+ * request isn't shown as a month with nothing used.
+ *
+ * @param {Object | null | undefined} res - What `getMonthlyUsage()` resolved with.
+ * @returns {Object} `res`, once checked.
+ */
+export const monthlyUsageOrThrow = (res) => {
+    if ( res === null || typeof res?.usage !== 'object' || res.usage === null ) {
+        throw new Error(res?.message || 'Usage report unavailable');
+    }
+    return res;
 };

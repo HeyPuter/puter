@@ -92,6 +92,10 @@ function makeService() {
             // Default: no node on the chain is open to anyone with the link.
             listAnyoneReaching: vi.fn().mockResolvedValue([]),
         },
+        app: {
+            // Default: no app row behind any AppData folder.
+            getByUids: vi.fn().mockResolvedValue(new Map()),
+        },
     };
     const services = {
         permission: {
@@ -380,6 +384,56 @@ describe('ACLService.check — app-under-user', () => {
         ).toBe(true);
     });
 
+    it("is refused an opted-out app's AppData whatever it was granted", async () => {
+        const { service, stores, services } = makeService();
+        services.permission.scan.mockResolvedValue([{ $: 'option', key: 'k' }]);
+        const closed = `app-${uuidv4()}`;
+        stores.app.getByUids.mockImplementation(async (uids: string[]) =>
+            uids.includes(closed)
+                ? new Map([
+                      [
+                          closed,
+                          { uid: closed, metadata: { share_app_data: false } },
+                      ],
+                  ])
+                : new Map(),
+        );
+        // Asked in another case; the stored chain names the real folder.
+        const asked: ResourceDescriptor = {
+            path: `/issuer/appdata/${closed.toUpperCase()}/state.json`,
+            resolveAncestors: async () => [
+                {
+                    uid: 'uid:file',
+                    path: `/issuer/AppData/${closed}/state.json`,
+                },
+                { uid: 'uid:root', path: `/issuer/AppData/${closed}` },
+                { uid: 'uid:appdata', path: '/issuer/AppData' },
+                { uid: 'uid:home', path: '/issuer' },
+            ],
+        };
+        expect(await service.check(appActor('issuer'), asked, 'read')).toBe(
+            false,
+        );
+        expect(stores.app.getByUids).toHaveBeenCalledWith(
+            expect.arrayContaining([closed]),
+        );
+    });
+
+    it('looks up no app for an AppData folder not named like one', async () => {
+        const { service, stores, services } = makeService();
+        services.permission.scan.mockResolvedValue([{ $: 'option', key: 'k' }]);
+        for (const name of ['日本', 'notes', 'app-2']) {
+            expect(
+                await service.check(
+                    appActor('issuer'),
+                    resource(`/issuer/AppData/${name}/x`),
+                    'read',
+                ),
+            ).toBe(true);
+        }
+        expect(stores.app.getByUids).not.toHaveBeenCalled();
+    });
+
     it("does not get its user's home short-circuit", async () => {
         const { service, services } = makeService();
         // The app's user owns /issuer, so the recursive user check passes,
@@ -496,6 +550,40 @@ describe('ACLService.check — public folders', () => {
         expect(
             await service.check(issuerActor, resource('/owner'), 'read'),
         ).toBe(false);
+    });
+
+    it('stays closed for a case variant that resolved a private folder', async () => {
+        const { service, stores } = publicService();
+        stores.user.getByUsername.mockResolvedValue({
+            username: 'owner',
+            email_confirmed: true,
+        });
+        // What MySQL hands back for `/owner/Public/...` when the owner's
+        // folder is stored as `public`: the lookup collates case-insensitively.
+        const variant: ResourceDescriptor = {
+            path: '/owner/Public/secret.txt',
+            resolveAncestors: async () => [
+                { uid: 'uid:secret', path: '/owner/public/secret.txt' },
+                { uid: 'uid:public', path: '/owner/public' },
+                { uid: 'uid:owner', path: '/owner' },
+            ],
+        };
+        expect(await service.check(issuerActor, variant, 'read')).toBe(false);
+    });
+
+    it('stays closed when no Public folder is stored under the path', async () => {
+        const { service, stores } = publicService();
+        stores.user.getByUsername.mockResolvedValue({
+            username: 'owner',
+            email_confirmed: true,
+        });
+        const orphan: ResourceDescriptor = {
+            path: '/owner/Public/index.html',
+            resolveAncestors: async () => [
+                { uid: 'uid:owner', path: '/owner' },
+            ],
+        };
+        expect(await service.check(issuerActor, orphan, 'read')).toBe(false);
     });
 
     it('stays closed when the feature flag is off', async () => {
@@ -615,6 +703,165 @@ describe('ACLService.check — stronger modes imply weaker ones', () => {
         ]);
         // Unknown modes fall back to themselves rather than throwing.
         expect(service.higherModes('bogus' as never)).toEqual(['bogus']);
+    });
+});
+
+describe('ACLService.check — ancestor scans', () => {
+    const path = '/other/a/b/file.txt';
+
+    /**
+     * Scan answers by the ancestor they ask about: each after its own delay, a
+     * hit, a miss, or a failure.
+     */
+    const answering = (
+        services: ReturnType<typeof makeService>['services'],
+        answers: Record<string, { ms: number; hit?: boolean; fail?: boolean }>,
+        events: string[] = [],
+    ) =>
+        services.permission.scan.mockImplementation(
+            async (_actor: unknown, permissions: string[]) => {
+                const ancestor = Object.keys(answers).find((p) =>
+                    permissions.includes(`fs:uid\\C${p}:read`),
+                )!;
+                const answer = answers[ancestor];
+                events.push(`${ancestor}:start`);
+                await new Promise((resolve) => setTimeout(resolve, answer.ms));
+                events.push(`${ancestor}:end`);
+                if (answer.fail) throw new Error(`${ancestor} scan failed`);
+                return answer.hit ? [{ $: 'option', key: 'k' }] : [];
+            },
+        );
+
+    const outcome = async (run: () => Promise<boolean>) => {
+        try {
+            return { granted: await run() };
+        } catch (error) {
+            return { error: (error as Error).message };
+        }
+    };
+
+    it('answers a grant on the node itself with one scan', async () => {
+        const { service, services } = makeService();
+        const events: string[] = [];
+        answering(
+            services,
+            {
+                [path]: { ms: 5, hit: true },
+                '/other/a/b': { ms: 5 },
+                '/other/a': { ms: 5 },
+                '/other': { ms: 5 },
+            },
+            events,
+        );
+        expect(await service.check(issuerActor, resource(path), 'read')).toBe(
+            true,
+        );
+        expect(events).toEqual([`${path}:start`, `${path}:end`]);
+    });
+
+    it('after a miss on the node, starts the scans above it before the first answers', async () => {
+        const { service, services } = makeService();
+        const events: string[] = [];
+        answering(
+            services,
+            {
+                [path]: { ms: 5 },
+                '/other/a/b': { ms: 5 },
+                '/other/a': { ms: 5 },
+                '/other': { ms: 5 },
+            },
+            events,
+        );
+        expect(await service.check(issuerActor, resource(path), 'read')).toBe(
+            false,
+        );
+        expect(events.slice(0, 2)).toEqual([`${path}:start`, `${path}:end`]);
+        expect(events.slice(2, 5).every((e) => e.endsWith(':start'))).toBe(
+            true,
+        );
+        expect(services.permission.scan).toHaveBeenCalledTimes(4);
+    });
+
+    it('lets the deepest hit win over a failed scan above it', async () => {
+        const { service, services } = makeService();
+        answering(services, {
+            [path]: { ms: 0 },
+            '/other/a/b': { ms: 15, hit: true },
+            '/other/a': { ms: 0, fail: true },
+            '/other': { ms: 0, fail: true },
+        });
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ granted: true });
+    });
+
+    it('fails with the first failed scan below any hit, however fast the hit', async () => {
+        const { service, services } = makeService();
+        answering(services, {
+            [path]: { ms: 0 },
+            '/other/a/b': { ms: 15, fail: true },
+            '/other/a': { ms: 0, hit: true },
+            '/other': { ms: 0, fail: true },
+        });
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ error: '/other/a/b scan failed' });
+    });
+
+    it('fails with the deepest failure when nothing hits', async () => {
+        const { service, services } = makeService();
+        answering(services, {
+            [path]: { ms: 0 },
+            '/other/a/b': { ms: 15, fail: true },
+            '/other/a': { ms: 0 },
+            '/other': { ms: 0, fail: true },
+        });
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ error: '/other/a/b scan failed' });
+    });
+
+    it('fails on a failed node scan without scanning above it, even where a grant sits', async () => {
+        const { service, services } = makeService();
+        const events: string[] = [];
+        answering(
+            services,
+            {
+                [path]: { ms: 0, fail: true },
+                '/other/a/b': { ms: 0, hit: true },
+                '/other/a': { ms: 0 },
+                '/other': { ms: 0 },
+            },
+            events,
+        );
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ error: `${path} scan failed` });
+        expect(events).toEqual([`${path}:start`, `${path}:end`]);
+    });
+
+    it('lets a grant on the node win before any scan above it could fail', async () => {
+        const { service, services } = makeService();
+        answering(services, {
+            [path]: { ms: 0, hit: true },
+            '/other/a/b': { ms: 0, fail: true },
+            '/other/a': { ms: 0, fail: true },
+            '/other': { ms: 0, fail: true },
+        });
+        expect(
+            await outcome(() =>
+                service.check(issuerActor, resource(path), 'read'),
+            ),
+        ).toEqual({ granted: true });
+        expect(services.permission.scan).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -1073,7 +1320,10 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
     });
 
     describe('app-under-user on shared paths', () => {
-        const makeApp = async (ownerUserId: number) =>
+        const makeApp = async (
+            ownerUserId: number,
+            fields: Record<string, unknown> = {},
+        ) =>
             (
                 server.stores.app.create as unknown as (
                     fields: Record<string, unknown>,
@@ -1084,6 +1334,7 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
                     name: `acl-app-${uuidv4()}`,
                     title: 'ACL app',
                     index_url: `https://acl-${uuidv4()}.test/`,
+                    ...fields,
                 },
                 { ownerUserId },
             );
@@ -1197,6 +1448,71 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
             expect(
                 await acl.check(asApp(holder, mine), appDataOf(theirs.uid), 'write'),
             ).toBe(false);
+        });
+
+        describe("another app's AppData", () => {
+            /** `/<user>/AppData/<appUid>/inner`, as the app would leave it. */
+            const seedAppData = async (user: Actor, appUid: string) => {
+                const root = `/${user.user.username}/AppData/${appUid}`;
+                await server.services.fs.mkdir(user.user.id!, {
+                    path: `${root}/inner`,
+                    createMissingParents: true,
+                } as never);
+                return root;
+            };
+
+            const grantTo = (
+                user: Actor,
+                app: { uid: string },
+                permission: string,
+            ) =>
+                runWithContext({ actor: user }, () =>
+                    server.services.permission.grantUserAppPermission(
+                        user,
+                        app.uid,
+                        permission,
+                    ),
+                );
+
+            it('stays closed to every grant once that app opts out of sharing', async () => {
+                const user = await makeUser();
+                const closed = await makeApp(user.user.id!, {
+                    metadata: JSON.stringify({ share_app_data: false }),
+                });
+                const root = await seedAppData(user, closed.uid);
+                const inner = acl.fsDescriptor(`${root}/inner`);
+                const home = `/${user.user.username}`;
+
+                // The folder by path, its parent, and the whole home.
+                for (const target of [root, `${home}/AppData`, home]) {
+                    const reader = await makeApp(user.user.id!);
+                    await grantTo(user, reader, `fs:${target}:read`);
+                    expect(
+                        await acl.check(asApp(user, reader), inner, 'read'),
+                    ).toBe(false);
+                }
+
+                // The user and the app that owns the folder keep their access.
+                expect(await acl.check(user, inner, 'write')).toBe(true);
+                expect(
+                    await acl.check(asApp(user, closed), inner, 'write'),
+                ).toBe(true);
+            });
+
+            it('opens to an fs grant while that app shares', async () => {
+                const user = await makeUser();
+                const open = await makeApp(user.user.id!);
+                const root = await seedAppData(user, open.uid);
+                const reader = await makeApp(user.user.id!);
+                await grantTo(user, reader, `fs:${root}:read`);
+                expect(
+                    await acl.check(
+                        asApp(user, reader),
+                        acl.fsDescriptor(`${root}/inner`),
+                        'read',
+                    ),
+                ).toBe(true);
+            });
         });
     });
 

@@ -20,7 +20,7 @@ puter.ai.txt2speech(text, language, voice, engine, testMode = false)
 
 #### `text` (String) (required)
 
-A string containing the text you want to convert to speech. The text must be less than 3000 characters long. Defaults to AWS Polly provider when no options are provided.
+A string containing the text you want to convert to speech. The text can be up to 3,000 characters long. Longer text is rejected with an `input_too_large` error. Defaults to AWS Polly provider when no options are provided.
 
 #### `testMode` (Boolean) (optional)
 
@@ -32,7 +32,7 @@ Additional settings for the generation request. Available options depend on the 
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `provider` | `String` | TTS provider to use. `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, `'speechify'`. Common aliases (`'eleven'`, `'google'`, `'grok'`, `'polly'`, `'simba'`, …) are also accepted; anything else is rejected with a `bad_request` error |
+| `provider` | `String` | TTS provider to use. `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, `'speechify'`, `'kling'`. Common aliases (`'eleven'`, `'google'`, `'grok'`, `'polly'`, `'simba'`, …) are also accepted; anything else is rejected with a `bad_request` error |
 | `model` | `String` | Model identifier (provider-specific) |
 | `voice` | `String` | Voice ID used for synthesis (provider-specific) |
 | `test_mode` | `Boolean` | When `true`, returns a sample audio without using credits |
@@ -84,9 +84,13 @@ Available when `provider: 'gemini'`:
 |--------|------|-------------|
 | `model` | `String` | TTS model. Available: `'gemini-3.8-flash-tts'` (default), `'gemini-3.8-flash-lite-tts'` |
 | `voice` | `String` | Voice name. Defaults to `'Kore'`. Available: `'Zephyr'`, `'Puck'`, `'Charon'`, `'Kore'`, `'Fenrir'`, `'Leda'`, `'Orus'`, `'Aoede'`, `'Callirrhoe'`, `'Autonoe'`, `'Enceladus'`, `'Iapetus'`, `'Umbriel'`, `'Algieba'`, `'Despina'`, `'Erinome'`, `'Algenib'`, `'Rasalgethi'`, `'Laomedeia'`, `'Achernar'`, `'Alnilam'`, `'Schedar'`, `'Gacrux'`, `'Pulcherrima'`, `'Achird'`, `'Zubenelgenubi'`, `'Vindemiatrix'`, `'Sadachbia'`, `'Sadaltager'`, `'Sulafat'` |
-| `instructions` | `String` | Natural language instructions to control speaking style (tone, speed, mood, etc.) |
+| `instructions` | `String` | Natural language instructions to control speaking style (tone, speed, mood, etc.), up to 3,000 characters |
 
-For more details about Gemini TTS, see the [Google Gemini TTS documentation](https://ai.google.dev/gemini-api/docs/text-to-speech).
+Gemini generates speech from the `text` field. The `instructions` string isn't included in the generated audio. It guides delivery (tone, pacing, accent, emotion). Instructions count toward input tokens. Longer instructions are rejected with an `input_too_large` error. Audio is returned as WAV.
+
+A Gemini request is charged for the tokens Gemini reports, even when it fails or returns no audio. If Gemini returns audio without reporting its token usage, the request fails with an `upstream_failed` error.
+
+For more details about Gemini TTS, see the [Google Gemini speech generation documentation](https://ai.google.dev/gemini-api/docs/speech-generation).
 
 #### xAI (Grok) Options
 
@@ -113,6 +117,19 @@ Available when `provider: 'speechify'`:
 | `output_format` | `String` | Output format. Available: `'mp3'` (default), `'wav'`, `'ogg'`, `'aac'` |
 
 For more details, see the [Speechify API documentation](https://docs.speechify.ai/).
+
+#### Kling Options
+
+Available when `provider: 'kling'`. Kling speaks English and Chinese, and each voice speaks one or both. The text can be up to 1,000 characters. Each request costs $0.007, whatever its length, and returns MP3 audio.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `model` | `String` | TTS model. Available: `'kling-tts'` (default) |
+| `voice` | `String` | Voice ID. Defaults to `'oversea_male1'`. [`txt2speech.listVoices({ provider: 'kling' })`](/AI/txt2speech.listVoices/) lists every voice, with its first language as `language` and all of its languages in `labels.languages` |
+| `language` | `String` | `'en'` or `'zh'`. A region suffix such as `'en-US'` is ignored. Defaults to the voice's first language. A language the voice doesn't speak is rejected with `field_invalid` |
+| `voice_settings` | `Object` | Only `speed` is read: a number from `0.8` to `2.0`. Defaults to `1.0` |
+
+For more details, see the [Kling TTS API reference](https://kling.ai/document-api/api/video/avatar/text-to-speech).
 
 ## Return value
 

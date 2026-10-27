@@ -47,7 +47,8 @@ import { ChatCompletionDriver } from './ChatCompletionDriver.js';
 import { clearUnhealthyRoutes, isRouteUnhealthy } from './utils/providerHealth.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import type { IChatCompleteResult } from './types.js';
-import { type AIChatStream, ChatStreamAbortedError } from './utils/Streaming.js';
+import { SDK_TIMEOUT_MS } from './utils/sdkClient.js';
+import type { AIChatStream } from './utils/Streaming.js';
 
 let server: PuterServer;
 
@@ -905,7 +906,7 @@ describe('ChatCompletionDriver when the caller hangs up', () => {
         ).toBe(true);
     });
 
-    it('stops the generation and gives the hold back', async () => {
+    it('keeps generating after the hang-up and bills the reported usage', async () => {
         const actor = freeUser() as never;
         const metering = server.services.metering;
         const abort = new AbortController();
@@ -914,6 +915,7 @@ describe('ChatCompletionDriver when the caller hangs up', () => {
             resume = r;
         });
         let providerError: unknown;
+        let finished = false;
 
         vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
             streamOf(async ({ chatStream }) => {
@@ -921,8 +923,13 @@ describe('ChatCompletionDriver when the caller hangs up', () => {
                 block.addText('first');
                 await paused;
                 try {
-                    // An upstream still generating: keeps writing until told.
-                    for (let i = 0; i < 1000; i++) block.addText('more');
+                    // An upstream still generating after the caller left.
+                    for (let i = 0; i < 1000; i++) {
+                        await chatStream.waitForDrain();
+                        block.addText('more');
+                    }
+                    chatStream.end({ input_tokens: 3, output_tokens: 1001 });
+                    finished = true;
                 } catch (e) {
                     providerError = e;
                     throw e;
@@ -930,6 +937,7 @@ describe('ChatCompletionDriver when the caller hangs up', () => {
             }) as never,
         );
         const metered = vi.spyOn(metering, 'batchIncrementUsages');
+        const events = vi.spyOn(server.clients.event, 'emit');
 
         const { stream } = (await withTestActor(() => {
             Context.set('abortSignal', abort.signal);
@@ -950,15 +958,120 @@ describe('ChatCompletionDriver when the caller hangs up', () => {
         }
         await new Promise((r) => setTimeout(r, 20));
 
-        expect(providerError).toBeInstanceOf(ChatStreamAbortedError);
-        // Nobody is listening, so no error line is written for the abort.
-        expect(body).not.toContain('"type":"error"');
-        // The hold goes back once the usage write lands.
+        expect(providerError).toBeUndefined();
+        expect(finished).toBe(true);
+        // Nothing reaches a caller who has gone, including the usage line.
+        expect(body).not.toContain('more');
+        expect(body).not.toContain('"type":"usage"');
         await vi.waitFor(async () =>
             expect(await metering.getOutstandingHolds(actor)).toBe(0),
         );
-        // What was generated before the hang-up is still charged.
-        expect(metered).toHaveBeenCalled();
+        expect(
+            meteredUsages(metered).some((u) =>
+                u.usageType.includes('estimated_'),
+            ),
+        ).toBe(false);
+        expect(
+            events.mock.calls.some(
+                ([key, data]) =>
+                    key === 'ai.prompt.cost-calculated' &&
+                    (data as { usage?: { output_tokens?: number } }).usage
+                        ?.output_tokens === 1001,
+            ),
+        ).toBe(true);
+    });
+
+    it('bills a stream whose caller left before the first token', async () => {
+        const actor = freeUser() as never;
+        const abort = new AbortController();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockImplementationOnce(
+            async () => {
+                // The caller hangs up while the upstream is still answering.
+                abort.abort();
+                return streamOf(async ({ chatStream }) => {
+                    chatStream
+                        .message()
+                        .contentBlock({ type: 'text' })
+                        .addText('answer');
+                    chatStream.end({ input_tokens: 3, output_tokens: 2 });
+                });
+            },
+        );
+        const events = vi.spyOn(server.clients.event, 'emit');
+        const { stream } = (await withTestActor(() => {
+            Context.set('abortSignal', abort.signal);
+            return driver.complete({
+                model: 'priced',
+                messages: [{ role: 'user', content: 'go' }],
+                stream: true,
+            });
+        }, actor)) as unknown as { stream: Readable };
+        await drain(stream);
+        expect(
+            events.mock.calls.some(
+                ([key, data]) =>
+                    key === 'ai.prompt.cost-calculated' &&
+                    (data as { usage?: { output_tokens?: number } }).usage
+                        ?.output_tokens === 2,
+            ),
+        ).toBe(true);
+        await vi.waitFor(async () =>
+            expect(await server.services.metering.getOutstandingHolds(actor)).toBe(0),
+        );
+    });
+
+    it('cuts off an upstream that outlives its caller by the SDK timeout', async () => {
+        const actor = freeUser() as never;
+        const metering = server.services.metering;
+        const abort = new AbortController();
+        let upstreamAborted = false;
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            streamOf(async ({ chatStream }) => {
+                chatStream
+                    .message()
+                    .contentBlock({ type: 'text' })
+                    .addText('x'.repeat(400));
+                const signal = Context.get('upstreamSignal')!;
+                // A stalled upstream: no more chunks until it's cut off.
+                await new Promise((_resolve, reject) => {
+                    signal.addEventListener('abort', () => {
+                        upstreamAborted = true;
+                        reject(signal.reason);
+                    });
+                });
+            }) as never,
+        );
+        const metered = vi.spyOn(metering, 'batchIncrementUsages');
+        const timers = vi.spyOn(globalThis, 'setTimeout');
+        const { stream } = (await withTestActor(() => {
+            Context.set('abortSignal', abort.signal);
+            return driver.complete({
+                model: 'priced',
+                messages: [{ role: 'user', content: 'go' }],
+                stream: true,
+            });
+        }, actor)) as unknown as { stream: Readable };
+
+        abort.abort();
+        const limit = timers.mock.calls.find(
+            ([, ms]) => ms === SDK_TIMEOUT_MS,
+        );
+        expect(limit).toBeDefined();
+        await new Promise((r) => setTimeout(r, 20));
+        expect(upstreamAborted).toBe(false);
+
+        (limit![0] as () => void)();
+        await drain(stream);
+
+        expect(upstreamAborted).toBe(true);
+        expect(
+            meteredUsages(metered).some((u) =>
+                u.usageType.endsWith('estimated_output_tokens'),
+            ),
+        ).toBe(true);
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(0),
+        );
     });
 });
 
@@ -991,5 +1104,131 @@ describe('stream pump termination', () => {
             expect(await server.services.metering.getOutstandingHolds(actor)).toBe(0),
         );
         expect(warning).toHaveBeenCalledWith('Chat stream cleanup failed:', 'cleanup failed');
+    });
+});
+
+// A list-price change can land while a completion is running. The attempt is
+// held, metered and estimated at the rates in force when it started, so the
+// hold covers what is charged and the charge doesn't jump mid-request.
+describe('ChatCompletionDriver pricing across a scheduled rate change', () => {
+    const REPRICED_MODEL = {
+        ...PRICED_MODEL,
+        id: 'repriced',
+        pricingOverrides: [
+            {
+                startsAt: '2026-12-01T00:00:00Z',
+                costs: { input_tokens: 2000, output_tokens: 4000 },
+            },
+        ],
+    };
+    const BEFORE = new Date('2026-11-30T23:59:59.000Z');
+    const AFTER = new Date('2026-12-01T00:00:05.000Z');
+
+    beforeEach(async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValue([
+            REPRICED_MODEL,
+            PRICED_MODEL,
+        ] as never);
+        driver = await makeDriver();
+        vi.useFakeTimers({ toFake: ['Date'], now: BEFORE });
+    });
+
+    const listedOutputRate = async (id: string) => ({
+        listed: (await driver.models()).find((m) => m.id === id)!.costs
+            .output_tokens,
+        reported: driver
+            .getReportedCosts()
+            .find((c) => String(c.usageType).endsWith(`:${id}:output_tokens`))!
+            .ucentsPerUnit,
+    });
+
+    it('lists and reports the rates in force, before and after the change', async () => {
+        expect(await listedOutputRate('repriced')).toEqual({
+            listed: 2000,
+            reported: 2000,
+        });
+        vi.setSystemTime(AFTER);
+        expect(await listedOutputRate('repriced')).toEqual({
+            listed: 4000,
+            reported: 4000,
+        });
+        // A model with no scheduled change lists its own rates either way.
+        expect(await listedOutputRate('priced')).toEqual({
+            listed: 2000,
+            reported: 2000,
+        });
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('holds, meters and estimates an in-flight stream at its start instant', async () => {
+        const actor = freeUser() as never;
+        const reserve = vi.spyOn(server.services.metering, 'reserveCredits');
+        const metered = vi.spyOn(
+            server.services.metering,
+            'batchIncrementUsages',
+        );
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockImplementationOnce(async () => {
+                vi.setSystemTime(AFTER);
+                return streamOf(async ({ chatStream }) => {
+                    chatStream
+                        .message()
+                        .contentBlock({ type: 'text' })
+                        .addText('x'.repeat(4000));
+                    chatStream.end(undefined as never);
+                }) as never;
+            });
+
+        const result = (await withTestActor(
+            () =>
+                driver.complete({
+                    model: 'repriced',
+                    messages: [{ role: 'user', content: 'go' }],
+                    stream: true,
+                    max_tokens: 10,
+                }),
+            actor,
+        )) as unknown as { stream: Readable };
+        await drain(result.stream);
+
+        expect(completeSpy.mock.calls[0]![2]).toEqual(BEFORE);
+        const [, held] = reserve.mock.calls[0]!;
+        expect(held).toBeGreaterThanOrEqual(10 * 2000);
+        expect(held).toBeLessThan(10 * 4000);
+        const output = meteredUsages(metered).find((u) =>
+            u.usageType.endsWith('estimated_output_tokens'),
+        )!;
+        // 4000 characters at 4 chars/token, at the launch output rate.
+        expect(output.costOverride).toBe(1000 * 2000);
+    });
+
+    it('prices an attempt that starts after the change at the new rates', async () => {
+        vi.setSystemTime(AFTER);
+        const reserve = vi.spyOn(server.services.metering, 'reserveCredits');
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockResolvedValueOnce({
+                message: { role: 'assistant', content: 'ok' },
+                usage: { input_tokens: 1, output_tokens: 1 },
+                finish_reason: 'stop',
+            } as never);
+
+        await withTestActor(
+            () =>
+                driver.complete({
+                    model: 'repriced',
+                    messages: [{ role: 'user', content: 'go' }],
+                    max_tokens: 10,
+                }),
+            freeUser() as never,
+        );
+
+        expect(completeSpy.mock.calls[0]![2]).toEqual(AFTER);
+        const [, held] = reserve.mock.calls[0]!;
+        expect(held).toBeGreaterThanOrEqual(10 * 4000);
     });
 });

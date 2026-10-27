@@ -137,6 +137,17 @@ export type EventMap = {
     };
     'app.new-icon': { app_uid: string; data_url: string };
     'app.opened': { app_uid: string; user_id: number; ts: number };
+    /**
+     * A user removed an app: its grants and worker sessions are gone. With
+     * `deleteData`, the user asked for the app's data in their account to go
+     * too. Awaited by the emitter.
+     */
+    'app.uninstalled': {
+        userId: number;
+        userUuid: string;
+        appUid: string;
+        deleteData: boolean;
+    };
     'app.rename': {
         app_uid: string;
         old_name: string;
@@ -197,7 +208,7 @@ export type EventMap = {
          */
         is_temp?: boolean;
         ip?: string | null;
-        source?: 'oidc';
+        source?: 'oidc' | 'team_provision';
         req?: unknown;
         data?: unknown;
         abuse?: unknown;
@@ -257,7 +268,7 @@ export type EventMap = {
         ip?: string | null;
         fingerprint?: string | null;
         reputation?: number | null;
-        source?: 'oidc';
+        source?: 'oidc' | 'team_provision';
         requires_phone_verification: boolean;
         requires_card_verification: boolean;
         accepted: boolean;
@@ -389,6 +400,9 @@ export type EventMap = {
         new_username: string;
     };
     'user.email-changed': { user_id: number; new_email: string };
+    /** An account was suspended, or its suspension lifted. Local events. */
+    'user.suspended': { userId: number };
+    'user.unsuspended': { userId: number };
     // Fired after an account is torn down (self-serve, admin, or temp-user
     // logout cleanup). Listeners purge external state tied to the account —
     // e.g. the marketplace extension cancels the user's Stripe subscriptions.
@@ -397,6 +411,8 @@ export type EventMap = {
         user_id: number;
         user_uuid?: string;
         stripe_customer_id?: string | null;
+        /** Apps the account owned, which cascaded away with it. */
+        appUids?: string[];
     };
 
     // ---- Team billing ---- the trigger, never the charge ----
@@ -459,7 +475,11 @@ export type EventMap = {
             [key: string]: unknown;
         };
     };
-    'storage.quota.bonus': { userId: number; extra: number };
+    /**
+     * Bytes to add to a user's storage allowance. Listeners run concurrently:
+     * add to `extra` after your own awaits, never `extra += await x`.
+     */
+    'storage.quota.bonus': { userId: number; userUuid?: string; extra: number };
 
     // ---- Key-value ----
     /**
@@ -486,13 +506,33 @@ export type EventMap = {
         noShareKeys?: string[];
         /** Events handler runs behind the write; see `Actor.handlerDepth`. */
         handlerDepth?: number;
+        /**
+         * The user who made the change. Differs from `userId` when a share
+         * holder wrote into the owner's namespace.
+         */
+        actingUserId?: number;
+        /** Made by a worker session or an events handler; see `viaWorkerOf`. */
+        viaWorker?: true;
     };
     /**
      * A whole namespace was emptied. Namespace-level on purpose: `flush`'s own
      * key enumeration is truncated for a large namespace, so the keys it saw
      * are not the keys it removed.
      */
-    'kv.flushed': { namespace: string; userId: number };
+    'kv.flushed': {
+        namespace: string;
+        userId: number;
+        actingUserId?: number;
+        viaWorker?: true;
+    };
+    /**
+     * Share handles stopped being addresses, whoever retired them. `userId` is
+     * one user who could have subscribed through them, their owner or their
+     * holder. Listeners end what was made through them even where another grant
+     * still covers the region. Local, like `permission.revoked`: one region
+     * settling covers every other.
+     */
+    'kv.share.retired': { handles: string[]; userId: number };
 
     // ---- Notifications ----
     /**
@@ -639,6 +679,13 @@ export type EventMap = {
      * reason as the events generation bump: a per-process cache.
      */
     'outer.pubsub.share.ownerShared': { ownerUserId: number };
+    /**
+     * Share handles were retired or changed, so every process must drop its
+     * cached copy. `outer.pubsub.*` because the cache is a per-process map.
+     */
+    'outer.pubsub.kv.share.forget': { handles: string[] };
+    /** The same, for every cached handle one owner holds out. */
+    'outer.pubsub.kv.share.forgetOwner': { ownerUserId: number };
     'outer.fs.write-hash': { hash: string; uuid: string };
     /**
      * Cache keys the KV read cache must stop serving, because the entries
@@ -675,6 +722,10 @@ export type EventMap = {
         requestHash?: string;
         mime: string;
     };
+    // Asked for a request whose host is outside every configured domain. A
+    // listener that recognises the host sets `result.subdomain` to the site
+    // it serves; an unclaimed host is answered with a 404.
+    'site.resolveHost': { host: string; result: { subdomain: string | null } };
     // Asked before a hosted file is streamed. A listener that owns the site
     // sets `result.allowed = false` to withhold the entry; the visitor then
     // sees the same 404 as for a missing file.

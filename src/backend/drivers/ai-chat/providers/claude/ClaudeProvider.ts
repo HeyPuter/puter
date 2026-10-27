@@ -389,10 +389,10 @@ export class ClaudeProvider implements IChatProvider {
         if (args.stream) {
             const completion = usesBeta
                 ? this.anthropic.beta.messages.stream(sdkParams as never, {
-                      signal: Context.get('abortSignal'),
+                      signal: Context.get('upstreamSignal'),
                   })
                 : this.anthropic.messages.stream(sdkParams as never, {
-                      signal: Context.get('abortSignal'),
+                      signal: Context.get('upstreamSignal'),
                   });
             // Subscribed before the request is awaited: the SDK only queues
             // events for iterators that already exist.
@@ -403,7 +403,8 @@ export class ClaudeProvider implements IChatProvider {
             try {
                 await completion.withResponse();
             } catch (e) {
-                await cleanupUploads();
+                // Best-effort and never rejects, so the fallback need not wait.
+                void cleanupUploads();
                 restoreUploads();
                 throw e;
             }
@@ -431,10 +432,10 @@ export class ClaudeProvider implements IChatProvider {
         try {
             const msg = await (usesBeta
                 ? this.anthropic.beta.messages.create(sdkParams as never, {
-                      signal: Context.get('abortSignal'),
+                      signal: Context.get('upstreamSignal'),
                   })
                 : this.anthropic.messages.create(sdkParams as never, {
-                      signal: Context.get('abortSignal'),
+                      signal: Context.get('upstreamSignal'),
                   }));
             const { usage, costs, details, advisorModel } = this.#meter(
                 (msg as Message).usage,
@@ -512,7 +513,8 @@ export class ClaudeProvider implements IChatProvider {
             restoreUploads();
             throw e;
         } finally {
-            await cleanupUploads();
+            // Best-effort and never rejects, so the response need not wait.
+            void cleanupUploads();
         }
     }
 
@@ -931,7 +933,8 @@ export class ClaudeProvider implements IChatProvider {
             };
         });
 
-        // Claude requires tool_use.input to be a dictionary
+        // Claude requires tool_use.input to be a dictionary. Gemini metadata
+        // is not part of Anthropic's tool_use schema.
         messages = messages.map((message) => {
             if (!Array.isArray(message.content)) return message;
             let changed = false;
@@ -945,14 +948,14 @@ export class ClaudeProvider implements IChatProvider {
                         } catch {
                             input = {};
                         }
-                        changed = true;
                     } else if (input === undefined || input === null) {
                         input = {};
-                        changed = true;
-                    } else {
+                    } else if (!('extra_content' in part)) {
                         return part;
                     }
-                    return { ...part, input };
+                    changed = true;
+                    const { extra_content, ...rest } = part;
+                    return { ...rest, input };
                 },
             );
             return changed ? { ...message, content } : message;

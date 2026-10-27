@@ -17,10 +17,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { describe, it, expect, vi } from 'vitest';
-import { mintGodmodeToken, sameTokenRow, shouldRenew } from './godmodeTokens.js';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
+import {
+    forgetGodmodeTokens,
+    mintGodmodeToken,
+    renewGodmodeToken,
+    reusableGodmodeToken,
+    sameTokenRow,
+    shouldRenew,
+    trackGodmodeToken,
+} from './godmodeTokens.js';
 
 const HOUR_MS = 60 * 60 * 1000;
+const jwtFor = (tokenUid) =>
+    `h.${Buffer.from(JSON.stringify({ token_uid: tokenUid })).toString('base64url')}.s`;
+// Lets a message cross to another channel instance.
+const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 const reply = (status, body) =>
     vi.fn(async () => ({
@@ -102,5 +114,234 @@ describe('sameTokenRow', () => {
         expect(sameTokenRow(jwt({ token_uid: 't1' }), jwt({ token_uid: 't2' }))).toBe(false);
         expect(sameTokenRow(jwt({}), jwt({}))).toBe(false);
         expect(sameTokenRow('garbage', 'garbage')).toBe(false);
+    });
+});
+
+describe('reusableGodmodeToken', () => {
+    const MINUTE_MS = 60 * 1000;
+    const minted = (expiresInMs = 12 * HOUR_MS) => reply(200, {
+        token: 'jwt',
+        godmode: true,
+        expires_at: Math.floor((Date.now() + expiresInMs) / 1000),
+    });
+
+    beforeEach(() => forgetGodmodeTokens());
+
+    it('hands a launch the token minted moments ago under the same session', async () => {
+        await mintGodmodeToken('app-1', deps(minted()));
+        const reused = reusableGodmodeToken('app-1', { authToken: 'session' });
+        expect(reused).toMatchObject({ ok: true, token: 'jwt' });
+        expect(reused.mintedAt).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('never hands a token to another session or another app', async () => {
+        await mintGodmodeToken('app-1', deps(minted()));
+        expect(reusableGodmodeToken('app-1', { authToken: 'other-session' })).toBeNull();
+        expect(reusableGodmodeToken('app-2', { authToken: 'session' })).toBeNull();
+    });
+
+    it('asks again once the mint is ten minutes old or the token is due for renewal', async () => {
+        await mintGodmodeToken('app-1', deps(minted()));
+        const later = (ms) => ({ authToken: 'session', nowMs: Date.now() + ms });
+        expect(reusableGodmodeToken('app-1', later(9 * MINUTE_MS))).not.toBeNull();
+        expect(reusableGodmodeToken('app-1', later(10 * MINUTE_MS))).toBeNull();
+
+        await mintGodmodeToken('app-2', deps(minted(5 * HOUR_MS)));
+        expect(reusableGodmodeToken('app-2', { authToken: 'session' })).toBeNull();
+    });
+
+    it('remembers nothing from a mint that was in flight when tokens were forgotten', async () => {
+        let answer;
+        const fetchImpl = vi.fn(() => new Promise((resolve) => {
+            answer = resolve;
+        }));
+        const pending = mintGodmodeToken('app-1', deps(fetchImpl));
+        forgetGodmodeTokens('app-1');
+        answer({
+            ok: true,
+            status: 200,
+            json: async () => ({ token: 'jwt', godmode: true, expires_at: Math.floor(Date.now() / 1000) + 12 * 60 * 60 }),
+        });
+
+        expect((await pending).ok).toBe(true);
+        expect(reusableGodmodeToken('app-1', { authToken: 'session' })).toBeNull();
+    });
+
+    it('remembers nothing from a failed mint', async () => {
+        await mintGodmodeToken('app-1', deps(reply(403, {})));
+        expect(reusableGodmodeToken('app-1', { authToken: 'session' })).toBeNull();
+    });
+
+    it('forgets one app, or every app, once sessions are revoked', async () => {
+        await mintGodmodeToken('app-1', deps(minted()));
+        await mintGodmodeToken('app-2', deps(minted()));
+        forgetGodmodeTokens('app-1');
+        expect(reusableGodmodeToken('app-1', { authToken: 'session' })).toBeNull();
+        expect(reusableGodmodeToken('app-2', { authToken: 'session' })).not.toBeNull();
+        forgetGodmodeTokens();
+        expect(reusableGodmodeToken('app-2', { authToken: 'session' })).toBeNull();
+    });
+});
+
+describe('renewGodmodeToken', () => {
+    const jwt = (tokenUid) =>
+        `h.${Buffer.from(JSON.stringify({ token_uid: tokenUid })).toString('base64url')}.s`;
+    let postMessage;
+
+    beforeEach(() => {
+        forgetGodmodeTokens();
+        postMessage = vi.fn();
+        vi.stubGlobal('window', {
+            api_origin: 'https://api.test',
+            auth_token: 'session',
+            iframe_for_app_instance: () => ({
+                src: 'https://app.test/',
+                contentWindow: { postMessage },
+            }),
+        });
+    });
+
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('stops reusing a token once an app reports it dead', async () => {
+        await mintGodmodeToken('app-1', deps(reply(200, {
+            token: jwt('t1'),
+            godmode: true,
+            expires_at: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+        })));
+        const reused = reusableGodmodeToken('app-1');
+        trackGodmodeToken('instance-dead', 'app-1', reused.token, reused.expiresAt, reused.mintedAt);
+
+        // Inside the cooldown the app is sent the same token, but no launch
+        // reuses it any more.
+        await renewGodmodeToken('instance-dead', { origin: 'https://app.test' });
+        expect(reusableGodmodeToken('app-1')).toBeNull();
+    });
+
+    it.each([0, 60 * 1000])('rejects a navigated frame before token delivery or mint after %s ms', async (age) => {
+        const fetchImpl = reply(200, {
+            token: jwt('t2'), godmode: true, expires_at: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+        });
+        vi.stubGlobal('fetch', fetchImpl);
+        await mintGodmodeToken('app-1', deps(reply(200, {
+            token: jwt('t1'), godmode: true, expires_at: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+        })));
+        trackGodmodeToken('instance-navigated', 'app-1', jwt('t1'), 0, Date.now() - age);
+
+        expect(await renewGodmodeToken('instance-navigated', { origin: 'https://untrusted.test' })).toBe(false);
+        expect(fetchImpl).not.toHaveBeenCalled();
+        expect(postMessage).not.toHaveBeenCalled();
+        expect(reusableGodmodeToken('app-1')).not.toBeNull();
+    });
+
+    it('keeps the launch origin even if the iframe src attribute changes', async () => {
+        trackGodmodeToken('instance-src', 'app-1', jwt('t1'), 0);
+        window.iframe_for_app_instance = () => ({ src: 'https://untrusted.test/', contentWindow: { postMessage } });
+        expect(await renewGodmodeToken('instance-src', { origin: 'https://untrusted.test' })).toBe(false);
+        expect(postMessage).not.toHaveBeenCalled();
+        expect(await renewGodmodeToken('instance-src')).toBe(true);
+        expect(postMessage).toHaveBeenCalledWith({ msg: 'puter.token', token: jwt('t1') }, 'https://app.test');
+    });
+
+    it.each(['null', '', 'file://', 'https://app.test.evil'])('rejects an invalid or different request origin %s', async (origin) => {
+        trackGodmodeToken('instance-invalid', 'app-1', jwt('t1'), 0);
+        expect(await renewGodmodeToken('instance-invalid', { origin })).toBe(false);
+        expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    it.each(['null', 'file://', 'invalid'])('does not track a launch without a usable origin %s', async (origin) => {
+        trackGodmodeToken('instance-untracked', 'app-1', jwt('t1'), 0, Date.now(), origin);
+        expect(await renewGodmodeToken('instance-untracked')).toBe(false);
+        expect(postMessage).not.toHaveBeenCalled();
+    });
+
+    it('pins an explicit launch origin before the iframe exists', async () => {
+        window.iframe_for_app_instance = () => null;
+        trackGodmodeToken('instance-launch', 'app-1', jwt('t1'), 0, Date.now(), 'https://launch.test');
+        window.iframe_for_app_instance = () => ({ src: 'https://launch.test/path', contentWindow: { postMessage } });
+        expect(await renewGodmodeToken('instance-launch', { origin: 'https://launch.test' })).toBe(true);
+        expect(postMessage).toHaveBeenCalledWith({ msg: 'puter.token', token: jwt('t1') }, 'https://launch.test');
+    });
+
+    it.each([
+        ['https://launch.test/path?value=1', 'https://launch.test'],
+        ['chrome-extension://extension-id/page.html', 'chrome-extension://extension-id'],
+    ])('pins the origin of a resolved launch URL %s', async (launchUrl, origin) => {
+        window.iframe_for_app_instance = () => null;
+        trackGodmodeToken('instance-resolved', 'app-1', jwt('t1'), 0, Date.now(), launchUrl);
+        window.iframe_for_app_instance = () => ({ src: launchUrl, contentWindow: { postMessage } });
+        expect(await renewGodmodeToken('instance-resolved', { origin })).toBe(true);
+        expect(postMessage).toHaveBeenCalledWith({ msg: 'puter.token', token: jwt('t1') }, origin);
+    });
+
+    it('mints afresh for a reused token whose mint is past the cooldown', async () => {
+        const fetchImpl = reply(200, {
+            token: jwt('t2'),
+            godmode: true,
+            expires_at: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+        });
+        vi.stubGlobal('fetch', fetchImpl);
+        // Reused from a mint a minute ago, not minted for this launch.
+        trackGodmodeToken('instance-reused', 'app-1', jwt('t1'), 0, Date.now() - 60 * 1000);
+
+        expect(await renewGodmodeToken('instance-reused', { origin: 'https://app.test' })).toBe(true);
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+        expect(postMessage).toHaveBeenCalledWith({ msg: 'puter.token', token: jwt('t2') }, 'https://app.test');
+    });
+});
+
+describe('other tabs', () => {
+    const minted = (tokenUid) => reply(200, {
+        token: jwtFor(tokenUid),
+        godmode: true,
+        expires_at: Math.floor(Date.now() / 1000) + 12 * 60 * 60,
+    });
+    let otherTab;
+
+    beforeEach(() => {
+        forgetGodmodeTokens();
+        otherTab = new BroadcastChannel('puter-godmode-tokens');
+    });
+
+    afterEach(() => otherTab.close());
+
+    it('hear which row each mint landed on, and every forget', async () => {
+        const heard = [];
+        otherTab.onmessage = (event) => heard.push(event.data);
+        await mintGodmodeToken('app-1', deps(minted('t1')));
+        forgetGodmodeTokens('app-1');
+        forgetGodmodeTokens();
+        await settle();
+
+        expect(heard).toEqual([
+            { appUid: 'app-1', tokenRow: 't1' },
+            { appUid: 'app-1', tokenRow: null },
+            { appUid: null, tokenRow: null },
+        ]);
+        // Tokens never cross between tabs.
+        expect(JSON.stringify(heard)).not.toContain(jwtFor('t1'));
+    });
+
+    it('stop this tab reusing a row another tab moved off or revoked', async () => {
+        const reusable = () => reusableGodmodeToken('app-1', { authToken: 'session' });
+        await mintGodmodeToken('app-1', deps(minted('t1')));
+
+        otherTab.postMessage({ appUid: 'app-1', tokenRow: 't1' });
+        await settle();
+        expect(reusable()).not.toBeNull();
+
+        otherTab.postMessage({ appUid: 'app-1', tokenRow: 't2' });
+        await settle();
+        expect(reusable()).toBeNull();
+
+        await mintGodmodeToken('app-1', deps(minted('t2')));
+        otherTab.postMessage({ appUid: 'app-1', tokenRow: null });
+        await settle();
+        expect(reusable()).toBeNull();
+
+        await mintGodmodeToken('app-1', deps(minted('t2')));
+        otherTab.postMessage({ appUid: null, tokenRow: null });
+        await settle();
+        expect(reusable()).toBeNull();
     });
 });

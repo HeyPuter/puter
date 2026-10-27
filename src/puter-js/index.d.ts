@@ -194,6 +194,21 @@ export type {
     KVSetBatch,
     KVSetItem,
     KVSetObject,
+    KVShare,
+    KVShareAccess,
+    KVSharedByMe,
+    KVSharedByMeListOptions,
+    KVSharedWithMe,
+    KVShareListOptions,
+    KVShareManyFailed,
+    KVShareManyItem,
+    KVShareManyOptions,
+    KVShareManyShared,
+    KVShareOptions,
+    KVShareRecipient,
+    KVShareRevokedBy,
+    KVShareState,
+    KVUnshareResult,
     KVUpdateObject,
     KVUpdatePath,
     KVValue,
@@ -201,8 +216,7 @@ export type {
 
 // -- puter.net --
 export type { Networking, SocketEvent } from './types/modules/networking/types.js';
-export type { PSocket } from './types/modules/networking/PSocket.js';
-export type { PTLSSocket } from './types/modules/networking/PTLS.js';
+export type { PSocket, PTLSSocket } from './types/modules/networking/PSocket.js';
 
 // -- puter.os --
 
@@ -251,6 +265,9 @@ export type {
     PermsCreateKind,
     PermsFolderName,
     PermsFolderRequest,
+    PermsFsRequest,
+    PermsKvShareAccess,
+    PermsKvShareRequest,
     PermsPermissionRequest,
     PermsRequestDetails,
     PermsResource,

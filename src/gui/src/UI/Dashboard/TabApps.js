@@ -1,9 +1,29 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
 import launch_app from '../../helpers/launchApp.js';
 import revokeAppSessions from '../../helpers/revokeAppSessions.js';
 import { begin_dashboard_tile_launch, settle_dashboard_tile_launch } from '../UIWindow.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
+import { bindBackdropDismiss } from './dashboardOverlay.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
 import { appTileLink } from './appLink.js';
@@ -28,30 +48,18 @@ import {
     serializeAppGroups,
 } from './appGroups.js';
 
+/**
+ * What a failed kv read resolves to. It must not pass for null ("never
+ * saved"): the grid would drop the user's folders and order, and the next
+ * save would write that loss back.
+ */
+const KV_READ_FAILED = Symbol('kv read failed');
+
 /** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
 const APP_NAMES_NO_UNINSTALL = new Set([
     'dev-center',
     'app-center',
 ]);
-
-/*
- * Copyright (C) 2024-present Puter Technologies Inc.
- *
- * This file is part of Puter.
- *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
- *
- * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
 
 // -- Add-an-app tile --
 /** Puter's app marketplace — the add-an-app tile's route to installing one. */
@@ -220,7 +228,7 @@ function buildTileHtml (app) {
     // iOS-style uninstall badge; only shown while reorder mode is on (CSS).
     // tabindex=-1 keeps it out of the grid's roving-tabindex tab order.
     if ( ! APP_NAMES_NO_UNINSTALL.has((app.name || '').toLowerCase()) ) {
-        h += `<button type="button" class="myapps-tile-remove" tabindex="-1" aria-label="Uninstall ${html_encode(title)}">`;
+        h += `<button type="button" class="myapps-tile-remove" tabindex="-1" aria-label="${i18n('uninstall_named', { name: title })}">`;
         h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
         h += '</button>';
     }
@@ -341,23 +349,15 @@ function buildGridItemHtml (item) {
         : buildTileHtml(item.app);
 }
 
+// No apps at all, or a search that matched none of the user's apps. Either is
+// a line ABOVE the grid rather than a stand-in for it: the grid still has the
+// add-an-app tile in it, which is the one useful answer to both.
 function buildNoAppsHtml () {
-    let h = '<div class="myapps-empty">';
-    h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">';
-    h += '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>';
-    h += '<rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>';
-    h += '</svg>';
-    h += '<p>No apps installed yet</p>';
-    h += '</div>';
-    return h;
+    return `<div class="myapps-empty myapps-empty-notice"><p>${i18n('no_apps_installed')}</p></div>`;
 }
 
-// A search that matched none of the user's apps. Unlike buildNoAppsHtml this
-// is a line ABOVE the grid rather than a stand-in for it: the grid still has
-// the add-an-app tile in it, which is the one useful answer to a search for an
-// app you don't have.
 function buildNoMatchesHtml () {
-    return '<div class="myapps-empty myapps-empty-notice"><p>No apps match your search</p></div>';
+    return `<div class="myapps-empty myapps-empty-notice"><p>${i18n('no_apps_match')}</p></div>`;
 }
 
 // iOS-home-screen-style pager: fixed cols × rows pages in a horizontal
@@ -379,16 +379,18 @@ function buildPagerHtml (items, layout, instant) {
     }
     h += '</div>';
 
-    h += '<button class="myapps-pager-arrow myapps-pager-arrow-prev" aria-label="Previous page">';
+    // Mouse-only, like their hover reveal: the dots page by keyboard, and an
+    // arrow that is invisible until hovered must not be a Tab stop.
+    h += `<button class="myapps-pager-arrow myapps-pager-arrow-prev" tabindex="-1" aria-label="${i18n('previous_page')}">`;
     h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>';
     h += '</button>';
-    h += '<button class="myapps-pager-arrow myapps-pager-arrow-next" aria-label="Next page">';
+    h += `<button class="myapps-pager-arrow myapps-pager-arrow-next" tabindex="-1" aria-label="${i18n('next_page')}">`;
     h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
     h += '</button>';
 
-    h += `<div class="myapps-pager-dots${pageCount < 2 ? ' myapps-pager-dots-hidden' : ''}" aria-label="App pages">`;
+    h += `<div class="myapps-pager-dots${pageCount < 2 ? ' myapps-pager-dots-hidden' : ''}" aria-label="${i18n('app_pages')}">`;
     for ( let p = 0; p < pageCount; p++ ) {
-        h += `<button class="myapps-pager-dot" data-page="${p}" aria-label="Page ${p + 1} of ${pageCount}"></button>`;
+        h += `<button class="myapps-pager-dot" data-page="${p}" aria-label="${i18n('page_of', { page: p + 1, count: pageCount })}"></button>`;
     }
     h += '</div>';
 
@@ -396,32 +398,63 @@ function buildPagerHtml (items, layout, instant) {
     return h;
 }
 
+// The tab's modals are aria-modal: Tab cycles inside the card rather than
+// walking off into the search box and tiles behind the scrim.
+function trapModalTab ($overlay) {
+    $overlay.on('keydown', function (e) {
+        if ( e.key !== 'Tab' ) return;
+        const focusables = $overlay.find('button, textarea').toArray()
+            .filter(el => ! el.disabled && el.offsetParent !== null);
+        if ( focusables.length === 0 ) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const idx = focusables.indexOf(document.activeElement);
+        if ( e.shiftKey && idx <= 0 ) {
+            e.preventDefault();
+            last.focus();
+        } else if ( ! e.shiftKey && (idx === -1 || idx === focusables.length - 1) ) {
+            e.preventDefault();
+            first.focus();
+        }
+    });
+}
+
 function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
     const displayName = (appTitle || appName || '').trim();
     const $overlay = $(`
         <div class="myapps-modal-overlay">
-            <div class="myapps-modal">
-                <h3>Uninstall ${html_encode(displayName)}?</h3>
-                <p>This will revoke all permissions for this app.</p>
+            <div class="myapps-modal" role="dialog" aria-modal="true" aria-label="${i18n('uninstall_app', { name: displayName })}">
+                <h3>${i18n('uninstall_app', { name: displayName })}</h3>
+                <p>${i18n('uninstall_app_body')}</p>
+                <label class="myapps-modal-option">
+                    <input type="checkbox" class="myapps-modal-delete-data">
+                    <span>${i18n('uninstall_delete_data')}</span>
+                </label>
                 <div class="myapps-modal-buttons">
-                    <button class="myapps-modal-btn myapps-modal-cancel">Cancel</button>
-                    <button class="myapps-modal-btn myapps-modal-confirm">Uninstall</button>
+                    <button class="myapps-modal-btn myapps-modal-cancel">${i18n('cancel')}</button>
+                    <button class="myapps-modal-btn myapps-modal-confirm">${i18n('uninstall')}</button>
                 </div>
             </div>
         </div>
     `);
 
+    // Focus starts on Cancel, the safe answer, and goes back to the app's
+    // tile when the user backs out (on confirm the tile is leaving).
     $el_window.append($overlay);
+    $overlay.find('.myapps-modal-cancel')[0].focus({ preventScroll: true });
+    trapModalTab($overlay);
 
-    const close = () => {
+    const close = ({ restoreFocus = true } = {}) => {
         $overlay.remove();
         $(document).off('keydown.uninstall-modal');
+        if ( ! restoreFocus ) return;
+        $el_window.find('.myapps-tile').toArray()
+            .find(el => el.dataset.appName === appName)
+            ?.focus({ preventScroll: true });
     };
 
-    $overlay.on('click', '.myapps-modal-cancel', close);
-    $overlay.on('click', function (e) {
-        if ( e.target === $overlay[0] ) close();
-    });
+    $overlay.on('click', '.myapps-modal-cancel', () => close());
+    bindBackdropDismiss($overlay, (el) => el === $overlay[0], () => close());
     $(document).on('keydown.uninstall-modal', function (e) {
         if ( e.key === 'Escape' ) close();
     });
@@ -441,6 +474,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         // The saved order intentionally keeps the app's name:
         // reconcileAppOrder ignores it while the app is gone and
         // restores its position if it comes back.
+        const deleteData = $overlay.find('.myapps-modal-delete-data').is(':checked');
         const removedIndex = self._apps.findIndex(a => a.name === appName);
         const removedApp = removedIndex === -1 ? null : self._apps[removedIndex];
         // A running instance would be stranded: the tile is a headless
@@ -450,7 +484,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         $(`.window[data-app="${html_encode(appName)}"]`).close();
         self._invalidateInFlightLoads();
         self._setAppRemoved(appName, true);
-        close();
+        close({ restoreFocus: false });
 
         // A failed revoke must not roll back mid-animation: finishRemoval
         // splices by a fresh lookup, so a rollback that lands first would
@@ -474,8 +508,16 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
                     firstRects.set(tileIdentity(el), el.getBoundingClientRect());
                 }
             }
+            const slot = $el_window.find('.myapps-page .myapps-tile').toArray()
+                .findIndex(el => el.dataset.appName === appName);
             self._apps.splice(idx, 1);
             self.renderApps($el_window, { preservePage: true, instant: true });
+            // The confirm button left with the modal; keep a keyboard user on
+            // the grid, at the slot the app vacated.
+            if ( slot !== -1 && (! document.activeElement || document.activeElement === document.body) ) {
+                const tiles = $el_window.find('.myapps-page .myapps-tile').toArray();
+                tiles[Math.min(slot, tiles.length - 1)]?.focus({ preventScroll: true });
+            }
             // FLIP the survivors from their old boxes into the new layout.
             const moved = [];
             for ( const el of $el_window.find('.myapps-tile').toArray() ) {
@@ -521,7 +563,9 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
             finishRemoval();
         }
 
-        puter.perms.revokeApp(appUid, '*').then(async () => {
+        puter.perms.revokeApp(appUid, '*', { deleteData }).then(async (result) => {
+            // revokeApp resolves (never rejects) with `error` set on failure.
+            if ( result?.error ) throw result;
             // Clearing the grants is only half of it. An app the user already
             // opened holds a token that authenticates against a session row,
             // and that row outlives the permission rows — so without this an
@@ -539,7 +583,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
                 await revokeAppSessions(appUid);
             } catch ( e ) {
                 console.error('Uninstalled the app but could not end its sessions:', e);
-                UIAlert(i18n('uninstall_sessions_failed', [displayName]));
+                UIAlert(i18n('uninstall_sessions_failed', [displayName], false));
             }
         }).catch(async err => {
             console.error('Failed to uninstall app:', err);
@@ -552,7 +596,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
                 self._apps.splice(Math.min(removedIndex, self._apps.length), 0, removedApp);
                 self.renderApps($el_window, { preservePage: true, instant: true });
             }
-            UIAlert(`Couldn't uninstall ${html_encode(displayName)}. Please try again.`);
+            UIAlert(i18n('uninstall_failed', { name: displayName }, false));
         });
     });
 }
@@ -642,9 +686,12 @@ function showAddAppModal ({ $el_window }) {
     const $overlay = $(h);
     $el_window.append($overlay);
 
+    trapModalTab($overlay);
+
     const close = () => {
         $overlay.remove();
         $(document).off('keydown.add-app-modal');
+        $el_window.find('.myapps-add-tile')[0]?.focus({ preventScroll: true });
     };
 
     const currentPane = () => $overlay.find('.myapps-add-pane:not([hidden])').attr('data-pane');
@@ -662,9 +709,7 @@ function showAddAppModal ({ $el_window }) {
     };
 
     $overlay.on('click', '.myapps-modal-cancel', close);
-    $overlay.on('click', function (e) {
-        if ( e.target === $overlay[0] ) close();
-    });
+    bindBackdropDismiss($overlay, (el) => el === $overlay[0], close);
     $overlay.on('click', '.myapps-add-back', () => showPane('options'));
     $(document).on('keydown.add-app-modal', function (e) {
         if ( e.key !== 'Escape' ) return;
@@ -702,21 +747,33 @@ function showAddAppModal ({ $el_window }) {
                 // No intro — still launch.
             }
             const app_obj = await app_info_promise;
+            let launched = false;
             launch_app({
                 name: appName,
                 maximized: true,
                 ...(app_obj ? { app_obj } : {}),
                 window_options: { morph_from_dashboard_tile: true },
+            }).then(outcome => {
+                launched = outcome?.launchResult?.launched !== false;
             }).catch(err => {
                 console.error(`Failed to launch ${appName}:`, err);
-                UIAlert(i18n('something_went_wrong'));
+                UIAlert(i18n('something_went_wrong', [], false));
             }).finally(() => {
-                TabApps.settleDeepLinkLaunch(appName, tile);
+                TabApps.settleDeepLinkLaunch(appName, tile, launched);
             });
         })();
     };
 
-    $overlay.on('click', '.myapps-add-option', function () {
+    // Enter held on the "+" tile opens this with the first option focused;
+    // its repeats must not pick that option.
+    $overlay.on('keydown', '.myapps-add-option', function (e) {
+        if ( e.key === 'Enter' && e.originalEvent?.repeat ) e.preventDefault();
+    });
+
+    $overlay.on('click', '.myapps-add-option', function (e) {
+        // The second click of a double-click on the "+" tile lands on
+        // whichever option opened under the pointer; that isn't a choice.
+        if ( (e.detail ?? 0) > 1 ) return;
         const key = this.dataset.addOption;
         if ( key === 'request' ) {
             showPane('request');
@@ -772,6 +829,41 @@ function showAddAppModal ({ $el_window }) {
     showPane('options');
 }
 
+/** An app id minted from a uuid (`app-<uuid>`), as website shortcuts are named. */
+const GENERATED_APP_ID = /^app-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Scrolls a pager to a page. A smooth scroll passes over the pages between,
+ * which the pager's scroll handler must not read back as the current page
+ * (see settledPage) until it arrives, or within a second if the user takes
+ * over.
+ */
+function scrollPagerTo (scroller, page, smooth) {
+    const left = page * scroller.clientWidth;
+    clearTimeout(scroller._targetPageTimer);
+    scroller._targetPage = smooth && Math.abs(scroller.scrollLeft - left) > 1 ? page : null;
+    if ( scroller._targetPage !== null ) {
+        scroller._targetPageTimer = setTimeout(() => {
+            scroller._targetPage = null;
+        }, 1000);
+    }
+    scroller.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' });
+}
+
+/** The page a pager's scroll position shows, or null while scrollPagerTo is still on its way. */
+function settledPage (scroller, pageCount) {
+    const idx = Math.round(Math.abs(scroller.scrollLeft) / (scroller.clientWidth || 1));
+    const page = Math.max(0, Math.min(pageCount - 1, idx));
+    if ( scroller._targetPage !== null && scroller._targetPage !== undefined ) {
+        if ( page !== scroller._targetPage ) return null;
+        scroller._targetPage = null;
+    }
+    return page;
+}
+
+/** Longest the grid waits on page one's icons before showing anyway. */
+const ICON_REVEAL_DEADLINE_MS = 1500;
+
 function revealWhenLoaded ($container) {
     const $pager = $container.find('.myapps-pager-loading');
     if ( $pager.length === 0 ) return;
@@ -786,11 +878,15 @@ function revealWhenLoaded ($container) {
 
     let loaded = 0;
     const total = imgs.length;
+    const reveal = () => $pager.removeClass('myapps-pager-loading');
+    // One icon host that never answers must not keep the whole grid hidden.
+    const deadline = setTimeout(reveal, ICON_REVEAL_DEADLINE_MS);
 
     function onDone () {
         loaded++;
         if ( loaded >= total ) {
-            $pager.removeClass('myapps-pager-loading');
+            clearTimeout(deadline);
+            reveal();
         }
     }
 
@@ -806,7 +902,9 @@ function revealWhenLoaded ($container) {
 
 const TabApps = {
     id: 'apps',
-    label: 'Apps',
+    get label () {
+        return i18n('apps');
+    },
     icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>',
 
     _apps: null,
@@ -825,10 +923,19 @@ const TabApps = {
     _justDragged: false,
     _reduceMotionMQL: undefined,
     _loadPromise: null,
+    // Set by init: the open's first load joins Home's /get-launch-apps.
+    _joinHomeLaunchApps: false,
     _pendingLoad: null,
     _savedOrderNames: null,
     _orderSavedAtSeq: 0,
     _groupsSavedAtSeq: 0,
+    // Whether a read of the stored order / folders has ever succeeded. Until
+    // one has, saves stay in memory: writing would replace the stored value
+    // with one built without it.
+    _orderLoaded: false,
+    _groupsLoaded: false,
+    // The last uninstalled-apps list a read returned, for loads whose read fails.
+    _lastRemovedApps: null,
     _launchingApps: new Set(),
     // A deep-link install mid-arrival ({ name, $el_window }) — its tile is
     // parked invisible until the intro's arrival beat (see
@@ -837,20 +944,25 @@ const TabApps = {
     // their tiles (the mirror of _removedLocal).
     _arriving: null,
     _pendingInstalls: null,
+    _splicedLaunches: null,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
         h += '<div class="myapps-search-wrap">';
         h += '<div class="myapps-search-inner">';
         h += '<svg class="myapps-search-icon myapps-icon-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
-        h += '<svg class="myapps-search-icon myapps-icon-clear" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
         // type="search" (plus autocomplete/autofill opt-outs) keeps Chrome from
         // offering email/contact autofill suggestions on focus.
-        h += '<input type="search" name="myapps-search" class="myapps-search" placeholder="Search apps..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-lpignore="true" data-1p-ignore>';
+        h += `<input type="search" name="myapps-search" class="myapps-search" placeholder="${i18n('search_apps')}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-lpignore="true" data-1p-ignore>`;
+        // After the field, so Tab reaches it from there.
+        h += `<button type="button" class="myapps-search-icon myapps-icon-clear" aria-label="${i18n('clear_search')}" title="${i18n('clear_search')}" style="display:none"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>`;
         h += '</div>';
+        // Says when a search finds nothing; the grid itself is re-rendered
+        // silently.
+        h += '<div class="myapps-search-status" role="status" aria-live="polite"></div>';
         // Touch devices' way into drag-to-reorder (CSS shows it only there);
         // toggles the reorder mode — see _setReorderMode.
-        h += `<button type="button" class="myapps-reorder-btn" aria-pressed="false" aria-label="Edit apps">${REORDER_BTN_ICON}</button>`;
+        h += `<button type="button" class="myapps-reorder-btn" aria-pressed="false" aria-label="${i18n('edit_apps')}">${REORDER_BTN_ICON}</button>`;
         h += '</div>';
         h += '<div class="myapps-container">';
         h += '</div>';
@@ -872,6 +984,7 @@ const TabApps = {
         // contrast, is data and survives re-init).
         this._arriving = null;
 
+        this._joinHomeLaunchApps = true;
         this.loadApps($el_window);
 
         const self = this;
@@ -923,20 +1036,31 @@ const TabApps = {
         // Tiles double as the app switcher for headless in-page apps: a
         // dot marks tiles whose app has an open (or minimized) window.
         // UIWindow fires this event on every window open/close.
+        // Another browser tab may have rearranged the grid or its folders
+        // meanwhile; this tab's copy would otherwise be what its next change
+        // writes back over them.
+        document.addEventListener('visibilitychange', () => {
+            if ( document.visibilityState !== 'visible' ) return;
+            if ( ! $el_window.find('.dashboard-section-apps').hasClass('active') ) return;
+            self.loadApps($el_window);
+        });
+
         document.addEventListener('dashboard-app-windows-changed', () => {
             self.updateRunningDots($el_window);
         });
 
+        // Results show at once: the first load's fade waits on page one's
+        // icons, and a slow one would blank the grid on every keystroke.
         $el_window.on('input', '.myapps-search', function () {
             self.updateSearchIcons($el_window);
-            self.renderApps($el_window);
+            self.renderApps($el_window, { instant: true });
         });
 
         // Clear search on cross click
         $el_window.on('click', '.myapps-icon-clear', function () {
             $el_window.find('.myapps-search').val('').focus();
             self.updateSearchIcons($el_window);
-            self.renderApps($el_window);
+            self.renderApps($el_window, { instant: true });
         });
 
         // Handle app tile clicks. External apps carry a target link (their
@@ -951,6 +1075,10 @@ const TabApps = {
                 self._justDragged = false;
                 return;
             }
+            // The first click of a double-click already acted. The second
+            // would open an external app's site a second time, or land on
+            // the tile under a modal option the first click just chose.
+            if ( (e.detail ?? 0) > 1 ) return;
             // The tail tile isn't an app — it asks how you'd like to get one.
             // Answered in every mode: it is never part of the arrangement
             // reorder mode exists to edit.
@@ -1018,6 +1146,7 @@ const TabApps = {
                 })
                     .catch((err) => {
                         console.error(`Failed to launch ${appName}:`, err);
+                        UIAlert(i18n('something_went_wrong', [], false));
                     })
                     .finally(() => {
                         self._launchingApps.delete(appName);
@@ -1070,7 +1199,7 @@ const TabApps = {
                             html: i18n('app_group_rename'),
                             // Renaming happens in the folder's own header —
                             // one place to edit the name, seen in context.
-                            onClick: () => self._openGroup($el_window, groupId, tile, { editName: true }),
+                            onClick: () => self._openGroup($el_window, groupId, tile, { rename: true }),
                         },
                         '-',
                         {
@@ -1098,7 +1227,7 @@ const TabApps = {
             // else via its /app/<name> URL.
             const items = [
                 {
-                    html: 'Open in new tab',
+                    html: i18n('open_in_new_tab'),
                     onClick: () => {
                         if ( targetLink && targetLink !== '' ) {
                             window.open(targetLink, '_blank', 'noopener,noreferrer');
@@ -1125,7 +1254,7 @@ const TabApps = {
             // dashboard-app-windows-changed event once the window is gone.
             if ( isRunning ) {
                 items.push({
-                    html: 'Quit',
+                    html: i18n('quit'),
                     onClick: () => {
                         // Re-read at click time (the set can change while the
                         // menu is open), and quit only what the menu offered:
@@ -1144,7 +1273,7 @@ const TabApps = {
             }
             if ( ! noUninstall ) {
                 items.push('-', {
-                    html: 'Uninstall',
+                    html: i18n('uninstall'),
                     onClick: () => {
                         showUninstallModal({
                             appName,
@@ -1184,11 +1313,14 @@ const TabApps = {
         // Mouse wheel / two-finger vertical swipe flips one page per gesture.
         // Horizontal trackpad panning is left to the native scroller, whose
         // snap points already handle it.
+        // jQuery wheel listeners are passive here (see initgui), and the
+        // scroller can't scroll vertically anyway, so nothing is prevented.
+        // A trackpad pinch arrives as ctrlKey wheel events: that's a zoom.
         $el_window.on('wheel', '.myapps-pager-scroller', function (e) {
             const oe = e.originalEvent;
+            if ( oe.ctrlKey ) return;
             if ( Math.abs(oe.deltaX) > Math.abs(oe.deltaY) ) return;
             if ( Math.abs(oe.deltaY) < 4 ) return;
-            e.preventDefault();
             // Inertial scrolling keeps emitting events after the flip; treat
             // everything within 150ms of the last event as the same gesture.
             clearTimeout(self._wheelTimer);
@@ -1210,11 +1342,33 @@ const TabApps = {
         // take over from there. While a folder is open the same arrows walk
         // ITS tiles: the grid behind is inert, so focus must not be there.
         $(document).off('keydown.myapps-keyboard').on('keydown.myapps-keyboard', function (e) {
+            // Keys typed into an IME (choosing a CJK candidate) are its own.
+            // jQuery's event doesn't carry isComposing; the browser's does.
+            if ( e.originalEvent?.isComposing || e.keyCode === 229 ) return;
+            // The Menu key or Shift+F10 on a focused tile opens its menu
+            // (Open, Uninstall, a folder's Ungroup) at the tile; browsers
+            // don't all send a contextmenu event for them.
+            if ( e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10') ) {
+                const tile = document.activeElement;
+                if ( ! tile?.classList?.contains('myapps-tile') || ! $el_window[0].contains(tile) ) return;
+                e.preventDefault();
+                const r = tile.getBoundingClientRect();
+                $(tile).trigger($.Event('contextmenu', {
+                    clientX: r.left + r.width / 2,
+                    clientY: r.top + r.height / 2,
+                }));
+                return;
+            }
             if ( ! ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', ' '].includes(e.key) ) return;
             if ( ! $el_window.find('.dashboard-section-apps').hasClass('active') ) return;
             if ( ! $el_window.is(':visible') ) return;
             if ( $el_window.find('.myapps-modal-overlay').length ) return;
             if ( $('.window').not($el_window[0]).filter(':visible').length ) return;
+            // An open context menu owns arrows and Enter (keyboard.js).
+            if ( $('.context-menu').length ) return;
+            // So does a dialog over the grid: the notifications panel, an
+            // account dialog, the touch action sheet, or the phone drawer.
+            if ( $('.dashboard-notifications-panel.open, .dashboard-dialog-overlay, .context-menu-modal-backdrop, .dashboard-sidebar.open').length ) return;
 
             const $panelGrid = $el_window.find('.myapps-group-panel-grid');
             const pageTiles = ($panelGrid.length
@@ -1233,6 +1387,16 @@ const TabApps = {
                 // button behavior keep working.
                 if ( ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable) ) {
                     const emptySearch = $(ae).hasClass('myapps-search') && ae.value === '';
+                    // Enter in a search opens the first match, as in any launcher.
+                    if ( e.key === 'Enter' && $(ae).hasClass('myapps-search') && ! emptySearch ) {
+                        if ( e.originalEvent?.repeat ) return;
+                        const first = pageTiles.find(el => ! el.classList.contains('myapps-add-tile'));
+                        if ( first ) {
+                            e.preventDefault();
+                            $(first).trigger('click');
+                        }
+                        return;
+                    }
                     if ( e.key !== 'ArrowDown' && ! (emptySearch && e.key.startsWith('Arrow')) ) return;
                 } else if ( ! e.key.startsWith('Arrow') ) {
                     return;
@@ -1244,7 +1408,9 @@ const TabApps = {
 
             if ( e.key === 'Enter' || e.key === ' ' ) {
                 e.preventDefault();
-                $(ae).trigger('click');
+                // A held key acts once: opening a folder moves focus to its
+                // first app, which a repeat would then launch.
+                if ( ! e.originalEvent?.repeat ) $(ae).trigger('click');
                 return;
             }
 
@@ -1289,7 +1455,11 @@ const TabApps = {
                     self.goToPage($el_window, self._page, false);
                     return;
                 }
-                self.renderApps($el_window, { preservePage: true });
+                // A grid already on screen re-flows at once rather than
+                // blinking back through the load fade (see _spliceDeepLinkApp).
+                const revealed = $el_window.find('.myapps-pager').length > 0
+                    && $el_window.find('.myapps-pager-loading').length === 0;
+                self.renderApps($el_window, { preservePage: true, instant: revealed });
             }, 100);
         });
         self._resizeObserver.observe($el_window.find('.myapps-container')[0]);
@@ -1326,8 +1496,13 @@ const TabApps = {
     // Central renderer: applies the current search query to _apps and rebuilds
     // the pager (or an empty state). Everything that changes what's shown —
     // load, search, uninstall, re-layout, reorder — funnels through here.
-    renderApps ($el_window, { preservePage = false, instant = false } = {}) {
+    renderApps ($el_window, { preservePage = false, instant = false, duringDrag = false } = {}) {
         if ( ! this._apps ) return;
+        // A render replaces every tile, the dragged one included, which
+        // would strand the drag on a detached node. Anything asking mid-drag
+        // (an uninstall finishing, a rollback) is covered by the render
+        // _endDrag does on the drop; only the drag itself may render now.
+        if ( this._drag?.started && ! duringDrag ) return;
 
         // The reorder toggle only earns its place once there's something to
         // reorder (CSS additionally gates it to touch-primary devices). A
@@ -1346,14 +1521,15 @@ const TabApps = {
         if ( query ) {
             // Match the same values the tiles expose as data-app-name,
             // data-app-title (the displayed title, e.g. the hostname for
-            // website shortcuts), and data-app-uid.
+            // website shortcuts), and data-app-uid. Generated ids match only
+            // whole: as substrings, "app" or a hex letter would hit them all.
+            const matches = (value) => (GENERATED_APP_ID.test(value) ? value === query : value.includes(query));
             list = list.filter(app => {
                 const title = resolveTileDisplay(app).title.toLowerCase();
                 const rawTitle = (app.title || '').toLowerCase();
                 const name = (app.name || '').toLowerCase();
                 const uid = String(app.uid || app.uuid || '').toLowerCase();
-                return title.includes(query) || rawTitle.includes(query)
-                    || name.includes(query) || uid.includes(query);
+                return matches(title) || matches(rawTitle) || matches(name) || uid === query;
             });
         }
 
@@ -1364,20 +1540,15 @@ const TabApps = {
             ? list.map(app => ({ type: 'app', app }))
             : buildGridItems(list, this._groups);
 
-        // No apps at all, and nothing typed: there is no grid to page through,
-        // so the empty state stands in for the whole of it.
-        if ( items.length === 0 && ! query ) {
-            this._layout = null;
-            this._page = 0;
-            this._pageCount = 0;
-            $container.html(buildNoAppsHtml());
-            return;
-        }
-
-        // A search that matched nothing still has a grid — the tail tile is in
-        // it (below) — so the "nothing matched" line sits ABOVE that grid
-        // rather than replacing it.
-        const no_matches = query && items.length === 0;
+        // Nothing to show still leaves a grid — the tail tile is in it
+        // (below) — so the empty line sits ABOVE that grid rather than
+        // replacing it.
+        const emptyNotice = items.length === 0
+            ? (query ? buildNoMatchesHtml() : buildNoAppsHtml())
+            : '';
+        const status = query && items.length === 0 ? i18n('no_apps_match', [], false) : '';
+        const $status = $el_window.find('.myapps-search-status');
+        if ( $status.text() !== status ) $status.text(status);
 
         // The add-an-app tile rides at the tail of the grid: after every app,
         // on the last page, and nowhere else — a drag can't place an app past
@@ -1404,8 +1575,17 @@ const TabApps = {
         this._pageCount = Math.ceil(items.length / layout.perPage);
         this._page = Math.min(Math.floor(anchorIndex / layout.perPage), this._pageCount - 1);
 
-        $container.html((no_matches ? buildNoMatchesHtml() : '')
-            + buildPagerHtml(items, layout, instant));
+        // Every tile is replaced; a keyboard user on one stays on it.
+        const focused = document.activeElement;
+        const focusedTile = focused?.classList.contains('myapps-tile') && $container[0].contains(focused)
+            ? tileIdentity(focused)
+            : null;
+        $container.html(emptyNotice + buildPagerHtml(items, layout, instant));
+        if ( focusedTile ) {
+            $container.find('.myapps-tile').toArray()
+                .find(el => tileIdentity(el) === focusedTile)
+                ?.focus({ preventScroll: true });
+        }
         // A tile mid-arrival (a deep-link landing installing its app — see
         // _spliceDeepLinkApp) stays parked invisible across re-renders; the
         // intro's arrival beat, not the render, is what reveals it.
@@ -1435,10 +1615,8 @@ const TabApps = {
             ticking = true;
             requestAnimationFrame(() => {
                 ticking = false;
-                const pageW = scroller.clientWidth || 1;
-                const idx = Math.round(Math.abs(scroller.scrollLeft) / pageW);
-                const page = Math.max(0, Math.min(self._pageCount - 1, idx));
-                if ( page !== self._page ) {
+                const page = settledPage(scroller, self._pageCount);
+                if ( page !== null && page !== self._page ) {
                     self._page = page;
                     self.updatePagerUI($el_window);
                 }
@@ -1492,10 +1670,7 @@ const TabApps = {
         const scroller = $el_window.find('.myapps-pager-scroller')[0];
         if ( ! scroller || this._pageCount === 0 ) return;
         const page = Math.max(0, Math.min(this._pageCount - 1, index));
-        scroller.scrollTo({
-            left: page * scroller.clientWidth,
-            behavior: (smooth && !this._reduceMotion()) ? 'smooth' : 'auto',
-        });
+        scrollPagerTo(scroller, page, smooth && ! this._reduceMotion());
         // Programmatic scrolls don't reliably emit 'scroll' events (so the
         // scroll-driven sync above can miss them); track the page eagerly.
         this._page = page;
@@ -1547,15 +1722,15 @@ const TabApps = {
         if ( on && String($search.val() || '') !== '' ) {
             $search.val('');
             this.updateSearchIcons($el_window);
-            this.renderApps($el_window);
+            this.renderApps($el_window, { instant: true });
         }
         $search.prop('disabled', on);
 
         $el_window.find('.myapps-reorder-btn')
             .toggleClass('myapps-reorder-btn-active', on)
             .attr('aria-pressed', on ? 'true' : 'false')
-            .attr('aria-label', on ? 'Done editing' : 'Edit apps')
-            .html(on ? 'Done' : REORDER_BTN_ICON);
+            .attr('aria-label', i18n(on ? 'done_editing' : 'edit_apps', [], false))
+            .html(on ? i18n('done') : REORDER_BTN_ICON);
     },
 
     // A drag's drop and a long-press's lift both synthesize a click that can
@@ -1637,7 +1812,7 @@ const TabApps = {
     // this grid, moves with the dashboard window, and closes on Escape, on a
     // click outside, or on the tile that opened it.
 
-    _openGroup ($el_window, groupId, fromTile, { editName = false } = {}) {
+    _openGroup ($el_window, groupId, fromTile, { editName = false, rename = false } = {}) {
         const group = findGroupById(this._groups, groupId);
         if ( ! group ) return;
         // Clicking the open folder's own tile again closes it, like iOS.
@@ -1666,7 +1841,7 @@ const TabApps = {
                         aria-label="${i18n('app_group_name_aria')}" autocomplete="off" autocorrect="off"
                         spellcheck="false" data-form-type="other" data-lpignore="true" data-1p-ignore>
                     <div class="myapps-group-panel-grid"></div>
-                    <div class="myapps-group-dots" aria-label="Folder pages"></div>
+                    <div class="myapps-group-dots" aria-label="${i18n('folder_pages')}"></div>
                 </div>
             </div>
         `);
@@ -1678,10 +1853,11 @@ const TabApps = {
         this._bindGroupPanel($el_window, $overlay);
         this._animateGroupPanelOpen($el_window, fromTile);
 
-        if ( editName && ! isTouchPrimaryDevice() ) {
+        if ( rename || (editName && ! isTouchPrimaryDevice()) ) {
             // Naming is the first thing a new folder wants; on touch the same
             // gesture would throw an on-screen keyboard over the folder the
-            // user just made, so there they tap the name when ready.
+            // user just made, so there they tap the name when ready. An
+            // explicit Rename asked for the keyboard, though.
             const input = $overlay.find('.myapps-group-name')[0];
             input.focus();
             input.select();
@@ -1701,11 +1877,11 @@ const TabApps = {
         const self = this;
 
         // Anywhere outside the card — including the strip of scrim beside it.
-        $overlay.on('click', function (e) {
-            if ( e.target === this || $(e.target).hasClass('myapps-group-backdrop') ) {
-                self._closeGroup($el_window);
-            }
-        });
+        bindBackdropDismiss(
+            $overlay,
+            (el) => el === $overlay[0] || $(el).hasClass('myapps-group-backdrop'),
+            () => self._closeGroup($el_window),
+        );
 
         // A press inside the overlay must not let initgui's global mousedown
         // hand focus (and the z-index) back to the window underneath it.
@@ -1721,11 +1897,12 @@ const TabApps = {
 
         // Mouse wheel / two-finger vertical swipe flips one folder page per
         // gesture, mirroring the grid's scroller (which see for the debounce).
+        // As the grid's: passive, and a pinch is a zoom.
         $overlay.on('wheel', '.myapps-group-panel-grid', function (e) {
             const oe = e.originalEvent;
+            if ( oe.ctrlKey ) return;
             if ( Math.abs(oe.deltaX) > Math.abs(oe.deltaY) ) return;
             if ( Math.abs(oe.deltaY) < 4 ) return;
-            e.preventDefault();
             clearTimeout(self._groupWheelTimer);
             self._groupWheelTimer = setTimeout(() => {
                 self._groupWheelActive = false;
@@ -1745,10 +1922,8 @@ const TabApps = {
             ticking = true;
             requestAnimationFrame(() => {
                 ticking = false;
-                const pageW = scroller.clientWidth || 1;
-                const idx = Math.round(Math.abs(scroller.scrollLeft) / pageW);
-                const page = Math.max(0, Math.min((self._groupPageCount || 1) - 1, idx));
-                if ( page !== self._groupPage ) {
+                const page = settledPage(scroller, self._groupPageCount || 1);
+                if ( page !== null && page !== self._groupPage ) {
                     self._groupPage = page;
                     self._updateGroupPagerUI($el_window);
                 }
@@ -1769,19 +1944,26 @@ const TabApps = {
 
         // Escape closes from anywhere — a click on the scrim leaves focus on
         // no element in particular, and the key must still work there. Not
-        // mid-drag, where Escape already means "cancel this drag".
+        // mid-drag, where Escape already means "cancel this drag". A menu,
+        // modal, or alert above the folder takes that Escape, but its own
+        // handler removes it before this one runs, so check in capture.
+        this._groupEscCapture = e => {
+            this._groupEscOwnedAbove = e.key === 'Escape'
+                && $('.context-menu, .window-alert, .myapps-modal-overlay').length > 0;
+        };
         this._groupEscHandler = e => {
-            if ( e.key !== 'Escape' || this._drag ) return;
+            if ( e.key !== 'Escape' || this._drag || this._groupEscOwnedAbove ) return;
             if ( $el_window.find('.myapps-modal-overlay').length ) return;
             this._closeGroup($el_window);
         };
+        document.addEventListener('keydown', this._groupEscCapture, true);
         document.addEventListener('keydown', this._groupEscHandler);
 
         $overlay.on('keydown', function (e) {
             // The folder is modal: Tab cycles inside it rather than walking
             // off into the inert grid behind.
             if ( e.key !== 'Tab' ) return;
-            const focusables = $overlay.find('.myapps-group-name, .myapps-tile').toArray()
+            const focusables = $overlay.find('.myapps-group-name, .myapps-tile, .myapps-group-dot').toArray()
                 .filter(el => el.offsetParent !== null);
             if ( focusables.length === 0 ) return;
             const first = focusables[0];
@@ -1804,6 +1986,9 @@ const TabApps = {
         // Enter commits (and gets out of the way); blur commits too, so a
         // click straight onto an app in the folder keeps the new name.
         $name.on('keydown', function (e) {
+            // Enter and Escape that confirm or cancel an IME conversion
+            // aren't the name's.
+            if ( e.originalEvent?.isComposing || e.keyCode === 229 ) return;
             if ( e.key === 'Enter' ) {
                 e.preventDefault();
                 // The name box owns this Enter: the grid's document-level key
@@ -1868,6 +2053,9 @@ const TabApps = {
         const $name = $overlay.find('.myapps-group-name');
         // Never overwrite a name being typed.
         if ( ! $name.is(':focus') ) $name.val(groupLabel(group));
+        // Named and counted like its tile: current name, apps actually shown.
+        $overlay.find('.myapps-group-panel')
+            .attr('aria-label', i18n('app_group_tile_aria', [groupLabel(group), apps.length], false));
         const $grid = $overlay.find('.myapps-group-panel-grid');
         // Only as wide as it needs to be, within the cap the stylesheet sets
         // for the viewport — a folder of three in a four-wide card would sit
@@ -1926,7 +2114,7 @@ const TabApps = {
             this._groupPage = Math.max(0, Math.min(this._groupPage, pageCount - 1));
             let dots = '';
             for ( let p = 0; p < pageCount; p++ ) {
-                dots += `<button class="myapps-group-dot" data-page="${p}" aria-label="Page ${p + 1} of ${pageCount}"></button>`;
+                dots += `<button class="myapps-group-dot" data-page="${p}" aria-label="${i18n('page_of', { page: p + 1, count: pageCount })}"></button>`;
             }
             $overlay.find('.myapps-group-dots')
                 .html(dots)
@@ -1955,10 +2143,7 @@ const TabApps = {
         const scroller = $el_window.find('.myapps-group-panel-grid')[0];
         if ( ! scroller || ! this._groupPageCount ) return;
         const page = Math.max(0, Math.min(this._groupPageCount - 1, index));
-        scroller.scrollTo({
-            left: page * scroller.clientWidth,
-            behavior: (smooth && ! this._reduceMotion()) ? 'smooth' : 'auto',
-        });
+        scrollPagerTo(scroller, page, smooth && ! this._reduceMotion());
         // Programmatic scrolls don't reliably emit 'scroll' events; track the
         // page eagerly (same as goToPage).
         this._groupPage = page;
@@ -2020,6 +2205,7 @@ const TabApps = {
         }
         clearTimeout(this._createdGroupTimer);
         if ( this._groupEscHandler ) {
+            document.removeEventListener('keydown', this._groupEscCapture, true);
             document.removeEventListener('keydown', this._groupEscHandler);
             this._groupEscHandler = null;
         }
@@ -2081,11 +2267,19 @@ const TabApps = {
     // Dissolve a folder: its apps stay exactly where the folder was, side by
     // side, so nothing is lost or moved somewhere the user has to find.
     _ungroup ($el_window, groupId) {
-        if ( ! findGroupById(this._groups, groupId) ) return;
+        const group = findGroupById(this._groups, groupId);
+        if ( ! group ) return;
         if ( this._openGroupId === groupId ) this._closeGroup($el_window);
         this._groups = removeGroup(this._groups, groupId);
         this.saveGroups();
         this.renderApps($el_window, { preservePage: true, instant: true });
+        // The folder's tile, focused or not, is gone; a keyboard user lands
+        // on its first app instead of back at the top of the page.
+        if ( ! document.activeElement || document.activeElement === document.body ) {
+            $el_window.find('.myapps-page .myapps-tile').toArray()
+                .find(el => el.dataset.appName === group.apps[0])
+                ?.focus({ preventScroll: true });
+        }
     },
 
     // Take one app out of a folder. It lands on the grid immediately after
@@ -2129,6 +2323,7 @@ const TabApps = {
     saveGroups () {
         const groups = serializeAppGroups(this._groups);
         this._groups = groups;
+        if ( ! this._groupsLoaded ) return;
         // Loads already in flight fetched kv before this save; mark the
         // boundary so their stale snapshot can't replay over it (see
         // _resolveGroups).
@@ -2309,9 +2504,12 @@ const TabApps = {
     // the drag saves only the final position.
     _ejectToGrid (d) {
         const appName = d.tileEl.dataset.appName;
+        // The eject is saved now, mid-drag; a drag cancelled after it puts
+        // this back (see _endDrag).
+        const preEject = { groups: JSON.parse(JSON.stringify(this._groups)), apps: this._apps.slice() };
         if ( ! this._ejectApp(d.$el_window, d.groupId, appName) ) return;
         this._closeGroup(d.$el_window);
-        this.renderApps(d.$el_window, { preservePage: true, instant: true });
+        this.renderApps(d.$el_window, { preservePage: true, instant: true, duringDrag: true });
 
         const tile = d.$el_window.find('.myapps-page .myapps-tile').toArray()
             .find(el => el.dataset.appName === appName);
@@ -2321,6 +2519,7 @@ const TabApps = {
             this._endDrag(false);
             return;
         }
+        d.preEject = preEject;
 
         // A folder-page flip armed just before the icon left the card must
         // not fire into the grid drag this has become.
@@ -2424,6 +2623,9 @@ const TabApps = {
                 if ( this._drag !== d ) return;
                 d.flipping = false;
                 this._updatePlaceholder(d.lastClientX, d.lastClientY);
+                // Still held at the edge: keep paging, as only a move would
+                // otherwise start the next dwell.
+                this._maybeEdgeFlip(d.lastClientX);
             }, this._reduceMotion() ? 60 : DRAG_FLIP_SETTLE_MS);
         }, DRAG_EDGE_DWELL_MS);
     },
@@ -2468,6 +2670,7 @@ const TabApps = {
                 if ( this._drag !== d ) return;
                 d.flipping = false;
                 this._updatePlaceholder(d.lastClientX, d.lastClientY);
+                this._maybeGroupEdgeFlip(d.lastClientX);
             }, this._reduceMotion() ? 60 : DRAG_FLIP_SETTLE_MS);
         }, DRAG_EDGE_DWELL_MS);
     },
@@ -2766,6 +2969,16 @@ const TabApps = {
         // drop spot) — it is the tail of the drag, not an exit-the-mode tap.
         this._suppressEmptyTapBriefly();
 
+        // Cancelled (Escape, the window losing focus) after the app had been
+        // carried out of its folder: the folder, a two-app one included, and
+        // the order go back to what they were.
+        if ( ! commit && d.preEject ) {
+            this._groups = d.preEject.groups;
+            this._apps = reconcileAppOrder(this._apps, d.preEject.apps.map(a => a.name));
+            this.saveGroups();
+            this.saveOrder();
+        }
+
         let changed = false;
         if ( mergeEl ) {
             changed = this._commitMerge(d, mergeEl);
@@ -2807,6 +3020,11 @@ const TabApps = {
                 setTimeout(() => ghost.remove(), this._reduceMotion() ? 0 : 160);
             }
         }
+
+        // The drag moved the folder's tile nodes; a cancelled or no-op drop
+        // leaves the state, and so the cached panel markup, unchanged, which
+        // would skip the rebuild and keep the dragged-to order on screen.
+        if ( d.panelGrid ) d.panelGrid.__myappsPanelHtml = null;
 
         // Rebuild so pages rebalance to exactly perPage; skip the load fade.
         this.renderApps(d.$el_window, { preservePage: true, instant: true });
@@ -2945,12 +3163,25 @@ const TabApps = {
         if ( pending.loadSeq < (this._appliedSeq || 0) ) return;
         this._appliedSeq = pending.loadSeq;
 
-        const orderedNames = this._resolveOrderNames(pending.loadSeq, pending.orderedNames);
-        this._savedOrderNames = orderedNames;
-        this._groups = this._resolveGroups(pending.loadSeq, pending.groups);
-        this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
+        const orderedNames = this._applyLoadedLayout(pending.loadSeq, pending.orderedNames, pending.groups);
         this._apps = reconcileAppOrder(pending.merged, orderedNames);
         this.renderApps(pending.$el_window, { preservePage: true, instant: true });
+    },
+
+    // Adopt a load's saved order and folders, returning the order to
+    // reconcile against. A half whose kv read failed keeps what this session
+    // already has.
+    _applyLoadedLayout (loadSeq, fetchedOrderNames, fetchedGroups) {
+        if ( fetchedOrderNames !== KV_READ_FAILED ) {
+            this._savedOrderNames = this._resolveOrderNames(loadSeq, fetchedOrderNames);
+            this._orderLoaded = true;
+        }
+        if ( fetchedGroups !== KV_READ_FAILED ) {
+            this._groups = this._resolveGroups(loadSeq, fetchedGroups);
+            this._groupsLoaded = true;
+        }
+        this._hasCustomOrder = Array.isArray(this._savedOrderNames) && this._savedOrderNames.length > 0;
+        return this._savedOrderNames;
     },
 
     // The folders half of _resolveOrderNames, for the same reason: a fetch
@@ -3024,6 +3255,7 @@ const TabApps = {
         // reconcileAppOrder ignores them.
         const names = mergeSavedOrder(serializeAppOrder(this._apps), this._savedOrderNames);
         this._savedOrderNames = names;
+        if ( ! this._orderLoaded ) return;
         // Loads already in flight fetched kv before this save; mark the
         // boundary so their stale snapshot can't replay over it (see
         // _resolveOrderNames).
@@ -3053,6 +3285,34 @@ const TabApps = {
         });
         this._loadPromise = p;
         return p;
+    },
+
+    // Only `recommended` is used here. At dashboard open this rides Home's
+    // in-flight request; later refetches ask the server to skip `recent`.
+    async _fetchLaunchApps () {
+        const homeRequest = this._joinHomeLaunchApps ? window.launch_apps_request : null;
+        this._joinHomeLaunchApps = false;
+        if ( homeRequest ) {
+            try {
+                const launchData = await homeRequest;
+                if ( launchData ) return launchData;
+            } catch {
+                // Home reports its own failure; fetch ours below.
+            }
+        }
+        try {
+            const res = await fetch(
+                `${window.api_origin}/get-launch-apps?icon_size=128&recent=0`,
+                {
+                    headers: { 'Authorization': `Bearer ${window.auth_token}` },
+                    method: 'GET',
+                },
+            );
+            return res.ok ? await res.json() : null;
+        } catch ( err ) {
+            console.error('Failed to fetch launch apps:', err);
+            return null;
+        }
     },
 
     async _fetchAndRenderApps ($el_window) {
@@ -3110,22 +3370,20 @@ const TabApps = {
                 return { apps: all, complete: true };
             };
 
-            const [installedResult, launchRes, savedOrderRaw, removedAppsRaw, groupsRaw] = await Promise.all([
+            const [installedResult, fetchedLaunchData, savedOrderRaw, removedAppsRaw, groupsRaw] = await Promise.all([
                 fetchAllInstalledApps(),
-                fetch(
-                    `${window.api_origin}/get-launch-apps?icon_size=128`,
-                    {
-                        headers: { 'Authorization': `Bearer ${window.auth_token}` },
-                        method: 'GET',
-                    },
-                ),
-                puter.kv.get(APPS_ORDER_KV_KEY).catch(() => null),
-                puter.kv.get(REMOVED_APPS_KV_KEY).catch(() => null),
-                puter.kv.get(APP_GROUPS_KV_KEY).catch(() => null),
+                // The recommended list only adds tiles: if it fails (network,
+                // a proxy's HTML error page), the installed apps still show,
+                // with the last list that did load. null marks the failure.
+                this._fetchLaunchApps(),
+                puter.kv.get(APPS_ORDER_KV_KEY).catch(() => KV_READ_FAILED),
+                puter.kv.get(REMOVED_APPS_KV_KEY).catch(() => KV_READ_FAILED),
+                puter.kv.get(APP_GROUPS_KV_KEY).catch(() => KV_READ_FAILED),
             ]);
 
             const installedApps = installedResult.apps;
-            const launchData = await launchRes.json();
+            if ( fetchedLaunchData ) this._lastLaunchData = fetchedLaunchData;
+            const launchData = fetchedLaunchData ?? this._lastLaunchData;
 
             // Uninstall only revokes permissions, and the recommended list
             // is a global hardcoded set that knows nothing about per-user
@@ -3136,7 +3394,8 @@ const TabApps = {
             // overlaid with this session's not-yet-persisted mutations: an
             // uninstall races its own kv write, and a failed uninstall's
             // rollback races the removal of that write.
-            const removedNames = parseRemovedApps(removedAppsRaw);
+            if ( removedAppsRaw !== KV_READ_FAILED ) this._lastRemovedApps = parseRemovedApps(removedAppsRaw);
+            const removedNames = new Set(this._lastRemovedApps ?? []);
             if ( this._removedLocal ) {
                 for ( const [name, isRemoved] of this._removedLocal ) {
                     if ( isRemoved ) removedNames.add(name);
@@ -3150,7 +3409,7 @@ const TabApps = {
             // showed merely-visited sites as if installed. Anything the user
             // actually uses appears via installedApps (opening an app grants
             // it a permission). Recents still power the Home tab.
-            const launchApps = (launchData.recommended || [])
+            const launchApps = (launchData?.recommended || [])
                 .filter(app => ! removedNames.has(app?.name))
                 .map(app => ({
                     name: app.name,
@@ -3215,7 +3474,9 @@ const TabApps = {
             // in their default order; stale names are ignored.
             let orderedNames = null;
             try {
-                if ( savedOrderRaw ) {
+                if ( savedOrderRaw === KV_READ_FAILED ) {
+                    orderedNames = KV_READ_FAILED;
+                } else if ( savedOrderRaw ) {
                     orderedNames = typeof savedOrderRaw === 'string'
                         ? JSON.parse(savedOrderRaw)
                         : savedOrderRaw;
@@ -3223,7 +3484,7 @@ const TabApps = {
             } catch ( _e ) {
                 orderedNames = null;
             }
-            const groups = parseAppGroups(groupsRaw);
+            const groups = groupsRaw === KV_READ_FAILED ? KV_READ_FAILED : parseAppGroups(groupsRaw);
 
             // Skip only if a strictly newer load already applied its result.
             if ( loadSeq < (this._appliedSeq || 0) ) return;
@@ -3241,20 +3502,19 @@ const TabApps = {
             // A drag may have started AND committed while this load was in
             // flight; _resolveOrderNames keeps its saved reorder from being
             // replayed over by this load's pre-save kv snapshot.
-            const effectiveOrder = this._resolveOrderNames(loadSeq, orderedNames);
-            this._savedOrderNames = effectiveOrder;
-            this._groups = this._resolveGroups(loadSeq, groups);
+            const effectiveOrder = this._applyLoadedLayout(loadSeq, orderedNames, groups);
 
-            this._hasCustomOrder = Array.isArray(effectiveOrder) && effectiveOrder.length > 0;
-
+            // A refresh of a grid already on screen keeps the user's page and
+            // skips the first load's fade-in.
+            const refreshing = Array.isArray(this._apps) && $container.find('.myapps-page').length > 0;
             this._apps = reconcileAppOrder(merged, effectiveOrder);
-            this.renderApps($el_window);
+            this.renderApps($el_window, refreshing ? { preservePage: true, instant: true } : undefined);
         } catch (e) {
             console.error('Failed to load installed apps:', e);
             // Only show the failure placeholder when nothing has loaded yet; a
             // transient re-fetch error must not wipe a grid already on screen.
             if ( ! this._apps ) {
-                $container.html('<div class="myapps-empty"><p>Failed to load apps</p></div>');
+                $container.html(`<div class="myapps-empty"><p>${i18n('apps_load_failed')}</p></div>`);
             }
         }
     },
@@ -3291,9 +3551,10 @@ const TabApps = {
     // what installs it (the launch grants the permission installedApps
     // reports), so the grid says so NOW rather than on some later refresh —
     // without this the user's first Back found no tile to minimize into and
-    // a grid without the app they were just using. The app joins _apps at
-    // the tail (where reconcileAppOrder appends new apps) with a tile drawn
-    // from the landing's own app-info prefetch, so only a confirmed-real
+    // a grid without the app they were just using. The app joins _apps
+    // where reconcileAppOrder puts it — its saved slot when uninstall left
+    // one, else the tail — with a tile drawn from the landing's own
+    // app-info prefetch, so only a confirmed-real
     // app ever materializes, with its real icon. `mark` parks the tile
     // invisible (.myapps-tile-installing) for the intro's arrival beat to
     // reveal; unmarked (no-intro paths) it simply appears. The
@@ -3325,10 +3586,17 @@ const TabApps = {
         };
         if ( ! this._pendingInstalls ) this._pendingInstalls = new Map();
         this._pendingInstalls.set(appName, app);
+        // What settleDeepLinkLaunch needs to take the tile back out if the
+        // launch fails: nothing was installed then.
+        if ( ! this._splicedLaunches ) this._splicedLaunches = new Map();
+        this._splicedLaunches.set(appName, {
+            $el_window,
+            wasRemoved: this._removedLocal?.get(appName) ?? this._lastRemovedApps?.has(appName) ?? false,
+        });
         // A previously uninstalled app is being re-installed by this
         // landing; the removed record must not go on filtering it.
         this._setAppRemoved(appName, false);
-        this._apps.push(app);
+        this._apps = reconcileAppOrder([...this._apps, app], this._savedOrderNames);
         if ( mark ) this._arriving = { name: appName, $el_window };
         // instant only when the pager is already on screen: this re-render
         // must not blink a revealed grid back through the load fade, nor
@@ -3416,6 +3684,16 @@ const TabApps = {
     // the tile mid-intro is swallowed instead of spawning a second instance
     // (same guard as the click handler). The caller MUST call
     // settleDeepLinkLaunch once its launch attempt settles.
+    /**
+     * The grid's apps: the load in flight, or the one already done. A launch
+     * from the grid (the add-app modal's options) must not wait on a fresh
+     * fetch of every app list first.
+     */
+    _appsLoaded ($el_window) {
+        if ( Array.isArray(this._apps) && ! this._loadPromise ) return Promise.resolve();
+        return this.loadApps($el_window);
+    },
+
     async beginDeepLinkLaunch (appName, $el_window, appInfoPromise = null) {
         this._launchingApps.add(appName);
         // No animations, no intro: the morph and the flourish would both
@@ -3425,7 +3703,7 @@ const TabApps = {
         // hold the launch, and a failure just means the tile waits for the
         // next refresh, as it always did).
         if ( ! window.animate_window_opening || this._reduceMotion() ) {
-            Promise.resolve(this.loadApps($el_window))
+            Promise.resolve(this._appsLoaded($el_window))
                 .then(() => this._spliceDeepLinkApp($el_window, appName, appInfoPromise))
                 .catch(() => {});
             return null;
@@ -3468,7 +3746,7 @@ const TabApps = {
             // lets input cut this wait short.)
             try {
                 await Promise.race([
-                    this.loadApps($el_window),
+                    this._appsLoaded($el_window),
                     sleep(Math.max(0, deadline - Date.now())),
                 ]);
             } catch ( _e ) { /* a failed load leaves _apps unset; handled below */ }
@@ -3517,6 +3795,9 @@ const TabApps = {
                 const tiles = $el_window.find('.dashboard-section-apps.active .myapps-tile').toArray();
                 const candidate = tiles.find(el => el.dataset.appName === appName)
                     || tiles.find(el => el.dataset.groupId && parseTileGroupApps(el).includes(appName));
+                // A search that leaves the app out keeps its tile off the
+                // grid however long this waits.
+                if ( ! candidate && String($el_window.find('.myapps-search').val() || '').trim() !== '' ) return null;
                 if ( candidate ) {
                     const revealed = ! $el_window.find('.myapps-pager').hasClass('myapps-pager-loading');
                     const img = candidate.querySelector('.myapps-tile-icon img');
@@ -3630,7 +3911,7 @@ const TabApps = {
     // mirroring the tile click handler's finally (including its
     // settle_dashboard_tile_launch, which un-marks the tile if the window's
     // morph never claimed it).
-    settleDeepLinkLaunch (appName, tile) {
+    settleDeepLinkLaunch (appName, tile, launched = true) {
         this._launchingApps.delete(appName);
         settle_dashboard_tile_launch(tile);
         // Whatever path the intro took out (interruption, hidden tab, the
@@ -3643,6 +3924,19 @@ const TabApps = {
         if ( this._deepLinkFolder ) {
             this._closeGroup(this._deepLinkFolder);
             this._deepLinkFolder = null;
+        }
+        // Only a launch installs the app (it grants the permission), so a
+        // failed one leaves nothing for the tile _spliceDeepLinkApp drew to
+        // stand for.
+        const spliced = this._splicedLaunches?.get(appName);
+        this._splicedLaunches?.delete(appName);
+        if ( spliced && ! launched && this._pendingInstalls?.has(appName) ) {
+            this._pendingInstalls.delete(appName);
+            if ( spliced.wasRemoved ) this._setAppRemoved(appName, true);
+            if ( Array.isArray(this._apps) ) {
+                this._apps = this._apps.filter(a => a.name !== appName);
+                this.renderApps(spliced.$el_window, { preservePage: true, instant: true });
+            }
         }
     },
 };

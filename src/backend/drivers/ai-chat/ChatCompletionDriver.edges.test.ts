@@ -55,6 +55,8 @@ import { NeuralwattProvider } from './providers/neuralwatt/NeuralwattProvider.js
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js';
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
+import { XAI_CHAT_MODELS } from './providers/xai/catalog.js';
+import { XAIProvider } from './providers/xai/XAIProvider.js';
 import { handle_completion_output } from './utils/OpenAIUtil.js';
 import { clearUnhealthyRoutes, isRouteUnhealthy } from './utils/providerHealth.js';
 
@@ -126,6 +128,10 @@ beforeAll(async () => {
     );
     vi.spyOn(NeuralwattProvider.prototype, 'models').mockResolvedValue(
         aggregatorCatalog('neuralwatt-only-model') as never,
+    );
+    // xAI reprices its curated catalog over HTTP; serve the curated one.
+    vi.spyOn(XAIProvider.prototype, 'models').mockResolvedValue(
+        XAI_CHAT_MODELS,
     );
     fullDriver = await makeDriver(FULL_PROVIDER_CONFIG);
     fakeOnlyDriver = await makeDriver({
@@ -531,6 +537,82 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
             legacyCode: 'upstream_bad_request',
             fields: expect.objectContaining({ upstreamStatus: 404 }),
         });
+        expect(err.alarmSeverity).toBeUndefined();
+    });
+
+    it('maps an upstream 403 model_not_found to the model-unavailable 400, not an auth failure, and redacts its URL', async () => {
+        const err = await errorFor({
+            status: 403,
+            message:
+                'The model `fake` is not available to your account. See https://vendor.test/models (request id: req-secret)',
+            error: {
+                code: 'model_not_found',
+                message: 'The model `fake` is not available to your account.',
+            },
+        });
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+            fields: expect.objectContaining({ upstreamStatus: 404 }),
+        });
+        expect(err.noAlarm).toBeFalsy();
+        expect(err.alarmSeverity).toBe('info');
+        expect(err.message).toBe('Model not available: fake');
+        expect(JSON.stringify(attemptsFrom(err))).not.toMatch(
+            /http|request id/i,
+        );
+    });
+
+    it.each([
+        ['no code', {}],
+        ['another code', { error: { code: 'access_denied' } }],
+    ])(
+        'keeps a 403 with %s as 500 upstream_auth_failed',
+        async (_label, extra) => {
+            const err = await errorFor({
+                status: 403,
+                message: 'Forbidden',
+                ...extra,
+            });
+            expect(err).toMatchObject({
+                statusCode: 500,
+                legacyCode: 'upstream_auth_failed',
+            });
+        },
+    );
+
+    it('keeps a 404 whose message reads like a credential failure an auth failure', async () => {
+        const err = await errorFor(
+            Object.assign(new Error('Unauthorized'), { status: 404 }),
+        );
+        expect(err).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+        });
+    });
+
+    it('keeps a 401 model_not_found an auth failure', async () => {
+        const err = await errorFor({
+            status: 401,
+            message: 'invalid api key',
+            error: { code: 'model_not_found' },
+        });
+        expect(err).toMatchObject({
+            statusCode: 500,
+            legacyCode: 'upstream_auth_failed',
+        });
+    });
+
+    it('classifies a 403 insufficient_user_quota as credit exhaustion', async () => {
+        const err = await errorFor({
+            status: 403,
+            message: 'user quota is not enough',
+            error: { code: 'insufficient_user_quota' },
+        });
+        expect(err).toMatchObject({
+            statusCode: 503,
+            legacyCode: 'upstream_credits_exhausted',
+        });
     });
 
     it('sniffs a status out of the message when the provider throws a bare Error', async () => {
@@ -549,6 +631,40 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
         expect(err.statusCode).toBe(400);
         expect(err).toMatchObject({ legacyCode: 'upstream_bad_request' });
         expect(err.message).toBe('unsupported parameter: top_k');
+    });
+
+    it('maps a gateway 4xx with no upstream error body to 400 upstream_provider_unavailable', async () => {
+        const err = await errorFor({
+            status: 400,
+            message: '400 bad response status code 400',
+            error: {
+                type: 'upstream_error',
+                message: 'bad response status code 400',
+                code: 400,
+            },
+        });
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_provider_unavailable',
+        });
+        expect(err.message).toBe('AI provider unavailable');
+    });
+
+    it('keeps a gateway 4xx that carries the vendor message as the caller’s upstream_bad_request', async () => {
+        const err = await errorFor({
+            status: 400,
+            message:
+                '400 bad response status code 400, message: max_tokens too large, body: {}',
+            error: {
+                type: 'upstream_error',
+                message:
+                    'bad response status code 400, message: max_tokens too large, body: {}',
+            },
+        });
+        expect(err).toMatchObject({
+            statusCode: 400,
+            legacyCode: 'upstream_bad_request',
+        });
     });
 
     it('maps a completion with no choices to a 400, not an internal 500', async () => {
@@ -725,6 +841,26 @@ describe('ChatCompletionDriver cross-provider fallback', () => {
             .map((c) => String(c[0]))
             .find((l) => l.startsWith('[ai-chat] fallback served'));
         expect(line).toContain('first 422');
+    });
+
+    it('falls back past a gateway 4xx with no upstream error body and marks the route unhealthy', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        vi.spyOn(AzureChatProvider.prototype, 'complete').mockRejectedValue(
+            Object.assign(new Error('400 bad response status code 400'), {
+                status: 400,
+                error: { type: 'upstream_error' },
+            }),
+        );
+        vi.spyOn(OpenAiChatProvider.prototype, 'complete').mockResolvedValue({
+            message: { role: 'assistant', content: 'from the fallback' },
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        } as never);
+
+        const result = (await completeShared()) as {
+            message: { content: string };
+        };
+        expect(result.message.content).toBe('from the fallback');
+        expect(isRouteUnhealthy('azure-openai', SHARED_MODEL)).toBe(true);
     });
 
     it('surfaces the primary route-level 4xx after a non-strict fallback also fails', async () => {
@@ -969,6 +1105,9 @@ describe('ChatCompletionDriver output cap on xAI', () => {
             server.services.metering,
             'getUsageHeadroom',
         ).mockResolvedValue({ balance: 360_000, held: 0 });
+        vi.spyOn(XAIProvider.prototype, 'models').mockResolvedValue(
+            XAI_CHAT_MODELS,
+        );
         const create = vi
             .spyOn(OpenAI.Chat.Completions.prototype, 'create')
             .mockResolvedValue(chatCompletion('hi') as never);

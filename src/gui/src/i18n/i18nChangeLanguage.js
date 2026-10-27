@@ -17,11 +17,24 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-function changeLanguage (lang) {
+async function changeLanguage (lang) {
+    if ( !lang || window.locale === lang ) return;
+    // Shell strings are rendered once. Persist first, then reload.
+    try {
+        await puter.kv.set('user_preferences.language', lang);
+    } catch (err) {
+        console.warn('Could not save user_preferences.language:', err);
+        return;
+    }
     window.locale = lang;
-    window.mutate_user_preferences({
-        language: lang,
-    });
+    try {
+        window.mutate_user_preferences({
+            language: lang,
+        });
+    } catch (err) {
+        console.warn('Could not apply user_preferences.language:', err);
+    }
+    location.reload();
 }
 
 export default changeLanguage;

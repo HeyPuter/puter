@@ -21,7 +21,7 @@
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import express from 'express';
-import type { IRouter, RequestHandler, Router } from 'express';
+import type { IRouter, Request, RequestHandler, Router } from 'express';
 import helmet from 'helmet';
 import uaParser from 'ua-parser-js';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -49,6 +49,7 @@ import {
     requireReputationGate,
     requireSubscriptionGate,
     requireTeam2fa,
+    type Team2faLookup,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
@@ -82,6 +83,7 @@ import {
     createWwwRedirect,
     createUserSubdomainNotFound,
     createNativeAppStatic,
+    isMainPipelineClaim,
 } from './core/http/middleware/hostRedirects';
 import { createEgressMeteringMiddleware } from './core/http/middleware/egressMetering';
 import { createLocalWorkerProxyMiddleware } from './core/http/middleware/localWorkerProxy';
@@ -93,6 +95,7 @@ import {
 } from './core/http/routeLifecycle';
 import {
     PREFIX_METADATA_KEY,
+    PREFLIGHT_MAX_AGE,
     type RouteDescriptor,
     type RouteOptions,
 } from './core/http/types';
@@ -118,7 +121,7 @@ import type {
 } from './types';
 
 /** Idle keep-alive timeout used when `keep_alive_timeout` is unset. */
-const DEFAULT_KEEP_ALIVE_TIMEOUT = 620_000;
+const DEFAULT_KEEP_ALIVE_TIMEOUT = 920_000;
 
 /** Route options a claimed subdomain's routes may use. */
 const CLAIMED_ROUTE_OPTIONS = new Set([
@@ -206,6 +209,20 @@ export class PuterServer {
             servicesContainers,
             [this.#config, this.clients, this.stores, this.services],
         );
+
+        // Core's seat rules skip silently without Teams, so asking for it with
+        // nothing registered refuses to boot rather than serve without them.
+        if (
+            this.#config.teams_enabled === true &&
+            !(
+                (this.stores as { team?: unknown }).team &&
+                (this.services as { team?: unknown }).team
+            )
+        ) {
+            throw new Error(
+                '`teams_enabled` is on, but no extension registered the team store and service',
+            );
+        }
 
         // Wire the rate-limiter to its configured backend now that clients
         // and stores exist. Memory is the default; `redis` needs a redis
@@ -417,12 +434,26 @@ export class PuterServer {
         });
 
         // -- UA parsing ----------------------------------------------
-        this.#app.use((req, _res, next) => {
-            const header = req.headers['user-agent'];
-            if (header) {
-                req.ua = uaParser(header);
-            }
-            next();
+        // Parsed on first read and kept on the request: most requests never
+        // look at it.
+        const ownUa = (req: Request, value: Request['ua']) =>
+            Object.defineProperty(req, 'ua', {
+                value,
+                writable: true,
+                enumerable: true,
+                configurable: true,
+            });
+        Object.defineProperty(this.#app.request, 'ua', {
+            configurable: true,
+            get(this: Request) {
+                const header = this.headers['user-agent'];
+                const ua = header ? uaParser(header) : undefined;
+                ownUa(this, ua);
+                return ua;
+            },
+            set(this: Request, value: Request['ua']) {
+                ownUa(this, value);
+            },
         });
 
         // -- Host header validation ----------------------------------
@@ -436,7 +467,7 @@ export class PuterServer {
         this.#app.use(
             createUserSubdomainNotFound(this.#config, (name) => {
                 const claim = extensionStore.claimedSubdomains.get(name);
-                if (!claim) return undefined;
+                if (!claim || isMainPipelineClaim(claim)) return claim;
                 return {
                     authorize: claim.authorize,
                     handler: this.#claimRouters.get(name),
@@ -467,6 +498,9 @@ export class PuterServer {
                 next();
                 return;
             }
+            // The reply depends only on Origin and host, both part of the
+            // browser's preflight cache key.
+            res.setHeader('Access-Control-Max-Age', PREFLIGHT_MAX_AGE);
             res.sendStatus(200);
         });
 
@@ -486,7 +520,8 @@ export class PuterServer {
         const captureRawBody: NonNullable<
             Parameters<typeof express.json>[0]
         >['verify'] = (req, _res, buf) => {
-            (req as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+            // body-parser hands over a fresh buffer and never writes to it.
+            (req as { rawBody?: Buffer }).rawBody = buf;
         };
         this.#app.use(express.json({ limit: '50mb', verify: captureRawBody }));
         this.#app.use(
@@ -793,7 +828,9 @@ export class PuterServer {
                     if (isHttp && err.noAlarm) return;
                     const status = isHttp ? err.statusCode : 500;
                     const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
-                    const forcedSeverity = FORCED_ALERT_CODES.get(legacyCode);
+                    const forcedSeverity =
+                        (isHttp ? err.alarmSeverity : undefined) ??
+                        FORCED_ALERT_CODES.get(legacyCode);
                     if (!forcedSeverity) {
                         if (status < 500) return;
                         if (SKIP_ALERT_PREFIXES.test(legacyCode)) return;
@@ -802,7 +839,7 @@ export class PuterServer {
                         ? err instanceof Error
                             ? err.message
                             : String(err)
-                        : status >= 500
+                        : status >= 500 || err.alarmSeverity
                           ? `${err.legacyCode || err.code || 'http'}:${err.message}`
                           : err.legacyCode || err.code || err.message;
                     const routePath =
@@ -1016,7 +1053,9 @@ export class PuterServer {
         if (needsAuth && !opts.allowUnconfirmed) {
             mwChain.push(requireVerifiedAccount());
             // Same opt-out: a member owing 2FA must still reach those routes.
-            mwChain.push(requireTeam2fa(this.stores?.team));
+            mwChain.push(
+                requireTeam2fa((this.stores as { team?: Team2faLookup })?.team),
+            );
         }
 
         // block access tokens by default
@@ -1353,26 +1392,29 @@ export class PuterServer {
     }
 
     /**
-     * The claimed subdomain a route is declared for, if any. Claimed hosts
-     * authenticate through the claim's `authorize`, so options that rely on the
-     * main pipeline's actor or origin handling fail the boot instead.
+     * The gated claim a route is declared for, if any. Gated hosts authenticate
+     * through the claim's `authorize`, so options that rely on the main
+     * pipeline's actor or origin handling fail the boot instead.
      */
     static #claimedSubdomainOf(
         opts: RouteOptions,
         label: string,
     ): string | undefined {
-        const claims = extensionStore.claimedSubdomains;
+        const gated = (name: string) => {
+            const claim = extensionStore.claimedSubdomains.get(name);
+            return isMainPipelineClaim(claim) ? undefined : claim;
+        };
         const labels = [opts.subdomain ?? []].flat();
         for (const name of labels) {
             const lower = name.toLowerCase();
-            if (lower !== name && claims.has(lower)) {
+            if (lower !== name && gated(lower)) {
                 throw new Error(
                     `${label}: claimed subdomain '${lower}' must be written in lowercase`,
                 );
             }
         }
         if (Array.isArray(opts.subdomain)) {
-            const mixed = opts.subdomain.find((s) => claims.has(s));
+            const mixed = opts.subdomain.find((s) => gated(s));
             if (mixed !== undefined) {
                 throw new Error(
                     `${label}: claimed subdomain '${mixed}' must be the route's only subdomain`,
@@ -1381,7 +1423,7 @@ export class PuterServer {
             return undefined;
         }
         if (typeof opts.subdomain !== 'string') return undefined;
-        const claim = claims.get(opts.subdomain);
+        const claim = gated(opts.subdomain);
         if (!claim) return undefined;
         for (const [key, value] of Object.entries(opts)) {
             if (value === undefined || value === false) continue;

@@ -22,8 +22,10 @@ import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
+import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+import { EVENTS_WORKER_SESSION_NAME } from '../events/workerRuntime.js';
 import { FULL_API_ACCESS } from '../permission/consts.js';
 import { AuthService, HOSTED_ASSET_COOKIES } from './AuthService.js';
 
@@ -779,6 +781,87 @@ describe('AuthService (integration)', () => {
             const app = appRow!.app as { title: string; icon: string };
             expect(app.title).toBe('Listed App Title');
             expect(app.icon).toBe('data:image/png;base64,ICON');
+        });
+
+        describe('listSessions app lookups', () => {
+            const insertApp = async (userId: number, title: string) => {
+                const uid = `app-${uuidv4()}`;
+                await server.clients.db.write(
+                    'INSERT INTO `apps` (`uid`, `name`, `title`, `icon`, `description`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [
+                        uid,
+                        `n-${uid}`,
+                        title,
+                        `data:image/png;base64,${title}`,
+                        '',
+                        `https://${uuidv4()}.example`,
+                        userId,
+                    ],
+                );
+                return uid;
+            };
+
+            /** A user with sessions under two live apps and one that is gone. */
+            const seed = async () => {
+                const user = await makeUser();
+                const liveA = await insertApp(user.id, 'Alpha');
+                const liveB = await insertApp(user.id, 'Beta');
+                const gone = `app-${uuidv4()}`;
+                for (const appUid of [liveA, liveB, gone]) {
+                    await server.stores.session.create(user.id, {
+                        kind: 'app',
+                        app_uid: appUid,
+                    });
+                }
+                const actor = {
+                    user: { id: user.id, uuid: user.uuid },
+                } as unknown as Actor;
+                return { actor, liveA, liveB, gone };
+            };
+
+            const appsByUid = (rows: Array<Record<string, unknown>>) =>
+                Object.fromEntries(rows.map((r) => [r.app_uid, r.app]));
+
+            it('reads the apps in one batch and looks up only what it missed', async () => {
+                const { actor, liveA, liveB, gone } = await seed();
+                const getByUids = vi.spyOn(server.stores.app, 'getByUids');
+                const getByUid = vi.spyOn(server.stores.app, 'getByUid');
+                let rows: Array<Record<string, unknown>>;
+                try {
+                    rows = await authService.listSessions(actor);
+                    expect(getByUids).toHaveBeenCalledTimes(1);
+                    expect(getByUid.mock.calls).toEqual([[gone]]);
+                } finally {
+                    getByUids.mockRestore();
+                    getByUid.mockRestore();
+                }
+                expect(appsByUid(rows)).toEqual({
+                    [liveA]: expect.objectContaining({
+                        uid: liveA,
+                        title: 'Alpha',
+                    }),
+                    [liveB]: expect.objectContaining({
+                        uid: liveB,
+                        title: 'Beta',
+                    }),
+                    [gone]: null,
+                });
+            });
+
+            it('lists the same apps when the batch read fails', async () => {
+                const { actor } = await seed();
+                const expected = await authService.listSessions(actor);
+                const getByUids = vi
+                    .spyOn(server.stores.app, 'getByUids')
+                    .mockRejectedValue(new Error('batch failed'));
+                try {
+                    expect(await authService.listSessions(actor)).toEqual(
+                        expected,
+                    );
+                } finally {
+                    getByUids.mockRestore();
+                }
+            });
         });
 
         it('listSessions sorts the actor’s current session first, then by last_activity desc', async () => {
@@ -1647,10 +1730,16 @@ describe('AuthService (integration)', () => {
             // revoke so the re-create produces a fresh row.
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const { uuid: workerUid } = await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+            });
             const first = await authService.createWorkerSessionToken(
                 makeActor({ user }),
                 user,
                 workerName,
+                {},
+                { workerUid },
             );
             const firstUuid = (first.session as { uuid: string }).uuid;
             await authService.revokeSession(firstUuid);
@@ -1659,6 +1748,8 @@ describe('AuthService (integration)', () => {
                 makeActor({ user }),
                 user,
                 workerName,
+                {},
+                { workerUid },
             );
             const secondUuid = (second.session as { uuid: string }).uuid;
             expect(secondUuid).not.toBe(firstUuid);
@@ -1728,6 +1819,178 @@ describe('AuthService (integration)', () => {
                 [sessionUuid],
             )) as Array<{ revoked_at: number | null }>;
             expect(rows[0]?.revoked_at).not.toBeNull();
+        });
+    });
+
+    describe('a worker token lives only as long as its worker', () => {
+        const deployRow = async (
+            userId: number,
+            workerName: string,
+            appOwner?: number,
+        ) =>
+            await server.stores.subdomain.create({
+                userId,
+                subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+                appOwner: appOwner ?? null,
+            });
+        const newName = () => `wk-${Math.random().toString(36).slice(2, 8)}`;
+
+        it('resolves while the worker row exists and is invalid once it is deleted', async () => {
+            const user = await makeUser();
+            const workerName = newName();
+            const row = await deployRow(user.id, workerName);
+            const { token, gui_token } =
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                    {},
+                    { workerUid: row.uuid },
+                );
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+
+            // Straight through the store: no hook revokes the session.
+            await server.stores.subdomain.deleteByUuid(row.uuid);
+
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+            expect(await authService.authenticate(gui_token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('does not come back when the same name is deployed again', async () => {
+            const user = await makeUser();
+            const workerName = newName();
+            const first = await deployRow(user.id, workerName);
+            const { token } = await authService.createWorkerSessionToken(
+                makeActor({ user }),
+                user,
+                workerName,
+                {},
+                { workerUid: first.uuid },
+            );
+            await server.stores.subdomain.deleteByUuid(first.uuid);
+            await deployRow(user.id, workerName);
+
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('applies to app-scoped worker tokens', async () => {
+            const user = await makeUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `wk-app-${uuidv4()}`,
+                    title: 'Worker app',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: user.id },
+            );
+            const workerName = newName();
+            const row = await deployRow(user.id, workerName, app.id);
+            const token = await authService.createWorkerAppToken(
+                makeActor({ user }),
+                app.uid,
+                workerName,
+                { workerUid: row.uuid },
+            );
+            expect(
+                (await authService.authenticate(token)).actor?.app?.uid,
+            ).toBe(app.uid);
+
+            await server.stores.subdomain.deleteByUuid(row.uuid);
+
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+        });
+
+        it('holds a token minted without a worker uid to the name and owner', async () => {
+            const user = await makeUser();
+            const other = await makeUser();
+            const workerName = newName();
+            const { token } = await authService.createWorkerSessionToken(
+                makeActor({ user }),
+                user,
+                workerName,
+            );
+            // No row at all.
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+
+            // Someone else's worker under that name.
+            const foreign = await deployRow(other.id, workerName);
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+            await server.stores.subdomain.deleteByUuid(foreign.uuid);
+
+            await deployRow(user.id, workerName);
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+        });
+
+        it('leaves events handler sessions alone; they have no worker row', async () => {
+            const user = await makeUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `ev-app-${uuidv4()}`,
+                    title: 'Events app',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: user.id },
+            );
+            const token = await authService.createWorkerAppToken(
+                makeActor({ user }),
+                app.uid,
+                EVENTS_WORKER_SESSION_NAME,
+            );
+            expect((await authService.authenticate(token)).actor).toBeTruthy();
+        });
+    });
+
+    describe('deleting worker sessions', () => {
+        it('deleteWorkerSessionsByName ends the token and drops a derived token`s grants', async () => {
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const row = await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain: `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
+            });
+            const { session, token } =
+                await authService.createWorkerSessionToken(
+                    makeActor({ user }),
+                    user,
+                    workerName,
+                    {},
+                    { workerUid: row.uuid },
+                );
+            const sessionUuid = (session as { uuid: string }).uuid;
+            const childUid = uuidv4();
+            await server.stores.session.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: sessionUuid,
+                access_token_uid: childUid,
+            });
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `authorizer_user_id`, `permission`) VALUES (?, ?, ?)',
+                [childUid, user.id, 'fs:x:read'],
+            );
+
+            await authService.deleteWorkerSessionsByName(workerName);
+
+            // The worker row is still there: only the session went.
+            expect(await authService.authenticate(token)).toEqual({
+                invalid: true,
+            });
+            const grants = await server.clients.db.read(
+                'SELECT * FROM `access_token_permissions` WHERE `token_uid` = ?',
+                [childUid],
+            );
+            expect(grants).toHaveLength(0);
         });
     });
 
@@ -1945,6 +2208,136 @@ describe('AuthService (integration)', () => {
                         `https://${sub}.site.puter.localhost`,
                     ),
                 ).toBe(app.uid);
+            });
+        });
+
+        describe("when the app's site is registered to another user", () => {
+            it('gives the new site its own uid and restores the app once its owner holds the site again', async () => {
+                const owner = await makeUser();
+                const other = await makeUser();
+                const sub = `freed-${Math.random().toString(36).slice(2, 10)}`;
+                const origin = `https://${sub}.site.puter.localhost`;
+                const ownSite = await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                const app = await server.stores.app.createFromOrigin(
+                    await authService.appUidFromOrigin(origin),
+                    authService.canonicalizeOrigin(origin),
+                    { ownerUserId: owner.id },
+                );
+                // A path misses the canonical lookup, so only the derived
+                // uid ties this origin to the app.
+                await server.stores.app.update(app.id, {
+                    index_url: `${origin}/play/`,
+                });
+                expect(await authService.appUidFromOrigin(origin)).toBe(
+                    app.uid,
+                );
+
+                await server.stores.subdomain.deleteByUuid(ownSite.uuid);
+                expect(await authService.appUidFromOrigin(origin)).toBe(
+                    app.uid,
+                );
+
+                const otherSite = await server.stores.subdomain.create({
+                    userId: other.id,
+                    subdomain: sub,
+                });
+                const next = await authService.appUidFromOrigin(origin);
+                expect(next).not.toBe(app.uid);
+                expect(
+                    (await authService.appUidsFromOrigins([origin])).get(
+                        origin,
+                    ),
+                ).toBe(next);
+
+                await server.stores.subdomain.deleteByUuid(otherSite.uuid);
+                await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                expect(await authService.appUidFromOrigin(origin)).toBe(
+                    app.uid,
+                );
+                expect(
+                    (await authService.appUidsFromOrigins([origin])).get(
+                        origin,
+                    ),
+                ).toBe(app.uid);
+            });
+        });
+
+        describe('after the origin-derived app is deleted', () => {
+            const uidsFor = async (origin: string) => [
+                await authService.appUidFromOrigin(origin),
+                (await authService.appUidsFromOrigins([origin])).get(origin),
+            ];
+
+            const bootstrapAndDelete = async (
+                origin: string,
+                ownerUserId: number | null,
+            ) => {
+                const app = await server.stores.app.createFromOrigin(
+                    await authService.appUidFromOrigin(origin),
+                    authService.canonicalizeOrigin(origin),
+                    { ownerUserId },
+                );
+                await server.stores.app.delete(app.id);
+                return app.uid;
+            };
+
+            it("gives another user's site on the subdomain a new uid and returns the old one to the app's owner", async () => {
+                const owner = await makeUser();
+                const other = await makeUser();
+                const sub = `gone-${Math.random().toString(36).slice(2, 10)}`;
+                const origin = `https://${sub}.site.puter.localhost`;
+                const ownSite = await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                const uid = await bootstrapAndDelete(origin, owner.id);
+                expect(await uidsFor(origin)).toEqual([uid, uid]);
+
+                await server.stores.subdomain.deleteByUuid(ownSite.uuid);
+                const unregistered = await uidsFor(origin);
+                expect(unregistered[0]).not.toBe(uid);
+                expect(unregistered[1]).toBe(unregistered[0]);
+
+                const otherSite = await server.stores.subdomain.create({
+                    userId: other.id,
+                    subdomain: sub,
+                });
+                const next = await uidsFor(origin);
+                expect(next[0]).not.toBe(uid);
+                expect(next[1]).toBe(next[0]);
+
+                await server.stores.subdomain.deleteByUuid(otherSite.uuid);
+                await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                expect(await uidsFor(origin)).toEqual([uid, uid]);
+            });
+
+            it('does not return an unowned deleted app uid to a hosted site', async () => {
+                const owner = await makeUser();
+                const sub = `gone-${Math.random().toString(36).slice(2, 10)}`;
+                const origin = `https://${sub}.site.puter.localhost`;
+                const uid = await bootstrapAndDelete(origin, null);
+                await server.stores.subdomain.create({
+                    userId: owner.id,
+                    subdomain: sub,
+                });
+                expect(await authService.appUidFromOrigin(origin)).not.toBe(
+                    uid,
+                );
+            });
+
+            it('keeps the uid of an external origin', async () => {
+                const origin = `https://gone-${uuidv4()}.example.com`;
+                const uid = await bootstrapAndDelete(origin, null);
+                expect(await uidsFor(origin)).toEqual([uid, uid]);
             });
         });
     });
@@ -3286,6 +3679,142 @@ describe('AuthService (integration)', () => {
             expect(
                 await server.stores.session.getByUuid(appDecoded.session_uid),
             ).toBeNull();
+        });
+    });
+
+    describe('revoking every session of a user', () => {
+        const revokers: Array<
+            [string, (user: { id: number }) => Promise<void>]
+        > = [
+            [
+                'revokeAllSessions',
+                (user) =>
+                    authService.revokeAllSessions({
+                        user,
+                        session: { uid: 'unrelated' },
+                    } as unknown as Actor),
+            ],
+            [
+                'revokeInteractiveSessionsForUserId',
+                (user) =>
+                    authService.revokeInteractiveSessionsForUserId(user.id),
+            ],
+            [
+                'revokeAllSessionsForUserId',
+                (user) => authService.revokeAllSessionsForUserId(user.id),
+            ],
+        ];
+
+        it.each(revokers)(
+            '%s revokes a session the replica has not seen yet',
+            async (_name, revoke) => {
+                const user = await makeUser();
+                const web = await authService.createSessionToken(user, {});
+                const webUuid = (web.session as { uuid: string }).uuid;
+
+                const db = server.clients.db;
+                const original = db.read.bind(db);
+                const read = vi
+                    .spyOn(db, 'read')
+                    .mockImplementation(
+                        async (sql: string, params?: unknown[]) =>
+                            sql.includes('FROM `sessions`')
+                                ? []
+                                : original(sql, params),
+                    );
+                // sqlite's `pread` goes through `read`; keep it on the primary.
+                const pread = vi
+                    .spyOn(db, 'pread')
+                    .mockImplementation((sql: string, params?: unknown[]) =>
+                        original(sql, params),
+                    );
+                try {
+                    await revoke(user);
+                } finally {
+                    read.mockRestore();
+                    pread.mockRestore();
+                }
+
+                expect(
+                    await server.stores.session.getByUuid(webUuid),
+                ).toBeNull();
+            },
+        );
+
+        it.each(revokers)(
+            '%s takes the same few primary round trips however many sessions there are',
+            async (name, revoke) => {
+                const user = await makeUser();
+                const sessions = server.stores.session;
+                const uuids: string[] = [];
+                for (let i = 0; i < 15; i++) {
+                    const web = await sessions.create(user.id);
+                    const asset = await sessions.create(user.id, {
+                        kind: 'asset',
+                        parent_session_id: web.uuid,
+                    });
+                    uuids.push(web.uuid, asset.uuid);
+                }
+                const app = await sessions.getOrCreateApp(
+                    user.id,
+                    `app-${uuidv4()}`,
+                );
+                const appToken = await sessions.create(user.id, {
+                    kind: 'access_token',
+                    parent_session_id: app.uuid,
+                });
+                const appUuids = [app.uuid, appToken.uuid];
+
+                const db = server.clients.db;
+                const pread = vi.spyOn(db, 'pread');
+                const write = vi.spyOn(db, 'write');
+                let primaryQueries: string[];
+                try {
+                    await revoke(user);
+                } finally {
+                    primaryQueries = [
+                        ...pread.mock.calls,
+                        ...write.mock.calls,
+                    ].map(([sql]) => String(sql));
+                    pread.mockRestore();
+                    write.mockRestore();
+                }
+
+                // List, select, update, re-seed.
+                expect(
+                    primaryQueries.filter((sql) => sql.includes('`sessions`')),
+                ).toHaveLength(4);
+                for (const uuid of uuids) {
+                    expect(await sessions.getByUuid(uuid)).toBeNull();
+                }
+                for (const uuid of appUuids) {
+                    const revoked = (await sessions.getByUuid(uuid)) === null;
+                    // Only revokeAllSessions keeps app authorizations.
+                    expect(revoked).toBe(name !== 'revokeAllSessions');
+                }
+            },
+        );
+
+        it('a password reset leaves workers and standalone access tokens; a forced sign-out takes them', async () => {
+            const user = await makeUser();
+            const sessions = server.stores.session;
+            const web = await sessions.create(user.id);
+            const worker = await sessions.getOrCreateWorker(user.id, {
+                appUid: null,
+                workerName: `wk-${uuidv4()}`,
+            });
+            const token = await sessions.create(user.id, {
+                kind: 'access_token',
+            });
+
+            await authService.revokeInteractiveSessionsForUserId(user.id);
+            expect(await sessions.getByUuid(web.uuid)).toBeNull();
+            expect(await sessions.getByUuid(worker.uuid)).toBeTruthy();
+            expect(await sessions.getByUuid(token.uuid)).toBeTruthy();
+
+            await authService.revokeAllSessionsForUserId(user.id);
+            expect(await sessions.getByUuid(worker.uuid)).toBeNull();
+            expect(await sessions.getByUuid(token.uuid)).toBeNull();
         });
     });
 

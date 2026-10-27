@@ -60,12 +60,7 @@ running on its own.
 ## Return value 
 A `Promise` that will resolve to an [`AppConnection`](/Objects/AppConnection) once the app is launched.
 
-When private-access routing applies, the resolved connection may include
-`connection.response.launchResult` with fields such as:
-- `requestedAppName`
-- `openedAppName`
-- `redirectedToFallback`
-- `deniedPrivateAccess`
+If the desktop cannot complete the launch, the promise rejects with `code: 'ipc_handler_failed'` and a `message`.
 
 ## Examples
 

@@ -166,3 +166,13 @@ describe('cachedRemoteCatalog', () => {
         expect(fetch).toHaveBeenCalledTimes(2);
     });
 });
+
+
+it('passes the last successful snapshot to a refresh without exposing the fallback as fetched data', async () => {
+    const fetch = vi.fn(async (_signal: AbortSignal, previous?: string[]) => [...(previous ?? []), 'model']);
+    const get = cachedRemoteCatalog({ name: 'fixture', fetch, fallback: ['fallback'], ttlMs: 0 });
+    expect(await get()).toEqual(['model']);
+    expect(fetch.mock.calls[0][1]).toBeUndefined();
+    expect(await get()).toEqual(['model', 'model']);
+    expect(fetch.mock.calls[1][1]).toEqual(['model']);
+});

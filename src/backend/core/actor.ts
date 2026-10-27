@@ -239,3 +239,10 @@ export const userRelatedActor = (actor: Actor): Actor => {
 /** How many events handler runs led to a write by this actor. */
 export const handlerDepthOf = (actor: Actor | undefined | null): number =>
     actor?.handlerDepth ?? 0;
+
+/**
+ * Whether a write by this actor was made by server-side code running as the
+ * account: a worker session, or an events handler.
+ */
+export const viaWorkerOf = (actor: Actor | undefined | null): boolean =>
+    actor?.session?.kind === 'worker' || handlerDepthOf(actor) > 0;

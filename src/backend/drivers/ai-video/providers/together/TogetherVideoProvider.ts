@@ -18,11 +18,19 @@
  */
 
 import { Together } from 'together-ai';
+import type { Actor } from '../../../../core/actor.js';
 import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import { insufficientCreditsError } from '../../../../services/metering/enforcement.js';
 import type { CreditHold } from '../../../../services/metering/types.js';
+import { sniffVideoMime } from '../../../../util/mediaSniff.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
+import { dataUriBytes, parseDataUri } from '../../../util/dataUri.js';
+import { isHttpUrl } from '../../../util/imageInput.js';
+import {
+    type MediaInputDeps,
+    signedPuterVideoUrl,
+} from '../../../util/mediaInput.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { capSecondsToRemainingCredits } from '../../creditCap.js';
 import { VideoProvider } from '../VideoProvider.js';
@@ -41,27 +49,36 @@ const POLL_INTERVAL_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 60 * 1000;
 const DEFAULT_MODEL = 'Wan-AI/wan2.7-t2v';
 const DEFAULT_DURATION_SECONDS = 6;
+/** A Puter file Together fetches itself as the source video. */
+export const TOGETHER_MAX_VIDEO_BYTES = 32 * 1024 * 1024;
 
 // Resolution tiers ('720p', '1080P') mark models that size their output
 // through `resolution` (+ `ratio`) rather than width/height.
 const isResolutionTier = (value: string): boolean => /^\d{3,4}p$/i.test(value);
 
-// The SDK's create params trail the API: `resolution`, `ratio` and
-// `generate_audio` are documented request fields it does not type yet.
+// The SDK's create params trail the API: `resolution`, `ratio`,
+// `generate_audio` and `media` are documented request fields it does not type
+// yet.
 type TogetherCreatePayload = Together.VideoCreateParams & {
     metadata?: object;
     resolution?: string;
     ratio?: string;
     generate_audio?: boolean;
+    media?: { source_video: string };
 };
+
+const badRequest = (message: string): HttpError =>
+    new HttpError(400, message, { legacyCode: 'bad_request' });
 
 export class TogetherVideoProvider extends VideoProvider {
     #client: Together;
     #meteringService: AiMeteringService;
+    #files: MediaInputDeps;
 
     constructor(
         config: { apiKey: string },
         meteringService: AiMeteringService,
+        files: MediaInputDeps,
     ) {
         super();
         if (!config.apiKey) {
@@ -74,6 +91,7 @@ export class TogetherVideoProvider extends VideoProvider {
             timeout: REQUEST_TIMEOUT_MS,
         });
         this.#meteringService = meteringService;
+        this.#files = files;
     }
 
     getDefaultModel(): string {
@@ -116,6 +134,7 @@ export class TogetherVideoProvider extends VideoProvider {
             frame_images: frameImages,
             input_reference: inputReference,
             last_frame: lastFrame,
+            input_video: inputVideo,
             metadata,
             test_mode: testMode,
         } = params ?? {};
@@ -131,6 +150,24 @@ export class TogetherVideoProvider extends VideoProvider {
             selectedModel?.model ??
             this.#stripTogetherPrefix(requestedModel ?? DEFAULT_MODEL);
 
+        const hasInputVideo = inputVideo !== undefined && inputVideo !== null;
+        if (hasInputVideo) {
+            if (typeof inputVideo !== 'string' || !inputVideo.trim()) {
+                throw badRequest(
+                    'input_video must be a video URL, data URI or Puter file path',
+                );
+            }
+            if (
+                [referenceImages, frameImages, inputReference, lastFrame].some(
+                    (input) => input !== undefined && input !== null,
+                )
+            ) {
+                throw badRequest(
+                    'input_video cannot be combined with image inputs',
+                );
+            }
+        }
+
         if (testMode) {
             return DEFAULT_TEST_VIDEO_URL;
         }
@@ -140,10 +177,11 @@ export class TogetherVideoProvider extends VideoProvider {
             size ?? resolution,
             selectedModel,
         );
-        const perSecondCents =
-            (resolutionTier !== undefined
-                ? costs[`per-second-${resolutionTier.toLowerCase()}`]
-                : undefined) ?? costs['per-second'];
+        const perSecondCents = hasInputVideo
+            ? costs['per-second-video-input']
+            : ((resolutionTier !== undefined
+                  ? costs[`per-second-${resolutionTier.toLowerCase()}`]
+                  : undefined) ?? costs['per-second']);
         const perVideoCents = costs['per-video'];
         if (!perSecondCents && !perVideoCents) {
             throw new Error(`No pricing configured for video model ${model}`);
@@ -178,7 +216,10 @@ export class TogetherVideoProvider extends VideoProvider {
                 usageType: usageKey,
                 perSecondMicroCents: perSecondCents * 1_000_000,
                 requestedSeconds: normalizedSeconds ?? DEFAULT_DURATION_SECONDS,
-                allowedSeconds: selectedModel?.durationSeconds,
+                allowedSeconds: hasInputVideo
+                    ? (selectedModel?.videoInputDurationSeconds ??
+                      selectedModel?.durationSeconds)
+                    : selectedModel?.durationSeconds,
             });
             normalizedSeconds = capped.seconds;
             hold = capped.hold;
@@ -202,6 +243,10 @@ export class TogetherVideoProvider extends VideoProvider {
         }
 
         try {
+            // Read only once credit is held; the hold is released if it fails.
+            const sourceVideo = hasInputVideo
+                ? await this.#sourceVideo(actor as Actor, inputVideo as string)
+                : undefined;
             const createPayload: TogetherCreatePayload = {
                 prompt,
                 model,
@@ -288,6 +333,9 @@ export class TogetherVideoProvider extends VideoProvider {
             if (metadata && typeof metadata === 'object') {
                 createPayload.metadata = metadata;
             }
+            if (sourceVideo !== undefined) {
+                createPayload.media = { source_video: sourceVideo };
+            }
 
             const job = await this.#client.videos.create(createPayload);
             const finalJob = await this.#pollUntilComplete(job.id);
@@ -341,6 +389,30 @@ export class TogetherVideoProvider extends VideoProvider {
         } finally {
             await hold.release();
         }
+    }
+
+    /**
+     * The source video as Together takes it: a web URL as given, a small data
+     * URI typed by its bytes, and a Puter file as a short-lived signed URL
+     * Together fetches, so the file never passes through this server.
+     */
+    async #sourceVideo(actor: Actor, input: string): Promise<string> {
+        if (isHttpUrl(input)) return input;
+        if (input.startsWith('data:')) {
+            const uri = parseDataUri(input, 'application/octet-stream');
+            const bytes = uri && dataUriBytes(uri);
+            const mimeType = bytes && sniffVideoMime(bytes);
+            if (!mimeType) {
+                throw badRequest(
+                    'input_video must be an MP4, QuickTime, WebM or Matroska video',
+                );
+            }
+            return `data:${mimeType};base64,${bytes.toString('base64')}`;
+        }
+        return signedPuterVideoUrl(this.#files, actor, input, {
+            maxBytes: TOGETHER_MAX_VIDEO_BYTES,
+            expiresInSeconds: VIDEO_HOLD_TTL_MS / 1000,
+        });
     }
 
     async #pollUntilComplete(jobId: string): Promise<any> {

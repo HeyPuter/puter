@@ -21,6 +21,7 @@
 import http from 'node:http';
 import net from 'node:net';
 import type { Request, RequestHandler, Response } from 'express';
+import uaParser from 'ua-parser-js';
 import {
     afterAll,
     afterEach,
@@ -295,6 +296,26 @@ describe('PuterServer host header validation', () => {
         expect(res.headers['dav']).toBeUndefined();
     });
 
+    it('lets a browser cache a preflight off the dav subdomain', async () => {
+        const res = await request(
+            '/drivers/call',
+            {
+                host: `api.puter.localhost:${port}`,
+                origin: 'https://third-party.example',
+                'access-control-request-method': 'POST',
+                'access-control-request-headers': 'authorization,content-type',
+            },
+            'OPTIONS',
+        );
+        expect(res.status).toBe(200);
+        expect(res.body).toBe('OK');
+        expect(res.headers['access-control-max-age']).toBe('86400');
+        expect(res.headers['access-control-allow-origin']).toBe(
+            'https://third-party.example',
+        );
+        expect(res.headers['access-control-allow-credentials']).toBe('true');
+    });
+
     it('pins X-Frame-Options on the main domain only', async () => {
         const main = await request('/healthcheck', {
             host: 'puter.localhost',
@@ -318,6 +339,28 @@ describe('PuterServer host header validation', () => {
             });
             expect(res.status).toBe(403);
             expect(res.body).toBe('Forbidden');
+        } finally {
+            server.clients.event.off('ip.validate', handler as never);
+        }
+    });
+
+    it('never marks a vetoed preflight as cacheable', async () => {
+        const handler = (_key: unknown, data: unknown) => {
+            (data as { allow: boolean }).allow = false;
+        };
+        server.clients.event.on('ip.validate', handler as never);
+        try {
+            const res = await request(
+                '/drivers/call',
+                {
+                    host: `api.puter.localhost:${port}`,
+                    origin: 'https://third-party.example',
+                    'access-control-request-method': 'POST',
+                },
+                'OPTIONS',
+            );
+            expect(res.status).toBe(403);
+            expect(res.headers['access-control-max-age']).toBeUndefined();
         } finally {
             server.clients.event.off('ip.validate', handler as never);
         }
@@ -398,6 +441,7 @@ describe('PuterServer host header validation — permissive modes', () => {
                 allow_no_host_header: false,
                 custom_domains_enabled: true,
                 allow_nipio_domains: true,
+                static_hosting_domain: 'site.puter.localhost',
             } as unknown as IConfig,
             { listen: true },
         );
@@ -407,11 +451,13 @@ describe('PuterServer host header validation — permissive modes', () => {
         await server?.shutdown();
     });
 
-    it('lets an unknown host through when custom domains are enabled', async () => {
+    it('hands an unknown host to site hosting when custom domains are enabled', async () => {
         const res = await rawRequest(port, '/', {
             host: 'my-own-domain.example',
         });
-        expect(res.status).not.toBe(400);
+        // No site claims it, so it 404s instead of reaching the GUI.
+        expect(res.status).toBe(404);
+        expect(res.body).toBe('Site not found');
     });
 
     it('accepts nip.io hosts when they are opted in', async () => {
@@ -419,6 +465,95 @@ describe('PuterServer host header validation — permissive modes', () => {
             host: '127-0-0-1.nip.io',
         });
         expect(res.status).toBe(200);
+    });
+});
+
+describe('PuterServer request parsing', () => {
+    let server: PuterServer;
+    let port: number;
+    const routeCount = { before: 0 };
+
+    beforeAll(async () => {
+        routeCount.before = extensionStore.routeHandlers.length;
+        extension.get('/ua-probe', (req: Request, res: Response) => {
+            const first = req.ua;
+            res.json({ ua: first ?? null, memoized: req.ua === first });
+        });
+        extension.get('/ua-assign', (req: Request, res: Response) => {
+            req.ua = { browser: { name: 'set' }, os: {}, device: {} };
+            res.json({ ua: req.ua });
+        });
+        extension.post('/raw-probe', (req: Request, res: Response) => {
+            res.json({
+                isBuffer: Buffer.isBuffer(req.rawBody),
+                raw: req.rawBody?.toString('base64') ?? null,
+                body: req.body,
+            });
+        });
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        extensionStore.routeHandlers.length = routeCount.before;
+        await server?.shutdown();
+    });
+
+    const host = () => `puter.localhost:${port}`;
+
+    it('parses the user agent the first time a handler reads it', async () => {
+        const agent =
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';
+        const res = await rawRequest(port, '/ua-probe', {
+            host: host(),
+            'user-agent': agent,
+        });
+        const body = JSON.parse(res.body);
+        expect(body.ua).toEqual(JSON.parse(JSON.stringify(uaParser(agent))));
+        expect(body.ua.browser.name).toBe('Chrome');
+        expect(body.memoized).toBe(true);
+    });
+
+    it('leaves it unset without a User-Agent header', async () => {
+        const res = await rawRequest(port, '/ua-probe', { host: host() });
+        expect(JSON.parse(res.body)).toEqual({ ua: null, memoized: true });
+    });
+
+    it('lets a handler overwrite it', async () => {
+        const res = await rawRequest(port, '/ua-assign', {
+            host: host(),
+            'user-agent': 'curl/8.0',
+        });
+        expect(JSON.parse(res.body).ua.browser).toEqual({ name: 'set' });
+    });
+
+    it('keeps the exact JSON bytes next to the parsed body', async () => {
+        const payload = '{ "a" : "\u00e9\u2713",\n "n": [1, 2] }';
+        for (const contentType of [
+            'application/json',
+            'text/plain;actually=json',
+        ]) {
+            const res = await rawRequest(
+                port,
+                '/raw-probe',
+                { host: host(), 'content-type': contentType },
+                'POST',
+                payload,
+            );
+            const body = JSON.parse(res.body);
+            expect(body.isBuffer, contentType).toBe(true);
+            expect(Buffer.from(body.raw, 'base64').toString('utf8')).toBe(
+                payload,
+            );
+            expect(body.body).toEqual({ a: '\u00e9\u2713', n: [1, 2] });
+        }
     });
 });
 
@@ -646,6 +781,93 @@ describe('PuterServer claimed subdomains', () => {
         });
         expect(seen).toEqual([]);
         expect(comparable(res)).toEqual(comparable(unclaimed));
+    });
+});
+
+/**
+ * A main-pipeline claim is served like a reserved subdomain, with ordinary
+ * routes.
+ */
+describe('PuterServer main-pipeline claims', () => {
+    let server: PuterServer;
+    let port: number;
+    const routeCount = { before: 0 };
+
+    beforeAll(async () => {
+        extension.claimSubdomain('mainclaim', { mainPipeline: true });
+        routeCount.before = extensionStore.routeHandlers.length;
+        extension.get(
+            '/hello',
+            { subdomain: 'mainclaim' },
+            (_req: Request, res: Response) => {
+                res.send('main hello');
+            },
+        );
+        extension.get(
+            '/signed-in',
+            {
+                subdomain: 'mainclaim',
+                requireAuth: true,
+                rateLimit: { limit: 5, window: 1000, key: 'user' },
+            },
+            (_req: Request, res: Response) => {
+                res.send('signed in');
+            },
+        );
+        extension.get('/everywhere', { subdomain: '*' }, (_req, res) => {
+            res.send('everywhere');
+        });
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+                static_hosting_domain: 'site.puter.localhost',
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        extensionStore.claimedSubdomains.delete('mainclaim');
+        extensionStore.routeHandlers.length = routeCount.before;
+        await server?.shutdown();
+    });
+
+    it('serves its routes and the main app on the claimed host', async () => {
+        const host = 'mainclaim.puter.localhost';
+        expect((await rawRequest(port, '/hello', { host })).body).toBe(
+            'main hello',
+        );
+        const everywhere = await rawRequest(port, '/everywhere', {
+            host,
+            origin: 'https://elsewhere.example',
+        });
+        const reserved = await rawRequest(port, '/everywhere', {
+            host: 'api.puter.localhost',
+            origin: 'https://elsewhere.example',
+        });
+        expect(everywhere.body).toBe('everywhere');
+        for (const res of [everywhere, reserved]) {
+            expect(res.headers['access-control-allow-origin']).toBe(
+                'https://elsewhere.example',
+            );
+        }
+    });
+
+    it('runs auth for its routes', async () => {
+        const res = await rawRequest(port, '/signed-in', {
+            host: 'mainclaim.puter.localhost',
+        });
+        expect(res.status).toBe(401);
+    });
+
+    it('keeps its routes off other hosts', async () => {
+        for (const host of ['api.puter.localhost', 'other.puter.localhost']) {
+            const res = await rawRequest(port, '/hello', { host });
+            expect(res.status, host).toBe(404);
+        }
     });
 });
 
@@ -924,6 +1146,27 @@ describe('PuterServer HTTP alarm gate', () => {
                     });
                 }) as unknown as RequestHandler,
             },
+            {
+                method: 'get',
+                path: '/model-unavailable',
+                options: {},
+                handler: (() => {
+                    throw new HttpError(400, 'Model not available: m', {
+                        legacyCode: 'upstream_bad_request',
+                        alarmSeverity: 'info',
+                    });
+                }) as unknown as RequestHandler,
+            },
+            {
+                method: 'get',
+                path: '/upstream-bad-request',
+                options: {},
+                handler: (() => {
+                    throw new HttpError(400, 'bad tool schema', {
+                        legacyCode: 'upstream_bad_request',
+                    });
+                }) as unknown as RequestHandler,
+            },
         );
         port = await allocateEphemeralPort();
         server = await setupTestServer(
@@ -1034,6 +1277,25 @@ describe('PuterServer HTTP alarm gate', () => {
                 },
             ],
         });
+    });
+
+    it("alarms a 4xx at the thrower's alarmSeverity", async () => {
+        const { id, severity } = await raisedFor('/model-unavailable', 400);
+        expect(id).toBe(
+            'http_400:GET:/model-unavailable:upstream_bad_request:Model not available: m',
+        );
+        expect(severity).toBe('info');
+    });
+
+    it('does not alarm an upstream 4xx without one', async () => {
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const res = await rawRequest(port, '/upstream-bad-request', {
+            host: 'puter.localhost',
+        });
+        expect(res.status).toBe(400);
+        expect(alarm).not.toHaveBeenCalled();
     });
 });
 

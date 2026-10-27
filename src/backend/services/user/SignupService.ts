@@ -59,7 +59,7 @@ export type SignupGateOutcome =
 export interface SignupGateInput {
     req: Request;
     /** Set for signups that did not come through the signup form. */
-    source?: 'oidc';
+    source?: 'oidc' | 'team_provision';
     data: Record<string, unknown>;
     email: string;
     isTemp: boolean;
@@ -650,12 +650,21 @@ export class SignupService extends PuterService {
             email,
             canonical,
         );
-        await this.stores.user.update(user.id, {
-            email_confirmed: 1,
-            requires_email_confirmation: 0,
-            email_confirm_code: null,
-            email_confirm_token: null,
-        });
+        try {
+            await this.stores.user.update(user.id, {
+                email_confirmed: 1,
+                requires_email_confirmation: 0,
+                email_confirm_code: null,
+                email_confirm_token: null,
+            });
+        } catch (e) {
+            // An owner the checks above don't strip, such as a variant
+            // spelling the index's collation folds together.
+            if (!isOwnedEmailConflict(e)) throw e;
+            throw new HttpError(400, 'This email is already in use.', {
+                legacyCode: 'email_already_in_use' as never,
+            });
+        }
         await promoteToVerifiedGroup(this.stores.group, this.config, user);
 
         // Best-effort side channels. Other tabs refresh; the one that sent
@@ -689,10 +698,10 @@ export class SignupService extends PuterService {
                 force,
             });
             if (!holder || holder.email_confirmed) return holder;
-            if (!(await this.stores.team.getOrgSeat(holder.id))) return holder;
+            if (!(await this.stores.team?.getOrgSeat(holder.id))) return holder;
             if (!opts.releaseSeat) return null;
             if (
-                !(await this.services.team.releaseUnconfirmedSeatEmail(
+                !(await this.services.team?.releaseUnconfirmedSeatEmail(
                     holder.id,
                 ))
             )
@@ -714,7 +723,8 @@ export class SignupService extends PuterService {
         if (!existing) return null;
         // A provisioned account looks exactly like a claimable placeholder,
         // but claiming it hands a stranger that team's membership.
-        const orgSeat = await this.stores.team.getOrgSeat(existing.id);
+        const orgSeat =
+            (await this.stores.team?.getOrgSeat(existing.id)) ?? null;
         if (
             existing.email_confirmed ||
             existing.password !== null ||

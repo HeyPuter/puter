@@ -17,7 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { AsyncResource } from 'node:async_hooks';
 import { posix as pathPosix } from 'node:path';
+import { Readable } from 'node:stream';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
@@ -28,6 +30,7 @@ import {
     type ACLService,
     type AclMode,
     type AclRefusalOptions,
+    type ResourceDescriptor,
 } from '../../services/acl/ACLService.js';
 import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
@@ -98,6 +101,80 @@ export function getBoolean(
     return undefined;
 }
 
+// Non-negative safe integer from a number or a plain digit string; anything
+// else (exponents, hex, whitespace) is rejected.
+function parseByteParam(raw: unknown, name: string, min: number): number {
+    const value =
+        typeof raw === 'number'
+            ? raw
+            : typeof raw === 'string' && /^\d+$/.test(raw)
+              ? Number(raw)
+              : NaN;
+    if (!Number.isSafeInteger(value) || value < min) {
+        throw new HttpError(400, `Invalid ${name}`, {
+            legacyCode: 'bad_request',
+        });
+    }
+    return value;
+}
+
+/**
+ * Resolves an HTTP Range header string from explicit `headersRange` or fallback
+ * `offset` / `byte_count` query parameters.
+ */
+export function resolveReadRange(
+    headersRange: unknown,
+    query: Record<string, unknown>,
+): string | undefined {
+    if (typeof headersRange === 'string' && headersRange.length > 0) {
+        return headersRange;
+    }
+    const isSet = (v: unknown) => v !== undefined && v !== null && v !== '';
+    const offset = isSet(query.offset)
+        ? parseByteParam(query.offset, 'offset', 0)
+        : undefined;
+    const byteCount = isSet(query.byte_count)
+        ? parseByteParam(query.byte_count, 'byte_count', 1)
+        : undefined;
+
+    if (byteCount !== undefined) {
+        const last = (offset ?? 0) + byteCount - 1;
+        if (!Number.isSafeInteger(last)) {
+            throw new HttpError(400, 'Invalid byte_count', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return `bytes=${offset ?? 0}-${last}`;
+    }
+    if (offset !== undefined) {
+        return `bytes=${offset}-`;
+    }
+    return undefined;
+}
+
+/**
+ * A response body read from `chunks` for `pipeToResponse`. Each chunk is pulled
+ * in the caller's async context, which share masking reads, not in whichever
+ * socket event asked for more.
+ */
+export function contextBoundStream(
+    chunks: AsyncGenerator<string, void, undefined>,
+): Readable {
+    const next = AsyncResource.bind(() => chunks.next());
+    const stop = AsyncResource.bind(() => chunks.return(undefined));
+    return Readable.from({
+        [Symbol.asyncIterator]: () => ({ next, return: stop }),
+    });
+}
+
+/** No range is satisfiable on an empty file, so it reads whole: empty, 200. */
+export function rangeForEntry(
+    entry: FSEntry,
+    range: string | undefined,
+): string | undefined {
+    return entry.size === 0 ? undefined : range;
+}
+
 // Accepts either `{ path }` or `{ uid }` or `{ id }` or `{ parent, name }`
 // from a legacy body field. Returns a resolved entry (throwing 404 if not
 // found or 400 if no usable ref is present).
@@ -129,7 +206,7 @@ const MAX_SELECTOR_DEPTH = 4;
  * Resolve `ref`, reporting any miss as the same 404 an unreadable entry gets,
  * so a lookup never echoes a resolved path or tells missing from hidden.
  */
-async function resolveOrNotFound(
+export async function resolveOrNotFound(
     fsEntryStore: FSEntryStore,
     ref: NodeRef,
 ): Promise<FSEntry> {
@@ -229,7 +306,7 @@ export async function assertAccess(
     aclService: ACLService,
     _fsService: FSService,
     actor: Actor,
-    path: string,
+    path: string | ResourceDescriptor,
     mode: AclMode,
 ): Promise<void> {
     await aclService.assertFsAccess(actor, path, mode, LEGACY_REFUSAL);
@@ -474,39 +551,46 @@ export async function toLegacyEntry(
         ...(opts.isShared === undefined ? {} : { is_shared: opts.isShared }),
     };
 
-    // `is_empty` — only meaningful for directories. Single-row probe so we
-    // don't pay for listing every child.
-    if (entry.isDir && opts.fsEntryStore) {
-        try {
-            const children = await opts.fsEntryStore.listChildren(entry.uuid, {
-                limit: 1,
-            });
-            response.is_empty = children.length === 0;
-        } catch {
-            response.is_empty = false;
-        }
-    } else if (!entry.isDir) {
-        response.is_empty = false;
-    }
+    const { fsEntryStore, userStore } = opts;
+    const [isEmpty, ownerUsername, thumbnail] = await Promise.all([
+        // `is_empty` — only meaningful for directories.
+        entry.isDir && fsEntryStore
+            ? (async () => {
+                  try {
+                      return !(await fsEntryStore.hasChildrenByParentUid(
+                          entry.uuid,
+                      ));
+                  } catch {
+                      return false;
+                  }
+              })()
+            : undefined,
+        // `owner` — username-only. Matches the legacy safe-entry contract.
+        userStore
+            ? (async () => {
+                  try {
+                      const owner = await userStore.getById(entry.userId);
+                      return owner && typeof owner.username === 'string'
+                          ? owner.username
+                          : undefined;
+                  } catch {
+                      return undefined; // best-effort
+                  }
+              })()
+            : undefined,
+        // Let the thumbnail extension swap an s3:// key for a signed URL.
+        signEntryThumbnail(
+            eventClient,
+            entry.uuid,
+            response.thumbnail as string | null,
+        ),
+    ]);
 
-    // `owner` — username-only. Matches the legacy safe-entry contract.
-    if (opts.userStore) {
-        try {
-            const owner = await opts.userStore.getById(entry.userId);
-            if (owner && typeof owner.username === 'string') {
-                response.owner = { username: owner.username };
-            }
-        } catch {
-            /* best-effort */
-        }
-    }
-
-    // Let the thumbnail extension swap an s3:// key for a signed URL.
-    response.thumbnail = await signEntryThumbnail(
-        eventClient,
-        entry.uuid,
-        response.thumbnail as string | null,
-    );
+    if (isEmpty !== undefined) response.is_empty = isEmpty;
+    else if (!entry.isDir) response.is_empty = false;
+    if (ownerUsername !== undefined)
+        response.owner = { username: ownerUsername };
+    response.thumbnail = thumbnail;
 
     return response;
 }

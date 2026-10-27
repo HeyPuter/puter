@@ -266,10 +266,22 @@ const examples = [
                 source: '/playground/examples/ai-speech2txt-xai.html',
             },
             {
+                title: 'Transcribe with Gemini',
+                description: 'Transcribe audio with word timestamps and speaker labels using Gemini speech-to-text with Puter.js AI API. Run and experiment with this example in the playground.',
+                slug: 'ai-speech2txt-gemini',
+                source: '/playground/examples/ai-speech2txt-gemini.html',
+            },
+            {
                 title: 'Text to Video',
                 description: 'Generate videos from text with Puter.js AI API. Run and experiment with this text-to-video example in the playground.',
                 slug: 'ai-txt2vid',
                 source: '/playground/examples/ai-txt2vid.html',
+            },
+            {
+                title: 'Text to Video with Gemini Omni',
+                description: 'Generate a video clip with Gemini Omni through Puter.js.',
+                slug: 'ai-txt2vid-gemini',
+                source: '/playground/examples/ai-txt2vid-gemini.html',
             },
             {
                 title: 'Text to Video with options',
@@ -970,10 +982,10 @@ const examples = [
                 source: '/playground/examples/perms-request-app-data.html',
             },
             {
-                title: 'Request a raw permission string',
-                description: 'Request a specific permission string with Puter.js permissions API. Run and modify this example directly in your browser.',
-                slug: 'perms-request-permission',
-                source: '/playground/examples/perms-request-permission.html',
+                title: 'Request access to a file',
+                description: 'Request write access to one file in the user\'s home folder with Puter.js permissions API. Run and modify this example directly in your browser.',
+                slug: 'perms-request-fs',
+                source: '/playground/examples/perms-request-fs.html',
             },
             {
                 title: 'Check before you prompt',

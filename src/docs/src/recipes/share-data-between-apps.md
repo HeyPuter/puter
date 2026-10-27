@@ -32,13 +32,9 @@ const granted = await puter.perms.request('appData', {
 This returns `true` if the user allows it and `false` if they don't. Once
 allowed, later calls return `true` without asking again.
 
-There are three levels of access. Only ask for what you need:
-
-| Scope | Lets your app call |
-| --- | --- |
-| `read` | `get`, `list` |
-| `write` | `set`, `add`, `incr`, `decr`, `update` |
-| `delete` | `del`, `remove`, `expire`, `expireAt` |
+There are three levels of access, `read`, `write` and `delete`. Only ask for what
+you need. The methods each one allows are listed in
+[Using another app's data](/Perms/appData/).
 
 `write` doesn't include `delete`, so an app with `write` access can add and
 change entries but can't remove them. To ask for more than one, pass an array,
@@ -143,5 +139,5 @@ const setPrivate = (key, value) => puter.kv.set(key, value, { disableSharing: tr
 - Private entries also aren't visible to other apps or users watching your keys
   through [Events](/Events/).
 - This is for sharing between apps for the same user. To share data between
-  different users, use a [worker](/recipes/store-server-side-data/) or an
-  [Events share handle](/Events/onLocal/#sharing-key-value-events-with-another-user).
+  different users, use [`puter.kv.share()`](/KV/share/) or a
+  [worker](/recipes/store-server-side-data/).

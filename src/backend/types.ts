@@ -23,6 +23,8 @@ export interface IAWSCredentials {
     access_key?: string;
     secret_key?: string;
     region?: string;
+    /** Use the default AWS credential chain instead of the keys. */
+    useCredentialChain?: boolean;
 }
 
 export interface IDynamoConfig {
@@ -688,7 +690,8 @@ interface IConfigOptional {
      * Teams and teams. Off means `/teams` 404s and the schema is inert, so the
      * tables can ship to production before anything can create a team. It is
      * also the backout: turning it off removes the feature without touching
-     * data.
+     * data. On, boot refuses unless an extension registers the `team` store and
+     * service.
      */
     teams_enabled: boolean;
     /** Live teams one user may own. Default 1. */
@@ -1278,6 +1281,19 @@ interface IConfigOptional {
          * Rotating it rotates every key at the next deploy.
          */
         internalSecret?: string;
+    };
+
+    /**
+     * Key-value sharing beyond watching.
+     *
+     * - `shareHandles` — whether a share handle may carry `read` or `write`
+     *   access, and be used for key-value calls. Absent means off: those mints
+     *   and upgrades reject with `kv_handles_disabled`. Watch-only handles stay
+     *   under `events.kvHandles`, and revoking, unsharing and listing are never
+     *   gated.
+     */
+    kv?: {
+        shareHandles?: boolean;
     };
 
     /**

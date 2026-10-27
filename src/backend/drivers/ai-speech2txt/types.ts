@@ -53,7 +53,6 @@ export interface ITranscribeArgs {
     timestamp_granularities?: string[];
     chunking_strategy?: string;
     known_speaker_names?: string[];
-    known_speaker_references?: unknown[];
     extra_body?: Record<string, unknown>;
     stream?: boolean;
     test_mode?: boolean;

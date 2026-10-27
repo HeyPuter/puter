@@ -52,6 +52,10 @@ async function UIWindowDisable2FA (options) {
     h += '</div>';
     h += '<p class="disable-2fa-oidc-hint" style="margin-top:6px;font-size:12px;color:#666;display:none;"></p>';
     h += '</div>';
+    h += '<div class="disable-2fa-code-wrap" style="margin-bottom:30px;">';
+    h += `<label for="disable-2fa-code-${internal_id}">${i18n('disable_2fa_code_instruction')}</label>`;
+    h += `<input id="disable-2fa-code-${internal_id}" class="disable-2fa-code" type="text" autocomplete="one-time-code" maxlength="64" />`;
+    h += '</div>';
     h += `<button class="disable-2fa-btn button button-primary button-block button-normal">${i18n('disable_2fa')}</button>`;
     h += '</div>';
 
@@ -118,15 +122,26 @@ async function UIWindowDisable2FA (options) {
         hint.text(REVALIDATE_POPUP_TEXT).show();
         try {
             await openRevalidatePopup(revalidateUrl);
+            return true;
         } catch (e) {
             onError(e.message || 'Authentication failed');
-            return;
+            return false;
         } finally {
             hint.hide();
         }
     };
 
-    $(el_window).find('.disable-2fa-btn').on('click', async function (e) {
+    $(el_window).find('.disable-2fa-btn').on('click', async function () {
+        try {
+            await submit();
+        } catch {
+            // A request that never got an answer (offline): say so, and give
+            // the button and the field back for a retry.
+            onError(i18n('something_went_wrong', [], false));
+        }
+    });
+
+    async function submit () {
         $(el_window).find('.form-success-msg, .form-error-msg').hide();
 
         const password = password_entry.get('value');
@@ -139,13 +154,15 @@ async function UIWindowDisable2FA (options) {
         }
 
         if ( oidc_only && !revalidated && !password ) {
-            await myOpenRevalidatePopup();
+            // A popup closed or blocked says so; the request would only be
+            // refused, and its message would replace that.
+            if ( ! await myOpenRevalidatePopup() ) return;
 
             const res = await doSubmit({ password: undefined });
             const data = await res.json().catch(() => ({}));
             if ( res.ok ) onSuccess();
             else if ( isSessionAuthError(res, data) ) onReauthRequired(data);
-            else onError(data.message || 'Request failed');
+            else onError(data.message || 'Request failed', data);
             return;
         }
         $(el_window).find('.form-error-msg').hide();
@@ -164,7 +181,7 @@ async function UIWindowDisable2FA (options) {
             return;
         }
         if ( data.code === 'oidc_revalidation_required' && data.revalidate_url ) {
-            await myOpenRevalidatePopup(data.revalidate_url);
+            if ( ! await myOpenRevalidatePopup(data.revalidate_url) ) return;
             const r = await doSubmit({ password: undefined });
             if ( r.ok ) {
                 onSuccess();
@@ -172,11 +189,11 @@ async function UIWindowDisable2FA (options) {
             }
             const d = await r.json().catch(() => ({}));
             if ( isSessionAuthError(r, d) ) onReauthRequired(d);
-            else onError(d.message || 'Request failed');
+            else onError(d.message || 'Request failed', d);
             return;
         }
-        onError(data.message || 'Request failed');
-    });
+        onError(data.message || 'Request failed', data);
+    }
 
     function doSubmit ({ password } = {}) {
         // Do not send Authorization: user-protected endpoints use session cookie (hasHttpOnlyCookie).
@@ -187,13 +204,16 @@ async function UIWindowDisable2FA (options) {
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+                // Normalized like the login window's recovery input.
+                code: $(el_window).find('.disable-2fa-code').val()?.trim().toUpperCase() || undefined,
                 password: password !== undefined && password !== '' ? password : undefined,
             }),
         });
         return fetchWithSessionCookieRetry(send, { origin, authToken: window.auth_token });
     }
 
-    function onError (message) {
+    function onError (message, data) {
+        if ( data?.factor === 'otp' ) $(el_window).find('.disable-2fa-code').get(0)?.focus();
         $(el_window).find('.form-error-msg').html(html_encode(message));
         $(el_window).find('.form-error-msg').fadeIn();
         $(el_window).find('.disable-2fa-btn').removeClass('disabled');
