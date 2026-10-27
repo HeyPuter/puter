@@ -6516,4 +6516,153 @@ describe('ShareService', () => {
             }
         });
     });
+
+    describe('a team share seen by its own members', () => {
+        // Teams is optional, so the group, its members and its grant are
+        // written directly and the team store is stood up around them.
+        const makeTeam = async (
+            ownerId: number,
+            memberIds: number[],
+        ): Promise<{ id: number; uid: string }> => {
+            const uid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
+                    '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+                [uid, ownerId, 'team', 'Own team', '{}', '{}'],
+            );
+            const [group] = (await server.clients.db.read(
+                'SELECT id FROM `group` WHERE uid = ?',
+                [uid],
+            )) as { id: number }[];
+            for (const userId of [ownerId, ...memberIds]) {
+                await server.clients.db.write(
+                    'INSERT INTO `jct_user_group` (`user_id`, `group_id`) ' +
+                        'VALUES (?, ?)',
+                    [userId, group.id],
+                );
+            }
+            return { id: Number(group.id), uid };
+        };
+
+        const shareWithTeam = async (
+            issuerId: number,
+            team: { id: number },
+            entry: { id: number; uuid: string },
+        ) => {
+            await server.stores.share.upsertActiveGroup({
+                issuerUserId: issuerId,
+                holderGroupId: team.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            await server.stores.permission.upsertUserGroupPerm(
+                team.id,
+                issuerId,
+                `fs:${entry.uuid}:read`,
+                {},
+            );
+        };
+
+        const standUpTeams = (team: { id: number; uid: string }) => {
+            installSeatStub(server as never, []);
+            const store = server.stores.team as unknown as Record<
+                string,
+                unknown
+            >;
+            store.listGroupIdsForUser = async () => [team.id];
+            store.getByIdsIncludingDeleted = async (ids: number[]) =>
+                new Map(
+                    ids
+                        .filter((id) => id === team.id)
+                        .map((id) => [
+                            id,
+                            {
+                                id,
+                                uid: team.uid,
+                                name: 'Own team',
+                                handle: null,
+                            },
+                        ]),
+                );
+        };
+
+        const inbox = (actor: Actor) =>
+            runWithContext({ actor }, () =>
+                server.services.share.listSharedWithMe(actor, {
+                    includeTotal: true,
+                }),
+            );
+
+        it("leaves the sharer's own items out of their Shared view and total", async () => {
+            const sharer = await makeUser();
+            const mate = await makeUser();
+            const team = await makeTeam(sharer.user.id, [mate.user.id]);
+            standUpTeams(team);
+
+            const own = await makeFile(sharer.user);
+            await shareWithTeam(sharer.user.id, team, own);
+            // A teammate's share of something the sharer owns is theirs too.
+            const delegated = await makeFile(sharer.user);
+            await shareWithTeam(mate.user.id, team, delegated);
+            const theirs = await makeFile(mate.user);
+            await shareWithTeam(mate.user.id, team, theirs);
+
+            const mine = await inbox(sharer.actor);
+            expect(mine.items.map((row) => row.entryUid)).toEqual([
+                theirs.uuid,
+            ]);
+            expect(mine.total).toBe(1);
+            expect(mine.items[0].holderTeam).toEqual({
+                uid: team.uid,
+                name: 'Own team',
+                handle: null,
+            });
+
+            // The teammate still has what was shared with them, and not what
+            // they shared themselves.
+            const mates = await inbox(mate.actor);
+            expect(mates.items.map((row) => row.entryUid)).toEqual([own.uuid]);
+            expect(mates.total).toBe(1);
+        });
+
+        it('refuses to let a member leave a share only their team holds', async () => {
+            const sharer = await makeUser();
+            const mate = await makeUser();
+            const team = await makeTeam(sharer.user.id, [mate.user.id]);
+            standUpTeams(team);
+            const file = await makeFile(sharer.user);
+            await shareWithTeam(sharer.user.id, team, file);
+
+            await expect(
+                unshare(mate.actor, {
+                    uid: file.uuid,
+                    recipient: { username: mate.user.username },
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                legacyCode: 'team_share',
+            });
+            expect(await canRead(mate.actor, file.path)).toBe(true);
+        });
+
+        it('still lets a member leave a direct share they also hold through the team', async () => {
+            const sharer = await makeUser();
+            const mate = await makeUser();
+            const team = await makeTeam(sharer.user.id, [mate.user.id]);
+            standUpTeams(team);
+            const file = await makeFile(sharer.user);
+            await shareWithTeam(sharer.user.id, team, file);
+            await share(sharer.actor, {
+                uid: file.uuid,
+                recipient: { email: mate.email },
+                mode: 'read',
+            });
+
+            const result = await unshare(mate.actor, {
+                uid: file.uuid,
+                recipient: { username: mate.user.username },
+            });
+            expect(result.revoked).toBeGreaterThan(0);
+        });
+    });
 });

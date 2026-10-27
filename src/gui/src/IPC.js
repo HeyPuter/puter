@@ -160,8 +160,17 @@ const ipc_listener = async (event, handled) => {
         // Registered IPC handlers are an object with a `handle()`
         // method. We call it "spec" here, meaning specification.
         const spec = window.ipc_handlers[event.data.msg];
-        let retval = await spec.handler(event.data.parameters, { msg_id, ipc_context });
-
+        let retval;
+        try {
+            retval = await spec.handler(event.data.parameters, { msg_id, ipc_context });
+        } catch ( e ) {
+            console.error(`IPC handler ${event.data.msg} failed`, e);
+            // Generic on purpose: the error text stays out of the app.
+            retval = {
+                $: 'puter-ipc-error',
+                error: { code: 'ipc_handler_failed', message: 'The request could not be completed.' },
+            };
+        }
         puter.util.rpc.send(iframe.contentWindow, msg_id, retval);
 
         return;

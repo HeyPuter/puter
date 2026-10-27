@@ -47,7 +47,7 @@ Both are supported ways to define an API. **Prefer a controller when you need fi
 
 Provider sign-in requires the account's authenticator or a recovery code when 2FA is enabled, including signup callbacks that resolve an existing account. The five-minute challenge uses the same single-use `/login/otp` and `/login/recovery-code` verification as password sign-in. The GUI carries it in a URL fragment and removes it before initialization. A session and successful popup-return proof are issued only after verification; cancelling retains the popup's signed retry context without marking it authenticated.
 
-Disabling 2FA through `/user-protected/disable-2fa` requires both password or OIDC revalidation and the current six-digit authenticator `code`. Missing, malformed, or incorrect codes leave the secret and recovery codes intact. A team's requirement for 2FA still prevents disabling it.
+Disabling 2FA through `/user-protected/disable-2fa` requires both password or OIDC revalidation and either the current six-digit authenticator `code` or an unused recovery code in `code`. Recovery codes are consumed atomically. Missing or incorrect codes leave the secret and remaining recovery codes intact. A team's requirement for 2FA still prevents disabling it.
 
 Email changes through `/user-protected/change-email` require the password or OIDC revalidation cookie, plus a six-digit `code` from the authenticator when 2FA is enabled. Missing or malformed codes return `400 bad_request`; incorrect codes return `401 code_mismatch`. Both include `factor: 'otp'`. Confirmation links are bound to that verified request. A 2FA-enabled account must request a new link if its existing link was issued without second-factor verification.
 

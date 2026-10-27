@@ -170,6 +170,9 @@ const isAppDataRootPath = (path: string): boolean => {
     );
 };
 
+/** Ends a subtree removal whose `proceed` check said to stop. */
+class RemovalStopped extends Error {}
+
 const isNoSuchKeyError = (err: unknown): boolean => {
     if (!err || typeof err !== 'object') return false;
     const e = err as { name?: unknown; Code?: unknown };
@@ -303,12 +306,18 @@ export class FSService extends PuterService {
      * Overridable so tests can split a page of directories.
      */
     static SUBTREE_WALK_PARENTS = 100;
+    /** Rows one page of `listDirectoryPages` reads. Overridable for tests. */
+    static LISTING_PAGE_SIZE = 1000;
 
     declare protected stores: LayerInstances<typeof puterStores>;
     declare protected services: LayerInstances<typeof puterServices>;
 
     override onServerStart(): void {
         this.#registerPermissionRules();
+        this.clients.event.on('app.uninstalled', async (_key, data) => {
+            if (!data?.deleteData) return;
+            void this.#removeUninstalledAppData(data.userId, data.appUid);
+        });
     }
 
     /**
@@ -3731,6 +3740,19 @@ export class FSService extends PuterService {
         return this.stores.fsEntry.listChildrenPage(parentUid, options);
     }
 
+    /** A directory's children in name order, for listings with no paging. */
+    async *listDirectoryPages(parentUid: string): AsyncGenerator<FSEntry[]> {
+        let cursor: string | undefined;
+        do {
+            const page = await this.stores.fsEntry.listChildrenPage(parentUid, {
+                limit: FSService.LISTING_PAGE_SIZE,
+                cursor,
+            });
+            yield page.entries;
+            cursor = page.cursor;
+        } while (cursor);
+    }
+
     async countDirectory(parentUid: string): Promise<number> {
         return this.stores.fsEntry.countChildren(parentUid);
     }
@@ -3745,6 +3767,7 @@ export class FSService extends PuterService {
         path: string,
         options: {
             limit?: number;
+            offset?: number;
             cursor?: string | null;
             maxDepth: number;
             sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
@@ -3876,7 +3899,8 @@ export class FSService extends PuterService {
                 {
                     bucket: this.stores.s3Object.resolveBucket(entry.bucket),
                     objectKey,
-                    range: options.range,
+                    // The store refuses every range on a zero-byte object.
+                    range: entry.size === 0 ? undefined : options.range,
                 },
                 this.stores.s3Object.resolveRegion(entry.bucketRegion),
             );
@@ -4548,27 +4572,111 @@ export class FSService extends PuterService {
     /**
      * Delete a directory's contents a page at a time, leaves first, so neither
      * memory nor a single statement grows with the subtree: a page's files go
-     * as it is read, a directory once everything under it has.
+     * as it is read, a directory once everything under it has. With `proceed`,
+     * each batch is deleted only while it answers true; false if it stopped.
      */
     async #removeDescendants(
         root: FSEntry,
         survivors: () => Promise<AncestorChain>,
-    ): Promise<void> {
+        proceed?: () => Promise<boolean>,
+    ): Promise<boolean> {
         const removeEntries = async (entries: FSEntry[]) => {
             if (entries.length === 0) return;
+            if (proceed && !(await proceed())) throw new RemovalStopped();
             // S3 objects are batched per bucket+region.
             await this.#removeDescendantsStorage(entries);
             await this.stores.fsEntry.deleteEntries(entries);
             this.#emitRemoveEvents(entries, survivors);
         };
-        await this.#walkSubtree(
-            root,
-            async (page) => {
-                await removeEntries(page.filter((entry) => !entry.isDir));
-                return page.filter((entry) => entry.isDir);
-            },
-            removeEntries,
-        );
+        try {
+            await this.#walkSubtree(
+                root,
+                async (page) => {
+                    await removeEntries(page.filter((entry) => !entry.isDir));
+                    return page.filter((entry) => entry.isDir);
+                },
+                removeEntries,
+            );
+        } catch (err) {
+            if (err instanceof RemovalStopped) return false;
+            throw err;
+        }
+        return true;
+    }
+
+    /**
+     * Delete `/<user>/AppData/<app-uid>` once the user removed the app with its
+     * data. Stops if the user authorizes the app again, so files written after
+     * that are kept. A failure is logged, not retried.
+     */
+    async #removeUninstalledAppData(
+        userId: number,
+        appUid: string,
+    ): Promise<void> {
+        if (!userId || !appUid || ['.', '..'].includes(appUid)) return;
+        if (appUid.includes('/')) return;
+        try {
+            const username = (await this.stores.user.getById(userId))?.username;
+            if (!username) return;
+            const path = `/${username}/AppData/${appUid}`;
+            const root = await this.stores.fsEntry.getEntryByPath(path, {
+                lineage: false,
+                skipCache: true,
+            });
+            // The path column's collation also matches other spellings.
+            if (!root?.isDir || root.path !== path || root.userId !== userId)
+                return;
+            if (await this.#subtreeHostsContent(root)) {
+                console.warn(
+                    `[fs] kept uninstalled app data at ${path}: it hosts a site or worker`,
+                );
+                return;
+            }
+
+            const appId = (await this.stores.app.getByUid(appUid))?.id;
+            const stillUninstalled = async () =>
+                typeof appId !== 'number' ||
+                (
+                    await this.stores.permission.listUserAppPermsFromPrimary(
+                        userId,
+                        appId,
+                    )
+                ).length === 0;
+            if (!(await stillUninstalled())) return;
+
+            const survivors = this.#memoizedChain(pathPosix.dirname(path));
+            const emptied = await this.#removeDescendants(
+                root,
+                survivors,
+                stillUninstalled,
+            );
+            if (!emptied || !(await stillUninstalled())) return;
+            await this.stores.fsEntry.deleteEntry(root);
+            this.#emitRemoveEvents([root], survivors);
+        } catch (err) {
+            console.warn('[fs] uninstalled app data removal failed', err);
+        }
+    }
+
+    /** Whether a site or worker is rooted at `root` or anywhere below it. */
+    async #subtreeHostsContent(root: FSEntry): Promise<boolean> {
+        const hosts = (entry: FSEntry) =>
+            entry.subdomains.length > 0 || entry.workers.length > 0;
+        if (hosts(root)) return true;
+        try {
+            await this.#walkSubtree(
+                root,
+                async (page) => {
+                    if (page.some(hosts)) throw new RemovalStopped();
+                    return page.filter((entry) => entry.isDir);
+                },
+                async () => {},
+            );
+        } catch (err) {
+            if (err instanceof RemovalStopped) return true;
+            throw err;
+        }
+        return false;
     }
 
     /**
@@ -5193,6 +5301,8 @@ export class FSService extends PuterService {
                 : `${destinationParent.path}/${name}`;
 
         const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
+        // Overwriting the source would delete it before it is read.
+        const replacesSource = collision?.uuid === source.uuid;
 
         // A copy duplicates the bytes for real, so it costs the same against
         // the allowance as writing them. Check before the overwrite below
@@ -5208,14 +5318,14 @@ export class FSService extends PuterService {
         await this.#assertStorageAllowance(
             allowance.ownerId,
             await this.#entryStorageSize(source),
-            collision && input.overwrite
+            collision && input.overwrite && !replacesSource
                 ? await this.#entryStorageSize(collision)
                 : 0,
             allowance.max,
         );
 
         if (collision) {
-            if (input.overwrite) {
+            if (input.overwrite && !replacesSource) {
                 this.#assertNotReplacingAncestor(source, collision);
                 await this.remove(userId, {
                     entry: collision,
@@ -5223,6 +5333,10 @@ export class FSService extends PuterService {
                 });
             } else if (input.dedupeName) {
                 name = await this.#findDedupedName(destinationParent, name);
+            } else if (input.overwrite) {
+                throw new HttpError(400, 'Cannot copy an item over itself', {
+                    legacyCode: 'bad_request',
+                });
             } else {
                 // v1 wire contract, as in move() above.
                 throw new HttpError(

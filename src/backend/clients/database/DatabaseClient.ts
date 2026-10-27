@@ -138,25 +138,27 @@ export class AbstractDatabaseClient extends PuterClient {
 
     /**
      * Like `read()`, but an empty or failed replica read falls back to the
-     * primary, so replication lag can't hide a row that was just written. The
-     * primary read starts alongside the replica one rather than after it.
-     * Without a replica this is a single `read()`.
+     * primary, so replication lag can't hide a row that was just written. By
+     * default the primary read starts alongside the replica one; `race: false`
+     * reads the primary only after the replica returns empty or fails. Without
+     * a replica this is a single `read()`.
      */
     @Span('db.tryHardRead', (query: string) => ({ 'db.statement': query }))
     async tryHardRead(
         query: string,
         params: unknown[] = [],
+        { race = true }: { race?: boolean } = {},
     ): Promise<Record<string, unknown>[]> {
         if (!this.hasReadReplica()) return this.read(query, params);
 
-        const primary = settle(this.pread(query, params));
+        const primary = race ? settle(this.pread(query, params)) : null;
         try {
             const rows = await this.replicaRead(query, params);
             if (rows.length > 0) return rows;
         } catch {
             // replica failed — fall through to primary
         }
-        const result = await primary;
+        const result = await (primary ?? settle(this.pread(query, params)));
         if ('error' in result) throw result.error;
         return result.value;
     }

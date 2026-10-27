@@ -150,6 +150,7 @@ const refresh_item_container = function (el_item_container, options) {
             share_mode: share.mode,
             shared_by: share.issuer,
             owner: share.owner,
+            holder_team: share.holderTeam,
             metadata: '',
         })))
         : puter.fs.readdir({ path: container_path, consistency: options.consistency ?? 'eventual' });
@@ -247,6 +248,7 @@ const refresh_item_container = function (el_item_container, options) {
                             share_mode: fsentry.share_mode,
                             shared_by: fsentry.shared_by,
                             is_shared: fsentry.is_shared,
+                            is_team_share: !!fsentry.holder_team,
                             owner: fsentry.owner?.username ?? fsentry.owner,
                         });
                     }

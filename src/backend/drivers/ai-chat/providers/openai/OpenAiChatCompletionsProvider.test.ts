@@ -177,6 +177,7 @@ describe('OpenAiChatProvider model catalog', () => {
         expect(ids).toContain('gpt-5.2-2025-12-11');
         expect(ids).toContain('gpt-6-astra');
         expect(ids).toContain('gpt-6.1-sol');
+        expect(ids).toContain('gpt-6.1-terra');
         expect(ids).toContain('gpt-6-sol');
         expect(ids).toContain('gpt-6-luna');
     });
@@ -348,30 +349,33 @@ describe('OpenAiChatProvider.complete request shape', () => {
         expect(args.safety_identifier).toBe('puter-u42');
     });
 
-    it.each(['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-sol', 'gpt-6-luna'])(
-        'resolves the namespaced %s alias',
-        async (model) => {
-            const { provider } = makeProvider();
-            createMock.mockResolvedValueOnce(baseCompletion);
+    it.each([
+        'gpt-6-astra',
+        'gpt-6.1-sol',
+        'gpt-6.1-terra',
+        'gpt-6-sol',
+        'gpt-6-luna',
+    ])('resolves the namespaced %s alias', async (model) => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
 
-            await withTestActor(() =>
-                provider.complete({
-                    model: `openai/${model}`,
-                    messages: [{ role: 'user', content: 'hello' }],
-                    reasoning_effort: 'low',
-                }),
-            );
+        await withTestActor(() =>
+            provider.complete({
+                model: `openai/${model}`,
+                messages: [{ role: 'user', content: 'hello' }],
+                reasoning_effort: 'low',
+            }),
+        );
 
-            expect(createMock.mock.calls[0]![0].model).toBe(model);
-            expect(createMock.mock.calls[0]![0].reasoning_effort).toBe('low');
-            expect(recordSpy).toHaveBeenCalledWith(
-                expect.any(Object),
-                expect.anything(),
-                `openai:${model}`,
-                expect.any(Object),
-            );
-        },
-    );
+        expect(createMock.mock.calls[0]![0].model).toBe(model);
+        expect(createMock.mock.calls[0]![0].reasoning_effort).toBe('low');
+        expect(recordSpy).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.anything(),
+            `openai:${model}`,
+            expect.any(Object),
+        );
+    });
 
     it('omits parallel_tool_calls/tool_choice when no tool is sent (Chat Completions rejects them alone)', async () => {
         const { provider } = makeProvider();

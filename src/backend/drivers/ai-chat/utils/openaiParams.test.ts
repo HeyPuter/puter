@@ -289,6 +289,9 @@ describe('clampReasoningEffort', () => {
         ['gpt-5.5', 'max', 'xhigh'],
         ['gpt-5', 'high', 'high'],
         ['gpt-6-astra-1', 'none', 'low'],
+        ...(['none', 'low', 'medium', 'high', 'xhigh', 'max'] as const).map(
+            (effort) => ['gpt-6.1-terra', effort, effort] as const,
+        ),
     ] as const)(
         'clamps %s requesting %s to %s',
         (modelId, requested, expected) => {
