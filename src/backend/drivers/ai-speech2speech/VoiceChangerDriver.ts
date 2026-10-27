@@ -21,6 +21,7 @@ import { pipeline, Readable, Transform } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { DriverStreamResult } from '../meta.js';
+import { OUTPUT_FORMATS } from '../ai-tts/providers/elevenlabs/ElevenLabsTTSProvider.js';
 import { PuterDriver } from '../types.js';
 import {
     type AiMeteringService,
@@ -310,26 +311,25 @@ export class VoiceChangerDriver extends PuterDriver {
 }
 
 /**
- * Bytes per second of an ElevenLabs `output_format` (`mp3_44100_128`,
- * `opus_48000_64`, `pcm_16000`, `ulaw_8000`), or undefined for one it can't
- * size.
+ * Bytes per second of an ElevenLabs `output_format`. A format outside the
+ * documented set is sized as the default, so a made-up bitrate can't shrink
+ * the bill.
  */
-export function outputBytesPerSecond(format: string): number | undefined {
-    const [codec, rate, kbps] = format.split('_');
-    if ((codec === 'mp3' || codec === 'opus') && Number(kbps) > 0)
-        return Number(kbps) * 125;
-    if (codec === 'pcm' && Number(rate) > 0) return Number(rate) * 2;
-    if ((codec === 'ulaw' || codec === 'alaw') && Number(rate) > 0)
-        return Number(rate);
-    return undefined;
+export function outputBytesPerSecond(format: string): number {
+    const known = OUTPUT_FORMATS.has(format) ? format : DEFAULT_OUTPUT_FORMAT;
+    const [codec, rate, kbps] = known.split('_');
+    if (codec === 'mp3' || codec === 'opus') return Number(kbps) * 125;
+    if (codec === 'ulaw' || codec === 'alaw') return Number(rate);
+    // pcm and wav: 16-bit mono.
+    return Number(rate) * 2;
 }
 
 /**
  * Counts the bytes of a converted stream. `seconds` settles when the stream
- * ends or closes: its length in whole seconds (undefined for a format it can't
- * size), and whether the upstream sent all of it.
+ * ends or closes: its length in whole seconds (undefined when nothing came
+ * back), and whether the upstream sent all of it.
  */
-function measuredOutput(bytesPerSecond: number | undefined) {
+function measuredOutput(bytesPerSecond: number) {
     let bytes = 0;
     let settle!: (measured: { seconds?: number; complete: boolean }) => void;
     const seconds = new Promise<{ seconds?: number; complete: boolean }>(
@@ -338,7 +338,7 @@ function measuredOutput(bytesPerSecond: number | undefined) {
         },
     );
     const lengthOf = () =>
-        bytesPerSecond && bytes > 0
+        bytes > 0
             ? Math.max(1, Math.ceil(bytes / bytesPerSecond))
             : undefined;
     const measure = (source: Readable): Readable => {

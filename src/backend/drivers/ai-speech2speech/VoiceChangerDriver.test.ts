@@ -389,13 +389,15 @@ describe('VoiceChangerDriver.convert success path', () => {
         expect(held).toEqual([base, base! * 2]);
     });
 
-    it.each<[string, number | undefined]>([
+    it.each<[string, number]>([
         ['mp3_44100_128', 16_000],
         ['mp3_22050_32', 4_000],
         ['opus_48000_64', 8_000],
         ['pcm_44100', 88_200],
         ['ulaw_8000', 8_000],
-        ['wav_44100', undefined],
+        ['wav_44100', 88_200],
+        ['mp3_44100_999999', 16_000],
+        ['flac_44100', 16_000],
     ])('sizes %s at %s bytes per second', (format, bytes) => {
         expect(outputBytesPerSecond(format)).toBe(bytes);
     });
@@ -450,10 +452,15 @@ describe('VoiceChangerDriver.convert success path', () => {
             expect(await billed()).toBe(3);
         });
 
-        it('falls back to the input estimate for a format it cannot size', async () => {
+        it('sizes an undocumented output_format as the default', async () => {
             const { actor } = await makeUser();
-            fetchSpy.mockResolvedValueOnce(okResponse(new ArrayBuffer(8)));
-            await convert(actor, 48_000, { output_format: 'flac_44100' });
+            // 3 s at the default mp3_44100_128.
+            fetchSpy.mockResolvedValueOnce(
+                okResponse(new ArrayBuffer(3 * 16_000)),
+            );
+            await convert(actor, 1_000_000, {
+                output_format: 'mp3_44100_999999',
+            });
             expect(await billed()).toBe(3);
         });
 

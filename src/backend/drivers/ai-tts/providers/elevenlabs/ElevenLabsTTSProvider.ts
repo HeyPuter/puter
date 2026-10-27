@@ -48,7 +48,7 @@ const VOICE_ID_PATTERN = /^[A-Za-z0-9]{20}$/;
 const VOICE_SEARCH_MAX_PAGES = 5;
 // https://elevenlabs.io/docs/api-reference/text-to-speech/convert
 // mp3_44100_192 needs the Creator tier; pcm/wav at 44.1 kHz need Pro.
-const OUTPUT_FORMATS = new Set([
+export const OUTPUT_FORMATS = new Set([
     'alaw_8000',
     'mp3_22050_32',
     'mp3_24000_48',
