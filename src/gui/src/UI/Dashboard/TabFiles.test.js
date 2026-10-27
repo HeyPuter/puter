@@ -1374,3 +1374,55 @@ describe('TabFiles.followRename', () => {
         expect(window.dashboard_nav_history).toEqual(['/alice/Documents', '/alice/Documents/new/sub']);
     });
 });
+
+describe('TabFiles listSharedView', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice', directories: {} };
+        TabFiles.pendingSharedLinks = null;
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('marks a row shared through a team, and only that one', async () => {
+        const team = { uid: 't-1', name: 'Acme', handle: 'acme' };
+        window.puter = {
+            fs: {
+                listShared: vi.fn(async () => ({
+                    items: [
+                        {
+                            entryUid: 'u-1',
+                            name: 'a.txt',
+                            path: '/bob/u-1/a.txt',
+                            isDir: false,
+                            mode: 'read',
+                            issuer: 'bob',
+                            owner: 'bob',
+                        },
+                        {
+                            entryUid: 'u-2',
+                            name: 'b.txt',
+                            path: '/bob/u-2/b.txt',
+                            isDir: false,
+                            mode: 'read',
+                            issuer: 'bob',
+                            owner: 'bob',
+                            holderTeam: team,
+                        },
+                    ],
+                })),
+            },
+        };
+
+        const rows = await TabFiles.listSharedView();
+
+        expect(rows[0].holder_team).toBeUndefined();
+        expect(rows[0]).toMatchObject({
+            uid: 'u-1',
+            shared_with_me: true,
+            share_mode: 'read',
+            shared_by: 'bob',
+            owner: 'bob',
+        });
+        expect(rows[1].holder_team).toEqual(team);
+    });
+});

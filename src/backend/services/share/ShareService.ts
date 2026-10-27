@@ -1350,7 +1350,10 @@ export class ShareService extends PuterService {
         if (resolved.kind === 'anyone') {
             await this.#assertCanManage(actor, entry);
             this.#assertOwnsLinkShare(actor, entry, issuerId);
-            const removed = await this.stores.share.deleteAnyone(entry.id);
+            const removed = await this.stores.share.deleteAnyone(
+                entry.id,
+                entry.uuid,
+            );
             return { revoked: removed ? 1 : 0 };
         }
         // Nothing was granted, so there is only the invitation to take back.
@@ -1421,6 +1424,22 @@ export class ShareService extends PuterService {
                       ),
                   ]
                 : await this.#issuersGranting(entry, holder.id);
+        // Held only through a team: there is nothing of the caller's own to
+        // drop, and the team's grant is not theirs to withdraw.
+        if (
+            isLeaving &&
+            issuers.length === 0 &&
+            (
+                await this.stores.permission.readUserGroupPerms(
+                    holder.id,
+                    entryPermissions(entry.uuid),
+                )
+            ).length > 0
+        ) {
+            throw new HttpError(409, 'cannot leave a share held by your team', {
+                legacyCode: 'team_share',
+            });
+        }
         if (!isOwner && !isLeaving) {
             issuers = issuers.filter((issuer) => issuer === issuerId);
         }
@@ -1930,6 +1949,16 @@ export class ShareService extends PuterService {
             groupIds,
         });
 
+        // Named, so a client can tell a team share from one made to the caller.
+        const teamsLookup = awaitLater(
+            this.#teamsByIds(
+                page.items
+                    .filter((row: OutboundShareRow) => row.holder_group_id)
+                    .map((row: OutboundShareRow) =>
+                        Number(row.holder_group_id),
+                    ),
+            ),
+        );
         const entries = await this.stores.fsEntry.getEntriesByIds(
             page.items.map((row: { fsentry_id: number }) => row.fsentry_id),
         );
@@ -1952,6 +1981,7 @@ export class ShareService extends PuterService {
             this.#liveGrants(holderId, [...entries.values()]),
             this.#reachableBy(actor, [...entries.values()]),
         ]);
+        const teamsById = await teamsLookup;
 
         const items: ResolvedShare[] = [];
         for (const row of page.items) {
@@ -1959,6 +1989,9 @@ export class ShareService extends PuterService {
             if (!entry || this.#isTrashed(entry)) continue;
             if (!live.has(entry.uuid)) continue;
             if (!reachable.has(entry.uuid)) continue;
+            const team = row.holder_group_id
+                ? teamsById.get(Number(row.holder_group_id))
+                : undefined;
             items.push(
                 this.#resolvedShareRow(row, entry, issuers, {
                     entryMeta: true,
@@ -1966,6 +1999,15 @@ export class ShareService extends PuterService {
                     // the recipient's.
                     provenance: false,
                     holderUsername: actor.user.username ?? null,
+                    ...(team
+                        ? {
+                              holderTeam: {
+                                  uid: team.uid,
+                                  name: team.name,
+                                  handle: team.handle,
+                              },
+                          }
+                        : {}),
                 }),
             );
         }
@@ -2242,7 +2284,10 @@ export class ShareService extends PuterService {
         if (row.anyone) {
             await this.#assertCanManage(actor, entry);
             this.#assertOwnsLinkShare(actor, entry, userId);
-            const removed = await this.stores.share.deleteAnyone(entry.id);
+            const removed = await this.stores.share.deleteAnyone(
+                entry.id,
+                entry.uuid,
+            );
             return { revoked: removed ? 1 : 0 };
         }
 

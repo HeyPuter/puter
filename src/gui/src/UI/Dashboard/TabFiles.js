@@ -5809,6 +5809,7 @@ const TabFiles = {
             share_mode: share.mode,
             shared_by: share.issuer,
             owner: share.owner,
+            holder_team: share.holderTeam,
         }));
 
         const linked = this.pendingSharedLinks ?? [];
