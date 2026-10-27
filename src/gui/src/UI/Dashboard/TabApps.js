@@ -923,6 +923,8 @@ const TabApps = {
     _justDragged: false,
     _reduceMotionMQL: undefined,
     _loadPromise: null,
+    // Set by init: the open's first load joins Home's /get-launch-apps.
+    _joinHomeLaunchApps: false,
     _pendingLoad: null,
     _savedOrderNames: null,
     _orderSavedAtSeq: 0,
@@ -982,6 +984,7 @@ const TabApps = {
         // contrast, is data and survives re-init).
         this._arriving = null;
 
+        this._joinHomeLaunchApps = true;
         this.loadApps($el_window);
 
         const self = this;
@@ -3284,6 +3287,34 @@ const TabApps = {
         return p;
     },
 
+    // Only `recommended` is used here. At dashboard open this rides Home's
+    // in-flight request; later refetches ask the server to skip `recent`.
+    async _fetchLaunchApps () {
+        const homeRequest = this._joinHomeLaunchApps ? window.launch_apps_request : null;
+        this._joinHomeLaunchApps = false;
+        if ( homeRequest ) {
+            try {
+                const launchData = await homeRequest;
+                if ( launchData ) return launchData;
+            } catch {
+                // Home reports its own failure; fetch ours below.
+            }
+        }
+        try {
+            const res = await fetch(
+                `${window.api_origin}/get-launch-apps?icon_size=128&recent=0`,
+                {
+                    headers: { 'Authorization': `Bearer ${window.auth_token}` },
+                    method: 'GET',
+                },
+            );
+            return res.ok ? await res.json() : null;
+        } catch ( err ) {
+            console.error('Failed to fetch launch apps:', err);
+            return null;
+        }
+    },
+
     async _fetchAndRenderApps ($el_window) {
         // Give each load a monotonically increasing id. An older/slower
         // response must not clobber a newer one that already applied — or a
@@ -3344,16 +3375,7 @@ const TabApps = {
                 // The recommended list only adds tiles: if it fails (network,
                 // a proxy's HTML error page), the installed apps still show,
                 // with the last list that did load. null marks the failure.
-                fetch(
-                    `${window.api_origin}/get-launch-apps?icon_size=128`,
-                    {
-                        headers: { 'Authorization': `Bearer ${window.auth_token}` },
-                        method: 'GET',
-                    },
-                ).then(res => res.ok ? res.json() : null).catch(err => {
-                    console.error('Failed to fetch launch apps:', err);
-                    return null;
-                }),
+                this._fetchLaunchApps(),
                 puter.kv.get(APPS_ORDER_KV_KEY).catch(() => KV_READ_FAILED),
                 puter.kv.get(REMOVED_APPS_KV_KEY).catch(() => KV_READ_FAILED),
                 puter.kv.get(APP_GROUPS_KV_KEY).catch(() => KV_READ_FAILED),

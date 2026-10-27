@@ -5293,4 +5293,39 @@ describe('LegacyFSController GET /get-launch-apps', () => {
 
         expect(returned).toEqual(recentUids);
     });
+
+    it('skips the recent opens for recent=0 and keeps recommended', async () => {
+        const { actor, userId } = await makeUser();
+        const app = await makeHostedApp(userId, 'unregistered-skip');
+        await recordOpen(userId, app.uid);
+
+        const call = async (query: Record<string, unknown>) => {
+            const { res, captured } = makeRes();
+            await withActor(actor, async () => {
+                await getLaunchAppsHandler()(
+                    makeReq({ actor, query }),
+                    res,
+                    () => {
+                        throw new Error('handler called next() unexpectedly');
+                    },
+                );
+            });
+            return captured.body as {
+                recommended: unknown[];
+                recent: unknown[];
+            };
+        };
+        const full = await call({});
+        expect(full.recent.length).toBeGreaterThan(0);
+
+        const opens = vi.spyOn(server.stores.app, 'getRecentAppOpens');
+        try {
+            const skipped = await call({ recent: '0' });
+            expect(skipped.recent).toEqual([]);
+            expect(skipped.recommended).toEqual(full.recommended);
+            expect(opens).not.toHaveBeenCalled();
+        } finally {
+            opens.mockRestore();
+        }
+    });
 });
