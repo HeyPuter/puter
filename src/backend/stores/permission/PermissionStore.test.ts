@@ -25,7 +25,10 @@ import { PuterServer } from '../../server.ts';
 import { PermissionUtil } from '../../services/permission/permissionUtil.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import { decodeCursor } from '../../util/pagination.ts';
-import { FLAT_PERM_SCAN_CONCURRENCY } from './PermissionStore.ts';
+import {
+    FLAT_PERM_SCAN_CONCURRENCY,
+    U2U_CACHE_MAX_ROWS,
+} from './PermissionStore.ts';
 
 describe('PermissionStore', () => {
     let server: PuterServer;
@@ -78,6 +81,140 @@ describe('PermissionStore', () => {
 
             await store.delFlatUserPerm(holder.id, perm);
             expect(await store.getFlatUserPerms(holder.id, [perm])).toEqual([]);
+        });
+
+        const seedGrants = async (
+            holderId: number,
+            issuerId: number,
+            count: number,
+        ): Promise<string[]> => {
+            const perms = Array.from(
+                { length: count },
+                () => `fs:${uuidv4()}:read`,
+            );
+            await server.clients.db.write(
+                'INSERT INTO `user_to_user_permissions` (`holder_user_id`, `issuer_user_id`, `permission`, `extra`) VALUES ' +
+                    perms.map(() => '(?, ?, ?, ?)').join(', '),
+                perms.flatMap((perm) => [holderId, issuerId, perm, '{}']),
+            );
+            return perms;
+        };
+        const cachedRowSet = async (holderId: number) =>
+            JSON.parse(
+                (await server.clients.redis.get(
+                    `perms:u2u:holder:${holderId}`,
+                )) ?? 'null',
+            );
+
+        it('caches a small holder whole and reads it back from the cache', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const [perm] = await seedGrants(holder.id, issuer.id, 3);
+
+            expect(
+                await store.readLinkedUserUserPerms(holder.id, [perm]),
+            ).toHaveLength(1);
+            await vi.waitFor(async () =>
+                expect(await cachedRowSet(holder.id)).toHaveLength(3),
+            );
+        });
+
+        it('reads only the named permissions for a holder past the cache cap', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const perms = await seedGrants(
+                holder.id,
+                issuer.id,
+                U2U_CACHE_MAX_ROWS + 1,
+            );
+            const reads = vi.spyOn(server.clients.db, 'read');
+            try {
+                const rows = await store.readLinkedUserUserPerms(holder.id, [
+                    perms[7],
+                    `fs:${uuidv4()}:read`,
+                ]);
+                expect(rows.map((row) => row.permission)).toEqual([perms[7]]);
+                await vi.waitFor(async () =>
+                    expect(await cachedRowSet(holder.id)).toBe('too-many'),
+                );
+
+                // Warm: the marker, then one read naming the permission.
+                reads.mockClear();
+                expect(
+                    await store.readLinkedUserUserPerms(holder.id, [perms[9]]),
+                ).toHaveLength(1);
+                expect(reads).toHaveBeenCalledTimes(1);
+                expect(reads.mock.calls[0][1]).toEqual([holder.id, perms[9]]);
+            } finally {
+                reads.mockRestore();
+            }
+        });
+
+        it('reads a holder past the cache cap from the primary on the read-after-write path', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const perms = await seedGrants(
+                holder.id,
+                issuer.id,
+                U2U_CACHE_MAX_ROWS + 1,
+            );
+            const preads = vi.spyOn(server.clients.db, 'pread');
+            try {
+                expect(
+                    await store.readLinkedUserUserPermsFromPrimary(holder.id, [
+                        perms[3],
+                    ]),
+                ).toHaveLength(1);
+                expect(preads).toHaveBeenCalledTimes(2);
+            } finally {
+                preads.mockRestore();
+            }
+        });
+
+        it('matches permissions exactly, whatever the column collation', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const uid = uuidv4();
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                `kv:${uid}:Docs`,
+                {},
+            );
+            await seedGrants(holder.id, issuer.id, U2U_CACHE_MAX_ROWS);
+
+            expect(
+                await store.readLinkedUserUserPerms(holder.id, [
+                    `kv:${uid}:docs`,
+                ]),
+            ).toEqual([]);
+        });
+
+        it('reads the named permissions off the holder-permission index', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const perms = await seedGrants(
+                holder.id,
+                issuer.id,
+                U2U_CACHE_MAX_ROWS + 1,
+            );
+            const reads = vi.spyOn(server.clients.db, 'read');
+            let statement: unknown[] = [];
+            try {
+                await store.readLinkedUserUserPerms(holder.id, [perms[0]]);
+                statement = reads.mock.calls.find(([sql]) =>
+                    /`permission` IN/.test(String(sql)),
+                ) as unknown[];
+            } finally {
+                reads.mockRestore();
+            }
+            const plan = (await server.clients.db.read(
+                `EXPLAIN QUERY PLAN ${statement[0]}`,
+                statement[1] as unknown[],
+            )) as Array<{ detail: string }>;
+            expect(plan.map((step) => step.detail).join('; ')).toMatch(
+                /idx_user_to_user_permissions_holder_permission/,
+            );
         });
 
         it('returns nothing for an empty permission list', async () => {
