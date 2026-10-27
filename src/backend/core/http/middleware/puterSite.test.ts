@@ -2762,3 +2762,68 @@ describe('public hosted asset billing identity', () => {
         }
     });
 });
+
+describe('site rooted in the owner tree, root moved to Trash', () => {
+    it('stops serving a trashed folder and resumes when restored', async () => {
+        const owner = await makeUserWithHome();
+        const dir = await server.services.fs.mkdir(owner.id, {
+            path: `/${owner.username}/Documents/site`,
+            createMissingParents: true,
+        });
+        const body = Buffer.from('<html>trashed</html>');
+        await server.services.fs.write(owner.id, {
+            fileMetadata: {
+                path: `/${owner.username}/Documents/site/index.html`,
+                size: body.byteLength,
+            },
+            fileContent: body,
+        });
+        const sub = `tr-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: dir.id,
+        });
+        const serveIndex = async () => {
+            const mw = createPuterSiteMiddleware(hostingConfig, {
+                clients: server.clients,
+                stores: server.stores,
+                services: server.services,
+            });
+            const { res, out } = makeRes();
+            await mw(
+                makeReq({
+                    hostname: `${sub}.site.puter.localhost`,
+                    path: '/',
+                }),
+                res,
+                vi.fn(),
+            );
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            return out;
+        };
+        expect((await serveIndex()).statusCode).toBe(200);
+
+        const trash = (await server.stores.fsEntry.getEntryByPath(
+            `/${owner.username}/Trash`,
+        ))!;
+        const entry = (await server.stores.fsEntry.getEntryById(dir.id))!;
+        await server.services.fs.move(owner.id, {
+            source: entry,
+            destinationParent: trash,
+        });
+        const moved = (await server.stores.fsEntry.getEntryById(dir.id))!;
+        expect(moved.path.startsWith(`/${owner.username}/Trash/`)).toBe(true);
+
+        const out = await serveIndex();
+        expect(out.statusCode).toBe(404);
+        const documents = (await server.stores.fsEntry.getEntryByPath(
+            `/${owner.username}/Documents`,
+        ))!;
+        await server.services.fs.move(owner.id, {
+            source: moved,
+            destinationParent: documents,
+        });
+        expect((await serveIndex()).statusCode).toBe(200);
+    });
+});
