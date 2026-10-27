@@ -28,7 +28,12 @@ import {
     setPuterPushPreference,
 } from '../../helpers/notificationApi.js';
 import { appIconAttrs } from '../../helpers/appIcon.js';
-import { getPushClient, PUSH_CLIENT_REGISTERED_EVENT } from '../../helpers/pushClient.js';
+import {
+    browserPushState,
+    getPushClient,
+    PUSH_CLIENT_REGISTERED_EVENT,
+    setBrowserPushOptOut,
+} from '../../helpers/pushClient.js';
 import { formatBrowserOs, parseUserAgent } from '../../helpers/userAgent.js';
 import { formatAbsoluteTime, formatRelativeTime } from '../../i18n/formatTime.js';
 import UIDashboardDialog from './UIDashboardDialog.js';
@@ -49,20 +54,7 @@ const PLATFORM_KEYS = { web: 'push_platform_web', ios: 'push_platform_ios', andr
 /** @param {{ pushEnabled?: boolean }|undefined} params - `window.gui_params` */
 export const notificationsTabEnabled = (params) => params?.pushEnabled === true;
 
-/** @typedef {'checking'|'unavailable'|'blocked'|'on'|'off'} BrowserPushState */
-
-/** @param {import('../../helpers/pushClient.js').PushClient|null} client @returns {Promise<BrowserPushState>} */
-export const browserPushState = async (client) => {
-    if ( ! client ) return 'unavailable';
-    try {
-        const status = await client.status();
-        if ( status?.permission === 'denied' ) return 'blocked';
-        return status?.registered ? 'on' : 'off';
-    } catch ( e ) {
-        console.warn('[push] client status failed', e);
-        return 'unavailable';
-    }
-};
+/** @typedef {import('../../helpers/pushClient.js').BrowserPushState} BrowserPushState */
 
 const card = ({ icon, title, badge, detail, detailTitle, action, extraClass = '' }) => {
     let h = `<div class="dashboard-card dashboard-settings-card ${extraClass}">`;
@@ -300,6 +292,7 @@ const TabNotifications = {
                 if ( await refreshBrowser() !== 'blocked' ) showError('push_enable_failed', $el_window);
                 return;
             }
+            setBrowserPushOptOut(window.user?.uuid, false);
             const refreshed = Promise.all([refreshBrowser(), refreshDevices()]);
             try {
                 await sendTestPush(deviceUid);
@@ -319,6 +312,7 @@ const TabNotifications = {
             if ( ! client || browserBusy ) return;
             try {
                 await whileBrowserBusy(() => client.disable());
+                setBrowserPushOptOut(window.user?.uuid, true);
             } catch ( e ) {
                 console.warn('[push] disable failed', e);
                 showError('push_disable_failed', $el_window);
@@ -369,6 +363,7 @@ const TabNotifications = {
                     return;
                 }
             }
+            if ( device.current ) setBrowserPushOptOut(window.user?.uuid, true);
             if ( client ) {
                 await Promise.all([refreshBrowser(), refreshDevices()]);
                 return;

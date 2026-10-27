@@ -68,3 +68,110 @@ describe('push client registry', () => {
         expect(mod.getPushClient()).toBe(registered);
     });
 });
+
+describe('pushClientWithin', () => {
+    it('answers the registered client at once', async () => {
+        const registered = client();
+        mod.registerPushClient(registered);
+        await expect(mod.pushClientWithin(1000, { pushEnabled: true })).resolves.toBe(registered);
+    });
+
+    it('answers null at once when the server has push off', async () => {
+        const started = Date.now();
+        await expect(mod.pushClientWithin(1000, { pushEnabled: false })).resolves.toBeNull();
+        await expect(mod.pushClientWithin(1000, undefined)).resolves.toBeNull();
+        expect(Date.now() - started).toBeLessThan(500);
+    });
+
+    it('waits for a client that registers later', async () => {
+        const waiting = mod.pushClientWithin(1000, { pushEnabled: true });
+        const registered = client();
+        setTimeout(() => mod.registerPushClient(registered), 10);
+        await expect(waiting).resolves.toBe(registered);
+    });
+
+    it('gives up after the wait', async () => {
+        await expect(mod.pushClientWithin(20, { pushEnabled: true })).resolves.toBeNull();
+    });
+});
+
+describe('browserPushState', () => {
+    it('maps the client status to a card state', async () => {
+        const status = (value) => ({ ...client(), status: vi.fn(async () => value) });
+        await expect(mod.browserPushState(null)).resolves.toBe('unavailable');
+        await expect(mod.browserPushState(status({ permission: 'denied', registered: false }))).resolves.toBe('blocked');
+        await expect(mod.browserPushState(status({ permission: 'granted', registered: true }))).resolves.toBe('on');
+        await expect(mod.browserPushState(status({ permission: 'default', registered: false }))).resolves.toBe('off');
+        await expect(mod.browserPushState(status({ permission: 'granted', registered: false }))).resolves.toBe('off');
+    });
+
+    it('is unavailable when the status read fails', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const failing = { ...client(), status: vi.fn(async () => {
+            throw new Error('down');
+        }) };
+        await expect(mod.browserPushState(failing)).resolves.toBe('unavailable');
+        warn.mockRestore();
+    });
+});
+
+describe('the opt-out record', () => {
+    beforeEach(() => localStorage.clear());
+
+    it('is kept per user', () => {
+        mod.setBrowserPushOptOut('u-1', true);
+        expect(mod.browserPushOptedOut('u-1')).toBe(true);
+        expect(mod.browserPushOptedOut('u-2')).toBe(false);
+        mod.setBrowserPushOptOut('u-1', false);
+        expect(mod.browserPushOptedOut('u-1')).toBe(false);
+        expect(localStorage.length).toBe(0);
+    });
+
+    it('is nothing without a user', () => {
+        mod.setBrowserPushOptOut(undefined, true);
+        expect(localStorage.length).toBe(0);
+        expect(mod.browserPushOptedOut(undefined)).toBe(false);
+    });
+
+    it('survives a storage that throws', () => {
+        const broken = {
+            getItem () {
+                throw new Error('blocked');
+            },
+            setItem () {
+                throw new Error('blocked');
+            },
+            removeItem () {
+                throw new Error('blocked');
+            },
+        };
+        expect(() => mod.setBrowserPushOptOut('u-1', true, broken)).not.toThrow();
+        expect(mod.browserPushOptedOut('u-1', broken)).toBe(false);
+    });
+});
+
+describe('enableBrowserPush', () => {
+    beforeEach(() => localStorage.clear());
+
+    it('calls enable() before anything is awaited and clears the opt-out on success', async () => {
+        mod.setBrowserPushOptOut('u-1', true);
+        const registered = { ...client(), enable: vi.fn(async () => ({ deviceUid: 'dev-1' })) };
+        const enabling = mod.enableBrowserPush(registered, 'u-1');
+        expect(registered.enable).toHaveBeenCalledTimes(1);
+        await expect(enabling).resolves.toBe(true);
+        expect(mod.browserPushOptedOut('u-1')).toBe(false);
+    });
+
+    it('resolves false and keeps the opt-out when enable() rejects or throws', async () => {
+        const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        mod.setBrowserPushOptOut('u-1', true);
+        const rejecting = { ...client(), enable: vi.fn(async () => {
+            throw new Error('permission_denied');
+        }) };
+        await expect(mod.enableBrowserPush(rejecting, 'u-1')).resolves.toBe(false);
+        await expect(mod.enableBrowserPush(null, 'u-1')).resolves.toBe(false);
+        expect(mod.browserPushOptedOut('u-1')).toBe(true);
+        expect(debug).toHaveBeenCalledTimes(2);
+        debug.mockRestore();
+    });
+});

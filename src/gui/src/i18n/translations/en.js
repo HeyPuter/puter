@@ -1045,6 +1045,11 @@ const en = {
         'perm_dialog_wants_to': 'wants permission to',
         'perm_dialog_footnote': 'You can change this anytime in Settings.',
         'perm_dialog_error': 'Something went wrong. Please try again.',
+        'perm_dialog_push_note': 'Push notifications will also be turned on in this browser.',
+        'enable_push_lead': 'wants to send you push notifications. Turn them on in this browser?',
+        'enable_push_turn_on': 'Turn on notifications',
+        'enable_push_not_now': 'Not now',
+        'enable_push_footnote': 'You can turn them off anytime in Settings.',
 
         'error_user_or_path_not_found': 'User or path not found.',
         'error_invalid_username': 'Invalid username.',

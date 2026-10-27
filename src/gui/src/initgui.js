@@ -58,6 +58,8 @@ import {
 } from './util/authmeGrant.js';
 import init_device_signals from './helpers/deviceSignals.js';
 import { holdsPermissions } from './helpers/holdsPermissions.js';
+import { PUSH_ENABLE_TIMEOUT_MS, PUSH_PERMISSION } from './helpers/pushClient.js';
+import { startPushWorker } from './helpers/pushWorker.js';
 import item_icon from './helpers/itemIcon.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
@@ -793,6 +795,12 @@ const postAuthActions = async (action) => {
             : (raw_create === 'dir' || raw_create === 'file') ? raw_create
             : undefined;
 
+        // The browser registration Allow begins; the answer is posted before it is waited on.
+        let push_enable = null;
+        if ( permissions.includes(PUSH_PERMISSION) ) {
+            startPushWorker();
+        }
+
         // Whatever happens, the requester must get an answer and the popup
         // must close — otherwise the popup wedges open with the caller's
         // promise pending until the user closes it by hand.
@@ -825,6 +833,9 @@ const postAuthActions = async (action) => {
                 permission: permissions.length === 1 ? permissions[0] : undefined,
                 origin: origin,
                 create,
+                on_push_enable: (enabling) => {
+                    push_enable = enabling;
+                },
             });
         } catch (e) {
             console.error('request-permission action failed', e);
@@ -852,6 +863,12 @@ const postAuthActions = async (action) => {
 
         // The popup exists only to host this dialog; close it once answered.
         if ( window.embedded_in_popup ) {
+            if ( push_enable ) {
+                await Promise.race([
+                    push_enable,
+                    new Promise((resolve) => setTimeout(resolve, PUSH_ENABLE_TIMEOUT_MS)),
+                ]);
+            }
             window.close();
             window.open('', '_self').close();
         }

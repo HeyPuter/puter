@@ -34,6 +34,7 @@ globalThis.i18n = (key, vars, encode = true) => {
 window.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 window.api_origin = 'https://api.puter.test';
 window.auth_token = 'tok-1';
+window.user = { uuid: 'u-1' };
 
 const settle = async () => {
     for ( let i = 0; i < 10; i++ ) await new Promise(resolve => setTimeout(resolve, 0));
@@ -89,6 +90,7 @@ const dialogButton = (label) => dialog('.dashboard-dialog-btn').filter((_, el) =
 
 beforeEach(async () => {
     vi.resetModules();
+    localStorage.clear();
     pushClient = await import('../../helpers/pushClient.js');
     tab = (await import('./TabNotifications.js')).default;
     serve({
@@ -339,6 +341,41 @@ describe('this browser', () => {
         expect(client.disable).toHaveBeenCalledTimes(1);
         expect(browserCard().hasClass('push-browser-off')).toBe(true);
     });
+
+    it('remembers that the user turned this browser off, until they turn it on again', async () => {
+        const client = fakeClient({ permission: 'granted', registered: true, deviceUid: 'dev-1' });
+        pushClient.registerPushClient(client);
+        serve({
+            'GET /push/devices': { devices: [] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+            'POST /push/devices/dev-new/test': { sent: true },
+        });
+        await open();
+
+        $('.push-turn-off').trigger('click');
+        await settle();
+        expect(pushClient.browserPushOptedOut('u-1')).toBe(true);
+
+        client.status.mockResolvedValue({ permission: 'granted', registered: false });
+        await tab.onActivate($('.win'));
+        await settle();
+        $('.push-turn-on').trigger('click');
+        await settle();
+        expect(pushClient.browserPushOptedOut('u-1')).toBe(false);
+    });
+
+    it('does not remember a turn off that failed', async () => {
+        const client = fakeClient({ permission: 'granted', registered: true, deviceUid: 'dev-1' });
+        client.disable.mockRejectedValue(new Error('down'));
+        pushClient.registerPushClient(client);
+        await open();
+
+        $('.push-turn-off').trigger('click');
+        await settle();
+
+        expect(pushClient.browserPushOptedOut('u-1')).toBe(false);
+    });
 });
 
 describe('Puter notifications', () => {
@@ -482,6 +519,7 @@ describe('your devices', () => {
         expect(browserCard().hasClass('push-browser-off')).toBe(true);
         expect($('.push-device-card')).toHaveLength(1);
         expect($('.push-remove-device').attr('data-uid')).toBe('b');
+        expect(pushClient.browserPushOptedOut('u-1')).toBe(true);
     });
 
     it('still removes this browser on the server when it has no local record', async () => {
@@ -531,6 +569,7 @@ describe('your devices', () => {
         expect(client.disable).not.toHaveBeenCalled();
         expect(browserCard().hasClass('push-browser-on')).toBe(true);
         expect($('.push-remove-device').attr('data-uid')).toBe('a');
+        expect(pushClient.browserPushOptedOut('u-1')).toBe(false);
     });
 
     it('keeps this browser and says so when the client cannot reach a push service', async () => {

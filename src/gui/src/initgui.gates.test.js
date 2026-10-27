@@ -69,6 +69,35 @@ describe('the popup token hand-off in postAuthActions', () => {
     });
 });
 
+describe('the permission popup and browser push', () => {
+    const postAuthActions = src.slice(
+        src.indexOf('const postAuthActions = async'),
+        src.indexOf('window.initgui = async'),
+    );
+    const requestPermission = postAuthActions.slice(
+        postAuthActions.indexOf("if ( action === 'request-permission' )"),
+        postAuthActions.indexOf("if ( action === 'send-feedback' )"),
+    );
+
+    it('starts the service worker before the dialog when pushes are requested', () => {
+        const start = requestPermission.indexOf('startPushWorker()');
+        expect(start).toBeGreaterThan(-1);
+        expect(requestPermission.indexOf('permissions.includes(PUSH_PERMISSION)')).toBeLessThan(start);
+        expect(start).toBeLessThan(requestPermission.indexOf('await UIPermissionDialog({'));
+    });
+
+    it('takes the registration Allow began and waits for it after answering', () => {
+        expect(requestPermission).toContain('on_push_enable: (enabling) => {');
+        const answered = requestPermission.indexOf("msg: 'permissionGranted'");
+        const waited = requestPermission.indexOf('push_enable,');
+        const closed = requestPermission.indexOf('window.close()');
+        expect(answered).toBeGreaterThan(-1);
+        expect(waited).toBeGreaterThan(answered);
+        expect(closed).toBeGreaterThan(waited);
+        expect(requestPermission).toContain('PUSH_ENABLE_TIMEOUT_MS');
+    });
+});
+
 describe('the account pickers in a popup', () => {
     const PICKER = 'picked_a_user_for_sdk_login = await UIWindowSessionList(';
 
