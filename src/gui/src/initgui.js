@@ -38,6 +38,7 @@ import { takeOidcLoginChallenge } from './helpers/authRedirect.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
+import UIEnablePushDialog from './UI/UIEnablePushDialog.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
@@ -869,6 +870,46 @@ const postAuthActions = async (action) => {
                     new Promise((resolve) => setTimeout(resolve, PUSH_ENABLE_TIMEOUT_MS)),
                 ]);
             }
+            window.close();
+            window.open('', '_self').close();
+        }
+    }
+
+    // -- Action: Enable Push: offer to turn push on in this browser for the opener site, then report the state --
+    if ( action === 'enable-push' ) {
+        const msg_id = window.url_query_params.get('msg_id');
+        // Browser-attested only, same rule as request-permission above.
+        const origin = window.openerOrigin;
+
+        let state = 'unavailable';
+        try {
+            if ( ! origin ) {
+                throw new Error('no opener origin; not prompting');
+            }
+            startPushWorker();
+            state = await UIEnablePushDialog({ origin });
+        } catch (e) {
+            console.error('enable-push action failed', e);
+        }
+
+        let target_origin = '*';
+        try {
+            target_origin = origin ? new URL(origin).origin : '*';
+        } catch (e) {
+            console.error('enable-push: unusable origin', origin);
+        }
+        const messageTarget = window.embedded_in_popup ? window.opener : window.parent;
+        try {
+            messageTarget?.postMessage({
+                msg: 'pushEnabled',
+                state,
+                original_msg_id: msg_id,
+            }, target_origin);
+        } catch (e) {
+            console.error('enable-push: could not answer the requester', e);
+        }
+
+        if ( window.embedded_in_popup ) {
             window.close();
             window.open('', '_self').close();
         }

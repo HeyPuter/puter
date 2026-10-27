@@ -838,6 +838,24 @@ describe('requestPermission and hasPermission', () => {
     });
 });
 
+describe('enablePush', () => {
+    it('offers to turn on the browser through puter.ui', async () => {
+        const ui = { ...makeUI(), enablePush: vi.fn(async () => true) };
+        const { enablePush } = makeModule({ ui });
+        expect(await enablePush()).toBe(true);
+        expect(ui.enablePush).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolves false when the browser stays off', async () => {
+        const ui = { ...makeUI(), enablePush: vi.fn(async () => false) };
+        expect(await makeModule({ ui }).enablePush()).toBe(false);
+    });
+
+    it('resolves false where there is no desktop or popup to ask', async () => {
+        expect(await makeModule({ ui: makeUI() }).enablePush()).toBe(false);
+    });
+});
+
 describe('devices', () => {
     const device = {
         uid: 'd-1',

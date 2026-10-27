@@ -1,4 +1,5 @@
 import EventListener from '../../lib/EventListener.js';
+import { enablePush } from './enablePush.js';
 import { toClick } from './lib/shapes.js';
 import { listDevices } from './listDevices.js';
 import { notify } from './notify.js';
@@ -21,6 +22,7 @@ export class NotificationsModule extends EventListener {
     onNotification = onNotification;
     requestPermission = requestPermission;
     hasPermission = hasPermission;
+    enablePush = enablePush;
     registerDevice = registerDevice;
     listDevices = listDevices;
     removeDevice = removeDevice;
@@ -41,6 +43,7 @@ export class NotificationsModule extends EventListener {
             'onNotification',
             'requestPermission',
             'hasPermission',
+            'enablePush',
             'registerDevice',
             'listDevices',
             'removeDevice',

@@ -575,6 +575,14 @@ let sidebar = [
                 path: '/Notifications/hasPermission',
             },
             {
+                title: '<code>enablePush()</code>',
+                page_title: '<code>puter.notifications.enablePush()</code>',
+                title_tag: 'puter.notifications.enablePush()',
+                icon: '/assets/img/function.svg',
+                source: '/Notifications/enablePush.md',
+                path: '/Notifications/enablePush',
+            },
+            {
                 title: '<code>registerDevice()</code>',
                 page_title: '<code>puter.notifications.registerDevice()</code>',
                 title_tag: 'puter.notifications.registerDevice()',

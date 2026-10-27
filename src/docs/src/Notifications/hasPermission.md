@@ -4,7 +4,7 @@ description: Check whether the user lets your app send push notifications, witho
 platforms: [websites, apps]
 ---
 
-Whether the user lets your app send push notifications. It never prompts, so use it to decide whether to show your own "turn on notifications" button.
+Whether the user lets your app send push notifications. It never prompts, so use it to decide whether to show your own "turn on notifications" button, which calls [`requestPermission()`](/Notifications/requestPermission/).
 
 The answer is about the app making the call. Called from an account session with no app, such as Node.js with an account token, it's always `true`.
 

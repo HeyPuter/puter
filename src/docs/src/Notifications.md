@@ -22,7 +22,7 @@ It also goes out as a push notification when all of these are true:
 
 - The user has neither Puter nor your app open.
 - The user allowed your app to send pushes. Ask with [`requestPermission()`](/Notifications/requestPermission/).
-- The user has turned on push notifications on at least one device.
+- The user has turned on push notifications on at least one device. Allowing your app in the permission prompt turns them on in that browser too, and [`enablePush()`](/Notifications/enablePush/) offers to turn them on in the browser your app is in.
 
 A user gets at most one push a minute from each app. A notification over that still shows in the panel; it's just not pushed.
 
@@ -105,6 +105,7 @@ See [`notify()`](/Notifications/notify/) for every field, and [Rate Limits and Q
 - **[`puter.notifications.on('click')`](/Notifications/on/)** - React when the user clicks one of your notifications
 - **[`puter.notifications.requestPermission()`](/Notifications/requestPermission/)** - Ask the user to allow pushes from your app
 - **[`puter.notifications.hasPermission()`](/Notifications/hasPermission/)** - Check whether your app may send pushes
+- **[`puter.notifications.enablePush()`](/Notifications/enablePush/)** - Offer to turn on pushes in the browser the user is in
 
 For Puter's own web and mobile apps, which decide where pushes go:
 

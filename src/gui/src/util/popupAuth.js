@@ -34,7 +34,7 @@
  */
 
 /** Popup actions that exist to answer a question, not to authenticate. */
-const NON_AUTH_POPUP_ACTIONS = new Set(['request-permission', 'send-feedback']);
+const NON_AUTH_POPUP_ACTIONS = new Set(['request-permission', 'send-feedback', 'enable-push']);
 
 /**
  * Popup actions that exist to sign the user in to the opener, besides a plain

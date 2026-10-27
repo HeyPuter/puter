@@ -76,6 +76,10 @@ describe('the permission popup and browser push', () => {
     );
     const requestPermission = postAuthActions.slice(
         postAuthActions.indexOf("if ( action === 'request-permission' )"),
+        postAuthActions.indexOf("if ( action === 'enable-push' )"),
+    );
+    const enablePush = postAuthActions.slice(
+        postAuthActions.indexOf("if ( action === 'enable-push' )"),
         postAuthActions.indexOf("if ( action === 'send-feedback' )"),
     );
 
@@ -95,6 +99,17 @@ describe('the permission popup and browser push', () => {
         expect(waited).toBeGreaterThan(answered);
         expect(closed).toBeGreaterThan(waited);
         expect(requestPermission).toContain('PUSH_ENABLE_TIMEOUT_MS');
+    });
+
+    it('answers the enable-push opener after the dialog, then closes', () => {
+        expect(enablePush).toContain('startPushWorker()');
+        const dialog = enablePush.indexOf('await UIEnablePushDialog({ origin })');
+        const answered = enablePush.indexOf("msg: 'pushEnabled'");
+        const closed = enablePush.indexOf('window.close()');
+        expect(dialog).toBeGreaterThan(-1);
+        expect(answered).toBeGreaterThan(dialog);
+        expect(closed).toBeGreaterThan(answered);
+        expect(enablePush).toContain('const origin = window.openerOrigin;');
     });
 });
 

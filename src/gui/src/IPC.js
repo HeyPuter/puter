@@ -33,6 +33,7 @@ import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
+import UIEnablePushDialog from './UI/UIEnablePushDialog.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UINotification from './UI/UINotification.js';
@@ -1488,6 +1489,38 @@ const ipc_listener = async (event, handled) => {
         } finally {
             feedback_dialog_guard.markClosed();
         }
+    }
+    // -- enablePush --
+    else if ( event.data.msg === 'enablePush' ) {
+        // Always respond, into an iframe that may be gone by then.
+        const respond = (state) => {
+            target_iframe?.contentWindow?.postMessage({
+                msg: 'pushEnabled',
+                state,
+                original_msg_id: msg_id,
+            }, '*');
+        };
+
+        try {
+            if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+            {
+                respond('unavailable');
+                return;
+            }
+        } catch ( e ) {
+            console.error('IPC enablePush: auth gate failed', e);
+            respond('unavailable');
+            return;
+        }
+
+        let state = 'unavailable';
+        try {
+            state = await UIEnablePushDialog({ app_name });
+        } catch ( e ) {
+            console.error('IPC enablePush failed', e);
+        }
+        respond(state);
+        $(target_iframe).get(0)?.focus({ preventScroll: true });
     }
     //--------------------------------------------------------
     // showFontPicker
