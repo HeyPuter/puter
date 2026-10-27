@@ -14,11 +14,18 @@ puter.ui.showFontPicker(options)
 ```
 
 ## Parameters
-#### `defaultFont` (String)
-The default font to select when the font picker is opened.
+#### `defaultFont` (String) (optional)
+The name of the font to select when the font picker is opened, such as `'Georgia'`.
 
-The options `defaultValue` and `default` are legacy aliases for `defaultFont`, used only when `defaultFont` is not set (`defaultValue` first, then `default`).
+#### `options` (optional)
+A set of key/value pairs that configure the font picker.
 
+* `defaultFont` (String): The name of the font to select when the font picker is opened.
+* `defaultValue` (String): Legacy alias for `defaultFont`, used when `defaultFont` isn't set.
+* `default` (String): Legacy alias for `defaultFont`, used when neither `defaultFont` nor `defaultValue` is set.
+
+## Return value
+A `Promise` that resolves to an object with a `fontFamily` property, a CSS `font-family` value for the chosen font. If the user closes the picker without choosing a font, the promise resolves to `false` inside Puter and to `null` on other websites.
 
 ## Examples
 
@@ -30,6 +37,7 @@ The options `defaultValue` and `default` are legacy aliases for `defaultFont`, u
 
     <script>
         puter.ui.showFontPicker().then((font)=>{
+            if (!font) return;
             document.body.style.fontFamily = font.fontFamily;
         })
     </script>

@@ -36,4 +36,14 @@ test.describe('puter.ui.showFontPicker (env=app)', () => {
             await expect(picker).toHaveCount(0);
         });
     }
+
+    test('closing the picker resolves false', async ({ page }) => {
+        const appFrame = await gotoTestApp(page, appName);
+        await appFrame.locator('#pick-default-font').click();
+
+        const picker = page.locator('.window[data-app="font-picker"]');
+        await picker.locator('.window-close-btn').click();
+
+        await expect(appFrame.locator('#log [data-entry="font:false"]')).toBeVisible();
+    });
 });

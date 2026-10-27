@@ -1416,20 +1416,20 @@ export class UIModule extends EventListener {
     /**
      * @overload
      * @param {string} [defaultFont]
-     * @returns {Promise<{ fontFamily: string }>}
+     * @returns {Promise<{ fontFamily: string } | false | null>}
      */
     /**
      * @overload
      * @param {FontPickerOptions} [options]
-     * @returns {Promise<{ fontFamily: string }>}
+     * @returns {Promise<{ fontFamily: string } | false | null>}
      */
     /**
-     * Shows a font picker. Resolves to the chosen font. Accepts either a
-     * default font name or an options object. `defaultValue` and `default` are
-     * legacy aliases for `defaultFont`.
+     * Shows a font picker. Resolves to the chosen font, or to `false` (in an
+     * app) or `null` (standalone) when the user closes it without choosing.
+     * `defaultValue` and `default` are legacy aliases for `defaultFont`.
      *
      * @param {string | FontPickerOptions} [options]
-     * @returns {Promise<{ fontFamily: string }>}
+     * @returns {Promise<{ fontFamily: string } | false | null>}
      */
     showFontPicker (options) {
         if ( this.messageTarget ) {
