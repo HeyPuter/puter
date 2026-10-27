@@ -74,7 +74,7 @@ describe('pushMessageFor', () => {
             app: { uid: 'app-1', name: 'Chat' },
         })).toEqual({
             uid: 'n1',
-            group: 'room-7',
+            group: 'app-1:room-7',
             title: 'New reply',
             body: 'see you',
             icon: 'https://example.com/i.png',
@@ -100,6 +100,16 @@ describe('pushMessageFor', () => {
             title: 'alice shared a file with you',
             target: { path: '/alice/Shared/a.txt' },
         });
+    });
+
+    it("tags an app message's group with its app, so two apps never share one", () => {
+        const message = (app, over = {}) => ({ type: 'app.message', title: 't', group: 'room-7', app: { uid: app }, ...over });
+        expect(pushMessageFor('n1', message('app-1')).group).toBe('app-1:room-7');
+        expect(pushMessageFor('n1', message('app-2')).group).toBe('app-2:room-7');
+        expect(pushMessageFor('n1', message('app-1', { sensitive: true })).group).toBe('app-1:room-7');
+        expect(pushMessageFor('n1', message('app-b'), 'app-a').group).toBe('app-a:room-7');
+        expect(pushMessageFor('n1', message('app-1', { group: undefined })).group).toBe('n1');
+        expect(pushMessageFor('n2', { ...share, group: 'room-7' }).group).toBe('room-7');
     });
 
     it("uses the row's app uid over the one the message names", () => {
@@ -207,17 +217,17 @@ describe('startPushWorker', () => {
         mod.setPushTapHandler(handler);
         const nav = makeNav();
         await start(mod, { nav });
-        expect(nav.serviceWorker.register).toHaveBeenCalledWith('/sw.js', { scope: '/' });
+        expect(nav.serviceWorker.register).toHaveBeenCalledWith('/sw.js', { scope: '/', updateViaCache: 'none' });
 
         const source = { postMessage: vi.fn() };
-        nav.listeners.message({ data: { type: 'other', notification: { uid: 'x' } }, source });
-        nav.listeners.message({ data: { type: 'puter-notification-click', id: 'click-0', notification: { uid: '' } }, source });
+        nav.listeners.message({ data: { type: 'other', notification: { uid: UID } }, source });
+        nav.listeners.message({ data: { type: 'puter-notification-click', id: 'click-0', notification: { uid: 'n1' } }, source });
         nav.listeners.message({
-            data: { type: 'puter-notification-click', id: 'click-1', notification: { uid: 'n1', target: { app: 'a' } } },
+            data: { type: 'puter-notification-click', id: 'click-1', notification: { uid: UID, target: { app: 'a' } } },
             source,
         });
         expect(source.postMessage.mock.calls).toEqual([[{ type: 'puter-notification-click-ack', id: 'click-1' }]]);
-        expect(handler.mock.calls).toEqual([[{ uid: 'n1', target: { app: 'a' } }]]);
+        expect(handler.mock.calls).toEqual([[{ uid: UID }]]);
     });
 
     it('registers nothing inside a frame', async () => {
@@ -245,7 +255,7 @@ describe('startPushWorker', () => {
             clearParam,
         });
         expect(clearParam).toHaveBeenCalledWith('puter.notification');
-        expect(handler).toHaveBeenCalledWith({ uid: UID, stored: true });
+        expect(handler).toHaveBeenCalledWith({ uid: UID });
     });
 
     it('clears a malformed parameter and hands nothing over', async () => {

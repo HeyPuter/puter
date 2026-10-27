@@ -51,7 +51,7 @@ import {
     handleNotificationTap,
     openAppForTap,
     setPushTapHandler,
-    storedTapItem,
+    storedTapHandler,
 } from '../helpers/notificationTap.js';
 import { showLocalBanner, startPushWorker } from '../helpers/pushWorker.js';
 import { get_app_by_uid } from '../helpers/getAppByUid.js';
@@ -251,26 +251,25 @@ async function UIDesktop (options) {
     };
 
     // The desktop has no notification list, so other types only clear.
-    const tap_notification = (tap) => handleNotificationTap(tap, {
+    const tap_surface = {
         share: (notification) => share_notification_click(notification)?.(),
         openApp: (route) => openAppForTap(route, { getApp: get_app_by_uid, launch: launch_app }),
-    });
+    };
+    const tap_notification = (tap) => handleNotificationTap(tap, tap_surface);
 
     const toasts_for = (uid) => $(elementsWithData($('.notification').get(), 'uid', uid));
 
-    setPushTapHandler(async (push) => {
-        let tap = { uid: push.uid, push };
-        if ( push.stored ) {
-            tap = await storedTapItem(push.uid, getNotification);
-            if ( ! tap ) return;
-        }
-        toasts_for(push.uid).remove();
-        update_tab_notif_count_badge();
-        void markNotificationAcknowledged(push.uid).catch((err) => {
-            console.warn('Could not acknowledge notification:', err);
-        });
-        return tap_notification(tap);
-    });
+    setPushTapHandler(storedTapHandler({
+        fetchRow: getNotification,
+        surface: tap_surface,
+        found: (uid) => {
+            toasts_for(uid).remove();
+            update_tab_notif_count_badge();
+            void markNotificationAcknowledged(uid).catch((err) => {
+                console.warn('Could not acknowledge notification:', err);
+            });
+        },
+    }));
     startPushWorker();
 
     /**

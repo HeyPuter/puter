@@ -23,7 +23,6 @@ import { httpsIconFor, isShareNotification } from '../UI/Dashboard/notificationC
 import {
     APP_MESSAGE_TYPE,
     dispatchPushTap,
-    dispatchStoredTap,
     normalizePushTap,
     pushTapFromParams,
     PUSH_TAP_PARAM,
@@ -69,9 +68,12 @@ const nonEmpty = (value) => (typeof value === 'string' && value.trim() !== '' ? 
  * @returns {Object} The push payload shape `sw.js` shows
  */
 export const pushMessageFor = (uid, notification, appUid = null) => {
-    const message = { uid, group: nonEmpty(notification.group) ?? uid };
+    const group = nonEmpty(notification.group);
+    const message = { uid, group: group ?? uid };
     if ( notification.type === APP_MESSAGE_TYPE ) {
         const app = nonEmpty(appUid) ?? nonEmpty(notification.app?.uid);
+        // An app's group is its own, as the server names it on a push.
+        if ( app && group ) message.group = `${app}:${group}`;
         if ( notification.sensitive === true ) {
             return { ...message, title: nonEmpty(notification.app?.name), ...(app ? { target: { app } } : {}) };
         }
@@ -144,7 +146,7 @@ export const startPushWorker = async ({
     if ( query?.has?.(PUSH_TAP_PARAM) ) {
         const opened = pushTapFromParams(query);
         clearParam(PUSH_TAP_PARAM);
-        if ( opened ) dispatchStoredTap(opened);
+        if ( opened ) dispatchPushTap(opened);
     }
 
     // Leave an existing worker: removing it ends this browser's subscription.
@@ -155,7 +157,8 @@ export const startPushWorker = async ({
         dispatchPushTap(event.data.notification);
     });
     try {
-        await nav.serviceWorker.register(WORKER_URL, { scope: '/' });
+        // Scripts the worker imports are fetched fresh on each update check.
+        await nav.serviceWorker.register(WORKER_URL, { scope: '/', updateViaCache: 'none' });
     } catch ( err ) {
         console.warn('Could not register the service worker:', err);
     }

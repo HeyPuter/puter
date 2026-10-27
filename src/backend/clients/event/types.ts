@@ -552,13 +552,17 @@ export type EventMap = {
         /** Events handler runs behind whatever created it. */
         handlerDepth?: number;
     };
-    /** Every non-silent write or update, only on the node that wrote it. */
+    /**
+     * Every non-silent write or update, only on the node that wrote it. The
+     * value is the listener's own copy of what the socket carries.
+     */
     'notif.written': {
         userId: number;
         uid: string;
         type: string;
-        /** The row's app. Absent on an update, which keeps the row's own. */
-        appUid?: string | null;
+        audience: string;
+        /** The row's app; null when it names none or an update could not tell. */
+        appUid: string | null;
         value: Record<string, unknown>;
         /** An earlier notification rewritten in place. */
         updated?: true;
