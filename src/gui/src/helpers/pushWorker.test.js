@@ -74,7 +74,7 @@ describe('pushMessageFor', () => {
             app: { uid: 'app-1', name: 'Chat' },
         })).toEqual({
             uid: 'n1',
-            group: 'room-7',
+            group: 'app-1:room-7',
             title: 'New reply',
             body: 'see you',
             icon: 'https://example.com/i.png',
@@ -100,6 +100,16 @@ describe('pushMessageFor', () => {
             title: 'alice shared a file with you',
             target: { path: '/alice/Shared/a.txt' },
         });
+    });
+
+    it("tags an app message's group with its app, so two apps never share one", () => {
+        const message = (app, over = {}) => ({ type: 'app.message', title: 't', group: 'room-7', app: { uid: app }, ...over });
+        expect(pushMessageFor('n1', message('app-1')).group).toBe('app-1:room-7');
+        expect(pushMessageFor('n1', message('app-2')).group).toBe('app-2:room-7');
+        expect(pushMessageFor('n1', message('app-1', { sensitive: true })).group).toBe('app-1:room-7');
+        expect(pushMessageFor('n1', message('app-b'), 'app-a').group).toBe('app-a:room-7');
+        expect(pushMessageFor('n1', message('app-1', { group: undefined })).group).toBe('n1');
+        expect(pushMessageFor('n2', { ...share, group: 'room-7' }).group).toBe('room-7');
     });
 
     it("uses the row's app uid over the one the message names", () => {

@@ -68,9 +68,12 @@ const nonEmpty = (value) => (typeof value === 'string' && value.trim() !== '' ? 
  * @returns {Object} The push payload shape `sw.js` shows
  */
 export const pushMessageFor = (uid, notification, appUid = null) => {
-    const message = { uid, group: nonEmpty(notification.group) ?? uid };
+    const group = nonEmpty(notification.group);
+    const message = { uid, group: group ?? uid };
     if ( notification.type === APP_MESSAGE_TYPE ) {
         const app = nonEmpty(appUid) ?? nonEmpty(notification.app?.uid);
+        // An app's group is its own, as the server names it on a push.
+        if ( app && group ) message.group = `${app}:${group}`;
         if ( notification.sensitive === true ) {
             return { ...message, title: nonEmpty(notification.app?.name), ...(app ? { target: { app } } : {}) };
         }
