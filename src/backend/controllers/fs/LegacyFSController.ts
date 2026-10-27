@@ -26,6 +26,7 @@ import {
     assertResolvedActor,
     isAccessTokenActor,
     isAppActor,
+    isPlainUserActor,
     makeActor,
 } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
@@ -1992,6 +1993,11 @@ export class LegacyFSController extends PuterController {
      */
     checkAppAcl = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
+        // Sessions only: for an app, this would be a window onto its neighbours' grants.
+        if (!isPlainUserActor(actor))
+            throw new HttpError(403, 'actor must be a user', {
+                legacyCode: 'forbidden',
+            });
         const body = asRecord(req.body);
 
         const subjectRef = body.subject;
@@ -2022,7 +2028,7 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'subject_does_not_exist',
             });
 
-        let app: { uid: string } | null = null;
+        let app: { uid: string; id: number } | null = null;
         if (typeof appRef === 'string') {
             app =
                 (await this.stores.app.getByUid(appRef)) ??
@@ -2036,7 +2042,7 @@ export class LegacyFSController extends PuterController {
         // Build an actor-under-user shape for the check.
         const actorForApp = makeActor({
             user: actor.user,
-            app: { uid: (app as { uid: string }).uid },
+            app: { uid: app.uid, id: app.id },
         });
         const allowed = await acl.check(actorForApp, descriptor, mode);
         res.json({ allowed });
