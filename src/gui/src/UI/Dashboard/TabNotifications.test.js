@@ -369,6 +369,78 @@ describe('your devices', () => {
         expect($('.push-remove-device').attr('data-uid')).toBe('a');
     });
 
+    it('removes this browser through the client, which also forgets its registration', async () => {
+        const client = fakeClient({ permission: 'granted', registered: true, deviceUid: 'a' });
+        pushClient.registerPushClient(client);
+        const remove = vi.fn(() => reply(200, { removed: true }));
+        let listed = [device({ uid: 'a', current: true }), device({ uid: 'b', label: 'Phone' })];
+        serve({
+            'GET /push/devices': () => reply(200, { devices: listed }),
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+            'DELETE /push/devices/a': remove,
+        });
+        await open();
+        client.disable.mockImplementation(async () => {
+            listed = listed.filter(d => d.uid !== 'a');
+            client.status.mockResolvedValue({ permission: 'granted', registered: false });
+        });
+
+        $('.push-remove-device[data-uid="a"]').trigger('click');
+        await settle();
+        dialogButton('push_device_remove').trigger('click');
+        await settle();
+
+        expect(client.disable).toHaveBeenCalledTimes(1);
+        expect(remove).not.toHaveBeenCalled();
+        expect(browserCard().hasClass('push-browser-off')).toBe(true);
+        expect($('.push-device-card')).toHaveLength(1);
+        expect($('.push-remove-device').attr('data-uid')).toBe('b');
+    });
+
+    it('removes another device with the server alone', async () => {
+        const client = fakeClient({ permission: 'granted', registered: true, deviceUid: 'a' });
+        pushClient.registerPushClient(client);
+        const remove = vi.fn(() => reply(200, { removed: true }));
+        serve({
+            'GET /push/devices': { devices: [device({ uid: 'a', current: true }), device({ uid: 'b', label: 'Phone' })] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+            'DELETE /push/devices/b': remove,
+        });
+        await open();
+
+        $('.push-remove-device[data-uid="b"]').trigger('click');
+        await settle();
+        dialogButton('push_device_remove').trigger('click');
+        await settle();
+
+        expect(remove).toHaveBeenCalledTimes(1);
+        expect(client.disable).not.toHaveBeenCalled();
+        expect(browserCard().hasClass('push-browser-on')).toBe(true);
+        expect($('.push-remove-device').attr('data-uid')).toBe('a');
+    });
+
+    it('keeps this browser and says so when the client cannot reach a push service', async () => {
+        const client = fakeClient({ permission: 'granted', registered: true, deviceUid: 'a' });
+        client.disable.mockRejectedValue(Object.assign(new Error('unavailable'), { code: 'push_unavailable' }));
+        pushClient.registerPushClient(client);
+        serve({
+            'GET /push/devices': { devices: [device({ uid: 'a', current: true })] },
+            'GET /push/apps': { apps: [] },
+            'GET /push/preferences': { puter: true },
+        });
+        await open();
+
+        $('.push-remove-device[data-uid="a"]').trigger('click');
+        await settle();
+        dialogButton('push_device_remove').trigger('click');
+        await settle();
+
+        expect($('.push-device-card')).toHaveLength(1);
+        expect(dialog('.dashboard-dialog-message').text()).toContain('push_device_remove_failed');
+    });
+
     it('drops a device the server no longer has', async () => {
         serve({
             'GET /push/devices': { devices: [device({ uid: 'a' })] },

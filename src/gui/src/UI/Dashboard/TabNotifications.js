@@ -343,14 +343,21 @@ const TabNotifications = {
                 returnFocusTo: this,
             });
             if ( confirmed !== true ) return;
+            // The client also deletes this browser's token and local record.
+            const client = device.current ? getPushClient() : null;
             try {
-                await removePushDevice(uid);
+                if ( client ) await client.disable();
+                else await removePushDevice(uid);
             } catch ( e ) {
                 if ( e?.status !== 404 || e?.code === PUSH_UNAVAILABLE ) {
                     console.warn('[push] device removal failed', e);
                     showError('push_device_remove_failed', $el_window);
                     return;
                 }
+            }
+            if ( client ) {
+                await Promise.all([refreshBrowser(), refreshDevices()]);
+                return;
             }
             devices = devices.filter(d => d.uid !== uid);
             renderDevices();

@@ -15,6 +15,8 @@ Core does not subscribe the browser to a push service, and it has no `/push/*` r
 
 `uid` is the notification's uid, a later push with the same `group` replaces the one showing, and `target` and `data` reach the app when the user taps it.
 
+When the browser replaces the subscription (`pushsubscriptionchange`), `sw.js` posts `{ type: 'puter-push-subscription-changed' }` to every open window on Puter's origin. The worker has no token or session, so the page's push client registers the new subscription.
+
 ## Registering
 
 The registry is in [src/gui/src/helpers/pushClient.js](../src/gui/src/helpers/pushClient.js). A service script registers its client like this:
@@ -44,7 +46,7 @@ interface PushClient {
 ```
 
 - `enable()` is called from a click, so it may ask for notification permission. It subscribes with the `/sw.js` registration, registers the device with `POST /push/devices` (`platform: 'web'`), and resolves the device `uid` the server returned. It rejects when permission is refused or the device couldn't be registered.
-- `disable()` unsubscribes and removes this browser's device with `DELETE /push/devices/:uid`.
+- `disable()` unsubscribes and removes this browser's device with `DELETE /push/devices/:uid`. The tab calls it for Turn off, and for Remove on the device marked as this browser; Remove on any other device is a plain `DELETE`.
 - `status()` reports the state without prompting. `permission` is `Notification.permission`. `registered` is true when this browser has a device registered for the signed-in user, and `deviceUid` is that device's `uid`.
 
 After `enable()` resolves, the tab calls `POST /push/devices/:uid/test` and asks the user whether a notification showed up.
