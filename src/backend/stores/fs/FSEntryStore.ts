@@ -1229,43 +1229,49 @@ export class FSEntryStore extends PuterStore {
               segments(depth, name) AS (
                 ${segmentRows}
               ),
-              lineage(id, uuid, depth) AS (
-                SELECT f.id, f.uuid, 1
+              lineage(id, uuid, name, depth) AS (
+                SELECT f.id, f.uuid, f.name, 1
                 FROM fsentries f
                 INNER JOIN segments s ON s.depth = 1
                 WHERE f.parent_uid IS NULL AND f.name = s.name
 
                 UNION ALL
 
-                SELECT f.id, f.uuid, l.depth + 1
+                SELECT f.id, f.uuid, f.name, l.depth + 1
                 FROM fsentries f
                 INNER JOIN lineage l ON f.parent_uid = l.uuid
                 INNER JOIN segments s ON s.depth = l.depth + 1
                 WHERE f.name = s.name
               )
-            SELECT id, uuid, depth FROM lineage ORDER BY depth ASC, id ASC
+            SELECT id, uuid, name, depth FROM lineage ORDER BY depth ASC, id ASC
         `;
 
         const rows = (await this.clients.db.read(sql, segments)) as {
             id: number | string;
             uuid: string;
+            name: string;
             depth: number | string;
         }[];
 
         // Take the lowest-id row at each depth (deterministic pick that
         // matches v1's `LIMIT 1` per-segment behaviour).
         const byDepth = new Map<number, { id: number; uuid: string }>();
+        const storedNames: string[] = [];
         for (const r of rows) {
             const depth = Number(r.depth);
             if (!byDepth.has(depth)) {
                 byDepth.set(depth, { id: Number(r.id), uuid: r.uuid });
+                storedNames[depth - 1] = r.name;
             }
         }
         if (byDepth.size !== segments.length) {
             return null;
         }
 
-        await this.#backfillLineagePaths(byDepth, segments);
+        // The stored names, not the caller's spelling: a collation can match
+        // a segment to a name spelled differently, and this runs before any
+        // access check.
+        await this.#backfillLineagePaths(byDepth, storedNames);
 
         const target = byDepth.get(segments.length);
         if (!target) return null;
