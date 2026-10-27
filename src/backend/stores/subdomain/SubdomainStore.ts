@@ -19,6 +19,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { escapeLike } from '../../util/sqlLike';
+import { isTrashedPath } from '../../util/hostedAppBacking';
 import { runWithConcurrencyLimit } from '../../util/concurrency';
 import { CACHE_TOMBSTONE_TTL_SECONDS, PuterStore } from '../types';
 
@@ -155,10 +156,16 @@ export class SubdomainStore extends PuterStore {
      * which may hold a stale negative marker — and reads the primary instead of
      * a possibly-lagging replica. The result still refreshes the cache, healing
      * any stale marker.
+     *
+     * `cachedMisses` collects the name when the null came from a negative cache
+     * entry rather than a database read.
      */
     async getBySubdomain(
         subdomain: string,
-        { primary = false }: { primary?: boolean } = {},
+        {
+            primary = false,
+            cachedMisses,
+        }: { primary?: boolean; cachedMisses?: Set<string> } = {},
     ): Promise<SubdomainRow | null> {
         if (!subdomain) return null;
 
@@ -166,7 +173,10 @@ export class SubdomainStore extends PuterStore {
         if (!primary) {
             try {
                 const raw = await this.clients.redis.get(cacheKey);
-                if (raw === NEGATIVE_CACHE_MARKER) return null;
+                if (raw === NEGATIVE_CACHE_MARKER) {
+                    cachedMisses?.add(subdomain);
+                    return null;
+                }
                 if (raw) {
                     const parsed = JSON.parse(raw) as SubdomainRow | null;
                     if (parsed) return parsed;
@@ -205,11 +215,15 @@ export class SubdomainStore extends PuterStore {
      * Batched sibling of {@link getBySubdomain} — one cache pipeline plus one
      * chunked `IN (…)` query for the misses, instead of one lookup per name.
      * Keyed by the requested names; a name with no row (negative-cached or
-     * genuinely absent) is simply missing from the returned map.
+     * genuinely absent) is simply missing from the returned map. `cachedMisses`
+     * collects the names that were negative-cached.
      */
     async getBySubdomains(
         names: string[],
-        { primary = false }: { primary?: boolean } = {},
+        {
+            primary = false,
+            cachedMisses,
+        }: { primary?: boolean; cachedMisses?: Set<string> } = {},
     ): Promise<Map<string, SubdomainRow>> {
         const result = new Map<string, SubdomainRow>();
         const uniqueNames = [
@@ -233,7 +247,10 @@ export class SubdomainStore extends PuterStore {
                 for (let i = 0; i < uniqueNames.length; i++) {
                     const name = uniqueNames[i]!;
                     const raw = cacheResults[i]?.[1];
-                    if (raw === NEGATIVE_CACHE_MARKER) continue; // cached miss
+                    if (raw === NEGATIVE_CACHE_MARKER) {
+                        cachedMisses?.add(name);
+                        continue;
+                    }
                     if (typeof raw === 'string') {
                         try {
                             const parsed = JSON.parse(
@@ -322,6 +339,23 @@ export class SubdomainStore extends PuterStore {
             }
         }
         return rowsByName;
+    }
+
+    /**
+     * Which of `rootDirIds` sit in their owner's Trash, where sites don't
+     * serve.
+     */
+    async trashedRootDirIds(rootDirIds: number[]): Promise<Set<number>> {
+        const trashed = new Set<number>();
+        const fsEntry = this.stores?.fsEntry;
+        if (rootDirIds.length === 0 || !fsEntry?.getEntriesByIds) {
+            return trashed;
+        }
+        const entries = await fsEntry.getEntriesByIds(rootDirIds);
+        for (const [id, entry] of entries) {
+            if (entry?.path && isTrashedPath(entry.path)) trashed.add(id);
+        }
+        return trashed;
     }
 
     async listByUserId(
@@ -599,7 +633,9 @@ export class SubdomainStore extends PuterStore {
             preamble_version: preambleVersion,
             protected: isProtected ? 1 : 0,
         };
-        await this.#refreshCache(row);
+        // Tombstoned so a peer whose replica lacks the row yet can't cache a
+        // negative marker for the new name.
+        await this.#publishChanged([row as unknown as SubdomainRow]);
         await this.#invalidateRootDirEntry(row.root_dir_id);
 
         return row;
@@ -922,16 +958,6 @@ export class SubdomainStore extends PuterStore {
         } catch {
             // The next read fills it from the primary.
         }
-    }
-
-    async #refreshCache(row: { subdomain?: string }) {
-        if (!row?.subdomain) return;
-        await this.publishCacheKeys({
-            keys: [this.#cacheKey(row.subdomain)],
-            serializedData: JSON.stringify(row),
-            ttlSeconds: CACHE_TTL_SECONDS,
-            broadcast: true,
-        });
     }
 
     // FSEntryStore caches each row with an embedded `subdomains_agg` JSON

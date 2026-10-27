@@ -17,7 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { AsyncResource } from 'node:async_hooks';
 import { posix as pathPosix } from 'node:path';
+import { Readable } from 'node:stream';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
@@ -148,6 +150,29 @@ export function resolveReadRange(
         return `bytes=${offset}-`;
     }
     return undefined;
+}
+
+/**
+ * A response body read from `chunks` for `pipeToResponse`. Each chunk is pulled
+ * in the caller's async context, which share masking reads, not in whichever
+ * socket event asked for more.
+ */
+export function contextBoundStream(
+    chunks: AsyncGenerator<string, void, undefined>,
+): Readable {
+    const next = AsyncResource.bind(() => chunks.next());
+    const stop = AsyncResource.bind(() => chunks.return(undefined));
+    return Readable.from({
+        [Symbol.asyncIterator]: () => ({ next, return: stop }),
+    });
+}
+
+/** No range is satisfiable on an empty file, so it reads whole: empty, 200. */
+export function rangeForEntry(
+    entry: FSEntry,
+    range: string | undefined,
+): string | undefined {
+    return entry.size === 0 ? undefined : range;
 }
 
 // Accepts either `{ path }` or `{ uid }` or `{ id }` or `{ parent, name }`

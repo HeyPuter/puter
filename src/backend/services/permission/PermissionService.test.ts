@@ -2113,6 +2113,31 @@ describe('PermissionService — scan paths', () => {
             ).toBe(false);
         });
 
+        it('answers default grants for full-access tokens without reading the scan cache', async () => {
+            const { actor } = await makeGroupedUser();
+            const token: Actor = {
+                user: actor.user,
+                accessToken: {
+                    uid: `tok-${uuidv4()}`,
+                    issuer: actor,
+                    authorized: null,
+                    fullAccess: true,
+                },
+            };
+            const get = vi.spyOn(server.clients.redis, 'get');
+            try {
+                expect(
+                    await permService.check(
+                        token,
+                        'service:puter-kvstore:ii:puter-kvstore',
+                    ),
+                ).toBe(true);
+                expect(get).not.toHaveBeenCalled();
+            } finally {
+                get.mockRestore();
+            }
+        });
+
         it('a full-access token resolves anything its issuer holds, and nothing more', async () => {
             const { row, actor } = await makeGroupedUser();
             const held = `zztest:full-${uuidv4()}:ii:read`;

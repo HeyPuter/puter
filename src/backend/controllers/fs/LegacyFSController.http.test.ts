@@ -153,6 +153,34 @@ describe('legacy file downloads over HTTP', () => {
         },
     );
 
+    it.each(routes)(
+        'GET %s answers a ranged read of an empty file with an empty 200',
+        async (route) => {
+            const file = await writeFile(
+                `empty-${route.replace(/\W/g, '')}.bin`,
+                Buffer.alloc(0),
+            );
+            const ranged = await requestFor(route, file, {
+                headers: { Range: 'bytes=0-511' },
+            });
+            expect(ranged.status).toBe(200);
+            expect(await ranged.text()).toBe('');
+        },
+    );
+
+    it('GET /read answers byte_count on an empty file with an empty 200', async () => {
+        const file = await writeFile('empty-byte-count.bin', Buffer.alloc(0));
+        for (const query of ['byte_count=512', 'offset=0']) {
+            const url = new URL(`/read?${query}`, env.apiOrigin);
+            url.searchParams.set('file', file.path);
+            const response = await fetch(url, {
+                headers: { Authorization: `Bearer ${env.users.user.token}` },
+            });
+            expect(response.status).toBe(200);
+            expect(await response.text()).toBe('');
+        }
+    });
+
     // Storage hands over one chunk and then goes quiet, as a large object
     // does while the client is still reading.
     const stallReadsOf = (objectKey: string) => {

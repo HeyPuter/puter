@@ -137,6 +137,43 @@ describe('auth state', () => {
         expect(fs.socket).not.toBe(previousSocket);
     });
 
+    it('keeps an active socket when credentials and origin have not changed', () => {
+        const fs = makeModule('web');
+        const previous = fs.socket;
+        previous.active = true;
+        fs.onAuthStateChanged();
+        expect(fs.socket).toBe(previous);
+        expect(previous.disconnect).not.toHaveBeenCalled();
+    });
+
+    it('replaces an inactive socket even when credentials are unchanged', () => {
+        const fs = makeModule('web');
+        const previous = fs.socket;
+        previous.active = false;
+        fs.onAuthStateChanged();
+        expect(fs.socket).not.toBe(previous);
+        expect(previous.disconnect).toHaveBeenCalledOnce();
+    });
+
+    it('closes the socket on sign-out without opening an anonymous replacement', () => {
+        const fs = makeModule('web');
+        const previous = fs.socket;
+        fs.puter.authToken = null;
+        fs.onAuthStateChanged();
+        expect(previous.disconnect).toHaveBeenCalledOnce();
+        expect(fs.socket).toBeNull();
+    });
+
+    it('replaces an active socket when the API origin changes', () => {
+        const fs = makeModule('web');
+        const previous = fs.socket;
+        previous.active = true;
+        fs.puter.APIOrigin = 'https://new-api.test';
+        fs.onAuthStateChanged();
+        expect(fs.socket).not.toBe(previous);
+        expect(previous.disconnect).toHaveBeenCalledOnce();
+    });
+
     it('never opens a socket when the client opted out', () => {
         const fs = makeModule('web', false);
 

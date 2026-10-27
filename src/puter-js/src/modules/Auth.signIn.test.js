@@ -131,6 +131,18 @@ describe('signIn popup binding', () => {
         },
     );
 
+    it('notifies explicit sign-in once using the cached user lookup', async () => {
+        const user = { username: 'alice' };
+        puter.whoamiCache_ = Promise.resolve(user);
+        puter.onAuth = vi.fn();
+        puter.getUser = vi.fn();
+        const signedIn = auth.signIn();
+        respond(popups[0], 'token');
+        await signedIn;
+        expect(puter.onAuth).toHaveBeenCalledExactlyOnceWith(user);
+        expect(puter.getUser).not.toHaveBeenCalled();
+    });
+
     it('keeps the isolated-page relay independent of popup messages', async () => {
         vi.stubGlobal('crossOriginIsolated', true);
         let answer;

@@ -1229,43 +1229,49 @@ export class FSEntryStore extends PuterStore {
               segments(depth, name) AS (
                 ${segmentRows}
               ),
-              lineage(id, uuid, depth) AS (
-                SELECT f.id, f.uuid, 1
+              lineage(id, uuid, name, depth) AS (
+                SELECT f.id, f.uuid, f.name, 1
                 FROM fsentries f
                 INNER JOIN segments s ON s.depth = 1
                 WHERE f.parent_uid IS NULL AND f.name = s.name
 
                 UNION ALL
 
-                SELECT f.id, f.uuid, l.depth + 1
+                SELECT f.id, f.uuid, f.name, l.depth + 1
                 FROM fsentries f
                 INNER JOIN lineage l ON f.parent_uid = l.uuid
                 INNER JOIN segments s ON s.depth = l.depth + 1
                 WHERE f.name = s.name
               )
-            SELECT id, uuid, depth FROM lineage ORDER BY depth ASC, id ASC
+            SELECT id, uuid, name, depth FROM lineage ORDER BY depth ASC, id ASC
         `;
 
         const rows = (await this.clients.db.read(sql, segments)) as {
             id: number | string;
             uuid: string;
+            name: string;
             depth: number | string;
         }[];
 
         // Take the lowest-id row at each depth (deterministic pick that
         // matches v1's `LIMIT 1` per-segment behaviour).
         const byDepth = new Map<number, { id: number; uuid: string }>();
+        const storedNames: string[] = [];
         for (const r of rows) {
             const depth = Number(r.depth);
             if (!byDepth.has(depth)) {
                 byDepth.set(depth, { id: Number(r.id), uuid: r.uuid });
+                storedNames[depth - 1] = r.name;
             }
         }
         if (byDepth.size !== segments.length) {
             return null;
         }
 
-        await this.#backfillLineagePaths(byDepth, segments);
+        // The stored names, not the caller's spelling: a collation can match
+        // a segment to a name spelled differently, and this runs before any
+        // access check.
+        await this.#backfillLineagePaths(byDepth, storedNames);
 
         const target = byDepth.get(segments.length);
         if (!target) return null;
@@ -3275,6 +3281,7 @@ export class FSEntryStore extends PuterStore {
         pathPrefix: string,
         options: {
             limit?: number;
+            offset?: number;
             cursor?: string | null;
             maxDepth: number;
             sortBy?: DescendantSortField | null;
@@ -3291,13 +3298,21 @@ export class FSEntryStore extends PuterStore {
         const maxSlashes =
             this.#slashCount(normalizedPrefix) + Math.max(1, options.maxDepth);
         const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
-
         const rawPayload = openCursor(
             options.cursor,
             this.config.jwt_secret_v2,
         ) as
             | { v?: unknown; id?: number; s?: string; o?: string; p?: string }
             | undefined;
+        // Recursive listings used to ignore `offset`; a cursor still wins and
+        // an invalid offset is still ignored rather than rejected.
+        const requestedOffset = Number(options.offset);
+        const offset =
+            !rawPayload &&
+            Number.isFinite(requestedOffset) &&
+            requestedOffset > 0
+                ? Math.floor(requestedOffset)
+                : 0;
         // Cursors minted before this listing honored the sort carried only the
         // last path, always ascending.
         const payload =
@@ -3351,6 +3366,7 @@ export class FSEntryStore extends PuterStore {
             maxSlashes,
             ...seekParams,
             limit + 1,
+            offset,
         ];
 
         const rows = (await this.clients.db.read(
@@ -3359,7 +3375,7 @@ export class FSEntryStore extends PuterStore {
              WHERE user_id = ? AND ${this.#pathLikeAny(patterns)}
                AND (LENGTH(path) - LENGTH(REPLACE(path, '/', ''))) <= ? ${seek}
              ORDER BY ${sortExpr} ${dir}${tiebreak ? `, id ${dir}` : ''}
-             LIMIT ?`,
+             LIMIT ? OFFSET ?`,
             params,
         )) as unknown as FSEntryRow[];
 
