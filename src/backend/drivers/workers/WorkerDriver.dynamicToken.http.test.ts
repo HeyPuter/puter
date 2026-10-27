@@ -51,10 +51,12 @@ describe('dynamic worker token over HTTP', () => {
             subdomain: 'verifysite',
         });
         const path = `/${username}/api.worker.js`;
+        // Valid JS: where workerd is installed, the deploy really starts it.
+        const source = Buffer.from('// noop\n');
         await runWithContext({ actor }, () =>
             server.services.fs.write(user.id, {
-                fileMetadata: { path, size: 3, overwrite: true },
-                fileContent: Buffer.from('src'),
+                fileMetadata: { path, size: source.length, overwrite: true },
+                fileContent: source,
             }),
         );
 
