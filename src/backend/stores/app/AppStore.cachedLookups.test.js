@@ -94,6 +94,88 @@ const endChangeWindow = async () => {
     for (const key of await redis.keys('apps:*:deleted')) await redis.del(key);
 };
 
+describe('AppStore creating-app marker', () => {
+    it('shows metadata written beside the markers by a raw update', async () => {
+        const owner = freshOwner();
+        const parent = await createApp(owner);
+        const child = await createApp(owner, {}, { appOwner: parent.id });
+        const stored = await rawMetadata(child.id);
+        await db.write('UPDATE `apps` SET `metadata` = ? WHERE `id` = ?', [
+            JSON.stringify({ ...stored, category: 'games' }),
+            child.id,
+        ]);
+        await appStore.invalidateByUid(child.uid);
+
+        const reread = await appStore.getById(child.id);
+        expect(reread.metadata).toEqual({ category: 'games' });
+        expect(reread.created_by_app).toBe(parent.uid);
+    });
+
+    it('records the creating app in metadata and keeps it out of the row metadata', async () => {
+        const owner = freshOwner();
+        const parent = await createApp(owner);
+        const child = await createApp(owner, {}, { appOwner: parent.id });
+
+        expect(child.created_by_app).toBe(parent.uid);
+        expect(child.metadata).toBeNull();
+        expect(await rawMetadata(child.id)).toEqual({
+            _createdByApp: parent.uid,
+            _metadataNull: true,
+        });
+        expect((await appStore.getByUid(child.uid)).created_by_app).toBe(
+            parent.uid,
+        );
+
+        const plain = await createApp(owner, {
+            metadata: JSON.stringify({ a: 1 }),
+        });
+        expect(plain.created_by_app).toBeNull();
+        expect(plain.metadata).toEqual({ a: 1 });
+    });
+
+    it('ignores a caller-supplied marker on create and update', async () => {
+        const owner = freshOwner();
+        const app = await createApp(owner, {
+            metadata: JSON.stringify({ _createdByApp: 'app-forged', a: 1 }),
+        });
+        expect(app.created_by_app).toBeNull();
+        expect(await rawMetadata(app.id)).toEqual({ a: 1 });
+
+        await appStore.update(app.id, {
+            metadata: JSON.stringify({ _createdByApp: 'app-forged' }),
+        });
+        expect(await rawMetadata(app.id)).toEqual({});
+        expect((await appStore.getById(app.id)).created_by_app).toBeNull();
+    });
+
+    it('keeps the marker through metadata rewrites and the creating app’s deletion', async () => {
+        const owner = freshOwner();
+        const parent = await createApp(owner);
+        const child = await createApp(
+            owner,
+            { metadata: JSON.stringify({ keep: true }) },
+            { appOwner: parent.id },
+        );
+
+        await appStore.update(child.id, {
+            metadata: JSON.stringify({ note: 'x', _createdByApp: null }),
+        });
+        await appStore.update(child.id, { metadata: null });
+        expect(await rawMetadata(child.id)).toEqual({
+            _createdByApp: parent.uid,
+            _metadataNull: true,
+        });
+        expect((await appStore.getById(child.id)).metadata).toBeNull();
+
+        await appStore.delete(parent.id);
+        await appStore.invalidateByUid(child.uid);
+        const reread = await appStore.getByUid(child.uid);
+        expect(reread.app_owner ?? null).toBeNull();
+        expect(reread.created_by_app).toBe(parent.uid);
+        expect(reread.metadata).toBeNull();
+    });
+});
+
 describe('AppStore hosted-site app lookup cache', () => {
     const candidatesFor = (app) => [
         app.index_url,

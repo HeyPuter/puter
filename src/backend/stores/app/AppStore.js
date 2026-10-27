@@ -52,6 +52,12 @@ const LIST_GENERATION_TTL_SECONDS = 2 * LIST_CACHE_TTL_SECONDS;
 // version when the matching changes.
 const HOSTED_APP_CACHE_KEY_PREFIX = `${CACHE_KEY_PREFIX}:hosted:v1`;
 const HOSTED_APP_CACHE_TTL_SECONDS = 5 * 60;
+// Server-set `metadata` key holding the uid of the app that created this one.
+// Unlike `app_owner`, it survives that app's deletion.
+const CREATED_BY_APP_KEY = '_createdByApp';
+// Set next to the creator key when the app had no metadata, so reads return
+// null until something else is written there.
+const METADATA_NULL_KEY = '_metadataNull';
 const FILETYPE_CACHE_KEY_PREFIX = 'apps:by-filetype';
 const FILETYPE_CACHE_TTL_SECONDS = 60;
 // Filetype associations are matched against the bare lowercase extension
@@ -137,6 +143,7 @@ const READ_ONLY_COLUMNS = new Set([
     'protected',
     'is_private',
     // Derived on read, not columns.
+    'created_by_app',
     'filetype_associations',
 ]);
 // Unique-key columns `#getManyByProperty` may build an IN-list against.
@@ -737,8 +744,16 @@ export class AppStore extends PuterStore {
         const uid = `app-${uuidv4()}`;
         const allowed = this.#filterEditable(fields);
         allowed.owner_user_id = ownerUserId;
+        let createdByApp = null;
         if (appOwner !== null && appOwner !== undefined) {
             allowed.app_owner = appOwner;
+            createdByApp = (await this.getById(appOwner))?.uid ?? appOwner;
+        }
+        if (createdByApp !== null || allowed.metadata !== undefined) {
+            allowed.metadata = this.#withCreatedByApp(
+                allowed.metadata ?? null,
+                createdByApp,
+            );
         }
 
         const written = { uid, ...allowed };
@@ -851,6 +866,12 @@ export class AppStore extends PuterStore {
         if (keys.length === 0) return this.getById(appId);
 
         const before = await this.#readFromDb('id', appId, { primary: true });
+        if (allowed.metadata !== undefined) {
+            allowed.metadata = this.#withCreatedByApp(
+                allowed.metadata,
+                before?.created_by_app ?? null,
+            );
+        }
         const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
         const values = keys.map((k) => allowed[k]);
 
@@ -1467,6 +1488,48 @@ export class AppStore extends PuterStore {
         });
     }
 
+    /**
+     * `metadata` to store: a caller-supplied creator key is dropped, and
+     * `createdByApp` (when set) written in its place.
+     */
+    #withCreatedByApp(metadata, createdByApp) {
+        let parsed = metadata;
+        if (typeof metadata === 'string') {
+            try {
+                parsed = JSON.parse(metadata);
+            } catch {
+                parsed = null;
+            }
+        }
+        const isObject =
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            !Array.isArray(parsed);
+        if (createdByApp === null) {
+            if (!isObject || !Object.hasOwn(parsed, CREATED_BY_APP_KEY)) {
+                return metadata;
+            }
+            const {
+                [CREATED_BY_APP_KEY]: _dropped,
+                [METADATA_NULL_KEY]: wasNull,
+                ...rest
+            } = parsed;
+            return wasNull && Object.keys(rest).length === 0
+                ? null
+                : JSON.stringify(rest);
+        }
+        const {
+            [CREATED_BY_APP_KEY]: _ignored,
+            [METADATA_NULL_KEY]: _ignoredNull,
+            ...rest
+        } = isObject ? parsed : {};
+        return JSON.stringify({
+            ...rest,
+            [CREATED_BY_APP_KEY]: createdByApp,
+            ...(isObject ? {} : { [METADATA_NULL_KEY]: true }),
+        });
+    }
+
     #filterEditable(fields) {
         const out = {};
         for (const [k, v] of Object.entries(fields)) {
@@ -1510,6 +1573,23 @@ export class AppStore extends PuterStore {
             } catch {
                 row.metadata = null;
             }
+        }
+        // Lifted out so client views never carry it.
+        if (
+            row.metadata &&
+            typeof row.metadata === 'object' &&
+            Object.hasOwn(row.metadata, CREATED_BY_APP_KEY)
+        ) {
+            const {
+                [CREATED_BY_APP_KEY]: createdByApp,
+                [METADATA_NULL_KEY]: wasNull,
+                ...rest
+            } = row.metadata;
+            row.created_by_app = createdByApp ?? null;
+            row.metadata =
+                wasNull && Object.keys(rest).length === 0 ? null : rest;
+        } else if (row.metadata !== undefined) {
+            row.created_by_app ??= null;
         }
         if (row.created_epoch !== undefined && row.created_epoch !== null) {
             row.created_epoch = Number(row.created_epoch);
