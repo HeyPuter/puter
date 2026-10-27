@@ -316,7 +316,9 @@ export class UserStore extends PuterStore {
                     const rows = (
                         primary
                             ? await this.clients.db.pread(sql, chunk)
-                            : await this.clients.db.tryHardRead(sql, chunk)
+                            : await this.clients.db.tryHardRead(sql, chunk, {
+                                  race: false,
+                              })
                     ) as Array<Record<string, unknown>>;
                     for (const row of rows) users.push(this.#normalizeRow(row));
                 }
@@ -430,8 +432,8 @@ export class UserStore extends PuterStore {
 
         // Replication-aware read: on `force` (or a tombstoned key), go
         // straight to the primary (`pread`) to bypass replica lag for hot
-        // reads (e.g., immediately after a signup). Otherwise `tryHardRead`
-        // parallels primary + replica and prefers whichever returns rows.
+        // reads (e.g., immediately after a signup). Otherwise the primary is
+        // only read when the replica returns no match or fails.
         // `id`, `uuid` and `username` are UNIQUE, so at most one row matches and
         // the optimizer drops the ordering. `email` is not — multiple rows may
         // legitimately hold the same address while unconfirmed, so without an
@@ -447,7 +449,9 @@ export class UserStore extends PuterStore {
             async (primary) => {
                 const rows = primary
                     ? await this.clients.db.pread(sql, [value])
-                    : await this.clients.db.tryHardRead(sql, [value]);
+                    : await this.clients.db.tryHardRead(sql, [value], {
+                          race: false,
+                      });
                 const row = rows[0];
                 if (!row) return null;
                 if (
