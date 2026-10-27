@@ -69,7 +69,12 @@ export const appMessageSender = (
     const name = [row?.title, row?.name].find(
         (v): v is string => typeof v === 'string' && v.trim() !== '',
     );
-    if (name !== undefined) sender.name = cleanText(name).trim();
+    if (name !== undefined) {
+        sender.name = [...cleanText(name)]
+            .slice(0, APP_MESSAGE_TITLE_MAX)
+            .join('')
+            .trim();
+    }
     const icon = row?.icon;
     if (
         typeof icon === 'string' &&
