@@ -123,6 +123,26 @@ describe('Allow on a request for notifications:push', () => {
         errors.mockRestore();
     });
 
+    it('turns push back off, and restores the opt-out, when the grant fails and the user then denies', async () => {
+        const client = fakeClient({ permission: 'default', registered: false });
+        registerPushClient(client);
+        localStorage.setItem('puter.push.browser-off:u-1', '1');
+        fetch.mockResolvedValue({ ok: false, status: 500 });
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        const decision = UIPermissionDialog({ permissions: ['notifications:push'], app_uid: `app-${apps}` });
+        await shown();
+        allow();
+        await vi.waitFor(() => expect($('.perm-dialog-error').text()).toBe('perm_dialog_error'));
+        expect(localStorage.getItem('puter.push.browser-off:u-1')).toBeNull();
+        $('.perm-dialog-deny').trigger('click');
+
+        await expect(decision).resolves.toBe(false);
+        await vi.waitFor(() => expect(client.disable).toHaveBeenCalledTimes(1));
+        await vi.waitFor(() => expect(localStorage.getItem('puter.push.browser-off:u-1')).toBe('1'));
+        errors.mockRestore();
+    });
+
     it.each([
         ['on', { permission: 'granted', registered: true, deviceUid: 'dev-1' }],
         ['blocked', { permission: 'denied', registered: false }],

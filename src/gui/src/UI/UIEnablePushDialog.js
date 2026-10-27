@@ -20,15 +20,14 @@
 import {
     browserPushState,
     enableBrowserPush,
-    PUSH_ENABLE_TIMEOUT_MS,
     pushClientWithin,
+    withEnableDeadline,
 } from '../helpers/pushClient.js';
 import {
     guard_input,
     identity_html,
     INPUT_PROTECTION_MS,
     resolve_requesting_entity,
-    with_timeout,
 } from './UIPermissionDialog.js';
 
 /** @typedef {import('../helpers/pushClient.js').BrowserPushState} BrowserPushState */
@@ -60,38 +59,45 @@ async function UIEnablePushDialog (options = {}) {
         const $not_now = $(el_dialog).find('.perm-dialog-deny');
         const $error = $(el_dialog).find('.perm-dialog-error');
 
-        let enabling = false;
+        // The one enable() in flight; cleared only when it failed, so a retry never overlaps it.
+        let pending = null;
+        // True from Turn on until the registration settles or outlasts its deadline.
+        let waiting = false;
         const sync_buttons = () => {
-            const enabled = !! input_guard?.ready && ! enabling;
-            $turn_on.prop('disabled', ! enabled);
-            $not_now.prop('disabled', ! enabled);
+            const ready = !! input_guard?.ready && ! waiting;
+            $turn_on.prop('disabled', ! ready || !! pending);
+            $not_now.prop('disabled', ! ready);
         };
         sync_buttons();
 
         $turn_on.on('click', async () => {
-            if ( enabling ) return;
-            enabling = true;
+            if ( pending ) return;
+            pending = enableBrowserPush(client);
+            pending.then((ok) => {
+                if ( ok ) settle('on');
+            });
+            waiting = true;
             $turn_on.addClass('perm-dialog-busy');
             sync_buttons();
             $error.hide();
 
-            const enabled = await with_timeout(enableBrowserPush(client), PUSH_ENABLE_TIMEOUT_MS, false);
-            if ( enabled ) {
-                settle('on');
-                return;
+            const outcome = await withEnableDeadline(pending, { fallback: null });
+            if ( outcome === true ) return;
+            if ( outcome === false ) {
+                pending = null;
+                const now = await browserPushState(client);
+                if ( now !== 'off' ) {
+                    settle(now);
+                    return;
+                }
             }
-            const now = await browserPushState(client);
-            if ( now !== 'off' ) {
-                settle(now);
-                return;
-            }
-            enabling = false;
+            waiting = false;
             if ( ! el_dialog.open ) {
                 settle('off');
                 return;
             }
             $error.text(i18n('push_enable_failed', [], false)).show();
-            $turn_on.removeClass('perm-dialog-busy');
+            if ( ! pending ) $turn_on.removeClass('perm-dialog-busy');
             sync_buttons();
         });
 
@@ -99,11 +105,11 @@ async function UIEnablePushDialog (options = {}) {
 
         el_dialog.addEventListener('cancel', (e) => {
             e.preventDefault();
-            if ( enabling ) return;
+            if ( waiting ) return;
             settle('off');
         });
         el_dialog.addEventListener('close', () => {
-            if ( enabling ) return;
+            if ( waiting ) return;
             settle('off');
         });
 
@@ -121,7 +127,7 @@ async function UIEnablePushDialog (options = {}) {
             ms: INPUT_PROTECTION_MS,
             on_change: (ready) => {
                 sync_buttons();
-                if ( ready && ! enabling ) $not_now.get(0)?.focus();
+                if ( ready && ! waiting ) $not_now.get(0)?.focus();
             },
         });
     });

@@ -34,8 +34,11 @@ export const PUSH_PERMISSION = 'notifications:push';
 /** How long a dialog waits for the client an extension registers after its own checks. */
 export const PUSH_CLIENT_WAIT_MS = 3000;
 
-/** How long a registration begun from a click may take before the caller moves on. */
+/** How long a registration begun from a click may take, once the browser's prompt is answered, before the caller moves on. */
 export const PUSH_ENABLE_TIMEOUT_MS = 15000;
+
+/** How often the deadline below looks at whether the browser's prompt is still open. */
+export const PROMPT_POLL_MS = 250;
 
 /** @type {PushClient|null} */
 let pushClient = null;
@@ -127,6 +130,24 @@ export const enableBrowserPush = (client, userUid = globalThis.user?.uuid) => {
         console.debug('[push] enable failed', e);
         return false;
     });
+};
+
+/** `promise`, or `fallback` once `ms` have passed with the browser's notification prompt closed; time with the prompt open does not count. @param {Promise<T>} promise @param {{ ms?: number, fallback?: F, NotificationApi?: { permission: string }, poll?: number }} [opts] @returns {Promise<T|F>} @template T, F */
+export const withEnableDeadline = (promise, {
+    ms = PUSH_ENABLE_TIMEOUT_MS,
+    fallback = /** @type {F} */ (false),
+    NotificationApi = globalThis.Notification,
+    poll = PROMPT_POLL_MS,
+} = {}) => {
+    let timer;
+    const deadline = new Promise((resolve) => {
+        const tick = () => {
+            const open = NotificationApi?.permission === 'default';
+            timer = setTimeout(open ? tick : () => resolve(fallback), open ? poll : ms);
+        };
+        tick();
+    });
+    return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
 };
 
 globalThis.def?.(registerPushClient, 'push.registerPushClient');

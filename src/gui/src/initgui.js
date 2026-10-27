@@ -59,7 +59,7 @@ import {
 } from './util/authmeGrant.js';
 import init_device_signals from './helpers/deviceSignals.js';
 import { holdsPermissions } from './helpers/holdsPermissions.js';
-import { PUSH_ENABLE_TIMEOUT_MS, PUSH_PERMISSION } from './helpers/pushClient.js';
+import { PUSH_PERMISSION, withEnableDeadline } from './helpers/pushClient.js';
 import { startPushWorker } from './helpers/pushWorker.js';
 import item_icon from './helpers/itemIcon.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
@@ -864,12 +864,8 @@ const postAuthActions = async (action) => {
 
         // The popup exists only to host this dialog; close it once answered.
         if ( window.embedded_in_popup ) {
-            if ( push_enable ) {
-                await Promise.race([
-                    push_enable,
-                    new Promise((resolve) => setTimeout(resolve, PUSH_ENABLE_TIMEOUT_MS)),
-                ]);
-            }
+            // Closing would take the browser's own prompt down with it, so its time doesn't count.
+            if ( push_enable ) await withEnableDeadline(push_enable);
             window.close();
             window.open('', '_self').close();
         }

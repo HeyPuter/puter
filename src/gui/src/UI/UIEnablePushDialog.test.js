@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import jQuery from '../lib/jquery-3.6.1/jquery-3.6.1.min.js';
 
 globalThis.$ = jQuery;
@@ -136,6 +136,67 @@ describe('the enable-push dialog', () => {
 
         await expect(result).resolves.toBe('blocked');
         debug.mockRestore();
+    });
+
+    describe('with the clock under control', () => {
+        beforeEach(() => vi.useFakeTimers());
+        afterEach(() => {
+            vi.useRealTimers();
+            delete globalThis.Notification;
+        });
+
+        const shownFake = async () => {
+            await vi.waitFor(() => expect(document.querySelector('.enable-push-dialog')).not.toBeNull());
+            await vi.advanceTimersByTimeAsync(INPUT_PROTECTION_MS + 50);
+        };
+
+        it('waits as long as the browser prompt is open, then settles on when it registers', async () => {
+            globalThis.Notification = { permission: 'default' };
+            const client = fakeClient({ permission: 'default', registered: false });
+            let finish;
+            client.enable.mockImplementation(() => new Promise((resolve) => {
+                finish = resolve;
+            }));
+            registerPushClient(client);
+
+            const result = UIEnablePushDialog({ origin: 'https://chat.example' });
+            await shownFake();
+            $('.perm-dialog-allow').trigger('click');
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect($('.perm-dialog-error').text()).toBe('');
+            expect($('.perm-dialog-not-now, .perm-dialog-deny').prop('disabled')).toBe(true);
+            expect(document.querySelector('dialog')).not.toBeNull();
+
+            globalThis.Notification.permission = 'granted';
+            finish({ deviceUid: 'dev-new' });
+            await vi.advanceTimersByTimeAsync(10);
+            await expect(result).resolves.toBe('on');
+            expect(client.enable).toHaveBeenCalledTimes(1);
+        });
+
+        it('keeps the one registration after its deadline and settles on when it resolves', async () => {
+            globalThis.Notification = { permission: 'granted' };
+            const client = fakeClient({ permission: 'granted', registered: false });
+            let finish;
+            client.enable.mockImplementation(() => new Promise((resolve) => {
+                finish = resolve;
+            }));
+            registerPushClient(client);
+
+            const result = UIEnablePushDialog({ origin: 'https://chat.example' });
+            await shownFake();
+            $('.perm-dialog-allow').trigger('click');
+            await vi.advanceTimersByTimeAsync(16_000);
+            expect($('.perm-dialog-error').text()).toBe('push_enable_failed');
+            expect($('.perm-dialog-allow').prop('disabled')).toBe(true);
+            expect($('.perm-dialog-deny').prop('disabled')).toBe(false);
+            $('.perm-dialog-allow').trigger('click');
+            expect(client.enable).toHaveBeenCalledTimes(1);
+
+            finish({ deviceUid: 'dev-new' });
+            await vi.advanceTimersByTimeAsync(10);
+            await expect(result).resolves.toBe('on');
+        });
     });
 
     it('offers a retry when registering failed and push is still off', async () => {

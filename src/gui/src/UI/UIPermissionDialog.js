@@ -20,11 +20,13 @@
 import { fsCreateKindFor } from '../helpers/fsCreateKind.js';
 import { get_app_by_uid } from '../helpers/getAppByUid.js';
 import {
+    browserPushOptedOut,
     browserPushState,
     enableBrowserPush,
     getPushClient,
     PUSH_PERMISSION,
     pushClientWithin,
+    setBrowserPushOptOut,
 } from '../helpers/pushClient.js';
 
 // Keeps a second request for the same (entity, permission) from stacking a
@@ -198,6 +200,8 @@ async function show_permission_dialog (options) {
         document.body.appendChild(el_dialog);
         // The registration Allow began, kept so a second Allow doesn't start another.
         let push_enable = null;
+        const user_uid = window.user?.uuid;
+        const opted_out_before = browserPushOptedOut(user_uid);
 
         // Set once a grant request has been sent without the server definitively
         // refusing it. A client-side timeout or a dropped response says nothing
@@ -216,6 +220,9 @@ async function show_permission_dialog (options) {
                 // Not awaited: the requester gets its answer now, and the
                 // account is reconciled in the background.
                 undo_uncertain_grant(options);
+            }
+            if ( ! granted && push_enable ) {
+                undo_browser_push(push_enable, user_uid, opted_out_before);
             }
             // `close()` fires the 'close' event; the handler below resolves
             // false, so resolve first.
@@ -447,6 +454,17 @@ export function guard_input ({ win, doc, ms, on_change }) {
             for ( const [target, name, fn] of listeners ) target.removeEventListener(name, fn);
         },
     };
+}
+
+/** Turns push back off in this browser when Allow began a registration and the dialog still ended in a denial. @param {Promise<boolean>} push_enable @param {string|undefined} user_uid @param {boolean} opted_out_before */
+function undo_browser_push (push_enable, user_uid, opted_out_before) {
+    push_enable.then((ok) => {
+        if ( ! ok ) return;
+        getPushClient()?.disable().then(
+            () => setBrowserPushOptOut(user_uid, opted_out_before),
+            (e) => console.debug('[push] disable failed', e),
+        );
+    });
 }
 
 /**

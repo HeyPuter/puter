@@ -150,6 +150,33 @@ describe('the opt-out record', () => {
     });
 });
 
+describe('withEnableDeadline', () => {
+    const never = new Promise(() => {});
+    const granted = { permission: 'granted' };
+
+    it('answers the promise when it settles in time', async () => {
+        await expect(mod.withEnableDeadline(Promise.resolve(true), { ms: 50, NotificationApi: granted })).resolves.toBe(true);
+    });
+
+    it('gives the fallback once the time is up with the prompt closed', async () => {
+        await expect(mod.withEnableDeadline(never, { ms: 20, fallback: null, NotificationApi: granted })).resolves.toBeNull();
+        await expect(mod.withEnableDeadline(never, { ms: 20, NotificationApi: undefined })).resolves.toBe(false);
+    });
+
+    it('counts no time while the browser prompt is open', async () => {
+        const NotificationApi = { permission: 'default' };
+        let done = false;
+        const waited = mod.withEnableDeadline(never, { ms: 20, poll: 5, NotificationApi }).then(() => {
+            done = true;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        expect(done).toBe(false);
+        NotificationApi.permission = 'denied';
+        await waited;
+        expect(done).toBe(true);
+    });
+});
+
 describe('enableBrowserPush', () => {
     beforeEach(() => localStorage.clear());
 

@@ -93,12 +93,13 @@ describe('the permission popup and browser push', () => {
     it('takes the registration Allow began and waits for it after answering', () => {
         expect(requestPermission).toContain('on_push_enable: (enabling) => {');
         const answered = requestPermission.indexOf("msg: 'permissionGranted'");
-        const waited = requestPermission.indexOf('push_enable,');
+        // The deadline leaves the browser's own prompt its time.
+        const waited = requestPermission.indexOf('await withEnableDeadline(push_enable)');
         const closed = requestPermission.indexOf('window.close()');
         expect(answered).toBeGreaterThan(-1);
         expect(waited).toBeGreaterThan(answered);
         expect(closed).toBeGreaterThan(waited);
-        expect(requestPermission).toContain('PUSH_ENABLE_TIMEOUT_MS');
+        expect(requestPermission).not.toContain('setTimeout');
     });
 
     it('answers the enable-push opener after the dialog, then closes', () => {
