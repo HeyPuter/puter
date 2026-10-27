@@ -20,6 +20,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PuterServer } from '../../server.ts';
+import { CACHE_TOMBSTONE_TTL_SECONDS } from '../../stores/types.ts';
 import { setupTestServer } from '../../testUtil.ts';
 
 describe('CacheReplicationService', () => {
@@ -81,12 +82,46 @@ describe('CacheReplicationService', () => {
 
         await server.clients.event.emitAndWait(
             'outer.cacheUpdate',
-            { cacheKey: [key], data: '1', ttlSeconds: 60 } as never,
+            {
+                cacheKey: [key],
+                data: '1',
+                ttlSeconds: CACHE_TOMBSTONE_TTL_SECONDS,
+            } as never,
             { from_outside: true },
         );
 
         // Dropping it frees this region's replica to cache the row back.
         expect(await server.clients.redis.get(key)).toBe('1');
+    });
+
+    it('times a tombstone from its own receipt, not the sender payload', async () => {
+        const key = `cacherepl-${uuidv4()}:deleted`;
+
+        await server.clients.event.emitAndWait(
+            'outer.cacheUpdate',
+            { cacheKey: [key], data: '1', ttlSeconds: 600 } as never,
+            { from_outside: true },
+        );
+
+        const ttl = await server.clients.redis.ttl(key);
+        expect(ttl).toBeGreaterThan(0);
+        expect(ttl).toBeLessThanOrEqual(CACHE_TOMBSTONE_TTL_SECONDS);
+    });
+
+    it('evicts a row refilled before a delayed tombstone arrives', async () => {
+        const key = `cacherepl-${uuidv4()}`;
+        await server.clients.redis.set(key, 'stale refill');
+        await server.clients.event.emitAndWait(
+            'outer.cacheUpdate',
+            {
+                cacheKey: [`${key}:deleted`],
+                data: '1',
+                ttlSeconds: CACHE_TOMBSTONE_TTL_SECONDS,
+            },
+            { from_outside: true },
+        );
+        expect(await server.clients.redis.get(key)).toBeNull();
+        expect(await server.clients.redis.get(`${key}:deleted`)).toBe('1');
     });
 
     it('drops a tombstone when the peer cleared it', async () => {
