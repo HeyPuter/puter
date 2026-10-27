@@ -47,7 +47,11 @@ import { PuterServer } from '../../server.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
-import type { VoiceChangerDriver } from './VoiceChangerDriver.js';
+import type { DriverStreamResult } from '../meta.js';
+import {
+    outputBytesPerSecond,
+    type VoiceChangerDriver,
+} from './VoiceChangerDriver.js';
 import {
     callerError,
     readStreamResult,
@@ -330,11 +334,11 @@ describe('VoiceChangerDriver.convert success path', () => {
 
     it('meters one usage line at the per-second rate from costs.ts', async () => {
         const { actor } = await makeUser();
+        // 32 KB of mp3_44100_128 back = 2 seconds.
         fetchSpy.mockResolvedValueOnce(
-            okResponse(new ArrayBuffer(8), 'audio/mpeg'),
+            okResponse(new ArrayBuffer(32_000), 'audio/mpeg'),
         );
 
-        // 32 KB audio at 16 kbit/s = 2 seconds rounded up.
         const buf = Buffer.alloc(32_000);
         await readStreamResult(
             await withActor(actor, () =>
@@ -344,7 +348,7 @@ describe('VoiceChangerDriver.convert success path', () => {
 
         const usageType = 'elevenlabs:eleven_multilingual_sts_v2:second';
         const perSecond = VOICE_CHANGER_COSTS[usageType];
-        const expectedSeconds = Math.max(1, Math.ceil(32_000 / 16000));
+        const expectedSeconds = 2;
 
         const calls = incrementUsageSpy.mock.calls.filter(
             ([, type]) => type === usageType,
@@ -365,7 +369,7 @@ describe('VoiceChangerDriver.convert success path', () => {
                 .map(([, , , cost]) => cost);
         const convert = async (charges: number) => {
             fetchSpy.mockResolvedValueOnce(
-                okResponse(new ArrayBuffer(8), 'audio/mpeg'),
+                okResponse(new ArrayBuffer(32_000), 'audio/mpeg'),
             );
             await readStreamResult(
                 await withActor(actor, () =>
@@ -383,6 +387,101 @@ describe('VoiceChangerDriver.convert success path', () => {
         expect(factored).toBe(base! * 2);
         const held = hasCreditsSpy.mock.calls.map(([, amount]) => amount);
         expect(held).toEqual([base, base! * 2]);
+    });
+
+    it.each<[string, number | undefined]>([
+        ['mp3_44100_128', 16_000],
+        ['mp3_22050_32', 4_000],
+        ['opus_48000_64', 8_000],
+        ['pcm_44100', 88_200],
+        ['ulaw_8000', 8_000],
+        ['wav_44100', undefined],
+    ])('sizes %s at %s bytes per second', (format, bytes) => {
+        expect(outputBytesPerSecond(format)).toBe(bytes);
+    });
+
+    describe('meters the length of the audio that comes back', () => {
+        const usageType = 'elevenlabs:eleven_multilingual_sts_v2:second';
+        const billed = async () => {
+            await vi.waitFor(() =>
+                expect(
+                    incrementUsageSpy.mock.calls.filter(
+                        ([, type]) => type === usageType,
+                    ),
+                ).toHaveLength(1),
+            );
+            const [, , count, cost] = incrementUsageSpy.mock.calls.find(
+                ([, type]) => type === usageType,
+            )!;
+            expect(cost).toBe(VOICE_CHANGER_COSTS[usageType]! * count);
+            return count;
+        };
+        const convert = async (
+            actor: Actor,
+            inputBytes: number,
+            args: Record<string, unknown> = {},
+        ) =>
+            readStreamResult(
+                await withActor(actor, () =>
+                    driver.convert({
+                        audio: dataUrl(Buffer.alloc(inputBytes), 'audio/ogg'),
+                        ...args,
+                    }),
+                ),
+            );
+
+        it('bills 600 s for a compact 600 s clip, not its byte size', async () => {
+            const { actor } = await makeUser();
+            // 600 s of Opus at 8 kbps in; 600 s of mp3_44100_128 out.
+            fetchSpy.mockResolvedValueOnce(
+                okResponse(new ArrayBuffer(600 * 16_000)),
+            );
+            await convert(actor, 441_078);
+            expect(await billed()).toBe(600);
+        });
+
+        it('sizes the output by the requested output_format', async () => {
+            const { actor } = await makeUser();
+            // pcm_16000 is 16-bit mono: 32,000 bytes per second.
+            fetchSpy.mockResolvedValueOnce(
+                okResponse(new ArrayBuffer(3 * 32_000), 'audio/pcm'),
+            );
+            await convert(actor, 1_000_000, { output_format: 'pcm_16000' });
+            expect(await billed()).toBe(3);
+        });
+
+        it('falls back to the input estimate for a format it cannot size', async () => {
+            const { actor } = await makeUser();
+            fetchSpy.mockResolvedValueOnce(okResponse(new ArrayBuffer(8)));
+            await convert(actor, 48_000, { output_format: 'flac_44100' });
+            expect(await billed()).toBe(3);
+        });
+
+        it('charges at least the input estimate when the caller hangs up', async () => {
+            const { actor } = await makeUser();
+            fetchSpy.mockResolvedValueOnce(
+                new Response(
+                    new ReadableStream({
+                        start(controller) {
+                            controller.enqueue(new Uint8Array(16_000));
+                        },
+                    }),
+                    { status: 200, headers: { 'content-type': 'audio/mpeg' } },
+                ),
+            );
+            const result = (await withActor(actor, () =>
+                driver.convert({
+                    audio: dataUrl(Buffer.alloc(80_000), 'audio/mpeg'),
+                }),
+            )) as DriverStreamResult;
+            for await (const _chunk of result.stream) break;
+            expect(await billed()).toBe(5);
+            await vi.waitFor(async () =>
+                expect(
+                    await server.stores.creditHold.outstanding(actor.user.uuid),
+                ).toBe(0),
+            );
+        });
     });
 
     it('meters nothing when ElevenLabs breaks off before any audio', async () => {

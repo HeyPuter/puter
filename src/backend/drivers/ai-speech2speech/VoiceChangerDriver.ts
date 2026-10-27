@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { pipeline, Readable, Transform } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { DriverStreamResult } from '../meta.js';
@@ -198,10 +199,9 @@ export class VoiceChangerDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
 
-        // Metering: estimate duration from file size if we don't parse metadata.
-        // 16 kbit/s is a safe lower bound for speech audio; pre-check credits
-        // before we hit the ElevenLabs API. Post-usage we increment by the same
-        // estimate — duration parsing is deferred to v2.1 if needed.
+        // The hold estimates seconds from the input at 128 kbps: compact audio
+        // is under-held rather than refused. Usage is metered from the length
+        // of the audio that comes back.
         const estimatedSeconds = Math.max(
             1,
             Math.ceil(loaded.buffer.byteLength / 16000),
@@ -263,6 +263,7 @@ export class VoiceChangerDriver extends PuterDriver {
         if (search) url.search = search;
 
         const metering = this.#aiMetering;
+        const output = measuredOutput(outputBytesPerSecond(outputFormat));
         return withStreamedAiCharge(
             metering,
             actor,
@@ -287,16 +288,75 @@ export class VoiceChangerDriver extends PuterDriver {
                     dataType: 'stream',
                     content_type:
                         response.headers.get('content-type') ?? 'audio/mpeg',
-                    stream: upstreamBodyStream(response),
+                    stream: output.measure(upstreamBodyStream(response)),
                 };
             },
-            () =>
-                metering.incrementUsage(
+            async () => {
+                const measured = await output.seconds;
+                // A stream cut short was still converted in full upstream.
+                const seconds =
+                    measured.complete && measured.seconds
+                        ? measured.seconds
+                        : Math.max(measured.seconds ?? 0, estimatedSeconds);
+                return metering.incrementUsage(
                     actor,
                     usageKey,
-                    estimatedSeconds,
-                    estimatedCost,
-                ),
+                    seconds,
+                    ucentsPerSecond * seconds,
+                );
+            },
         );
     }
+}
+
+/**
+ * Bytes per second of an ElevenLabs `output_format` (`mp3_44100_128`,
+ * `opus_48000_64`, `pcm_16000`, `ulaw_8000`), or undefined for one it can't
+ * size.
+ */
+export function outputBytesPerSecond(format: string): number | undefined {
+    const [codec, rate, kbps] = format.split('_');
+    if ((codec === 'mp3' || codec === 'opus') && Number(kbps) > 0)
+        return Number(kbps) * 125;
+    if (codec === 'pcm' && Number(rate) > 0) return Number(rate) * 2;
+    if ((codec === 'ulaw' || codec === 'alaw') && Number(rate) > 0)
+        return Number(rate);
+    return undefined;
+}
+
+/**
+ * Counts the bytes of a converted stream. `seconds` settles when the stream
+ * ends or closes: its length in whole seconds (undefined for a format it can't
+ * size), and whether the upstream sent all of it.
+ */
+function measuredOutput(bytesPerSecond: number | undefined) {
+    let bytes = 0;
+    let settle!: (measured: { seconds?: number; complete: boolean }) => void;
+    const seconds = new Promise<{ seconds?: number; complete: boolean }>(
+        (resolve) => {
+            settle = resolve;
+        },
+    );
+    const lengthOf = () =>
+        bytesPerSecond && bytes > 0
+            ? Math.max(1, Math.ceil(bytes / bytesPerSecond))
+            : undefined;
+    const measure = (source: Readable): Readable => {
+        const counter = new Transform({
+            transform(chunk: Buffer, _encoding, callback) {
+                bytes += chunk.length;
+                callback(null, chunk);
+            },
+            flush(callback) {
+                settle({ seconds: lengthOf(), complete: true });
+                callback();
+            },
+        });
+        counter.once('close', () =>
+            settle({ seconds: lengthOf(), complete: false }),
+        );
+        pipeline(source, counter, () => {});
+        return counter;
+    };
+    return { measure, seconds };
 }
