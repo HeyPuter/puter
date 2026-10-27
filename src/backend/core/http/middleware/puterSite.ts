@@ -330,6 +330,7 @@ export const createPuterSiteMiddleware = (
 
         const associatedApp = (await appLookup) as AppRow | null;
 
+        let hostedVisitorUid: string | undefined;
         const isPrivateApp = Boolean(associatedApp?.is_private);
         const privateApp = isPrivateApp ? associatedApp : null;
 
@@ -396,6 +397,8 @@ export const createPuterSiteMiddleware = (
                     );
                 return;
             }
+
+            hostedVisitorUid = identity.userUid;
 
             // Entitlement check runs on every request — matching v1. The
             // sticky cookie is an identity shortcut, not an access cache;
@@ -506,11 +509,8 @@ export const createPuterSiteMiddleware = (
             res.status(404).type('text/plain').send('Subdomain not found');
             return;
         } else {
-            // Public hosted site. Mint the public hosted-actor cookie if
-            // we can identify the visitor — lets the hosted page make
-            // cross-origin requests as the actor without needing a
-            // host-scoped main session cookie. No-op for anonymous
-            // visitors.
+            // Remember the authenticated visitor for asset billing across
+            // requests that do not carry the original app token.
             try {
                 const identity = await resolvePublicHostedIdentity({
                     req,
@@ -523,6 +523,7 @@ export const createPuterSiteMiddleware = (
                     expectedSubdomain: subdomain,
                     expectedHost: host,
                 });
+                hostedVisitorUid = identity.userUid;
                 if (
                     identity.userUid &&
                     !(identity as { hasValidPublicCookie?: boolean })
@@ -824,7 +825,22 @@ export const createPuterSiteMiddleware = (
         // hosting is unauthenticated by design, so most visitors are nobody in
         // particular. Set unconditionally because hosting subdomains are not
         // metered by default: this is what opts the response in.
-        req.egressActor = req.actor ?? {
+        let visitorActor = req.actor;
+        if (hostedVisitorUid && visitorActor?.user?.uuid !== hostedVisitorUid) {
+            try {
+                const visitor =
+                    await layers.stores.user.getByUuid(hostedVisitorUid);
+                if (visitor && !visitor.suspended) {
+                    visitorActor = makeActor({
+                        user: visitor,
+                        app: associatedApp ?? undefined,
+                    });
+                }
+            } catch {
+                // Unknown requesters are billed to the site owner.
+            }
+        }
+        req.egressActor = visitorActor ?? {
             user: {
                 uuid: owner.uuid,
                 id: owner.id,
