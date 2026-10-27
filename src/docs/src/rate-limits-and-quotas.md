@@ -264,6 +264,7 @@ Per minute unless stated:
 | Signed-URL reads | 3,000/min | Per network |
 | Signed-URL writes | 600/min | Per network |
 | Signed-URL concurrent requests | 60 | Per network |
+| Thumbnail read URLs | Valid for at least 6 days and 23 hours, refreshed hourly | Per URL |
 | `getReadURL()` (shared with all access-token creation) | 20/hour | |
 | `revokeReadURL()` | 60/min | |
 
