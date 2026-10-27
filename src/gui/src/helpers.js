@@ -148,7 +148,43 @@ window.handle401 = (xhrOrBody) => {
         window.handleReauthRequired({ reason: body.reason, auth_id: body.auth_id });
         return;
     }
-    window.logout();
+    // A fresh session that still gets 401s is signed out for real.
+    if ( window.local_sign_out_was_recent() ) {
+        window.logout();
+        return;
+    }
+    window.sign_out_locally();
+};
+
+const LOCAL_SIGN_OUT_AT_KEY = 'puter.local_sign_out_at';
+const LOCAL_SIGN_OUT_RECENT_MS = 60 * 1000;
+
+window.local_sign_out_was_recent = () => {
+    try {
+        const at = Number(sessionStorage.getItem(LOCAL_SIGN_OUT_AT_KEY));
+        return at > 0 && Date.now() - at < LOCAL_SIGN_OUT_RECENT_MS;
+    } catch ( e ) {
+        return false;
+    }
+};
+
+/**
+ * Drops this tab's token and user without ending the session on the server.
+ * The reload signs the tab back in from the session cookie when it still
+ * holds, so a token the server stopped accepting costs nothing but a reload.
+ */
+window.sign_out_locally = () => {
+    try { sessionStorage.setItem(LOCAL_SIGN_OUT_AT_KEY, String(Date.now())); } catch ( e ) { /* ignore */ }
+    try { puter._cache.flushall(); } catch ( e ) { /* ignore */ }
+    try {
+        localStorage.removeItem(window.AUTH_TOKEN_KEY_V2);
+        localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
+        localStorage.removeItem('user');
+    } catch ( e ) { /* ignore */ }
+    window.auth_token = null;
+    window.user = null;
+    window.onbeforeunload = null;
+    window.location.reload();
 };
 
 window.suggest_apps_for_fsentry = async (options) => {
@@ -820,9 +856,9 @@ if ( typeof window !== 'undefined' && window.addEventListener ) {
                 window.location.reload();
             }
         } else {
-            // A peer tab signed out. Mirror that locally as a soft logout.
+            // A peer tab signed out; it already ended the session if it meant to.
             if ( ! window._reauthInProgress ) {
-                window.logout();
+                window.sign_out_locally();
             }
         }
     });
