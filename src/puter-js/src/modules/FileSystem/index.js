@@ -103,6 +103,10 @@ export class PuterJSFileSystemModule extends PuterModule {
             this.socket.disconnect();
         }
 
+        this.socket = null;
+        if (!this.authToken) return;
+        this.socketToken_ = this.authToken;
+        this.socketOrigin_ = this.APIOrigin;
         this.socket = io(this.APIOrigin, {
             auth: {
                 auth_token: this.authToken,
@@ -212,6 +216,9 @@ export class PuterJSFileSystemModule extends PuterModule {
         }
 
         if ( this.puter.socketEnabled ) {
+            if (this.socket?.active &&
+                this.socketToken_ === this.authToken &&
+                this.socketOrigin_ === this.APIOrigin) return;
             this.initializeSocket();
         }
     }
