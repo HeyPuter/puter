@@ -395,7 +395,7 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
         expect(fetchSpy).toHaveBeenCalledTimes(4); // 1 create + 3 polls
     });
 
-    it('gives up after the wait window as HttpError 504 upstream_timeout, without metering', async () => {
+    it('gives up after the wait window as HttpError 504 upstream_timeout, metering the held estimate', async () => {
         vi.useFakeTimers();
         try {
             fetchSpy
@@ -411,9 +411,15 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
                 aiMetering(),
             );
 
-            const rejection = withTestActor(() =>
-                provider.generate({ prompt: 'hi' }),
-            ).catch((e: unknown) => e);
+            const rejection = (async () => {
+                try {
+                    await withTestActor(() =>
+                        provider.generate({ prompt: 'hi' }),
+                    );
+                } catch (e) {
+                    return e;
+                }
+            })();
 
             // Ten-minute wait window, polled every 5s.
             await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 5_000);
@@ -425,7 +431,13 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
                     'Timed out waiting for BytePlus video generation to complete',
                 fields: { provider: 'byteplus' },
             });
-            expect(incrementUsageSpy).not.toHaveBeenCalled();
+            // BytePlus still renders and bills the task past the window.
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+            const [, usageType, tokens, cost] =
+                incrementUsageSpy.mock.calls[0]!;
+            expect(usageType).toMatch(/^byteplus-video-generation:/);
+            expect(tokens).toBeGreaterThan(0);
+            expect(cost).toBeGreaterThan(0);
         } finally {
             vi.useRealTimers();
         }

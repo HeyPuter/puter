@@ -37,12 +37,14 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import type { IGenerateVideoParams } from '../../types.js';
+import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { MiniMaxVideoProvider } from './MiniMaxVideoProvider.js';
 import { MINIMAX_VIDEO_GENERATION_MODELS } from './models.js';
 
@@ -872,5 +874,84 @@ describe('MiniMaxVideoProvider failures', () => {
             /video URL/,
         );
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('MiniMaxVideoProvider after the caller leaves', () => {
+    const disconnected = (params: Partial<IGenerateVideoParams>) =>
+        withTestActor(() => {
+            const abort = new AbortController();
+            abort.abort();
+            Context.set('abortSignal', abort.signal);
+            return makeProvider().generate({
+                prompt: 'a ball rolls',
+                ...params,
+            });
+        });
+
+    /** Moves the clock past the poll window on the first status poll. */
+    const expireOnPoll = (pending: unknown) => {
+        const realNow = Date.now.bind(Date);
+        let skew = 0;
+        vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skew);
+        fetchSpy.mockImplementation(async () => {
+            skew = VIDEO_POLL_WINDOW_MS + 1;
+            return jsonResponse(pending);
+        });
+    };
+
+    const timedOut = async (params: Partial<IGenerateVideoParams>) => {
+        try {
+            await generate(params);
+        } catch (e) {
+            return e;
+        }
+        throw new Error('expected the call to reject');
+    };
+
+    it('keeps polling an H3 task after a disconnect and meters it', async () => {
+        mockH3Flow(h3Task({ status: 'running' }), h3Task());
+        await expect(
+            disconnected({ model: 'minimax-h3', seconds: 5 }),
+        ).resolves.toBe('https://minimax.example/out.mp4');
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+        expect(incrementUsageSpy.mock.calls[0]![2]).toBe(5);
+    });
+
+    it('keeps polling a Hailuo task after a disconnect and meters it', async () => {
+        mockHailuoFlow(hailuoTask('Processing'), hailuoTask('Success'));
+        await expect(
+            disconnected({ model: 'minimax-hailuo-2.3', seconds: 6 }),
+        ).resolves.toBe('https://minimax.example/hailuo.mp4');
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('meters the held H3 seconds when the task outlives the window', async () => {
+        fetchSpy.mockResolvedValueOnce(jsonResponse({ task_id: 'task-1' }));
+        expireOnPoll({ task: h3Task({ status: 'running' }) });
+        expect(
+            await timedOut({ model: 'minimax-h3', seconds: 5 }),
+        ).toMatchObject({ statusCode: 504, legacyCode: 'upstream_timeout' });
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+        const [, usageType, amount, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toBe(
+            'minimax-video-generation:minimax-h3:per-second:768p',
+        );
+        expect(amount).toBe(5);
+        expect(cost).toBeCloseTo(
+            5 * rate('minimax-h3', 'per-second:768p') * 1_000_000,
+        );
+    });
+
+    it('meters the held Hailuo clip when the task outlives the window', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            jsonResponse({ task_id: 'task-1', base_resp: ok }),
+        );
+        expireOnPoll(hailuoTask('Processing'));
+        expect(
+            await timedOut({ model: 'minimax-hailuo-2.3', seconds: 6 }),
+        ).toMatchObject({ statusCode: 504 });
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+        expect(incrementUsageSpy.mock.calls[0]![2]).toBe(1);
     });
 });

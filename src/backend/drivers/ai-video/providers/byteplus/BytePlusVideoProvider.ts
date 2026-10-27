@@ -199,7 +199,15 @@ export class BytePlusVideoProvider extends VideoProvider {
             }
 
             const task = await this.#createTask(body);
-            const finalTask = await this.#pollUntilComplete(task.id);
+            const finalTask = await this.#pollUntilComplete(task.id, () => {
+                const tokens = Math.round(tokensPerSecond * cappedSeconds);
+                return this.#meteringService.incrementUsage(
+                    actor,
+                    `byteplus-video-generation:${model.id}:${costKey}`,
+                    tokens,
+                    tokens * centsPerToken * 1_000_000,
+                );
+            });
 
             if (finalTask.status !== 'succeeded') {
                 const errorMessage =
@@ -345,7 +353,10 @@ export class BytePlusVideoProvider extends VideoProvider {
         })) as ArkVideoTask;
     }
 
-    async #pollUntilComplete(taskId: string): Promise<ArkVideoTask> {
+    async #pollUntilComplete(
+        taskId: string,
+        onTimeout: () => Promise<unknown>,
+    ): Promise<ArkVideoTask> {
         return await pollUntilSettled<ArkVideoTask>({
             provider: 'byteplus',
             providerLabel: 'BytePlus',
@@ -357,6 +368,7 @@ export class BytePlusVideoProvider extends VideoProvider {
                 ) as Promise<ArkVideoTask>,
             isPending: (task) =>
                 task.status === 'queued' || task.status === 'running',
+            onTimeout,
         });
     }
 

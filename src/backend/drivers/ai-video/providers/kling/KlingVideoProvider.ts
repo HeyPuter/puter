@@ -262,7 +262,14 @@ export class KlingVideoProvider extends VideoProvider {
                 path,
                 { body, baseUrl: this.#baseUrl },
             );
-            const task = await this.#pollUntilComplete(created.id);
+            const task = await this.#pollUntilComplete(created.id, () =>
+                this.#meteringService.incrementUsage(
+                    actor,
+                    usageType,
+                    cappedSeconds,
+                    Math.round(cappedSeconds * centsPerSecond * 1_000_000),
+                ),
+            );
             if (
                 task.status !== 'succeeded' &&
                 sourceVideo &&
@@ -476,7 +483,10 @@ export class KlingVideoProvider extends VideoProvider {
         });
     }
 
-    async #pollUntilComplete(taskId: string): Promise<KlingTask> {
+    async #pollUntilComplete(
+        taskId: string,
+        onTimeout: () => Promise<unknown>,
+    ): Promise<KlingTask> {
         return pollUntilSettled<KlingTask>({
             provider: 'kling',
             providerLabel: 'Kling',
@@ -496,6 +506,7 @@ export class KlingVideoProvider extends VideoProvider {
             },
             isPending: (task) =>
                 task.status === 'submitted' || task.status === 'processing',
+            onTimeout,
         });
     }
 

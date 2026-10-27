@@ -184,7 +184,14 @@ export class KlingImageProvider implements IImageProvider {
                 path,
                 { body, baseUrl: this.#baseUrl },
             );
-            const task = await this.#pollUntilSettled(path, created);
+            const task = await this.#pollUntilSettled(path, created, () =>
+                this.#meteringService.incrementUsage(
+                    actor,
+                    usageType,
+                    1,
+                    Math.round(cents * 1_000_000),
+                ),
+            );
             if (task.task_status !== 'succeed') {
                 throw this.#taskFailure(task.task_status_msg);
             }
@@ -205,28 +212,24 @@ export class KlingImageProvider implements IImageProvider {
         }
     }
 
+    /**
+     * Polls until the task settles. A client disconnect doesn't stop it, since
+     * Kling bills the task either way; one that outlives the window is metered
+     * through `onTimeout`.
+     */
     async #pollUntilSettled(
         path: string,
         created: KlingImageTask,
+        onTimeout: () => Promise<unknown>,
     ): Promise<KlingImageTask> {
-        const signal = Context.get('abortSignal') as AbortSignal | undefined;
         const deadline = Date.now() + POLL_WINDOW_MS;
         let task = created;
         while (
             task.task_status === 'submitted' ||
             task.task_status === 'processing'
         ) {
-            if (signal?.aborted) {
-                throw new HttpError(
-                    400,
-                    'Client disconnected before image generation finished',
-                    {
-                        legacyCode: 'client_aborted',
-                        fields: { provider: 'kling' },
-                    },
-                );
-            }
             if (Date.now() > deadline) {
+                await onTimeout();
                 throw new HttpError(
                     504,
                     'Timed out waiting for Kling image generation to complete',

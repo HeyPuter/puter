@@ -37,6 +37,7 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
@@ -347,5 +348,48 @@ describe('KlingImageProvider billing', () => {
             legacyCode: 'upstream_failed',
         });
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+});
+
+// -- After the caller leaves -----------------------------------------
+
+describe('KlingImageProvider after the caller leaves', () => {
+    it('keeps polling after a disconnect and meters the finished image', async () => {
+        mockFlow(envelope(task('processing')), envelope(succeeded));
+        const url = await withTestActor(() => {
+            const abort = new AbortController();
+            abort.abort();
+            Context.set('abortSignal', abort.signal);
+            return makeProvider().generate({ prompt: 'a red apple' });
+        });
+        expect(url).toBe('https://kling.example/1.png');
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('meters the held image when the task outlives the window', async () => {
+        fetchSpy.mockResolvedValueOnce(envelope(task('submitted')));
+        const realNow = Date.now.bind(Date);
+        let skew = 0;
+        vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skew);
+        fetchSpy.mockImplementation(async () => {
+            skew = 6 * 60 * 1000;
+            return envelope(task('processing'));
+        });
+
+        let failure: unknown;
+        try {
+            await generate({ model: 'kling-v3-omni', quality: '4k' });
+        } catch (e) {
+            failure = e;
+        }
+        expect(failure).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+        });
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+        const [, usageType, amount, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toBe('kling-image-generation:kling-v3-omni:4k');
+        expect(amount).toBe(1);
+        expect(cost).toBe(5.6 * 1_000_000);
     });
 });

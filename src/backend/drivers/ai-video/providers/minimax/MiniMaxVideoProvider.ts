@@ -384,6 +384,13 @@ export class MiniMaxVideoProvider extends VideoProvider {
                 },
                 isPending: (task) =>
                     task.status === 'queued' || task.status === 'running',
+                onTimeout: () =>
+                    this.#meteringService.incrementUsage(
+                        actor,
+                        usageType,
+                        cappedSeconds,
+                        Math.round(cappedSeconds * centsPerSecond * 1_000_000),
+                    ),
             });
             if (task.status !== 'succeeded') {
                 throw videoJobFailure(
@@ -484,6 +491,13 @@ export class MiniMaxVideoProvider extends VideoProvider {
                     task.status === 'Preparing' ||
                     task.status === 'Queueing' ||
                     task.status === 'Processing',
+                onTimeout: () =>
+                    this.#meteringService.incrementUsage(
+                        actor,
+                        usageType,
+                        1,
+                        microCents,
+                    ),
             });
             if (task.status !== 'Success' || !task.file_id) {
                 throw videoJobFailure(

@@ -453,7 +453,7 @@ describe('TogetherVideoProvider.generate polling', () => {
         }
     });
 
-    it('gives up after the wait window as HttpError 504 upstream_timeout, without metering', async () => {
+    it('gives up after the wait window as HttpError 504 upstream_timeout, metering the held estimate', async () => {
         vi.useFakeTimers();
         try {
             const provider = makeProvider();
@@ -463,9 +463,18 @@ describe('TogetherVideoProvider.generate polling', () => {
                 status: 'in_progress',
             });
 
-            const rejection = withTestActor(() =>
-                provider.generate({ prompt: 'hi' }),
-            ).catch((e: unknown) => e);
+            const rejection = (async () => {
+                try {
+                    await withTestActor(() =>
+                        provider.generate({
+                            prompt: 'hi',
+                            model: 'togetherai:minimax/video-01-director',
+                        }),
+                    );
+                } catch (e) {
+                    return e;
+                }
+            })();
 
             // Ten-minute wait window, polled every 5s.
             await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 5_000);
@@ -477,7 +486,12 @@ describe('TogetherVideoProvider.generate polling', () => {
                     'Timed out waiting for Together AI video generation to complete',
                 fields: { provider: 'together' },
             });
-            expect(incrementUsageSpy).not.toHaveBeenCalled();
+            // Together still renders and bills the job past the window.
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+            const [, usageType, count, cost] = incrementUsageSpy.mock.calls[0]!;
+            expect(usageType).toBe('together-video:minimax/video-01-director');
+            expect(count).toBe(1);
+            expect(cost).toBe(28 * 1_000_000);
         } finally {
             vi.useRealTimers();
         }
@@ -510,33 +524,35 @@ describe('TogetherVideoProvider.generate polling', () => {
         }
     });
 
-    it('stops polling and skips metering when the client disconnects', async () => {
+    it('keeps polling and meters the finished job after the client disconnects', async () => {
         vi.useFakeTimers();
         try {
             const provider = makeProvider();
             videosCreateMock.mockResolvedValueOnce({ id: 'job-gone' });
-            videosRetrieveMock.mockResolvedValue({
-                id: 'job-gone',
-                status: 'in_progress',
-            });
+            videosRetrieveMock
+                .mockResolvedValueOnce({
+                    id: 'job-gone',
+                    status: 'in_progress',
+                })
+                .mockResolvedValueOnce({
+                    id: 'job-gone',
+                    status: 'completed',
+                    outputs: { video_url: 'https://together/gone.mp4' },
+                });
             const abort = new AbortController();
 
-            const rejection = withTestActor(() => {
+            const result = withTestActor(() => {
                 Context.set('abortSignal', abort.signal);
                 return provider.generate({ prompt: 'hi' });
-            }).catch((e: unknown) => e);
-
-            await vi.advanceTimersByTimeAsync(5_000);
-            abort.abort();
-            await vi.advanceTimersByTimeAsync(0);
-
-            expect(await rejection).toMatchObject({
-                statusCode: 400,
-                legacyCode: 'client_aborted',
-                fields: { provider: 'together' },
             });
+
+            await vi.advanceTimersByTimeAsync(0);
+            abort.abort();
+            await vi.advanceTimersByTimeAsync(5_000);
+
+            expect(await result).toBe('https://together/gone.mp4');
             expect(videosRetrieveMock).toHaveBeenCalledTimes(2);
-            expect(incrementUsageSpy).not.toHaveBeenCalled();
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
         } finally {
             vi.useRealTimers();
         }
@@ -951,20 +967,24 @@ describe('TogetherVideoProvider.generate credit holds', () => {
         expect(await outstanding(actor)).toBe(0);
     });
 
-    it('releases the hold when the client disconnects mid-job', async () => {
+    it('holds through a disconnected job and releases it once metered', async () => {
         const provider = makeProvider();
         const actor = holdUser('abort');
         const abort = new AbortController();
         abort.abort();
+        let heldWhilePolling = -1;
         videosCreateMock.mockResolvedValueOnce({ id: 'job-gone' });
+        videosRetrieveMock.mockImplementationOnce(async () => {
+            heldWhilePolling = await outstanding(actor);
+            return completed('job-gone');
+        });
 
-        await expect(
-            withTestActor(() => {
-                Context.set('abortSignal', abort.signal);
-                return provider.generate({ prompt: 'hi', model: SEEDANCE });
-            }, actor),
-        ).rejects.toMatchObject({ legacyCode: 'client_aborted' });
-        expect(videosCreateMock).toHaveBeenCalledTimes(1);
+        await withTestActor(() => {
+            Context.set('abortSignal', abort.signal);
+            return provider.generate({ prompt: 'hi', model: SEEDANCE });
+        }, actor);
+        expect(heldWhilePolling).toBeGreaterThan(0);
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
         expect(await outstanding(actor)).toBe(0);
     });
 });

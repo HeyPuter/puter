@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Context } from '../../../core/context.js';
 import { HttpError } from '../../../core/http/HttpError.js';
 import {
     CONTENT_FILTER_PATTERN,
@@ -58,13 +57,6 @@ export const pollTimeoutError = (
             ...(cause !== undefined ? { cause } : {}),
         },
     );
-
-/** The caller hung up mid-job; nobody is left to bill or answer. */
-export const clientAbortedError = (provider: string): HttpError =>
-    new HttpError(400, 'Client disconnected before video generation finished', {
-        legacyCode: 'client_aborted',
-        fields: { provider },
-    });
 
 /**
  * Classifies a job the provider reports as failed. A content-filter refusal is
@@ -127,16 +119,21 @@ export interface PollOptions<T> {
     /** Fetches the current job state; receives the last state seen. */
     fetch: (previous: T | undefined) => Promise<T>;
     isPending: (job: T) => boolean;
+    /**
+     * Meters a job that outlived the window: the provider still runs it and
+     * bills for it. Receives the last state seen.
+     */
+    onTimeout?: (last: T | undefined) => Promise<unknown>;
 }
 
 /**
  * Polls a provider job until it settles. A transient poll failure is a missed
- * poll, not a failed job; a client disconnect ends the wait before anything is
- * metered; the window closes with a 504 that carries the last poll error.
+ * poll, not a failed job. A client disconnect doesn't stop it: the provider
+ * bills the job either way, so it is still metered once it settles. The window
+ * closes with a 504 that carries the last poll error.
  */
 export const pollUntilSettled = async <T>(opts: PollOptions<T>): Promise<T> => {
     const windowMs = opts.windowMs ?? VIDEO_POLL_WINDOW_MS;
-    const signal = Context.get('abortSignal');
     const start = Date.now();
     let job = opts.initial;
     let lastError: unknown;
@@ -144,19 +141,15 @@ export const pollUntilSettled = async <T>(opts: PollOptions<T>): Promise<T> => {
 
     for (;;) {
         if (job !== undefined && !opts.isPending(job)) return job;
-        if (signal?.aborted) throw clientAbortedError(opts.provider);
         if (Date.now() - start > windowMs) {
+            await opts.onTimeout?.(job);
             throw pollTimeoutError(
                 opts.provider,
                 opts.providerLabel,
                 lastError,
             );
         }
-        if (!firstFetch) {
-            await abortableDelay(opts.intervalMs, signal);
-            // The delay ends early on abort; do not spend a poll on it.
-            if (signal?.aborted) throw clientAbortedError(opts.provider);
-        }
+        if (!firstFetch) await abortableDelay(opts.intervalMs);
         firstFetch = false;
         try {
             job = await opts.fetch(job);

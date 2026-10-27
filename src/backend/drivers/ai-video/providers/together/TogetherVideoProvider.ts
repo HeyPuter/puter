@@ -338,7 +338,14 @@ export class TogetherVideoProvider extends VideoProvider {
             }
 
             const job = await this.#client.videos.create(createPayload);
-            const finalJob = await this.#pollUntilComplete(job.id);
+            const finalJob = await this.#pollUntilComplete(job.id, () =>
+                this.#meteringService.incrementUsage(
+                    actor,
+                    usageKey,
+                    billedUnits,
+                    estimateMicroCents,
+                ),
+            );
 
             if (finalJob.status === 'failed') {
                 const errorMessage =
@@ -415,7 +422,10 @@ export class TogetherVideoProvider extends VideoProvider {
         });
     }
 
-    async #pollUntilComplete(jobId: string): Promise<any> {
+    async #pollUntilComplete(
+        jobId: string,
+        onTimeout: () => Promise<unknown>,
+    ): Promise<any> {
         // any here because sdk types are wrong https://docs.together.ai/docs/videos-overview -> "Job Status Reference"
         return await pollUntilSettled<any>({
             provider: 'together',
@@ -424,6 +434,7 @@ export class TogetherVideoProvider extends VideoProvider {
             fetch: () => (this.#client as any).videos.retrieve(jobId),
             isPending: (job) =>
                 job.status === 'queued' || job.status === 'in_progress',
+            onTimeout,
         });
     }
 

@@ -63,8 +63,9 @@ export interface KnownContextFields {
     driverName: string;
     /**
      * Aborts when the client disconnects before the response has finished (set
-     * by DriverController). Long-running drivers poll it so work nobody will
-     * receive stops early and is never metered.
+     * by DriverController). Some drivers (Gemini, Replicate) stop early on it.
+     * Async video and image jobs keep polling and are metered after a
+     * disconnect, since the provider bills them either way.
      */
     abortSignal: AbortSignal;
     /**

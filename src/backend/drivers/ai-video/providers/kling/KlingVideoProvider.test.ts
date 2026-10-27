@@ -37,12 +37,14 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import type { IGenerateVideoParams } from '../../types.js';
+import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { KlingVideoProvider } from './KlingVideoProvider.js';
 import { KLING_VIDEO_GENERATION_MODELS } from './models.js';
 
@@ -667,5 +669,49 @@ describe('KlingVideoProvider failures', () => {
         mockTaskFlow(succeededTask({ outputs: [] }));
         await expect(generate({})).rejects.toThrow(/video URL/);
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('KlingVideoProvider after the caller leaves', () => {
+    it('keeps polling after a disconnect and meters the finished clip', async () => {
+        mockTaskFlow({ id: 'task-1', status: 'processing' }, succeededTask());
+        const result = await withTestActor(() => {
+            const abort = new AbortController();
+            abort.abort();
+            Context.set('abortSignal', abort.signal);
+            return makeProvider().generate({ prompt: 'a ball rolls' });
+        });
+        expect(result).toBe('https://kling.example/out.mp4');
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('meters the held seconds when the task outlives the window', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            jsonResponse(envelope({ id: 'task-1', status: 'submitted' })),
+        );
+        const realNow = Date.now.bind(Date);
+        let skew = 0;
+        vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skew);
+        fetchSpy.mockImplementation(async () => {
+            skew = VIDEO_POLL_WINDOW_MS + 1;
+            return jsonResponse(
+                envelope([{ id: 'task-1', status: 'processing' }]),
+            );
+        });
+
+        let failure: unknown;
+        try {
+            await generate({ seconds: 5 });
+        } catch (e) {
+            failure = e;
+        }
+        expect(failure).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+        });
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+        const [, usageType, amount] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toMatch(/^kling-video-generation:/);
+        expect(amount).toBe(5);
     });
 });

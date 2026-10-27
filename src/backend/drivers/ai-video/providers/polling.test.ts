@@ -23,7 +23,6 @@ import { HttpError } from '../../../core/http/HttpError.js';
 import {
     VIDEO_POLL_WINDOW_MS,
     abortableDelay,
-    clientAbortedError,
     pollTimeoutError,
     pollUntilSettled,
     videoJobFailure,
@@ -45,16 +44,6 @@ describe('pollTimeoutError', () => {
                 'Timed out waiting for Together AI video generation to complete',
             fields: { provider: 'together' },
             cause,
-        });
-    });
-});
-
-describe('clientAbortedError', () => {
-    it('builds a 400 client_aborted that names the provider', () => {
-        expect(clientAbortedError('gemini')).toMatchObject({
-            statusCode: 400,
-            legacyCode: 'client_aborted',
-            fields: { provider: 'gemini' },
         });
     });
 });
@@ -264,14 +253,16 @@ describe('pollUntilSettled', () => {
         expect(await rejection).toMatchObject({ statusCode: 504 });
     });
 
-    it('stops as soon as the request context signals a client abort', async () => {
+    it('keeps polling after a client abort, so the settled job is metered', async () => {
         vi.useFakeTimers();
         const abort = new AbortController();
+        abort.abort();
         const fetch = vi
             .fn<(p: Job | undefined) => Promise<Job>>()
-            .mockResolvedValue(pending);
+            .mockResolvedValueOnce(pending)
+            .mockResolvedValueOnce(done);
 
-        const rejection = runWithContext({}, () => {
+        const result = runWithContext({}, () => {
             Context.set('abortSignal', abort.signal);
             return pollUntilSettled<Job>({
                 provider: 'gemini',
@@ -280,18 +271,37 @@ describe('pollUntilSettled', () => {
                 fetch,
                 isPending: (job) => job.status === 'pending',
             });
-        }).catch((e: unknown) => e);
-
-        await vi.advanceTimersByTimeAsync(10_000);
-        abort.abort();
-        await vi.advanceTimersByTimeAsync(0);
-
-        expect(await rejection).toMatchObject({
-            statusCode: 400,
-            legacyCode: 'client_aborted',
-            fields: { provider: 'gemini' },
         });
-        // The abort cut the second wait short; no third poll went out.
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(await result).toBe(done);
         expect(fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('runs onTimeout with the last state before the 504', async () => {
+        vi.useFakeTimers();
+        const onTimeout = vi.fn(() => Promise.resolve());
+        const rejection = (async () => {
+            try {
+                await runWithContext({}, () =>
+                    pollUntilSettled<Job>({
+                        provider: 'together',
+                        providerLabel: 'Together AI',
+                        intervalMs: 5_000,
+                        windowMs: 20_000,
+                        fetch: () => Promise.resolve(pending),
+                        isPending: (job) => job.status === 'pending',
+                        onTimeout,
+                    }),
+                );
+            } catch (e) {
+                return e;
+            }
+        })();
+        await vi.advanceTimersByTimeAsync(25_000);
+
+        expect(await rejection).toMatchObject({ statusCode: 504 });
+        expect(onTimeout).toHaveBeenCalledTimes(1);
+        expect(onTimeout).toHaveBeenCalledWith(pending);
     });
 });
