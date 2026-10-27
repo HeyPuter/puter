@@ -170,6 +170,9 @@ const isAppDataRootPath = (path: string): boolean => {
     );
 };
 
+/** Ends a subtree removal whose `proceed` check said to stop. */
+class RemovalStopped extends Error {}
+
 const isNoSuchKeyError = (err: unknown): boolean => {
     if (!err || typeof err !== 'object') return false;
     const e = err as { name?: unknown; Code?: unknown };
@@ -309,6 +312,10 @@ export class FSService extends PuterService {
 
     override onServerStart(): void {
         this.#registerPermissionRules();
+        this.clients.event.on('app.uninstalled', async (_key, data) => {
+            if (!data?.deleteData) return;
+            void this.#removeUninstalledAppData(data.userId, data.appUid);
+        });
     }
 
     /**
@@ -4548,27 +4555,111 @@ export class FSService extends PuterService {
     /**
      * Delete a directory's contents a page at a time, leaves first, so neither
      * memory nor a single statement grows with the subtree: a page's files go
-     * as it is read, a directory once everything under it has.
+     * as it is read, a directory once everything under it has. With `proceed`,
+     * each batch is deleted only while it answers true; false if it stopped.
      */
     async #removeDescendants(
         root: FSEntry,
         survivors: () => Promise<AncestorChain>,
-    ): Promise<void> {
+        proceed?: () => Promise<boolean>,
+    ): Promise<boolean> {
         const removeEntries = async (entries: FSEntry[]) => {
             if (entries.length === 0) return;
+            if (proceed && !(await proceed())) throw new RemovalStopped();
             // S3 objects are batched per bucket+region.
             await this.#removeDescendantsStorage(entries);
             await this.stores.fsEntry.deleteEntries(entries);
             this.#emitRemoveEvents(entries, survivors);
         };
-        await this.#walkSubtree(
-            root,
-            async (page) => {
-                await removeEntries(page.filter((entry) => !entry.isDir));
-                return page.filter((entry) => entry.isDir);
-            },
-            removeEntries,
-        );
+        try {
+            await this.#walkSubtree(
+                root,
+                async (page) => {
+                    await removeEntries(page.filter((entry) => !entry.isDir));
+                    return page.filter((entry) => entry.isDir);
+                },
+                removeEntries,
+            );
+        } catch (err) {
+            if (err instanceof RemovalStopped) return false;
+            throw err;
+        }
+        return true;
+    }
+
+    /**
+     * Delete `/<user>/AppData/<app-uid>` once the user removed the app with its
+     * data. Stops if the user authorizes the app again, so files written after
+     * that are kept. A failure is logged, not retried.
+     */
+    async #removeUninstalledAppData(
+        userId: number,
+        appUid: string,
+    ): Promise<void> {
+        if (!userId || !appUid || ['.', '..'].includes(appUid)) return;
+        if (appUid.includes('/')) return;
+        try {
+            const username = (await this.stores.user.getById(userId))?.username;
+            if (!username) return;
+            const path = `/${username}/AppData/${appUid}`;
+            const root = await this.stores.fsEntry.getEntryByPath(path, {
+                lineage: false,
+                skipCache: true,
+            });
+            // The path column's collation also matches other spellings.
+            if (!root?.isDir || root.path !== path || root.userId !== userId)
+                return;
+            if (await this.#subtreeHostsContent(root)) {
+                console.warn(
+                    `[fs] kept uninstalled app data at ${path}: it hosts a site or worker`,
+                );
+                return;
+            }
+
+            const appId = (await this.stores.app.getByUid(appUid))?.id;
+            const stillUninstalled = async () =>
+                typeof appId !== 'number' ||
+                (
+                    await this.stores.permission.listUserAppPermsFromPrimary(
+                        userId,
+                        appId,
+                    )
+                ).length === 0;
+            if (!(await stillUninstalled())) return;
+
+            const survivors = this.#memoizedChain(pathPosix.dirname(path));
+            const emptied = await this.#removeDescendants(
+                root,
+                survivors,
+                stillUninstalled,
+            );
+            if (!emptied || !(await stillUninstalled())) return;
+            await this.stores.fsEntry.deleteEntry(root);
+            this.#emitRemoveEvents([root], survivors);
+        } catch (err) {
+            console.warn('[fs] uninstalled app data removal failed', err);
+        }
+    }
+
+    /** Whether a site or worker is rooted at `root` or anywhere below it. */
+    async #subtreeHostsContent(root: FSEntry): Promise<boolean> {
+        const hosts = (entry: FSEntry) =>
+            entry.subdomains.length > 0 || entry.workers.length > 0;
+        if (hosts(root)) return true;
+        try {
+            await this.#walkSubtree(
+                root,
+                async (page) => {
+                    if (page.some(hosts)) throw new RemovalStopped();
+                    return page.filter((entry) => entry.isDir);
+                },
+                async () => {},
+            );
+        } catch (err) {
+            if (err instanceof RemovalStopped) return true;
+            throw err;
+        }
+        return false;
     }
 
     /**
