@@ -1971,11 +1971,8 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 if ( is_trashing ) {
                     // if trashing dir...
                     if ( $(el_item).attr('data-is_dir') === '1' ) {
-                        // disassociate all its websites
-                        // todo, some client-side check to see if this dir has at least one associated website before sending ajax request
-                        // FIXME: dir_uuid is not defined, is this the same as the data-uid attribute?
-                        // puter.hosting.delete(dir_uuid)
-
+                        // Its websites stay registered: the server doesn't
+                        // serve a root in Trash, and restoring brings them back.
                         $(`.mywebsites-dir-path[data-uuid="${$(el_item).attr('data-uid')}"]`).remove();
                         // remove the website badge from all instances of the dir
                         $(`.item[data-uid="${$(el_item).attr('data-uid')}"]`).find('.item-has-website-badge').fadeOut(300);
@@ -2166,10 +2163,13 @@ window.refresh_desktop_background = function () {
 };
 
 window.determine_website_url = function (fsentry_path) {
-    // search window.sites and if any site has `dir_path` set and the fsentry_path starts with that dir_path + '/', return the site's url + path
-    for ( let i = 0; i < window.sites.length; i++ ) {
-        if ( window.sites[i].dir_path && fsentry_path.startsWith(`${window.sites[i].dir_path }/`) ) {
-            return window.sites[i].address + fsentry_path.replace(window.sites[i].dir_path, '');
+    // The address an item has under a site serving a folder above it. The
+    // site's folder and address come with its root_dir.
+    for ( const site of window.sites ) {
+        const dir_path = site.root_dir?.path;
+        const address = site.root_dir?.subdomains?.find((entry) => entry.subdomain === site.subdomain)?.address;
+        if ( dir_path && address && fsentry_path.startsWith(`${dir_path}/`) ) {
+            return address + fsentry_path.slice(dir_path.length);
         }
     }
 
@@ -3309,11 +3309,12 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
 
             onDone?.(null);
 
-            //show error
-            if ( err.message ) {
-                UIAlert(err.message);
-            }
+            // A network failure rejects with no message, and the name going
+            // back on its own would look like the rename was ignored.
+            UIAlert(err?.message || i18n('error_unknown_cause', [], false));
         },
+    }).catch(() => {
+        // Handled by the error callback above.
     });
 };
 

@@ -60,6 +60,8 @@ beforeEach(() => {
     window.update_sites_cache = vi.fn();
     window.require_email_verification_to_publish_website = false;
     globalThis.puter = {
+        fsCacheKey: (kind, path) => `${kind}:${path}`,
+        _cache: { del: vi.fn() },
         hosting: { create: vi.fn(async () => ({})) },
         workers: { create: vi.fn(async (name) => ({ success: true, url: `https://${name}.puter.work` })) },
     };
@@ -94,6 +96,8 @@ describe('publish website', () => {
         expect($folder.find('.item-has-website-badge').css('display')).not.toBe('none');
         expect($child.attr('data-website_url')).toBe('https://my-site.puter.site/index.html');
         expect(window.update_sites_cache).toHaveBeenCalled();
+        // Its row in /alice, when not on screen, is listed afresh next time.
+        expect(puter._cache.del).toHaveBeenCalledWith('readdir:/alice');
     });
 
     it("links to the server's address for the site when it sends one", async () => {
@@ -168,6 +172,8 @@ describe('publish worker', () => {
 
     it('deploys sandboxed by default and badges the file', async () => {
         const $file = addRow('/alice/api.js');
+        const fsentry = { path: '/alice/api.js', workers: [] };
+        $file.data('fsentry', fsentry);
         await openPublishWorkerDialog({ name: 'api.js', path: '/alice/api.js' });
         expect($('.dashboard-form-suffix').text()).toBe('.puter.work');
 
@@ -177,6 +183,8 @@ describe('publish worker', () => {
         expect($('.dashboard-copy-value').val()).toBe('https://my_api.puter.work');
         expect($file.attr('data-is_worker')).toBe('1');
         expect($file.attr('data-worker_url')).toBe('https://my_api.puter.work');
+        // What the next listing of the folder draws the row from.
+        expect(fsentry.workers).toEqual([{ address: 'https://my_api.puter.work' }]);
     });
 
     it('deploys unsandboxed when the switch is off', async () => {

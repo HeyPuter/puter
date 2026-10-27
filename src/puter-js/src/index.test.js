@@ -328,6 +328,29 @@ describe('GUI message listener', () => {
         ).resolves.toBeUndefined();
     });
 
+    it('ignores a late failure message without touching a pending sign-in', async () => {
+        const { puter, handler } = await bootWithListener();
+        const previous = puter.authToken;
+        const waiter = { resolve: vi.fn(), reject: vi.fn() };
+        puter.puterAuthState.isPromptOpen = true;
+        puter.puterAuthState.resolvers.push(waiter);
+        await handler({
+            origin: puter.defaultGUIOrigin,
+            source: globalThis.parent,
+            data: {
+                msg: 'puter.token',
+                success: false,
+                token: 'invalid',
+                error: 'auth_canceled',
+            },
+        });
+        expect(puter.authToken).toBe(previous);
+        expect(waiter.reject).not.toHaveBeenCalled();
+        expect(waiter.resolve).not.toHaveBeenCalled();
+        expect(puter.puterAuthState.resolvers).toEqual([waiter]);
+        expect(puter.puterAuthState.isPromptOpen).toBe(true);
+    });
+
     it('reports a failed user lookup after sign-in', async () => {
         const { puter, handler } = await bootWithListener();
         const error = vi.spyOn(console, 'error').mockImplementation(() => {});

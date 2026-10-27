@@ -911,8 +911,10 @@ $(document).bind('keyup keydown', async function (e) {
     // ctrl/command + z, will undo last action
     //-----------------------------------------------------------------------------
     // Not in a text field, whose own undo is what the user means: the last
-    // file action could be an upload, which Undo deletes outright.
-    if ( (e.ctrlKey || e.metaKey) && e.which === 90 && ! $(focused_el).is('input, textarea, [contenteditable]') ) {
+    // file action could be an upload, which Undo deletes outright. Once per
+    // press: releasing Z with Ctrl/Cmd still held would undo a second action.
+    if ( (e.ctrlKey || e.metaKey) && e.which === 90 && e.type === 'keydown'
+        && ! $(focused_el).is('input, textarea, [contenteditable]') ) {
         window.undo_last_action();
         return false;
     }

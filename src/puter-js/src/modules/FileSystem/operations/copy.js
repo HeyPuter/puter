@@ -7,7 +7,8 @@ import { defineOperation, firstDefined } from './scaffold.js';
 /**
  * Copies a file or directory to another location. Relative paths resolve
  * against the app's root directory; a UID-shaped string is read as a uid. When
- * `destination` is a directory the item is copied into it under the same name.
+ * `destination` is a directory the item is copied into it under the same name;
+ * when it is an existing file, that file is replaced if `overwrite` is set.
  *
  * @type {{
  *   (options: CopyOptions): Promise<FSItem>,

@@ -95,3 +95,50 @@ describe('TabApps cancelling a drag out of a folder', () => {
         vi.restoreAllMocks();
     });
 });
+
+describe('TabApps launch apps', () => {
+    const okJson = (body) => ({ ok: true, json: async () => body });
+
+    afterEach(() => {
+        window.launch_apps_request = null;
+        TabApps._joinHomeLaunchApps = false;
+        vi.unstubAllGlobals();
+    });
+
+    it("joins Home's in-flight request at open, then refetches without recents", async () => {
+        window.api_origin = 'https://api.test';
+        const homeData = {
+            recommended: [{ name: 'editor' }],
+            recent: [{ name: 'old' }],
+        };
+        window.launch_apps_request = Promise.resolve(homeData);
+        const fetchMock = vi.fn(async () =>
+            okJson({ recommended: [{ name: 'editor' }], recent: [] }),
+        );
+        vi.stubGlobal('fetch', fetchMock);
+
+        TabApps._joinHomeLaunchApps = true;
+        expect(await TabApps._fetchLaunchApps()).toBe(homeData);
+        expect(fetchMock).not.toHaveBeenCalled();
+
+        await TabApps._fetchLaunchApps();
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const url = new URL(fetchMock.mock.calls[0][0]);
+        expect(url.pathname).toBe('/get-launch-apps');
+        expect(url.searchParams.get('recent')).toBe('0');
+    });
+
+    it("fetches its own list when Home's request fails", async () => {
+        window.api_origin = 'https://api.test';
+        window.launch_apps_request = Promise.reject(new Error('offline'));
+        const own = { recommended: [{ name: 'editor' }], recent: [] };
+        const fetchMock = vi.fn(async () => okJson(own));
+        vi.stubGlobal('fetch', fetchMock);
+
+        TabApps._joinHomeLaunchApps = true;
+        expect(await TabApps._fetchLaunchApps()).toEqual(own);
+        expect(
+            new URL(fetchMock.mock.calls[0][0]).searchParams.get('recent'),
+        ).toBe('0');
+    });
+});

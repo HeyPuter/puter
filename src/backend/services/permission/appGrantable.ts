@@ -41,8 +41,8 @@ type FsMode = (typeof FS_MODES)[number];
 
 /**
  * A permission a user may grant an app through the consent prompt, parsed. No
- * app-actor check reads `apps-of-user:<uuid>:read` or `subdomains-of-user`;
- * they stay grantable because apps already request them.
+ * app-actor check reads `apps-of-user:<uuid>:read`; it stays grantable because
+ * apps already request it. `SubdomainDriver` honors `subdomains-of-user`.
  */
 export type AppGrantablePermission =
     | { family: 'fs'; target: string; mode: FsMode }

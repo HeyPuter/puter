@@ -87,7 +87,8 @@ const RESERVED_SUBDOMAINS = new Set([
  *
  * - Owner (user_id) can read/write their own subdomains
  * - An app actor is further scoped to the rows it created (app_owner), for reads
- *   as well as writes — never widened past its own user
+ *   as well as writes, unless the user granted it
+ *   `subdomains-of-user:<uuid>:read|write` — never widened past its own user
  * - `system:es:write-all-owners` grants blanket write
  * - `read-all-subdomains` grants cross-user reads, and is the only thing that
  *   does
@@ -284,8 +285,15 @@ export class SubdomainDriver extends PuterDriver {
             predicate !== 'user-can-edit' &&
             (await this.#hasPermission(actor, 'read-all-subdomains'));
 
-        // App actors only see subdomains they own; read-all bypasses scoping.
-        const appOwner = widenToAll ? undefined : actor.effectiveApp?.id;
+        // App actors only see subdomains they own unless granted the user's;
+        // read-all bypasses scoping.
+        let appOwner = widenToAll ? undefined : actor.effectiveApp?.id;
+        if (
+            appOwner !== undefined &&
+            (await this.#appHoldsUserSubdomains(actor, 'read'))
+        ) {
+            appOwner = undefined;
+        }
         // Worker deployments live in the same table but aren't sites —
         // they're listed through the workers driver instead.
         const listOpts = {
@@ -537,6 +545,21 @@ export class SubdomainDriver extends PuterDriver {
     }
 
     /**
+     * Whether the user granted this app actor all of their own subdomains
+     * (`puter.perms.request('subdomains')`). Write implies read.
+     */
+    async #appHoldsUserSubdomains(
+        actor: Actor,
+        access: 'read' | 'write',
+    ): Promise<boolean> {
+        if (!actor.effectiveApp?.id || !actor.user?.uuid) return false;
+        return this.#hasPermission(
+            actor,
+            `subdomains-of-user:${actor.user.uuid}:${access}`,
+        );
+    }
+
+    /**
      * Both grants are nested under "the caller owns this row" on purpose.
      *
      * Held flat, an `app_owner` match reads as a grant in its own right — and
@@ -548,7 +571,8 @@ export class SubdomainDriver extends PuterDriver {
      * of its branches; this is the same rule, written as nesting.
      *
      * The inner check is the predicate `select` applies in SQL: an app sees
-     * what it created, not everything its user owns.
+     * what it created, not everything its user owns, unless the user granted it
+     * their subdomains.
      */
     async #checkReadAccess(
         row: Record<string, unknown>,
@@ -558,6 +582,7 @@ export class SubdomainDriver extends PuterDriver {
             const app = actor.effectiveApp;
             if (!app?.id) return;
             if (app.id === row.app_owner) return;
+            if (await this.#appHoldsUserSubdomains(actor, 'read')) return;
         }
         // Cross-user read permission
         if (await this.#hasPermission(actor, 'read-all-subdomains')) return;
@@ -606,6 +631,12 @@ export class SubdomainDriver extends PuterDriver {
             appOwnerId: row.app_owner,
         });
         if (owns) return;
+        if (
+            actor.user?.id === row.user_id &&
+            (await this.#appHoldsUserSubdomains(actor, 'write'))
+        ) {
+            return;
+        }
         if (await this.#hasPermission(actor, 'system:es:write-all-owners')) {
             return;
         }

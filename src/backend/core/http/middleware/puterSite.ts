@@ -27,6 +27,7 @@ import { MANAGE_PERM_PREFIX } from '../../../services/permission/consts';
 import type { puterStores } from '../../../stores';
 import type { IConfig, LayerInstances } from '../../../types';
 import { awaitLater } from '../../../util/concurrency';
+import { isTrashedPath } from '../../../util/hostedAppBacking';
 import { makeActor } from '../../actor';
 import {
     buildAppCenterFallback,
@@ -108,10 +109,6 @@ const isServableEntryPath = (
     const relPath = entryPath.slice(rootPath.length);
     return !isWorkersSourcePath(relPath) && !isSiteConfigPath(relPath);
 };
-
-/** Inside some owner's top-level Trash, which is where Delete puts things. */
-const isTrashedPath = (path: string): boolean =>
-    /^\/[^/]+\/Trash(\/|$)/u.test(path);
 
 /**
  * Suggested value for `config.hosting_csp`. Not applied unless configured.
@@ -333,6 +330,7 @@ export const createPuterSiteMiddleware = (
 
         const associatedApp = (await appLookup) as AppRow | null;
 
+        let hostedVisitorUid: string | undefined;
         const isPrivateApp = Boolean(associatedApp?.is_private);
         const privateApp = isPrivateApp ? associatedApp : null;
 
@@ -399,6 +397,8 @@ export const createPuterSiteMiddleware = (
                     );
                 return;
             }
+
+            hostedVisitorUid = identity.userUid;
 
             // Entitlement check runs on every request — matching v1. The
             // sticky cookie is an identity shortcut, not an access cache;
@@ -509,11 +509,8 @@ export const createPuterSiteMiddleware = (
             res.status(404).type('text/plain').send('Subdomain not found');
             return;
         } else {
-            // Public hosted site. Mint the public hosted-actor cookie if
-            // we can identify the visitor — lets the hosted page make
-            // cross-origin requests as the actor without needing a
-            // host-scoped main session cookie. No-op for anonymous
-            // visitors.
+            // Remember the authenticated visitor for asset billing across
+            // requests that do not carry the original app token.
             try {
                 const identity = await resolvePublicHostedIdentity({
                     req,
@@ -526,6 +523,7 @@ export const createPuterSiteMiddleware = (
                     expectedSubdomain: subdomain,
                     expectedHost: host,
                 });
+                hostedVisitorUid = identity.userUid;
                 if (
                     identity.userUid &&
                     !(identity as { hasValidPublicCookie?: boolean })
@@ -574,7 +572,7 @@ export const createPuterSiteMiddleware = (
                 .send(SUBDOMAIN_404);
             return;
         }
-        if (!rootEntry.isDir) {
+        if (!rootEntry.isDir || isTrashedPath(rootEntry.path)) {
             res.status(404)
                 .type('text/html; charset=UTF-8')
                 .send(SUBDOMAIN_404);
@@ -584,37 +582,27 @@ export const createPuterSiteMiddleware = (
         // A site rooted in someone else's directory stands on the `manage`
         // grant that authorized publishing it, and serves that whole subtree
         // with the ACL bypassed — so the grant is re-read on every request.
-        // Trash is its own check: a grant is keyed on the node, not its
-        // location, so it survives the owner deleting the directory. Sites
-        // rooted in their publisher's own tree skip all of this.
         if (rootEntry.userId !== site.user_id) {
             let stillPublishable = false;
-            if (!isTrashedPath(rootEntry.path)) {
-                try {
-                    stillPublishable = await layers.services.acl.check(
-                        makeActor({
-                            user: {
-                                id: owner.id,
-                                uuid: owner.uuid,
-                                username: owner.username,
-                            },
-                        }),
-                        {
-                            path: rootEntry.path,
-                            resolveAncestors: () =>
-                                layers.services.fs.getAncestorChain(
-                                    rootEntry.path,
-                                ),
+            try {
+                stillPublishable = await layers.services.acl.check(
+                    makeActor({
+                        user: {
+                            id: owner.id,
+                            uuid: owner.uuid,
+                            username: owner.username,
                         },
-                        MANAGE_PERM_PREFIX,
-                    );
-                } catch (e) {
-                    // Fail closed — an unreadable grant is not a held one.
-                    console.warn(
-                        '[puter-site] publish grant recheck failed',
-                        e,
-                    );
-                }
+                    }),
+                    {
+                        path: rootEntry.path,
+                        resolveAncestors: () =>
+                            layers.services.fs.getAncestorChain(rootEntry.path),
+                    },
+                    MANAGE_PERM_PREFIX,
+                );
+            } catch (e) {
+                // Fail closed — an unreadable grant is not a held one.
+                console.warn('[puter-site] publish grant recheck failed', e);
             }
             if (!stillPublishable) {
                 res.status(404)
@@ -837,7 +825,22 @@ export const createPuterSiteMiddleware = (
         // hosting is unauthenticated by design, so most visitors are nobody in
         // particular. Set unconditionally because hosting subdomains are not
         // metered by default: this is what opts the response in.
-        req.egressActor = req.actor ?? {
+        let visitorActor = req.actor;
+        if (hostedVisitorUid && visitorActor?.user?.uuid !== hostedVisitorUid) {
+            try {
+                const visitor =
+                    await layers.stores.user.getByUuid(hostedVisitorUid);
+                if (visitor && !visitor.suspended) {
+                    visitorActor = makeActor({
+                        user: visitor,
+                        app: associatedApp ?? undefined,
+                    });
+                }
+            } catch {
+                // Unknown requesters are billed to the site owner.
+            }
+        }
+        req.egressActor = visitorActor ?? {
             user: {
                 uuid: owner.uuid,
                 id: owner.id,

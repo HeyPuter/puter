@@ -24,6 +24,7 @@ import { posix as pathPosix } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { pipeToResponse } from '../../core/http/pipeToResponse.js';
 import {
     assertNotSuspended,
     assertTeam2fa,
@@ -58,6 +59,7 @@ import {
 import { Context } from '../../core/context.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import {
+    contextBoundStream,
     emitGuiItemEvent,
     type GuiItemEventName,
 } from '../fs/legacyFsHelpers.js';
@@ -600,19 +602,41 @@ export class WebDAVController extends PuterController {
             propfindEntry(maskEntryPath(entry), entry, entry.isDir),
         ];
 
-        if (depth !== '0' && entry.isDir) {
-            const children = await this.services.fs.listDirectory(
-                entry.uuid,
-                {},
-            );
-            for (const child of children) {
-                responses.push(
-                    propfindEntry(maskEntryPath(child), child, child.isDir),
-                );
-            }
+        if (depth === '0' || !entry.isDir) {
+            this.#sendMultistatus(res, responses);
+            return;
         }
 
-        this.#sendMultistatus(res, responses);
+        const toXml = (children: FSEntry[]) =>
+            children
+                .map((child) =>
+                    propfindEntry(maskEntryPath(child), child, child.isDir),
+                )
+                .join('\n');
+        const pages = this.services.fs.listDirectoryPages(entry.uuid);
+        const first = await pages.next();
+        if (!first.done && first.value.length > 0)
+            responses.push(toXml(first.value));
+        const second = await pages.next();
+        if (second.done) {
+            this.#sendMultistatus(res, responses);
+            return;
+        }
+
+        // Past one page the listing streams, so a large folder isn't held in
+        // memory whole. A failure partway cuts the response off.
+        const secondPage = second.value;
+        async function* body() {
+            yield `${MULTISTATUS_OPEN}${responses.join('\n')}`;
+            yield `\n${toXml(secondPage)}`;
+            for await (const page of pages)
+                if (page.length > 0) yield `\n${toXml(page)}`;
+            yield MULTISTATUS_CLOSE;
+        }
+        res.status(207).set({
+            'Content-Type': 'application/xml; charset=utf-8',
+        });
+        await pipeToResponse(contextBoundStream(body()), res);
     }
 
     /**
@@ -1289,8 +1313,12 @@ function escapeXml(text: string): string {
         .replace(/'/g, '&#39;');
 }
 
+const MULTISTATUS_OPEN =
+    '<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:">\n';
+const MULTISTATUS_CLOSE = '\n</D:multistatus>';
+
 function wrapMultistatus(inner: string): string {
-    return `<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:">\n${inner}\n</D:multistatus>`;
+    return `${MULTISTATUS_OPEN}${inner}${MULTISTATUS_CLOSE}`;
 }
 
 /**

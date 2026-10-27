@@ -37,7 +37,7 @@ A plain-text body. Shorthand for `text`; use the options form for anything else.
 - `html` (String) - HTML body. An inline image is shown with `<img src="cid:...">` — see `cid` under `attachments`.
 - `cc` (String | Array) - Carbon-copy recipient(s).
 - `bcc` (String | Array) - Blind-copy recipient(s). At most **10** recipients across `to`, `cc` and `bcc`.
-- `replyTo` (String) - Where replies go. Defaults to the confirmed account email of the worker's owner when the worker has no app binding or its owner owns the bound app. Otherwise, or while the address is unconfirmed, the message goes out without a Reply-To.
+- `replyTo` (String) - Where replies go. Defaults to the confirmed account email of the worker's owner when the worker has no app binding, or its owner owns the bound app and that app wasn't created by another app. Otherwise, or while the address is unconfirmed, the message goes out without a Reply-To.
 - `emailAccessToken` (String) - A worker's auth token — inside a worker, `me.puter.authToken`. Required when the caller is not itself a worker. The caller stays the billed and rate-limited identity.
 - `attachments` (Array) - Up to **10** attachments, **25 MB** in total. Each is an object:
   - `filename` (String) - Required with `content`; defaults to the file's name for a `path`/`uid` attachment.

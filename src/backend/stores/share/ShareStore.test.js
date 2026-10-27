@@ -20,8 +20,10 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import clusterKeySlot from 'cluster-key-slot';
 import { setupTestServer } from '../../testUtil.ts';
 import { decodeCursor } from '../../util/pagination.ts';
+import { ShareStore } from './ShareStore.js';
 
 describe('ShareStore', () => {
     let server;
@@ -266,6 +268,73 @@ describe('ShareStore', () => {
 
             const page = await store.listByHolder(holder.id);
             expect(page.items.map((r) => r.uid)).toContain(created.uid);
+        });
+
+        it('sends only lookups naming the withdrawn node to the primary', async () => {
+            const withdrawn = await makeEntry(issuer);
+            const other = await makeEntry(issuer);
+            for (const entry of [withdrawn, other]) {
+                await store.upsertAnyone({
+                    issuerUserId: issuer.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+            }
+            await store.deleteAnyone(withdrawn.id, withdrawn.uuid);
+
+            const pread = vi.spyOn(server.clients.db, 'pread');
+            try {
+                await store.getAnyone(other.id);
+                await store.listAnyoneOnFsentries([other.id]);
+                await store.listAnyoneReaching([other.uuid]);
+                expect(pread).not.toHaveBeenCalled();
+
+                // Every lookup the withdrawn row could appear in, by id or by
+                // uuid, alone or among ancestors.
+                await store.getAnyone(withdrawn.id);
+                await store.listAnyoneOnFsentries([other.id, withdrawn.id]);
+                expect(
+                    await store.listAnyoneReaching([
+                        other.uuid,
+                        withdrawn.uuid,
+                    ]),
+                ).toHaveLength(1);
+                expect(pread).toHaveBeenCalledTimes(3);
+            } finally {
+                pread.mockRestore();
+            }
+
+            const ttl = await server.clients.redis.ttl(
+                ShareStore.revokedLinkKey('uuid', withdrawn.uuid),
+            );
+            expect(ttl).toBeGreaterThan(25);
+        });
+
+        it('marks the uuid too when the caller passes only the row id', async () => {
+            const entry = await makeEntry(issuer);
+            await store.upsertAnyone({
+                issuerUserId: issuer.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            await store.deleteAnyone(entry.id);
+            expect(
+                await server.clients.redis.get(
+                    ShareStore.revokedLinkKey('uuid', entry.uuid),
+                ),
+            ).toBe('1');
+        });
+
+        it('keeps every revoke marker in one cluster slot', () => {
+            const keys = [
+                ShareStore.revokedLinkKey('id', 1),
+                ShareStore.revokedLinkKey('id', 987654),
+                ShareStore.revokedLinkKey('uuid', uuidv4()),
+                ShareStore.revokedLinkKey('uuid', uuidv4()),
+            ];
+            expect(new Set(keys.map((key) => clusterKeySlot(key))).size).toBe(
+                1,
+            );
         });
 
         it('reads a link past the replica once one has been withdrawn', async () => {
@@ -593,6 +662,58 @@ describe('ShareStore', () => {
             expect(seen).toEqual(uids);
             expect(cursor).toBeUndefined();
             expect(await store.countByHolder(pageHolder.id)).toBe(5);
+        });
+
+        it("leaves a member's own items out of their team's rows, page and count", async () => {
+            const member = await makeUser();
+            const mate = await makeUser();
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `kind`, ' +
+                    '`name`, `extra`, `metadata`) VALUES (?, ?, ?, ?, ?, ?)',
+                [groupUid, member.id, 'team', 'Own items', '{}', '{}'],
+            );
+            const [{ id: groupId }] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            );
+            const groupRow = async (issuerUserId, entry) =>
+                store.upsertActiveGroup({
+                    issuerUserId,
+                    holderGroupId: Number(groupId),
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+
+            // Issued by the member.
+            await groupRow(member.id, await makeEntry(member));
+            // A teammate's share of the member's item.
+            await groupRow(mate.id, await makeEntry(member));
+            // As that, from before `entry_owner_user_id` was recorded.
+            const legacy = await groupRow(mate.id, await makeEntry(member));
+            await server.clients.db.write(
+                'UPDATE `share` SET `entry_owner_user_id` = NULL WHERE `uid` = ?',
+                [legacy.uid],
+            );
+            const theirs = await groupRow(mate.id, await makeEntry(mate));
+            const direct = await store.upsertActive({
+                issuerUserId: mate.id,
+                holderUserId: member.id,
+                fsentryId: (await makeEntry(mate)).id,
+                mode: 'read',
+            });
+
+            const opts = { groupIds: [Number(groupId)] };
+            const page = await store.listByHolder(member.id, opts);
+            expect(page.items.map((r) => r.uid).sort()).toEqual(
+                [theirs.uid, direct.uid].sort(),
+            );
+            expect(await store.countByHolder(member.id, opts)).toBe(2);
+
+            // The teammate gets the member's items, and not their own.
+            const matePage = await store.listByHolder(mate.id, opts);
+            expect(matePage.items).toHaveLength(1);
+            expect(await store.countByHolder(mate.id, opts)).toBe(1);
         });
 
         it('lists what a user issued alongside what was issued on their node', async () => {

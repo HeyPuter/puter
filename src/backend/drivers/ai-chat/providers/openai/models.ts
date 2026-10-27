@@ -32,6 +32,31 @@ const GPT_LONG_CONTEXT_PRICING = {
 // Hardcoded from https://models.dev/api.json
 export const OPEN_AI_MODELS: IChatModel[] = [
     {
+        puterId: 'openai:openai/gpt-6.1-terra',
+        id: 'gpt-6.1-terra',
+        responsesSampling: 'reasoningDisabled',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2026-06-01',
+        release_date: '2026-10-26',
+        aliases: ['openai/gpt-6.1-terra'],
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 100,
+            cached_tokens: 5,
+            cache_write_tokens: 100 * 1.25,
+            completion_tokens: 500,
+        },
+        long_context_pricing: GPT_LONG_CONTEXT_PRICING,
+        context: 1_050_000,
+        max_tokens: 128_000,
+        responses_api: true,
+    },
+    {
         puterId: 'openai:openai/gpt-6.1-sol',
         id: 'gpt-6.1-sol',
         responsesSampling: 'never',

@@ -79,12 +79,10 @@ export class ShareStore extends PuterStore {
         // Same keyset page: `ORDER BY id` holds whatever the holder is. A
         // per-sender block deliberately does not apply here — a team share is
         // the team's, not one colleague's to withhold from another.
-        const holderClause = groups.length
-            ? `(\`holder_user_id\` = ? OR \`holder_group_id\` IN (${groups
-                  .map(() => '?')
-                  .join(', ')}))`
-            : '`holder_user_id` = ?';
-        const holderParams = [holderUserId, ...groups];
+        const { holderClause, holderParams } = this.#holderClause(
+            holderUserId,
+            groups,
+        );
 
         // One extra row tells us whether another page exists.
         const rows = await this.clients.db.read(
@@ -467,16 +465,47 @@ export class ShareStore extends PuterStore {
         const groups = [...new Set(groupIds)].filter(Boolean);
         // Same union as `listByHolder`, blocks included, or the total and the
         // page disagree.
-        const holderClause = groups.length
-            ? `(\`holder_user_id\` = ? OR \`holder_group_id\` IN (${groups
-                  .map(() => '?')
-                  .join(', ')}))`
-            : '`holder_user_id` = ?';
+        const { holderClause, holderParams } = this.#holderClause(
+            holderUserId,
+            groups,
+        );
         const rows = await this.clients.db.read(
             `SELECT COUNT(*) AS \`count\` FROM \`share\` WHERE ${holderClause}`,
-            [holderUserId, ...groups],
+            holderParams,
         );
         return Number(rows[0]?.count ?? 0);
+    }
+
+    /**
+     * The holder's own rows, plus their teams' rows on items that aren't
+     * theirs: what they shared with their own team, or a teammate shared of
+     * something they own, was not shared with them. Rows predating
+     * `entry_owner_user_id` are matched through their entry.
+     */
+    #holderClause(holderUserId, groups) {
+        if (groups.length === 0) {
+            return {
+                holderClause: '`holder_user_id` = ?',
+                holderParams: [holderUserId],
+            };
+        }
+        return {
+            holderClause:
+                '(`holder_user_id` = ? OR (`holder_group_id` IN (' +
+                groups.map(() => '?').join(', ') +
+                ') AND `issuer_user_id` <> ? AND ' +
+                '(`entry_owner_user_id` <> ? OR (`entry_owner_user_id` IS NULL ' +
+                'AND NOT EXISTS (SELECT 1 FROM `fsentries` WHERE ' +
+                '`fsentries`.`id` = `share`.`fsentry_id` AND ' +
+                '`fsentries`.`user_id` = ?)))))',
+            holderParams: [
+                holderUserId,
+                ...groups,
+                holderUserId,
+                holderUserId,
+                holderUserId,
+            ],
+        };
     }
 
     /**
@@ -1024,23 +1053,30 @@ export class ShareStore extends PuterStore {
     // every other row here it is not an index over a permission: nothing in
     // the permission tables stands behind it, and ACLService reads it directly.
 
-    /**
-     * The link share on one node, if any.
-     *
-     * @param {number} fsentryId
-     */
-    /** How long after a link is withdrawn these reads go to the primary. */
+    /** How long after a link is withdrawn reads of its node go to the primary. */
     static REVOKED_LINK_PRIMARY_WINDOW_SECONDS = 30;
 
-    #revokedLinkKey() {
-        return 'share:anyone:revoked-recently';
+    /**
+     * Per node, under both its row id and its uuid since lookups come by
+     * either. One hash tag, so a lookup's keys MGET from one cluster slot.
+     *
+     * @param {'id' | 'uuid'} kind
+     * @param {number | string} value
+     */
+    static revokedLinkKey(kind, value) {
+        const part = kind === 'id' ? Number(value) : String(value);
+        return `share:anyone:revoked:{links}:${kind}:${part}`;
     }
 
-    /** Past the replica while a link has just been withdrawn. */
-    async #readAnyone(sql, params) {
+    /** Past the replica while a link on one of these nodes was just withdrawn. */
+    async #readAnyone(sql, params, markerKeys) {
         let recent = false;
         try {
-            recent = !!(await this.clients.redis.get(this.#revokedLinkKey()));
+            const keys = [...new Set(markerKeys)];
+            if (keys.length > 0) {
+                const marks = await this.clients.redis.mget(...keys);
+                recent = marks.some(Boolean);
+            }
         } catch {
             // Unreadable marker reads as no revoke; the row is still checked.
         }
@@ -1049,12 +1085,21 @@ export class ShareStore extends PuterStore {
             : this.clients.db.read(sql, params);
     }
 
+    /**
+     * The link share on one node, if any.
+     *
+     * @param {number} fsentryId
+     */
     async getAnyone(fsentryId, { primary = false } = {}) {
         const sql =
             'SELECT * FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1 LIMIT 1';
         const rows = primary
             ? await this.clients.db.pread(sql, [fsentryId])
-            : await this.#readAnyone(sql, [fsentryId]);
+            : await this.#readAnyone(
+                  sql,
+                  [fsentryId],
+                  [ShareStore.revokedLinkKey('id', fsentryId)],
+              );
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
@@ -1070,6 +1115,7 @@ export class ShareStore extends PuterStore {
             `SELECT * FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
                 'AND `anyone` = 1 ORDER BY `id`',
             fsentryIds,
+            fsentryIds.map((id) => ShareStore.revokedLinkKey('id', id)),
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
@@ -1094,6 +1140,7 @@ export class ShareStore extends PuterStore {
                 `WHERE \`fsentries\`.\`uuid\` IN (${placeholders}) ` +
                 'AND `share`.`anyone` = 1',
             uuids,
+            uuids.map((uuid) => ShareStore.revokedLinkKey('uuid', uuid)),
         );
         return rows.map((row) => ({
             mode: String(row.mode),
@@ -1161,25 +1208,40 @@ export class ShareStore extends PuterStore {
      * Drop the link share on one node.
      *
      * @param {number} fsentryId
+     * @param {string} [entryUuid] The node's uuid; looked up when omitted.
      */
-    async deleteAnyone(fsentryId) {
+    async deleteAnyone(fsentryId, entryUuid) {
         const result = await this.clients.db.write(
             'DELETE FROM `share` WHERE `fsentry_id` = ? AND `anyone` = 1',
             [fsentryId],
         );
         const removed = result.anyRowsAffected;
-        if (removed) await this.#markLinkRevoked();
+        if (removed) await this.#markLinkRevoked(fsentryId, entryUuid);
         return removed;
     }
 
-    /** Open the window in which link reads go to the primary. */
-    async #markLinkRevoked() {
+    /** Open the window in which reads of this node's link go to the primary. */
+    async #markLinkRevoked(fsentryId, entryUuid) {
         try {
-            await this.clients.redis.set(
-                this.#revokedLinkKey(),
-                '1',
-                'EX',
-                ShareStore.REVOKED_LINK_PRIMARY_WINDOW_SECONDS,
+            let uuid = entryUuid;
+            if (!uuid) {
+                const rows = await this.clients.db.pread(
+                    'SELECT `uuid` FROM `fsentries` WHERE `id` = ? LIMIT 1',
+                    [fsentryId],
+                );
+                uuid = rows[0]?.uuid;
+            }
+            const keys = [ShareStore.revokedLinkKey('id', fsentryId)];
+            if (uuid) keys.push(ShareStore.revokedLinkKey('uuid', uuid));
+            await Promise.all(
+                keys.map((key) =>
+                    this.clients.redis.set(
+                        key,
+                        '1',
+                        'EX',
+                        ShareStore.REVOKED_LINK_PRIMARY_WINDOW_SECONDS,
+                    ),
+                ),
             );
         } catch (e) {
             console.warn('[share] link-revoke marker not set:', e);
