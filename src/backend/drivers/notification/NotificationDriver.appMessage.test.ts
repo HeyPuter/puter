@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
@@ -27,6 +27,42 @@ import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { peekRateLimit } from '../../core/http/middleware/rateLimit.js';
 import type { NotificationDriver } from './NotificationDriver.js';
+
+/**
+ * Charges to a held key wait here until the test lets them go, so two requests
+ * can both be read before either is spent. Every charge is recorded by key.
+ */
+const charges = vi.hoisted(() => ({
+    held: new Set<string>(),
+    waiting: [] as Array<() => void>,
+    made: [] as string[],
+}));
+
+vi.mock('../../core/http/middleware/rateLimit.js', async (importOriginal) => {
+    const actual =
+        await importOriginal<
+            typeof import('../../core/http/middleware/rateLimit.js')
+        >();
+    return {
+        ...actual,
+        checkRateLimit: async (key: string, ...rest: unknown[]) => {
+            if (charges.held.has(key)) {
+                await new Promise<void>((go) => charges.waiting.push(go));
+            }
+            charges.made.push(key);
+            return (
+                actual.checkRateLimit as (...a: unknown[]) => Promise<boolean>
+            )(key, ...rest);
+        },
+    };
+});
+
+const until = async (ready: () => boolean): Promise<void> => {
+    for (let i = 0; i < 400 && !ready(); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    if (!ready()) throw new Error('timed out');
+};
 
 const makeUser = async (server: PuterServer): Promise<Actor> => {
     const username = `am-${Math.random().toString(36).slice(2, 10)}`;
@@ -345,6 +381,50 @@ describe('app.message with live delivery over the socket wire', () => {
                 state.driver.create(message()),
             ),
         ).resolves.toMatchObject({ uid: expect.any(String) });
+    });
+
+    it('spends the day window only on a request the minute window admits', async () => {
+        const holder = await makeUser(state.server);
+        const app = await makeApp(state.server, holder.user.id!);
+        const minuteKey = `notif:app-message:minute:${holder.user.id}:${app.uid}`;
+        const dayKey = `notif:app-message:day:${holder.user.id}:${app.uid}`;
+        for (let i = 0; i < 2; i++) {
+            await withActor(asApp(holder, app), () =>
+                state.driver.create(message()),
+            );
+        }
+
+        charges.held.add(minuteKey).add(dayKey);
+        charges.made.length = 0;
+        let settled = false;
+        const outcome = Promise.allSettled([
+            withActor(asApp(holder, app), () => state.driver.create(message())),
+            withActor(asApp(holder, app), () => state.driver.create(message())),
+        ]).finally(() => {
+            settled = true;
+        });
+        try {
+            // Both requests read the windows as open before either spends.
+            await until(() => charges.waiting.length === 2);
+            while (!settled) {
+                await until(() => settled || charges.waiting.length > 0);
+                charges.waiting.shift()?.();
+            }
+        } finally {
+            charges.held.clear();
+        }
+
+        const results = await outcome;
+        expect(results.map((r) => r.status).sort()).toEqual([
+            'fulfilled',
+            'rejected',
+        ]);
+        const refused = results.find((r) => r.status === 'rejected') as
+            PromiseRejectedResult | undefined;
+        expect(refused?.reason).toMatchObject({ statusCode: 429 });
+        // The refused request left the day window alone.
+        expect(charges.made.filter((k) => k === dayKey)).toEqual([dayKey]);
+        expect(await peekRateLimit(dayKey, 4, 24 * 60 * 60_000)).toBe(true);
     });
 
     it("reads back the app's own messages and no other app's", async () => {

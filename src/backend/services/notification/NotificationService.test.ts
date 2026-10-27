@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -361,6 +362,7 @@ describe("NotificationService — 'notif.written'", () => {
             userId: u.id,
             uid: rows[i][0].uid,
             type: 'app.events.ended',
+            audience: 'app-user',
             appUid,
             value: { title: 'ended', type: 'app.events.ended' },
         }));
@@ -404,10 +406,81 @@ describe("NotificationService — 'notif.written'", () => {
             userId: user.id,
             uid,
             type: 'share.received',
+            audience: 'account',
+            appUid: null,
             value: { title: 'two shares', type: 'share.received' },
             updated: true,
         });
         written.stop();
+    });
+
+    it("names the row's app on a rewrite", async () => {
+        const user = await makeUser();
+        const uid = uuidv4();
+        const appUid = `app-${uuidv4()}`;
+        await server.stores.notification.insert({
+            userId: user.id,
+            value: { title: 'one', type: 'share.received' },
+            uid,
+            type: 'share.received',
+            audience: 'account',
+            appUid,
+        });
+        const written = collect('notif.written');
+
+        await notifications.notifyUpdate(
+            uid,
+            user.id,
+            { title: 'two' },
+            { type: 'share.received' },
+        );
+        await waitFor(() => written.seen.length === 1);
+
+        expect(written.seen[0]).toMatchObject({ uid, appUid, updated: true });
+        written.stop();
+    });
+
+    it('hands each listener its own copy of the value', async () => {
+        const user = await makeUser();
+        const handler = (_k: string, data: unknown) => {
+            const value = (data as { value: Record<string, unknown> }).value;
+            value.title = 'changed by a listener';
+            (value.fields as Record<string, unknown>).path = '/elsewhere';
+        };
+        server.clients.event.on('notif.written', handler);
+        const pushed = collect('outer.gui.notif.message');
+        try {
+            const uid = await notifications.notify(
+                [user.id],
+                { title: 'one share', fields: { path: '/a' } },
+                { type: 'share.received' },
+            );
+            await notifications.notifyUpdate(
+                uid!,
+                user.id,
+                { title: 'two shares', fields: { path: '/b' } },
+                { type: 'share.received' },
+            );
+            await waitFor(() => pushed.seen.length === 2);
+        } finally {
+            server.clients.event.off?.('notif.written', handler);
+            pushed.stop();
+        }
+
+        expect(
+            pushed.seen.map((p) => (p as NotifPush).response.notification),
+        ).toEqual([
+            {
+                title: 'one share',
+                fields: { path: '/a' },
+                type: 'share.received',
+            },
+            {
+                title: 'two shares',
+                fields: { path: '/b' },
+                type: 'share.received',
+            },
+        ]);
     });
 });
 
@@ -608,7 +681,10 @@ describe('NotificationService — shown on delivery', () => {
             { type: 'share.received' },
         );
 
-        const [row] = await server.stores.notification.listByUserId(user.id, {});
+        const [row] = await server.stores.notification.listByUserId(
+            user.id,
+            {},
+        );
         expect(row.uid).toBe(uid);
         expect(row.shown).toBeTruthy();
 
