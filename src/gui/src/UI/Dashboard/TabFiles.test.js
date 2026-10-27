@@ -435,6 +435,16 @@ describe('TabFiles.moveClipboardItems', () => {
             options: expect.objectContaining({ uid: 'a1', path: '/alice/Pictures/a.txt' }),
         })]);
     });
+
+    it("is what Undo takes back after a row menu's Cut too", async () => {
+        window.clipboard = ['/alice/Documents/a.txt'];
+        await TabFiles.moveClipboardItems('/alice/Pictures');
+
+        expect(window.puter.fs.move).toHaveBeenCalledWith(expect.objectContaining({ source: '/alice/Documents/a.txt' }));
+        const last = window.actions_history.at(-1);
+        expect(last.operation).toBe('move');
+        expect(last.data).toEqual([expect.objectContaining({ original_path: '/alice/Documents/a.txt' })]);
+    });
 });
 
 describe('TabFiles refreshing a folder during a refresh of it', () => {
@@ -1099,6 +1109,27 @@ describe('TabFiles uploads', () => {
         expect($('.files .row.selected')).toHaveLength(2);
     });
 
+    it('that fail or are cancelled leave no rejection unhandled', async () => {
+        mountListing(['a.txt'], '/alice/Documents');
+        // Not a vi.fn(), which handles the promises it returns.
+        let uploads = 0;
+        window.puter.fs.upload = async (items, dest, callbacks) => {
+            uploads++;
+            await callbacks.init('op1', { abort: vi.fn() });
+            await callbacks.abort('op1');
+            throw { code: 'upload_aborted', message: 'Upload aborted.' };
+        };
+        const unhandled = vi.fn();
+        process.on('unhandledRejection', unhandled);
+
+        TabFiles.uploadFiles([new File(['x'], 'new.txt')], '/alice/Documents');
+        await new Promise(resolve => setTimeout(resolve, 50));
+        process.off('unhandledRejection', unhandled);
+
+        expect(uploads).toBe(1);
+        expect(unhandled).not.toHaveBeenCalled();
+    });
+
     it('into the folder on screen list it again', async () => {
         mountListing(['a.txt'], '/alice/Documents');
 
@@ -1253,5 +1284,145 @@ describe('TabFiles.folderMoved', () => {
         window.dashboard_nav_history_current_position = 1;
         TabFiles.folderMoved('/alice/A', null);
         expect(window.dashboard_nav_history).toEqual(['/alice', '/alice/A']);
+    });
+});
+
+describe('TabFiles keyboard', () => {
+    /** Files listing `names`, its shortcuts bound as on the dashboard. */
+    const mountKeyboard = (names) => {
+        mountListing(names, '/alice/Documents');
+        $('.files .row').each((i, row) => row.setAttribute('data-name', names[i]));
+        TabFiles.typeSearchTerm = '';
+        Element.prototype.scrollIntoView ??= () => {};
+        vi.spyOn(TabFiles, 'isDashboardFilesActive').mockReturnValue(true);
+        TabFiles.setupKeyboardShortcuts();
+    };
+    const press = (el, key, init = {}) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...init }));
+    const selected = () => $('.files .row.selected').toArray().map(r => r.getAttribute('data-path'));
+
+    afterEach(() => {
+        $(document).off('keydown.tabfiles');
+        clearTimeout(TabFiles.typeSearchTimeout);
+        vi.restoreAllMocks();
+    });
+
+    it('leaves the rows alone while a dashboard dialog is open over them', () => {
+        mountKeyboard(['a.txt', 'b.txt']);
+        $('.files .row').first().addClass('selected');
+        $('.window').append('<div class="dashboard-dialog-overlay"><button class="ok">OK</button></div>');
+        const button = $('.dashboard-dialog-overlay .ok')[0];
+        button.focus();
+
+        press(button, 'ArrowDown', { which: 40, keyCode: 40 });
+        press(button, 'a', { which: 65, keyCode: 65, metaKey: true });
+
+        expect(selected()).toEqual(['/alice/Documents/a.txt']);
+    });
+
+    it('takes a space typed into a name as part of it', () => {
+        mountKeyboard(['my notes.txt', 'my zebra.txt']);
+        for ( const key of ['m', 'y', ' ', 'z'] ) press(document.body, key, { which: key.toUpperCase().charCodeAt(0) });
+        expect(selected()).toEqual(['/alice/Documents/my zebra.txt']);
+    });
+});
+
+describe('TabFiles folder menu', () => {
+    const publishItem = (folderPath) => TabFiles.generateFolderContextMenu(folderPath)
+        .find(item => item?.html === i18n('publish_as_website'));
+
+    beforeEach(() => {
+        mountListing([], '/alice/Documents');
+        window.user = { username: 'alice' };
+        window.trash_path = TRASH;
+        window.shared_path = '/alice/Shared';
+        window.file_templates = [];
+        window.sites = [];
+        TabFiles.trashedNames = new Map();
+    });
+
+    it('offers no second website for a folder that has one', () => {
+        expect(publishItem('/alice/Documents/site').disabled).toBe(false);
+        window.sites = [{ subdomain: 'mine', root_dir: { path: '/alice/Documents/site' } }];
+        expect(publishItem('/alice/Documents/site').disabled).toBe(true);
+        expect(publishItem('/alice/Documents/other').disabled).toBe(false);
+    });
+});
+
+describe('TabFiles.followRename', () => {
+    beforeEach(() => {
+        mountListing(['a.txt', 'b.txt', 'c.txt'], '/alice/Documents');
+        $('.files .row').each((_, row) => {
+            row.setAttribute('data-name', row.getAttribute('data-path').split('/').pop());
+            row.setAttribute('data-is_dir', '0');
+        });
+        TabFiles.sortColumn = 'name';
+        TabFiles.sortDirection = 'asc';
+    });
+
+    it('puts a row renamed elsewhere where its new name sorts', () => {
+        const $row = $('.files .row').first();
+        $row.attr({ 'data-name': 'z.txt', 'data-path': '/alice/Documents/z.txt' });
+        TabFiles.followRename($row, { name: 'z.txt', path: '/alice/Documents/z.txt', is_dir: false }, '/alice/Documents/a.txt');
+        expect($('.files .row').toArray().map(row => row.getAttribute('data-name'))).toEqual(['b.txt', 'c.txt', 'z.txt']);
+    });
+
+    it('points Back/Forward at a folder renamed elsewhere', () => {
+        window.dashboard_nav_history = ['/alice/Documents', '/alice/Documents/old/sub'];
+        window.dashboard_nav_history_current_position = 0;
+        const $row = $('.files .row').first();
+        TabFiles.followRename($row, { name: 'new', path: '/alice/Documents/new', is_dir: true }, '/alice/Documents/old');
+        expect(window.dashboard_nav_history).toEqual(['/alice/Documents', '/alice/Documents/new/sub']);
+    });
+});
+
+describe('TabFiles listSharedView', () => {
+    beforeEach(() => {
+        window.user = { username: 'alice', directories: {} };
+        TabFiles.pendingSharedLinks = null;
+    });
+
+    afterEach(() => vi.restoreAllMocks());
+
+    it('marks a row shared through a team, and only that one', async () => {
+        const team = { uid: 't-1', name: 'Acme', handle: 'acme' };
+        window.puter = {
+            fs: {
+                listShared: vi.fn(async () => ({
+                    items: [
+                        {
+                            entryUid: 'u-1',
+                            name: 'a.txt',
+                            path: '/bob/u-1/a.txt',
+                            isDir: false,
+                            mode: 'read',
+                            issuer: 'bob',
+                            owner: 'bob',
+                        },
+                        {
+                            entryUid: 'u-2',
+                            name: 'b.txt',
+                            path: '/bob/u-2/b.txt',
+                            isDir: false,
+                            mode: 'read',
+                            issuer: 'bob',
+                            owner: 'bob',
+                            holderTeam: team,
+                        },
+                    ],
+                })),
+            },
+        };
+
+        const rows = await TabFiles.listSharedView();
+
+        expect(rows[0].holder_team).toBeUndefined();
+        expect(rows[0]).toMatchObject({
+            uid: 'u-1',
+            shared_with_me: true,
+            share_mode: 'read',
+            shared_by: 'bob',
+            owner: 'bob',
+        });
+        expect(rows[1].holder_team).toEqual(team);
     });
 });

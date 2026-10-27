@@ -191,8 +191,11 @@ async function UIWindowLogin (options) {
                 // returns it as a plain sign-in popup, losing whatever the popup
                 // was opened to do — and, for a permission prompt, handing the
                 // opener a token instead of a decision. Don't offer it there.
+                // A cross-origin-isolated opener can only get the token through
+                // the session relay, which the provider's return doesn't keep.
                 if ( window.embedded_in_popup
-                    && ! offersFederatedSignInInPopup(window.gui_action) ) {
+                    && ( ! offersFederatedSignInInPopup(window.gui_action)
+                        || window.url_query_params?.get('cross_origin_isolated') === 'true' ) ) {
                     return;
                 }
                 const res = await fetch(`${window.api_origin}/auth/oidc/providers`);

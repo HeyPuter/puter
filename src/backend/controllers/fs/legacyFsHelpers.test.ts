@@ -17,15 +17,19 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { Writable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { Context, runWithContext } from '../../core/context.js';
 import type { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
 import {
     asRecord,
+    contextBoundStream,
     fsEntryMimeType,
     getBoolean,
     getString,
     loadLegacyAssociatedApps,
+    rangeForEntry,
     resolveReadRange,
     signEntry,
     signEntryThumbnail,
@@ -703,5 +707,52 @@ describe('resolveReadRange', () => {
         expect(() =>
             resolveReadRange(undefined, { offset: 0, byte_count: 'xyz' }),
         ).toThrow('Invalid byte_count');
+    });
+});
+
+describe('rangeForEntry', () => {
+    it('drops the range for an empty file only', () => {
+        const entry = (size: number) => ({ size }) as FSEntry;
+        expect(rangeForEntry(entry(0), 'bytes=0-511')).toBeUndefined();
+        expect(rangeForEntry(entry(10), 'bytes=0-4')).toBe('bytes=0-4');
+    });
+});
+
+describe('contextBoundStream', () => {
+    it("reads every chunk in the caller's context", async () => {
+        // A sink slower than the source that completes writes from outside
+        // any request, so later chunks are asked for from its drain.
+        const pending: Array<() => void> = [];
+        const flush = runWithContext({}, () =>
+            setInterval(() => pending.splice(0).forEach((done) => done()), 5),
+        );
+        const sink = new Writable({
+            highWaterMark: 1,
+            write(_chunk, _encoding, done) {
+                pending.push(done);
+            },
+        });
+        const seen: unknown[] = [];
+        try {
+            await runWithContext({ actor: 'caller' as never }, async () => {
+                async function* chunks() {
+                    for (let i = 0; i < 40; i++) {
+                        await new Promise((resolve) => setTimeout(resolve, 1));
+                        seen.push(Context.get('actor'));
+                        yield 'x';
+                    }
+                }
+                await new Promise((resolve, reject) => {
+                    contextBoundStream(chunks())
+                        .pipe(sink)
+                        .on('finish', resolve)
+                        .on('error', reject);
+                });
+            });
+        } finally {
+            clearInterval(flush);
+        }
+        expect(seen).toHaveLength(40);
+        expect(seen.every((actor) => actor === 'caller')).toBe(true);
     });
 });

@@ -1436,7 +1436,7 @@ describe('AppStore CRUD and cache invalidation', () => {
         expect((await cachedByUid(uid))?.index_url).toBe(origin);
     });
 
-    it('returns and caches the updated app, not a replica copy missing an earlier update', async () => {
+    it('returns the updated app and prevents replica cache refills', async () => {
         const app = await createApp({ title: 'One' });
         const stale = await rawRow(app.id);
         await appStore.update(app.id, { title: 'Two' });
@@ -1446,9 +1446,28 @@ describe('AppStore CRUD and cache invalidation', () => {
         );
 
         expect(updated).toMatchObject({ title: 'Two', description: 'later' });
-        expect(await cachedByUid(app.uid)).toMatchObject({
-            title: 'Two',
-            description: 'later',
+        expect(await cachedByUid(app.uid)).toBeNull();
+        expect(await appStore.getByUid(app.uid)).toMatchObject({
+            title: 'Two', description: 'later',
+        });
+    });
+
+    it('preserves intermediate name redirects across consecutive renames with replica lag', async () => {
+        const app = await createApp();
+        const stale = await rawRow(app.id);
+        const intermediateName = freshName();
+        const finalName = freshName();
+        await appStore.update(app.id, { name: intermediateName });
+
+        await withLaggingReplica([stale], () =>
+            appStore.update(app.id, { name: finalName }),
+        );
+
+        expect(await appStore.getByName(intermediateName)).toMatchObject({
+            uid: app.uid, name: finalName,
+        });
+        expect(await appStore.getByName(app.name)).toMatchObject({
+            uid: app.uid, name: finalName,
         });
     });
 

@@ -2591,3 +2591,239 @@ describe('createPuterSiteMiddleware — private-app gate decisions', () => {
         },
     );
 });
+
+describe('public hosted asset billing identity', () => {
+    it.each(['actor', 'session', 'query'] as const)(
+        'replaces an older billing cookie with the current %s identity',
+        async (source) => {
+            const owner = await makeUserWithHome();
+            const previous = await makeUser();
+            const current = await makeUser();
+            const home = (await server.stores.fsEntry.getEntryByPath(
+                `/${owner.username}`,
+            ))!;
+            const sub = `switch-${uuidv4().slice(0, 8)}`;
+            const host = `${sub}.site.puter.localhost`;
+            await server.stores.subdomain.create({
+                userId: owner.id,
+                subdomain: sub,
+                rootDirId: home.id,
+            });
+            await writeFile(
+                owner.id,
+                `/${owner.username}/index.html`,
+                Buffer.from('hello'),
+            );
+            const app = await server.stores.app.create(
+                { name: sub, title: sub, index_url: `http://${host}/` },
+                { ownerUserId: owner.id },
+            );
+            const previousToken = await server.services.auth.getUserAppToken(
+                actorFor(previous),
+                app.uid,
+            );
+            const previousActor =
+                (await server.services.auth.authenticateFromToken(
+                    previousToken,
+                ))!;
+            const currentToken = await server.services.auth.getUserAppToken(
+                actorFor(current),
+                app.uid,
+            );
+            const oldCookie = await server.services.auth.createHostedAssetToken(
+                'public',
+                {
+                    appUid: app.uid,
+                    userUid: previous.uuid,
+                    sessionUuid: previousActor.session?.uid,
+                    subdomain: sub,
+                    host,
+                },
+            );
+            const cookieName = HOSTED_ASSET_COOKIES.public.name;
+            const req = makeReq({
+                hostname: host,
+                path: '/index.html',
+                cookies: {
+                    [cookieName]: oldCookie,
+                    ...(source === 'session' ? { session: currentToken } : {}),
+                },
+                query:
+                    source === 'query'
+                        ? { 'puter.auth.token': currentToken }
+                        : {},
+            });
+            if (source === 'actor')
+                req.actor =
+                    (await server.services.auth.authenticateFromToken(
+                        currentToken,
+                    ))!;
+            const { res, out } = makeRes();
+            await buildMiddleware({ cookie_name: 'session' })(
+                req,
+                res,
+                vi.fn(),
+            );
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(out.statusCode).toBe(200);
+            expect(req.egressActor?.user?.uuid).toBe(current.uuid);
+            const refreshed = out.cookies[cookieName];
+            expect(refreshed).toBeTruthy();
+            expect(
+                (
+                    await server.services.auth.verifyHostedAssetToken(
+                        'public',
+                        refreshed,
+                        { appUid: app.uid, host },
+                    )
+                ).userUid,
+            ).toBe(current.uuid);
+            const nextReq = makeReq({
+                hostname: host,
+                path: '/index.html',
+                cookies: { [cookieName]: refreshed },
+            });
+            await runMiddleware(buildMiddleware(), nextReq);
+            expect(nextReq.egressActor?.user?.uuid).toBe(current.uuid);
+        },
+    );
+
+    it('bills recognized visitors, reuses the parent session, and falls back to the owner', async () => {
+        const owner = await makeUserWithHome();
+        const visitor = await makeUser();
+        const home = (await server.stores.fsEntry.getEntryByPath(
+            `/${owner.username}`,
+        ))!;
+        const sub = `egress-${uuidv4().slice(0, 8)}`;
+        const host = `${sub}.site.puter.localhost`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: home.id,
+        });
+        await writeFile(
+            owner.id,
+            `/${owner.username}/index.html`,
+            Buffer.from('hello'),
+        );
+        const app = await server.stores.app.create(
+            { name: sub, title: sub, index_url: `http://${host}/` },
+            { ownerUserId: owner.id },
+        );
+        const token = await server.services.auth.getUserAppToken(
+            actorFor(visitor),
+            app.uid,
+        );
+        const authenticated =
+            await server.services.auth.authenticateFromToken(token);
+        const serve = async (query = {}, cookies = {}, headers = {}) => {
+            const req = makeReq({ hostname: host, path: '/index.html', query });
+            Object.assign(req, { cookies, headers });
+            const { res, out } = makeRes();
+            await buildMiddleware()(req, res, vi.fn());
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            expect(out.statusCode).toBe(200);
+            return { req, out };
+        };
+        const create = vi.spyOn(server.stores.session, 'create');
+        try {
+            const first = await serve({ 'puter.auth.token': token });
+            expect(first.req.egressActor?.user?.uuid).toBe(visitor.uuid);
+            const cookieName = HOSTED_ASSET_COOKIES.public.name;
+            const cookie = first.out.cookies[cookieName];
+            expect(cookie).toBeTruthy();
+            const claims = await server.services.auth.verifyHostedAssetToken(
+                'public',
+                cookie,
+                { appUid: app.uid, host },
+            );
+            expect(claims.sessionUuid).toBe(authenticated?.session?.uid);
+            const next = await serve({}, { [cookieName]: cookie });
+            expect(next.req.egressActor?.user?.uuid).toBe(visitor.uuid);
+            expect(next.out.cookies).toEqual({});
+            const blockedCookies = await serve(
+                {},
+                {},
+                { referer: `http://${host}/?puter.auth.token=${token}` },
+            );
+            expect(blockedCookies.req.egressActor?.user?.uuid).toBe(
+                visitor.uuid,
+            );
+            expect(create).not.toHaveBeenCalled();
+            const anonymous = await serve();
+            expect(anonymous.req.egressActor?.user?.uuid).toBe(owner.uuid);
+            const invalid = await serve({}, { [cookieName]: 'invalid' });
+            expect(invalid.req.egressActor?.user?.uuid).toBe(owner.uuid);
+            await server.services.auth.revokeAllSessionsForUserId(visitor.id);
+            const revoked = await serve({}, { [cookieName]: cookie });
+            expect(revoked.req.egressActor?.user?.uuid).toBe(owner.uuid);
+        } finally {
+            create.mockRestore();
+        }
+    });
+});
+
+describe('site rooted in the owner tree, root moved to Trash', () => {
+    it('stops serving a trashed folder and resumes when restored', async () => {
+        const owner = await makeUserWithHome();
+        const dir = await server.services.fs.mkdir(owner.id, {
+            path: `/${owner.username}/Documents/site`,
+            createMissingParents: true,
+        });
+        const body = Buffer.from('<html>trashed</html>');
+        await server.services.fs.write(owner.id, {
+            fileMetadata: {
+                path: `/${owner.username}/Documents/site/index.html`,
+                size: body.byteLength,
+            },
+            fileContent: body,
+        });
+        const sub = `tr-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: dir.id,
+        });
+        const serveIndex = async () => {
+            const mw = createPuterSiteMiddleware(hostingConfig, {
+                clients: server.clients,
+                stores: server.stores,
+                services: server.services,
+            });
+            const { res, out } = makeRes();
+            await mw(
+                makeReq({
+                    hostname: `${sub}.site.puter.localhost`,
+                    path: '/',
+                }),
+                res,
+                vi.fn(),
+            );
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            return out;
+        };
+        expect((await serveIndex()).statusCode).toBe(200);
+
+        const trash = (await server.stores.fsEntry.getEntryByPath(
+            `/${owner.username}/Trash`,
+        ))!;
+        const entry = (await server.stores.fsEntry.getEntryById(dir.id))!;
+        await server.services.fs.move(owner.id, {
+            source: entry,
+            destinationParent: trash,
+        });
+        const moved = (await server.stores.fsEntry.getEntryById(dir.id))!;
+        expect(moved.path.startsWith(`/${owner.username}/Trash/`)).toBe(true);
+
+        const out = await serveIndex();
+        expect(out.statusCode).toBe(404);
+        const documents = (await server.stores.fsEntry.getEntryByPath(
+            `/${owner.username}/Documents`,
+        ))!;
+        await server.services.fs.move(owner.id, {
+            source: moved,
+            destinationParent: documents,
+        });
+        expect((await serveIndex()).statusCode).toBe(200);
+    });
+});

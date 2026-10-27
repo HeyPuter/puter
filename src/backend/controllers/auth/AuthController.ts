@@ -4275,7 +4275,27 @@ export class AuthController extends PuterController {
             );
         }
 
-        this.#requireAccountTwoFactor(user, req.body?.code);
+        const code = req.body?.code;
+        if (
+            user.otp_enabled &&
+            typeof code === 'string' &&
+            /^[A-Z0-9]{8}$/.test(code)
+        ) {
+            await this.#assertSecondFactorAttemptsRemain(user.uuid);
+            const consumed = await this.stores.user.consumeOtpRecoveryCode(
+                user.id,
+                hashRecoveryCode(code),
+            );
+            if (!consumed) {
+                await this.#recordSecondFactorFailure(user.uuid);
+                throw new HttpError(401, 'Incorrect code.', {
+                    legacyCode: 'code_mismatch',
+                    fields: { factor: 'otp' },
+                });
+            }
+        } else {
+            this.#requireAccountTwoFactor(user, code);
+        }
 
         await this.stores.user.update(user.id, {
             otp_enabled: false,
@@ -4485,11 +4505,14 @@ export class AuthController extends PuterController {
         }
 
         const token = signStepUpToken(this.services.token, user as never);
-        res.cookie(
-            STEP_UP_COOKIE_NAME,
-            token,
-            stepUpCookieOptions(this.config),
-        );
+        const isApiHost = req.subdomains?.at(-1) === 'api';
+        if (!isApiHost) {
+            res.cookie(
+                STEP_UP_COOKIE_NAME,
+                token,
+                stepUpCookieOptions(this.config),
+            );
+        }
 
         // A browser reads its elevation back from the httpOnly cookie and never
         // needs the raw value; handing it to page JS would put the second factor
@@ -4498,7 +4521,9 @@ export class AuthController extends PuterController {
         // password/TOTP — this only avoids needless exposure, it isn't a gate.
         const cookieName = this.config.cookie_name ?? 'puter_token';
         const usedSessionCookie =
-            !!req.token && req.token === req.cookies?.[cookieName];
+            !isApiHost &&
+            !!req.token &&
+            req.token === req.cookies?.[cookieName];
         res.json(
             usedSessionCookie ? { elevated: true } : { elevated: true, token },
         );

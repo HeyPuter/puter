@@ -371,8 +371,10 @@ const generate_file_context_menu = async function (options) {
     // Remove from Shared
     // -------------------------------------------
     // Can't trash someone else's file, so give up our own access instead. Only
-    // for an item shared directly — access to a child is held on the folder.
-    if ( is_shared_root ) {
+    // for an item shared directly — access to a child is held on the folder —
+    // and not one shared with a team, which isn't the member's to leave.
+    const is_team_share = Boolean(fsentry.holder_team ?? fsentry.holderTeam);
+    if ( is_shared_root && ! is_team_share ) {
         menu_items.push({
             html: i18n('share_remove_from_shared'),
             onClick: async function () {

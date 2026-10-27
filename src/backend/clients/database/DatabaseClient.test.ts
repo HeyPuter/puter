@@ -108,6 +108,25 @@ describe('AbstractDatabaseClient — unimplemented surface', () => {
 });
 
 describe('AbstractDatabaseClient — replica-aware reads', () => {
+    it('avoids a primary read when the replica has rows in sequential mode', async () => {
+        const client = new FixtureDatabaseClient([{ id: 1 }], [{ id: 2 }]);
+        expect(
+            await client.tryHardRead('SELECT 1', [], { race: false }),
+        ).toEqual([{ id: 1 }]);
+        expect(client.preads).toEqual([]);
+    });
+
+    it.each([[], new Error('replica unavailable')])(
+        'falls back once in sequential mode',
+        async (replica) => {
+            const client = new FixtureDatabaseClient(replica, [{ id: 2 }]);
+            expect(
+                await client.tryHardRead('SELECT 1', [], { race: false }),
+            ).toEqual([{ id: 2 }]);
+            expect(client.preads).toEqual(['SELECT 1']);
+        },
+    );
+
     it('returns replica rows without waiting on the primary', async () => {
         const client = new FixtureDatabaseClient([{ id: 1 }], [{ id: 2 }]);
         await expect(client.tryHardRead('SELECT 1')).resolves.toEqual([

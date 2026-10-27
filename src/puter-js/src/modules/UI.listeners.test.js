@@ -134,6 +134,35 @@ describe('AppConnection', () => {
 });
 
 describe('host replies (env: app)', () => {
+    it('rejects launchApp when the desktop replies with a handler error', async () => {
+        const ui = makeUI();
+        const result = ui.launchApp('missing-app');
+        const rejection = expect(result).rejects.toMatchObject({
+            code: 'ipc_handler_failed',
+        });
+        await vi.waitFor(() => expect(parentPostMessage).toHaveBeenCalled());
+        const { uuid } = parentPostMessage.mock.calls.at(-1)[0];
+        await deliver({
+            source: parentWindow,
+            origin: 'https://puter.com',
+            data: {
+                $SCOPE,
+                id: uuid,
+                args: [
+                    {
+                        $: 'puter-ipc-error',
+                        error: {
+                            code: 'ipc_handler_failed',
+                            message: 'The request could not be completed.',
+                        },
+                    },
+                ],
+            },
+        });
+        await rejection;
+        expect(ui.util.rpc.callbackManager.callbacks.size).toBe(0);
+    });
+
     it('frees an IPC reply callback once the reply arrives', async () => {
         const ui = makeUI();
         const { callbackManager } = ui.util.rpc;
