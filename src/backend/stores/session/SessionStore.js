@@ -38,10 +38,11 @@ import { PuterStore } from '../types';
 const CACHE_KEY_PREFIX = 'sessions:v2';
 const CACHE_TTL_SECONDS = 15 * 60;
 // Min interval between successive activity flushes per session/user.
-// In-memory throttle keeps DB writes bounded; multi-node duplicates
-// are harmless because the SQL guard `last_activity < ?` makes the
-// UPDATE idempotent.
+// The in-memory throttle is per process; a Redis `SET NX` gate behind it
+// keeps the other nodes from writing the same rows in the same window.
 const TOUCH_THROTTLE_MS = 60 * 1000;
+const TOUCH_GATE_TTL_SECONDS = TOUCH_THROTTLE_MS / 1000;
+const TOUCH_GATE_PREFIX = 'sessions:touch';
 // Hard cap to keep the throttle map from growing unbounded for
 // long-lived processes. Clearing only loses throttling — at worst a
 // brief burst of redundant UPDATEs.
@@ -1085,23 +1086,59 @@ export class SessionStore extends PuterStore {
             this.#lastUserTouchMs.set(userId, nowMs);
         }
 
+        const [sessionClaimed, userClaimed] = await Promise.all([
+            sessionDue &&
+                this.#claimTouchGate(`${TOUCH_GATE_PREFIX}:s:${uuid}`),
+            userDue && this.#claimTouchGate(`${TOUCH_GATE_PREFIX}:u:${userId}`),
+        ]);
+
         const tasks = [];
-        if (sessionDue) {
+        if (sessionClaimed) {
             tasks.push(
-                this.updateActivity(uuid, Math.floor(nowMs / 1000), {
-                    ip,
-                    userAgent,
-                }).catch(() => {}),
+                (async () => {
+                    try {
+                        await this.updateActivity(
+                            uuid,
+                            Math.floor(nowMs / 1000),
+                            { ip, userAgent },
+                        );
+                    } catch {
+                        // best-effort
+                    }
+                })(),
             );
         }
-        if (userDue) {
+        if (userClaimed) {
             tasks.push(
-                this.updateUserActivity(userId, sqlTimestamp(nowMs)).catch(
-                    () => {},
-                ),
+                (async () => {
+                    try {
+                        await this.updateUserActivity(
+                            userId,
+                            sqlTimestamp(nowMs),
+                        );
+                    } catch {
+                        // best-effort
+                    }
+                })(),
             );
         }
         await Promise.all(tasks);
+    }
+
+    /** True when this node won the touch window; fails open on Redis errors. */
+    async #claimTouchGate(key) {
+        try {
+            const result = await this.clients.redis.set(
+                key,
+                '1',
+                'EX',
+                TOUCH_GATE_TTL_SECONDS,
+                'NX',
+            );
+            return result === 'OK';
+        } catch {
+            return true;
+        }
     }
 
     // -- Internals ---------------------------------------------------
