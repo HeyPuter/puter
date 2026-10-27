@@ -234,6 +234,8 @@ const TabFiles = {
         // drift — e.g. trashed items must show metadata.original_name, not
         // the UID that is their raw name (matching renderItem).
         window.UIDashboardFileItemUpdate = function ($row, file) {
+            const oldName = $row.attr('data-name');
+            const oldPath = $row.attr('data-path');
             // Minimal update payloads may omit fields — only write what the
             // event actually carries, so it can't blank a correct name/path
             // (or zero a size) that is already on screen. A metadata-only
@@ -289,6 +291,7 @@ const TabFiles = {
             ) {
                 $row.find('.item-icon img').attr('src', file.thumbnail);
             }
+            if ( displayName && displayName !== oldName && fsentry ) _this.followRename($row, fsentry, oldPath);
             // The footer's item-count/total-size line is computed from the
             // rows' data-size attributes — keep it in step with the cell.
             _this.updateFooterStats();
@@ -856,11 +859,11 @@ const TabFiles = {
             // Only handle if Dashboard Files tab is active
             if ( ! _this.isDashboardFilesActive() ) return;
 
-            // A Files-tab modal (share, item properties) owns the keyboard
-            // while open: Enter/Space must reach its buttons, arrows its
-            // selects, and typing must not retarget row selection — nor may
-            // Enter/Delete open or trash the rows behind the overlay.
-            if ( $('.share-modal-overlay, .item-props-overlay, .dashboard-notifications-panel.open, .context-menu-modal-backdrop').length > 0 ) return;
+            // A Files-tab modal (share, item properties, publish) owns the
+            // keyboard while open: Enter/Space must reach its buttons, arrows
+            // its selects, and typing must not retarget row selection — nor
+            // may Enter/Delete open or trash the rows behind the overlay.
+            if ( $('.share-modal-overlay, .item-props-overlay, .dashboard-dialog-overlay, .dashboard-notifications-panel.open, .context-menu-modal-backdrop').length > 0 ) return;
 
             const focused_el = document.activeElement;
 
@@ -1227,8 +1230,9 @@ const TabFiles = {
                 return false;
             }
 
-            // Space - Toggle image preview
-            if ( e.which === 32 ) {
+            // Space - Toggle image preview. Typed into a name being
+            // type-selected ("my notes"), it is part of the name.
+            if ( e.which === 32 && _this.typeSearchTerm === '' ) {
                 e.preventDefault();
                 e.stopPropagation();
 
@@ -1363,10 +1367,10 @@ const TabFiles = {
         $('body').append(previewHtml);
         const $popover = $('.image-preview-popover');
 
-        // Position centered over the files container
+        // Centered over the files container, and inside it
         $popover.css({
             maxWidth: `${containerWidth - 40}px`,
-            width: '100%',
+            maxHeight: `${$filesContainer.height() - 40}px`,
             left: `${containerOffset.left + (containerWidth / 2)}px`,
             top: `${containerOffset.top + ($filesContainer.height() / 2)}px`,
             transform: 'translate(-50%, -50%)',
@@ -1776,6 +1780,26 @@ const TabFiles = {
             ? false
             : can_restructure($(row).attr('data-path')))));
         return list.filter((_row, i) => answers[i]);
+    },
+
+    /**
+     * Puts a row renamed elsewhere where its new name sorts, with the icon its
+     * new type takes, and Back/Forward on a renamed folder's new path, as a
+     * rename made here does.
+     *
+     * @param {jQuery} $row
+     * @param {Object} fsentry - The row's entry, renamed
+     * @param {string} oldPath - The row's path before the rename
+     * @returns {void}
+     */
+    followRename ($row, fsentry, oldPath) {
+        this.insertAtSortedPosition($row, fsentry);
+        item_icon(fsentry).then(({ image }) => {
+            $row.find('.item-icon > img').first().attr('src', image);
+        });
+        if ( fsentry.is_dir && oldPath && fsentry.path && fsentry.path !== oldPath ) {
+            this.folderMoved(oldPath, fsentry.path);
+        }
     },
 
     /**
@@ -2546,19 +2570,7 @@ const TabFiles = {
         // in here too, and treating that as "already showing something" would
         // leave the pane blank once the spinner is taken away.
         if ( $files.find('.files-empty-notice').length > 0 ) return;
-        $files.append(`<div class="files-empty-notice" style="
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            pointer-events: none;
-        ">
-            ${i18n('folder_empty')}
-        </div>`);
+        $files.append(`<div class="files-notice files-empty-notice">${i18n('folder_empty')}</div>`);
     },
 
     /**
@@ -3109,19 +3121,7 @@ const TabFiles = {
             // stale rows during a same-directory refresh) with a message
             // rather than leaving it unexplained.
             clearListing();
-            $files.html(`<div style="
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                pointer-events: none;
-                text-align: center;
-                padding: 0 16px;
-            ">${i18n('folder_open_failed')}</div>`);
+            $files.html(`<div class="files-notice">${i18n('folder_open_failed')}</div>`);
             // The list was emptied above; without this the footer keeps the
             // previous directory's item count over a pane with zero rows.
             this.updateFooterStats();
@@ -4409,9 +4409,10 @@ const TabFiles = {
         // then overwrite without asking again.
         let overwrite_all = false;
 
-        for ( const item of window.clipboard ) {
-            // Handle both object format { path, uid } and legacy string format
-            const source = item.uid || item.path || item;
+        for ( const entry of window.clipboard ) {
+            // A row menu's Cut puts the bare path here; the rest put { path, uid }.
+            const item = typeof entry === 'string' ? { path: entry } : entry;
+            const source = item.uid || item.path;
             let overwrite = overwrite_all;
             let keep_both = false;
             let retry;
@@ -5375,8 +5376,10 @@ const TabFiles = {
                 items.push({
                     html: i18n('publish_as_website'),
                     // The right sharing takes, as on the folder's own menu: the
-                    // folder is yours, or shared with you to manage.
-                    disabled: ! is_owned_by_me(targetPath) && shared_root_for(targetPath)?.mode !== 'manage',
+                    // folder is yours, or shared with you to manage. Nor, as
+                    // there, a second site for a folder that has one.
+                    disabled: (! is_owned_by_me(targetPath) && shared_root_for(targetPath)?.mode !== 'manage')
+                        || (window.sites ?? []).some(site => site.root_dir?.path === targetPath),
                     onClick: function () {
                         openPublishWebsiteDialog({ name: targetName, path: targetPath, $container: _this.$el_window });
                     },
@@ -5761,6 +5764,8 @@ const TabFiles = {
             abort: async function (_operation_id) {
                 delete window.active_uploads[opid];
             },
+        }).catch(() => {
+            // A failure is reported by the error callback above; a cancel needs no word.
         });
     },
 
