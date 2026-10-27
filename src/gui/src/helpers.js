@@ -1971,11 +1971,8 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 if ( is_trashing ) {
                     // if trashing dir...
                     if ( $(el_item).attr('data-is_dir') === '1' ) {
-                        // disassociate all its websites
-                        // todo, some client-side check to see if this dir has at least one associated website before sending ajax request
-                        // FIXME: dir_uuid is not defined, is this the same as the data-uid attribute?
-                        // puter.hosting.delete(dir_uuid)
-
+                        // Its websites stay registered: the server doesn't
+                        // serve a root in Trash, and restoring brings them back.
                         $(`.mywebsites-dir-path[data-uuid="${$(el_item).attr('data-uid')}"]`).remove();
                         // remove the website badge from all instances of the dir
                         $(`.item[data-uid="${$(el_item).attr('data-uid')}"]`).find('.item-has-website-badge').fadeOut(300);
