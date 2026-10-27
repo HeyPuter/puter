@@ -381,7 +381,9 @@ export class LegacyFSController extends PuterController {
 
                 let recent: unknown[] = [];
                 const userId = req.actor?.user?.id;
-                if (userId) {
+                // `recent=0`: a caller that only shows `recommended`.
+                const wantsRecent = req.query.recent !== '0';
+                if (userId && wantsRecent) {
                     const recentUids = await this.stores.app.getRecentAppOpens(
                         userId,
                         { limit: 10 },
@@ -418,9 +420,9 @@ export class LegacyFSController extends PuterController {
                         return {
                             ...toAppSummary(app, {
                                 config: this.config,
+                                apiBaseUrl: this.config.api_base_url,
                                 iconSize,
                             }),
-                            icon: app.icon ?? null,
                             index_url: backingGone ? null : app.index_url,
                             ...(backingGone
                                 ? { privateAccess: buildHostedBackingDenial() }
