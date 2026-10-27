@@ -24,12 +24,15 @@ import {
     normalizePushTap,
     openAppForTap,
     pushTapFromParams,
+    storedTapHandler,
     storedTapItem,
     tapRoute,
     withoutNotificationClick,
 } from './notificationTap.js';
 
 const UID = '0b6a2c1e-6f1d-4a57-9c1e-3d2f8a9b7c10';
+const OTHER_UID = '7d3e9f10-2b4c-4d5e-8f6a-1b2c3d4e5f60';
+const THIRD_UID = 'c1d2e3f4-5a6b-4c7d-8e9f-0a1b2c3d4e5f';
 
 const appMessage = (over = {}) => ({
     type: 'app.message',
@@ -75,24 +78,22 @@ describe('tapRoute', () => {
             .toEqual({ kind: 'panel' });
     });
 
-    it('reads a push tap: an app target is the app, a path is a shared item', () => {
+    it('is the list without a notification, whatever else the tap carries', () => {
         expect(tapRoute({ uid: 'n1', push: { uid: 'n1', target: { app: 'app-1', path: '/rooms/7' }, data: 5 } }))
-            .toEqual({ kind: 'app', appUid: 'app-1', click: { uid: 'n1', target: '/rooms/7', data: 5 } });
-        expect(tapRoute({ uid: 'n1', push: { uid: 'n1', target: { path: '/alice/Shared/a.txt' } } })).toEqual({
-            kind: 'share',
-            notification: { type: 'share.received', fields: { target: { path: '/alice/Shared/a.txt' } } },
-        });
-        expect(tapRoute({ uid: 'n1', push: { uid: 'n1' } })).toEqual({ kind: 'panel' });
+            .toEqual({ kind: 'panel' });
+        expect(tapRoute({ uid: 'n1', target: { app: 'app-1' }, notification: null })).toEqual({ kind: 'panel' });
+        expect(tapRoute({ uid: 'n1' })).toEqual({ kind: 'panel' });
     });
 });
 
 describe('normalizePushTap', () => {
-    it('keeps the expected fields and drops the rest', () => {
-        expect(normalizePushTap({ uid: 'n1', target: { app: 'a', path: 7, x: 1 }, data: null, extra: 1 }))
-            .toEqual({ uid: 'n1', target: { app: 'a' }, data: null });
+    it('keeps the notification uid and nothing else', () => {
+        expect(normalizePushTap({ uid: UID, target: { app: 'a', path: '/x' }, data: null, extra: 1 }))
+            .toEqual({ uid: UID });
         expect(normalizePushTap({ uid: '' })).toBeNull();
-        expect(normalizePushTap({ uid: 'x'.repeat(65) })).toBeNull();
-        expect(normalizePushTap('n1')).toBeNull();
+        expect(normalizePushTap({ uid: 'n1' })).toBeNull();
+        expect(normalizePushTap({ uid: `${UID}${'0'.repeat(40)}` })).toBeNull();
+        expect(normalizePushTap(UID)).toBeNull();
     });
 });
 
@@ -100,7 +101,7 @@ describe('pushTapFromParams', () => {
     const params = (value) => new URLSearchParams({ 'puter.notification': value });
 
     it('reads a notification uid, and nothing else, from the URL', () => {
-        expect(pushTapFromParams(params(UID))).toEqual({ uid: UID, stored: true });
+        expect(pushTapFromParams(params(UID))).toEqual({ uid: UID });
     });
 
     it('takes nothing that is not a notification uid', () => {
@@ -251,17 +252,57 @@ describe('handleNotificationTap', () => {
     });
 });
 
+describe('storedTapHandler', () => {
+    const surface = () => ({ share: vi.fn(), panel: vi.fn(), openApp: vi.fn() });
+    const row = { uid: UID, value: appMessage({ target: '/rooms/9', data: { room: 9 } }), app_uid: 'app-row' };
+    const rows = async (uid) => (uid === UID ? row : null);
+
+    it('routes from the row the tap names, after `found`', async () => {
+        const deps = { fetchRow: vi.fn(rows), surface: surface(), found: vi.fn(), missing: vi.fn() };
+        await storedTapHandler(deps)({ uid: UID });
+        expect(deps.fetchRow).toHaveBeenCalledWith(UID);
+        expect(deps.found).toHaveBeenCalledWith(UID);
+        expect(deps.surface.openApp).toHaveBeenCalledWith({
+            kind: 'app',
+            appUid: 'app-row',
+            click: { uid: UID, target: '/rooms/9', data: { room: 9 } },
+        });
+        expect(deps.missing).not.toHaveBeenCalled();
+    });
+
+    it('opens nothing for a row the user cannot read, running `missing` instead', async () => {
+        const deps = { fetchRow: vi.fn(rows), surface: surface(), found: vi.fn(), missing: vi.fn() };
+        await storedTapHandler(deps)({ uid: OTHER_UID });
+        expect(deps.missing).toHaveBeenCalledOnce();
+        expect(deps.found).not.toHaveBeenCalled();
+        expect(deps.surface.openApp).not.toHaveBeenCalled();
+        expect(deps.surface.panel).not.toHaveBeenCalled();
+        expect(deps.surface.share).not.toHaveBeenCalled();
+    });
+});
+
 describe('push tap dispatch', () => {
     it('holds taps until a handler is set, then hands them over in order', async () => {
-        const { dispatchPushTap, dispatchStoredTap, setPushTapHandler } = await import('./notificationTap.js');
-        dispatchPushTap({ uid: 'n1' });
+        const { dispatchPushTap, setPushTapHandler } = await import('./notificationTap.js');
+        dispatchPushTap({ uid: UID });
         dispatchPushTap({ uid: '' });
-        dispatchStoredTap({ uid: UID, stored: true });
-        dispatchStoredTap({ uid: UID });
+        dispatchPushTap({ uid: 'n2' });
+        dispatchPushTap({ uid: OTHER_UID, stored: true });
         const handler = vi.fn();
         setPushTapHandler(handler);
-        expect(handler.mock.calls).toEqual([[{ uid: 'n1' }], [{ uid: UID, stored: true }]]);
-        dispatchPushTap({ uid: 'n3' });
-        expect(handler).toHaveBeenLastCalledWith({ uid: 'n3' });
+        expect(handler.mock.calls).toEqual([[{ uid: UID }], [{ uid: OTHER_UID }]]);
+        dispatchPushTap({ uid: THIRD_UID });
+        expect(handler).toHaveBeenLastCalledWith({ uid: THIRD_UID });
+    });
+
+    it('hands a worker tap over as the notification it names, nothing more', async () => {
+        const { dispatchPushTap, setPushTapHandler, storedTapHandler: make } = await import('./notificationTap.js');
+        const openApp = vi.fn();
+        const fetchRow = vi.fn(async () => null);
+        setPushTapHandler(make({ fetchRow, surface: { share: vi.fn(), openApp } }));
+        dispatchPushTap({ uid: OTHER_UID, target: { app: 'app-1', path: '/rooms/7' }, data: { room: 7 } });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        expect(fetchRow).toHaveBeenCalledWith(OTHER_UID);
+        expect(openApp).not.toHaveBeenCalled();
     });
 });

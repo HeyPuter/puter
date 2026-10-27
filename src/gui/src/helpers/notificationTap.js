@@ -38,11 +38,10 @@ const nonEmpty = (value) => (typeof value === 'string' && value !== '' ? value :
  */
 
 /**
+ * A tap from the worker or the URL names only a notification; what it leads
+ * to is read off the signed-in user's own row.
  * @typedef {Object} PushTap
  * @property {string} uid
- * @property {{ app?: string, path?: string }} [target]
- * @property {unknown} [data]
- * @property {true} [stored] - Only the uid is known; act on the stored row
  */
 
 /**
@@ -52,60 +51,37 @@ const nonEmpty = (value) => (typeof value === 'string' && value !== '' ? value :
  */
 
 /**
- * @param {{ uid?: string, notification?: Object|null, appUid?: string|null, push?: PushTap }} tap
+ * @param {{ uid?: string, notification?: Object|null, appUid?: string|null }} tap
  * @returns {TapRoute}
  */
-export const tapRoute = ({ uid, notification, appUid, push }) => {
-    if ( notification && typeof notification === 'object' ) {
-        if ( notification.type === APP_MESSAGE_TYPE ) {
-            const app = nonEmpty(appUid) ?? nonEmpty(notification.app?.uid);
-            if ( ! app ) return { kind: 'panel' };
-            const target = typeof notification.target === 'string' ? notification.target : undefined;
-            return { kind: 'app', appUid: app, click: { uid, target, data: notification.data } };
-        }
-        if ( isShareNotification(notification) ) return { kind: 'share', notification };
-        return { kind: 'panel' };
+export const tapRoute = ({ uid, notification, appUid }) => {
+    if ( ! notification || typeof notification !== 'object' ) return { kind: 'panel' };
+    if ( notification.type === APP_MESSAGE_TYPE ) {
+        const app = nonEmpty(appUid) ?? nonEmpty(notification.app?.uid);
+        if ( ! app ) return { kind: 'panel' };
+        const target = typeof notification.target === 'string' ? notification.target : undefined;
+        return { kind: 'app', appUid: app, click: { uid, target, data: notification.data } };
     }
-    const app = nonEmpty(push?.target?.app);
-    if ( app ) {
-        return { kind: 'app', appUid: app, click: { uid, target: push.target.path, data: push.data } };
-    }
-    const path = push?.target?.path;
-    if ( typeof path === 'string' && path.startsWith('/') ) {
-        return {
-            kind: 'share',
-            notification: { type: 'share.received', fields: { target: { path } } },
-        };
-    }
+    if ( isShareNotification(notification) ) return { kind: 'share', notification };
     return { kind: 'panel' };
 };
 
+/** @returns {PushTap|null} */
+const tapFor = (uid) => (
+    typeof uid === 'string' && uid.length <= UID_MAX && UID_PATTERN.test(uid) ? { uid } : null
+);
+
 /**
  * @param {unknown} raw - The worker's `notification` object
- * @returns {PushTap|null}
+ * @returns {PushTap|null} The notification it names; nothing else it carries
  */
-export const normalizePushTap = (raw) => {
-    if ( ! raw || typeof raw !== 'object' ) return null;
-    if ( ! nonEmpty(raw.uid) || raw.uid.length > UID_MAX ) return null;
-    const target = {};
-    if ( nonEmpty(raw.target?.app) ) target.app = raw.target.app;
-    if ( nonEmpty(raw.target?.path) ) target.path = raw.target.path;
-    return {
-        uid: raw.uid,
-        ...(Object.keys(target).length ? { target } : {}),
-        ...(raw.data !== undefined ? { data: raw.data } : {}),
-    };
-};
+export const normalizePushTap = (raw) => (raw && typeof raw === 'object' ? tapFor(raw.uid) : null);
 
 /**
  * @param {URLSearchParams} [params]
- * @returns {PushTap|null} A tap naming only a notification uid
+ * @returns {PushTap|null}
  */
-export const pushTapFromParams = (params) => {
-    const uid = params?.get?.(PUSH_TAP_PARAM);
-    if ( typeof uid !== 'string' || uid.length > UID_MAX || ! UID_PATTERN.test(uid) ) return null;
-    return { uid, stored: true };
-};
+export const pushTapFromParams = (params) => tapFor(params?.get?.(PUSH_TAP_PARAM));
 
 /**
  * @param {string} uid
@@ -205,6 +181,21 @@ export const handleNotificationTap = async (tap, { share, panel, openApp }) => {
     return panel?.();
 };
 
+/**
+ * @param {{ fetchRow: (uid: string) => Promise<Object|null>,
+ *     surface: { share: Function, panel?: Function, openApp: Function },
+ *     found?: (uid: string) => unknown, missing?: () => unknown }} deps
+ *     `found` runs before routing a row that was read; `missing` instead of
+ *     routing when there is none
+ * @returns {(tap: PushTap) => Promise<unknown>}
+ */
+export const storedTapHandler = ({ fetchRow, surface, found, missing }) => async ({ uid }) => {
+    const tap = await storedTapItem(uid, fetchRow);
+    if ( ! tap ) return missing?.();
+    found?.(uid);
+    return handleNotificationTap(tap, surface);
+};
+
 /** @type {((tap: PushTap) => unknown) | null} */
 let pushTapHandler = null;
 /** @type {PushTap[]} */
@@ -223,8 +214,5 @@ const deliverPushTap = (tap) => {
     else pendingPushTaps.push(tap);
 };
 
-/** @param {unknown} raw - The worker's `notification` object */
+/** @param {unknown} raw - The worker's `notification` object, or a tap from the URL */
 export const dispatchPushTap = (raw) => deliverPushTap(normalizePushTap(raw));
-
-/** @param {PushTap} tap - From {@link pushTapFromParams} */
-export const dispatchStoredTap = (tap) => deliverPushTap(tap?.stored ? tap : null);

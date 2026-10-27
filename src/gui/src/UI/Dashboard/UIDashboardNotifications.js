@@ -26,7 +26,7 @@ import {
     handleNotificationTap,
     openAppForTap,
     setPushTapHandler,
-    storedTapItem,
+    storedTapHandler,
     tapRoute,
 } from '../../helpers/notificationTap.js';
 import { showLocalBanner, startPushWorker } from '../../helpers/pushWorker.js';
@@ -498,6 +498,15 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         void handleNotificationTap({ uid: entry.uid, notification: entry.notification, appUid: entry.appUid }, tapSurface);
     };
 
+    const actOnStored = storedTapHandler({
+        fetchRow: getNotification,
+        surface: tapSurface,
+        found: (uid) => void acknowledge(uid).catch((err) => {
+            console.warn('Could not acknowledge notification:', err);
+        }),
+        missing: () => open(),
+    });
+
     const actOnPush = async (push) => {
         await reveal_dashboard();
         if ( ! loaded ) await refresh();
@@ -506,15 +515,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             actOn(entry);
             return;
         }
-        const tap = push.stored ? await storedTapItem(push.uid, getNotification) : { uid: push.uid, push };
-        if ( ! tap ) {
-            open();
-            return;
-        }
-        void acknowledge(push.uid).catch((err) => {
-            console.warn('Could not acknowledge notification:', err);
-        });
-        await handleNotificationTap(tap, tapSurface);
+        await actOnStored(push);
     };
 
     // -- Toasts -------------------------------------------------------------

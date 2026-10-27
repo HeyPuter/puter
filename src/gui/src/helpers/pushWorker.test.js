@@ -210,14 +210,14 @@ describe('startPushWorker', () => {
         expect(nav.serviceWorker.register).toHaveBeenCalledWith('/sw.js', { scope: '/' });
 
         const source = { postMessage: vi.fn() };
-        nav.listeners.message({ data: { type: 'other', notification: { uid: 'x' } }, source });
-        nav.listeners.message({ data: { type: 'puter-notification-click', id: 'click-0', notification: { uid: '' } }, source });
+        nav.listeners.message({ data: { type: 'other', notification: { uid: UID } }, source });
+        nav.listeners.message({ data: { type: 'puter-notification-click', id: 'click-0', notification: { uid: 'n1' } }, source });
         nav.listeners.message({
-            data: { type: 'puter-notification-click', id: 'click-1', notification: { uid: 'n1', target: { app: 'a' } } },
+            data: { type: 'puter-notification-click', id: 'click-1', notification: { uid: UID, target: { app: 'a' } } },
             source,
         });
         expect(source.postMessage.mock.calls).toEqual([[{ type: 'puter-notification-click-ack', id: 'click-1' }]]);
-        expect(handler.mock.calls).toEqual([[{ uid: 'n1', target: { app: 'a' } }]]);
+        expect(handler.mock.calls).toEqual([[{ uid: UID }]]);
     });
 
     it('registers nothing inside a frame', async () => {
@@ -245,7 +245,7 @@ describe('startPushWorker', () => {
             clearParam,
         });
         expect(clearParam).toHaveBeenCalledWith('puter.notification');
-        expect(handler).toHaveBeenCalledWith({ uid: UID, stored: true });
+        expect(handler).toHaveBeenCalledWith({ uid: UID });
     });
 
     it('clears a malformed parameter and hands nothing over', async () => {

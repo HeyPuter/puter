@@ -23,7 +23,6 @@ import { httpsIconFor, isShareNotification } from '../UI/Dashboard/notificationC
 import {
     APP_MESSAGE_TYPE,
     dispatchPushTap,
-    dispatchStoredTap,
     normalizePushTap,
     pushTapFromParams,
     PUSH_TAP_PARAM,
@@ -144,7 +143,7 @@ export const startPushWorker = async ({
     if ( query?.has?.(PUSH_TAP_PARAM) ) {
         const opened = pushTapFromParams(query);
         clearParam(PUSH_TAP_PARAM);
-        if ( opened ) dispatchStoredTap(opened);
+        if ( opened ) dispatchPushTap(opened);
     }
 
     // Leave an existing worker: removing it ends this browser's subscription.
