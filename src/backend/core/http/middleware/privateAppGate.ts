@@ -476,9 +476,8 @@ function actorMatchesExpectedApp(
 }
 
 /**
- * Mirror of `resolvePrivateIdentity` for public hosted apps. Reads the sticky
- * `puter.public.hosted.actor.token` cookie first, then the same
- * session/bootstrap fallbacks.
+ * Fresh authenticated identities replace the sticky public billing cookie when
+ * the visitor switches accounts.
  */
 export async function resolvePublicHostedIdentity(opts: {
     req: Request;
@@ -499,37 +498,6 @@ export async function resolvePublicHostedIdentity(opts: {
 
     const cookies = (req as Request & { cookies?: Record<string, string> })
         .cookies;
-
-    const { name: publicCookieNameV2, legacyName: publicCookieNameLegacy } =
-        HOSTED_ASSET_COOKIES.public;
-    const publicCookieToken =
-        (typeof cookies?.[publicCookieNameV2] === 'string'
-            ? cookies[publicCookieNameV2]
-            : null) ??
-        (typeof cookies?.[publicCookieNameLegacy] === 'string'
-            ? cookies[publicCookieNameLegacy]
-            : null);
-    if (publicCookieToken) {
-        try {
-            const claims = await authService.verifyHostedAssetToken(
-                'public',
-                publicCookieToken,
-                {
-                    appUid: expectedAppUid,
-                    subdomain: expectedSubdomain,
-                    host: expectedHost,
-                },
-            );
-            return {
-                source: 'public-cookie',
-                userUid: claims.userUid,
-                sessionUuid: claims.sessionUuid,
-                hasValidPublicCookie: true,
-            };
-        } catch {
-            /* fall through — v1-signed cookies land here and get re-minted */
-        }
-    }
 
     const existingActor = req.actor;
     if (
@@ -583,6 +551,37 @@ export async function resolvePublicHostedIdentity(opts: {
             }
         } catch {
             /* fall through */
+        }
+    }
+
+    const { name: publicCookieNameV2, legacyName: publicCookieNameLegacy } =
+        HOSTED_ASSET_COOKIES.public;
+    const publicCookieToken =
+        (typeof cookies?.[publicCookieNameV2] === 'string'
+            ? cookies[publicCookieNameV2]
+            : null) ??
+        (typeof cookies?.[publicCookieNameLegacy] === 'string'
+            ? cookies[publicCookieNameLegacy]
+            : null);
+    if (publicCookieToken) {
+        try {
+            const claims = await authService.verifyHostedAssetToken(
+                'public',
+                publicCookieToken,
+                {
+                    appUid: expectedAppUid,
+                    subdomain: expectedSubdomain,
+                    host: expectedHost,
+                },
+            );
+            return {
+                source: 'public-cookie',
+                userUid: claims.userUid,
+                sessionUuid: claims.sessionUuid,
+                hasValidPublicCookie: true,
+            };
+        } catch {
+            /* fall through — v1-signed cookies land here and get re-minted */
         }
     }
 

@@ -1372,6 +1372,68 @@ describe('SessionStore', () => {
         });
     });
 
+    describe('touch shares its throttle across nodes', () => {
+        // A second store instance over the same DB and Redis stands in for
+        // another node, whose in-process throttle hasn't seen the session.
+        const peerStore = () =>
+            new target.constructor(
+                target.config,
+                target.clients,
+                target.stores,
+            );
+
+        const countTouchWrites = (spy: ReturnType<typeof vi.spyOn>) => {
+            const sqls = spy.mock.calls.map((c) => String(c[0]));
+            return {
+                session: sqls.filter((q) =>
+                    q.startsWith('UPDATE `sessions` SET `last_activity`'),
+                ).length,
+                user: sqls.filter((q) =>
+                    q.startsWith('UPDATE `user` SET `last_activity_ts`'),
+                ).length,
+            };
+        };
+
+        it('writes once per window when two nodes touch the same session', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id, { kind: 'web' });
+            const spy = vi.spyOn(server.clients.db, 'write');
+            try {
+                await target.touch({ uuid: session.uuid, userId: user.id });
+                await peerStore().touch({
+                    uuid: session.uuid,
+                    userId: user.id,
+                });
+                expect(countTouchWrites(spy)).toEqual({ session: 1, user: 1 });
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('writes anyway when the Redis gate errors', async () => {
+            const user = await makeUser();
+            const session = await target.create(user.id, { kind: 'web' });
+            const writeSpy = vi.spyOn(server.clients.db, 'write');
+            const redisSpy = vi
+                .spyOn(server.clients.redis, 'set')
+                .mockRejectedValue(new Error('redis down'));
+            try {
+                await target.touch({ uuid: session.uuid, userId: user.id });
+                await peerStore().touch({
+                    uuid: session.uuid,
+                    userId: user.id,
+                });
+                expect(countTouchWrites(writeSpy)).toEqual({
+                    session: 2,
+                    user: 2,
+                });
+            } finally {
+                redisSpy.mockRestore();
+                writeSpy.mockRestore();
+            }
+        });
+    });
+
     describe('touch slides expires_at per kind', () => {
         it('extends expires_at on web sessions', async () => {
             const user = await makeUser();

@@ -1905,7 +1905,7 @@ export class AuthService extends PuterService {
         },
     ): Promise<string> {
         const { assetSessionUuid, authId } =
-            await this.#mintAssetSessionContext(claims.sessionUuid);
+            await this.#mintAssetSessionContext(claims.sessionUuid, kind);
         return this.services.token.sign('hosted-asset', {
             kind,
             version: '2',
@@ -1923,26 +1923,12 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Materialize the `kind='asset'` session row that the cookie's
-     * `session_uuid` claim points at. Parented to the minting session so
-     * revoking it kills the cookie. The cascade is one level deep, so a cookie
-     * minted from a godmode token (itself under a web session) outlives logout
-     * of that web session; accepted, as app tokens outlive it too and the
-     * cookie only serves one app's files after an entitlement check.
-     *
-     * Both fields are `null` only when the caller didn't supply a session at
-     * all — the cookie still mints unparented and without an `auth_id` claim
-     * (matches v1 behavior for access-token-minted cookies that aren't tied to
-     * an interactive session).
-     *
-     * If the caller DID supply a `webSessionUuid` but the lookup misses (row
-     * revoked / expired between mint request and this lookup), throw —
-     * otherwise we'd quietly emit an unparented "ghost" cookie that has no
-     * revocation hook for 7 days. The extra check piggybacks on the lookup we
-     * already had to do, so no added perf cost.
+     * Public cookies reuse the parent; private cookies get a child with an
+     * asset expiry.
      */
     async #mintAssetSessionContext(
         webSessionUuid: string | undefined,
+        kind: HostedAssetKind,
     ): Promise<{ assetSessionUuid: string | null; authId: string | null }> {
         if (!webSessionUuid) return { assetSessionUuid: null, authId: null };
         const webSession = await this.stores.session.getByUuid(webSessionUuid);
@@ -1953,6 +1939,8 @@ export class AuthService extends PuterService {
         }
         const authId =
             ((webSession as SessionRow).auth_id as string | null) ?? null;
+        if (kind === 'public')
+            return { assetSessionUuid: webSessionUuid, authId };
         const row = await this.stores.session.create(
             (webSession as SessionRow).user_id as number,
             {

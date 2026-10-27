@@ -217,7 +217,8 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         return this.configuration === Configuration.REPLICA;
     }
 
-    // No failover: `tryHardRead` already has a primary read in flight.
+    // No failover: `tryHardRead` falls back to the primary on an empty result
+    // or error (raced alongside by default, after the replica with `race: false`).
     protected override async replicaRead(
         query: string,
         params: unknown[],

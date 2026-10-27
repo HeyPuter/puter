@@ -18,8 +18,13 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { createHash } from 'node:crypto';
 import { domainToUnicode } from 'node:url';
-import { PuterStore } from '../types';
+import {
+    CACHE_TOMBSTONE_SUFFIX,
+    CACHE_TOMBSTONE_TTL_SECONDS,
+    PuterStore,
+} from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
@@ -43,6 +48,16 @@ const LIST_CACHE_TTL_SECONDS = 15 * 60;
 // Outlives every page cached under it, so a lapsed generation can't bring
 // one back.
 const LIST_GENERATION_TTL_SECONDS = 2 * LIST_CACHE_TTL_SECONDS;
+// Hosted-site → owned-app lookups, under the owner's list generation. Bump the
+// version when the matching changes.
+const HOSTED_APP_CACHE_KEY_PREFIX = `${CACHE_KEY_PREFIX}:hosted:v1`;
+const HOSTED_APP_CACHE_TTL_SECONDS = 5 * 60;
+// Server-set `metadata` key holding the uid of the app that created this one.
+// Unlike `app_owner`, it survives that app's deletion.
+const CREATED_BY_APP_KEY = '_createdByApp';
+// Set next to the creator key when the app had no metadata, so reads return
+// null until something else is written there.
+const METADATA_NULL_KEY = '_metadataNull';
 const FILETYPE_CACHE_KEY_PREFIX = 'apps:by-filetype';
 const FILETYPE_CACHE_TTL_SECONDS = 60;
 // Filetype associations are matched against the bare lowercase extension
@@ -127,6 +142,9 @@ const READ_ONLY_COLUMNS = new Set([
     'app_owner',
     'protected',
     'is_private',
+    // Derived on read, not columns.
+    'created_by_app',
+    'filetype_associations',
 ]);
 // Unique-key columns `#getManyByProperty` may build an IN-list against.
 const BATCH_LOOKUP_COLUMNS = new Set(['id', 'uid', 'name']);
@@ -304,10 +322,10 @@ export class AppStore extends PuterStore {
                 const rows = primary
                     ? await this.clients.db.pread(sql, chunk)
                     : await this.clients.db.read(sql, chunk);
-                for (const row of rows) {
-                    const app = this.#normalizeRow(row);
-                    if (app) apps.push(app);
-                }
+                const loaded = rows
+                    .map((row) => this.#normalizeRow(row))
+                    .filter(Boolean);
+                apps.push(...(await this.#withFiletypes(loaded, { primary })));
             }
             return apps;
         });
@@ -427,16 +445,89 @@ export class AppStore extends PuterStore {
         { requirePrivate = false } = {},
     ) {
         if (!Array.isArray(candidates) || candidates.length === 0) return [];
+        const entryKey = `${HOSTED_APP_CACHE_KEY_PREFIX}:${ownerUserId}:${
+            requirePrivate ? 1 : 0
+        }:${createHash('sha256')
+            .update(JSON.stringify([...new Set(candidates)].sort()))
+            .digest('base64url')}`;
+        const generationKey = this.#listGenerationKey(ownerUserId);
+        const changedKey = this.#hostedChangedKey(ownerUserId);
+
+        let generation = null;
+        let changed = false;
+        try {
+            const results =
+                (await this.clients.redis
+                    .pipeline()
+                    .get(generationKey)
+                    .exists(changedKey)
+                    .get(entryKey)
+                    .exec()) ?? [];
+            const currentGeneration = results[0]?.[1];
+            generation =
+                typeof currentGeneration === 'string'
+                    ? currentGeneration
+                    : null;
+            changed = Number(results[1]?.[1]) > 0;
+            const raw = results[2]?.[1];
+            if (!changed && generation && typeof raw === 'string') {
+                const cached = JSON.parse(raw);
+                if (
+                    cached?.generation === generation &&
+                    Array.isArray(cached.rows)
+                ) {
+                    return cached.rows;
+                }
+            }
+        } catch {
+            // Fall through to the database.
+        }
+        // Read before the query, so a write landing during it orphans the entry.
+        if (!changed && !generation) {
+            generation = await this.#listGeneration(ownerUserId);
+        }
+
         const isPrivate = `\`is_private\` = ${this.clients.db.booleanLiteral(true)}`;
         const { predicate, params } = this.#indexUrlMatch(candidates);
-        return this.clients.db.read(
+        const sql =
             'SELECT `id`, `uid`, `name`, `title`, `is_private`, `owner_user_id`, `index_url` ' +
-                'FROM `apps` WHERE `owner_user_id` = ? ' +
-                (requirePrivate ? `AND ${isPrivate} ` : '') +
-                `AND ${predicate} ` +
-                `ORDER BY CASE WHEN ${isPrivate} THEN 0 ELSE 1 END, \`id\` LIMIT 2`,
-            [ownerUserId, ...params],
-        );
+            'FROM `apps` WHERE `owner_user_id` = ? ' +
+            (requirePrivate ? `AND ${isPrivate} ` : '') +
+            `AND ${predicate} ` +
+            `ORDER BY CASE WHEN ${isPrivate} THEN 0 ELSE 1 END, \`id\` LIMIT 2`;
+        // Changed moments ago: the replica may not have it yet.
+        const rows = changed
+            ? await this.clients.db.pread(sql, [ownerUserId, ...params])
+            : await this.clients.db.read(sql, [ownerUserId, ...params]);
+        if (!changed && generation) {
+            void this.#writeHostedAppCache(entryKey, changedKey, {
+                generation,
+                rows,
+            });
+        }
+        return rows;
+    }
+
+    /** Caches a hosted-app lookup unless the owner's apps changed meanwhile. */
+    async #writeHostedAppCache(entryKey, changedKey, value) {
+        try {
+            await this.clients.redis.set(
+                entryKey,
+                JSON.stringify(value),
+                'EX',
+                HOSTED_APP_CACHE_TTL_SECONDS,
+            );
+            if (await this.clients.redis.exists(changedKey)) {
+                await this.clients.redis.del(entryKey);
+            }
+        } catch {
+            // The next read fills it.
+        }
+    }
+
+    /** Set for a moment after any of `ownerUserId`'s apps change. */
+    #hostedChangedKey(ownerUserId) {
+        return `${HOSTED_APP_CACHE_KEY_PREFIX}:changed:${ownerUserId}${CACHE_TOMBSTONE_SUFFIX}`;
     }
 
     /**
@@ -653,8 +744,16 @@ export class AppStore extends PuterStore {
         const uid = `app-${uuidv4()}`;
         const allowed = this.#filterEditable(fields);
         allowed.owner_user_id = ownerUserId;
+        let createdByApp = null;
         if (appOwner !== null && appOwner !== undefined) {
             allowed.app_owner = appOwner;
+            createdByApp = (await this.getById(appOwner))?.uid ?? appOwner;
+        }
+        if (createdByApp !== null || allowed.metadata !== undefined) {
+            allowed.metadata = this.#withCreatedByApp(
+                allowed.metadata ?? null,
+                createdByApp,
+            );
         }
 
         const written = { uid, ...allowed };
@@ -760,13 +859,19 @@ export class AppStore extends PuterStore {
         return fresh;
     }
 
-    /** Updates + refreshes cache (local + peers) with the post-update row. */
+    /** Updates the row and invalidates its cache locally and on peers. */
     async update(appId, patch) {
         const allowed = this.#filterEditable(patch);
         const keys = Object.keys(allowed);
         if (keys.length === 0) return this.getById(appId);
 
-        const before = await this.#readFromDb('id', appId);
+        const before = await this.#readFromDb('id', appId, { primary: true });
+        if (allowed.metadata !== undefined) {
+            allowed.metadata = this.#withCreatedByApp(
+                allowed.metadata,
+                before?.created_by_app ?? null,
+            );
+        }
         const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
         const values = keys.map((k) => allowed[k]);
 
@@ -789,13 +894,16 @@ export class AppStore extends PuterStore {
             await this.#clearOldAppNamesForName(allowed.name);
         }
 
-        // Not `{ ...before, ...allowed }`: `before` is the replica's, and a
-        // column it has stale would go into the cache.
+        // Read back persisted values instead of merging a pre-update snapshot.
         const fresh = await this.#readFromDb('id', appId, { primary: true });
         await this.#invalidateListCachesForApps([before, fresh]);
-        if (fresh) {
-            await this.#refreshCache({ ...fresh, ...allowed });
-        }
+        await this.tombstoneCacheKeys([
+            ...new Set(
+                [before, fresh]
+                    .filter(Boolean)
+                    .flatMap((app) => this.#cacheKeysForApp(app)),
+            ),
+        ]);
         if (renamed) {
             // Drop any stale `apps:name:<old>` cache so the next
             // getByName(old) goes through the redirect path with fresh
@@ -954,6 +1062,10 @@ export class AppStore extends PuterStore {
      * `[]` for apps that have no associations).
      */
     async getFiletypeAssociationsByIds(appIds) {
+        return this.#readFiletypesByIds(appIds);
+    }
+
+    async #readFiletypesByIds(appIds, { primary = false } = {}) {
         const ids = Array.isArray(appIds)
             ? Array.from(
                   new Set(
@@ -966,11 +1078,11 @@ export class AppStore extends PuterStore {
         if (ids.length === 0) return out;
 
         const placeholders = ids.map(() => '?').join(',');
-        const rows = await this.clients.db.read(
-            `SELECT \`app_id\`, \`type\` FROM \`app_filetype_association\`
-             WHERE \`app_id\` IN (${placeholders})`,
-            ids,
-        );
+        const sql = `SELECT \`app_id\`, \`type\` FROM \`app_filetype_association\`
+             WHERE \`app_id\` IN (${placeholders})`;
+        const rows = primary
+            ? await this.clients.db.pread(sql, ids)
+            : await this.clients.db.read(sql, ids);
         for (const row of rows) {
             const list = out.get(row.app_id);
             if (list) list.push(row.type);
@@ -1080,6 +1192,11 @@ export class AppStore extends PuterStore {
             [...previous.map(normalizeFiletype), ...newTypes].filter(Boolean),
         );
         if (affected.size === 0) return;
+        // The cached row carries its associations.
+        const app =
+            (await this.#cache.read(this.#cache.key('id', appId))) ??
+            (await this.#readFromDb('id', appId, { primary: true }));
+        if (app) await this.tombstoneCacheKeys(this.#cacheKeysForApp(app));
         const keys = [...affected].map(
             (t) => `${FILETYPE_CACHE_KEY_PREFIX}:${t}`,
         );
@@ -1125,9 +1242,30 @@ export class AppStore extends PuterStore {
 
     async #getByProperty(prop, value) {
         if (value === undefined || value === null) return null;
-        return this.#cache.get(this.#cache.key(prop, value), (primary) =>
-            this.#readFromDb(prop, value, { primary }),
+        return this.#cache.get(
+            this.#cache.key(prop, value),
+            async (primary) => {
+                const app = await this.#readFromDb(prop, value, { primary });
+                if (!app) return null;
+                return (await this.#withFiletypes([app], { primary }))[0];
+            },
         );
+    }
+
+    /**
+     * `apps` with `filetype_associations` set, so the cached row carries them.
+     * `setFiletypeAssociations` invalidates the row.
+     */
+    async #withFiletypes(apps, { primary = false } = {}) {
+        if (apps.length === 0) return apps;
+        const byId = await this.#readFiletypesByIds(
+            apps.map((app) => app.id),
+            { primary },
+        );
+        for (const app of apps) {
+            app.filetype_associations = byId.get(app.id) ?? [];
+        }
+        return apps;
     }
 
     /**
@@ -1160,6 +1298,7 @@ export class AppStore extends PuterStore {
             id,
             timestamp: this.clients.db.timestampValue(createdAt),
             created_epoch: createdAt,
+            filetype_associations: [],
         });
         try {
             await this.#writeCache(app);
@@ -1293,27 +1432,19 @@ export class AppStore extends PuterStore {
         for (const app of apps) {
             if (app?.owner_user_id != null) scopes.add(app.owner_user_id);
         }
+        // Before the generation, so a peer that sees the new generation also
+        // reads the primary until its replica catches up.
+        const owners = [...scopes].filter((scope) => scope !== 'all');
+        await this.publishCacheKeys({
+            keys: owners.map((owner) => this.#hostedChangedKey(owner)),
+            serializedData: '1',
+            ttlSeconds: CACHE_TOMBSTONE_TTL_SECONDS,
+            broadcast: true,
+        });
         await this.publishCacheKeys({
             keys: [...scopes].map((scope) => this.#listGenerationKey(scope)),
             serializedData: uuidv4(),
             ttlSeconds: LIST_GENERATION_TTL_SECONDS,
-            broadcast: true,
-        });
-    }
-
-    async #refreshCache(app) {
-        const keys = this.#cacheKeysForApp(app);
-        // A delete can land between `update`'s read and this refresh.
-        await this.writeCacheUnlessDeleted(keys, () =>
-            this.#publishRefresh(keys, app),
-        );
-    }
-
-    async #publishRefresh(keys, app) {
-        await this.publishCacheKeys({
-            keys,
-            serializedData: JSON.stringify(app),
-            ttlSeconds: CACHE_TTL_SECONDS,
             broadcast: true,
         });
     }
@@ -1354,6 +1485,48 @@ export class AppStore extends PuterStore {
         return this.clients.db.case({
             mysql: '`index_url` COLLATE utf8mb4_bin',
             otherwise: '`index_url`',
+        });
+    }
+
+    /**
+     * `metadata` to store: a caller-supplied creator key is dropped, and
+     * `createdByApp` (when set) written in its place.
+     */
+    #withCreatedByApp(metadata, createdByApp) {
+        let parsed = metadata;
+        if (typeof metadata === 'string') {
+            try {
+                parsed = JSON.parse(metadata);
+            } catch {
+                parsed = null;
+            }
+        }
+        const isObject =
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            !Array.isArray(parsed);
+        if (createdByApp === null) {
+            if (!isObject || !Object.hasOwn(parsed, CREATED_BY_APP_KEY)) {
+                return metadata;
+            }
+            const {
+                [CREATED_BY_APP_KEY]: _dropped,
+                [METADATA_NULL_KEY]: wasNull,
+                ...rest
+            } = parsed;
+            return wasNull && Object.keys(rest).length === 0
+                ? null
+                : JSON.stringify(rest);
+        }
+        const {
+            [CREATED_BY_APP_KEY]: _ignored,
+            [METADATA_NULL_KEY]: _ignoredNull,
+            ...rest
+        } = isObject ? parsed : {};
+        return JSON.stringify({
+            ...rest,
+            [CREATED_BY_APP_KEY]: createdByApp,
+            ...(isObject ? {} : { [METADATA_NULL_KEY]: true }),
         });
     }
 
@@ -1400,6 +1573,23 @@ export class AppStore extends PuterStore {
             } catch {
                 row.metadata = null;
             }
+        }
+        // Lifted out so client views never carry it.
+        if (
+            row.metadata &&
+            typeof row.metadata === 'object' &&
+            Object.hasOwn(row.metadata, CREATED_BY_APP_KEY)
+        ) {
+            const {
+                [CREATED_BY_APP_KEY]: createdByApp,
+                [METADATA_NULL_KEY]: wasNull,
+                ...rest
+            } = row.metadata;
+            row.created_by_app = createdByApp ?? null;
+            row.metadata =
+                wasNull && Object.keys(rest).length === 0 ? null : rest;
+        } else if (row.metadata !== undefined) {
+            row.created_by_app ??= null;
         }
         if (row.created_epoch !== undefined && row.created_epoch !== null) {
             row.created_epoch = Number(row.created_epoch);

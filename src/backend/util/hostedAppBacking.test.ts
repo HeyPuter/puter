@@ -21,6 +21,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { PuterServer } from '../server.js';
 import { setupTestServer } from '../testUtil.js';
+import { generateDefaultFsentries } from './userProvisioning.js';
 import {
     buildHostedBackingDenial,
     buildHostedSubdomainIndexUrlCandidates,
@@ -272,6 +273,71 @@ describe('hostedIndexUrlBackingIsUnavailable', () => {
         });
     });
 
+    it('trusts a negative-cache hit without asking the primary', async () => {
+        const getBySubdomain = vi.fn(
+            async (sub: string, opts?: { cachedMisses?: Set<string> }) => {
+                opts?.cachedMisses?.add(sub);
+                return null;
+            },
+        );
+        expect(
+            await hostedIndexUrlBackingIsUnavailable({
+                app: {
+                    index_url: 'https://gone.puter.site/',
+                    owner_user_id: 7,
+                },
+                subdomainStore: { getBySubdomain } as never,
+                config: CONFIG,
+            }),
+        ).toBe(true);
+        expect(getBySubdomain).toHaveBeenCalledTimes(1);
+    });
+
+    it('is true when the site root is in Trash, and false once it is not', async () => {
+        const trashed = new Set([5]);
+        const subdomainStore = {
+            getBySubdomain: async () => ({ user_id: 7, root_dir_id: 5 }),
+            trashedRootDirIds: vi.fn(async () => trashed),
+        } as never;
+        const app = { index_url: 'https://mine.puter.site/', owner_user_id: 7 };
+        expect(
+            await hostedIndexUrlBackingIsUnavailable({
+                app,
+                subdomainStore,
+                config: CONFIG,
+            }),
+        ).toBe(true);
+        trashed.clear();
+        expect(
+            await hostedIndexUrlBackingIsUnavailable({
+                app,
+                subdomainStore,
+                config: CONFIG,
+            }),
+        ).toBe(false);
+    });
+
+    it('counts the site as served when the Trash lookup fails', async () => {
+        expect(
+            await hostedIndexUrlBackingIsUnavailable({
+                app: {
+                    index_url: 'https://mine.puter.site/',
+                    owner_user_id: 7,
+                },
+                subdomainStore: {
+                    getBySubdomain: async () => ({
+                        user_id: 7,
+                        root_dir_id: 5,
+                    }),
+                    trashedRootDirIds: async () => {
+                        throw new Error('fs down');
+                    },
+                } as never,
+                config: CONFIG,
+            }),
+        ).toBe(false);
+    });
+
     it('is true when either owner id is not a usable integer', async () => {
         // `undefined` and non-numeric strings coerce to NaN, so neither
         // side can be compared — withhold rather than guess.
@@ -512,5 +578,99 @@ describe('hostedIndexUrlBackingsAreUnavailable (batched, against a real store)',
         } finally {
             getBySubdomains.mockRestore();
         }
+    });
+
+    it('skips the primary for a name already negative-cached', async () => {
+        const owner = await makeUser();
+        const dangling = {
+            index_url: hostedUrl(
+                `gone-c-${Math.random().toString(36).slice(2, 6)}`,
+            ),
+            owner_user_id: owner.id,
+        };
+        // The first call reads the primary and caches the miss.
+        expect(
+            await hostedIndexUrlBackingsAreUnavailable({
+                apps: [dangling],
+                subdomainStore: server.stores.subdomain,
+                config: HOSTING_CONFIG,
+            }),
+        ).toEqual([true]);
+
+        const getBySubdomains = vi.spyOn(
+            server.stores.subdomain,
+            'getBySubdomains',
+        );
+        const pread = vi.spyOn(server.clients.db, 'pread');
+        try {
+            await vi.waitFor(async () =>
+                expect(
+                    await hostedIndexUrlBackingsAreUnavailable({
+                        apps: [dangling],
+                        subdomainStore: server.stores.subdomain,
+                        config: HOSTING_CONFIG,
+                    }),
+                ).toEqual([true]),
+            );
+            getBySubdomains.mockClear();
+            pread.mockClear();
+            expect(
+                await hostedIndexUrlBackingsAreUnavailable({
+                    apps: [dangling],
+                    subdomainStore: server.stores.subdomain,
+                    config: HOSTING_CONFIG,
+                }),
+            ).toEqual([true]);
+            expect(getBySubdomains).toHaveBeenCalledTimes(1);
+            expect(
+                pread.mock.calls.filter(([sql]) =>
+                    String(sql).includes('FROM `subdomains`'),
+                ),
+            ).toEqual([]);
+        } finally {
+            getBySubdomains.mockRestore();
+            pread.mockRestore();
+        }
+    });
+
+    it('reports a site rooted in Trash as unavailable', async () => {
+        const owner = await makeUser();
+        await generateDefaultFsentries(
+            server.clients.db,
+            server.stores.user,
+            owner,
+        );
+        const trash = await server.stores.fsEntry.getEntryByPath(
+            `/${owner.username}/Trash`,
+        );
+        const publicDir = await server.stores.fsEntry.getEntryByPath(
+            `/${owner.username}/Public`,
+        );
+        const trashedSub = `trashed-${Math.random().toString(36).slice(2, 8)}`;
+        const liveSub = `served-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: trashedSub,
+            rootDirId: trash!.id,
+        });
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: liveSub,
+            rootDirId: publicDir!.id,
+        });
+
+        expect(
+            await hostedIndexUrlBackingsAreUnavailable({
+                apps: [
+                    {
+                        index_url: hostedUrl(trashedSub),
+                        owner_user_id: owner.id,
+                    },
+                    { index_url: hostedUrl(liveSub), owner_user_id: owner.id },
+                ],
+                subdomainStore: server.stores.subdomain,
+                config: HOSTING_CONFIG,
+            }),
+        ).toEqual([true, false]);
     });
 });

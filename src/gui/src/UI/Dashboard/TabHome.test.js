@@ -53,3 +53,21 @@ describe('TabHome recently used', () => {
         expect($el_window.text()).toContain('no_recent_apps');
     });
 });
+
+describe('TabHome launch apps request', () => {
+    it('shares the in-flight request until it settles', async () => {
+        document.body.innerHTML =
+            '<div class="window"><div class="bento-recent-apps-container"></div></div>';
+        let answer;
+        const request = new Promise((resolve) => {
+            answer = resolve;
+        });
+        $.ajax = vi.fn(() => request);
+
+        const loading = TabHome.loadRecentApps($('.window'));
+        expect(window.launch_apps_request).toBe(request);
+        answer({ recommended: [], recent: [] });
+        await loading;
+        expect(window.launch_apps_request).toBeNull();
+    });
+});

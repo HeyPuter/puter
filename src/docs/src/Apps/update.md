@@ -28,6 +28,8 @@ An object containing the attributes to update. The object can contain the follow
 - `filetypeAssociations` (optional): An array of strings representing the filetypes that the app can open. Defaults to `[]`. File extentions and MIME types are supported; For example, `[".txt", ".md", "application/pdf"]` would allow the app to open `.txt`, `.md`, and PDF files. At most 200 entries, each at most 60 characters.
 - `metadata` (optional): An object containing custom metadata for the app. This can be used to store arbitrary key-value pairs associated with the app. At most 16 KiB when serialized as JSON.
 
+Changing `indexURL` can merge the app into an existing app for that hosted origin. The returned app can have a different UID. The deleted source app's KV data and KV shares are removed. Data already belonging to the surviving app is retained.
+
 ## Return value
 A `Promise` that will resolve to the [`App`](/Objects/app/) object that was updated.
 

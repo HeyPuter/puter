@@ -72,7 +72,7 @@ function replayXhr (response, success_cb, error_cb, resolve_func, reject_func) {
     const newSpec = { ...spec, _replayed: true };
     const newXhr = buildXhr(newSpec);
     setupXhrEventHandlers(newXhr, success_cb, error_cb, resolve_func, reject_func);
-    newXhr.send(spec.body);
+    newXhr.send(typeof newSpec.buildBody === 'function' ? newSpec.buildBody() : spec.body);
     return true;
 }
 

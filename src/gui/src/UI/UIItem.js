@@ -64,6 +64,7 @@ async function UIItem (options) {
     options.is_shared = options.is_shared === true;
     options.share_mode = options.share_mode ?? '';
     options.shared_by = options.shared_by ?? '';
+    options.is_team_share = options.is_team_share ?? false;
     options.owner = options.owner ?? '';
     options.metadata = options.metadata ?? '';
     options.multiselectable = (options.multiselectable === undefined || options.multiselectable === true) ? true : false;
@@ -101,6 +102,7 @@ async function UIItem (options) {
                 data-is_shared="${options.is_shared ? 1 : 0}"
                 data-share_mode="${html_encode(options.share_mode)}"
                 data-shared_by="${html_encode(options.shared_by)}"
+                data-is_team_share="${options.is_team_share ? 1 : 0}"
                 data-owner="${html_encode(options.owner)}"
                 data-has_website="${show_website_badge ? 1 : 0 }" 
                 data-website_url = "${website_url ? html_encode(website_url) : ''}"
@@ -1531,7 +1533,8 @@ async function UIItem (options) {
             // Someone else owns this, so deleting it would move their file into
             // our trash — which the backend refuses. Give up our own access
             // instead, which is what "remove it from my view" actually means.
-            if ( is_shared_root ) {
+            // A team share isn't the member's to leave.
+            if ( is_shared_root && $(el_item).attr('data-is_team_share') !== '1' ) {
                 menu_items.push({
                     html: i18n('share_remove_from_shared'),
                     onClick: async function () {

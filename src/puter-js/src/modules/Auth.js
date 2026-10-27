@@ -116,6 +116,9 @@ import {
  * are for apps that drive the sign-in flow themselves.
  */
 export class AuthModule extends PuterModule {
+    /** @internal */
+    pendingSignInMessageIds_ = new Set();
+
     /**
      * Signs the user in, opening a popup with the appropriate authentication
      * method. Must be called from a user gesture (such as a click) — without
@@ -164,6 +167,7 @@ export class AuthModule extends PuterModule {
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
             const msg_id = signinsession;
+            this.pendingSignInMessageIds_.add(msg_id);
             const popupName = `Puter-sign-in-${signinsession}`;
             const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}`;
 
@@ -177,11 +181,24 @@ export class AuthModule extends PuterModule {
             let popupWindow = null;
 
             const cleanup = () => {
+                this.pendingSignInMessageIds_.delete(msg_id);
                 if (checkClosed) {
                     clearInterval(checkClosed);
                     checkClosed = null;
                 }
                 window.removeEventListener('message', messageHandler);
+            };
+
+            const notifyAuth = () => {
+                if (typeof puter.onAuth !== 'function') return;
+                void (async () => {
+                    try {
+                        const user = await puter.whoamiCache_;
+                        puter.onAuth(user ?? (await puter.getUser()));
+                    } catch (error) {
+                        console.error(error);
+                    }
+                })();
             };
 
             if (window.crossOriginIsolated) {
@@ -223,6 +240,7 @@ export class AuthModule extends PuterModule {
                                 settled = true;
                                 cleanup();
                                 puter.setAuthToken(auth_token);
+                                notifyAuth();
                                 resolve({ success: true, token: auth_token });
                                 return '';
                             }
@@ -262,6 +280,7 @@ export class AuthModule extends PuterModule {
                 if (e.data.success) {
                     // set the auth token
                     puter.setAuthToken(e.data.token);
+                    notifyAuth();
                     resolve(e.data);
                 } else {
                     reject(e.data);

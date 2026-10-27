@@ -450,16 +450,19 @@ const TabHome = {
         // Only the newest request may write: an older one answering last
         // would put a stale list back.
         const seq = (this._recentAppsSeq = (this._recentAppsSeq ?? 0) + 1);
+        const request = $.ajax({
+            url: `${window.api_origin}/get-launch-apps?icon_size=64`,
+            type: 'GET',
+            async: true,
+            contentType: 'application/json',
+            headers: {
+                Authorization: `Bearer ${window.auth_token}`,
+            },
+        });
+        // The Apps tab joins this at dashboard open instead of sending its own.
+        window.launch_apps_request = request;
         try {
-            const launchApps = await $.ajax({
-                url: `${window.api_origin}/get-launch-apps?icon_size=64`,
-                type: 'GET',
-                async: true,
-                contentType: 'application/json',
-                headers: {
-                    Authorization: `Bearer ${window.auth_token}`,
-                },
-            });
+            const launchApps = await request;
             if (seq !== this._recentAppsSeq) return;
             window.launch_apps = launchApps;
             recentAppsState = 'loaded';
@@ -467,6 +470,9 @@ const TabHome = {
             console.error('Failed to load launch apps:', e);
             // A list already shown stays; it is only out of date.
             if (recentAppsState === 'loading') recentAppsState = 'failed';
+        } finally {
+            if (window.launch_apps_request === request)
+                window.launch_apps_request = null;
         }
         if (seq !== this._recentAppsSeq) return;
         $el_window

@@ -3959,3 +3959,55 @@ describe('FSEntryStore subtree walks', () => {
         });
     });
 });
+
+describe('FSEntryStore lineage backfill under a lenient collation', () => {
+    // MySQL's `name` collation matches some names the `path` collation
+    // doesn't (`ß` = `s` by name, not by path). SQLite compares both
+    // exactly, so the lineage read is handed the stored spelling instead.
+    const matchNamesLeniently = (alias: string, stored: string) => {
+        const db = server.clients.db;
+        const originalRead = (Object.getPrototypeOf(db) as typeof db).read;
+        return vi
+            .spyOn(db, 'read')
+            .mockImplementation(async (sql: string, params?: unknown[]) => {
+                const lenient = sql.includes('segments(depth, name)')
+                    ? params?.map((p) => (p === alias ? stored : p))
+                    : params;
+                return originalRead.call(db, sql, lenient);
+            });
+    };
+
+    it('writes the stored path, not the requested spelling', async () => {
+        const user = await makeUser();
+        const desktop = (await store.getEntryByPath(`${user.home}/Desktop`))!;
+        await server.clients.redis.flushall?.();
+
+        const spy = matchNamesLeniently('Deßktop', 'Desktop');
+        try {
+            const resolved = await store.getEntryByPath(`${user.home}/Deßktop`);
+            expect(resolved?.uuid).toBe(desktop.uuid);
+            expect(resolved?.path).toBe(`${user.home}/Desktop`);
+        } finally {
+            spy.mockRestore();
+        }
+        await expect(pathOf(desktop.uuid)).resolves.toBe(
+            `${user.home}/Desktop`,
+        );
+    });
+
+    it('heals a path-less row with its stored names', async () => {
+        const user = await makeUser();
+        const desktop = (await store.getEntryByPath(`${user.home}/Desktop`))!;
+        await blankPath(desktop.uuid);
+
+        const spy = matchNamesLeniently('Deßktop', 'Desktop');
+        try {
+            await store.getEntryByPath(`${user.home}/Deßktop`);
+        } finally {
+            spy.mockRestore();
+        }
+        await expect(pathOf(desktop.uuid)).resolves.toBe(
+            `${user.home}/Desktop`,
+        );
+    });
+});
