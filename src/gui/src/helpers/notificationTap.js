@@ -27,6 +27,8 @@ export const PUSH_TAP_PARAM = 'puter.notification';
 
 const UID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UID_MAX = 64;
+// A tap for a uid acted on this recently is the same tap again.
+const TAP_REPEAT_MS = 10_000;
 
 const nonEmpty = (value) => (typeof value === 'string' && value !== '' ? value : undefined);
 
@@ -200,6 +202,8 @@ export const storedTapHandler = ({ fetchRow, surface, found, missing }) => async
 let pushTapHandler = null;
 /** @type {PushTap[]} */
 const pendingPushTaps = [];
+/** @type {Map<string, number>} uid → when it was last handed over */
+const recentTaps = new Map();
 
 /** @param {(tap: PushTap) => unknown} handler */
 export const setPushTapHandler = (handler) => {
@@ -207,9 +211,18 @@ export const setPushTapHandler = (handler) => {
     for ( const tap of pendingPushTaps.splice(0) ) void handler(tap);
 };
 
+const seenLately = (uid, now) => {
+    for ( const [seen, at] of recentTaps ) {
+        if ( now - at >= TAP_REPEAT_MS ) recentTaps.delete(seen);
+    }
+    if ( recentTaps.has(uid) ) return true;
+    recentTaps.set(uid, now);
+    return false;
+};
+
 /** @param {PushTap|null} tap */
 const deliverPushTap = (tap) => {
-    if ( ! tap ) return;
+    if ( ! tap || seenLately(tap.uid, Date.now()) ) return;
     if ( pushTapHandler ) void pushTapHandler(tap);
     else pendingPushTaps.push(tap);
 };

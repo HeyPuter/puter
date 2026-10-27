@@ -282,6 +282,10 @@ describe('storedTapHandler', () => {
 });
 
 describe('push tap dispatch', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
     it('holds taps until a handler is set, then hands them over in order', async () => {
         const { dispatchPushTap, setPushTapHandler } = await import('./notificationTap.js');
         dispatchPushTap({ uid: UID });
@@ -304,5 +308,22 @@ describe('push tap dispatch', () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
         expect(fetchRow).toHaveBeenCalledWith(OTHER_UID);
         expect(openApp).not.toHaveBeenCalled();
+    });
+
+    it('hands the same notification over once within ten seconds', async () => {
+        vi.useFakeTimers();
+        const { dispatchPushTap, setPushTapHandler } = await import('./notificationTap.js');
+        const handler = vi.fn();
+        setPushTapHandler(handler);
+        dispatchPushTap({ uid: UID });
+        dispatchPushTap({ uid: UID });
+        dispatchPushTap({ uid: OTHER_UID });
+        expect(handler.mock.calls).toEqual([[{ uid: UID }], [{ uid: OTHER_UID }]]);
+        vi.advanceTimersByTime(9_999);
+        dispatchPushTap({ uid: UID });
+        expect(handler).toHaveBeenCalledTimes(2);
+        vi.advanceTimersByTime(1);
+        dispatchPushTap({ uid: UID });
+        expect(handler).toHaveBeenCalledTimes(3);
     });
 });
