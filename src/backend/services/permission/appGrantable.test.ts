@@ -95,6 +95,7 @@ describe('parseAppGrantablePermission', () => {
             },
         ],
         ['events:background', { family: 'backgroundEvents' }],
+        ['custom-domains:manage', { family: 'customDomains' }],
     ])('accepts %s', (permission, parsed) => {
         expect(parse(permission)).toEqual(parsed);
     });
@@ -118,6 +119,8 @@ describe('parseAppGrantablePermission', () => {
         '*',
         'events',
         'events:background:extra',
+        'custom-domains',
+        'custom-domains:manage:extra',
         // Modeless, or a mode that does not exist.
         'fs',
         `fs:${FILE}`,

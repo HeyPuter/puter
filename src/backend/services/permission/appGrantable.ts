@@ -62,7 +62,8 @@ export type AppGrantablePermission =
           appUid: string;
           segments: string[];
       }
-    | { family: 'backgroundEvents' };
+    | { family: 'backgroundEvents' }
+    | { family: 'customDomains' };
 
 /** One component as it is written canonically: `\` as `\\`, `:` as `\C`. */
 const escapeComponent = (component: string): string =>
@@ -116,6 +117,9 @@ export const parseAppGrantablePermission = (
 ): AppGrantablePermission | null => {
     if (permission === 'events:background') {
         return { family: 'backgroundEvents' };
+    }
+    if (permission === 'custom-domains:manage') {
+        return { family: 'customDomains' };
     }
 
     const parts = PermissionUtil.split(permission);
