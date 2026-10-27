@@ -314,6 +314,41 @@ describe('thumbnails extension — handleThumbnailRead', () => {
         await server?.shutdown();
     });
 
+    it('keeps read URLs stable within an hour and rotates them at the next hour', async () => {
+        const key = mintedKey();
+        const signedAt = Date.UTC(2026, 9, 26, 10);
+        const read = async () => {
+            const entry: Record<string, unknown> = {
+                thumbnail: `s3://${BUCKET}/${key}`,
+            };
+            await handleThumbnailRead(entry, {
+                s3,
+                s3Presign,
+                bucketName: BUCKET,
+                bucketEndpoint: BUCKET_ENDPOINT,
+                fsEntry: server.stores.fsEntry,
+            });
+            return entry.thumbnail as string;
+        };
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(signedAt + 1000);
+            const first = await read();
+            vi.setSystemTime(signedAt + 3599_000);
+            expect(await read()).toBe(first);
+            expect(new URL(first).searchParams.get('X-Amz-Date')).toBe(
+                '20261026T100000Z',
+            );
+            expect(new URL(first).searchParams.get('X-Amz-Expires')).toBe(
+                '604800',
+            );
+            vi.setSystemTime(signedAt + 3600_000);
+            expect(await read()).not.toBe(first);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     // Thumbnails stored before keys were bound to entries keep displaying.
     it.each([
         ['an entry-bound key', () => mintedKey()],
