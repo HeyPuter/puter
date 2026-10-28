@@ -33,6 +33,7 @@ import {
     FORWARD_MAX_QUEUED_BYTES,
     PeerForwardQueue,
     type ForwardAck,
+    type ForwardNack,
     type ForwardBatch,
     type ForwardBump,
     type ForwardDelivery,
@@ -100,7 +101,7 @@ export interface ForwardableDelivery {
     event: DeliverableEvent;
     ackRequired?: true;
     ackId?: string;
-    /** Client skips its handler: the worker has it, or it is too deep. */
+    /** Client skips its handler: the event is past the handler-chain limit. */
     skipHandler?: true;
 }
 
@@ -428,6 +429,25 @@ export class EventForwardService extends PuterService {
         });
     }
 
+    /** Relay a client's decline to the region that owns the lease. */
+    relayNack(
+        region: string,
+        userId: number,
+        subId: string,
+        entryId: string,
+        reason: ForwardNack['reason'],
+    ): void {
+        if (!this.active) return;
+        if (!this.services.broadcast.addressablePeers.includes(region)) return;
+        this.#queueFor().push(region, {
+            kind: 'nack',
+            userId,
+            subId,
+            entryId,
+            reason,
+        });
+    }
+
     /** Whether a region name is a peer this node can address. */
     isPeer(region: string): boolean {
         return this.services.broadcast.addressablePeers.includes(region);
@@ -651,6 +671,26 @@ export class EventForwardService extends PuterService {
         for (const outcome of settled)
             if (outcome.status === 'rejected')
                 console.warn('[events] relayed ack failed', outcome.reason);
+
+        const nacks = items.filter(
+            (item): item is ForwardNack => item.kind === 'nack',
+        );
+        const declined = await runWithConcurrencyLimitSettled(
+            nacks,
+            EventForwardService.RECEIVE_CONCURRENCY,
+            (nack) =>
+                this.services.events.declineRelayed(
+                    nack.userId,
+                    nack.subId,
+                    nack.entryId,
+                    nack.reason === 'retriable' || nack.reason === 'terminal'
+                        ? nack.reason
+                        : 'no_handler',
+                ),
+        );
+        for (const outcome of declined)
+            if (outcome.status === 'rejected')
+                console.warn('[events] relayed decline failed', outcome.reason);
 
         // One check per (user, app) pair in the batch, not per item — a busy
         // subscription can carry many deliveries for the same pair in one

@@ -11,7 +11,7 @@ The Events API tells your app when a user's data changes. Subscribe to a file, a
 There are two kinds of subscription:
 
 - **Session subscriptions** ([`onLocal()`](/Events/onLocal/)) live on the open page and end when it closes. Use them to keep a UI in sync.
-- **Persistent subscriptions** ([`onPersistent()`](/Events/onPersistent/)) are stored on the account and keep running while your app is closed, running a [handler](/Events/handlers/) your app publishes. Use them for background work, such as processing uploads as they arrive.
+- **Persistent subscriptions** ([`onPersistent()`](/Events/onPersistent/)) are stored on the account and keep running while your app is closed, running a [handler](/Events/handlers/) your app publishes. Use them for background work, such as processing uploads as they arrive. For work that has to finish, pass `queue: true` and an event whose run never finishes, or fails with a temporary error, is offered again. See [Choosing a mode](/Events/onPersistent/#choosing-a-mode).
 
 What you watch is written as a subject string:
 
@@ -212,7 +212,7 @@ With the [User-Pays Model](/user-pays-model/), deliveries are billed to the user
             });
 
             for (const row of await puter.events.list()) {
-                puter.print(`${row.subject} — ${row.delivery}`);
+                puter.print(`${row.subject} — ${row.queue ? 'queue' : 'every listener'}`);
                 puter.print(` (context: ${row.contextKeys?.join(', ') ?? 'none'})<br>`);
             }
 
