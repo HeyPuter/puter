@@ -54,7 +54,7 @@ describe('deliversTokenAtBoot', () => {
     });
 
     it('keeps withholding the token from the popups that answer a question', () => {
-        for ( const action of ['request-permission', 'send-feedback'] ) {
+        for ( const action of ['request-permission', 'send-feedback', 'attach-custom-domain'] ) {
             expect(deliversTokenAtBoot(action)).toBe(false);
             expect(defersTokenToOpener(action)).toBe(false);
         }
@@ -72,6 +72,11 @@ describe('deliversTokenToOpener', () => {
     it('withholds the token from a feedback popup', () => {
         // Sending feedback is not consent to sign the site in either.
         expect(deliversTokenToOpener('send-feedback')).toBe(false);
+    });
+
+    it('withholds the token from a custom domain popup', () => {
+        // The site gets the one domain the user chose, not their account.
+        expect(deliversTokenToOpener('attach-custom-domain')).toBe(false);
     });
 
     it('delivers the token for the sign-in flows that exist to authenticate', () => {
@@ -118,6 +123,12 @@ describe('runsUserAppTokenExchange', () => {
         // origin server-side, so opening (or cancelling) the dialog must not
         // connect the site to the account.
         expect(runsUserAppTokenExchange('send-feedback')).toBe(false);
+    });
+
+    it('skips the exchange for a custom domain popup', () => {
+        // The dialog calls the API with the GUI's own session; connecting the
+        // site to the account would grant it nothing it needs.
+        expect(runsUserAppTokenExchange('attach-custom-domain')).toBe(false);
     });
 
     it('runs it for sign-in, the pickers, and the permission prompt', () => {
