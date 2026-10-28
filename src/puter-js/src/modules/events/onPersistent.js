@@ -12,15 +12,14 @@ import { resolveSubject } from './lib/resolveSubject.js';
  *
  * Unlike `onLocal()`, the subscription is stored against the account, keeps
  * matching while the app is closed, and is ended by
- * `puter.events.unsubscribe()` rather than by navigating away. By default
- * (`broadcast`, targeting the worker) the app's published handler, named by
- * `handlerName`, is the one that runs — whether or not this client is open.
+ * `puter.events.unsubscribe()` rather than by navigating away. Each event runs
+ * the app's published handler, named by `handlerName`, in its events worker,
+ * and is also sent to every connected client. With `queue`, each event goes
+ * to exactly one consumer instead.
  *
- * Passing a function as `handler` also runs it in this client, on the
- * deliveries the server leaves to clients (see
- * [Where the handler runs](/Events/onPersistent/#where-the-handler-runs)):
- * the same body, the same `{ event, ctx }`, plus `user`, `fetch` and — for a
- * subscription owed to one consumer — `ack`.
+ * Passing a function as `handler` also runs it in this client for each
+ * delivery it receives: the same body, the same `{ event, ctx }`, plus `user`,
+ * `fetch` and — for a `queue` subscription — `ack`.
  *
  * `context` is evaluated **here, now** — serialized once and delivered to every
  * invocation as a frozen `ctx`. It never re-evaluates, so a value read from the
@@ -46,12 +45,11 @@ export async function onPersistent (options = {}) {
             'events_handler_name_required',
         );
     }
-    // A `single` delivery is owed to exactly one consumer, and the handler is
-    // the only one always there to take it — checked here rather than only
-    // discovered on the round trip.
-    if ( options.delivery === 'single' && ! handlerName ) {
+    // A queued delivery is owed to exactly one consumer, and the handler is
+    // the only one always there to take it.
+    if ( (options.queue === true || options.delivery === 'single') && ! handlerName ) {
         throw new PuterJSError(
-            'A `single` subscription needs a `handlerName`',
+            'A `queue` subscription needs a `handlerName`',
             'events_handler_required',
         );
     }
@@ -62,8 +60,8 @@ export async function onPersistent (options = {}) {
 
     const body = {
         subject,
+        ...(typeof options.queue === 'boolean' ? { queue: options.queue } : {}),
         ...(options.delivery ? { delivery: options.delivery } : {}),
-        ...(options.targets ? { targets: options.targets } : {}),
         ...(handlerName ? { handlerName } : {}),
         ...(inline ? { handlerHash: inline.hash } : {}),
         ...(options.expiresAt !== undefined && options.expiresAt !== null

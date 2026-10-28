@@ -509,17 +509,17 @@ Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one
 
 | Limit                                    | Value      | Scope                  |
 | ---------------------------------------- | ---------- | ---------------------- |
-| Broadcast deliveries                     | 600/min    | Per subscription       |
-| `single` deliveries                      | 120/min    | Per subscription       |
+| Deliveries without `queue`               | 600/min    | Per subscription       |
+| `queue` deliveries                       | 120/min    | Per subscription       |
 | Handler runs                             | 60/min     | Per user, per app      |
 | Coalescing window                        | 250 ms     | Per subscription and subject |
-| Time to acknowledge a `single` delivery  | 60 seconds | Per delivery           |
+| Time for a client to answer a `queue` delivery | 15 seconds | Per delivery     |
 | Undelivered backlog                      | 10,000     | Per subscription       |
 | Undelivered backlog                      | 1,000,000  | Per region             |
 | KV value inlined in a delivery           | 16 KB      | Per delivery           |
 
 - Over a delivery rate, the event is replaced by a gap marker (`delivery_rate_limit`).
-- Over the handler-run rate, a `single` delivery waits and goes out later, and a `broadcast` one runs only in connected clients. Neither counts as a handler failure.
+- Over the handler-run rate, a `queue` delivery waits and goes out later, and any other delivery runs only in connected clients. Neither counts as a handler failure.
 - When a backlog is full, the oldest deliveries are dropped and replaced by one gap marker (`backlog_overflow`).
 
 #### Handlers
@@ -532,7 +532,7 @@ Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one
 | Handlers per `publishAll()` call       | 50                             | Per call           |
 | Events worker deploys                  | 30/hour                        | Per app, all users |
 | Run timeout                            | 30 seconds                     | Per run            |
-| Retry delay                            | 2 seconds, doubling, up to 5 minutes | Per delivery |
+| Retry delay (`queue`, temporary errors) | 2 seconds, doubling, up to 5 minutes | Per delivery |
 | Failures in a row before suspension    | 5                              | Per subscription   |
 | `user` token lifetime in the events worker | 15 minutes                 | Per run            |
 
@@ -547,7 +547,7 @@ Over the deploy limit, deliveries stay queued and retry after the hour rolls ove
 | Handler runs in one chain     | Per account holding the subscription | 12 | 4 |
 
 - A write made through a handler's `user` in the events worker, or through a token `user` creates, is one run deeper than the event that ran the handler. Writes from anywhere else start a new chain. `user.workers.create` is refused rather than counted — a handler cannot start an untracked chain through a worker of its own.
-- When an event reaches the limit, the events worker runs no handler for it. A `broadcast` one still reaches connected clients without running the persistent handler; a `single` one is still offered to a connected client first and runs there. The dropped run leaves no gap marker and doesn't count as a handler failure.
+- When an event reaches the limit, the events worker runs no handler for it. Without `queue`, it still reaches connected clients without running the persistent handler. A queued one is still offered to a connected client first and runs there. The dropped run leaves no gap marker and doesn't count as a handler failure.
 - If the holder's plan can't be looked up, the free number applies. A server with no metering uses the paid number.
 
 #### Suspended subscriptions
@@ -580,7 +580,7 @@ Deliveries are billed to the account holding the subscription:
 | `events:delivery:broadcast` | 10 µ¢ ($0.10 per million)  | Delivered event |
 | `events:delivery:single`    | 100 µ¢ ($1 per million)    | Delivered event |
 
-µ¢ is a microcent (a millionth of a cent). Session subscriptions bill at the broadcast rate. Handler runs bill separately as worker usage.
+µ¢ is a microcent (a millionth of a cent). Deliveries for `queue` subscriptions bill on the `single` line, and every other delivery, session subscriptions included, bills at the broadcast rate. Handler runs bill separately as worker usage.
 
 Free: idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, deliveries with no client connected to receive them and no handler run, and gap markers.
 
