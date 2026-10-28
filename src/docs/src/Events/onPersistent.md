@@ -48,6 +48,14 @@ Background handlers run as a worker session for your app, which appears in the u
 
 ## Where the handler runs
 
+| | Who gets each event | If a run fails |
+|---|---|---|
+| [`onLocal()`](/Events/onLocal/) | Clients connected right now | Gone. Nothing is kept while disconnected. |
+| `onPersistent()` | The events worker, even with the app closed, plus every connected client | Gone. Each place gets one attempt. |
+| `onPersistent({ single: true })` | One consumer at a time: a connected client first, then the events worker | Offered again until acknowledged (at-least-once). |
+
+Use the default to react to every event wherever your app is listening. Use `single` when each event has to be handled successfully, and make the handler safe to run twice.
+
 Without `single`, every event runs the handler in each place that's listening:
 
 - The app's [events worker](/Events/workers/) runs the handler named by `handlerName`, whether or not a client is open.
