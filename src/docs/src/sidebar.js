@@ -752,6 +752,14 @@ let sidebar = [
                 source: '/Hosting/get.md',
                 path: '/Hosting/get',
             },
+            {
+                title: '<code>attach()</code>',
+                page_title: '<code>puter.hosting.attach()</code>',
+                title_tag: 'puter.hosting.attach()',
+                icon: '/assets/img/function.svg',
+                source: '/Hosting/attach.md',
+                path: '/Hosting/attach',
+            },
         ],
     },
     {
@@ -1547,6 +1555,13 @@ let sidebar = [
                 icon: '/assets/img/object.svg',
                 source: '/Objects/speech2txtresult.md',
                 path: '/Objects/speech2txtresult',
+            },
+            {
+                title: '<code>CustomDomain</code>',
+                title_tag: 'CustomDomain',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/customdomain.md',
+                path: '/Objects/customdomain',
             },
             {
                 title: '<code>Subdomain</code>',

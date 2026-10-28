@@ -787,6 +787,12 @@ const examples = [
                 source: '/playground/examples/hosting-get.html',
             },
             {
+                title: 'Connect a custom domain to a website',
+                description: 'Let the user connect their own domain to a website with Puter.js hosting API. Run and experiment with this example directly in the playground.',
+                slug: 'hosting-attach',
+                source: '/playground/examples/hosting-attach.html',
+            },
+            {
                 title: 'Publish a portfolio page',
                 description: 'Publish a page built from form input as a public website with Puter.js hosting API. Run and modify this example directly in your browser.',
                 slug: 'hosting-publish-a-website',
