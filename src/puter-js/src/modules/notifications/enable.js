@@ -27,8 +27,14 @@ export async function enable(options = {}) {
     if ((await asking) !== 'granted') return false;
 
     if (needsSignIn(puter)) await signInVisitor(puter);
-    await syncWebPush(puter, {
-        worker: workerFor(puter.env, options.serviceWorker),
-    });
+    const worker = workerFor(puter.env, options.serviceWorker);
+    try {
+        await syncWebPush(puter, { worker });
+    } catch (error) {
+        // The user turned this app off in Puter; only Puter's prompt undoes it.
+        if (error?.code !== 'push_revoked') throw error;
+        if (!(await this.requestPermission())) return false;
+        await syncWebPush(puter, { worker });
+    }
     return true;
 }

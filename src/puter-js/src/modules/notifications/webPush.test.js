@@ -251,3 +251,67 @@ describe('onPush', () => {
         expect(module.onNotification).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('enable', () => {
+    const withBrowser = (nav, permission = 'granted') => {
+        globalThis.PushManager = function PushManager() {};
+        globalThis.Notification = {
+            permission,
+            requestPermission: vi.fn(async () => 'granted'),
+        };
+        Object.defineProperty(globalThis.navigator, 'serviceWorker', {
+            value: nav.serviceWorker,
+            configurable: true,
+        });
+    };
+
+    afterEach(() => {
+        delete globalThis.PushManager;
+        delete globalThis.Notification;
+    });
+
+    const makeModule = () =>
+        new NotificationsModule({
+            ...puter,
+            onAuthStateChanged: () => () => {},
+        });
+
+    it('asks the browser before anything is awaited', async () => {
+        const nav = makeNav({ existing: makeSubscription() });
+        withBrowser(nav, 'default');
+        mockRequest.mockImplementation(async (_p, method, route) =>
+            route === '/push/web/key'
+                ? { publicKey: KEY }
+                : { status: 'active', device: { uid: 'd1' } },
+        );
+        const pending = makeModule().enable();
+        expect(Notification.requestPermission).toHaveBeenCalledTimes(1);
+        await expect(pending).resolves.toBe(true);
+    });
+
+    it('asks through Puter`s prompt when the user turned the app off there', async () => {
+        const nav = makeNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        let revoked = true;
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') return { publicKey: KEY };
+            if (revoked) {
+                const { PuterJSError } =
+                    await import('../../lib/PuterJSError.js');
+                throw new PuterJSError('off', 'push_revoked');
+            }
+            return { status: 'active', device: { uid: 'd1' } };
+        });
+        const module = makeModule();
+        module.requestPermission = vi.fn(async () => {
+            revoked = false;
+            return true;
+        });
+        await expect(module.enable()).resolves.toBe(true);
+        expect(module.requestPermission).toHaveBeenCalledTimes(1);
+
+        revoked = true;
+        module.requestPermission = vi.fn(async () => false);
+        await expect(module.enable()).resolves.toBe(false);
+    });
+});
