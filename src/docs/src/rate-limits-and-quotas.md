@@ -596,7 +596,7 @@ A push an app sends with [`puter.notifications.notify()`](/Notifications/notify/
 
 | What                        | Rate                       | Counted per                   |
 | --------------------------- | -------------------------- | ----------------------------- |
-| A push from an app          | 200 µ¢ ($2 per million)    | Device that received the push |
+| A push from an app          | 250 µ¢ ($2.50 per million) | Device that received the push |
 
 A push to three of the user's devices counts three times. A push that didn't reach a device isn't charged. Puter's own notifications, such as a share or a finished deploy, are free.
 
