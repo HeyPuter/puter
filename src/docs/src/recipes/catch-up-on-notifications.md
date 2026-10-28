@@ -23,7 +23,8 @@ as a toast or a row in a panel.
 ## Show New Notifications
 
 To show notifications as they arrive, subscribe to `notif:app-user` with
-[`puter.events.onLocal()`](/Events/onLocal/):
+[`puter.events.onLocal()`](/Events/onLocal/). It only updates the open page, and
+the catch-up below covers anything missed while the page was closed:
 
 ```js
 const sub = await puter.events.onLocal('notif:app-user', ({ event }) => {

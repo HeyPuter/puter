@@ -52,6 +52,7 @@ import {
     type DeliveryEnvelope,
     type EventSocket,
     type KvDispatchOptions,
+    type SubscribeRequest,
 } from './EventsService.js';
 import { kvSharePermission } from '../kvShare/kvShares.js';
 import { FILTER_EVALUATIONS_PER_EVENT } from './matcher.js';
@@ -589,25 +590,18 @@ describe('subscribing', () => {
             anchor: { uid: documents.uid, path: documents.path },
             match: null,
             op: null,
-            // The connection is the only thing a session row can be delivered
-            // to, so it is the only transport it can ask for.
-            targets: ['socket'],
         });
     });
 
-    it('refuses a session subscription a connection could not carry', async () => {
+    it('ignores `targets` on a session subscription', async () => {
         seedTree();
 
-        for (const targets of [['worker'], ['socket', 'push']])
-            await expect(
-                service.subscribe(actorFor(), socketId, {
-                    subject: `fs:/u${userId}/Documents`,
-                    targets,
-                }),
-            ).rejects.toSatisfy(
-                (err: unknown) =>
-                    isHttpError(err) && err.legacyCode === 'invalid_targets',
-            );
+        const { sub } = await service.subscribe(actorFor(), socketId, {
+            subject: `fs:/u${userId}/Documents`,
+            targets: ['worker', 'push'],
+        } as SubscribeRequest);
+
+        expect(sub.subId).toEqual(expect.any(String));
     });
 
     it('rejects a subject that resolves to nothing', async () => {
@@ -1224,7 +1218,6 @@ describe('matching', () => {
             permission: 'list',
             durable: true,
             delivery: 'broadcast',
-            targets: ['socket'],
             handlerName: null,
             context: null,
             expiresAt: null,
@@ -1809,7 +1802,6 @@ describe('limits', () => {
                         appUid: null,
                         permission: 'list',
                         delivery: 'broadcast',
-                        targets: ['socket'],
                         handlerName: null,
                         context: null,
                         expiresAt: null,

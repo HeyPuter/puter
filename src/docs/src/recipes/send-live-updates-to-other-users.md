@@ -54,7 +54,8 @@ await puter.kv.set(`${prefix}score`, { home: 1, away: 0 });
 
 The fan finds the share with [`puter.kv.listShared()`](/KV/listShared/) and
 subscribes to `kv:<handle>:*` with [`puter.events.onLocal()`](/Events/onLocal/).
-Pass [`includeValue: true`](/Events/subjects/#getting-the-new-value) to get the new value with each event:
+The fan only needs updates while their page is open, so nothing has to run in
+the background. Pass [`includeValue: true`](/Events/subjects/#getting-the-new-value) to get the new value with each event:
 
 ```js
 const { items } = await puter.kv.listShared();

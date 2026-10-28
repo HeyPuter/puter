@@ -160,7 +160,6 @@ const subscribe = async (token: string = appToken): Promise<string> => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: HANDLER,
-            targets: ['worker'],
             context: { label: 'ingest' },
         }),
     });
@@ -169,7 +168,7 @@ const subscribe = async (token: string = appToken): Promise<string> => {
     return body.subId;
 };
 
-/** A `broadcast` subscription, left at its default targets (socket + worker). */
+/** A `broadcast` subscription with a handler. */
 const subscribeBroadcast = async (
     token: string = appToken,
 ): Promise<string> => {
@@ -258,7 +257,6 @@ const subscribeKv = async (
             subject: `kv:${key}`,
             delivery: 'single',
             handlerName: HANDLER,
-            targets: ['worker'],
         }),
     });
     const body = (await response.json()) as { subId: string };
@@ -723,8 +721,8 @@ describe('what each answer does to the delivery', () => {
     });
 });
 
-describe('a broadcast delivery, with a worker to take it', () => {
-    it('hands the run to the worker and marks the socket copy', async () => {
+describe('a broadcast delivery with a handler', () => {
+    it('runs the worker and sends the clients an unmarked copy', async () => {
         const send = vi.spyOn(env.server.services.socket, 'send');
         try {
             await subscribeBroadcast();
@@ -733,11 +731,14 @@ describe('a broadcast delivery, with a worker to take it', () => {
             await invoked(1);
 
             expect(calls).toHaveLength(1);
-            expect(send).toHaveBeenCalledWith(
-                expect.anything(),
-                'events.delivery',
-                expect.objectContaining({ skipHandler: true }),
+            const copies = send.mock.calls.filter(
+                ([, channel]) => channel === 'events.delivery',
             );
+            expect(copies.length).toBeGreaterThan(0);
+            for (const [, , envelope] of copies)
+                expect(
+                    (envelope as { skipHandler?: true }).skipHandler,
+                ).toBeUndefined();
         } finally {
             send.mockRestore();
         }
