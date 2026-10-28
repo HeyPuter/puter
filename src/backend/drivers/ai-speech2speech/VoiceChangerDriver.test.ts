@@ -51,6 +51,7 @@ import type { DriverStreamResult } from '../meta.js';
 import {
     outputBytesPerSecond,
     type VoiceChangerDriver,
+    wavDataOffset,
 } from './VoiceChangerDriver.js';
 import {
     callerError,
@@ -402,6 +403,44 @@ describe('VoiceChangerDriver.convert success path', () => {
         expect(outputBytesPerSecond(format)).toBe(bytes);
     });
 
+    /** A 16-bit mono WAV header, with an optional LIST chunk before data. */
+    const wavHeader = (sampleRate: number, dataBytes: number, list = 0) => {
+        const listChunk = list
+            ? Buffer.concat([
+                  Buffer.from('LIST'),
+                  Buffer.from(new Uint32Array([list]).buffer),
+                  Buffer.alloc(list),
+              ])
+            : Buffer.alloc(0);
+        const fmt = Buffer.alloc(24);
+        fmt.write('fmt ', 0, 'ascii');
+        fmt.writeUInt32LE(16, 4);
+        fmt.writeUInt16LE(1, 8);
+        fmt.writeUInt16LE(1, 10);
+        fmt.writeUInt32LE(sampleRate, 12);
+        fmt.writeUInt32LE(sampleRate * 2, 16);
+        fmt.writeUInt16LE(2, 20);
+        fmt.writeUInt16LE(16, 22);
+        const data = Buffer.alloc(8);
+        data.write('data', 0, 'ascii');
+        data.writeUInt32LE(dataBytes, 4);
+        const body = Buffer.concat([fmt, listChunk, data]);
+        const riff = Buffer.alloc(12);
+        riff.write('RIFF', 0, 'ascii');
+        riff.writeUInt32LE(4 + body.length + dataBytes, 4);
+        riff.write('WAVE', 8, 'ascii');
+        return Buffer.concat([riff, body]);
+    };
+
+    it("finds where a WAV stream's samples start", () => {
+        expect(wavDataOffset(wavHeader(16_000, 0))).toBe(44);
+        expect(wavDataOffset(wavHeader(16_000, 0, 26))).toBe(78);
+        expect(wavDataOffset(wavHeader(16_000, 0).subarray(0, 40))).toBe(
+            undefined,
+        );
+        expect(wavDataOffset(Buffer.alloc(64))).toBe(undefined);
+    });
+
     describe('meters the length of the audio that comes back', () => {
         const usageType = 'elevenlabs:eleven_multilingual_sts_v2:second';
         const billed = async () => {
@@ -449,6 +488,24 @@ describe('VoiceChangerDriver.convert success path', () => {
                 okResponse(new ArrayBuffer(3 * 32_000), 'audio/pcm'),
             );
             await convert(actor, 1_000_000, { output_format: 'pcm_16000' });
+            expect(await billed()).toBe(3);
+        });
+
+        it('does not bill a WAV header as audio', async () => {
+            const { actor } = await makeUser();
+            // 3 s of wav_16000 is 96,000 bytes of samples plus its header.
+            fetchSpy.mockResolvedValueOnce(
+                okResponse(
+                    new Uint8Array(
+                        Buffer.concat([
+                            wavHeader(16_000, 3 * 32_000, 26),
+                            Buffer.alloc(3 * 32_000),
+                        ]),
+                    ).buffer,
+                    'audio/wav',
+                ),
+            );
+            await convert(actor, 1_000_000, { output_format: 'wav_16000' });
             expect(await billed()).toBe(3);
         });
 

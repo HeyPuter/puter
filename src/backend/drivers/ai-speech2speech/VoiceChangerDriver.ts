@@ -264,7 +264,10 @@ export class VoiceChangerDriver extends PuterDriver {
         if (search) url.search = search;
 
         const metering = this.#aiMetering;
-        const output = measuredOutput(outputBytesPerSecond(outputFormat));
+        const output = measuredOutput(
+            outputBytesPerSecond(outputFormat),
+            outputFormat.startsWith('wav_'),
+        );
         return withStreamedAiCharge(
             metering,
             actor,
@@ -312,8 +315,8 @@ export class VoiceChangerDriver extends PuterDriver {
 
 /**
  * Bytes per second of an ElevenLabs `output_format`. A format outside the
- * documented set is sized as the default, so a made-up bitrate can't shrink
- * the bill.
+ * documented set is sized as the default, so a made-up bitrate can't shrink the
+ * bill.
  */
 export function outputBytesPerSecond(format: string): number {
     const known = OUTPUT_FORMATS.has(format) ? format : DEFAULT_OUTPUT_FORMAT;
@@ -324,27 +327,66 @@ export function outputBytesPerSecond(format: string): number {
     return Number(rate) * 2;
 }
 
+// Past this, a WAV whose data chunk hasn't started is billed by raw length.
+const WAV_HEADER_MAX_BYTES = 64 * 1024;
+
+/**
+ * Where the samples of a RIFF/WAVE stream start, once `head` reaches its `data`
+ * chunk; undefined until then, or if `head` isn't a WAV.
+ */
+export function wavDataOffset(head: Buffer): number | undefined {
+    if (head.length < 12) return undefined;
+    if (
+        head.toString('ascii', 0, 4) !== 'RIFF' ||
+        head.toString('ascii', 8, 12) !== 'WAVE'
+    )
+        return undefined;
+    let offset = 12;
+    while (offset + 8 <= head.length) {
+        if (head.toString('ascii', offset, offset + 4) === 'data')
+            return offset + 8;
+        const size = head.readUInt32LE(offset + 4);
+        offset += 8 + size + (size & 1);
+    }
+    return undefined;
+}
+
 /**
  * Counts the bytes of a converted stream. `seconds` settles when the stream
  * ends or closes: its length in whole seconds (undefined when nothing came
- * back), and whether the upstream sent all of it.
+ * back), and whether the upstream sent all of it. A WAV's header isn't audio,
+ * so it isn't counted.
  */
-function measuredOutput(bytesPerSecond: number) {
+function measuredOutput(bytesPerSecond: number, wav: boolean) {
     let bytes = 0;
+    let head: Buffer | undefined = wav ? Buffer.alloc(0) : undefined;
+    let headerBytes = 0;
     let settle!: (measured: { seconds?: number; complete: boolean }) => void;
     const seconds = new Promise<{ seconds?: number; complete: boolean }>(
         (resolve) => {
             settle = resolve;
         },
     );
-    const lengthOf = () =>
-        bytes > 0
-            ? Math.max(1, Math.ceil(bytes / bytesPerSecond))
+    const lengthOf = () => {
+        const audio = bytes - headerBytes;
+        return audio > 0
+            ? Math.max(1, Math.ceil(audio / bytesPerSecond))
             : undefined;
+    };
     const measure = (source: Readable): Readable => {
         const counter = new Transform({
             transform(chunk: Buffer, _encoding, callback) {
                 bytes += chunk.length;
+                if (head) {
+                    head = Buffer.concat([head, chunk]);
+                    const offset = wavDataOffset(head);
+                    if (offset !== undefined) headerBytes = offset;
+                    if (
+                        offset !== undefined ||
+                        head.length >= WAV_HEADER_MAX_BYTES
+                    )
+                        head = undefined;
+                }
                 callback(null, chunk);
             },
             flush(callback) {

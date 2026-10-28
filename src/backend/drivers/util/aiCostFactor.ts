@@ -416,10 +416,14 @@ export async function withAiCreditHold<T>(
     }
 }
 
+// Under the hold store's default TTL, so a renewal always lands first.
+const STREAM_HOLD_RENEW_MS = 5 * 60 * 1000;
+
 /**
  * Holds `amount` while `open` starts an upstream audio stream, then charges it
  * through `record` once the first byte arrives, or once the caller hangs up. An
- * upstream that fails or ends before its first byte is not charged.
+ * upstream that fails or ends before its first byte is not charged. The hold is
+ * renewed until the charge lands, however long a slow reader takes.
  */
 export async function withStreamedAiCharge(
     metering: AiMeteringService,
@@ -439,13 +443,29 @@ export async function withStreamedAiCharge(
         throw e;
     }
 
+    const renew = setInterval(async () => {
+        try {
+            await hold.extend?.();
+        } catch {
+            // The next tick retries.
+        }
+    }, STREAM_HOLD_RENEW_MS);
+    renew.unref?.();
+
     let settled = false;
     const settle = (charge: boolean) => {
         if (settled) return;
         settled = true;
         // The relay runs outside the request, so the hold waits on the charge
         // itself. A failed release leaves the hold to its TTL.
-        const release = () => hold.release().catch(() => {});
+        const release = async () => {
+            clearInterval(renew);
+            try {
+                await hold.release();
+            } catch {
+                // ignored
+            }
+        };
         void Promise.resolve(charge ? record() : undefined).then(
             release,
             release,
