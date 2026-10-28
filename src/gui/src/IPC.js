@@ -29,6 +29,7 @@ import UIPopover from './UI/UIPopover.js';
 import UIPrompt from './UI/UIPrompt.js';
 import UIWindow from './UI/UIWindow.js';
 import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
+import UIWindowAttachCustomDomain from './UI/UIWindowAttachCustomDomain.js';
 import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
@@ -51,6 +52,8 @@ window.ipc_handlers = {};
 // handler below): one dialog at a time, and nothing else — reopening is always
 // allowed. See feedbackDialogGuard.js.
 const feedback_dialog_guard = createFeedbackDialogGuard();
+// Same one-at-a-time rule for the custom domain dialog.
+const custom_domain_dialog_guard = createFeedbackDialogGuard();
 
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
@@ -1487,6 +1490,56 @@ const ipc_listener = async (event, handled) => {
             $(target_iframe).get(0)?.focus({ preventScroll: true });
         } finally {
             feedback_dialog_guard.markClosed();
+        }
+    }
+    //--------------------------------------------------------
+    // attachCustomDomain
+    //--------------------------------------------------------
+    else if ( event.data.msg === 'attachCustomDomain' ) {
+        // Always answer, as for showFeedbackDialog: the SDK promise only
+        // settles on a reply.
+        const respond = (domain) => {
+            target_iframe?.contentWindow?.postMessage({
+                msg: 'customDomainAttached',
+                domain: domain ?? null,
+                original_msg_id: msg_id,
+            }, '*');
+        };
+
+        const subdomain = typeof event.data.subdomain === 'string' ? event.data.subdomain : '';
+        if ( ! subdomain || ! custom_domain_dialog_guard.mayOpen() ) {
+            respond(null);
+            return;
+        }
+
+        custom_domain_dialog_guard.markOpened();
+        try {
+            try {
+                if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) ) {
+                    respond(null);
+                    return;
+                }
+            } catch ( e ) {
+                console.error('IPC attachCustomDomain: auth gate failed', e);
+                respond(null);
+                return;
+            }
+
+            let domain = null;
+            try {
+                // The requester shown is the app's registered name from the
+                // GUI's own records; its window title is app-controlled.
+                domain = await UIWindowAttachCustomDomain({
+                    subdomain,
+                    requester: app_name,
+                });
+            } catch ( e ) {
+                console.error('IPC attachCustomDomain failed', e);
+            }
+            respond(domain);
+            $(target_iframe).get(0)?.focus({ preventScroll: true });
+        } finally {
+            custom_domain_dialog_guard.markClosed();
         }
     }
     //--------------------------------------------------------
