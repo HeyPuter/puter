@@ -16,29 +16,49 @@ vi.mock('./lib/pushStore.js', () => ({
 const { syncWebPush, removeWebPush, fromBase64Url, workerFor } =
     await import('./lib/webPush.js');
 const { NotificationsModule } = await import('./index.js');
+const { PuterJSError } = await import('../../lib/PuterJSError.js');
 const { shownFrom } = await import('./onPush.js');
 
 // 65 bytes, 0x04 first, as base64url.
 const KEY = Buffer.from([4, ...Array(64).fill(7)]).toString('base64url');
 
-const makeSubscription = (key = fromBase64Url(KEY)) => ({
-    endpoint: 'https://push.example/send/abc',
+const makeSubscription = (
+    key = fromBase64Url(KEY),
+    endpoint = 'https://push.example/send/abc',
+) => ({
+    endpoint,
     options: { applicationServerKey: key.buffer },
     toJSON: () => ({
-        endpoint: 'https://push.example/send/abc',
+        endpoint,
         expirationTime: null,
         keys: { p256dh: 'p', auth: 'a' },
     }),
     unsubscribe: vi.fn(async () => true),
 });
 
-const makeNav = ({ existing = null } = {}) => {
+/** A worker still installing; `activate()` moves it to `activated`. */
+const makeWorker = () => {
+    const listeners = new Set();
+    return {
+        state: 'installing',
+        addEventListener: (type, fn) => listeners.add(fn),
+        removeEventListener: (type, fn) => listeners.delete(fn),
+        activate() {
+            this.state = 'activated';
+            for (const fn of [...listeners]) fn();
+        },
+    };
+};
+
+const makeNav = ({ existing = null, installing = null } = {}) => {
     const listeners = new Set();
     const pushManager = {
         getSubscription: vi.fn(async () => existing),
         subscribe: vi.fn(async () => makeSubscription()),
     };
-    const registration = { active: {}, pushManager };
+    const registration = installing
+        ? { active: null, installing, pushManager }
+        : { active: {}, pushManager };
     return {
         pushManager,
         registration,
@@ -158,6 +178,75 @@ describe('syncWebPush', () => {
                 code: 'push_unavailable',
             },
         );
+    });
+
+    it('subscribes once the worker is active', async () => {
+        const installing = makeWorker();
+        const nav = makeNav({ installing });
+        mockRequest.mockImplementation(async (_p, method, route) =>
+            route === '/push/web/key'
+                ? { publicKey: KEY }
+                : { status: 'active', device: { uid: 'd4' } },
+        );
+        const pending = syncWebPush(puter, { worker, nav });
+        await flush();
+        expect(nav.serviceWorker.register).toHaveBeenCalled();
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        installing.activate();
+        await expect(pending).resolves.toEqual({ uid: 'd4' });
+        expect(nav.pushManager.subscribe).toHaveBeenCalledTimes(1);
+    });
+
+    it('replaces a subscription the push service refused, once', async () => {
+        const first = makeSubscription(undefined, 'https://push.example/1');
+        const second = makeSubscription(undefined, 'https://push.example/2');
+        const nav = makeNav();
+        nav.pushManager.subscribe
+            .mockResolvedValueOnce(first)
+            .mockResolvedValueOnce(second);
+        let announced = 0;
+        mockRequest.mockImplementation(async (_p, method, route, body) => {
+            if (route === '/push/web/key') return { publicKey: KEY };
+            if (route === '/push/web/subscriptions') {
+                if (announced++ === 0) {
+                    throw new PuterJSError(
+                        'refused',
+                        'push_subscription_invalid',
+                    );
+                }
+                queueMicrotask(() =>
+                    nav.post({
+                        type: 'puter-push-challenge',
+                        challenge: 'c.sig',
+                    }),
+                );
+                return { status: 'pending' };
+            }
+            return {
+                device: { uid: 'd5', endpoint: body.subscription.endpoint },
+            };
+        });
+        await expect(syncWebPush(puter, { worker, nav })).resolves.toEqual({
+            uid: 'd5',
+            endpoint: 'https://push.example/2',
+        });
+        expect(first.unsubscribe).toHaveBeenCalledTimes(1);
+        expect(second.unsubscribe).not.toHaveBeenCalled();
+        expect(nav.pushManager.subscribe).toHaveBeenCalledTimes(2);
+        expect(announced).toBe(2);
+    });
+
+    it('rejects when the fresh subscription is refused too', async () => {
+        const nav = makeNav();
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') return { publicKey: KEY };
+            throw new PuterJSError('refused', 'push_subscription_invalid');
+        });
+        await expect(syncWebPush(puter, { worker, nav })).rejects.toMatchObject(
+            { code: 'push_subscription_invalid' },
+        );
+        expect(nav.pushManager.subscribe).toHaveBeenCalledTimes(2);
+        expect(mockRequest).toHaveBeenCalledTimes(3);
     });
 });
 

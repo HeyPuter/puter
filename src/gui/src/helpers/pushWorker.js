@@ -27,9 +27,8 @@ import {
     pushTapFromParams,
     PUSH_TAP_PARAM,
 } from './notificationTap.js';
-import { appHoldsPermissions } from './holdsPermissions.js';
 import { clear_query_param } from './parseSharedPath.js';
-import { getPushClient, PUSH_PERMISSION, registerPushClient } from './pushClient.js';
+import { getPushClient, registerPushClient } from './pushClient.js';
 import { webPushClient } from './webPushClient.js';
 
 export const WORKER_URL = '/sw.js';
@@ -63,23 +62,6 @@ export const shouldShowLocalBanner = ({ replay = false, acknowledged = false, no
 );
 
 const nonEmpty = (value) => (typeof value === 'string' && value.trim() !== '' ? value : undefined);
-
-const HOLDS_PUSH_TTL_MS = 60 * 1000;
-const HOLDS_PUSH_MAX_ENTRIES = 50;
-/** @type {Map<string, { at: number, held: Promise<boolean> }>} */
-const holdsPushCache = new Map();
-
-/** @type {(appUid: string, holdsPush: (appUid: string) => Promise<boolean>) => Promise<boolean>} One check per app a minute: a busy app sends many messages while the tab is hidden. */
-const appMayPush = (appUid, holdsPush) => {
-    const now = Date.now();
-    const hit = holdsPushCache.get(appUid);
-    if ( hit && now - hit.at < HOLDS_PUSH_TTL_MS ) return hit.held;
-    const held = holdsPush(appUid);
-    holdsPushCache.delete(appUid);
-    holdsPushCache.set(appUid, { at: now, held });
-    while ( holdsPushCache.size > HOLDS_PUSH_MAX_ENTRIES ) holdsPushCache.delete(holdsPushCache.keys().next().value);
-    return held;
-};
 
 /**
  * @param {string} uid
@@ -115,20 +97,20 @@ export const pushMessageFor = (uid, notification, appUid = null) => {
 };
 
 /**
- * Only while push is on in this browser, and for an app's message only when the app may push, as a server push would.
- * @param {{ uid: string, notification: Object, appUid?: string|null }} item
+ * Only while push is on in this browser, and only for Puter's own notifications: an app's message is shown by the app's page while it is open, and by the app's own push while it is closed.
+ * @param {{ uid: string, notification: Object }} item
  * @param {{ replay?: boolean, acknowledged?: boolean }} [meta]
- * @param {{ params?: Object, doc?: Document, nav?: Navigator, NotificationApi?: { permission: string }, holdsPush?: (appUid: string) => Promise<boolean> }} [env]
+ * @param {{ params?: Object, doc?: Document, nav?: Navigator, NotificationApi?: { permission: string } }} [env]
  * @returns {Promise<boolean>} Whether one was handed to the worker
  */
-export const showLocalBanner = async ({ uid, notification, appUid = null }, { replay = false, acknowledged = false } = {}, {
+export const showLocalBanner = async ({ uid, notification }, { replay = false, acknowledged = false } = {}, {
     params = globalThis.gui_params,
     doc = globalThis.document,
     nav = globalThis.navigator,
     NotificationApi = globalThis.Notification,
-    holdsPush = (app) => appHoldsPermissions([PUSH_PERMISSION], app),
 } = {}) => {
     if ( ! pushWorkerEnabled(params, nav) ) return false;
+    if ( notification?.type === APP_MESSAGE_TYPE ) return false;
     if ( ! shouldShowLocalBanner({
         replay,
         acknowledged,
@@ -141,11 +123,7 @@ export const showLocalBanner = async ({ uid, notification, appUid = null }, { re
         const worker = registration?.active;
         if ( ! worker ) return false;
         if ( ! await registration.pushManager?.getSubscription() ) return false;
-        if ( notification.type === APP_MESSAGE_TYPE ) {
-            const app = appUid ?? notification.app?.uid;
-            if ( ! app || ! await appMayPush(app, holdsPush) ) return false;
-        }
-        worker.postMessage({ type: WORKER_SHOW_MESSAGE, puter: pushMessageFor(uid, notification, appUid) });
+        worker.postMessage({ type: WORKER_SHOW_MESSAGE, puter: pushMessageFor(uid, notification) });
         return true;
     } catch ( err ) {
         console.warn('Could not show a browser notification:', err);
