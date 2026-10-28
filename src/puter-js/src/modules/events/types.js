@@ -196,20 +196,20 @@
  * @typedef {Object} OnPersistentOptions
  * @property {string} subject What to watch — the same grammar `onLocal()`
  *   takes, e.g. `fs:~/Documents` or `fs:~/inbox/*.json:add`.
- * @property {'broadcast' | 'single'} [delivery] `broadcast` (the default)
- *   delivers to everything listening; `single` delivers to exactly one
- *   consumer, which must acknowledge, and requires a `handlerName`.
- * @property {Array<'socket' | 'worker' | 'push'>} [targets] Transports the
- *   deliveries may take. Defaults to `['socket', 'worker']` when an app
- *   subscribes and `['socket']` when an account session with no app does. A
- *   `single` subscription may not target `push`.
+ * @property {boolean} [single] Deliver each event to exactly one consumer,
+ *   which must acknowledge it. Requires a `handlerName`. Without it, every
+ *   event runs the app's published handler in its events worker and also
+ *   reaches every connected client.
+ * @property {'broadcast' | 'single'} [delivery] Deprecated: use `single`.
+ *   `'single'` is the same as `single: true`.
+ * @property {unknown[]} [targets] Deprecated and ignored.
  * @property {string} [handlerName] The published handler this subscription
  *   binds to. Required for `single`.
  * @property {Function | string | { file: string }} [handler] The handler
  *   source this subscription was written against. Sent as a hash, not as
  *   source: the subscription binds only if it matches what is published under
  *   `handlerName`, which is also required when this is given. A function also
- *   runs in this client, on the deliveries the server leaves to clients.
+ *   runs in this client for each delivery it receives.
  * @property {Record<string, unknown>} [context] Values the handler needs,
  *   evaluated **now** and delivered as a frozen `ctx` on every invocation.
  *   Capped at 4 KB serialized.
@@ -248,9 +248,7 @@
  *   covers everything under it.
  * @property {string | null} op The single operation it is limited to, or
  *   `null` for all of them.
- * @property {Array<'socket' | 'worker' | 'push'>} targets Transports its
- *   deliveries may take.
- * @property {'broadcast' | 'single'} delivery Its delivery class.
+ * @property {boolean} single Whether each event goes to exactly one consumer.
  * @property {boolean} includeValue Whether its `kv:` deliveries carry the
  *   key's new value.
  * @property {string | null} handlerName The handler it is bound to.

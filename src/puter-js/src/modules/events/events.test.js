@@ -942,7 +942,7 @@ describe('persistent delivery routing', () => {
         expect(sockets[0].sent.filter(s => s.verb === 'events.ack')).toEqual([]);
     });
 
-    it('runs nothing for a delivery the server marked as handled by the worker', async () => {
+    it('runs nothing for a delivery the server marked as past the handler-chain limit', async () => {
         const events = makeModule();
         const seen = [];
         events.channel.registerDurable('app-1#sub', ({ event }) => seen.push(event));

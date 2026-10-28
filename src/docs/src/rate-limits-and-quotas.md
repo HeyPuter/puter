@@ -499,7 +499,7 @@ Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one
 | KV value inlined in a delivery           | 16 KB      | Per delivery           |
 
 - Over a delivery rate, the event is replaced by a gap marker (`delivery_rate_limit`).
-- Over the handler-run rate, a `single` delivery waits and goes out later, and a `broadcast` one runs only in connected clients. Neither counts as a handler failure.
+- Over the handler-run rate, a `single` delivery waits and goes out later, and any other delivery runs only in connected clients. Neither counts as a handler failure.
 - When a backlog is full, the oldest deliveries are dropped and replaced by one gap marker (`backlog_overflow`).
 
 #### Handlers
@@ -527,7 +527,7 @@ Over the deploy limit, deliveries stay queued and retry after the hour rolls ove
 | Handler runs in one chain     | Per account holding the subscription | 12 | 4 |
 
 - A write made through a handler's `user` in the events worker, or through a token `user` creates, is one run deeper than the event that ran the handler. Writes from anywhere else start a new chain. `user.workers.create` is refused rather than counted — a handler cannot start an untracked chain through a worker of its own.
-- When an event reaches the limit, the events worker runs no handler for it. A `broadcast` one still reaches connected clients without running the persistent handler; a `single` one is still offered to a connected client first and runs there. The dropped run leaves no gap marker and doesn't count as a handler failure.
+- When an event reaches the limit, the events worker runs no handler for it. Without `single`, it still reaches connected clients without running the persistent handler. A `single` one is still offered to a connected client first and runs there. The dropped run leaves no gap marker and doesn't count as a handler failure.
 - If the holder's plan can't be looked up, the free number applies. A server with no metering uses the paid number.
 
 #### Suspended subscriptions

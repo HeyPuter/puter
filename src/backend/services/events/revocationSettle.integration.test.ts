@@ -198,13 +198,18 @@ const makeApp = async (path: string): Promise<Actor> => {
         uid,
         `fs:${await uidOf(path)}:list`,
     );
-    // Durable rows target the app's worker by default, which takes its own
+    // A row with a handler runs in the app's worker, which takes its own
     // consent.
     await env.server.services.permission.grantUserAppPermission(
         owner.actor,
         uid,
         EVENTS_BACKGROUND_PERMISSION,
     );
+    await env.server.stores.eventHandler.publish({
+        appUid: uid,
+        name: 'onChange',
+        source: 'async () => {}',
+    });
     const app = await env.server.stores.app.getByUid(uid);
     return makeActor({
         user: owner.actor.user as never,
@@ -698,14 +703,16 @@ describe('what a revoked grant settles', () => {
         const appActor = await makeApp(path);
 
         const background = (
-            await events().subscribeDurable(appActor, { subject: `fs:${path}` })
+            await events().subscribeDurable(appActor, {
+                subject: `fs:${path}`,
+                handlerName: 'onChange',
+            })
         ).sub;
-        // Delivered to a connection and nowhere else, so the consent that just
-        // went was never what allowed it.
+        // No handler, so it only reaches connections and the consent that
+        // just went was never what allowed it.
         const foreground = (
             await events().subscribeDurable(appActor, {
                 subject: `fs:${path}`,
-                targets: ['socket'],
             })
         ).sub;
 
@@ -729,6 +736,7 @@ describe('what a revoked grant settles', () => {
                 (
                     await events().subscribeDurable(appActor, {
                         subject: `fs:${path}`,
+                        handlerName: 'onChange',
                     })
                 ).sub,
             );

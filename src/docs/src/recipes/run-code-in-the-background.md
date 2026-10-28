@@ -249,23 +249,21 @@ By default, the handler runs once per event. If it throws or takes longer than
 user and app, and runs past it are skipped, so if someone uploads 100 files at
 once, only about 60 get recorded.
 
-To handle every file, use `delivery: 'single'`. Puter then keeps each event
+To handle every file, use `single: true`. Puter then keeps each event
 until a run finishes without throwing, retrying after 2 seconds, then 4, then
 8, up to 5 minutes apart. Events over the per-minute limit are delivered later
 instead of being skipped:
 
 ```js
-options.delivery = 'single';
-options.targets = ['worker'];
+options.single = true;
 ```
 
-Setting `targets: ['worker']` runs the handler in the events worker right away.
-Without it, if the user has your app open, Puter tries those tabs first, which
-can delay each event by a minute or two.
+If the user has your app open, Puter offers each event to those tabs first,
+which can delay it by a minute or two before the events worker runs it.
 
 Subscriptions keep the delivery they were created with. To replace the
 subscriptions users created before this change, `startBackgroundWork()` also
-checks `existing.delivery`:
+checks `existing.single`:
 
 ```js
 async function startBackgroundWork () {
@@ -275,7 +273,7 @@ async function startBackgroundWork () {
     const working = existing
         && existing.anchor.uid === folder.uid
         && existing.suspendedReason !== 'permission_revoked'
-        && existing.delivery === 'single';
+        && existing.single;
     if (working) return;
 
     if (existing) await puter.events.unsubscribe(existing.subId);
@@ -419,8 +417,7 @@ const inbox = `~/AppData/${puter.appID}/Inbox`;
 const options = {
     subject: `fs:${inbox}`,
     handlerName: 'recordUpload',
-    delivery: 'single',
-    targets: ['worker'],
+    single: true,
     context: { webhookUrl: settings.webhookUrl },
 };
 
@@ -437,7 +434,7 @@ async function startBackgroundWork () {
     const working = existing
         && existing.anchor.uid === folder.uid
         && existing.suspendedReason !== 'permission_revoked'
-        && existing.delivery === 'single';
+        && existing.single;
     if (working) return;
 
     if (existing) await puter.events.unsubscribe(existing.subId);

@@ -11,7 +11,7 @@
             });
 
             for (const row of await puter.events.list()) {
-                puter.print(`${row.subject} — ${row.delivery}`);
+                puter.print(`${row.subject} — ${row.single ? 'single' : 'every listener'}`);
                 puter.print(` (context: ${row.contextKeys?.join(', ') ?? 'none'})<br>`);
             }
 

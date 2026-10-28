@@ -29,10 +29,7 @@ import {
 import type { Actor } from '../../core/actor.js';
 import { EventSubscriptionStore } from '../../stores/events/EventSubscriptionStore.js';
 import { PendingDeliveryStore } from '../../stores/events/PendingDeliveryStore.js';
-import type {
-    DurableSubscription,
-    SubscriptionTarget,
-} from '../../stores/events/types.js';
+import type { DurableSubscription } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { IConfig } from '../../types.js';
 import type { UsageInput } from '../metering/types.js';
@@ -133,10 +130,9 @@ const durableRow = (
     anchorPath: anchorPath(),
     match: null,
     op: null,
-    appUid: null,
+    appUid: `app-${seq}`,
     permission: 'list',
     delivery: 'single',
-    targets: ['socket', 'worker'] as SubscriptionTarget[],
     handlerName: 'onWrite',
     context: null,
     expiresAt: null,
@@ -432,7 +428,7 @@ describe('a delivery owed to exactly one consumer', () => {
 
     it('bills a retried delivery once, however many attempts an outage costs', async () => {
         socketConnected = false;
-        const row = await register({ targets: ['worker'] });
+        const row = await register();
         await dispatch();
 
         expect(invoked).toHaveLength(1);
@@ -461,7 +457,7 @@ describe('a delivery owed to exactly one consumer', () => {
     it('does not bill or report a retriable or terminal handler outcome', async () => {
         socketConnected = false;
         workerOutcome = 'retriable';
-        const row = await register({ targets: ['worker'] });
+        const row = await register();
 
         await dispatch();
 
@@ -480,7 +476,7 @@ describe('a delivery owed to exactly one consumer', () => {
     });
 
     it('resumes a socket-only account row once its client reconnects, rather than wedging forever', async () => {
-        const row = await register({ appUid: null, targets: ['socket'] });
+        const row = await register({ appUid: null });
         await dispatch();
         expect(sent).toHaveLength(1);
 
@@ -514,7 +510,7 @@ describe('a delivery owed to exactly one consumer', () => {
         const regions = ['east', 'west'];
         candidateRegionImpl = async (_holderUserId, _appUid, tried) =>
             regions.find((region) => !tried.includes(region)) ?? null;
-        await register({ targets: ['socket', 'worker'] });
+        await register();
 
         await dispatch();
         // The local socket takes the first attempt; no remote candidate is
@@ -623,14 +619,15 @@ describe('a delivery owed to exactly one consumer', () => {
 });
 
 describe('a delivery everyone connected gets', () => {
-    it('hands the run to the worker and marks the socket copy', async () => {
+    it('runs the worker and sends an unmarked copy to the sockets', async () => {
         const row = await register({ delivery: 'broadcast' });
 
         await dispatch();
         await flushed();
 
         expect(sent).toHaveLength(1);
-        expect(sent[0]).toMatchObject({ subId: row.subId, skipHandler: true });
+        expect(sent[0]).toMatchObject({ subId: row.subId });
+        expect(sent[0].skipHandler).toBeUndefined();
         expect(sent[0].ackRequired).toBeUndefined();
         expect(invoked).toHaveLength(1);
         expect(invoked[0]).toMatchObject({ subId: row.subId });
@@ -638,7 +635,37 @@ describe('a delivery everyone connected gets', () => {
         expect(delivered).toHaveLength(1);
     });
 
-    it('leaves the socket copy unmarked, and never invokes the worker, when it has no runtime', async () => {
+    it('still runs the worker with no socket connected', async () => {
+        socketConnected = false;
+        workerOutcome = 'settled';
+        await register({ delivery: 'broadcast' });
+
+        await dispatch();
+        await vi.waitFor(() => expect(invoked.length).toBe(1), {
+            timeout: EVENTS_COALESCE_WINDOW_MS * 12,
+            interval: 25,
+        });
+
+        expect(delivered).toHaveLength(1);
+        expect(metered).toHaveLength(1);
+    });
+
+    it('invokes no worker for a row with no app or no handler', async () => {
+        await register({ delivery: 'broadcast', appUid: null });
+        await register({
+            subId: 'unnamed',
+            delivery: 'broadcast',
+            handlerName: null,
+        });
+
+        await dispatch();
+        await flushed(2);
+
+        expect(sent).toHaveLength(2);
+        expect(invoked).toEqual([]);
+    });
+
+    it('never invokes the worker when it has no runtime', async () => {
         service.worker = {
             invoke: async (invocation: WorkerInvocation) => {
                 invoked.push(invocation);
@@ -653,11 +680,10 @@ describe('a delivery everyone connected gets', () => {
 
         expect(sent).toHaveLength(1);
         expect(sent[0]).toMatchObject({ subId: row.subId });
-        expect(sent[0].skipHandler).toBeUndefined();
         expect(invoked).toEqual([]);
     });
 
-    it("leaves the socket copy unmarked for whichever delivery lands once the app's invocations for the minute are spent", async () => {
+    it("keeps sending to sockets once the app's invocations for the minute are spent", async () => {
         const appUid = `app-${seq}`;
         await register({ delivery: 'broadcast', appUid });
         const total = EVENTS_WORKER_INVOCATION_LIMIT.limit + 1;
@@ -674,39 +700,23 @@ describe('a delivery everyone connected gets', () => {
         await flushed(total);
 
         expect(invoked).toHaveLength(EVENTS_WORKER_INVOCATION_LIMIT.limit);
+        expect(sent).toHaveLength(total);
         expect(
             sent.filter((envelope) => envelope.skipHandler === true),
-        ).toHaveLength(EVENTS_WORKER_INVOCATION_LIMIT.limit);
-        expect(
-            sent.filter((envelope) => envelope.skipHandler === undefined),
-        ).toHaveLength(1);
+        ).toEqual([]);
     });
 
-    it('runs the handler once per delivery, not once per transport', async () => {
-        workerOutcome = 'settled';
-        await register({ delivery: 'broadcast', targets: ['worker'] });
+    it('delivers to every transport for a row stored with old targets', async () => {
+        await register({
+            delivery: 'broadcast',
+            targets: ['push'],
+        } as Partial<DurableSubscription>);
 
         await dispatch();
-        await vi.waitFor(() => expect(invoked.length).toBe(1), {
-            timeout: EVENTS_COALESCE_WINDOW_MS * 12,
-            interval: 25,
-        });
+        await flushed();
 
-        expect(sent).toEqual([]);
-        expect(delivered).toHaveLength(1);
-    });
-
-    it('delivers and meters nothing when nothing can carry it', async () => {
-        await register({ delivery: 'broadcast', targets: ['push'] });
-
-        await dispatch();
-        await new Promise((resolve) =>
-            setTimeout(resolve, EVENTS_COALESCE_WINDOW_MS * 3),
-        );
-
-        expect(sent).toEqual([]);
-        expect(invoked).toEqual([]);
-        expect(delivered).toEqual([]);
+        expect(sent).toHaveLength(1);
+        expect(invoked).toHaveLength(1);
     });
 });
 
@@ -789,6 +799,7 @@ describe('keeping the region counter honest', () => {
 
 describe('the sweeper does not let one stuck backlog starve another', () => {
     it('still sweeps a fresh delivery behind 100+ blocked subscriptions', async () => {
+        socketConnected = false;
         workerOutcome = 'settled';
         const rawEvent = (id: string) => ({
             id,
@@ -802,17 +813,14 @@ describe('the sweeper does not let one stuck backlog starve another', () => {
         });
 
         for (let i = 0; i < 100; i++) {
-            const row = await register({
-                subId: `blocked-${i}`,
-                targets: ['worker'],
-            });
+            const row = await register({ subId: `blocked-${i}` });
             await pending.enqueue(row.subId, rawEvent(`blocked-${i}`));
             // Already in flight for the whole pass — a subscription in retry
             // backoff answers `claim()` the same way.
             await pending.claim(row.subId, { leaseMs: 10 * 60_000 });
         }
 
-        const fresh = await register({ subId: 'fresh', targets: ['worker'] });
+        const fresh = await register({ subId: 'fresh' });
         await pending.enqueue(fresh.subId, rawEvent('fresh'));
 
         // One pass only ever reaches the 100 blocked subscriptions ahead of
@@ -828,8 +836,9 @@ describe('the sweeper does not let one stuck backlog starve another', () => {
 
 describe('the sweep order a busy subscription holds', () => {
     it('is untouched by a publish, and only moved by a sweep pass', async () => {
+        socketConnected = false;
         workerOutcome = 'deferred';
-        const row = await register({ targets: ['worker'] });
+        const row = await register();
 
         await dispatch(entry({ uid: `file-a-${seq}` }));
         // Held in flight: the worker never settled it, so the lease stands.
@@ -915,7 +924,7 @@ describe('what a delivery costs its holder', () => {
 
 describe('the budgets a `single` is delivered under', () => {
     it('stands a gap marker in for an event past the per-minute budget', async () => {
-        const row = await register({ targets: ['socket'] });
+        const row = await register({ appUid: null });
 
         // One consumer holds one lease at a time, so this is the client loop:
         // take the delivery, ack it, and let the next one out.
@@ -945,7 +954,7 @@ describe('the budgets a `single` is delivered under', () => {
         socketConnected = false;
         workerOutcome = 'settled';
         const appUid = `app-${seq}`;
-        const row = await register({ appUid, targets: ['worker'] });
+        const row = await register({ appUid });
 
         for (let i = 0; i <= EVENTS_WORKER_INVOCATION_LIMIT.limit; i++)
             await dispatch(entry({ uid: `file-${seq}-${i}` }));

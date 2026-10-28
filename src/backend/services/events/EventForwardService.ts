@@ -100,7 +100,7 @@ export interface ForwardableDelivery {
     event: DeliverableEvent;
     ackRequired?: true;
     ackId?: string;
-    /** Client skips its handler: the worker has it, or it is too deep. */
+    /** Client skips its handler: the event is past the handler-chain limit. */
     skipHandler?: true;
 }
 

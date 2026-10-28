@@ -40,14 +40,12 @@ import {
     presenceItemKey,
     PRESENCE_NO_APP,
 } from '../../stores/events/PresenceStore.js';
-import type {
-    DurableSubscription,
-    SubscriptionTarget,
-} from '../../stores/events/types.js';
+import type { DurableSubscription } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { IConfig } from '../../types.js';
 import { EventForwardService } from './EventForwardService.js';
 import { EventsService, type DeliveryEnvelope } from './EventsService.js';
+import { appSocketRoom } from '../socket/SocketService.js';
 import type {
     ForwardBatch,
     ForwardDelivery,
@@ -237,6 +235,9 @@ const entry = (over: Partial<FSEntry> = {}): FSEntry =>
         ...over,
     }) as FSEntry;
 
+/** An app whose rows run a handler in its events worker. */
+const APP_UID = 'app-forwarded';
+
 const actorFor = (
     appUid: string | null = null,
     holderUserId: number = userId,
@@ -267,7 +268,6 @@ const durableRow = (
     appUid: null,
     permission: 'list',
     delivery: 'broadcast',
-    targets: ['socket'] as SubscriptionTarget[],
     handlerName: null,
     context: null,
     expiresAt: null,
@@ -453,7 +453,6 @@ const makeRegion = (
                     op: (input.op as DurableSubscription['op']) ?? null,
                     appUid: (input.appUid as string | null) ?? null,
                     delivery: input.delivery as DurableSubscription['delivery'],
-                    targets: input.targets as DurableSubscription['targets'],
                     handlerName: (input.handlerName as string | null) ?? null,
                     context: (input.context as string | null) ?? null,
                     permission:
@@ -1062,23 +1061,20 @@ describe('a delivery the worker takes', () => {
         });
     });
 
-    it('fans the mark out with a broadcast the worker takes', async () => {
+    it('fans an unmarked copy out while the worker also runs it', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
-        east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor(), 'tab-1');
-        await register(west, {
-            targets: ['socket', 'worker'] as SubscriptionTarget[],
-            handlerName: 'onWrite',
-        });
+        east.rooms.add(appSocketRoom(userId, APP_UID));
+        await east.forward.noteConnect(actorFor(APP_UID), 'tab-1');
+        await register(west, { appUid: APP_UID, handlerName: 'onWrite' });
 
         await dispatch(west);
         await posted(west);
         await arrived(east);
 
         expect(west.invoked).toHaveLength(1);
-        expect(deliveriesIn(west)[0]).toMatchObject({ skipHandler: true });
-        expect(east.sent[0]).toMatchObject({ skipHandler: true });
+        expect(deliveriesIn(west)[0].skipHandler).toBeUndefined();
+        expect(east.sent[0].skipHandler).toBeUndefined();
     });
 });
 
@@ -1350,7 +1346,6 @@ describe('a delivery owed to exactly one consumer', () => {
     const single = (region: Region) =>
         register(region, {
             delivery: 'single',
-            targets: ['socket', 'worker'] as SubscriptionTarget[],
             handlerName: 'onWrite',
         });
 
@@ -1515,10 +1510,14 @@ describe('a delivery owed to exactly one consumer', () => {
     it('gives the handler what two socket candidates could not take', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
-        east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor(), 'tab-1');
+        east.rooms.add(appSocketRoom(userId, APP_UID));
+        await east.forward.noteConnect(actorFor(APP_UID), 'tab-1');
         workerOutcome = 'settled';
-        const row = await single(west);
+        const row = await register(west, {
+            appUid: APP_UID,
+            delivery: 'single',
+            handlerName: 'onWrite',
+        });
 
         await dispatch(west);
         await posted(west);
@@ -1847,7 +1846,6 @@ describe('forward-path metrics', () => {
         await south.forward.noteConnect(actorFor(), 'tab-1');
         await register(west, {
             delivery: 'single',
-            targets: ['socket', 'worker'] as SubscriptionTarget[],
             handlerName: 'onWrite',
         });
 
@@ -1879,7 +1877,6 @@ describe('forward-path metrics', () => {
         await east.forward.noteConnect(actorFor(), 'tab-1');
         await register(west, {
             delivery: 'single',
-            targets: ['socket', 'worker'] as SubscriptionTarget[],
             handlerName: 'onWrite',
         });
 
@@ -1896,12 +1893,12 @@ describe('forward-path metrics', () => {
     it('counts a single attempt that reaches the handler', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
-        east.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor(), 'tab-1');
+        east.rooms.add(appSocketRoom(userId, APP_UID));
+        await east.forward.noteConnect(actorFor(APP_UID), 'tab-1');
         workerOutcome = 'settled';
         await register(west, {
+            appUid: APP_UID,
             delivery: 'single',
-            targets: ['socket', 'worker'] as SubscriptionTarget[],
             handlerName: 'onWrite',
         });
 
@@ -2317,7 +2314,6 @@ describe('a durable row created in another region', () => {
 
         await east.events.subscribeDurable(actorFor(), {
             subject: `fs:${anchorUid()}`,
-            targets: ['socket'],
         });
         // A tick for the 25 ms addressed queue — the bus stays held.
         await quiet(80);
@@ -2339,7 +2335,6 @@ describe('a durable row created in another region', () => {
 
         await east.events.subscribeDurable(actorFor(), {
             subject: `fs:${anchorUid()}`,
-            targets: ['socket'],
         });
         await quiet(80);
 

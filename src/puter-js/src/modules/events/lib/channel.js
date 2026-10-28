@@ -539,8 +539,8 @@ export class EventChannel {
 
     /**
      * Run a persistent subscription's handler on one delivery, unless the
-     * server marked it `skipHandler`: the app's events worker takes it, or it
-     * is past the handler-chain limit.
+     * server marked it `skipHandler` because it is past the handler-chain
+     * limit.
      *
      * The handler is handed the same environment its published copy gets in the
      * app's events worker, so one body runs unchanged in either place. A

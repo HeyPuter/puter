@@ -102,7 +102,7 @@ const subIdsOf = (response: ApiResponse): string[] =>
 
 /**
  * An app the user has granted `list` on the shared anchor, and consent to run
- * its handler in the background — which durable rows target by default.
+ * its handler in the background.
  */
 const makeApp = async (
     options: { background?: boolean } = {},
@@ -250,127 +250,103 @@ describe('creating a durable subscription over HTTP', () => {
         expect(created.status).toBe(200);
         expect(created.body).toMatchObject({
             subject: `fs:${anchor}`,
-            delivery: 'broadcast',
-            // No app, so no events worker to target — see the null-app
-            // suite below.
-            targets: ['socket'],
+            single: false,
             appUid: null,
         });
         expect(created.body.context).toBeUndefined();
+        expect(created.body.targets).toBeUndefined();
+        expect(created.body.delivery).toBeUndefined();
     });
 
     it('registers a subscription owed to one consumer', async () => {
         await clearRows();
         const created = await subscribe(env.users.user.token, {
-            delivery: 'single',
+            single: true,
             handlerName: 'onWrite',
         });
 
         expect(created.status).toBe(200);
         expect(created.body).toMatchObject({
+            single: true,
+            handlerName: 'onWrite',
+        });
+    });
+
+    it('still reads the older `delivery` option', async () => {
+        await clearRows();
+        const single = await subscribe(env.users.user.token, {
             delivery: 'single',
             handlerName: 'onWrite',
-            targets: ['socket'],
         });
+        const broadcast = await subscribe(env.users.user.token, {
+            delivery: 'broadcast',
+        });
+
+        expect(single.body.single).toBe(true);
+        expect(broadcast.body.single).toBe(false);
+    });
+
+    it('accepts and ignores `targets`', async () => {
+        await clearRows();
+        const created = await subscribe(env.users.user.token, {
+            single: true,
+            handlerName: 'onWrite',
+            targets: ['push', 'carrier-pigeon'],
+        });
+
+        expect(created.status).toBe(200);
+        expect(created.body.single).toBe(true);
+    });
+
+    it('refuses `single` and `delivery` that disagree, or a `single` that is not a boolean', async () => {
+        for (const body of [
+            { single: false, delivery: 'single' },
+            { single: 'yes' },
+            { delivery: 'fanout' },
+        ]) {
+            const refused = await subscribe(env.users.user.token, body);
+            expect(refused.status).toBe(400);
+            expect(refused.body.code).toBe('bad_request');
+        }
     });
 
     it('refuses one owed to a consumer it cannot name', async () => {
-        const refused = await subscribe(env.users.user.token, {
-            delivery: 'single',
-        });
-
-        expect(refused.status).toBe(400);
-        expect(refused.body.code).toBe('events_handler_required');
-    });
-
-    it('refuses one owed to a device notification', async () => {
-        const refused = await subscribe(env.users.user.token, {
-            delivery: 'single',
-            handlerName: 'onWrite',
-            targets: ['push'],
-        });
-
-        expect(refused.status).toBe(400);
-        expect(refused.body.code).toBe('invalid_targets');
-    });
-
-    it('refuses a `worker` target from an account session naming no app', async () => {
-        // Exactly one events worker per app: an account session has none, so
-        // asking for the worker target explicitly is refused rather than
-        // silently dropped — silently dropping it would leave the caller
-        // thinking background delivery was configured when it never could be.
-        const refused = await subscribe(env.users.user.token, {
-            delivery: 'single',
-            handlerName: 'onWrite',
-            targets: ['socket', 'worker'],
-        });
-
-        expect(refused.status).toBe(400);
-        expect(refused.body.code).toBe('invalid_targets');
+        for (const body of [{ single: true }, { delivery: 'single' }]) {
+            const refused = await subscribe(env.users.user.token, body);
+            expect(refused.status).toBe(400);
+            expect(refused.body.code).toBe('events_handler_required');
+        }
     });
 
     it('refuses background delivery an app has no consent for', async () => {
         // An app of its own, so nothing it holds includes the consent.
         const { token } = await makeApp({ background: false });
 
-        const refused = await call('POST', '/events/subscribe', token, {
-            subject: `fs:${anchor}`,
-            delivery: 'single',
-            handlerName: 'onWrite',
-            targets: ['worker'],
-        });
+        for (const single of [true, false]) {
+            const refused = await call('POST', '/events/subscribe', token, {
+                subject: `fs:${anchor}`,
+                single,
+                handlerName: 'onWrite',
+            });
 
-        expect(refused.status).toBe(403);
-        expect(refused.body.code).toBe('events_background_consent_required');
-        // Refused before the handler is even looked up: consent comes first.
-        expect(refused.body.message).toContain('events:background');
+            expect(refused.status).toBe(403);
+            expect(refused.body.code).toBe(
+                'events_background_consent_required',
+            );
+            // Refused before the handler is even looked up: consent comes first.
+            expect(refused.body.message).toContain('events:background');
+        }
     });
 
-    it('requires consent for the default targets an app row gets, even with none named', async () => {
-        // An app of its own, so nothing it holds includes the consent.
-        const { token } = await makeApp({ background: false });
-
-        // No `targets` at all: an app row defaults to `['socket', 'worker']`,
-        // and that default still needs the consent — the gate runs on the
-        // resolved targets, not only on an explicit ask for `worker`.
-        const refused = await call('POST', '/events/subscribe', token, {
-            subject: `fs:${anchor}`,
-        });
-
-        expect(refused.status).toBe(403);
-        expect(refused.body.code).toBe('events_background_consent_required');
-    });
-
-    it('needs no consent for a subscription only a connection hears', async () => {
+    it('needs no consent for an app subscription with no handler to run', async () => {
         const { token } = await makeApp({ background: false });
 
         const created = await call('POST', '/events/subscribe', token, {
             subject: `fs:${anchor}`,
-            targets: ['socket'],
         });
 
         expect(created.status).toBe(200);
-        expect(created.body.targets).toEqual(['socket']);
-    });
-
-    it('refuses a target outside the known set', async () => {
-        const refused = await subscribe(env.users.user.token, {
-            targets: ['socket', 'carrier-pigeon'],
-        });
-
-        expect(refused.status).toBe(400);
-        expect(refused.body.code).toBe('invalid_targets');
-    });
-
-    it('refuses an app`s `single` subscription with no worker to fall back to', async () => {
-        const refused = await subscribe(appOneToken, {
-            delivery: 'single',
-            handlerName: 'onWrite',
-            targets: ['socket'],
-        });
-
-        expect(refused.status).toBe(400);
-        expect(refused.body.code).toBe('invalid_targets');
+        expect(created.body.handlerName).toBeNull();
     });
 
     it('refuses a scoped token with no app, even on a subject it can read', async () => {
@@ -380,11 +356,7 @@ describe('creating a durable subscription over HTTP', () => {
     });
 
     it('refuses a scoped token an app issued, even into that app', async () => {
-        // Socket-only, so the background consent the token lacks is not
-        // what refuses it.
-        const refused = await subscribe(appOneAccessToken, {
-            targets: ['socket'],
-        });
+        const refused = await subscribe(appOneAccessToken);
         expect(refused.status).toBe(403);
         expect(refused.body.code).toBe('events_durable_requires_account');
     });
@@ -795,9 +767,9 @@ describe('where a durable delivery is addressed', () => {
         send.mockRestore();
     });
 
-    it('sends an unmarked copy for an app row that only targets the socket', async () => {
+    it('sends an unmarked copy for an app row', async () => {
         await clearRows();
-        await subscribe(appOneToken, { targets: ['socket'] });
+        await subscribe(appOneToken);
         const send = vi.spyOn(env.server.services.socket, 'send');
         delivered.length = 0;
 
@@ -1014,13 +986,6 @@ describe('what a plan lets an account hold', () => {
             actor.actor!,
             uid,
             `fs:${entry!.uid}:list`,
-        );
-        // A durable app row targets the worker by default, so the caps are only
-        // reachable once the background consent behind that target is given.
-        await tiered.server.services.permission.grantUserAppPermission(
-            actor.actor!,
-            uid,
-            EVENTS_BACKGROUND_PERMISSION,
         );
         tieredApp = {
             uid,

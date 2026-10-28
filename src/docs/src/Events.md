@@ -212,7 +212,7 @@ With the [User-Pays Model](/user-pays-model/), deliveries are billed to the user
             });
 
             for (const row of await puter.events.list()) {
-                puter.print(`${row.subject} — ${row.delivery}`);
+                puter.print(`${row.subject} — ${row.single ? 'single' : 'every listener'}`);
                 puter.print(` (context: ${row.contextKeys?.join(', ') ?? 'none'})<br>`);
             }
 
