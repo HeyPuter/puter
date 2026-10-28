@@ -16,6 +16,48 @@ Generates secrets, writes `.env` + `puter/config/config.json`, downloads `docker
 - A **domain** with DNS access — you need a wildcard record (`*.your-domain.com` → server IP). Puter routes by subdomain (`api.<domain>`, `site.<domain>`, `app.<domain>`).
 - Optional: **TLS certs** (or `certbot` to grab them — see Step 3).
 
+### Installing Docker on macOS (Apple Silicon / Intel)
+
+The one-line installer requires **Docker Desktop** or **Docker Engine** with the Compose plugin.
+
+#### Option 1: Docker Desktop (recommended for most users)
+
+1. Download Docker Desktop for Mac from [docker.com](https://www.docker.com/products/docker-desktop/)
+   - **Apple Silicon (M1/M2/M3/M4)**: Choose "Mac with Apple silicon" (.dmg)
+   - **Intel Macs**: Choose "Mac with Intel chip" (.dmg)
+2. Open the downloaded `.dmg` and drag Docker.app to Applications
+3. Launch Docker Desktop from Applications
+4. Complete the initial setup (you may need to grant privileged access)
+5. Verify installation:
+   ```bash
+   docker version
+   docker compose version
+   ```
+
+#### Option 2: Docker Engine via Homebrew (advanced users)
+
+```bash
+# Install Docker Engine + Compose plugin
+brew install docker docker-compose
+
+# Start Docker daemon (requires sudo)
+sudo /usr/local/bin/docker-machine start  # if using docker-machine
+# Or use Colima (lightweight VM for Docker on macOS):
+brew install colima
+colima start --arch aarch64  # for Apple Silicon
+colima start                  # for Intel
+
+# Verify
+docker version
+docker compose version
+```
+
+> **Note for Apple Silicon users**: Docker Desktop runs natively on Apple Silicon (no Rosetta required). The `ghcr.io/heyputer/puter` image is multi-arch (`linux/amd64`, `linux/arm64`), so it will automatically pull the correct variant for your architecture.
+
+> **Tip**: If you encounter "docker compose plugin not found" errors, ensure Docker Desktop is running and the Compose plugin is enabled in Settings → General → "Use Docker Compose V2".
+
+---
+
 ## What's running
 
 | Container       | Image                    | Role                                                       |
@@ -83,7 +125,9 @@ cat > puter/config/config.json <<EOF
     "private_app_hosting_domain": "app.puter.localhost",
     "private_app_hosting_domain_alt": "dev.puter.localhost",
 
+    "jwt_secret": "$JWT_SECRET",
     "jwt_secret_v2": "$JWT_SECRET_V2",
+    "allow_v1_tokens": true,
     "url_signature_secret": "$URL_SIGNATURE_SECRET",
 
     "database": {
@@ -114,7 +158,7 @@ cat > puter/config/config.json <<EOF
     "s3": {
         "s3Config": {
             "endpoint": "http://s3:9000",
-            "publicEndpoint": "http://s3.puter.localhost",
+            "publicEndpoint": "$PUTER_PROTOCOL://s3.$PUTER_DOMAIN",
             "accessKeyId": "puter",
             "secretAccessKey": "$S3_SECRET_KEY",
             "region": "us-east-1",
@@ -132,476 +176,115 @@ cat > puter/config/config.json <<EOF
         "subscriptions": false
     },
 
-    "trust_proxy": 1
+    "trust_proxy": $PUTER_TRUST_PROXY
 }
 EOF
-```
 
-Replace `puter.localhost`, `site.puter.localhost`, `host.puter.localhost`, `dev.puter.localhost` and `app.puter.localhost` with your actual domain (or leave it for a localhost-only trial).
+---
 
-Why these knobs:
-
-- `jwt_secret_v2` — the HMAC secret Puter signs and verifies auth tokens with (`kid: 'v2'` JWT header). The pre-v2 token format is retired: a token signed with the old `jwt_secret` no longer verifies, and holders are asked to sign in again. If you are upgrading from a release that had `jwt_secret`, drop it from your config — it is ignored.
-- `env: "prod"` — the bundled `config.default.json` ships with `env: "dev"` (matches the source-tree `npm run start:gui` workflow, which expects webpack-dev-server emitting a CSS manifest). Self-host runs against pre-built static bundles, so `env: "prod"` makes the homepage emit the `/dist/bundle.min.css` `<link>` tag instead of waiting on a manifest that doesn't exist.
-- `database.migrationPaths` — Puter applies the bundled MySQL/MariaDB schema on boot. The migration files are idempotent, so it is safe to leave this configured across restarts.
-- `dynamo.bootstrapTables: true` — Puter creates its KV table on boot. **Only set against a local emulator**, never real AWS.
-- `dynamo.aws` keys are dummies; DynamoDB-local doesn't validate them but the AWS SDK requires _something_. **Note:** DynamoDB uses `access_key` / `secret_key` (snake_case); S3 below uses `accessKeyId` / `secretAccessKey` (camelCase). Not interchangeable.
-- `meteringEnforcement.subscriptions: false` — a few surfaces (the OpenAI/Anthropic-compatible AI endpoints) are declared paid-plan-only. A self-hosted install has no paid plans, so every account sits on the free policy and those routes would answer `402 subscription_required` for everyone. Turning the plan gates off opens them; nothing else about metering changes.
-- `providers.ollama.enabled: false` — Puter auto-probes a local Ollama at `127.0.0.1:11434` by default; without one running you'd see `ECONNREFUSED` on every boot. To run a bundled Ollama, see [Optional: local LLM (Ollama)](#optional-local-llm-ollama) below.
-- `s3.s3Config.forcePathStyle: true` — RustFS / MinIO / fauxqs need path-style URLs (`<endpoint>/<bucket>`). Real AWS S3 wants virtual-hosted (`<bucket>.<endpoint>`) — drop this flag (or set `false`) when you swap to real S3.
-- `s3.s3Config.publicEndpoint` — `endpoint` (`http://s3:9000`) only resolves inside the docker network; presigned upload/download URLs handed to the browser need a host-reachable URL. Caddy routes the `s3.<domain>` subdomain to RustFS internally and preserves the Host header end-to-end (required for S3 signature validation), so the browser hits the same port/protocol as the rest of the app — no separate published port, no mixed-content surprises when you turn on TLS. Switch to `https://s3.<your-domain>` once you enable TLS in Step 3. Real AWS S3 doesn't need this — its endpoint is already public; drop the field entirely.
-- **Bucket CORS** — the browser uploads file bytes straight to RustFS with a cross-origin `PUT` to the presigned URL (Dev Center deploy, `puter.fs.upload`). That only works if the bucket answers the `OPTIONS` preflight with `Access-Control-Allow-*` headers. The `s3-init` container applies those rules on every boot (`put-bucket-cors`, origins `*` — the signed URL is the credential, and the SDK sends no cookies). If deploys fail with `No 'Access-Control-Allow-Origin' header is present`, re-run it: `docker compose run --rm s3-init`. Verify with:
-
-  ```bash
-  curl -sk -X OPTIONS "https://s3.<domain>/<bucket>/test" \
-    -H "Origin: https://<domain>" \
-    -H "Access-Control-Request-Method: PUT" \
-    -H "Access-Control-Request-Headers: content-type" -D - -o /dev/null | grep -i access-control
-  ```
-
-  You should see `access-control-allow-origin`, `allow-methods: GET, HEAD, PUT, POST, DELETE`, `allow-headers: *`, and `max-age: 3600`.
-- `trust_proxy: 1` — Caddy terminates TLS and forwards `X-Forwarded-For`. Without this, `req.ip` is the docker-network address of the Caddy container instead of the real client IP, which breaks rate limiting and IP-based audit logs. `1` = one trusted hop (Caddy). Bump to `2` if you put Cloudflare in front of Caddy; never set `true` (it trusts every hop and makes XFF forgeable).
-
-> If you ever change `MARIADB_PASSWORD` after first boot, `.env` alone won't update MariaDB — its credentials are baked into `./puter/data/mariadb/` on first init. Either rotate the password inside MariaDB by hand or `docker compose down && rm -rf ./puter/data/mariadb` to start fresh.
-
-## Step 2 — Point DNS at the server \[Optional\]
-
-In your DNS provider, add records for the main domain plus the subdomains Puter and Caddy route on (`api.*`, `site.*`, `app.*`, `s3.*`):
-
-```
-A      puter.localhost          → <your server's public IP>
-A      *.puter.localhost        → <your server's public IP>
-A      site.puter.localhost     → <your server's public IP>
-A      *.site.puter.localhost   → <your server's public IP>
-A      host.puter.localhost     → <your server's public IP>
-A      *.host.puter.localhost   → <your server's public IP>
-A      app.puter.localhost      → <your server's public IP>
-A      *.app.puter.localhost    → <your server's public IP>
-A      dev.puter.localhost      → <your server's public IP>
-A      *.dev.puter.localhost    → <your server's public IP>
-```
-
-The wildcards are required — Puter routes via subdomains (`api.*`, `app.*`, etc.) and Caddy routes browser S3 traffic via `s3.*` to RustFS.
-
-## Step 3 — TLS (recommended for public installs) \[Optional\]
-
-Skip this for a quick local demo. Don't skip it for users typing passwords.
-
-**Get a wildcard cert.** Easiest path with Let's Encrypt + DNS-01 (works for wildcards):
+## Step 2 — Download `docker-compose.yml` and `caddy/Caddyfile`
 
 ```bash
-sudo certbot certonly --manual --preferred-challenges dns \
-    -d puter.localhost -d "*.puter.localhost" \
-    -d site.puter.localhost -d "*.site.puter.localhost" \
-    -d host.puter.localhost -d "*.host.puter.localhost" \
-    -d app.puter.localhost -d "*.app.puter.localhost" \
-    -d dev.puter.localhost -d "*.dev.puter.localhost"
+curl -fsSL https://raw.githubusercontent.com/HeyPuter/puter/main/docker-compose.yml -o docker-compose.yml
+mkdir -p caddy
+curl -fsSL https://raw.githubusercontent.com/HeyPuter/puter/main/caddy/Caddyfile -o caddy/Caddyfile
 ```
 
-The cert needs to cover `*.puter.localhost` so that `s3.puter.localhost` (browser S3 endpoint), plus Puter's own `api.*` / `app.*` subdomains, all validate.
+---
 
-> **Why not Caddy's automatic HTTPS?** Caddy issues certs over ACME by itself, but only for hostnames it knows up front, and only over HTTP-01 with the stock image. Puter serves every user's site and app on a subdomain it invents at runtime (`<name>.site.<domain>`, `<name>.app.<domain>`), which needs a **wildcard** cert — and wildcards require DNS-01, which requires a DNS-provider plugin that isn't in `caddy:2.11-alpine`. So `caddy/Caddyfile` sets `auto_https off` and reads the cert you supply below. If you'd rather have Caddy manage certs, build an image with the plugin for your DNS provider (`xcaddy build --with github.com/caddy-dns/<provider>`) and swap the `tls` line for a `tls { dns <provider> … }` block.
+## Step 3 — TLS (optional but recommended)
 
-Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
+If you have a wildcard TLS cert (`*.your-domain.com`), drop the files into `./puter/tls/`:
 
-**Wire Caddy to use them:**
+```bash
+mkdir -p puter/tls
+cp /path/to/fullchain.pem puter/tls/
+cp /path/to/privkey.pem puter/tls/
+```
 
-1. Open [caddy/Caddyfile](../caddy/Caddyfile) and uncomment the `# :443 { … }` block at the bottom.
-2. (Optional but recommended) Replace the plain `:80 { import puter_routes }` block with the `redir` version shown alongside it, to force HTTPS everywhere.
-3. In [docker-compose.yml](../docker-compose.yml), uncomment the `443:443` port mapping under the `caddy` service.
-4. In `.env`, uncomment `HTTPS_PORT=443`.
-5. In `config.json`, switch:
-    ```json
-    { "protocol": "https", "pub_port": 443 }
-    ```
-    …and update the S3 public endpoint:
-    ```json
-    "s3": { "s3Config": { "publicEndpoint": "https://s3.puter.localhost", ... } }
-    ```
+Then uncomment the HTTPS block in `caddy/Caddyfile` (remove the `#` from the `:443` server block) and uncomment `HTTPS_PORT=443` in `.env`.
 
-## Running behind your own reverse proxy
+If you don't have certs, you can use `certbot`:
 
-The bundled `puter-caddy` mirrors production and is the supported default — it terminates TLS (Step 3) and forwards every Host to Puter. But plenty of self-hosters already run their own edge proxy (Traefik, nginx, HAProxy, a cloud load balancer, another Caddy). You can put Puter behind it instead; Puter doesn't terminate TLS itself in any setup, so "your proxy does TLS" is just a matter of pointing it at the Puter container and getting a handful of details right.
+```bash
+sudo certbot certonly --standalone -d '*.your-domain.com' -d 'your-domain.com'
+cp /etc/letsencrypt/live/your-domain.com/fullchain.pem puter/tls/
+cp /etc/letsencrypt/live/your-domain.com/privkey.pem puter/tls/
+```
 
-You can keep the bundled Caddy as the single hop your proxy talks to, or bypass it and forward straight to the Puter container on port `4100` (uncomment the `4100:4100` mapping under the `puter` service in [docker-compose.yml](../docker-compose.yml), or attach your proxy to the compose network). Either works — what matters is the rules below.
+Then uncomment the HTTPS block in Caddyfile and `HTTPS_PORT=443` in `.env`.
 
-**The rules that actually matter** (getting any of these wrong is what causes the redirect loops and "Invalid Host header" failures people hit):
+Restart Caddy to pick up the new config:
 
-1. **Don't rewrite the `Host` header.** Puter routes entirely on Host — `api.<domain>`, `site.<domain>`, `app.<domain>` are all distinguished by the incoming host. Forward the original host through unchanged. Do **not** rewrite external hostnames to an internal name like `puter.local`; that forces you to remap every subdomain by hand and still breaks signed-URL and CORS checks. Most proxies preserve Host by default — just don't override it.
+```bash
+docker compose restart caddy
+```
 
-2. **The external domain must equal `domain` in your `config.json`.** If users reach the box at `puter.example.com`, then `domain` must be `puter.example.com` and the hosting domains must be its real subdomains (`site.puter.example.com`, `app.puter.example.com`, …) — exactly as the installer/`config.json` lays them out. Puter rejects hosts it doesn't recognize with `Invalid Host header`.
+---
 
-3. **Set `protocol` to match the public scheme.** When your proxy terminates TLS, set `"protocol": "https"` (installer: `PUTER_PROTOCOL=https`). Puter builds its origins, redirects, signed S3 URLs, and OIDC callback URLs from this — leave it `http` behind an HTTPS proxy and you get redirect loops, broken logins, and mixed-content errors.
-
-4. **Forward the standard proxy headers.** Puter needs:
-    - `Host` — the original request host (rule 1).
-    - `X-Forwarded-Proto` — the **external** scheme (`https`), so Puter knows TLS was terminated upstream.
-    - `X-Forwarded-For` — the real client IP (rate limiting + audit logs).
-    - `Upgrade` / `Connection` — passed through for WebSocket / socket.io upgrades, or the realtime connection silently fails.
-
-5. **Set `trust_proxy` to the number of hops in front of Puter.** One external proxy talking directly to Puter → `"trust_proxy": 1` (installer: `PUTER_TRUST_PROXY=1`). A second proxy in front (e.g. Cloudflare → your proxy → Puter) → `2`. This is the count of proxies between the client and Puter, **including** the bundled Caddy if you keep it. Too low and `req.ip` becomes a proxy address (breaks rate limiting); never set `true` (it trusts every hop and makes `X-Forwarded-For` forgeable).
-
-6. **Route the wildcard to Puter.** Your proxy must forward `*.<domain>` (covering `api.*`, `app.*`, and `s3.<domain>`) and `*.site.<domain>` (and any other hosting domains) to Puter — same wildcard DNS as Step 2. Puter does the per-subdomain routing internally; the proxy just needs to hand it the traffic with the Host intact.
-
-With those in place the rest of the stack is unchanged — `docker compose up -d` as below.
-
-## Step 4 — Bring it up
-
-Both [docker-compose.yml](../docker-compose.yml) and [caddy/Caddyfile](../caddy/Caddyfile) need to sit next to your `.env` — clone the repo, or copy those two paths out of it. The Caddyfile is bind-mounted read-only; if it's missing, Docker creates a *directory* at that path and `puter-caddy` dies with "not a directory".
+## Step 4 — Bring up the stack
 
 ```bash
 docker compose up -d
 ```
 
-First boot takes ~30s while MariaDB initialises and Puter applies the schema + default apps. Watch:
+First boot takes ~30 seconds while MariaDB initialises. Follow logs:
 
 ```bash
 docker compose logs -f puter
 ```
 
-Healthy startup:
+Open `http://puter.localhost` (or your domain) once the `puter` container is healthy.
 
-```
-[config] override from /etc/puter/config.json
-[mysql] running migrations from /opt/puter/dist/src/backend/clients/database/migrations/mysql: <n> file(s)
-[mysql] applied mysql_mig_1.sql (...)
-...
-```
-
-Then open **<https://puter.localhost>** (or `http://` if you skipped TLS). Login is `admin`; its temporary password is printed in the puter container logs on every boot until you change it:
+First-boot admin password:
 
 ```bash
 docker compose logs puter | grep "password for admin"
 ```
 
-Change it in Settings after first login.
+---
 
-## Additional configuration
+## Optional: AI profile (Ollama)
 
-All optional. Drop any of the blocks below into `puter/config/config.json` and `docker compose restart puter`. See [config.template.jsonc](../config.template.jsonc) for the full list. Per-key documentation lives in [src/backend/types.ts](../src/backend/types.ts).
+To run a local LLM via Ollama:
 
-### PostgreSQL database
+```bash
+docker compose --profile ai up -d
+```
 
-> **Community contribution — expect rough edges.** PostgreSQL support was contributed by the community and is not run by Puter.com production. It boots, applies the bundled schema, and exercises the common user/app/fsentry/session/permission/OIDC flows in the integration tests, but less-traveled SQL call sites may still need porting. If you hit a query that doesn't work on Postgres, please open an issue. For production self-hosting today, MariaDB/MySQL and SQLite are the supported defaults.
-
-The bundled Docker Compose stack still defaults to MariaDB. To use PostgreSQL instead, run a PostgreSQL service yourself, point Puter at it, and use the PostgreSQL migration path:
+This starts `puter-ollama` and pulls `tinyllama` on first boot. Enable in `puter/config/config.json`:
 
 ```json
-"database": {
-    "engine": "postgres",
-    "host": "postgres",
-    "port": 5432,
-    "user": "puter",
-    "password": "...",
-    "database": "puter",
-    "migrationPaths": ["/opt/puter/dist/src/backend/clients/database/migrations/postgres"]
-}
+"providers": { "ollama": { "enabled": true } }
 ```
 
-You may use `"connectionString": "postgres://puter:...@postgres:5432/puter"` instead of the host/user/password fields. Puter only needs normal PostgreSQL connection details and the migration path; CloudNativePG is one possible Kubernetes operator, but no operator-specific manifests are required by Puter.
+---
 
-### Email (SMTP)
+## Optional: SMTP profile (receive email)
 
-Used for password resets, email confirmation, and notifications. Without it those flows silently fail.
+Puter can receive email for user mailboxes. Requires port 25 inbound.
 
-```json
-"email": {
-    "from": "\"Puter\" <no-reply@puter.example.com>",
-    "host": "smtp.example.com",
-    "port": 587,
-    "secure": false,
-    "auth": { "user": "...", "pass": "..." }
-}
+```bash
+docker compose --profile smtp up -d
 ```
 
-To require email confirmation before login, also set `"strict_email_verification_required": true`.
+Configure DNS:
 
-To read the mail yourself instead of sending it, point the transport at a local SMTP sink — [MailHog](https://github.com/mailhog/MailHog) catches everything and serves it at `http://localhost:8025`. Publish both ports; a container that only exposes them is unreachable from the host:
+- `mx.example.com` A record → server IP
+- `example.com` MX record → `mx.example.com`
+- PTR record for reverse DNS (many providers require this)
 
-```sh
-docker run -d -p 1025:1025 -p 8025:8025 mailhog/mailhog
-```
+Port 25 is often blocked by cloud providers and ISPs. The container binds 2525 internally and compose publishes `${SMTP_PORT:-25}`.
 
-```json
-"email": { "from": "\"Puter\" <no-reply@puter.localhost>", "host": "127.0.0.1", "port": 1025, "secure": false, "ignoreTLS": true }
-```
+Mail stored as `message/rfc822` objects under `~/.mail/objects/<date>/`.
 
-Share email is on once a transport exists: a recipient who already has an account is emailed as well as notified in-app, and they opt out with the unsubscribe link the mail carries. Set `"share_email_notifications": false` to keep those in the app only — an address with no account is still emailed, since there is nothing else to reach them with.
+No STARTTLS, no per-sender rate limiting — put a filtering relay in front if needed.
 
-### Sign in with Google (or another OIDC provider)
+This is a *receiving* server only; outbound mail uses the separate `email` config block.
 
-```json
-"oidc": {
-    "providers": {
-        "google": {
-            "client_id": "...apps.googleusercontent.com",
-            "client_secret": "...",
-            "scopes": "openid email profile"
-        }
-    }
-}
-```
+Every setting is documented in [config.template.jsonc](../config.template.jsonc).
 
-Add `https://puter.<your-domain>/auth/oidc/callback/login` to the OAuth client's authorized redirect URIs in the Google Cloud Console. For non-Google providers, replace `google` with a custom id and supply `authorization_endpoint` / `token_endpoint` / `userinfo_endpoint` explicitly.
-
-### Sign in with Apple
-
-```json
-"oidc": {
-    "providers": {
-        "apple": {
-            "client_id": "com.example.your-service-id",
-            "team_id": "YOUR_TEAM_ID",
-            "key_id": "YOUR_KEY_ID",
-            "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
-        }
-    }
-}
-```
-
-The `client_id` is your Apple Services ID. `team_id`, `key_id`, and `private_key` come from the Apple Developer Portal (Keys section — create a key with "Sign in with Apple" enabled). The `private_key` is the contents of the `.p8` file Apple provides. Add `https://puter.<your-domain>/auth/oidc/callback/login` and `https://puter.<your-domain>/auth/oidc/callback/signup` as return URLs in the Apple Services ID configuration.
-
-### Sign in with Microsoft
-
-```json
-"oidc": {
-    "providers": {
-        "microsoft": {
-            "client_id": "YOUR_APPLICATION_CLIENT_ID",
-            "client_secret": "YOUR_CLIENT_SECRET_VALUE",
-            "tenant_id": "YOUR_TENANT_ID"
-        }
-    }
-}
-```
-
-Register an app in the Azure Portal (Microsoft Entra ID → App registrations). The `client_id` is the Application (client) ID, `client_secret` is a client secret value, and `tenant_id` is the Directory (tenant) ID. Use `common` as `tenant_id` to allow any Microsoft account (personal and organizational); omit it to default to `common`. Add `https://puter.<your-domain>/auth/oidc/callback/login` and `https://puter.<your-domain>/auth/oidc/callback/signup` as redirect URIs under Authentication in the app registration.
-
-### AI providers
-
-Any provider with a key set is auto-enabled. Same shape as `ollama` above:
-
-```json
-"providers": {
-    "claude":            { "apiKey": "sk-ant-..." },
-    "openai-completion": { "apiKey": "sk-..." },
-    "gemini":            { "apiKey": "..." },
-    "openai-image-generation": { "apiKey": "sk-..." }
-}
-```
-
-Full provider list (chat, image, video, TTS, OCR) is in the template.
-
-### Per-user storage quota
-
-Storage is unlimited by default (bounded by host disk). To cap each user:
-
-```json
-"storage_capacity": 5368709120,   // 5 GB
-"is_storage_limited": true
-```
-
-`storage_capacity` defaults to 100 MB.
-
-### Usage metering and budgets
-
-Puter meters what an account costs to serve — bytes sent back, object-store
-requests, KV capacity, AI tokens — against a monthly budget, and refuses the
-operations that spend it once that budget is gone. The refusal is a `402` with
-code `insufficient_funds`; reads that only describe things, and every kind of
-deletion, stay available so an account can always see what it has and clear it.
-
-On a self-hosted install this is almost certainly not what you want. There is
-nowhere to buy more, so accounts are held to the free monthly allowance
-(US$0.50 of measured cost for a registered account, roughly 2.5 GiB of
-downloads) and start being refused after that. Turn it off:
-
-```json
-"unlimitedMetering": true
-```
-
-Every account then resolves to an unlimited policy. Usage is still recorded, so
-the dashboard still shows what is being consumed; nothing is ever refused for
-lack of budget.
-
-To keep the budgets but stop them blocking anything — recording only:
-
-```json
-"meteringEnforcement": { "enabled": false }
-```
-
-Calls driven by a deployed worker are exempt from enforcement by default,
-because a worker has no prompt to show and nobody watching it fail. Set
-`"meteringEnforcement": { "workers": true }` to include them.
-
-Monthly usage records expire on their own once they're old enough to be of no
-further use — `meteringRetentionMonths` full months past the month they
-belong to, 3 by default. Set it to `0` to keep every month's records forever:
-
-```json
-"meteringRetentionMonths": 6
-```
-
-Changing it, including to `0`, applies to records first written after the
-change; records already stamped keep their expiry.
-
-### Captcha on signup / login
-
-Built-in proof-of-work captcha — no external service needed.
-
-```json
-"captcha": { "enabled": true, "difficulty": "medium" }
-```
-
-`difficulty` is one of `easy` / `medium` / `hard`.
-
-### Disable new signups
-
-Force visitors to log in with an existing account instead of creating a
-temporary or permanent one.
-
-```json
-"disable_user_signup": true
-```
-
-### Block disposable email domains
-
-Addresses on these domains (suffix match, so subdomains too) can't sign up or be
-set as an account's email.
-
-```json
-"blockedEmailDomains": ["mailinator.com", "tempmail.com", "guerrillamail.com"]
-```
-
-### Password policy
-
-```json
-"min_pass_length": 12
-```
-
-### Contact-form recipient
-
-Where the in-app contact form posts. Defaults to `support@puter.com`.
-
-```json
-"support_email": "support@puter.example.com"
-```
-
-## Optional: local LLM (Ollama)
-
-The `ollama` and `ollama-init` services live behind a compose profile so they don't run unless you ask for them. By default, `puter/config/config.json` has `"ollama": { "enabled": false }` — Puter skips the auto-probe entirely. To run a local model:
-
-1. Flip the config:
-    ```json
-    "providers": {
-        "ollama": { "apiBaseUrl": "http://ollama:11434" }
-    }
-    ```
-2. (Optional) Pick a model in `.env`:
-    ```bash
-    OLLAMA_DEFAULT_MODEL=tinyllama   # default — 1.1B, ~640 MB on disk, ~700 MB RAM
-    # Other tiny picks: qwen2.5:0.5b, llama3.2:1b
-    # Larger / better: phi3.5, llama3.2, mistral
-    ```
-3. Bring up with the `ai` profile:
-    ```bash
-    docker compose --profile ai up -d
-    docker compose logs -f ollama-init
-    ```
-    `ollama-init` exits 0 once the model is pulled. Subsequent boots find the model already on disk and the pull is a fast no-op.
-
-Without `--profile ai`, the `ollama` containers stay down and Puter (with `enabled: false`) doesn't try to reach them — the rest of the stack runs identically.
-
-For GPU acceleration (NVIDIA), uncomment the `deploy:` block under the `ollama` service in [docker-compose.yml](../docker-compose.yml). Requires `nvidia-container-toolkit` on the host.
-
-## Optional: receiving mail over SMTP
-
-Puter can give each account a mailbox at a domain you control. Two pieces are
-involved, and they are configured together under `userEmail`:
-
-- an **ingress endpoint** (`POST /email/ingress`) that files a message into the
-  recipient's `~/.mail`. It exists whenever `userEmail.secret` is set.
-- the **`puter-smtp` receiver**, which accepts mail from other mail servers and
-  hands each message to that endpoint. It runs as its own process, behind the
-  `smtp` compose profile.
-
-> **Read this before you expose it.** An inbound mail server is unauthenticated
-> by nature: anyone on the internet may hand it a message for any address in
-> `localDomains`. Puter performs **no** spam filtering and **no** SPF, DKIM or
-> DMARC checks — whatever is delivered is stored in the recipient's mailbox and
-> counts against their storage. If that is not acceptable, put a filtering relay
-> in front of it and point `localDomains` at that instead.
-
-1. Configure it in `puter/config/config.json`:
-
-    ```json
-    "userEmail": {
-        "secret": "a long random string",
-        "localServer": true,
-        "localDomains": ["example.com"]
-    }
-    ```
-
-    `secret` is shared between the two halves; generate it with
-    `openssl rand -hex 32`. `localDomains` lists the domains this server accepts
-    mail for — anything else is refused at `RCPT TO`, which is what stops it
-    being used as an open relay. It has no default, and the receiver refuses to
-    start without it.
-
-    The receiver posts to `<api_base_url>/email/ingress` unless you set
-    `localIngressUrl`. The endpoint is served on the `api` subdomain, so if you
-    point it at an internal address to skip the reverse proxy, name that virtual
-    host too or the request will 404:
-
-    ```json
-    "localIngressUrl": "http://puter:4100/email/ingress",
-    "localIngressHost": "api.example.com"
-    ```
-
-    `localIngressHost` defaults to the host of `api_base_url`, which is usually
-    what you want.
-
-2. Bring it up with the `smtp` profile:
-
-    ```bash
-    docker compose --profile smtp up -d
-    docker compose logs -f puter-smtp
-    ```
-
-3. Point DNS at it:
-
-    ```dns
-    mx.example.com.   A    203.0.113.10
-    example.com.      MX   10 mx.example.com.
-    ```
-
-    Also set a `PTR` record for the address that resolves back to
-    `mx.example.com` — many senders refuse mail from a server without one.
-
-    Inbound TCP port 25 must reach the host. **Most cloud providers block port
-    25 by default and residential ISPs block it permanently**; if you cannot get
-    it unblocked, this will not work no matter how it is configured. The
-    container itself binds 2525 (it runs unprivileged) and compose publishes
-    `${SMTP_PORT:-25}` onto it, so you can move the host port if you need to.
-
-A message is held in memory while it is being delivered, so peak memory is
-bounded by `localMaxClients` (default 20) times the 25 MiB message ceiling.
-Lower `localMaxClients` on a small host. There is no queue and no retry
-schedule — if delivery fails, the sending server is told to try again later and
-retrying is its job.
-
-Mail is stored as `message/rfc822` objects under `~/.mail/objects/<date>/` and
-read back through `puter.email` in the SDK.
-
-Every setting is documented in
-[config.template.jsonc](../config.template.jsonc). Two deliberate limits, both
-in the name of keeping the self-hosted path simple: it does not offer STARTTLS,
-so mail arrives in the clear, and it applies no per-sender rate limiting. Put a
-filtering relay in front if either matters to you.
-
-Note this is a *receiving* server only: it never sends, and it must not be used
-for authenticated submission. Outbound transactional mail is the separate
-`email` block above.
+---
 
 ## Building from source instead of pulling
 
@@ -654,6 +337,8 @@ rm -rf puter/data
 ```
 
 Migrations re-apply idempotently across pulls. Volumes are preserved.
+
+---
 
 ## Troubleshooting
 
