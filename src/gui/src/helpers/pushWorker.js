@@ -28,6 +28,8 @@ import {
     PUSH_TAP_PARAM,
 } from './notificationTap.js';
 import { clear_query_param } from './parseSharedPath.js';
+import { getPushClient, registerPushClient } from './pushClient.js';
+import { webPushClient } from './webPushClient.js';
 
 export const WORKER_URL = '/sw.js';
 export const WORKER_CLICK_MESSAGE = 'puter-notification-click';
@@ -151,6 +153,9 @@ export const startPushWorker = async ({
 
     // Leave an existing worker: removing it ends this browser's subscription.
     if ( ! pushWorkerEnabled(params, nav) ) return;
+    if ( typeof params.pushWebPushKey === 'string' && params.pushWebPushKey && ! getPushClient() ) {
+        registerPushClient(webPushClient());
+    }
     nav.serviceWorker.addEventListener('message', (event) => {
         if ( event.data?.type !== WORKER_CLICK_MESSAGE || ! normalizePushTap(event.data.notification) ) return;
         event.source?.postMessage?.({ type: WORKER_CLICK_ACK_MESSAGE, id: event.data.id });

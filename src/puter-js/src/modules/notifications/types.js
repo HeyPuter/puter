@@ -90,7 +90,43 @@
  * @property {unknown} data The `data` it was sent with, or `null`.
  */
 
-/** @typedef {'web' | 'ios' | 'android'} PushPlatform */
+/**
+ * What a push handler may return to change the shown notification. `url` is a
+ * path or URL on the app's own origin, opened when it is tapped.
+ *
+ * @typedef {Object} PushShown
+ * @property {string} [title]
+ * @property {string} [body]
+ * @property {string} [icon]
+ * @property {string} [badge]
+ * @property {string} [image]
+ * @property {string} [tag]
+ * @property {string} [url]
+ */
+
+/**
+ * Called for each notification sent with the handler's key. It runs in the page
+ * while the app is connected and, on websites, in the service worker when a
+ * push arrives: it must be self-contained there (no outside variables or
+ * imports), finish within 5 seconds, and not touch the DOM.
+ *
+ * @typedef {(
+ *     notification: AppNotification,
+ * ) => PushShown | void | Promise<PushShown | void>} PushHandler
+ */
+
+/**
+ * Options for {@link import('./onPush.js').onPush}.
+ *
+ * @typedef {Object} OnPushOptions
+ * @property {string} [serviceWorker] Path of the app's worker that imports
+ *   `push-sw.js`. Default `/puter-sw.js`.
+ * @property {(error: Error & { code?: string }) => void} [onError] Called when
+ *   the handler throws, the live listener stops, or keeping the browser's
+ *   subscription current fails.
+ */
+
+/** @typedef {'web' | 'webpush' | 'ios' | 'android'} PushPlatform */
 
 /**
  * What `registerDevice()` takes.
