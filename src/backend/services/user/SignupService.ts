@@ -59,7 +59,7 @@ export type SignupGateOutcome =
 export interface SignupGateInput {
     req: Request;
     /** Set for signups that did not come through the signup form. */
-    source?: 'oidc';
+    source?: 'oidc' | 'team_provision';
     data: Record<string, unknown>;
     email: string;
     isTemp: boolean;
