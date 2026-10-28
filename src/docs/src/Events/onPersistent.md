@@ -58,7 +58,7 @@ Background handlers run as a worker session for your app, which appears in the u
 - **`onPersistent()`** runs your handler in the events worker for every event, even when your app is closed, and also sends the event to every connected client. Each place gets one attempt, and a failed run isn't retried. Use it to react to every change, such as keeping an index or a notification up to date.
 - **`onPersistent({ queue: true })`** hands each event to one consumer at a time and retries it when the run never finished or failed for a temporary reason. Use it for work that has to finish, such as processing every uploaded file or calling a webhook.
 
-Only a retry or a lost answer can repeat a queued event. It arrives again with the same `event.id`, so check that ID before doing work twice.
+A queued event comes back only on a retry or a lost answer, with the same `event.id`, so check that ID before doing work twice. Open tabs that passed a function `handler` all receive it, like a broadcast.
 
 ## Where the handler runs
 
@@ -69,7 +69,7 @@ Without `queue`, every event runs the handler in each place that's listening:
 
 The events worker skips a run when the deployment has no worker runtime or the [handler-run limit](/rate-limits-and-quotas/#events) for this user and app is used up for the minute. Connected clients still run it.
 
-With `queue: true`, a connected client that passed a function `handler` gets the first try. If no client has one, or its run fails, the events worker takes the event right away. A client that doesn't answer within 15 seconds loses the event to the events worker, so keep client handlers short. If the user has your app open in several tabs, each tab that passed a function `handler` gets the event.
+With `queue: true`, a connected client that passed a function `handler` gets the first try. If no client has one, or its run fails, the events worker takes the event right away. A client that doesn't answer within 15 seconds loses the event to the events worker, so keep client handlers short. If the user has your app open in several tabs, each tab that passed a function `handler` gets the event, as a broadcast; keep side effects that must happen once in the worker handler.
 
 Whichever place runs it, it's the same code, called with:
 
