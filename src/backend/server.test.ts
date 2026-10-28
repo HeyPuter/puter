@@ -468,6 +468,58 @@ describe('PuterServer host header validation — permissive modes', () => {
     });
 });
 
+describe('PuterServer host header validation — custom domains with every host accepted', () => {
+    let server: PuterServer;
+    let port: number;
+
+    beforeAll(async () => {
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+                allow_all_host_values: true,
+                custom_domains_enabled: true,
+                static_hosting_domain: 'site.puter.localhost',
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('still hands a host outside our domains to site hosting', async () => {
+        const res = await rawRequest(port, '/', {
+            host: 'www.my-own-domain.example',
+        });
+        expect(res.status).toBe(404);
+        expect(res.body).toBe('Site not found');
+    });
+
+    it('leaves our own domain to the GUI', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: `puter.localhost:${port}`,
+        });
+        expect(res.status).toBe(200);
+    });
+
+    it('never treats an IP or localhost as a custom domain', async () => {
+        for (const host of [
+            `127.0.0.1:${port}`,
+            `[::1]:${port}`,
+            `localhost:${port}`,
+        ]) {
+            const res = await rawRequest(port, '/healthcheck', { host });
+            expect(res.status, host).toBe(200);
+            const root = await rawRequest(port, '/', { host });
+            expect(root.body, host).not.toBe('Site not found');
+        }
+    });
+});
+
 describe('PuterServer request parsing', () => {
     let server: PuterServer;
     let port: number;
