@@ -6,7 +6,7 @@ platforms: [websites, apps]
 
 Turns on push notifications for your app in the browser the user is in. Call it from a click: it asks the browser's permission first, before anything else, because browsers only show that prompt from a user gesture.
 
-On a website, the browser asks on your own origin, and pushes arrive through your service worker (see [`onPush()`](/Notifications/onPush/)). Puter then sends a confirmation push to that browser and only keeps the subscription once your page hands it back, so a subscription can only come from a browser where the user said yes. Allowing it also lets your app's notifications go out as pushes, which the user can revoke in Puter's settings.
+On a website, the browser asks on your own origin, and pushes arrive through your service worker (see [`onPush()`](/Notifications/onPush/)). Puter then sends a confirmation push to that browser and only keeps the subscription once your page hands it back, so a subscription can only come from a browser where the user said yes. Allowing it also lets your app's notifications go out as pushes. If the user later turns your app off in Puter's settings, that stands: `enable()` then asks again through Puter's permission prompt rather than relying on the browser's permission.
 
 Inside the Puter desktop it does what [`enablePush()`](/Notifications/enablePush/) does.
 
