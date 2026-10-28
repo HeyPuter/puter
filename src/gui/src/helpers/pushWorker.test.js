@@ -175,12 +175,32 @@ describe('showLocalBanner', () => {
     });
 
     it('shows an app`s message only when the app may push', async () => {
-        const message = { type: 'app.message', title: 'Hi', app: { uid: 'app-1' } };
+        const message = (uid) => ({ type: 'app.message', title: 'Hi', app: { uid } });
         const denied = env({ holds: false });
-        expect(await showLocalBanner({ uid: 'n1', notification: message, appUid: 'app-1' }, {}, denied)).toBe(false);
+        expect(await showLocalBanner({ uid: 'n1', notification: message('app-1'), appUid: 'app-1' }, {}, denied)).toBe(false);
         expect(denied.holdsPush).toHaveBeenCalledWith('app-1');
         const allowed = env();
-        expect(await showLocalBanner({ uid: 'n1', notification: message, appUid: 'app-1' }, {}, allowed)).toBe(true);
+        expect(await showLocalBanner({ uid: 'n1', notification: message('app-2'), appUid: 'app-2' }, {}, allowed)).toBe(true);
+    });
+
+    it('asks once a minute whether an app may push', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(1_000);
+            const e = env();
+            const message = { type: 'app.message', title: 'Hi', app: { uid: 'app-busy' } };
+            const show = (uid) => showLocalBanner({ uid, notification: message, appUid: 'app-busy' }, {}, e);
+            expect(await Promise.all([show('n1'), show('n2')])).toEqual([true, true]);
+            expect(await show('n3')).toBe(true);
+            expect(e.holdsPush).toHaveBeenCalledTimes(1);
+            expect(e.active.postMessage).toHaveBeenCalledTimes(3);
+
+            vi.setSystemTime(1_000 + 60 * 1000);
+            expect(await show('n4')).toBe(true);
+            expect(e.holdsPush).toHaveBeenCalledTimes(2);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('hands nothing over where push is off for the deployment', async () => {

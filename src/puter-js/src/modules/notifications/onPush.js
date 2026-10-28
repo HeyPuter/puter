@@ -26,6 +26,9 @@ export const shownFrom = (notification, result) => {
     return shown;
 };
 
+/** Sync failures that are the server's or the user's standing choice, not a fault. */
+const QUIET_SYNC_ERRORS = new Set(['push_unavailable', 'push_revoked']);
+
 const report = (onError, error) => {
     if (onError) onError(error);
     else console.error('[puter.notifications] push handler failed', error);
@@ -76,6 +79,8 @@ export async function onPush(key, handler, options = {}) {
             try {
                 await syncWebPush(puter, { worker });
             } catch (error) {
+                // Nothing a page load can do about these; `enable()` reports them from a click.
+                if (QUIET_SYNC_ERRORS.has(error?.code)) return;
                 report(options.onError, error);
             }
         };

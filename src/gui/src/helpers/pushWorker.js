@@ -64,6 +64,23 @@ export const shouldShowLocalBanner = ({ replay = false, acknowledged = false, no
 
 const nonEmpty = (value) => (typeof value === 'string' && value.trim() !== '' ? value : undefined);
 
+const HOLDS_PUSH_TTL_MS = 60 * 1000;
+const HOLDS_PUSH_MAX_ENTRIES = 50;
+/** @type {Map<string, { at: number, held: Promise<boolean> }>} */
+const holdsPushCache = new Map();
+
+/** @type {(appUid: string, holdsPush: (appUid: string) => Promise<boolean>) => Promise<boolean>} One check per app a minute: a busy app sends many messages while the tab is hidden. */
+const appMayPush = (appUid, holdsPush) => {
+    const now = Date.now();
+    const hit = holdsPushCache.get(appUid);
+    if ( hit && now - hit.at < HOLDS_PUSH_TTL_MS ) return hit.held;
+    const held = holdsPush(appUid);
+    holdsPushCache.delete(appUid);
+    holdsPushCache.set(appUid, { at: now, held });
+    while ( holdsPushCache.size > HOLDS_PUSH_MAX_ENTRIES ) holdsPushCache.delete(holdsPushCache.keys().next().value);
+    return held;
+};
+
 /**
  * @param {string} uid
  * @param {Object} notification
@@ -126,7 +143,7 @@ export const showLocalBanner = async ({ uid, notification, appUid = null }, { re
         if ( ! await registration.pushManager?.getSubscription() ) return false;
         if ( notification.type === APP_MESSAGE_TYPE ) {
             const app = appUid ?? notification.app?.uid;
-            if ( ! app || ! await holdsPush(app) ) return false;
+            if ( ! app || ! await appMayPush(app, holdsPush) ) return false;
         }
         worker.postMessage({ type: WORKER_SHOW_MESSAGE, puter: pushMessageFor(uid, notification, appUid) });
         return true;

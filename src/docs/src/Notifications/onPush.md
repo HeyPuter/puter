@@ -37,7 +37,7 @@ Returning nothing shows the notification's own `title` and `text`. In the page, 
 
 #### `options` (Object) (optional)
 - `serviceWorker` (String): path of the worker that imports `push-sw.js`. Default `/puter-sw.js`.
-- `onError` (Function): called when the handler throws, the live listener stops, or keeping the subscription current fails. Without it, errors go to the console.
+- `onError` (Function): called when the handler throws, the live listener stops, or keeping the subscription current fails. Without it, errors go to the console. A server without a push service (`push_unavailable`) and an app the user turned off in Puter (`push_revoked`) are not reported here, since [`enable()`](/Notifications/enable/) rejects with them when called.
 
 ## Handler limits
 

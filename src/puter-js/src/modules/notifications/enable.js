@@ -8,7 +8,9 @@ import { syncWebPush, webPushSupported, workerFor } from './lib/webPush.js';
  * Inside the Puter desktop this is `enablePush()`. On a website it asks for
  * notification permission on the site's own origin, then subscribes through the
  * site's service worker (`/puter-sw.js` unless `serviceWorker` names another)
- * and confirms the subscription with Puter.
+ * and confirms the subscription with Puter. It rejects with `push_revoked` when
+ * the user turned the app off in Puter; `requestPermission()` from a click
+ * undoes that.
  *
  * @this {import('./index.js').NotificationsModule}
  * @param {{ serviceWorker?: string }} [options]
@@ -28,13 +30,6 @@ export async function enable(options = {}) {
 
     if (needsSignIn(puter)) await signInVisitor(puter);
     const worker = workerFor(puter.env, options.serviceWorker);
-    try {
-        await syncWebPush(puter, { worker });
-    } catch (error) {
-        // The user turned this app off in Puter; only Puter's prompt undoes it.
-        if (error?.code !== 'push_revoked') throw error;
-        if (!(await this.requestPermission())) return false;
-        await syncWebPush(puter, { worker });
-    }
+    await syncWebPush(puter, { worker });
     return true;
 }

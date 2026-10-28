@@ -22,10 +22,10 @@ const { shownFrom } = await import('./onPush.js');
 const KEY = Buffer.from([4, ...Array(64).fill(7)]).toString('base64url');
 
 const makeSubscription = (key = fromBase64Url(KEY)) => ({
-    endpoint: 'https://fcm.googleapis.com/fcm/send/abc',
+    endpoint: 'https://push.example/send/abc',
     options: { applicationServerKey: key.buffer },
     toJSON: () => ({
-        endpoint: 'https://fcm.googleapis.com/fcm/send/abc',
+        endpoint: 'https://push.example/send/abc',
         expirationTime: null,
         keys: { p256dh: 'p', auth: 'a' },
     }),
@@ -58,9 +58,28 @@ const makeNav = ({ existing = null } = {}) => {
 const puter = { env: 'web', authToken: 't', APIOrigin: 'https://api.test' };
 const worker = workerFor('web');
 
+const withBrowser = (nav, permission = 'granted') => {
+    globalThis.PushManager = function PushManager() {};
+    globalThis.Notification = {
+        permission,
+        requestPermission: vi.fn(async () => 'granted'),
+    };
+    Object.defineProperty(globalThis.navigator, 'serviceWorker', {
+        value: nav.serviceWorker,
+        configurable: true,
+    });
+};
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 beforeEach(() => {
     mockRequest.mockReset();
     store.clear();
+});
+
+afterEach(() => {
+    delete globalThis.PushManager;
+    delete globalThis.Notification;
 });
 
 describe('syncWebPush', () => {
@@ -86,7 +105,7 @@ describe('syncWebPush', () => {
             '/push/web/subscriptions',
             {
                 subscription: {
-                    endpoint: 'https://fcm.googleapis.com/fcm/send/abc',
+                    endpoint: 'https://push.example/send/abc',
                     keys: { p256dh: 'p', auth: 'a' },
                 },
             },
@@ -250,26 +269,41 @@ describe('onPush', () => {
         await module.onPush('mail', () => {});
         expect(module.onNotification).toHaveBeenCalledTimes(1);
     });
+
+    it('keeps quiet when the server has no push service or the app is turned off', async () => {
+        withBrowser(makeNav());
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const { PuterJSError } = await import('../../lib/PuterJSError.js');
+
+        mockRequest.mockResolvedValue({});
+        const onError = vi.fn();
+        await makeModule().onPush('chat', () => {}, { onError });
+        await flush();
+        expect(mockRequest).toHaveBeenCalled();
+        expect(onError).not.toHaveBeenCalled();
+
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') return { publicKey: KEY };
+            throw new PuterJSError('off', 'push_revoked');
+        });
+        await makeModule().onPush('chat', () => {});
+        await flush();
+        expect(error).not.toHaveBeenCalled();
+
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') return { publicKey: KEY };
+            throw new PuterJSError('down', 'internal_error');
+        });
+        await makeModule().onPush('chat', () => {}, { onError });
+        await flush();
+        expect(onError).toHaveBeenCalledWith(
+            expect.objectContaining({ code: 'internal_error' }),
+        );
+        error.mockRestore();
+    });
 });
 
 describe('enable', () => {
-    const withBrowser = (nav, permission = 'granted') => {
-        globalThis.PushManager = function PushManager() {};
-        globalThis.Notification = {
-            permission,
-            requestPermission: vi.fn(async () => 'granted'),
-        };
-        Object.defineProperty(globalThis.navigator, 'serviceWorker', {
-            value: nav.serviceWorker,
-            configurable: true,
-        });
-    };
-
-    afterEach(() => {
-        delete globalThis.PushManager;
-        delete globalThis.Notification;
-    });
-
     const makeModule = () =>
         new NotificationsModule({
             ...puter,
@@ -289,29 +323,21 @@ describe('enable', () => {
         await expect(pending).resolves.toBe(true);
     });
 
-    it('asks through Puter`s prompt when the user turned the app off there', async () => {
+    it('rejects with push_revoked when the user turned the app off in Puter, and opens no prompt', async () => {
         const nav = makeNav({ existing: makeSubscription() });
         withBrowser(nav);
-        let revoked = true;
         mockRequest.mockImplementation(async (_p, method, route) => {
             if (route === '/push/web/key') return { publicKey: KEY };
-            if (revoked) {
-                const { PuterJSError } =
-                    await import('../../lib/PuterJSError.js');
-                throw new PuterJSError('off', 'push_revoked');
-            }
-            return { status: 'active', device: { uid: 'd1' } };
+            const { PuterJSError } = await import('../../lib/PuterJSError.js');
+            throw new PuterJSError('off', 'push_revoked');
         });
         const module = makeModule();
-        module.requestPermission = vi.fn(async () => {
-            revoked = false;
-            return true;
+        module.requestPermission = vi.fn(async () => true);
+        await expect(module.enable()).rejects.toMatchObject({
+            code: 'push_revoked',
         });
-        await expect(module.enable()).resolves.toBe(true);
-        expect(module.requestPermission).toHaveBeenCalledTimes(1);
-
-        revoked = true;
-        module.requestPermission = vi.fn(async () => false);
-        await expect(module.enable()).resolves.toBe(false);
+        expect(module.requestPermission).not.toHaveBeenCalled();
+        expect(Notification.requestPermission).not.toHaveBeenCalled();
+        expect(mockRequest).toHaveBeenCalledTimes(2);
     });
 });
