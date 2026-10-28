@@ -284,12 +284,9 @@ async function startBackgroundWork () {
 
 Some things to know about `queue`:
 
-- **The same event can run twice.** For example, if a run finishes its work but
-  times out, Puter tries again with the same `event.id`. Saving the same
-  key-value record twice leaves the same data, but posting to the chat twice
-  sends two messages. To prevent most of these, save `event.id` after posting
-  and check for it before posting. A run that crashes between posting and
-  saving can still post twice.
+- **A retried event has the same `event.id`.** If a run does its work but
+  times out before acknowledging, the retry repeats it. For work like posting a
+  message, save `event.id` afterwards and skip IDs you've already handled.
 - **Stop retrying events that can't succeed.** If retrying won't help, for
   example with a file type you don't support, throw an error with
   `terminal: true`. Puter drops the event instead of retrying it.

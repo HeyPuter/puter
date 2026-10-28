@@ -58,7 +58,7 @@ Background handlers run as a worker session for your app, which appears in the u
 - **`onPersistent()`** runs your handler in the events worker for every event, even when your app is closed, and also sends the event to every connected client. Each place gets one attempt, and a failed run isn't retried. Use it to react to every change, such as keeping an index or a notification up to date.
 - **`onPersistent({ queue: true })`** hands each event to one consumer at a time and offers it again until it's acknowledged. Use it for work that has to finish, such as processing every uploaded file or calling a webhook.
 
-In every mode, a handler can see the same event more than once: in the worker and in a client, or again after a retry. Make handlers safe to run twice, for example by saving `event.id` once you've handled it and skipping IDs you've already seen.
+A queued event that fails or isn't acknowledged in time is offered again with the same `event.id`, so on a retry it can occasionally arrive twice.
 
 ## Where the handler runs
 
@@ -140,8 +140,8 @@ A suspended subscription stops delivering and isn't billed. Its backlog is cut t
 
 Clients connect to the nearest region. Events reach a client wherever it's connected, and `ack()` works on any connection.
 
-- Without `queue`, an event runs the handler in the events worker and in every connected client, so it can run more than once. A run that fails or happens while nothing is connected isn't retried.
-- `queue` deliveries are **at-least-once**: one may arrive twice, with the same `event.id`. Make handlers safe to run twice.
+- Without `queue`, an event runs the handler in the events worker and in each connected client that passed a function `handler`. A run that fails or happens while nothing is connected isn't retried.
+- `queue` deliveries are **at-least-once**: an event is retried until acknowledged, so after a failure it can arrive again with the same `event.id`.
 - Undelivered events are held in the region where the change happened. If that region goes down, only what it was holding is lost.
 - Order is kept within a region and is best-effort across regions. Coalescing (250 ms) also runs per region, so two quick writes can arrive as one event nearby and as two farther away.
 
