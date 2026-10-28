@@ -435,14 +435,7 @@ export async function withStreamedAiCharge(
 ): Promise<DriverStreamResult> {
     const hold = await metering.reserveAiCredits(actor, usageType, amount);
     if (!hold) throw insufficientCreditsError();
-    let result: DriverStreamResult;
-    try {
-        result = await open();
-    } catch (e) {
-        await hold.release();
-        throw e;
-    }
-
+    // Started before `open`, which can itself run as long as the hold's TTL.
     const renew = setInterval(async () => {
         try {
             await hold.extend?.();
@@ -451,6 +444,14 @@ export async function withStreamedAiCharge(
         }
     }, STREAM_HOLD_RENEW_MS);
     renew.unref?.();
+    let result: DriverStreamResult;
+    try {
+        result = await open();
+    } catch (e) {
+        clearInterval(renew);
+        await hold.release();
+        throw e;
+    }
 
     let settled = false;
     const settle = (charge: boolean) => {
@@ -466,10 +467,9 @@ export async function withStreamedAiCharge(
                 // ignored
             }
         };
-        void Promise.resolve(charge ? record() : undefined).then(
-            release,
-            release,
-        );
+        void Promise.resolve()
+            .then(() => (charge ? record() : undefined))
+            .then(release, release);
     };
     const source = result.stream;
     let chunks: AsyncIterator<unknown> | undefined;

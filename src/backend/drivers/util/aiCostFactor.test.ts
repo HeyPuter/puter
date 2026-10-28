@@ -693,6 +693,80 @@ describe('AI cost factor', () => {
             }
         });
 
+        it('renews the hold while a slow upstream is still opening', async () => {
+            vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+            const refresh = vi.spyOn(server.stores.creditHold, 'refresh');
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            let opened = () => {};
+            const opening = new Promise<void>((resolve) => {
+                opened = resolve;
+            });
+            try {
+                const pending = withStreamedAiCharge(
+                    scoped,
+                    actor,
+                    usageType,
+                    1000,
+                    async () => {
+                        await opening;
+                        return {
+                            dataType: 'stream',
+                            content_type: 'audio/mpeg',
+                            stream: Readable.from([Buffer.from('ab')]),
+                        };
+                    },
+                    () => undefined,
+                );
+                await vi.waitFor(async () =>
+                    expect(await metering.getOutstandingHolds(actor)).toBe(
+                        1000,
+                    ),
+                );
+                await vi.advanceTimersByTimeAsync(9 * 60 * 1000);
+                expect(refresh).toHaveBeenCalledTimes(1);
+
+                opened();
+                expect(await read((await pending).stream)).toBeUndefined();
+                await vi.waitFor(async () =>
+                    expect(await metering.getOutstandingHolds(actor)).toBe(0),
+                );
+            } finally {
+                check.mockRestore();
+                refresh.mockRestore();
+                vi.useRealTimers();
+            }
+        });
+
+        it('releases the hold when recording the charge throws', async () => {
+            const check = vi
+                .spyOn(metering, 'hasEnoughCredits')
+                .mockResolvedValue(true);
+            try {
+                const result = await withStreamedAiCharge(
+                    scoped,
+                    actor,
+                    usageType,
+                    1000,
+                    async () => ({
+                        dataType: 'stream',
+                        content_type: 'audio/mpeg',
+                        stream: Readable.from([Buffer.from('ab')]),
+                    }),
+                    () => {
+                        throw new Error('metering down');
+                    },
+                );
+                expect(await read(result.stream)).toBeUndefined();
+                await vi.waitFor(async () =>
+                    expect(await metering.getOutstandingHolds(actor)).toBe(0),
+                );
+            } finally {
+                check.mockRestore();
+            }
+        });
+
         it('charges nothing when the upstream fails before its first byte', async () => {
             const { record, stream } = await relay(
                 new Readable({

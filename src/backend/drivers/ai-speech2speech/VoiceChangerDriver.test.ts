@@ -49,6 +49,7 @@ import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { DriverStreamResult } from '../meta.js';
 import {
+    OggOpusClock,
     outputBytesPerSecond,
     type VoiceChangerDriver,
     wavDataOffset,
@@ -441,6 +442,60 @@ describe('VoiceChangerDriver.convert success path', () => {
         expect(wavDataOffset(Buffer.alloc(64))).toBe(undefined);
     });
 
+    /** One Ogg page carrying `body` as a single packet. */
+    const oggPage = (granule: bigint, sequence: number, body: Buffer) => {
+        const lacing: number[] = [];
+        let left = body.length;
+        while (left >= 255) {
+            lacing.push(255);
+            left -= 255;
+        }
+        lacing.push(left);
+        const header = Buffer.alloc(27);
+        header.write('OggS', 0, 'ascii');
+        header.writeBigUInt64LE(granule, 6);
+        header.writeUInt32LE(sequence, 18);
+        header[26] = lacing.length;
+        return Buffer.concat([header, Buffer.from(lacing), body]);
+    };
+
+    /** A sparse Ogg Opus stream: `seconds` of audio in very few bytes. */
+    const oggOpus = (seconds: number, preSkip = 312) => {
+        const opusHead = Buffer.alloc(19);
+        opusHead.write('OpusHead', 0, 'ascii');
+        opusHead[8] = 1;
+        opusHead[9] = 1;
+        opusHead.writeUInt16LE(preSkip, 10);
+        opusHead.writeUInt32LE(48_000, 12);
+        const pages = [
+            oggPage(0n, 0, opusHead),
+            oggPage(0n, 1, Buffer.from('OpusTags')),
+        ];
+        for (let s = 1; s <= seconds; s++) {
+            pages.push(
+                oggPage(BigInt(preSkip + s * 48_000), s + 1, Buffer.alloc(300)),
+            );
+        }
+        return Buffer.concat(pages);
+    };
+
+    it('times an Ogg Opus stream by its last granule, however it is chunked', () => {
+        const stream = oggOpus(7);
+        const whole = new OggOpusClock();
+        whole.push(stream);
+        expect(whole.seconds).toBe(7);
+
+        const trickle = new OggOpusClock();
+        for (const byte of stream) trickle.push(Buffer.from([byte]));
+        expect(trickle.seconds).toBe(7);
+    });
+
+    it('does not time a stream that is not Ogg Opus', () => {
+        const clock = new OggOpusClock();
+        clock.push(Buffer.alloc(4096, 1));
+        expect(clock.seconds).toBe(undefined);
+    });
+
     describe('meters the length of the audio that comes back', () => {
         const usageType = 'elevenlabs:eleven_multilingual_sts_v2:second';
         const billed = async () => {
@@ -507,6 +562,18 @@ describe('VoiceChangerDriver.convert success path', () => {
             );
             await convert(actor, 1_000_000, { output_format: 'wav_16000' });
             expect(await billed()).toBe(3);
+        });
+
+        it('bills sparse Opus output by its duration, not its bytes', async () => {
+            const { actor } = await makeUser();
+            // 20 s of mostly silent opus_48000_64 is far under 20 s of bytes.
+            const body = oggOpus(20);
+            expect(body.length).toBeLessThan(8_000 * 2);
+            fetchSpy.mockResolvedValueOnce(
+                okResponse(new Uint8Array(body).buffer, 'audio/ogg'),
+            );
+            await convert(actor, 1_000, { output_format: 'opus_48000_64' });
+            expect(await billed()).toBe(20);
         });
 
         it('sizes an undocumented output_format as the default', async () => {

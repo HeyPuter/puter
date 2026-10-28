@@ -266,7 +266,7 @@ export class VoiceChangerDriver extends PuterDriver {
         const metering = this.#aiMetering;
         const output = measuredOutput(
             outputBytesPerSecond(outputFormat),
-            outputFormat.startsWith('wav_'),
+            outputFormat,
         );
         return withStreamedAiCharge(
             metering,
@@ -351,15 +351,105 @@ export function wavDataOffset(head: Buffer): number | undefined {
     return undefined;
 }
 
+const OGG_HEADER_BYTES = 27;
+const NO_GRANULE = 2n ** 64n - 1n;
+
+/**
+ * Walks an Ogg Opus stream page by page as it arrives. Opus is variable
+ * bitrate, so its length comes from the last page's granule position (48 kHz
+ * samples, less the stream's pre-skip) rather than its byte count.
+ */
+export class OggOpusClock {
+    #header = Buffer.alloc(0);
+    #skip = 0;
+    #firstBody: Buffer | undefined = Buffer.alloc(0);
+    #firstBodyBytes = 0;
+    #granule: bigint | undefined;
+    #preSkip = 0;
+    #broken = false;
+
+    push(chunk: Buffer): void {
+        let offset = 0;
+        while (!this.#broken && offset < chunk.length) {
+            if (this.#skip > 0) {
+                const n = Math.min(this.#skip, chunk.length - offset);
+                if (this.#firstBody && this.#firstBody.length < 19) {
+                    this.#firstBody = Buffer.concat([
+                        this.#firstBody,
+                        chunk.subarray(offset, offset + n),
+                    ]);
+                }
+                this.#skip -= n;
+                offset += n;
+                if (this.#skip === 0 && this.#firstBody) this.#readOpusHead();
+                continue;
+            }
+            const want =
+                this.#header.length < OGG_HEADER_BYTES
+                    ? OGG_HEADER_BYTES
+                    : OGG_HEADER_BYTES + this.#header[26]!;
+            const n = Math.min(
+                want - this.#header.length,
+                chunk.length - offset,
+            );
+            this.#header = Buffer.concat([
+                this.#header,
+                chunk.subarray(offset, offset + n),
+            ]);
+            offset += n;
+            if (this.#header.length < want) continue;
+            if (this.#header.toString('ascii', 0, 4) !== 'OggS') {
+                this.#broken = true;
+                return;
+            }
+            if (want === OGG_HEADER_BYTES && this.#header[26]! > 0) continue;
+            const granule = this.#header.readBigUInt64LE(6);
+            if (granule !== NO_GRANULE) this.#granule = granule;
+            let body = 0;
+            for (const lacing of this.#header.subarray(OGG_HEADER_BYTES)) {
+                body += lacing;
+            }
+            this.#header = Buffer.alloc(0);
+            this.#skip = body;
+            if (this.#firstBody) this.#firstBodyBytes = body;
+        }
+    }
+
+    /** Whole seconds so far, once the stream has proven to be Ogg Opus. */
+    get seconds(): number | undefined {
+        if (this.#broken || this.#granule === undefined) return undefined;
+        const samples = Number(this.#granule) - this.#preSkip;
+        return samples > 0
+            ? Math.max(1, Math.ceil(samples / 48_000))
+            : undefined;
+    }
+
+    #readOpusHead(): void {
+        const head = this.#firstBody!;
+        this.#firstBody = undefined;
+        if (
+            this.#firstBodyBytes < 19 ||
+            head.toString('ascii', 0, 8) !== 'OpusHead'
+        ) {
+            this.#broken = true;
+            return;
+        }
+        this.#preSkip = head.readUInt16LE(10);
+    }
+}
+
 /**
  * Counts the bytes of a converted stream. `seconds` settles when the stream
  * ends or closes: its length in whole seconds (undefined when nothing came
  * back), and whether the upstream sent all of it. A WAV's header isn't audio,
- * so it isn't counted.
+ * so it isn't counted; Opus is timed by its pages.
  */
-function measuredOutput(bytesPerSecond: number, wav: boolean) {
+function measuredOutput(bytesPerSecond: number, format: string) {
     let bytes = 0;
-    let head: Buffer | undefined = wav ? Buffer.alloc(0) : undefined;
+    let head: Buffer | undefined = format.startsWith('wav_')
+        ? Buffer.alloc(0)
+        : undefined;
+    const opus = format.startsWith('opus_') ? new OggOpusClock() : undefined;
     let headerBytes = 0;
     let settle!: (measured: { seconds?: number; complete: boolean }) => void;
     const seconds = new Promise<{ seconds?: number; complete: boolean }>(
@@ -368,6 +458,8 @@ function measuredOutput(bytesPerSecond: number, wav: boolean) {
         },
     );
     const lengthOf = () => {
+        const timed = opus?.seconds;
+        if (timed !== undefined) return timed;
         const audio = bytes - headerBytes;
         return audio > 0
             ? Math.max(1, Math.ceil(audio / bytesPerSecond))
@@ -377,6 +469,7 @@ function measuredOutput(bytesPerSecond: number, wav: boolean) {
         const counter = new Transform({
             transform(chunk: Buffer, _encoding, callback) {
                 bytes += chunk.length;
+                opus?.push(chunk);
                 if (head) {
                     head = Buffer.concat([head, chunk]);
                     const offset = wavDataOffset(head);

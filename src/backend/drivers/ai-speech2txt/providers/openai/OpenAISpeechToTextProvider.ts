@@ -212,7 +212,15 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
             // The API ignores a bare `logprobs` flag; it only honors `include`.
             if (args.logprobs && caps.canLogprobs)
                 payload.include = ['logprobs'];
-            if (args.extra_body) payload.extra_body = args.extra_body;
+            if (args.extra_body && typeof args.extra_body === 'object') {
+                // Billing reads usage off the response; these can strip it.
+                const extra = {
+                    ...(args.extra_body as Record<string, unknown>),
+                };
+                delete extra.response_format;
+                delete extra.stream;
+                payload.extra_body = extra;
+            }
 
             const result = await this.#openai.audio.transcriptions.create(
                 payload as unknown as Parameters<

@@ -508,6 +508,26 @@ describe('SpeechToTextDriver model selection and payload shape', () => {
         expect(sent.temperature).toBe(0.2);
     });
 
+    it('keeps extra_body from overriding the response shape billing reads', async () => {
+        const { actor } = await makeUser();
+        transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
+
+        await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                model: 'gpt-transcribe',
+                extra_body: {
+                    response_format: 'text',
+                    stream: true,
+                    chunking_strategy: 'auto',
+                },
+            }),
+        );
+
+        const sent = transcriptionsCreateMock.mock.calls[0]![0];
+        expect(sent.extra_body).toEqual({ chunking_strategy: 'auto' });
+    });
+
     it('does not forward timestamp_granularities, which gpt-transcribe ignores', async () => {
         const { actor } = await makeUser();
         transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
