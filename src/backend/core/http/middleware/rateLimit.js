@@ -1049,8 +1049,8 @@ export function concurrencyGate(opts) {
  * Acquire a concurrent slot for a driver call. Mirrors `checkDriverRateLimit`
  * but returns an acquisition handle: caller MUST invoke `release()` on the
  * returned object exactly once, even on thrown errors — typically in a
- * `finally`. `ok: false` means the slot was full; callers should reject with
- * 429 in that case.
+ * `finally`. `renew()` keeps a long-held slot past the orphan TTL. `ok: false`
+ * means the slot was full; callers should reject with 429 in that case.
  *
  * `opts` is the resolved per-method spec from the driver's decorator (or
  * imperative `concurrent` field). Omitting `opts` (driver declares nothing)
@@ -1060,7 +1060,7 @@ export function concurrencyGate(opts) {
  */
 export async function acquireDriverConcurrent(req, ifaceName, method, opts) {
     if (!opts || typeof opts.limit !== 'number') {
-        return { ok: true, release: noop };
+        return { ok: true, release: noop, renew: noop };
     }
     const slot = await charge(
         req,
@@ -1072,8 +1072,7 @@ export async function acquireDriverConcurrent(req, ifaceName, method, opts) {
             label: '[concurrent] driver acquire',
         },
     );
-    if (!slot) return { ok: true, release: noop };
-    if (!slot.ok) return { ok: false, release: noop };
-    const { release } = guardSlot(slot, '[concurrent] driver');
-    return { ok: true, release };
+    if (!slot) return { ok: true, release: noop, renew: noop };
+    if (!slot.ok) return { ok: false, release: noop, renew: noop };
+    return guardSlot(slot, '[concurrent] driver');
 }

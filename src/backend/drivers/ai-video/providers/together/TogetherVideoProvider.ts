@@ -35,6 +35,7 @@ import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { capSecondsToRemainingCredits } from '../../creditCap.js';
 import { VideoProvider } from '../VideoProvider.js';
 import {
+    JobHold,
     pollUntilSettled,
     VIDEO_HOLD_TTL_MS,
     videoJobFailure,
@@ -242,6 +243,7 @@ export class TogetherVideoProvider extends VideoProvider {
             billedUnits = 1;
         }
 
+        const jobHold = new JobHold(hold);
         try {
             // Read only once credit is held; the hold is released if it fails.
             const sourceVideo = hasInputVideo
@@ -337,8 +339,39 @@ export class TogetherVideoProvider extends VideoProvider {
                 createPayload.media = { source_video: sourceVideo };
             }
 
+            // Together reports what it actually charged for the job; the
+            // catalog rate above is only the pre-flight estimate. Without a
+            // reported cost a finished job is charged the estimate, a failed
+            // or cancelled one nothing.
+            const meter = async (finalJob: any, settled: boolean) => {
+                const reportedCost = finalJob?.outputs?.cost;
+                const reported =
+                    typeof reportedCost === 'number' &&
+                    Number.isFinite(reportedCost) &&
+                    reportedCost >= 0
+                        ? Math.round(reportedCost * 100 * 1_000_000)
+                        : undefined;
+                const succeeded =
+                    finalJob?.status !== 'failed' &&
+                    finalJob?.status !== 'cancelled';
+                const cost =
+                    reported ??
+                    (succeeded || !settled ? estimateMicroCents : 0);
+                if (!cost) return;
+                await this.#meteringService.incrementUsage(
+                    actor,
+                    usageKey,
+                    billedUnits,
+                    cost,
+                );
+            };
+
             const job = await this.#client.videos.create(createPayload);
-            const finalJob = await this.#pollUntilComplete(job.id);
+            const finalJob = await this.#pollUntilComplete(
+                job.id,
+                meter,
+                jobHold,
+            );
 
             if (finalJob.status === 'failed') {
                 const errorMessage =
@@ -363,23 +396,6 @@ export class TogetherVideoProvider extends VideoProvider {
                 );
             }
 
-            // Together reports what it actually charged for the job; the catalog
-            // rate above was only the pre-flight estimate.
-            const reportedCost = finalJob?.outputs?.cost;
-            const costMicroCents =
-                typeof reportedCost === 'number' &&
-                Number.isFinite(reportedCost) &&
-                reportedCost >= 0
-                    ? Math.round(reportedCost * 100 * 1_000_000)
-                    : estimateMicroCents;
-
-            await this.#meteringService.incrementUsage(
-                actor,
-                usageKey,
-                billedUnits,
-                costMicroCents,
-            );
-
             const videoUrl = finalJob?.outputs?.video_url;
             if (typeof videoUrl === 'string' && videoUrl.trim()) {
                 return videoUrl;
@@ -387,7 +403,7 @@ export class TogetherVideoProvider extends VideoProvider {
 
             throw new Error('Together AI response did not include a video URL');
         } finally {
-            await hold.release();
+            await jobHold.release();
         }
     }
 
@@ -415,7 +431,11 @@ export class TogetherVideoProvider extends VideoProvider {
         });
     }
 
-    async #pollUntilComplete(jobId: string): Promise<any> {
+    async #pollUntilComplete(
+        jobId: string,
+        meter: (job: any, settled: boolean) => Promise<unknown>,
+        hold: JobHold,
+    ): Promise<any> {
         // any here because sdk types are wrong https://docs.together.ai/docs/videos-overview -> "Job Status Reference"
         return await pollUntilSettled<any>({
             provider: 'together',
@@ -424,6 +444,8 @@ export class TogetherVideoProvider extends VideoProvider {
             fetch: () => (this.#client as any).videos.retrieve(jobId),
             isPending: (job) =>
                 job.status === 'queued' || job.status === 'in_progress',
+            meter,
+            hold,
         });
     }
 
