@@ -416,10 +416,14 @@ export async function withAiCreditHold<T>(
     }
 }
 
+// Under the hold store's default TTL, so a renewal always lands first.
+const STREAM_HOLD_RENEW_MS = 5 * 60 * 1000;
+
 /**
  * Holds `amount` while `open` starts an upstream audio stream, then charges it
  * through `record` once the first byte arrives, or once the caller hangs up. An
- * upstream that fails or ends before its first byte is not charged.
+ * upstream that fails or ends before its first byte is not charged. The hold is
+ * renewed until the charge lands, however long a slow reader takes.
  */
 export async function withStreamedAiCharge(
     metering: AiMeteringService,
@@ -431,10 +435,20 @@ export async function withStreamedAiCharge(
 ): Promise<DriverStreamResult> {
     const hold = await metering.reserveAiCredits(actor, usageType, amount);
     if (!hold) throw insufficientCreditsError();
+    // Started before `open`, which can itself run as long as the hold's TTL.
+    const renew = setInterval(async () => {
+        try {
+            await hold.extend?.();
+        } catch {
+            // The next tick retries.
+        }
+    }, STREAM_HOLD_RENEW_MS);
+    renew.unref?.();
     let result: DriverStreamResult;
     try {
         result = await open();
     } catch (e) {
+        clearInterval(renew);
         await hold.release();
         throw e;
     }
@@ -445,11 +459,17 @@ export async function withStreamedAiCharge(
         settled = true;
         // The relay runs outside the request, so the hold waits on the charge
         // itself. A failed release leaves the hold to its TTL.
-        const release = () => hold.release().catch(() => {});
-        void Promise.resolve(charge ? record() : undefined).then(
-            release,
-            release,
-        );
+        const release = async () => {
+            clearInterval(renew);
+            try {
+                await hold.release();
+            } catch {
+                // ignored
+            }
+        };
+        void Promise.resolve()
+            .then(() => (charge ? record() : undefined))
+            .then(release, release);
     };
     const source = result.stream;
     let chunks: AsyncIterator<unknown> | undefined;
