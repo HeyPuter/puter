@@ -66,8 +66,7 @@ export const appMessageSender = (
     row: { name?: unknown; title?: unknown; icon?: unknown } | null | undefined,
 ): AppMessageSender => {
     const sender: AppMessageSender = { uid };
-    // Cleaned before the empty check: a title of only invisible characters
-    // would otherwise leave the message with no visible sender.
+    // Cleaned before the empty check, so a title of only invisible characters still leaves a visible sender.
     const name = [row?.title, row?.name]
         .map((v) =>
             typeof v === 'string'

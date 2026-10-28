@@ -2,7 +2,7 @@
 
 Puter's desktop shows pushes through `/sw.js`. Core registers it, and shows Settings → Notifications, only when the `pushEnabled` gui param is `true`; core never sets it. A backend extension that delivers pushes sets it with `services.homepage.setGuiParam('pushEnabled', true)` and can load its own code into the worker with `services.homepage.registerServiceWorkerScript(path)`.
 
-Core does not subscribe the browser to a push service, and it has no `/push/*` routes. The device, app and preference endpoints below come from that extension. On a deployment without one, such as most self-hosted servers, they answer core's plain 404 (`code: 'not_found'`), which `puter.notifications` reports as `push_unavailable` and the Notifications tab shows as unavailable. A device the extension can't find is `device_not_found`.
+Core subscribes the browser to a push service only when the server also publishes `pushWebPushKey` (see [Built-in Web Push client](#built-in-web-push-client)), and it has no `/push/*` routes of its own. The device, app, preference and subscription endpoints below come from that extension. On a deployment without one, such as most self-hosted servers, they answer core's plain 404 (`code: 'not_found'`), which `puter.notifications` reports as `push_unavailable` and the Notifications tab shows as unavailable. A device the extension can't find is `device_not_found`.
 
 ## Push payload
 
@@ -38,7 +38,7 @@ When the server also sets the `pushWebPushKey` gui param (a VAPID public key), c
 
 1. `GET /push/web/key` for the key, then `pushManager.subscribe()` on the `/sw.js` registration.
 2. `POST /push/web/subscriptions { subscription }`. A subscription the server already has answers `{ status: 'active' }`. A new one answers `{ status: 'pending' }`, and the server sends it a push with `{ type: 'challenge', challenge }`.
-3. The worker shows that push and posts `{ type: 'puter-push-challenge', challenge }` to the origin's windows; the page sends it to `POST /push/web/subscriptions/verify`. Only then is the device registered, so a subscription proves the user allowed notifications in that browser.
+3. The worker shows that push and posts `{ type: 'puter-push-challenge', challenge }` to the origin's windows; the page sends it to `POST /push/web/subscriptions/verify`. The device is registered once the page hands the confirmation back.
 4. `DELETE /push/web/subscriptions { endpoint }` removes it.
 
 Apps on their own origin do the same through `push-sw.js`, which they import into their own worker. A subscription made with an app token is the app's: its pushes are that app's notifications only.

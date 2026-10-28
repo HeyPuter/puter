@@ -171,7 +171,7 @@ describe('push-sw push', () => {
     });
 
     it('never points a tap at another origin', async () => {
-        const worker = loadWorker({ handlers: { chat: '() => ({ url: "https://evil.example/x" })' } });
+        const worker = loadWorker({ handlers: { chat: '() => ({ url: "https://elsewhere.example/x" })' } });
         await worker.fire('push', {
             data: pushData({ puter: { uid: 'n1', title: 'Hi', channel: 'chat' } }),
         });

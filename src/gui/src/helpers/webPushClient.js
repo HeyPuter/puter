@@ -17,8 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// Puter's own push client: standard Web Push through `/sw.js`, via
-// `puter.notifications`. Used when the server publishes `pushWebPushKey`.
+// Puter's own push client: standard Web Push through `/sw.js` via `puter.notifications`, used when the server publishes `pushWebPushKey`.
 
 /** @returns {import('./pushClient.js').PushClient} */
 export const webPushClient = ({

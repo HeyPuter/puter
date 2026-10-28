@@ -11,8 +11,7 @@ import webpack from 'webpack';
 import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// `push-sw.js` is a standalone classic script that apps import into their own
-// service worker; it ships next to the bundle as-is.
+// `push-sw.js` is a standalone classic script apps import into their own service worker; it ships next to the bundle as-is.
 const PUSH_WORKER = path.resolve(__dirname, 'src/push-sw.js');
 class EmitPushWorker {
     apply(compiler) {
