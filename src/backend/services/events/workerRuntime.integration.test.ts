@@ -289,28 +289,6 @@ const subscribe = async (
         subject: `fs:${anchor}`,
         delivery: 'single',
         handlerName,
-        targets: ['worker'],
-        ...(context ? { context } : {}),
-    });
-    expect(response.status).toBe(200);
-    return String(response.body.subId);
-};
-
-/**
- * Like `subscribe`, but with no `targets` override — the default
- * (`['socket', 'worker']`) rather than the `['worker']` the rest of this suite
- * pins. Only this leaves `socket` in play, which is what a background
- * delivery's own client (wrongly) showing up in the app's delivery room would
- * actually steer onto.
- */
-const subscribeWithSocketTarget = async (
-    handlerName: string,
-    context?: object,
-): Promise<string> => {
-    const response = await api('POST', '/events/subscribe', {
-        subject: `fs:${anchor}`,
-        delivery: 'single',
-        handlerName,
         ...(context ? { context } : {}),
     });
     expect(response.status).toBe(200);
@@ -676,10 +654,7 @@ describe('the client a handler runs as', () => {
         { timeout: TEST_TIMEOUT_MS },
         async () => {
             const room = appSocketRoom(userId, appUid);
-            // `subscribeWithSocketTarget` leaves `socket` a live option for
-            // this delivery — the ordinary `subscribe()` helper pins
-            // `targets: ['worker']` specifically to avoid exercising this.
-            await subscribeWithSocketTarget('ingest', { sink: sinkUrl });
+            await subscribe('ingest', { sink: sinkUrl });
 
             await touch('first.txt');
             await delivered(1);

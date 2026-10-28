@@ -166,7 +166,6 @@ const subscribeBackgroundHandler = async (
         subject: `fs:${anchor}`,
         delivery: 'single',
         handlerName,
-        targets: ['worker'],
     });
     expect(subscribed.status).toBe(200);
 };
@@ -473,7 +472,6 @@ describe('POST /events/workers/destroy', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
         });
         expect(subscribed.status).toBe(200);
 
