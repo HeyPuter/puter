@@ -54,7 +54,7 @@ describe('deliversTokenAtBoot', () => {
     });
 
     it('keeps withholding the token from the popups that answer a question', () => {
-        for ( const action of ['request-permission', 'send-feedback', 'enable-push'] ) {
+        for ( const action of ['request-permission', 'send-feedback', 'enable-push', 'attach-custom-domain'] ) {
             expect(deliversTokenAtBoot(action)).toBe(false);
             expect(defersTokenToOpener(action)).toBe(false);
         }
@@ -76,6 +76,11 @@ describe('deliversTokenToOpener', () => {
 
     it('withholds the token from an enable-push popup', () => {
         expect(deliversTokenToOpener('enable-push')).toBe(false);
+    });
+
+    it('withholds the token from a custom domain popup', () => {
+        // The site gets the one domain the user chose, not their account.
+        expect(deliversTokenToOpener('attach-custom-domain')).toBe(false);
     });
 
     it('delivers the token for the sign-in flows that exist to authenticate', () => {
@@ -132,6 +137,12 @@ describe('runsUserAppTokenExchange', () => {
 
     it('skips the exchange for an enable-push popup, which registers a device only', () => {
         expect(runsUserAppTokenExchange('enable-push')).toBe(false);
+    });
+
+    it('skips the exchange for a custom domain popup', () => {
+        // The dialog calls the API with the GUI's own session; connecting the
+        // site to the account would grant it nothing it needs.
+        expect(runsUserAppTokenExchange('attach-custom-domain')).toBe(false);
     });
 
     it('runs it for sign-in, the pickers, and the permission prompt', () => {

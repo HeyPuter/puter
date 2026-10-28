@@ -12,6 +12,7 @@ Various object types and classes that represent different entities in the Puter 
 - **[ChatResponse](/Objects/chatresponse/)** - Represents an AI chat response
 - **[ChatResponseChunk](/Objects/chatresponsechunk/)** - Represents a chunk of streaming chat response data
 - **[CreateAppResult](/Objects/createappresult/)** - Represents the result of creating an app
+- **[CustomDomain](/Objects/customdomain/)** - Represents a domain connected to a website
 - **[DetailedAppUsage](/Objects/detailedappusage/)** - Represents detailed resource usage statistics for a specific application
 - **[EmailListPage](/Objects/emaillistpage/)** - Represents one page of mailbox listing results
 - **[EmailMessage](/Objects/emailmessage/)** - Represents a fully parsed message from the user's mailbox
