@@ -198,7 +198,7 @@ Limits never make a subscription fail. Instead they send a **gap marker** in pla
 | `filter_evaluation_limit` | The event had more subscription filters to check than one event may check. |
 | `delivery_rate_limit` | This subscription went over its per-minute delivery rate. |
 | `backlog_overflow` | A persistent subscription's undelivered backlog was full, so the oldest deliveries were dropped. |
-| `handler_rejected` | A persistent subscription's handler refused the delivery (a `4xx`, or a thrown terminal error). |
+| `handler_rejected` | A `queue` subscription's handler threw an error that isn't retried. |
 | `suspended_backlog_expired` | A persistent subscription stayed [suspended](/Events/onPersistent/#suspended-subscriptions) past the time its backlog is kept. |
 | `reconnect` | The connection dropped and came back. Changes made while it was down weren't delivered. Sent once, after the subscription is restored. |
 

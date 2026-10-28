@@ -82,7 +82,6 @@ const durableRow = (
     appUid: null,
     permission: 'list',
     delivery: 'broadcast',
-    targets: ['socket'],
     handlerName: null,
     context: null,
     expiresAt: null,
@@ -151,7 +150,6 @@ beforeEach(() => {
                     const row = durableRow({
                         appUid: input.appUid,
                         delivery: input.delivery,
-                        targets: input.targets,
                     });
                     rows.push(row);
                     return {

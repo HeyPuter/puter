@@ -101,7 +101,7 @@ const recorded = (): Array<{ path?: string; label?: unknown }> =>
 
 /**
  * A broadcast handler, reporting whether it was handed the same environment a
- * `single` handler gets — `user` and `fetch` are not conditioned on an `ack`
+ * `queue` handler gets — `user` and `fetch` are not conditioned on an `ack`
  * existing, so every consumer of a broadcast delivery gets them too.
  */
 const BROADCAST_ENV_HANDLER = async ({
@@ -709,7 +709,7 @@ export default suite('events', {
         try {
             t.assert.ok(sub.subId, 'the subscription carries a server id');
             t.assert.equal(sub.subject, `fs:${dir}`);
-            t.assert.equal(sub.delivery, 'broadcast');
+            t.assert.equal(sub.queue, false);
             t.assert.equal(sub.suspendedAt, null);
 
             const held = await t.puter.events.list();
@@ -786,7 +786,7 @@ export default suite('events', {
 
             const sub = await t.puter.events.onPersistent({
                 subject: `fs:${dir}`,
-                delivery: 'single',
+                queue: true,
                 handlerName: 'ingestUpload',
                 handler: RECORDING_HANDLER,
                 context: { label: 'ingest' },
@@ -806,7 +806,7 @@ export default suite('events', {
                     'the handler is handed the context the subscription carries',
                 );
 
-                // A `single` hands out one delivery at a time, so a second one
+                // A queue hands out one delivery at a time, so a second one
                 // arriving is the acknowledgement of the first.
                 await t.puter.fs.write(`${dir}/second.txt`, 'two');
                 const settled = await waitFor(
@@ -843,7 +843,6 @@ export default suite('events', {
 
             const sub = await t.puter.events.onPersistent({
                 subject: `fs:${dir}`,
-                targets: ['socket'],
                 handlerName: 'ingestEvict',
                 handler: RECORDING_HANDLER,
                 context: { label: 'ingest' },
@@ -886,15 +885,14 @@ export default suite('events', {
             const live = await open(t, `fs:${dir}`, () => {});
             if (! live) return;
 
-            // Default delivery: `broadcast`, not `single` — nobody owes an
-            // `ack`, but the environment is the same either way. Pinned to
-            // `socket` so this client runs it whether or not a worker could.
+            // Default delivery, not `queue` — nobody owes an
+            // `ack`, but the environment is the same either way. This client
+            // runs it alongside the events worker.
             const sub = await t.puter.events.onPersistent({
                 subject: `fs:${dir}`,
                 handlerName: 'ingestBroadcastEnv',
                 handler: BROADCAST_ENV_HANDLER,
                 context: { label: 'broadcast-env' },
-                targets: ['socket'],
             });
             try {
                 await t.puter.fs.write(`${dir}/first.txt`, 'one');
@@ -925,7 +923,7 @@ export default suite('events', {
             t.assert.rejects(() =>
                 t.puter.events.onPersistent({
                     subject: `fs:${dir}`,
-                    delivery: 'single',
+                    queue: true,
                     handlerName: 'ingestUpload',
                     handler: RECORDING_HANDLER,
                 }),
@@ -937,7 +935,7 @@ export default suite('events', {
         const subId = await asApp(t, appUid, async () => {
             const sub = await t.puter.events.onPersistent({
                 subject: `fs:${dir}`,
-                delivery: 'single',
+                queue: true,
                 handlerName: 'ingestUpload',
                 handler: RECORDING_HANDLER,
             });
@@ -968,12 +966,11 @@ export default suite('events', {
             const sub = await open(t, `fs:${dir}`, () => {});
             if (sub) await sub.off();
 
-            // So is a durable one that asks for nothing else.
+            // So is a durable one with no handler to run.
             const durable = await t.puter.events.onPersistent({
                 subject: `fs:${dir}`,
-                targets: ['socket'],
             });
-            t.assert.deepEqual(durable.targets, ['socket']);
+            t.assert.equal(durable.handlerName, null);
             await durable.off!();
         });
     },
