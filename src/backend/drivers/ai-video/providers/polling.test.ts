@@ -249,13 +249,27 @@ describe('pollUntilSettled', () => {
         expect(fetch).toHaveBeenCalledTimes(2);
     });
 
-    it("rethrows a poll failure that is the provider's verdict", async () => {
+    it("rethrows a poll failure that is the provider's verdict, metering the job as unsettled", async () => {
         const notFound = Object.assign(new Error('no such job'), {
             status: 404,
         });
-        await expect(poll(() => Promise.reject(notFound))).rejects.toBe(
-            notFound,
-        );
+        const meter = vi.fn(() => Promise.resolve());
+        await expect(
+            poll(() => Promise.reject(notFound), { meter }),
+        ).rejects.toBe(notFound);
+        expect(meter).toHaveBeenCalledOnce();
+        expect(meter).toHaveBeenCalledWith(undefined, false);
+    });
+
+    it("meters nothing when a poll is refused as the provider's verdict on the job", async () => {
+        const refused = Object.assign(new Error('sensitive content'), {
+            status: 400,
+        });
+        const meter = vi.fn(() => Promise.resolve());
+        await expect(
+            poll(() => Promise.reject(refused), { meter }),
+        ).rejects.toBe(refused);
+        expect(meter).not.toHaveBeenCalled();
     });
 
     it('gives up after the window with a 504 carrying the last poll error', async () => {
@@ -414,6 +428,26 @@ describe('pollUntilSettled', () => {
             await kept[0];
             expect(meter).toHaveBeenCalledOnce();
             expect(meter).toHaveBeenCalledWith(pending, false);
+            expect(hold.release).toHaveBeenCalledOnce();
+        });
+
+        it('meters nothing when a late poll is refused as a verdict', async () => {
+            vi.useFakeTimers();
+            const fetch = vi
+                .fn<(p: Job | undefined) => Promise<Job>>()
+                .mockResolvedValueOnce(pending)
+                .mockRejectedValueOnce(
+                    Object.assign(new Error('sensitive content'), {
+                        status: 400,
+                    }),
+                );
+            const { hold, meter, kept, rejection } = lateJob(fetch);
+            await vi.advanceTimersByTimeAsync(5_000);
+            await rejection;
+
+            await vi.advanceTimersByTimeAsync(5_000);
+            await kept[0];
+            expect(meter).not.toHaveBeenCalled();
             expect(hold.release).toHaveBeenCalledOnce();
         });
 

@@ -340,8 +340,9 @@ export class TogetherVideoProvider extends VideoProvider {
             }
 
             // Together reports what it actually charged for the job; the
-            // catalog rate above is only the pre-flight estimate, and a job
-            // that settled without a reported cost is charged nothing.
+            // catalog rate above is only the pre-flight estimate. Without a
+            // reported cost a finished job is charged the estimate, a failed
+            // or cancelled one nothing.
             const meter = async (finalJob: any, settled: boolean) => {
                 const reportedCost = finalJob?.outputs?.cost;
                 const reported =

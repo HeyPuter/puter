@@ -892,6 +892,25 @@ describe('MiniMaxVideoProvider failures', () => {
         );
         expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
     });
+    it('retries a Hailuo file lookup that hits a transient error', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            jsonResponse({ task_id: 'task-1', base_resp: ok }),
+        );
+        fetchSpy.mockResolvedValueOnce(jsonResponse(hailuoTask('Success')));
+        fetchSpy.mockResolvedValueOnce(
+            jsonResponse({ error: { message: 'upstream busy' } }, 503),
+        );
+        fetchSpy.mockResolvedValueOnce(
+            jsonResponse({
+                file: { download_url: 'https://minimax.example/hailuo.mp4' },
+                base_resp: ok,
+            }),
+        );
+        await expect(generate({ model: 'minimax-hailuo-2.3' })).resolves.toBe(
+            'https://minimax.example/hailuo.mp4',
+        );
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe('MiniMaxVideoProvider after the caller leaves', () => {

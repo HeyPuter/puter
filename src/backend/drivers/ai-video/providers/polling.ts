@@ -24,6 +24,7 @@ import {
     CONTENT_FILTER_PATTERN,
     isTransientUpstreamError,
     sanitizeUpstreamMessage,
+    upstreamErrorStatus,
 } from '../../util/upstreamErrors.js';
 
 /**
@@ -197,10 +198,40 @@ export const pollUntilSettled = async <T>(opts: PollOptions<T>): Promise<T> => {
             job = await opts.fetch(job);
             lastError = undefined;
         } catch (err) {
-            if (!isTransientUpstreamError(err)) throw err;
-            lastError = err;
+            if (isTransientUpstreamError(err)) {
+                lastError = err;
+                continue;
+            }
+            if (!isJobVerdict(err)) {
+                // Lost track of a job the provider still runs: charged as
+                // one that never settled, the same as after the window.
+                try {
+                    await opts.meter(job, false);
+                } catch (meterErr) {
+                    console.error(
+                        `[${opts.provider}] metering a lost job failed:`,
+                        meterErr,
+                    );
+                }
+            }
+            throw err;
         }
     }
+};
+
+/**
+ * A poll rejected as a client error is the provider's verdict on the job (a
+ * content filter, a rejected input). Auth and not-found errors, and errors with
+ * no status, mean we lost track of a job the provider still runs.
+ */
+const isJobVerdict = (err: unknown): boolean => {
+    const status = upstreamErrorStatus(err);
+    return (
+        status !== undefined &&
+        status >= 400 &&
+        status < 500 &&
+        ![401, 403, 404].includes(status)
+    );
 };
 
 /** Polls a job past its window and meters it once it settles or is given up. */
@@ -229,7 +260,10 @@ const followLateJob = async <T>(
             try {
                 job = await opts.fetch(job);
             } catch (err) {
-                if (!isTransientUpstreamError(err)) break;
+                if (isTransientUpstreamError(err)) continue;
+                // A refusal is a failure the provider doesn't bill.
+                if (isJobVerdict(err)) return;
+                break;
             }
         }
         await opts.meter(job, job !== undefined && !opts.isPending(job));

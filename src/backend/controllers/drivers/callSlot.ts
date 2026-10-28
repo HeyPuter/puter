@@ -48,12 +48,13 @@ export class CallSlot {
         res.once('finish', responded);
         res.once('close', responded);
         if (res.destroyed || res.writableFinished) responded();
+        if (!this.#released && this.#work.size > 0) this.#startRenewing();
     }
 
     keep(work: Promise<unknown>): void {
         if (this.#released) return;
         this.#work.add(work);
-        if (this.#handle && !this.#renew) this.#startRenewing();
+        if (this.#handle) this.#startRenewing();
         const settled = () => {
             this.#work.delete(work);
             this.#maybeRelease();
@@ -62,6 +63,7 @@ export class CallSlot {
     }
 
     #startRenewing(): void {
+        if (this.#renew) return;
         this.#renew = setInterval(() => {
             void this.#handle?.renew?.();
         }, SLOT_RENEW_MS);

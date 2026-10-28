@@ -131,6 +131,12 @@ export const isTransientUpstreamError = (err: unknown): boolean => {
     return isUpstreamConnectionError(err);
 };
 
+/** An upstream's HTTP status for a failed request, if the error carries one. */
+export const upstreamErrorStatus = (err: unknown): number | undefined => {
+    const e = asShape(err);
+    return e ? upstreamStatus(e) : undefined;
+};
+
 // -- Upstream messages --
 
 const MAX_UPSTREAM_MESSAGE_LENGTH = 300;
