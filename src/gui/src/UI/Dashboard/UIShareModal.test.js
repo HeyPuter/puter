@@ -124,7 +124,7 @@ describe('UIShareModal removing access', () => {
         UIShareModal({ path: '/alice/a.txt' });
         await settle();
 
-        $('.share-modal-revoke').trigger('click');
+        $('.share-modal-row-mode').val('__remove').trigger('change');
         $('.share-modal-confirm-remove').trigger('click');
         document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
@@ -133,9 +133,77 @@ describe('UIShareModal removing access', () => {
         finish();
         await settle();
     });
+
+    it('asks before removing, and removes nothing until confirmed', async () => {
+        puter.fs.getShares = vi.fn(async () => [{ holder: 'bob', mode: 'read', issuer: 'alice' }]);
+        UIShareModal({ path: '/alice/a.txt' });
+        await settle();
+
+        $('.share-modal-row-mode').val('__remove').trigger('change');
+        expect(puter.fs.share).not.toHaveBeenCalled();
+        expect(puter.fs.unshare).not.toHaveBeenCalled();
+        expect($('.share-modal-row-confirm').length).toBe(1);
+
+        $('.share-modal-confirm-cancel').trigger('click');
+        expect($('.share-modal-row-confirm').length).toBe(0);
+        expect($('.share-modal-row-mode').val()).toBe('read');
+
+        $('.share-modal-row-mode').val('__remove').trigger('change');
+        $('.share-modal-confirm-remove').trigger('click');
+        await settle();
+        expect(puter.fs.unshare).toHaveBeenCalledWith({ paths: ['/alice/a.txt'], recipient: 'bob' });
+    });
+
+    it('offers cancelling an invitation from its menu', async () => {
+        puter.fs.getShares = vi.fn(async () => [
+            { holder: null, recipientEmail: 'carol@example.com', pending: true, mode: 'write', issuer: 'alice' },
+        ]);
+        UIShareModal({ path: '/alice/a.txt' });
+        await settle();
+
+        const $menu = $('.share-modal-row-mode');
+        expect($menu.length).toBe(1);
+        expect($menu.find('option[value="__remove"]').text()).toBe(i18n('share_cancel_invite'));
+    });
+});
+
+describe('UIShareModal footer', () => {
+    it('offers the link for one item even while it is restricted', async () => {
+        UIShareModal({ path: '/alice/a.txt' });
+        await settle();
+        expect($('.share-modal-copy-link').prop('hidden')).toBe(false);
+        expect($('.share-modal-link-access').val()).toBe('restricted');
+    });
+
+    it('has no link to copy for several items', async () => {
+        UIShareModal({ items: [{ path: '/alice/a.txt' }, { path: '/alice/b.txt' }] });
+        await settle();
+        expect($('.share-modal-copy-link').length).toBe(0);
+    });
+
+    it('closes on Done', async () => {
+        UIShareModal({ path: '/alice/a.txt' });
+        await settle();
+        $('.share-modal-done').trigger('click');
+        expect($('.share-modal-overlay').hasClass('share-modal-show')).toBe(false);
+    });
 });
 
 describe('UIShareModal adding people', () => {
+    it('shows the level and Share only once someone is entered', async () => {
+        UIShareModal({ path: '/alice/a.txt' });
+        await settle();
+        expect($('.share-modal-add-actions').prop('hidden')).toBe(true);
+
+        picked.recipient = { value: 'bob', label: 'bob' };
+        picked.onChange();
+        expect($('.share-modal-add-actions').prop('hidden')).toBe(false);
+
+        picked.recipient = null;
+        picked.onChange();
+        expect($('.share-modal-add-actions').prop('hidden')).toBe(true);
+    });
+
     it('keeps Share down while a share is on its way, though the name is edited', async () => {
         let finish;
         puter.fs.share = vi.fn(() => new Promise((resolve) => {

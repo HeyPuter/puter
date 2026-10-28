@@ -29,6 +29,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import http from 'node:http';
+import { isIP } from 'node:net';
 import { puterClients } from './clients';
 import { puterControllers } from './controllers';
 import { createAuthProbe } from './core/http/middleware/authProbe';
@@ -597,7 +598,32 @@ export class PuterServer {
 
         // Build the allowed-domain set from config.
         this.#app.use((req, res, next) => {
+            const hostName = (req.headers.host ?? '')
+                .split(':')[0]
+                .trim()
+                .toLowerCase();
+            const isOwnHost =
+                !hostName ||
+                this.#getAllowedDomains().some((d) =>
+                    PuterServer.#hostMatchesDomain(hostName, d),
+                );
+
+            // Accepting every host still has to tell custom domains apart, or
+            // they fall through to the API/GUI instead of site hosting. An IP
+            // or localhost is never one: load balancer health checks and
+            // in-cluster callers address the server that way.
             if (config.allow_all_host_values) {
+                if (
+                    config.custom_domains_enabled &&
+                    !isOwnHost &&
+                    req.path !== '/healthcheck' &&
+                    // `[` is what an IPv6 literal's `[::1]:port` splits to.
+                    !hostName.startsWith('[') &&
+                    isIP(hostName) === 0 &&
+                    hostName !== 'localhost'
+                ) {
+                    req.is_custom_domain = true;
+                }
                 next();
                 return;
             }
@@ -613,15 +639,7 @@ export class PuterServer {
                 return;
             }
 
-            const hostName = (req.headers.host ?? '')
-                .split(':')[0]
-                .trim()
-                .toLowerCase();
-            const allowed = this.#getAllowedDomains();
-
-            if (
-                allowed.some((d) => PuterServer.#hostMatchesDomain(hostName, d))
-            ) {
+            if (isOwnHost) {
                 next();
                 return;
             }
