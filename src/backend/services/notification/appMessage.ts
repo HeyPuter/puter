@@ -66,15 +66,19 @@ export const appMessageSender = (
     row: { name?: unknown; title?: unknown; icon?: unknown } | null | undefined,
 ): AppMessageSender => {
     const sender: AppMessageSender = { uid };
-    const name = [row?.title, row?.name].find(
-        (v): v is string => typeof v === 'string' && v.trim() !== '',
-    );
-    if (name !== undefined) {
-        sender.name = [...cleanText(name)]
-            .slice(0, APP_MESSAGE_TITLE_MAX)
-            .join('')
-            .trim();
-    }
+    // Cleaned before the empty check: a title of only invisible characters
+    // would otherwise leave the message with no visible sender.
+    const name = [row?.title, row?.name]
+        .map((v) =>
+            typeof v === 'string'
+                ? [...cleanText(v)]
+                      .slice(0, APP_MESSAGE_TITLE_MAX)
+                      .join('')
+                      .trim()
+                : '',
+        )
+        .find((v) => v !== '');
+    sender.name = name ?? uid;
     const icon = row?.icon;
     if (
         typeof icon === 'string' &&
@@ -105,7 +109,8 @@ const CHANNEL_PATTERN = /^[a-z0-9-]+$/u;
 const TARGET_DISALLOWED = /[^\u0021-\u007e]|\\/u;
 const DOT_SEGMENT = /^(?:\.|%2e){1,2}$/iu;
 // Direction and zero-width formatting marks, and C0/C1 controls but newline.
-const INVISIBLE = /[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/gu;
+const INVISIBLE =
+    /[\u115f\u1160\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2800\u3164\ufeff\uffa0]/gu;
 const CONTROL_BUT_NEWLINE = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/gu;
 
 const invalid = (field: string, message: string): HttpError =>

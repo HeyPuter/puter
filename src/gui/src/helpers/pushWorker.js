@@ -27,8 +27,9 @@ import {
     pushTapFromParams,
     PUSH_TAP_PARAM,
 } from './notificationTap.js';
+import { appHoldsPermissions } from './holdsPermissions.js';
 import { clear_query_param } from './parseSharedPath.js';
-import { getPushClient, registerPushClient } from './pushClient.js';
+import { getPushClient, PUSH_PERMISSION, registerPushClient } from './pushClient.js';
 import { webPushClient } from './webPushClient.js';
 
 export const WORKER_URL = '/sw.js';
@@ -97,9 +98,10 @@ export const pushMessageFor = (uid, notification, appUid = null) => {
 };
 
 /**
+ * Only while push is on in this browser, and for an app's message only when the app may push, as a server push would.
  * @param {{ uid: string, notification: Object, appUid?: string|null }} item
  * @param {{ replay?: boolean, acknowledged?: boolean }} [meta]
- * @param {{ params?: Object, doc?: Document, nav?: Navigator, NotificationApi?: { permission: string } }} [env]
+ * @param {{ params?: Object, doc?: Document, nav?: Navigator, NotificationApi?: { permission: string }, holdsPush?: (appUid: string) => Promise<boolean> }} [env]
  * @returns {Promise<boolean>} Whether one was handed to the worker
  */
 export const showLocalBanner = async ({ uid, notification, appUid = null }, { replay = false, acknowledged = false } = {}, {
@@ -107,6 +109,7 @@ export const showLocalBanner = async ({ uid, notification, appUid = null }, { re
     doc = globalThis.document,
     nav = globalThis.navigator,
     NotificationApi = globalThis.Notification,
+    holdsPush = (app) => appHoldsPermissions([PUSH_PERMISSION], app),
 } = {}) => {
     if ( ! pushWorkerEnabled(params, nav) ) return false;
     if ( ! shouldShowLocalBanner({
@@ -120,6 +123,11 @@ export const showLocalBanner = async ({ uid, notification, appUid = null }, { re
         const registration = await nav.serviceWorker.getRegistration?.('/');
         const worker = registration?.active;
         if ( ! worker ) return false;
+        if ( ! await registration.pushManager?.getSubscription() ) return false;
+        if ( notification.type === APP_MESSAGE_TYPE ) {
+            const app = appUid ?? notification.app?.uid;
+            if ( ! app || ! await holdsPush(app) ) return false;
+        }
         worker.postMessage({ type: WORKER_SHOW_MESSAGE, puter: pushMessageFor(uid, notification, appUid) });
         return true;
     } catch ( err ) {

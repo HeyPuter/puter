@@ -127,6 +127,8 @@ describe('showLocalBanner', () => {
         permission = 'granted',
         active = { postMessage: vi.fn() },
         pushEnabled = true,
+        subscribed = true,
+        holds = true,
     } = {}) => ({
         params: { pushEnabled },
         doc: { visibilityState },
@@ -134,9 +136,12 @@ describe('showLocalBanner', () => {
         nav: {
             serviceWorker: {
                 register: vi.fn(),
-                getRegistration: vi.fn(async () => (active ? { active } : undefined)),
+                getRegistration: vi.fn(async () => (active
+                    ? { active, pushManager: { getSubscription: async () => (subscribed ? {} : null) } }
+                    : undefined)),
             },
         },
+        holdsPush: vi.fn(async () => holds),
         active,
     });
 
@@ -161,6 +166,21 @@ describe('showLocalBanner', () => {
         expect(replay.active.postMessage).not.toHaveBeenCalled();
 
         expect(await showLocalBanner({ uid: 'n1', notification: share }, {}, env({ active: null }))).toBe(false);
+    });
+
+    it('hands nothing over while push is off in this browser', async () => {
+        const off = env({ subscribed: false });
+        expect(await showLocalBanner({ uid: 'n1', notification: share }, {}, off)).toBe(false);
+        expect(off.active.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('shows an app`s message only when the app may push', async () => {
+        const message = { type: 'app.message', title: 'Hi', app: { uid: 'app-1' } };
+        const denied = env({ holds: false });
+        expect(await showLocalBanner({ uid: 'n1', notification: message, appUid: 'app-1' }, {}, denied)).toBe(false);
+        expect(denied.holdsPush).toHaveBeenCalledWith('app-1');
+        const allowed = env();
+        expect(await showLocalBanner({ uid: 'n1', notification: message, appUid: 'app-1' }, {}, allowed)).toBe(true);
     });
 
     it('hands nothing over where push is off for the deployment', async () => {
