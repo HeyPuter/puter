@@ -156,6 +156,13 @@ export const EVENTS_LIST_LIMIT = userWindow('events:list', 120);
 export const EVENTS_ACK_LIMIT = userWindow('events:ack', 600);
 
 /**
+ * How long a connected client holds a queued delivery before the events worker
+ * may take it. A client that has no handler for it, or whose handler fails,
+ * declines it at once; this only bounds one that never answers.
+ */
+export const EVENTS_SOCKET_LEASE_MS = 15_000;
+
+/**
  * Share-handle mint + revoke calls per minute, per user.
  *
  * Each one issues or withdraws a grant and settles what stood on it, so it is
