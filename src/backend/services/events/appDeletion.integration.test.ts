@@ -157,7 +157,6 @@ const subscribeBackgroundHandler = async (
         subject: `fs:${anchor}`,
         delivery: 'single',
         handlerName,
-        targets: ['worker'],
     });
     expect(subscribed.status).toBe(200);
     return subscribed.body.subId as string;
@@ -254,7 +253,6 @@ describe('an app deleted while it has events state', () => {
             match: null,
             op: null,
             delivery: 'single',
-            targets: ['worker'],
             handlerName: 'ingestUpload',
             context: null,
             permission: 'list',

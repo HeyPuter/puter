@@ -36,14 +36,7 @@ import {
     EVENT_SUBSCRIPTION_WIDTHS,
 } from './columnWidths.js';
 import type { GenerationBump } from './EventSubscriptionStore.js';
-import {
-    isSubscriptionTarget,
-    SUBSCRIPTION_TARGETS,
-    targetsAllowedForDelivery,
-    type DurableSubscription,
-    type SubscriptionPermission,
-    type SubscriptionTarget,
-} from './types.js';
+import type { DurableSubscription, SubscriptionPermission } from './types.js';
 
 /**
  * Subscriptions that outlive the connection that made them.
@@ -94,7 +87,6 @@ export interface DurableSubscriptionInput {
     match: string | null;
     op: FsOp | null;
     delivery: DeliveryClass;
-    targets: SubscriptionTarget[];
     handlerName: string | null;
     context: string | null;
     permission: SubscriptionPermission;
@@ -161,27 +153,6 @@ const contextTooLarge = (): HttpError =>
         { legacyCode: 'events_context_too_large' },
     );
 
-const invalidTargets = (): HttpError =>
-    new HttpError(
-        400,
-        `targets must be a subset of ${SUBSCRIPTION_TARGETS.join(', ')}`,
-        { legacyCode: 'invalid_targets' },
-    );
-
-const pushOnSingle = (): HttpError =>
-    new HttpError(
-        400,
-        'A `single` subscription may not target `push`, and an app`s needs a `worker` target',
-        { legacyCode: 'invalid_targets' },
-    );
-
-const workerNeedsApp = (): HttpError =>
-    new HttpError(
-        400,
-        'A subscription with no app has no events worker to target',
-        { legacyCode: 'invalid_targets' },
-    );
-
 const quotaReached = (limit: number, scope: 'account' | 'app'): HttpError =>
     new HttpError(
         429,
@@ -218,23 +189,11 @@ const asNumber = (value: unknown): number | null => {
 };
 
 /**
- * `targets` is a JSON column on mysql and postgres and text on sqlite, so the
- * driver hands back either an array or the string it was stored as.
+ * The `targets` column predates delivery to every transport. Nothing reads it;
+ * it is written with what older servers expect for this row.
  */
-const parseTargets = (value: unknown): SubscriptionTarget[] => {
-    const raw =
-        typeof value === 'string'
-            ? (() => {
-                  try {
-                      return JSON.parse(value) as unknown;
-                  } catch {
-                      return [];
-                  }
-              })()
-            : value;
-    if (!Array.isArray(raw)) return [];
-    return raw.filter(isSubscriptionTarget);
-};
+const legacyTargets = (appUid: string | null): string =>
+    JSON.stringify(appUid === null ? ['socket'] : ['socket', 'worker']);
 
 const toRow = (row: Record<string, unknown>): DurableSubscription => ({
     durable: true,
@@ -255,8 +214,7 @@ const toRow = (row: Record<string, unknown>): DurableSubscription => ({
             ? null
             : String(row.app_uid),
     permission: String(row.permission),
-    delivery: String(row.delivery) as DeliveryClass,
-    targets: parseTargets(row.targets),
+    delivery: row.delivery === 'single' ? 'single' : 'broadcast',
     handlerName:
         row.handler_name === null || row.handler_name === undefined
             ? null
@@ -278,7 +236,7 @@ const toRow = (row: Record<string, unknown>): DurableSubscription => ({
 const SELECT_COLUMNS =
     '`id`, `sub_id`, `token`, `owner_user_id`, `holder_user_id`, `app_uid`, ' +
     '`subject`, `anchor_uid`, `anchor_path`, `match`, `delivery`, `ops`, ' +
-    '`handler_name`, `targets`, `context`, `permission`, `include_value`, ' +
+    '`handler_name`, `context`, `permission`, `include_value`, ' +
     '`suspended_at`, `suspended_reason`, `expires_at`, `created_at`';
 
 export class DurableSubscriptionStore extends PuterStore {
@@ -292,11 +250,6 @@ export class DurableSubscriptionStore extends PuterStore {
     async create(
         input: DurableSubscriptionInput,
     ): Promise<{ row: DurableSubscription; bump: GenerationBump }> {
-        const targets = this.#assertTargets(
-            input.delivery,
-            input.targets,
-            input.appUid,
-        );
         this.#assertContext(input.context);
         assertColumnWidths(EVENT_SUBSCRIPTION_WIDTHS, {
             token: input.token,
@@ -326,7 +279,6 @@ export class DurableSubscriptionStore extends PuterStore {
             appUid: input.appUid,
             permission: input.permission,
             delivery: input.delivery,
-            targets,
             handlerName: input.handlerName,
             context: input.context,
             ...(input.includeValue ? { includeValue: true } : {}),
@@ -350,7 +302,7 @@ export class DurableSubscriptionStore extends PuterStore {
             delivery: row.delivery,
             ops: row.op,
             handler_name: row.handlerName,
-            targets: JSON.stringify(row.targets),
+            targets: legacyTargets(row.appUid),
             context: row.context,
             permission: row.permission,
             include_value: row.includeValue ? 1 : 0,
@@ -922,30 +874,6 @@ export class DurableSubscriptionStore extends PuterStore {
         const owners = new Set(rows.map((row) => row.ownerUserId));
         for (const ownerUserId of owners) await this.#bump(ownerUserId);
         return rows.length;
-    }
-
-    /**
-     * The row cannot exist with transports its delivery class cannot use, or
-     * with a `worker` target and no app to run one for — "one events worker per
-     * app" means no app is no worker target, not a worker with nowhere to go.
-     * Held here rather than only at the API, so a writer that never passes
-     * through one cannot leave an unsatisfiable row behind.
-     */
-    #assertTargets(
-        delivery: DeliveryClass,
-        targets: readonly string[],
-        appUid: string | null,
-    ): SubscriptionTarget[] {
-        if (!Array.isArray(targets) || targets.length === 0)
-            throw invalidTargets();
-        if (!targets.every(isSubscriptionTarget)) throw invalidTargets();
-
-        const unique = [...new Set(targets as SubscriptionTarget[])];
-        if (!targetsAllowedForDelivery(delivery, unique, appUid))
-            throw pushOnSingle();
-        if (appUid === null && unique.includes('worker'))
-            throw workerNeedsApp();
-        return unique;
     }
 
     #assertContext(context: string | null): void {
