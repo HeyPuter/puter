@@ -394,6 +394,26 @@ describe('PSocket write', () => {
         socket.close();
     });
 
+    it('sends a write made right after the flush drains the queue', async () => {
+        const stream = makeStream();
+        const gate = deferred();
+        mockGetEpoxyClient.mockReturnValue(gate.promise);
+        const socket = new PSocket('example.com', 80);
+        const events = listen(socket);
+        const callback = vi.fn();
+
+        // Two microtasks out lands after the flush loop's last queue check but
+        // before the connect path resumes.
+        const writeLate = () => queueMicrotask(() => queueMicrotask(() => socket.write('second', callback)));
+        socket.write('first', writeLate);
+        gate.resolve(makeClient(stream));
+
+        await until(() => expect(events.open).toHaveBeenCalled());
+        await until(() => expect(stream.written).toHaveLength(2));
+        await until(() => expect(callback).toHaveBeenCalledTimes(1));
+        socket.close();
+    });
+
     it('queues writes issued before the socket opens and flushes them in order', async () => {
         const stream = makeStream();
         const gate = deferred();

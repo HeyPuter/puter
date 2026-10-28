@@ -201,12 +201,7 @@ export class PSocket extends EventListener {
         this.#writer = stream.write.getWriter();
         this.#open = true;
 
-        this.#flushing = true;
-        try {
-            await this.#flushPendingWrites();
-        } finally {
-            this.#flushing = false;
-        }
+        await this.#flushPendingWrites();
         if (this.#closed || this.#closing) return;
         this.emit(this.#eventName('open'));
         void this.#readLoop();
@@ -221,9 +216,16 @@ export class PSocket extends EventListener {
     }
 
     async #flushPendingWrites () {
-        while ( this.#pendingWrites.length && !this.#closed && !this.#closing ) {
-            const { payload, callback } = this.#pendingWrites.shift();
-            await this.#writePayload(payload, callback);
+        this.#flushing = true;
+        try {
+            while ( this.#pendingWrites.length && !this.#closed && !this.#closing ) {
+                const { payload, callback } = this.#pendingWrites.shift();
+                await this.#writePayload(payload, callback);
+            }
+        } finally {
+            // Cleared in the same tick as the last queue check; a write
+            // landing before the caller resumes would otherwise stay queued.
+            this.#flushing = false;
         }
     }
 
