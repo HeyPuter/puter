@@ -408,7 +408,8 @@ export class EventForwardService extends PuterService {
      * peer region. Only this node's sockets count where presence is not kept.
      */
     async isOnline(userId: number, appUid: string | null): Promise<boolean> {
-        if (this.services.socket.has(forwardTarget(userId, appUid))) return true;
+        if (this.services.socket.has(forwardTarget(userId, appUid)))
+            return true;
         if (!this.active) return false;
         if (await this.heldInRegion(userId, appUid)) return true;
         return (await this.regionsFor(userId, appUid)).length > 0;

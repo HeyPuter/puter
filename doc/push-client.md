@@ -10,7 +10,8 @@ Core does not subscribe the browser to a push service, and it has no `/push/*` r
 
 ```ts
 { uid?: string; title?: string; body?: string; icon?: string; group?: string;
-  target?: { app?: string; path?: string }; data?: unknown }
+  target?: { app?: string; path?: string }; data?: unknown; channel?: string;
+  type?: 'challenge'; challenge?: string }
 ```
 
 `uid` is the notification's uid, a later push with the same `group` replaces the one showing, and `target` and `data` reach the app when the user taps it.
@@ -30,6 +31,17 @@ service_script(async (api) => {
 `use(id)` throws when nothing is registered under `id`, so the form above also runs on a Puter version without the registry and does nothing there. Any script that runs after the GUI bundle can call `use()['push.registerPushClient']?.(client)` the same way. Registering again replaces the client. Registering dispatches `push-client-registered` on `window`, and an open Notifications tab redraws.
 
 With no client registered, the tab says push notifications aren't available in this browser.
+
+### Built-in Web Push client
+
+When the server also sets the `pushWebPushKey` gui param (a VAPID public key), core registers its own client ([webPushClient.js](../src/gui/src/helpers/webPushClient.js)) unless an extension registered one first. It uses `puter.notifications.enable()` / `disable()`, the same standard Web Push flow apps use on their own origins:
+
+1. `GET /push/web/key` for the key, then `pushManager.subscribe()` on the `/sw.js` registration.
+2. `POST /push/web/subscriptions { subscription }`. A subscription the server already has answers `{ status: 'active' }`. A new one answers `{ status: 'pending' }`, and the server sends it a push with `{ type: 'challenge', challenge }`.
+3. The worker shows that push and posts `{ type: 'puter-push-challenge', challenge }` to the origin's windows; the page sends it to `POST /push/web/subscriptions/verify`. Only then is the device registered, so a subscription proves the user allowed notifications in that browser.
+4. `DELETE /push/web/subscriptions { endpoint }` removes it.
+
+Apps on their own origin do the same through `push-sw.js`, which they import into their own worker. A subscription made with an app token is the app's: its pushes are that app's notifications only.
 
 ## Interface
 

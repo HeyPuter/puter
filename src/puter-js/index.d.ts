@@ -224,9 +224,12 @@ export type {
     NotificationListener,
     NotificationSender,
     OnNotificationOptions,
+    OnPushOptions,
     PushDevice,
     PushDeviceRegistration,
+    PushHandler,
     PushPlatform,
+    PushShown,
 } from './types/modules/notifications/types.js';
 
 // -- puter.os --
