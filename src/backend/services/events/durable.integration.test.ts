@@ -250,31 +250,32 @@ describe('creating a durable subscription over HTTP', () => {
         expect(created.status).toBe(200);
         expect(created.body).toMatchObject({
             subject: `fs:${anchor}`,
-            single: false,
+            queue: false,
             appUid: null,
         });
         expect(created.body.context).toBeUndefined();
         expect(created.body.targets).toBeUndefined();
         expect(created.body.delivery).toBeUndefined();
+        expect(created.body.single).toBeUndefined();
     });
 
     it('registers a subscription owed to one consumer', async () => {
         await clearRows();
         const created = await subscribe(env.users.user.token, {
-            single: true,
+            queue: true,
             handlerName: 'onWrite',
         });
 
         expect(created.status).toBe(200);
         expect(created.body).toMatchObject({
-            single: true,
+            queue: true,
             handlerName: 'onWrite',
         });
     });
 
     it('still reads the older `delivery` option', async () => {
         await clearRows();
-        const single = await subscribe(env.users.user.token, {
+        const queued = await subscribe(env.users.user.token, {
             delivery: 'single',
             handlerName: 'onWrite',
         });
@@ -282,26 +283,26 @@ describe('creating a durable subscription over HTTP', () => {
             delivery: 'broadcast',
         });
 
-        expect(single.body.single).toBe(true);
-        expect(broadcast.body.single).toBe(false);
+        expect(queued.body.queue).toBe(true);
+        expect(broadcast.body.queue).toBe(false);
     });
 
     it('accepts and ignores `targets`', async () => {
         await clearRows();
         const created = await subscribe(env.users.user.token, {
-            single: true,
+            queue: true,
             handlerName: 'onWrite',
             targets: ['push', 'carrier-pigeon'],
         });
 
         expect(created.status).toBe(200);
-        expect(created.body.single).toBe(true);
+        expect(created.body.queue).toBe(true);
     });
 
-    it('refuses `single` and `delivery` that disagree, or a `single` that is not a boolean', async () => {
+    it('refuses `queue` and `delivery` that disagree, or a `queue` that is not a boolean', async () => {
         for (const body of [
-            { single: false, delivery: 'single' },
-            { single: 'yes' },
+            { queue: false, delivery: 'single' },
+            { queue: 'yes' },
             { delivery: 'fanout' },
         ]) {
             const refused = await subscribe(env.users.user.token, body);
@@ -311,7 +312,7 @@ describe('creating a durable subscription over HTTP', () => {
     });
 
     it('refuses one owed to a consumer it cannot name', async () => {
-        for (const body of [{ single: true }, { delivery: 'single' }]) {
+        for (const body of [{ queue: true }, { delivery: 'single' }]) {
             const refused = await subscribe(env.users.user.token, body);
             expect(refused.status).toBe(400);
             expect(refused.body.code).toBe('events_handler_required');
@@ -322,10 +323,10 @@ describe('creating a durable subscription over HTTP', () => {
         // An app of its own, so nothing it holds includes the consent.
         const { token } = await makeApp({ background: false });
 
-        for (const single of [true, false]) {
+        for (const queue of [true, false]) {
             const refused = await call('POST', '/events/subscribe', token, {
                 subject: `fs:${anchor}`,
-                single,
+                queue,
                 handlerName: 'onWrite',
             });
 

@@ -554,7 +554,7 @@ export class EventChannel {
      * @returns {void}
      */
     runDurable (registration, envelope) {
-        // `single` always carries `ackRequired` here and must still run —
+        // A queued delivery always carries `ackRequired` and must still run —
         // only an unacknowledged broadcast copy is ever marked this way.
         if ( envelope.skipHandler === true && ! envelope.ackRequired ) return;
 
@@ -590,7 +590,7 @@ export class EventChannel {
 
     /**
      * Tell the server a delivery was taken. Best effort: a lost ack is a
-     * redelivery, which `single` callers are told to expect, and there is
+     * redelivery, which `queue` callers are told to expect, and there is
      * nothing a failure here leaves for the caller to fix.
      *
      * @internal

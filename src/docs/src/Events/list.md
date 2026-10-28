@@ -60,7 +60,7 @@ The promise rejects with `{ message, code }`: `auth_canceled` if nobody was sign
             });
 
             for (const row of await puter.events.list()) {
-                puter.print(`${row.subject} — ${row.single ? 'single' : 'every listener'}`);
+                puter.print(`${row.subject} — ${row.queue ? 'queue' : 'every listener'}`);
                 puter.print(` (context: ${row.contextKeys?.join(', ') ?? 'none'})<br>`);
             }
 

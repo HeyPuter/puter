@@ -280,8 +280,8 @@ export interface AckRequest {
 
 /** Body of `POST /events/subscribe`. */
 export interface DurableSubscribeRequest extends SubscribeRequest {
-    single?: unknown;
-    /** Older form of `single`: `'single'` or `'broadcast'`. */
+    queue?: unknown;
+    /** Older form of `queue`: `'single'` or `'broadcast'`. */
     delivery?: unknown;
     handlerName?: unknown;
     /**
@@ -403,8 +403,8 @@ export interface SubscriptionView {
  * two subscriptions apart without being handed either one's secrets.
  */
 export interface DurableSubscriptionView extends SubscriptionView {
-    /** Each event is leased to one consumer that acks it. */
-    single: boolean;
+    /** Each event is leased to one consumer and redelivered until acked. */
+    queue: boolean;
     handlerName: string | null;
     appUid: string | null;
     /** Key names of the stored context, or `null` for a row without one. */
@@ -725,7 +725,7 @@ const tooManyCalls = (): HttpError =>
     });
 
 const handlerRequired = (): HttpError =>
-    new HttpError(400, 'A `single` subscription needs a handlerName', {
+    new HttpError(400, 'A `queue` subscription needs a handlerName', {
         legacyCode: 'events_handler_required',
     });
 
@@ -884,7 +884,7 @@ const projectContext = (
 
 const toDurableView = (sub: DurableSubscription): DurableSubscriptionView => ({
     ...toView(sub),
-    single: sub.delivery === 'single',
+    queue: sub.delivery === 'single',
     handlerName: sub.handlerName,
     appUid: sub.appUid,
     ...projectContext(sub.context),
@@ -1148,13 +1148,13 @@ const HANDLER_DEPTH_NEVER_BINDS = Math.min(
 );
 
 /**
- * `single` is the flag; `delivery: 'single' | 'broadcast'` is its older
- * spelling and still accepted. `targets` is ignored.
+ * `queue` is the flag; `delivery: 'single' | 'broadcast'` is its older spelling
+ * and still accepted. `targets` is ignored.
  */
 const parseDelivery = (request: DurableSubscribeRequest): DeliveryClass => {
-    const { single, delivery } = request;
-    if (single !== undefined && single !== null && typeof single !== 'boolean')
-        throw badRequest('single must be a boolean', 'bad_request');
+    const { queue, delivery } = request;
+    if (queue !== undefined && queue !== null && typeof queue !== 'boolean')
+        throw badRequest('queue must be a boolean', 'bad_request');
     if (
         delivery !== undefined &&
         delivery !== null &&
@@ -1166,12 +1166,12 @@ const parseDelivery = (request: DurableSubscribeRequest): DeliveryClass => {
             'bad_request',
         );
     if (
-        typeof single === 'boolean' &&
+        typeof queue === 'boolean' &&
         delivery &&
-        single !== (delivery === 'single')
+        queue !== (delivery === 'single')
     )
-        throw badRequest('single and delivery disagree', 'bad_request');
-    return single === true || delivery === 'single' ? 'single' : 'broadcast';
+        throw badRequest('queue and delivery disagree', 'bad_request');
+    return queue === true || delivery === 'single' ? 'single' : 'broadcast';
 };
 
 const parseHandlerName = (value: unknown): string | null => {
@@ -1721,8 +1721,8 @@ export class EventsService extends PuterService {
         const expiresAt = parseExpiresAt(request?.expiresAt);
         const includeValue = parseIncludeValue(request?.includeValue);
 
-        // A `single` is owed to exactly one consumer, and the handler is the
-        // only one that is always there to take it.
+        // A queued event is owed to exactly one consumer, and the handler is
+        // the only one that is always there to take it.
         if (delivery === 'single' && !handlerName) throw handlerRequired();
 
         // Consent first: a row that would run the app's code with nobody

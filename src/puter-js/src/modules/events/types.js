@@ -158,7 +158,7 @@
  * @property {(input: unknown, init?: unknown) => Promise<unknown>} [fetch]
  *   `puter.net.fetch` where it exists, the environment's `fetch` otherwise.
  * @property {() => Promise<void>} [ack] Settles the delivery. Present only on a
- *   `single` subscription: calling it hands the delivery back as taken,
+ *   `queue` subscription: calling it hands the delivery back as taken,
  *   returning without calling it does the same, and throwing does neither — the
  *   delivery is offered again when its lease lapses.
  */
@@ -196,15 +196,15 @@
  * @typedef {Object} OnPersistentOptions
  * @property {string} subject What to watch — the same grammar `onLocal()`
  *   takes, e.g. `fs:~/Documents` or `fs:~/inbox/*.json:add`.
- * @property {boolean} [single] Deliver each event to exactly one consumer,
- *   which must acknowledge it. Requires a `handlerName`. Without it, every
- *   event runs the app's published handler in its events worker and also
- *   reaches every connected client.
- * @property {'broadcast' | 'single'} [delivery] Deprecated: use `single`.
- *   `'single'` is the same as `single: true`.
+ * @property {boolean} [queue] Work-queue delivery: each event goes to one
+ *   consumer at a time and is offered again until acknowledged. Requires a
+ *   `handlerName`. Without it, every event runs the app's published handler
+ *   in its events worker and also reaches every connected client, once each.
+ * @property {'broadcast' | 'single'} [delivery] Deprecated: use `queue`.
+ *   `'single'` is the same as `queue: true`.
  * @property {unknown[]} [targets] Deprecated and ignored.
  * @property {string} [handlerName] The published handler this subscription
- *   binds to. Required for `single`.
+ *   binds to. Required for `queue`.
  * @property {Function | string | { file: string }} [handler] The handler
  *   source this subscription was written against. Sent as a hash, not as
  *   source: the subscription binds only if it matches what is published under
@@ -248,7 +248,8 @@
  *   covers everything under it.
  * @property {string | null} op The single operation it is limited to, or
  *   `null` for all of them.
- * @property {boolean} single Whether each event goes to exactly one consumer.
+ * @property {boolean} queue Whether each event goes to one consumer at a
+ *   time and is offered again until acknowledged.
  * @property {boolean} includeValue Whether its `kv:` deliveries carry the
  *   key's new value.
  * @property {string | null} handlerName The handler it is bound to.

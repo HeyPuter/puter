@@ -14,12 +14,12 @@ import { resolveSubject } from './lib/resolveSubject.js';
  * matching while the app is closed, and is ended by
  * `puter.events.unsubscribe()` rather than by navigating away. Each event runs
  * the app's published handler, named by `handlerName`, in its events worker,
- * and is also sent to every connected client. With `single`, each event goes
+ * and is also sent to every connected client. With `queue`, each event goes
  * to exactly one consumer instead.
  *
  * Passing a function as `handler` also runs it in this client for each
  * delivery it receives: the same body, the same `{ event, ctx }`, plus `user`,
- * `fetch` and — for a `single` subscription — `ack`.
+ * `fetch` and — for a `queue` subscription — `ack`.
  *
  * `context` is evaluated **here, now** — serialized once and delivered to every
  * invocation as a frozen `ctx`. It never re-evaluates, so a value read from the
@@ -45,11 +45,11 @@ export async function onPersistent (options = {}) {
             'events_handler_name_required',
         );
     }
-    // A `single` delivery is owed to exactly one consumer, and the handler is
+    // A queued delivery is owed to exactly one consumer, and the handler is
     // the only one always there to take it.
-    if ( (options.single === true || options.delivery === 'single') && ! handlerName ) {
+    if ( (options.queue === true || options.delivery === 'single') && ! handlerName ) {
         throw new PuterJSError(
-            'A `single` subscription needs a `handlerName`',
+            'A `queue` subscription needs a `handlerName`',
             'events_handler_required',
         );
     }
@@ -60,7 +60,7 @@ export async function onPersistent (options = {}) {
 
     const body = {
         subject,
-        ...(typeof options.single === 'boolean' ? { single: options.single } : {}),
+        ...(typeof options.queue === 'boolean' ? { queue: options.queue } : {}),
         ...(options.delivery ? { delivery: options.delivery } : {}),
         ...(handlerName ? { handlerName } : {}),
         ...(inline ? { handlerHash: inline.hash } : {}),

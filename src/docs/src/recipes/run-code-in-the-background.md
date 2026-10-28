@@ -154,7 +154,8 @@ async function startBackgroundWork () {
 ```
 
 Call `startBackgroundWork()` when the app opens, after the user has given
-permission. A few details:
+permission. This uses the default mode, which runs the handler for every change
+even while the app is closed, and tries each event once. A few details:
 
 - An `fs:<folder>` subject matches changes anywhere inside the folder.
 - The [`mkdir()`](/FS/mkdir/) call creates `Inbox` if it's missing, and returns
@@ -244,18 +245,18 @@ the free plan and 12 on a paid plan, and doesn't report an error.
 
 ## Make Sure Every File Gets Handled
 
-By default, the handler runs once per event. If it throws or takes longer than
-30 seconds, that event is lost. There's also a limit of 60 runs a minute per
+By default, the events worker runs the handler once per event. If it throws or
+takes longer than 30 seconds, that event is lost. There's also a limit of 60 runs a minute per
 user and app, and runs past it are skipped, so if someone uploads 100 files at
 once, only about 60 get recorded.
 
-To handle every file, use `single: true`. Puter then keeps each event
-until a run finishes without throwing, retrying after 2 seconds, then 4, then
+To handle every file, use `queue: true`. Puter then treats the subscription
+like a work queue and keeps each event until a run finishes without throwing, retrying after 2 seconds, then 4, then
 8, up to 5 minutes apart. Events over the per-minute limit are delivered later
 instead of being skipped:
 
 ```js
-options.single = true;
+options.queue = true;
 ```
 
 If the user has your app open, Puter offers each event to those tabs first,
@@ -263,7 +264,7 @@ which can delay it by a minute or two before the events worker runs it.
 
 Subscriptions keep the delivery they were created with. To replace the
 subscriptions users created before this change, `startBackgroundWork()` also
-checks `existing.single`:
+checks `existing.queue`:
 
 ```js
 async function startBackgroundWork () {
@@ -273,7 +274,7 @@ async function startBackgroundWork () {
     const working = existing
         && existing.anchor.uid === folder.uid
         && existing.suspendedReason !== 'permission_revoked'
-        && existing.single;
+        && existing.queue;
     if (working) return;
 
     if (existing) await puter.events.unsubscribe(existing.subId);
@@ -281,7 +282,7 @@ async function startBackgroundWork () {
 }
 ```
 
-Some things to know about `single`:
+Some things to know about `queue`:
 
 - **The same event can run twice.** For example, if a run finishes its work but
   times out, Puter tries again with the same `event.id`. Saving the same
@@ -296,7 +297,7 @@ Some things to know about `single`:
   stopped with `terminal: true`. Puter notifies you as the developer. Fix the
   handler and publish it again. The subscription resumes and delivers the
   events it saved while paused.
-- Events with `single` delivery cost the user $1 per million instead of $0.10.
+- Events delivered with `queue` cost the user $1 per million instead of $0.10.
   See [Rate Limits and Quotas](/rate-limits-and-quotas/#events).
 
 Here's `recordUpload()` with the duplicate check. The marker key expires after
@@ -358,11 +359,11 @@ A paused (*suspended*) subscription still exists, and
 | `suspendedReason` | What happened | What to do |
 | --- | --- | --- |
 | `handler_not_found` | The handler was removed. | Publish it again. The subscription resumes. |
-| `failures` | Five runs in a row failed (`single` only). | Fix the handler and publish it again. The subscription resumes. |
+| `failures` | Five runs in a row failed (`queue` only). | Fix the handler and publish it again. The subscription resumes. |
 | `no_credit` | The user ran out of credit. | Nothing. It resumes when they add credit. |
 | `permission_revoked` | The user took back `events:background`, or lost access to the folder. | Ask for the permission again, then call `startBackgroundWork()`. |
 
-A paused `single` subscription saves up to 100 missed events and delivers them
+A paused `queue` subscription saves up to 100 missed events and delivers them
 when it resumes. They're kept for 24 hours, or 1 hour for `no_credit`. Default
 subscriptions don't save missed events while paused.
 
@@ -417,7 +418,7 @@ const inbox = `~/AppData/${puter.appID}/Inbox`;
 const options = {
     subject: `fs:${inbox}`,
     handlerName: 'recordUpload',
-    single: true,
+    queue: true,
     context: { webhookUrl: settings.webhookUrl },
 };
 
@@ -434,7 +435,7 @@ async function startBackgroundWork () {
     const working = existing
         && existing.anchor.uid === folder.uid
         && existing.suspendedReason !== 'permission_revoked'
-        && existing.single;
+        && existing.queue;
     if (working) return;
 
     if (existing) await puter.events.unsubscribe(existing.subId);
