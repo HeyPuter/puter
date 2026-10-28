@@ -406,8 +406,9 @@ export class PendingDeliveryStore extends PuterStore {
 
     /**
      * Hand a claimed delivery to a connected client: count the attempt and
-     * shorten its lease to the socket lease. The expiry is stamped on the entry,
-     * which is how a decline later proves the lease is still the client's.
+     * shorten its lease to the socket lease. The expiry is stamped on the
+     * entry, which is how a decline later proves the lease is still the
+     * client's.
      */
     async leaseToSocket(subId: string, entryId: string): Promise<void> {
         const entry = parseEntry(

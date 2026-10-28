@@ -251,16 +251,17 @@ user and app, and runs past it are skipped, so if someone uploads 100 files at
 once, only about 60 get recorded.
 
 To handle every file, use `queue: true`. Puter then treats the subscription
-like a work queue and keeps each event until a run finishes without throwing, retrying after 2 seconds, then 4, then
-8, up to 5 minutes apart. Events over the per-minute limit are delivered later
-instead of being skipped:
+like a work queue: an event whose run never finishes, or fails with a network
+error, timeout or other temporary error, is retried after 2 seconds, then 4,
+then 8, up to 5 minutes apart. Events over the per-minute limit are delivered
+later instead of being skipped:
 
 ```js
 options.queue = true;
 ```
 
-If the user has your app open, Puter offers each event to those tabs first,
-which can delay it by a minute or two before the events worker runs it.
+A tab of your app gets the event first only if it subscribed with a function
+`handler`. Otherwise the events worker runs it right away.
 
 Subscriptions keep the delivery they were created with. To replace the
 subscriptions users created before this change, `startBackgroundWork()` also
@@ -285,13 +286,13 @@ async function startBackgroundWork () {
 Some things to know about `queue`:
 
 - **A retried event has the same `event.id`.** If a run does its work but
-  times out before acknowledging, the retry repeats it. For work like posting a
+  times out before finishing, the retry repeats it. For work like posting a
   message, save `event.id` afterwards and skip IDs you've already handled.
-- **Stop retrying events that can't succeed.** If retrying won't help, for
-  example with a file type you don't support, throw an error with
-  `terminal: true`. Puter drops the event instead of retrying it.
-- **Five failures in a row pause the subscription**, including events you
-  stopped with `terminal: true`. Puter notifies you as the developer. Fix the
+- **A thrown error isn't retried.** The event is dropped. To have it tried
+  again, throw it with `retry: true`, for example when a service you call is
+  busy.
+- **Five failures in a row pause the subscription**, retried and dropped
+  events alike. Puter notifies you as the developer. Fix the
   handler and publish it again. The subscription resumes and delivers the
   events it saved while paused.
 - Events delivered with `queue` cost the user $1 per million instead of $0.10.

@@ -157,10 +157,10 @@
  *   subscription — the ambient one when the handler runs in a client.
  * @property {(input: unknown, init?: unknown) => Promise<unknown>} [fetch]
  *   `puter.net.fetch` where it exists, the environment's `fetch` otherwise.
- * @property {() => Promise<void>} [ack] Settles the delivery. Present only on a
- *   `queue` subscription: calling it hands the delivery back as taken,
- *   returning without calling it does the same, and throwing does neither — the
- *   delivery is offered again when its lease lapses.
+ * @property {() => Promise<void>} [ack] Optional. Marks a `queue` delivery done
+ *   before the handler finishes, so a later throw does not undo it. Resolving
+ *   marks it done anyway; a throw drops it unless it is retryable (a network,
+ *   timeout, rate-limit or 5xx error, or one thrown with `retry: true`).
  */
 
 /**

@@ -278,14 +278,24 @@ export interface AckRequest {
     origin?: unknown;
 }
 
-/** Why a client handed a queued delivery back. */
-export type DeclineReason = 'no_handler' | 'failed';
+/**
+ * Why a client handed a queued delivery back: it has no handler for it, or its
+ * handler failed in a way worth retrying, or in a way that is not.
+ */
+export type DeclineReason = 'no_handler' | 'retriable' | 'terminal';
 
 /** Body of the `events.nack` verb: an ack's fields, plus why. */
 export interface NackRequest extends AckRequest {
-    /** `failed` counts as a handler failure; anything else does not. */
+    /** `failed` is a handler failure; anything else is "no handler here". */
     reason?: unknown;
+    /** For a failure: whether it is worth trying again. */
+    retry?: unknown;
 }
+
+const declineReason = (request: NackRequest): DeclineReason => {
+    if (request?.reason !== 'failed') return 'no_handler';
+    return request.retry === true ? 'retriable' : 'terminal';
+};
 
 /** Body of `POST /events/subscribe`. */
 export interface DurableSubscribeRequest extends SubscribeRequest {
@@ -2062,8 +2072,7 @@ export class EventsService extends PuterService {
      */
     async declineDelivery(actor: Actor, request: NackRequest): Promise<void> {
         const { row, entryId, relayTo } = await this.#ackTarget(actor, request);
-        const reason: DeclineReason =
-            request?.reason === 'failed' ? 'failed' : 'no_handler';
+        const reason = declineReason(request);
         if (relayTo) {
             this.services.eventForward.relayNack(
                 relayTo,
@@ -2119,10 +2128,10 @@ export class EventsService extends PuterService {
     }
 
     /**
-     * Take a declined delivery off the client's lease. A failed handler counts
-     * like a failed worker run and waits out the backoff; a client with no
-     * handler costs nothing and the worker runs it now. A row with no worker
-     * has nothing to hand it to, so its lease is left to lapse.
+     * Take a declined delivery off the client's lease. A failed client run
+     * counts like a failed worker run: retried after the backoff, or dropped. A
+     * client with no handler costs nothing and the worker runs it now; a row
+     * with no worker has nothing to hand it to, so its lease is left to lapse.
      */
     async #declined(
         row: DurableSubscription,
@@ -2136,9 +2145,12 @@ export class EventsService extends PuterService {
         );
         if (!claimed) return;
 
-        singleAttempt.add(1, { target: 'socket', result: `declined-${reason}` });
-        if (reason === 'failed') {
-            await this.#handlerFailed(row, claimed, 'retriable');
+        singleAttempt.add(1, {
+            target: 'socket',
+            result: `declined-${reason}`,
+        });
+        if (reason !== 'no_handler') {
+            await this.#handlerFailed(row, claimed, reason);
             return;
         }
         if (row.suspendedAt !== null) return;
@@ -5181,13 +5193,23 @@ export class EventsService extends PuterService {
     ): Promise<void> {
         const pending = this.stores.pendingDelivery;
         try {
-            if (outcome === 'terminal')
-                await pending.discard(
-                    row.subId,
-                    claimed.entryId,
-                    'handler_rejected',
-                );
-            else await pending.deferAfterFailure(row.subId, claimed.entryId);
+            if (outcome === 'terminal') {
+                // A run was made, so a dropped event is billed like a
+                // completed one, and still only once.
+                const bill = await this.#firstAttempt(row.subId, claimed);
+                if (
+                    await pending.discard(
+                        row.subId,
+                        claimed.entryId,
+                        'handler_rejected',
+                    )
+                )
+                    this.#delivered(
+                        { subId: row.subId, event: claimed.event },
+                        meterFor(row),
+                        bill,
+                    );
+            } else await pending.deferAfterFailure(row.subId, claimed.entryId);
 
             const failures = await pending.recordFailure(row.subId);
             if (failures < EVENTS_CONSECUTIVE_FAILURES) return;
@@ -5512,11 +5534,11 @@ export class EventsService extends PuterService {
 
         let invoked = false;
         if (toWorker) {
-            // A `broadcast` invocation is never retried; only a settled
-            // outcome counts as delivered.
+            // A `broadcast` invocation is never retried. A run that finished,
+            // or threw an error that drops the event, counts as delivered.
             try {
-                invoked =
-                    (await this.worker.invoke(delivery.worker!)) === 'settled';
+                const outcome = await this.worker.invoke(delivery.worker!);
+                invoked = outcome === 'settled' || outcome === 'terminal';
             } catch (err) {
                 console.warn('[events] handler invocation failed', err);
             }

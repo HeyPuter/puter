@@ -493,7 +493,7 @@ Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one
 | `queue` deliveries                       | 120/min    | Per subscription       |
 | Handler runs                             | 60/min     | Per user, per app      |
 | Coalescing window                        | 250 ms     | Per subscription and subject |
-| Time to acknowledge a `queue` delivery   | 60 seconds | Per delivery           |
+| Time for a client to answer a `queue` delivery | 15 seconds | Per delivery     |
 | Undelivered backlog                      | 10,000     | Per subscription       |
 | Undelivered backlog                      | 1,000,000  | Per region             |
 | KV value inlined in a delivery           | 16 KB      | Per delivery           |
@@ -512,7 +512,7 @@ Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one
 | Handlers per `publishAll()` call       | 50                             | Per call           |
 | Events worker deploys                  | 30/hour                        | Per app, all users |
 | Run timeout                            | 30 seconds                     | Per run            |
-| Retry delay                            | 2 seconds, doubling, up to 5 minutes | Per delivery |
+| Retry delay (`queue`, temporary errors) | 2 seconds, doubling, up to 5 minutes | Per delivery |
 | Failures in a row before suspension    | 5                              | Per subscription   |
 | `user` token lifetime in the events worker | 15 minutes                 | Per run            |
 

@@ -24,7 +24,7 @@ puter.events.onPersistent(options)
 #### `options` (Object) (required)
 
 - `subject` (String) (required): What to watch, in the same form `onLocal()` takes, e.g. `fs:~/Documents` or `fs:~/inbox/*.json:add`.
-- `queue` (Boolean): Handles events like a work queue. Each event goes to one consumer at a time and is offered again until it's acknowledged. Requires `handlerName`. Defaults to `false`. See [Choosing a mode](#choosing-a-mode).
+- `queue` (Boolean): Handles events like a work queue. Each event goes to one consumer at a time, and it's offered again if a run never finishes or hits a temporary error. Requires `handlerName`. Defaults to `false`. See [Choosing a mode](#choosing-a-mode).
 - `delivery` (String): Deprecated, use `queue` instead. A value of `'single'` is the same as `queue: true`, and `'broadcast'` is the default.
 - `targets` (Array): Deprecated and ignored.
 - `handlerName` (String): The published handler to run in your app's [events worker](/Events/workers/). Required for `queue`. A subscription with no app has no events worker, so its handler runs only in connected clients.
@@ -52,13 +52,13 @@ Background handlers run as a worker session for your app, which appears in the u
 |---|---|---|
 | [`onLocal()`](/Events/onLocal/) | Clients connected right now | Gone. Nothing is kept while disconnected. |
 | `onPersistent()` | The events worker, even with the app closed, plus every connected client | Gone. Each place gets one attempt. |
-| `onPersistent({ queue: true })` | One consumer at a time: a connected client first, then the events worker | Offered again until acknowledged. |
+| `onPersistent({ queue: true })` | One consumer at a time: a connected client first, then the events worker | Offered again only if the run never finished or hit a network or other temporary error. |
 
 - **[`onLocal()`](/Events/onLocal/)** is live and best effort. Use it to update the page while it's open.
 - **`onPersistent()`** runs your handler in the events worker for every event, even when your app is closed, and also sends the event to every connected client. Each place gets one attempt, and a failed run isn't retried. Use it to react to every change, such as keeping an index or a notification up to date.
-- **`onPersistent({ queue: true })`** hands each event to one consumer at a time and offers it again until it's acknowledged. Use it for work that has to finish, such as processing every uploaded file or calling a webhook.
+- **`onPersistent({ queue: true })`** hands each event to one consumer at a time and retries it when the run never finished or failed for a temporary reason. Use it for work that has to finish, such as processing every uploaded file or calling a webhook.
 
-A queued event that fails or isn't acknowledged in time is offered again with the same `event.id`, so on a retry it can occasionally arrive twice.
+Only a retry or a lost answer can repeat a queued event. It arrives again with the same `event.id`, so check that ID before doing work twice.
 
 ## Where the handler runs
 
@@ -69,7 +69,7 @@ Without `queue`, every event runs the handler in each place that's listening:
 
 The events worker skips a run when the deployment has no worker runtime or the [handler-run limit](/rate-limits-and-quotas/#events) for this user and app is used up for the minute. Connected clients still run it.
 
-With `queue: true`, no other client receives the event. A connected client gets it first. After two tries that no client acknowledges, the events worker takes it. It's offered again until acknowledged (see [Acknowledging a queued delivery](#acknowledging-a-queued-delivery)).
+With `queue: true`, a connected client that passed a function `handler` gets the first try. If no client has one, or its run fails, the events worker takes the event right away. A client that doesn't answer within 15 seconds loses the event to the events worker, so keep client handlers short. If the user has your app open in several tabs, each tab that passed a function `handler` gets the event.
 
 Whichever place runs it, it's the same code, called with:
 
@@ -79,7 +79,7 @@ Whichever place runs it, it's the same code, called with:
 | `ctx` | The frozen `context` this subscription was created with. |
 | `user` | A `puter` bound to the account holding the subscription, with the same access your app has for that user in a tab. In a client, it's the ambient `puter`. |
 | `fetch` | [`puter.net.fetch`](/Networking/fetch/) where it exists, otherwise the environment's `fetch`. |
-| `ack` | On a `queue` subscription only; see below. |
+| `ack` | On a `queue` subscription only. Optional; see [below](#what-happens-when-a-handler-fails). |
 
 Only a **function** `handler` runs in this client. A source string or `{ file }` is only used for its hash. The connection reconnects on its own when it drops, so this client keeps taking deliveries unless `onError` is called.
 
@@ -91,23 +91,28 @@ In the events worker, a write made through `user`, or through a token `user` cre
 
 `user` in the events worker is valid for 15 minutes, so don't keep it past the run.
 
-### Acknowledging a queued delivery
+### What happens when a handler fails
 
-A `queue` delivery stays owed until it's acknowledged:
+These rules apply to a `queue` subscription, in a client or in the events worker:
 
-- Calling `ack()` takes the delivery.
-- Returning **without** calling `ack()` also takes it.
-- **Throwing takes nothing.** After 60 seconds the delivery is offered again, so a handler that throws sees the same event again. `event.id` stays the same across redeliveries; use it to skip work you've already done.
-
-In the events worker, the worker's response decides:
-
-| Response | Result |
+| The handler | Result |
 | --- | --- |
-| `2xx`: the handler returned | Delivery taken. |
-| `4xx`: the handler threw an error with `terminal: true` or `code: 'events_terminal'` | Delivery dropped and replaced by a gap marker with `reason: 'handler_rejected'`. |
-| `5xx` (any other thrown error), `429`, or no answer within 30 seconds | Retried after 2 seconds, doubling each time up to 5 minutes. |
+| Resolves | Done. |
+| Throws | The event is dropped and replaced by a [gap marker](/Events/subjects/#gaps) with `reason: 'handler_rejected'`. It counts as a failure. |
+| Throws a temporary error: a network error, a timeout, a rate limit (`429`), a `5xx`, or any error with `retry: true` | Retried after 2 seconds, then 4, 8 and so on, up to 5 minutes apart. It counts as a failure. |
+| Never answers (the tab closed, the worker crashed, or it ran past 30 seconds in the worker) | Offered again. |
 
-**Five failures in a row, refusals included, suspend the subscription** with `failures`. The developer is notified, and publishing the handler again resumes it. A terminal error only matters in the events worker; thrown in a client, it just rejects like any other error.
+To have an error retried, throw it with `retry: true`:
+
+```js
+throw Object.assign(new Error('Service busy, try later'), { retry: true });
+```
+
+**Five failures in a row suspend the subscription** with `failures`. The developer is notified, and publishing the handler again resumes it.
+
+Without `queue`, a failed run is never retried.
+
+Advanced: a handler can call `ack()` to mark the event done before it finishes. A throw after that doesn't undo it.
 
 ## `context` is captured once, up to 4 KB
 
@@ -138,10 +143,10 @@ A suspended subscription stops delivering and isn't billed. Its backlog is cut t
 
 ## Delivery guarantees
 
-Clients connect to the nearest region. Events reach a client wherever it's connected, and `ack()` works on any connection.
+Clients connect to the nearest region. Events reach a client wherever it's connected.
 
 - Without `queue`, an event runs the handler in the events worker and in each connected client that passed a function `handler`. A run that fails or happens while nothing is connected isn't retried.
-- `queue` deliveries are **at-least-once**: an event is retried until acknowledged, so after a failure it can arrive again with the same `event.id`.
+- `queue` deliveries are **at-least-once**: an event whose run never finished, or failed with a temporary error, arrives again with the same `event.id`.
 - Undelivered events are held in the region where the change happened. If that region goes down, only what it was holding is lost.
 - Order is kept within a region and is best-effort across regions. Coalescing (250 ms) also runs per region, so two quick writes can arrive as one event nearby and as two farther away.
 

@@ -1019,7 +1019,7 @@ describe('persistent delivery routing', () => {
         ]);
     });
 
-    it('declines as failed, and acknowledges nothing, when the handler throws', async () => {
+    it('declines as failed and not retryable, and acknowledges nothing, when the handler throws', async () => {
         const events = makeModule();
         const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
         events.channel.registerDurable('app-1#sub', async () => {
@@ -1044,6 +1044,7 @@ describe('persistent delivery routing', () => {
                     subId: 'app-1#sub',
                     id: 'entry-3',
                     reason: 'failed',
+                    retry: false,
                     origin: 'west',
                 },
             },
@@ -1078,6 +1079,31 @@ describe('persistent delivery routing', () => {
             .toEqual(['entry-l']);
     });
 
+    it('declines a retryable failure as one to try again', async () => {
+        const events = makeModule();
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        events.channel.registerDurable('app-1#net', async () => {
+            throw new TypeError('Failed to fetch');
+        });
+        events.channel.registerDurable('app-1#later', async () => {
+            throw Object.assign(new Error('try later'), { retry: true });
+        });
+
+        for ( const [subId, ackId] of [['app-1#net', 'entry-n'], ['app-1#later', 'entry-r']] ) {
+            sockets[0].fire(
+                'events.delivery',
+                durable(subId, '/user/a/one.txt', { ackRequired: true, ackId }),
+            );
+        }
+        for ( let i = 0; i < 5; i++ ) await Promise.resolve();
+
+        expect(sockets[0].sent.filter(s => s.verb === 'events.nack').map(s => s.payload))
+            .toMatchObject([
+                { id: 'entry-n', reason: 'failed', retry: true },
+                { id: 'entry-r', reason: 'failed', retry: true },
+            ]);
+    });
+
     it('declines a queued delivery it has no handler for, at once', async () => {
         const events = makeModule();
         // Opens the connection without registering anything for `app-1#sub`.
@@ -1092,7 +1118,7 @@ describe('persistent delivery routing', () => {
         await Promise.resolve();
 
         expect(sockets[0].sent.filter(s => s.verb === 'events.nack')).toMatchObject([
-            { payload: { subId: 'app-1#sub', id: 'entry-4', reason: 'no_handler' } },
+            { payload: { subId: 'app-1#sub', id: 'entry-4', reason: 'no_handler', retry: false } },
         ]);
         expect(sockets[0].sent.filter(s => s.verb === 'events.ack')).toEqual([]);
     });

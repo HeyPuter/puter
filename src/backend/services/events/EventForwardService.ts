@@ -683,7 +683,9 @@ export class EventForwardService extends PuterService {
                     nack.userId,
                     nack.subId,
                     nack.entryId,
-                    nack.reason === 'failed' ? 'failed' : 'no_handler',
+                    nack.reason === 'retriable' || nack.reason === 'terminal'
+                        ? nack.reason
+                        : 'no_handler',
                 ),
         );
         for (const outcome of declined)

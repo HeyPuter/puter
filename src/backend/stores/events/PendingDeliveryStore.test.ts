@@ -218,7 +218,9 @@ describe('handing a delivery out', () => {
         await store.claim(subId);
         await store.leaseToSocket(subId, entryId);
 
-        await expect(store.takeFromSocket(subId, entryId)).resolves.toMatchObject({
+        await expect(
+            store.takeFromSocket(subId, entryId),
+        ).resolves.toMatchObject({
             entryId,
             socketAttempts: 1,
         });

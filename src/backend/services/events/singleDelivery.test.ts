@@ -471,7 +471,7 @@ describe('a delivery owed to exactly one consumer', () => {
         await expect(pending.depth(row.subId)).resolves.toBe(0);
     });
 
-    it('does not bill or report a retriable or terminal handler outcome', async () => {
+    it('bills nothing for a retriable outcome, and once for a dropped one', async () => {
         socketConnected = false;
         workerOutcome = 'retriable';
         const row = await register();
@@ -487,9 +487,11 @@ describe('a delivery owed to exactly one consumer', () => {
         jump(deliveryBackoffMs(1) + 1);
         await service.sweepPending();
 
-        // Discarded with a gap marker rather than delivered — still no bill.
-        expect(metered).toEqual([]);
-        expect(delivered).toEqual([]);
+        // Dropped with a gap marker in its place. A run was made, so it is
+        // billed like a completed one.
+        expect(metered).toHaveLength(1);
+        expect(delivered).toHaveLength(1);
+        await expect(redis.get(`ev:qf:{${row.subId}}`)).resolves.toBe('2');
     });
 
     it('resumes a socket-only account row once its client reconnects, rather than wedging forever', async () => {
@@ -554,7 +556,7 @@ describe('a delivery owed to exactly one consumer', () => {
         expect(metered).toHaveLength(1);
     });
 
-    it('counts a client handler that failed, and retries in the worker after the backoff', async () => {
+    it('counts a retryable client failure, and retries in the worker after the backoff', async () => {
         workerOutcome = 'settled';
         const row = await register();
         await dispatch();
@@ -563,6 +565,7 @@ describe('a delivery owed to exactly one consumer', () => {
             subId: row.subId,
             id: sent[0].ackId,
             reason: 'failed',
+            retry: true,
         });
 
         expect(invoked).toEqual([]);
@@ -577,6 +580,49 @@ describe('a delivery owed to exactly one consumer', () => {
         expect(sent).toHaveLength(1);
         expect(invoked).toHaveLength(1);
         await expect(pending.depth(row.subId)).resolves.toBe(0);
+    });
+
+    it('drops a client failure that is not retryable, and counts it', async () => {
+        const row = await register();
+        await dispatch();
+
+        await service.declineDelivery(actorFor(), {
+            subId: row.subId,
+            id: sent[0].ackId,
+            reason: 'failed',
+            retry: false,
+        });
+
+        expect(invoked).toEqual([]);
+        await expect(redis.get(`ev:qf:{${row.subId}}`)).resolves.toBe('1');
+        // Billed once, on the attempt that reached the client.
+        expect(metered).toHaveLength(1);
+
+        // The event itself is gone; what follows is the gap marker in its place.
+        await service.sweepPending();
+        const after = sent.slice(1).map((envelope) => envelope.event);
+        expect(after.every((event) => event.op === 'gap')).toBe(true);
+    });
+
+    it('pauses the subscription after five failures in a row', async () => {
+        const row = await register();
+        await dispatch();
+
+        for (let i = 0; i < 5; i++) {
+            const last = sent.at(-1)!;
+            await service.declineDelivery(actorFor(), {
+                subId: row.subId,
+                id: last.ackId,
+                reason: 'failed',
+                retry: false,
+            });
+            // The next delivery out is the marker the drop left behind.
+            if (i < 4) await service.sweepPending();
+        }
+
+        expect(rows.get(row.subId)).toMatchObject({
+            suspendedReason: 'failures',
+        });
     });
 
     it('ignores a duplicate or stale decline', async () => {

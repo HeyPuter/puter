@@ -48,7 +48,16 @@ const RUNTIME_PATH = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
     '../../../worker/src/events-runtime.js',
 );
-const RUNTIME_SOURCE = readFileSync(RUNTIME_PATH, 'utf8');
+// What the preamble build inlines ahead of the runtime: the shared retry
+// classifier, without its `export`.
+const RETRYABLE_SOURCE = readFileSync(
+    path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '../../../puter-js/src/modules/events/lib/retryable.js',
+    ),
+    'utf8',
+).replace(/^export (const|function) /gm, '$1 ');
+const RUNTIME_SOURCE = RETRYABLE_SOURCE + readFileSync(RUNTIME_PATH, 'utf8');
 
 const INVOKE_KEY = 'k1:test-key';
 const INVOKE_URL = `http://evw-test.example${EVENTS_INVOKE_PATH}`;
@@ -282,7 +291,7 @@ describe('the generated worker inside its runtime', () => {
         expect(Object.isFrozen(seen.mock.calls[0][0])).toBe(true);
     });
 
-    it('takes resolution as the ack, and a throw as retriable', async () => {
+    it('takes resolution as the ack, and a plain throw as a refusal', async () => {
         const worker = loadWorker([
             handler('ok', 'async () => {}'),
             handler('boom', 'async () => { throw new Error("kaput"); }'),
@@ -295,7 +304,7 @@ describe('the generated worker inside its runtime', () => {
         const failed = await invoke(worker, {
             body: delivery({ handler: 'boom' }),
         });
-        expect(failed.status).toBe(500);
+        expect(failed.status).toBe(400);
         expect(await failed.json()).toEqual({ error: 'kaput' });
     });
 
@@ -337,6 +346,32 @@ describe('the generated worker inside its runtime', () => {
             (await invoke(worker, { body: delivery({ handler: 'coded' }) }))
                 .status,
         ).toBe(400);
+    });
+
+    it('answers a retryable failure with a retry, and any other throw with a refusal', async () => {
+        const worker = loadWorker([
+            handler('plain', 'async () => { throw new Error("bad input"); }'),
+            handler(
+                'marked',
+                'async () => { throw Object.assign(new Error("later"), { retry: true }); }',
+            ),
+            handler(
+                'busy',
+                'async () => { throw Object.assign(new Error("busy"), { status: 503 }); }',
+            ),
+            handler(
+                'offline',
+                'async () => { throw new TypeError("fetch failed"); }',
+            ),
+        ]);
+        const statusOf = async (name: string) =>
+            (await invoke(worker, { body: delivery({ handler: name }) }))
+                .status;
+
+        expect(await statusOf('plain')).toBe(400);
+        expect(await statusOf('marked')).toBe(500);
+        expect(await statusOf('busy')).toBe(500);
+        expect(await statusOf('offline')).toBe(500);
     });
 
     it('isolates a handler whose source does not parse', async () => {
@@ -402,6 +437,10 @@ describe('the handled marker', () => {
                 throw err;
             }`),
             handler('boom', 'async () => { throw new Error("x"); }'),
+            handler(
+                'later',
+                'async () => { throw Object.assign(new Error("x"), { retry: true }); }',
+            ),
             handler('bad', 'async ( => {'),
         ]);
 
@@ -411,7 +450,8 @@ describe('the handled marker', () => {
             [{ body: delivery({ handler: 'bad' }) }, 'handler-broken'],
             [{ body: delivery({ handler: 'missing' }) }, 'unknown-handler'],
             [{ body: { handler: 'ok' } }, 'no-token'],
-            [{ body: delivery({ handler: 'boom' }) }, 'handler-threw'],
+            [{ body: delivery({ handler: 'later' }) }, 'handler-threw'],
+            [{ body: delivery({ handler: 'boom' }) }, 'handler-terminal'],
             [{ body: delivery({ handler: 'flagged' }) }, 'handler-terminal'],
         ];
         for (const [options, code] of cases)

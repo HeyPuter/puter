@@ -2,6 +2,7 @@ import { io } from 'socket.io-client';
 import { PuterJSError } from '../../../lib/PuterJSError.js';
 import { socketAutoUnref } from '../../../lib/socketOptions.js';
 import { uuidv4 } from '../../../lib/utils.js';
+import { isRetryableError } from './retryable.js';
 import { EventSubscription } from './subscription.js';
 
 /** @typedef {import('../types.js').EventGapMarker} EventGapMarker */
@@ -524,7 +525,7 @@ export class EventChannel {
         // A queued delivery this client has no handler for goes back at once,
         // so the events worker takes it instead of waiting out the lease.
         if ( envelope.ackRequired && typeof envelope.ackId === 'string' ) {
-            this.nack(subId, envelope.ackId, envelope.origin, 'no_handler');
+            this.nack(subId, envelope.ackId, envelope.origin, 'no_handler', false);
         }
     }
 
@@ -551,9 +552,9 @@ export class EventChannel {
      *
      * The handler is handed the same environment its published copy gets in the
      * app's events worker, so one body runs unchanged in either place. A
-     * delivery owed to exactly one consumer carries `ack`: calling it settles
-     * the delivery, resolving without calling it settles it anyway, and
-     * throwing hands it back to the server as failed.
+     * queued delivery is acknowledged when the handler resolves (`ack` only
+     * releases it early), and a throw hands it back as failed: retried if
+     * `isRetryableError` says so, dropped otherwise.
      *
      * @internal
      * @param {DurableRegistration} registration
@@ -592,7 +593,7 @@ export class EventChannel {
         settleHandler(
             () => registration.handler({ ...delivery, ack }),
             () => ack(),
-            () => {
+            error => {
                 if ( acked ) return;
                 acked = true;
                 this.nack(
@@ -600,6 +601,7 @@ export class EventChannel {
                     /** @type {string} */ (envelope.ackId),
                     envelope.origin,
                     'failed',
+                    isRetryableError(error),
                 );
             },
         );
@@ -637,16 +639,17 @@ export class EventChannel {
      * @internal
      * @param {string} subId
      * @param {string} ackId
-     * @param {string} [origin] Echoed back untouched, as for `ack`.
+     * @param {string | undefined} origin Echoed back untouched, as for `ack`.
      * @param {'no_handler' | 'failed'} reason `failed` counts as a handler
      *   failure; `no_handler` does not.
+     * @param {boolean} retry Whether a failure is worth trying again.
      * @returns {Promise<void>}
      */
-    async nack (subId, ackId, origin, reason) {
+    async nack (subId, ackId, origin, reason, retry) {
         try {
             await this.request(
                 NACK_VERB,
-                { subId, id: ackId, reason, ...(origin ? { origin } : {}) },
+                { subId, id: ackId, reason, retry, ...(origin ? { origin } : {}) },
                 DEFAULT_TIMEOUT_MS,
             );
         } catch (error) {
@@ -779,13 +782,13 @@ const timeoutFor = (sub) =>
  *
  * @param {() => unknown} run
  * @param {() => unknown} [onResolved]
- * @param {() => unknown} [onFailed]
+ * @param {(error: unknown) => unknown} [onFailed]
  * @returns {void}
  */
 const settleHandler = (run, onResolved, onFailed) => {
     const failed = error => {
         console.error('[puter.events] subscription handler failed', error);
-        onFailed?.();
+        onFailed?.(error);
     };
     try {
         const result = run();

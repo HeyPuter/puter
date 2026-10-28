@@ -71,7 +71,7 @@ export interface ForwardNack {
     userId: number;
     subId: string;
     entryId: string;
-    reason: 'no_handler' | 'failed';
+    reason: 'no_handler' | 'retriable' | 'terminal';
 }
 
 /** Region R now has (or no longer has) session watchers on one anchor token. */
