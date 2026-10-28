@@ -83,12 +83,8 @@ import type {
     PendingShed,
 } from '../../stores/events/PendingDeliveryStore.js';
 import {
-    DEFAULT_DURABLE_TARGETS,
-    SESSION_TARGETS,
-    isSubscriptionTarget,
-    targetsAllowedForDelivery,
+    runsInWorker,
     type SubscriptionPermission,
-    type SubscriptionTarget,
 } from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { parseKvNamespace } from '../../stores/systemKv/SystemKVStore.js';
@@ -140,7 +136,6 @@ import {
     EVENTS_BACKGROUND_PERMISSION,
     kvShareHandleDisabled,
     kvSharedRegionAuthorized,
-    needsBackgroundConsent,
     nodeDescriptor,
     resolveGrantActor,
     rowInActorScope,
@@ -263,7 +258,6 @@ import {
 
 export interface SubscribeRequest {
     subject?: unknown;
-    targets?: unknown;
     /** KV subjects only: deliver the key's new value alongside the key. */
     includeValue?: unknown;
 }
@@ -284,10 +278,30 @@ export interface AckRequest {
     origin?: unknown;
 }
 
+/**
+ * Why a client handed a queued delivery back: it has no handler for it, or its
+ * handler failed in a way worth retrying, or in a way that is not.
+ */
+export type DeclineReason = 'no_handler' | 'retriable' | 'terminal';
+
+/** Body of the `events.nack` verb: an ack's fields, plus why. */
+export interface NackRequest extends AckRequest {
+    /** `failed` is a handler failure; anything else is "no handler here". */
+    reason?: unknown;
+    /** For a failure: whether it is worth trying again. */
+    retry?: unknown;
+}
+
+const declineReason = (request: NackRequest): DeclineReason => {
+    if (request?.reason !== 'failed') return 'no_handler';
+    return request.retry === true ? 'retriable' : 'terminal';
+};
+
 /** Body of `POST /events/subscribe`. */
 export interface DurableSubscribeRequest extends SubscribeRequest {
+    queue?: unknown;
+    /** Older form of `queue`: `'single'` or `'broadcast'`. */
     delivery?: unknown;
-    targets?: unknown;
     handlerName?: unknown;
     /**
      * Hash of the source the caller believes `handlerName` is published with.
@@ -395,7 +409,6 @@ export interface SubscriptionView {
     anchor: { uid: string; path: string };
     match: string | null;
     op: FsOp | null;
-    targets: SubscriptionTarget[];
     /** Whether KV deliveries on this row carry the key's new value. */
     includeValue: boolean;
 }
@@ -409,7 +422,8 @@ export interface SubscriptionView {
  * two subscriptions apart without being handed either one's secrets.
  */
 export interface DurableSubscriptionView extends SubscriptionView {
-    delivery: DeliveryClass;
+    /** Each event is leased to one consumer and redelivered until acked. */
+    queue: boolean;
     handlerName: string | null;
     appUid: string | null;
     /** Key names of the stored context, or `null` for a row without one. */
@@ -442,19 +456,17 @@ export interface DeliveryEnvelope {
      * receives it knows where to send it.
      */
     origin?: string;
-    /** Client skips its handler: the worker has it, or it is too deep. */
+    /** Client skips its handler: the event is past the handler-chain limit. */
     skipHandler?: true;
 }
 
 /**
  * The envelope plus where it goes. The address is not part of the wire, and
- * neither is the handler a durable row may want run alongside the socket copy.
+ * neither is the handler a durable row runs alongside the socket copy.
  */
 interface AddressedDelivery {
     target: SocketSpecifier;
     envelope: DeliveryEnvelope;
-    /** False for a row that asked for its handler and no socket copy. */
-    socket: boolean;
     /**
      * Whether the socket copy also goes to the other regions holding one. True
      * for `broadcast`, which every connected subscriber gets; a `single` picks
@@ -614,6 +626,8 @@ interface RouteLimits {
 export const EVENTS_SUBSCRIBE_VERB = 'events.subscribe';
 export const EVENTS_UNSUBSCRIBE_VERB = 'events.unsubscribe';
 export const EVENTS_ACK_VERB = 'events.ack';
+/** Client→server: hand a queued delivery back, so the worker takes it now. */
+export const EVENTS_NACK_VERB = 'events.nack';
 export const EVENTS_DELIVERY_CHANNEL = 'events.delivery';
 /** Server→client, no ack: the server ended a session subscription itself. */
 export const EVENTS_ENDED_CHANNEL = 'events.ended';
@@ -665,11 +679,11 @@ const WORKER_SESSION_SWEEP_MAX_PAGES = 2;
 // -- Owed deliveries --------------------------------------------------
 
 /**
- * Socket attempts one `single` delivery gets before its handler takes it. Two,
- * because the second is what a client that reconnected — or a second connection
- * of the same account — is worth trying; a third is just a slower hand-off.
+ * Socket attempts one queued delivery gets before the worker takes it. One: a
+ * client with no handler for it, or whose handler fails, declines it at once,
+ * and a second try would only delay the worker by another socket lease.
  */
-const SINGLE_SOCKET_ATTEMPTS = 2;
+const QUEUE_SOCKET_ATTEMPTS = 1;
 
 /** How often expired leases are reclaimed and owed deliveries retried. */
 const PENDING_SWEEP_INTERVAL_MS = 10_000;
@@ -732,7 +746,7 @@ const tooManyCalls = (): HttpError =>
     });
 
 const handlerRequired = (): HttpError =>
-    new HttpError(400, 'A `single` subscription needs a handlerName', {
+    new HttpError(400, 'A `queue` subscription needs a handlerName', {
         legacyCode: 'events_handler_required',
     });
 
@@ -865,7 +879,6 @@ const toView = (sub: DispatchSubscription): SubscriptionView => {
                 ? relativeToKvShareRoot(sub.permission, sub.match)
                 : sub.match,
         op: sub.op,
-        targets: sub.targets ?? SESSION_TARGETS,
         includeValue: sub.includeValue === true,
     };
 };
@@ -892,7 +905,7 @@ const projectContext = (
 
 const toDurableView = (sub: DurableSubscription): DurableSubscriptionView => ({
     ...toView(sub),
-    delivery: sub.delivery,
+    queue: sub.delivery === 'single',
     handlerName: sub.handlerName,
     appUid: sub.appUid,
     ...projectContext(sub.context),
@@ -918,22 +931,10 @@ const deliveryTarget = (row: DispatchSubscription): SocketSpecifier => {
     };
 };
 
-/** Transports a row is asking for, whichever store it came from. */
-const targetsOf = (row: DispatchSubscription): SubscriptionTarget[] =>
-    row.durable === true
-        ? (row.targets ?? DEFAULT_DURABLE_TARGETS)
-        : SESSION_TARGETS;
-
 /** Whether this deployment can address an events worker at all. */
 const workerRuntimeReady = (config: IConfig): boolean =>
     config.events?.workerRuntime === true && !!config.events?.internalSecret;
 
-/**
- * Whether this pass has anywhere to put the row. A `single` is queued whether
- * or not anything is listening right now — that is what it is for — while a
- * `broadcast` whose only transport is one this build cannot carry has no
- * target, and an event with no target is dropped rather than held.
- */
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
 /** Past `expiresAt` a durable row is finished, sweep or no sweep. */
@@ -941,14 +942,6 @@ const unexpired = (row: DispatchSubscription): boolean => {
     if (row.durable !== true) return true;
     const { expiresAt } = row as DurableSubscription;
     return expiresAt === null || expiresAt > nowSeconds();
-};
-
-const deliverable = (row: DispatchSubscription): boolean => {
-    if (row.durable !== true) return true;
-    if (!unexpired(row)) return false;
-    if (row.delivery === 'single') return true;
-    const targets = targetsOf(row);
-    return targets.includes('socket') || targets.includes('worker');
 };
 
 const isSingle = (row: DispatchSubscription): boolean =>
@@ -1167,7 +1160,7 @@ const KV_ROWS_PER_TOKEN =
 const dispatchKeeps = (forwarded: boolean | undefined) =>
     forwarded
         ? (row: DispatchSubscription): boolean => row.socketId !== undefined
-        : deliverable;
+        : unexpired;
 
 /** Handler depths below this run on every plan, so no plan is looked up. */
 const HANDLER_DEPTH_NEVER_BINDS = Math.min(
@@ -1175,67 +1168,31 @@ const HANDLER_DEPTH_NEVER_BINDS = Math.min(
     ...Object.values(EVENTS_HANDLER_DEPTH.bySubscription),
 );
 
-const parseDelivery = (value: unknown): DeliveryClass => {
-    if (value === undefined || value === null || value === 'broadcast')
-        return 'broadcast';
-    if (value === 'single') return 'single';
-    throw badRequest(`Unknown delivery class: ${String(value)}`, 'bad_request');
-};
-
 /**
- * There is exactly one events worker per app, so a row with no app has no
- * worker to invoke — `targets` for one may only ever carry `socket`. Omitted
- * targets default there quietly; an explicit ask for `worker` is refused rather
- * than silently dropped, since that is the caller telling us it expected
- * background delivery to exist.
+ * `queue` is the flag; `delivery: 'single' | 'broadcast'` is its older spelling
+ * and still accepted. `targets` is ignored.
  */
-const parseTargets = (
-    value: unknown,
-    delivery: DeliveryClass,
-    appUid: string | null,
-): SubscriptionTarget[] => {
-    if (value === undefined || value === null)
-        return appUid === null ? SESSION_TARGETS : DEFAULT_DURABLE_TARGETS;
-    if (!Array.isArray(value) || value.length === 0)
+const parseDelivery = (request: DurableSubscribeRequest): DeliveryClass => {
+    const { queue, delivery } = request;
+    if (queue !== undefined && queue !== null && typeof queue !== 'boolean')
+        throw badRequest('queue must be a boolean', 'bad_request');
+    if (
+        delivery !== undefined &&
+        delivery !== null &&
+        delivery !== 'broadcast' &&
+        delivery !== 'single'
+    )
         throw badRequest(
-            'targets must be a non-empty array',
-            'invalid_targets',
+            `Unknown delivery class: ${String(delivery)}`,
+            'bad_request',
         );
-    if (!value.every(isSubscriptionTarget))
-        throw badRequest('Unknown delivery target', 'invalid_targets');
-
-    const targets = [...new Set(value)];
-    if (!targetsAllowedForDelivery(delivery, targets, appUid))
-        throw badRequest(
-            'A `single` subscription may not target `push`, and an app`s needs a `worker` target',
-            'invalid_targets',
-        );
-    if (appUid === null && targets.includes('worker'))
-        throw badRequest(
-            'A subscription with no app has no events worker to target',
-            'invalid_targets',
-        );
-    return targets;
-};
-
-/**
- * A session row is one connection, so the socket is the only transport it can
- * have: a handler runs long after the connection is gone, and a device
- * notification is not addressed to a connection at all.
- */
-const parseSessionTargets = (value: unknown): SubscriptionTarget[] => {
-    if (value === undefined || value === null) return SESSION_TARGETS;
-    if (!Array.isArray(value) || value.length === 0)
-        throw badRequest(
-            'targets must be a non-empty array',
-            'invalid_targets',
-        );
-    if (!value.every((target) => target === 'socket'))
-        throw badRequest(
-            'A session subscription may only target `socket`',
-            'invalid_targets',
-        );
-    return SESSION_TARGETS;
+    if (
+        typeof queue === 'boolean' &&
+        delivery &&
+        queue !== (delivery === 'single')
+    )
+        throw badRequest('queue and delivery disagree', 'bad_request');
+    return queue === true || delivery === 'single' ? 'single' : 'broadcast';
 };
 
 const parseHandlerName = (value: unknown): string | null => {
@@ -1568,6 +1525,13 @@ export class EventsService extends PuterService {
             });
         }) as (...args: never[]) => void);
 
+        socket.on(EVENTS_NACK_VERB, ((payload: NackRequest, ack: unknown) => {
+            void this.#answer(ack, async () => {
+                await this.declineDelivery(actor, payload);
+                return {};
+            });
+        }) as (...args: never[]) => void);
+
         // Presence is per (user, app) and per region, so it is the connection
         // rather than the subscription that moves it — a client that has not
         // subscribed yet is still somewhere, and that is what a peer needs.
@@ -1632,6 +1596,19 @@ export class EventsService extends PuterService {
         if (row.suspendedAt === null) await this.#drain(row);
     }
 
+    /** Apply a decline whose client gave it in another region. */
+    async declineRelayed(
+        holderUserId: number,
+        subId: string,
+        entryId: string,
+        reason: DeclineReason,
+    ): Promise<void> {
+        if (!this.enabled || !subId || !entryId) return;
+        const row = await this.stores.durableSubscription.getBySubId(subId);
+        if (!row || row.holderUserId !== holderUserId) return;
+        await this.#declined(row, entryId, reason);
+    }
+
     async #answer<T extends object>(
         ack: unknown,
         run: () => Promise<T>,
@@ -1669,7 +1646,6 @@ export class EventsService extends PuterService {
 
         await this.#spendCallBudget(holderUserId);
 
-        const targets = parseSessionTargets(request?.targets);
         const includeValue = parseIncludeValue(request?.includeValue);
         const rawSubject = String(request?.subject ?? '');
         if (includeValue) assertValueDeliverable(rawSubject);
@@ -1688,7 +1664,6 @@ export class EventsService extends PuterService {
             op: anchor.op,
             appUid: actor.effectiveApp?.uid ?? null,
             permission: anchor.permission,
-            targets,
             ...(includeValue ? { includeValue } : {}),
         };
 
@@ -1778,24 +1753,23 @@ export class EventsService extends PuterService {
 
         await this.#spendCallBudget(holderUserId);
 
-        const delivery = parseDelivery(request?.delivery);
+        const delivery = parseDelivery(request ?? {});
         const appUid = actor.effectiveApp?.uid ?? null;
         const limits = await this.#subscriptionQuota(actor);
-        const targets = parseTargets(request?.targets, delivery, appUid);
         const handlerName = parseHandlerName(request?.handlerName);
         const handlerHash = parseHandlerHash(request?.handlerHash);
         const context = parseContext(request?.context);
         const expiresAt = parseExpiresAt(request?.expiresAt);
         const includeValue = parseIncludeValue(request?.includeValue);
 
-        // A `single` is owed to exactly one consumer, and the handler is the
-        // only one that is always there to take it.
+        // A queued event is owed to exactly one consumer, and the handler is
+        // the only one that is always there to take it.
         if (delivery === 'single' && !handlerName) throw handlerRequired();
 
         // Consent first: a row that would run the app's code with nobody
         // present is refused before anything about it is resolved or stored.
         if (
-            needsBackgroundConsent(targets) &&
+            runsInWorker({ appUid, handlerName }) &&
             !(await this.#hasBackgroundConsent(actor))
         )
             throw backgroundConsentRequired();
@@ -1820,7 +1794,6 @@ export class EventsService extends PuterService {
                 match: anchor.match,
                 op: anchor.op,
                 delivery,
-                targets,
                 handlerName,
                 context,
                 permission: anchor.permission,
@@ -2070,6 +2043,58 @@ export class EventsService extends PuterService {
      * not an error: at-least-once makes a duplicate ack routine.
      */
     async ackDelivery(actor: Actor, request: AckRequest): Promise<void> {
+        const { row, entryId, relayTo } = await this.#ackTarget(actor, request);
+        // The lease lives where the event was emitted, which is not always
+        // where the client ended up connected. Nothing about the delivery is
+        // held here to settle, so the ack goes home rather than being applied.
+        if (relayTo) {
+            this.services.eventForward.relayAck(
+                relayTo,
+                row.holderUserId,
+                row.subId,
+                entryId,
+            );
+            return;
+        }
+
+        const subId = row.subId;
+        await this.stores.pendingDelivery.settle(subId, entryId);
+        // A suspended row is not delivered to: settling what it already handed
+        // out must not be the trigger that hands out the next one.
+        if (row.suspendedAt === null) await this.#drain(row);
+    }
+
+    /**
+     * Hand back a queued delivery a client will not take. The worker gets it
+     * now rather than when the client's lease lapses. A stale decline (the
+     * entry already settled, or handed on since) is ignored like a duplicate
+     * ack.
+     */
+    async declineDelivery(actor: Actor, request: NackRequest): Promise<void> {
+        const { row, entryId, relayTo } = await this.#ackTarget(actor, request);
+        const reason = declineReason(request);
+        if (relayTo) {
+            this.services.eventForward.relayNack(
+                relayTo,
+                row.holderUserId,
+                row.subId,
+                entryId,
+                reason,
+            );
+            return;
+        }
+        await this.#declined(row, entryId, reason);
+    }
+
+    /** The row an ack or decline names, and the region it belongs to. */
+    async #ackTarget(
+        actor: Actor,
+        request: AckRequest,
+    ): Promise<{
+        row: DurableSubscription;
+        entryId: string;
+        relayTo: string | null;
+    }> {
         if (!this.enabled) throw disabled();
         const holderUserId = actor.user?.id;
         if (holderUserId === undefined) throw disabled();
@@ -2093,20 +2118,43 @@ export class EventsService extends PuterService {
         )
             throw unknownSubscription();
 
-        // The lease lives where the event was emitted, which is not always
-        // where the client ended up connected. Nothing about the delivery is
-        // held here to settle, so the ack goes home rather than being applied.
         const origin = String(request?.origin ?? '');
         const forward = this.services.eventForward;
-        if (origin && origin !== forward.region && forward.isPeer(origin)) {
-            forward.relayAck(origin, holderUserId, subId, entryId);
+        const relayTo =
+            origin && origin !== forward.region && forward.isPeer(origin)
+                ? origin
+                : null;
+        return { row, entryId, relayTo };
+    }
+
+    /**
+     * Take a declined delivery off the client's lease. A failed client run
+     * counts like a failed worker run: retried after the backoff, or dropped. A
+     * client with no handler costs nothing and the worker runs it now; a row
+     * with no worker has nothing to hand it to, so its lease is left to lapse.
+     */
+    async #declined(
+        row: DurableSubscription,
+        entryId: string,
+        reason: DeclineReason,
+    ): Promise<void> {
+        if (reason === 'no_handler' && !runsInWorker(row)) return;
+        const claimed = await this.stores.pendingDelivery.takeFromSocket(
+            row.subId,
+            entryId,
+        );
+        if (!claimed) return;
+
+        singleAttempt.add(1, {
+            target: 'socket',
+            result: `declined-${reason}`,
+        });
+        if (reason !== 'no_handler') {
+            await this.#handlerFailed(row, claimed, reason);
             return;
         }
-
-        await this.stores.pendingDelivery.settle(subId, entryId);
-        // A suspended row is not delivered to: settling what it already handed
-        // out must not be the trigger that hands out the next one.
-        if (row.suspendedAt === null) await this.#drain(row);
+        if (row.suspendedAt !== null) return;
+        if (await this.#runInWorker(row, claimed)) await this.#drain(row);
     }
 
     // -- Handlers ----------------------------------------------------
@@ -3769,7 +3817,7 @@ export class EventsService extends PuterService {
             filterEvaluations: FILTER_EVALUATIONS_PER_EVENT,
         },
     ): Promise<void> {
-        const rows = candidates.filter(deliverable);
+        const rows = candidates.filter(unexpired);
         if (rows.length === 0) return;
 
         // One throwaway projection reads the op off the registry entry rather
@@ -3831,19 +3879,18 @@ export class EventsService extends PuterService {
                 continue;
             }
 
-            const targets = targetsOf(row);
             this.#queue(row, event.subject, {
                 target: deliveryTarget(row),
                 envelope: { subId: row.subId, event },
-                socket: targets.includes('socket'),
                 // A session row is addressed at one connection, which is the
                 // one that made it and is therefore here.
                 remote: row.socketId === undefined,
-                worker: this.#workerInvocation(
-                    row,
-                    event,
-                    context.handlerDepth ?? 0,
-                )!,
+                worker:
+                    this.#workerInvocation(
+                        row,
+                        event,
+                        context.handlerDepth ?? 0,
+                    ) ?? undefined,
                 meter: meterFor(row),
                 // `broadcast` is one send per delivery — no retry to dedup.
                 bill: true,
@@ -4206,12 +4253,8 @@ export class EventsService extends PuterService {
                 void this.#owe(row, marker, context.handlerDepth ?? 0);
                 continue;
             }
-            // A marker rides the socket; a row with none has nowhere to hear
-            // it, and sending nothing must not count as a delivery.
-            if (!targetsOf(row).includes('socket')) continue;
             this.#queue(row, marker.subject, {
                 target: deliveryTarget(row),
-                socket: targetsOf(row).includes('socket'),
                 remote: row.socketId === undefined,
                 envelope: { subId: row.subId, event: marker },
                 meter: meterFor(row),
@@ -4396,9 +4439,7 @@ export class EventsService extends PuterService {
     async #leftWithoutConsent(
         rows: readonly DurableSubscription[],
     ): Promise<DurableSubscription[]> {
-        const background = rows.filter((row) =>
-            needsBackgroundConsent(targetsOf(row)),
-        );
+        const background = rows.filter(runsInWorker);
         if (background.length === 0) return [];
 
         const deps = this.#aclDeps();
@@ -4966,9 +5007,10 @@ export class EventsService extends PuterService {
     }
 
     /**
-     * One attempt at one owed delivery. Sockets first and one at a time, the
-     * handler once they are spent — a client that is there answers faster than
-     * anything else, and one that is not must not stall the delivery forever.
+     * One attempt at one owed delivery. A connected client first, the worker
+     * once that client declines it or its socket lease lapses — a client that
+     * is there answers faster than anything else, and one that is not must not
+     * stall the delivery.
      *
      * Returns whether the delivery settled, which is what says the next one may
      * go out now rather than when this lease lapses.
@@ -4982,18 +5024,16 @@ export class EventsService extends PuterService {
         // suspension's window and goes out if the balance comes back.
         if (!(await this.#chargeable(meter, row.subId))) return false;
 
-        const targets = targetsOf(row);
         const target = deliveryTarget(row);
-        const hasWorkerFallback = targets.includes('worker');
+        const hasWorkerFallback = runsInWorker(row);
         // Region-wide: `has` only sees this node's sockets, and the room send
         // below reaches a sibling node's just the same.
         const heldHere =
-            targets.includes('socket') &&
-            (this.services.socket.has(target) ||
-                (await this.services.eventForward.heldInRegion(
-                    row.holderUserId,
-                    row.appUid,
-                )));
+            this.services.socket.has(target) ||
+            (await this.services.eventForward.heldInRegion(
+                row.holderUserId,
+                row.appUid,
+            ));
 
         // A row with no worker to fall back to has nothing left to try once
         // its socket budget is spent. Without this, a socket that disappeared
@@ -5001,7 +5041,7 @@ export class EventsService extends PuterService {
         // entry forever even after it reappears.
         if (
             !hasWorkerFallback &&
-            claimed.socketAttempts >= SINGLE_SOCKET_ATTEMPTS &&
+            claimed.socketAttempts >= QUEUE_SOCKET_ATTEMPTS &&
             heldHere
         ) {
             await this.stores.pendingDelivery.resetSocketAttempts(
@@ -5011,15 +5051,12 @@ export class EventsService extends PuterService {
             claimed = { ...claimed, socketAttempts: 0, triedRegions: [] };
         }
 
-        // Candidates in order: this region's own connection, then the regions
-        // presence names, most recently connected first. The attempt counter
-        // spans them, so two attempts is two candidates however they are split.
-        const socketsLeft =
-            targets.includes('socket') &&
-            claimed.socketAttempts < SINGLE_SOCKET_ATTEMPTS;
+        // This region's own connection first, otherwise the region presence
+        // names, most recently connected first.
+        const socketsLeft = claimed.socketAttempts < QUEUE_SOCKET_ATTEMPTS;
         const here = socketsLeft && heldHere;
         const region =
-            socketsLeft && !(here && claimed.socketAttempts === 0)
+            socketsLeft && !here
                 ? await this.services.eventForward.candidateRegion(
                       row.holderUserId,
                       row.appUid,
@@ -5028,7 +5065,7 @@ export class EventsService extends PuterService {
                 : null;
 
         if (here || region) {
-            await this.stores.pendingDelivery.recordSocketAttempt(
+            await this.stores.pendingDelivery.leaseToSocket(
                 row.subId,
                 claimed.entryId,
             );
@@ -5058,7 +5095,6 @@ export class EventsService extends PuterService {
             } else {
                 await this.#send({
                     target,
-                    socket: true,
                     envelope,
                     meter,
                     bill,
@@ -5077,6 +5113,18 @@ export class EventsService extends PuterService {
             return false;
         }
 
+        return this.#runInWorker(row, claimed);
+    }
+
+    /**
+     * Run one claimed delivery in the events worker. Returns whether it
+     * settled, which is what says the next one may go out now.
+     */
+    async #runInWorker(
+        row: DispatchSubscription,
+        claimed: ClaimedDelivery,
+    ): Promise<boolean> {
+        const meter = meterFor(row);
         const invocation = this.#workerInvocation(
             row,
             claimed.event,
@@ -5145,13 +5193,23 @@ export class EventsService extends PuterService {
     ): Promise<void> {
         const pending = this.stores.pendingDelivery;
         try {
-            if (outcome === 'terminal')
-                await pending.discard(
-                    row.subId,
-                    claimed.entryId,
-                    'handler_rejected',
-                );
-            else await pending.deferAfterFailure(row.subId, claimed.entryId);
+            if (outcome === 'terminal') {
+                // A run was made, so a dropped event is billed like a
+                // completed one, and still only once.
+                const bill = await this.#firstAttempt(row.subId, claimed);
+                if (
+                    await pending.discard(
+                        row.subId,
+                        claimed.entryId,
+                        'handler_rejected',
+                    )
+                )
+                    this.#delivered(
+                        { subId: row.subId, event: claimed.event },
+                        meterFor(row),
+                        bill,
+                    );
+            } else await pending.deferAfterFailure(row.subId, claimed.entryId);
 
             const failures = await pending.recordFailure(row.subId);
             if (failures < EVENTS_CONSECUTIVE_FAILURES) return;
@@ -5189,8 +5247,7 @@ export class EventsService extends PuterService {
         event: DeliverableEvent,
         handlerDepth: number,
     ): WorkerInvocation | null {
-        if (row.durable !== true) return null;
-        if (!targetsOf(row).includes('worker')) return null;
+        if (row.durable !== true || !runsInWorker(row)) return null;
         return {
             subId: row.subId,
             holderUserId: row.holderUserId,
@@ -5208,9 +5265,8 @@ export class EventsService extends PuterService {
      * not a token scoped to whatever grant the subscription was made under. It
      * can read what the app can read, and reaches the app's own KV and AppData
      * like any other app session would. What authorizes running that with
-     * nobody present is the `events:background` consent the row needed to
-     * target a worker at all, checked at subscribe time and re-run on every
-     * delivery.
+     * nobody present is the `events:background` consent the row needed to run a
+     * handler at all, checked at subscribe time and re-run on every delivery.
      *
      * The session behind the token is one row per (user, app), reused across
      * every delivery — the same idempotent worker session `puter.workers.*`
@@ -5417,7 +5473,6 @@ export class EventsService extends PuterService {
             // was refusing.
             await this.#send({
                 target: delivery.target,
-                socket: delivery.socket,
                 remote: delivery.remote,
                 meter: delivery.meter,
                 envelope: {
@@ -5439,9 +5494,9 @@ export class EventsService extends PuterService {
     /**
      * Addressed at a socket id — which socket.io joins every socket to — or at
      * a room, so either way the adapter carries it to whichever node terminates
-     * the connection. For a durable row that also targets the worker, where the
-     * handler runs is decided before anything goes out: the socket copy carries
-     * `skipHandler` when the worker takes it or the event is too deep.
+     * the connection. A durable row with a handler also runs it in the events
+     * worker; connected clients run theirs as well, unless the event is past
+     * the handler-chain limit.
      */
     async #send(delivery: AddressedDelivery): Promise<void> {
         let gate: 'too-deep' | 'over-budget' | 'ok' | null = null;
@@ -5449,67 +5504,54 @@ export class EventsService extends PuterService {
             try {
                 gate = await this.#handlerGate(delivery.worker);
             } catch (err) {
-                // Unknown whether the worker could take it — fall back to the
-                // client running it, the same as a delivery with no worker at
-                // all.
                 console.warn('[events] handler gate failed', err);
             }
         }
         // `available` is a deployment-wide fact (is there a worker runtime to
         // call at all), separate from whether this one invocation succeeds.
-        const toWorker =
-            gate === 'ok' &&
-            (this.worker.available?.() ?? true) &&
-            delivery.worker!.handlerName !== null;
+        const toWorker = gate === 'ok' && (this.worker.available?.() ?? true);
         // Past the depth cap nothing may run it, in the worker or a client.
-        const skipHandler = toWorker || gate === 'too-deep';
+        const skipHandler = gate === 'too-deep';
         const envelope: DeliveryEnvelope = skipHandler
             ? { ...delivery.envelope, skipHandler: true }
             : delivery.envelope;
 
-        let fannedOut: Promise<void> | null = null;
-        if (delivery.socket) {
-            try {
-                void this.services.socket
-                    .send(delivery.target, EVENTS_DELIVERY_CHANNEL, envelope)
-                    .catch((err: unknown) => {
-                        console.warn('[events] socket send failed', err);
-                    });
-            } catch (err) {
-                console.warn('[events] socket send failed', err);
-            }
-
-            // Every connected subscriber gets a `broadcast`, and the ones this
-            // region cannot reach are wherever presence says they are.
-            if (delivery.remote)
-                fannedOut = this.#fanOut(delivery, skipHandler);
+        try {
+            void this.services.socket
+                .send(delivery.target, EVENTS_DELIVERY_CHANNEL, envelope)
+                .catch((err: unknown) => {
+                    console.warn('[events] socket send failed', err);
+                });
+        } catch (err) {
+            console.warn('[events] socket send failed', err);
         }
+
+        // Every connected subscriber gets a `broadcast`, and the ones this
+        // region cannot reach are wherever presence says they are.
+        const fannedOut = delivery.remote
+            ? this.#fanOut(delivery, skipHandler)
+            : null;
 
         let invoked = false;
         if (toWorker) {
-            // At-most-once by construction: a `broadcast` invocation is never
-            // retried. The socket copy above was already marked for this run,
-            // so a failure here is not retried by the client either — only a
-            // settled outcome counts as delivered.
+            // A `broadcast` invocation is never retried. A run that finished,
+            // or threw an error that drops the event, counts as delivered.
             try {
-                invoked =
-                    (await this.worker.invoke(delivery.worker!)) === 'settled';
+                const outcome = await this.worker.invoke(delivery.worker!);
+                invoked = outcome === 'settled' || outcome === 'terminal';
             } catch (err) {
                 console.warn('[events] handler invocation failed', err);
             }
         }
 
-        // Nothing carried it, so nothing was delivered — and a delivery that
-        // did not happen is not billed, nor is a socket copy nobody was
-        // connected to take.
-        if (delivery.socket || invoked)
-            this.#delivered(
-                delivery.envelope,
-                delivery.meter,
-                delivery.bill &&
-                    (invoked ||
-                        (await this.#socketReached(delivery, fannedOut))),
-            );
+        // One delivery is one line, however many transports carried it. A
+        // socket copy nobody was connected to take is not billed.
+        this.#delivered(
+            delivery.envelope,
+            delivery.meter,
+            delivery.bill &&
+                (invoked || (await this.#socketReached(delivery, fannedOut))),
+        );
     }
 
     /** Hand a `broadcast` to every other region holding a socket for it. */
@@ -5691,11 +5733,10 @@ export class EventsService extends PuterService {
     }
 
     /**
-     * Gate then invoke, for `single` — which decides between socket and worker
-     * itself rather than marking anything. `null` says nothing ran: a `single`
-     * stays owed and its lease paces the next attempt. `too-deep` says nothing
-     * ever will: the event is as many handler runs deep as the holder's plan
-     * lets a chain go.
+     * Gate then invoke, for `single`. `null` says nothing ran: a `single` stays
+     * owed and its lease paces the next attempt. `too-deep` says nothing ever
+     * will: the event is as many handler runs deep as the holder's plan lets a
+     * chain go.
      */
     async #invokeHandler(
         invocation: WorkerInvocation,

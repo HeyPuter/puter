@@ -24,6 +24,7 @@ import {
     EVENTS_REGION_PENDING_CEILING,
     EVENTS_RETRY_BASE_MS,
     EVENTS_RETRY_MAX_MS,
+    EVENTS_SOCKET_LEASE_MS,
     deliveryBackoffMs,
 } from '../../controllers/events/limits.js';
 import type { ProjectedEvent } from '../../services/events/registry.js';
@@ -195,33 +196,75 @@ describe('handing a delivery out', () => {
         });
     });
 
-    it('counts the socket attempts a delivery has spent', async () => {
+    it('hands a delivery to a socket under the socket lease, and counts it', async () => {
         const { entryId } = await store.enqueue(subId, event('a'));
-        await store.claim(subId, { leaseMs: 1 });
+        await store.claim(subId);
 
-        await expect(store.recordSocketAttempt(subId, entryId)).resolves.toBe(
-            1,
-        );
+        await store.leaseToSocket(subId, entryId);
 
         vi.useFakeTimers({ toFake: ['Date'] });
-        vi.setSystemTime(Date.now() + 1_000);
+        const start = Date.now();
+        vi.setSystemTime(start + EVENTS_SOCKET_LEASE_MS - 1_000);
+        await expect(store.claim(subId)).resolves.toBeNull();
+        vi.setSystemTime(start + EVENTS_SOCKET_LEASE_MS + 1_000);
         await expect(store.claim(subId)).resolves.toMatchObject({
             entryId,
             socketAttempts: 1,
         });
     });
 
+    it('takes a declined delivery back once, under the worker lease', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'));
+        await store.claim(subId);
+        await store.leaseToSocket(subId, entryId);
+
+        await expect(
+            store.takeFromSocket(subId, entryId),
+        ).resolves.toMatchObject({
+            entryId,
+            socketAttempts: 1,
+        });
+        // A second decline for the same lease changes nothing.
+        await expect(store.takeFromSocket(subId, entryId)).resolves.toBeNull();
+
+        // Held past the socket lease: the worker has it now.
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.now() + EVENTS_SOCKET_LEASE_MS + 1_000);
+        await expect(store.claim(subId)).resolves.toBeNull();
+    });
+
+    it('ignores a decline for a lease that lapsed and was claimed again, or settled', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'));
+        await store.claim(subId);
+        await store.leaseToSocket(subId, entryId);
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.now() + EVENTS_SOCKET_LEASE_MS + 1_000);
+        await expect(store.claim(subId)).resolves.toMatchObject({ entryId });
+        await expect(store.takeFromSocket(subId, entryId)).resolves.toBeNull();
+
+        await store.settle(subId, entryId);
+        await expect(store.takeFromSocket(subId, entryId)).resolves.toBeNull();
+    });
+
+    it('ignores a decline for a delivery never handed to a socket', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'));
+        await store.claim(subId);
+
+        await expect(store.takeFromSocket(subId, entryId)).resolves.toBeNull();
+    });
+
     it('records remote regions tried separately from socket attempts', async () => {
         const { entryId } = await store.enqueue(subId, event('a'));
         await store.claim(subId, { leaseMs: 1 });
 
-        await store.recordSocketAttempt(subId, entryId);
+        await store.leaseToSocket(subId, entryId);
         await expect(
             store.recordRemoteAttempt(subId, entryId, 'east'),
         ).resolves.toEqual(['east']);
 
         vi.useFakeTimers({ toFake: ['Date'] });
-        vi.setSystemTime(Date.now() + 1_000);
+        vi.setSystemTime(Date.now() + EVENTS_SOCKET_LEASE_MS + 1_000);
         await expect(store.claim(subId)).resolves.toMatchObject({
             entryId,
             socketAttempts: 1,
@@ -232,13 +275,13 @@ describe('handing a delivery out', () => {
     it('gives a delivery a fresh attempt budget on request', async () => {
         const { entryId } = await store.enqueue(subId, event('a'));
         await store.claim(subId, { leaseMs: 1 });
-        await store.recordSocketAttempt(subId, entryId);
+        await store.leaseToSocket(subId, entryId);
         await store.recordRemoteAttempt(subId, entryId, 'east');
 
         await store.resetSocketAttempts(subId, entryId);
 
         vi.useFakeTimers({ toFake: ['Date'] });
-        vi.setSystemTime(Date.now() + 1_000);
+        vi.setSystemTime(Date.now() + EVENTS_SOCKET_LEASE_MS + 1_000);
         await expect(store.claim(subId)).resolves.toMatchObject({
             entryId,
             socketAttempts: 0,
@@ -493,7 +536,8 @@ describe('finding the work', () => {
     it('never scans the keyspace, whatever it is asked to do', async () => {
         const { entryId } = await store.enqueue(subId, event('a'));
         await store.claim(subId);
-        await store.recordSocketAttempt(subId, entryId);
+        await store.leaseToSocket(subId, entryId);
+        await store.takeFromSocket(subId, entryId);
         await store.settle(subId, entryId);
         await store.enqueue(subId, event('b'));
         await store.purge(subId);

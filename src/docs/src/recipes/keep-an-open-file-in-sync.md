@@ -12,7 +12,8 @@ somewhere else: edit it in another tab or on their phone, rename it on the
 Puter desktop, or move it to the Trash. Desktop code editors handle this with a
 "file changed on disk" message. This recipe builds the same thing with
 [`puter.events.onLocal()`](/Events/onLocal/), which calls a function every time
-the file changes.
+the file changes. The editor only cares while the file is open, so a
+subscription that ends with the page is the right fit.
 
 It builds on [Watch for Changes](/recipes/watch-for-changes/), which
 covers gaps, reconnects and cost. The examples use a few functions you'd write
