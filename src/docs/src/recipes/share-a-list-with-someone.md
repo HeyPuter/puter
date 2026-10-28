@@ -178,7 +178,8 @@ described in [Key-value data](/Events/subjects/#key-value-data).
 
 The `watch()` part of the helper calls
 [`puter.events.onLocal()`](/Events/onLocal/), so each person sees the other's
-changes as they happen:
+changes as they happen while the list is open. The list itself is saved, so
+nothing is lost when nobody is watching:
 
 ```js
 await alicesList.watch('item:*', (event) => {

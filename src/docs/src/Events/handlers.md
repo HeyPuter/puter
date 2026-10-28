@@ -102,22 +102,20 @@ Renaming is publishing the new name and removing the old one. Subscriptions don'
 
 An app's first published handler creates its [events worker](/Events/workers/), and removing the last one takes it down.
 
-### Refusing a delivery
+### Retrying a delivery
 
-In the events worker, a handler that returns takes the delivery, and one that throws is retried later. When retrying can't help (a malformed event, say), throw an error with `terminal: true` or `code: 'events_terminal'`. The delivery is dropped and replaced by a [gap marker](/Events/subjects/#gaps) with `reason: 'handler_rejected'`.
+A handler that returns takes the delivery. On a `queue` subscription, a handler that throws drops the event, and it's replaced by a [gap marker](/Events/subjects/#gaps) with `reason: 'handler_rejected'`. Network errors, timeouts, rate limits and `5xx` errors are retried. To have any other error retried, throw it with `retry: true`:
 
 ```js
-await puter.events.handlers.publish('ingestUpload', async ({ event }) => {
-    if (! event.path.endsWith('.json')) {
-        const err = new Error(`cannot ingest ${event.path}`);
-        err.terminal = true;
-        throw err;
+await puter.events.handlers.publish('ingestUpload', async ({ event, ctx }) => {
+    const res = await fetch(ctx.endpoint, { method: 'POST', body: event.path });
+    if (res.status === 409) {
+        throw Object.assign(new Error('ingest busy'), { retry: true });
     }
-    // ...
 }, { appUid });
 ```
 
-See [`onPersistent()`](/Events/onPersistent/#where-the-handler-runs) for the full list of outcomes, and [suspended subscriptions](/Events/onPersistent/#suspended-subscriptions) for what happens to a suspended subscription's backlog.
+See [what happens when a handler fails](/Events/onPersistent/#what-happens-when-a-handler-fails) for the full list of outcomes, and [suspended subscriptions](/Events/onPersistent/#suspended-subscriptions) for what happens to a suspended subscription's backlog.
 
 ## Errors
 

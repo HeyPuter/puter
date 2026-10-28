@@ -26,10 +26,7 @@ import {
 } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
-import type {
-    SubscriptionPermission,
-    SubscriptionTarget,
-} from '../../stores/events/types.js';
+import type { SubscriptionPermission } from '../../stores/events/types.js';
 import {
     aclRefusal,
     memoizedDescriptor,
@@ -207,11 +204,6 @@ export const checkDeliveryAuthorized = async (
  * through the same flow as every other one and revocable in the same place.
  */
 export const EVENTS_BACKGROUND_PERMISSION = 'events:background';
-
-/** Whether a row's transports include one that runs code with nobody there. */
-export const needsBackgroundConsent = (
-    targets: readonly SubscriptionTarget[],
-): boolean => targets.includes('worker');
 
 export const backgroundConsentRequired = (): HttpError =>
     new HttpError(
