@@ -31,6 +31,7 @@ import { capSecondsToRemainingCredits } from '../../creditCap.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { VideoProvider } from '../VideoProvider.js';
 import {
+    JobHold,
     pollUntilSettled,
     VIDEO_HOLD_TTL_MS,
     videoJobFailure,
@@ -240,6 +241,7 @@ export class KlingVideoProvider extends VideoProvider {
                 allowedSeconds,
             });
 
+        const jobHold = new JobHold(hold);
         try {
             const sourceVideo = hasVideo
                 ? await this.#sourceVideo(actor, inputVideo as string)
@@ -262,13 +264,35 @@ export class KlingVideoProvider extends VideoProvider {
                 path,
                 { body, baseUrl: this.#baseUrl },
             );
-            const task = await this.#pollUntilComplete(created.id, () =>
-                this.#meteringService.incrementUsage(
+            // Kling bills whole seconds of the clip it returns: an edit's
+            // length comes from its source, everything else from the
+            // request. A failed task isn't billed.
+            const meter = async (
+                task: KlingTask | undefined,
+                settled: boolean,
+            ) => {
+                if (settled && task?.status !== 'succeeded') return;
+                const video = task?.outputs?.find(
+                    (output) => output.type === 'video' && output.url,
+                );
+                const outputSeconds = Number.parseFloat(video?.duration ?? '');
+                const billedSeconds =
+                    hasVideo &&
+                    Number.isFinite(outputSeconds) &&
+                    outputSeconds > 0
+                        ? Math.max(1, Math.round(outputSeconds))
+                        : cappedSeconds;
+                await this.#meteringService.incrementUsage(
                     actor,
                     usageType,
-                    cappedSeconds,
-                    Math.round(cappedSeconds * centsPerSecond * 1_000_000),
-                ),
+                    billedSeconds,
+                    Math.round(billedSeconds * centsPerSecond * 1_000_000),
+                );
+            };
+            const task = await this.#pollUntilComplete(
+                created.id,
+                meter,
+                jobHold,
             );
             if (
                 task.status !== 'succeeded' &&
@@ -290,24 +314,9 @@ export class KlingVideoProvider extends VideoProvider {
             if (!video?.url) {
                 throw new Error('Kling response did not include a video URL');
             }
-
-            // Kling bills whole seconds of the clip it returns: an edit's
-            // length comes from its source, everything else from the request.
-            const outputSeconds = Number.parseFloat(video.duration ?? '');
-            const billedSeconds =
-                hasVideo && Number.isFinite(outputSeconds) && outputSeconds > 0
-                    ? Math.max(1, Math.round(outputSeconds))
-                    : cappedSeconds;
-            await this.#meteringService.incrementUsage(
-                actor,
-                usageType,
-                billedSeconds,
-                Math.round(billedSeconds * centsPerSecond * 1_000_000),
-            );
-
             return video.url;
         } finally {
-            await hold.release();
+            await jobHold.release();
         }
     }
 
@@ -485,7 +494,11 @@ export class KlingVideoProvider extends VideoProvider {
 
     async #pollUntilComplete(
         taskId: string,
-        onTimeout: () => Promise<unknown>,
+        meter: (
+            task: KlingTask | undefined,
+            settled: boolean,
+        ) => Promise<unknown>,
+        hold: JobHold,
     ): Promise<KlingTask> {
         return pollUntilSettled<KlingTask>({
             provider: 'kling',
@@ -506,7 +519,8 @@ export class KlingVideoProvider extends VideoProvider {
             },
             isPending: (task) =>
                 task.status === 'submitted' || task.status === 'processing',
-            onTimeout,
+            meter,
+            hold,
         });
     }
 

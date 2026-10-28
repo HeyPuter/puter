@@ -395,16 +395,18 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
         expect(fetchSpy).toHaveBeenCalledTimes(4); // 1 create + 3 polls
     });
 
-    it('gives up after the wait window as HttpError 504 upstream_timeout, metering the held estimate', async () => {
+    it('gives up after the wait window as HttpError 504 upstream_timeout, metering the task once it settles', async () => {
         vi.useFakeTimers();
         try {
+            let late: Record<string, unknown> = {
+                id: 'cgt-slow',
+                status: 'running',
+            };
             fetchSpy
                 .mockResolvedValueOnce(
                     jsonResponse({ id: 'cgt-slow', status: 'queued' }),
                 )
-                .mockImplementation(async () =>
-                    jsonResponse({ id: 'cgt-slow', status: 'running' }),
-                );
+                .mockImplementation(async () => jsonResponse(late));
             // The default poll interval keeps the window to ~60 polls.
             const provider = new BytePlusVideoProvider(
                 { apiKey: 'test-key' },
@@ -432,11 +434,19 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
                 fields: { provider: 'byteplus' },
             });
             // BytePlus still renders and bills the task past the window.
+            expect(incrementUsageSpy).not.toHaveBeenCalled();
+            late = {
+                id: 'cgt-slow',
+                status: 'succeeded',
+                content: { video_url: 'https://byteplus.example/v.mp4' },
+                usage: { completion_tokens: 1234 },
+            };
+            await vi.advanceTimersByTimeAsync(10_000);
             expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
             const [, usageType, tokens, cost] =
                 incrementUsageSpy.mock.calls[0]!;
             expect(usageType).toMatch(/^byteplus-video-generation:/);
-            expect(tokens).toBeGreaterThan(0);
+            expect(tokens).toBe(1234);
             expect(cost).toBeGreaterThan(0);
         } finally {
             vi.useRealTimers();

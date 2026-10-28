@@ -24,9 +24,12 @@ import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import { klingImageInput, klingRequest } from '../../../util/kling.js';
 import {
     CONTENT_FILTER_PATTERN,
-    isTransientUpstreamError,
     sanitizeUpstreamMessage,
 } from '../../../util/upstreamErrors.js';
+import {
+    JobHold,
+    pollUntilSettled,
+} from '../../../ai-video/providers/polling.js';
 import {
     closestAspectRatio,
     formatAspectRatio,
@@ -145,6 +148,7 @@ export class KlingImageProvider implements IImageProvider {
         );
         if (!hold) throw insufficientCreditsError();
 
+        const jobHold = new JobHold(hold);
         try {
             const aspectRatio = params.imageSize
                 ? formatAspectRatio(
@@ -184,14 +188,35 @@ export class KlingImageProvider implements IImageProvider {
                 path,
                 { body, baseUrl: this.#baseUrl },
             );
-            const task = await this.#pollUntilSettled(path, created, () =>
-                this.#meteringService.incrementUsage(
-                    actor,
-                    usageType,
-                    1,
-                    Math.round(cents * 1_000_000),
-                ),
-            );
+            // Billed per image; a failed task isn't.
+            const task = await pollUntilSettled<KlingImageTask>({
+                provider: 'kling',
+                providerLabel: 'Kling',
+                noun: 'image',
+                intervalMs: this.#pollIntervalMs,
+                windowMs: POLL_WINDOW_MS,
+                initial: created,
+                fetch: () =>
+                    klingRequest<KlingImageTask>(
+                        this.#apiKey,
+                        'GET',
+                        `${path}/${encodeURIComponent(created.task_id)}`,
+                        { baseUrl: this.#baseUrl },
+                    ),
+                isPending: (task) =>
+                    task.task_status === 'submitted' ||
+                    task.task_status === 'processing',
+                meter: async (task, settled) => {
+                    if (settled && task?.task_status !== 'succeed') return;
+                    await this.#meteringService.incrementUsage(
+                        actor,
+                        usageType,
+                        1,
+                        Math.round(cents * 1_000_000),
+                    );
+                },
+                hold: jobHold,
+            });
             if (task.task_status !== 'succeed') {
                 throw this.#taskFailure(task.task_status_msg);
             }
@@ -199,62 +224,10 @@ export class KlingImageProvider implements IImageProvider {
             if (!url) {
                 throw new Error('Kling response did not include an image URL');
             }
-
-            await this.#meteringService.incrementUsage(
-                actor,
-                usageType,
-                1,
-                Math.round(cents * 1_000_000),
-            );
             return url;
         } finally {
-            await hold.release();
+            await jobHold.release();
         }
-    }
-
-    /**
-     * Polls until the task settles. A client disconnect doesn't stop it, since
-     * Kling bills the task either way; one that outlives the window is metered
-     * through `onTimeout`.
-     */
-    async #pollUntilSettled(
-        path: string,
-        created: KlingImageTask,
-        onTimeout: () => Promise<unknown>,
-    ): Promise<KlingImageTask> {
-        const deadline = Date.now() + POLL_WINDOW_MS;
-        let task = created;
-        while (
-            task.task_status === 'submitted' ||
-            task.task_status === 'processing'
-        ) {
-            if (Date.now() > deadline) {
-                await onTimeout();
-                throw new HttpError(
-                    504,
-                    'Timed out waiting for Kling image generation to complete',
-                    {
-                        legacyCode: 'upstream_timeout',
-                        fields: { provider: 'kling' },
-                    },
-                );
-            }
-            await new Promise((resolve) =>
-                setTimeout(resolve, this.#pollIntervalMs),
-            );
-            try {
-                task = await klingRequest<KlingImageTask>(
-                    this.#apiKey,
-                    'GET',
-                    `${path}/${encodeURIComponent(created.task_id)}`,
-                    { baseUrl: this.#baseUrl },
-                );
-            } catch (err) {
-                // A missed poll is not a failed task.
-                if (!isTransientUpstreamError(err)) throw err;
-            }
-        }
-        return task;
     }
 
     /**

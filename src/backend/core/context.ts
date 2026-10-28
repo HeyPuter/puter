@@ -69,6 +69,12 @@ export interface KnownContextFields {
      */
     abortSignal: AbortSignal;
     /**
+     * Keeps the call's concurrency slot until `work` settles (set by
+     * DriverController when the method is capped), for work that outlives the
+     * response.
+     */
+    keepDriverSlot: (work: Promise<unknown>) => void;
+    /**
      * Aborts the chat driver's upstream request. A client disconnect doesn't
      * fire it: the upstream bills a request it has accepted either way, so the
      * driver lets it finish and meters what it reports.
@@ -91,6 +97,7 @@ const KNOWN_KEY_FLAGS: Record<keyof KnownContextFields, true> = {
     requestId: true,
     driverName: true,
     abortSignal: true,
+    keepDriverSlot: true,
     upstreamSignal: true,
     strictUpstreamErrors: true,
 };

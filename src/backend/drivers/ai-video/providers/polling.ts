@@ -17,7 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { Context } from '../../../core/context.js';
 import { HttpError } from '../../../core/http/HttpError.js';
+import type { CreditHold } from '../../../services/metering/types.js';
 import {
     CONTENT_FILTER_PATTERN,
     isTransientUpstreamError,
@@ -33,6 +35,13 @@ export const VIDEO_POLL_WINDOW_MS = 14 * 60 * 1000;
 /** A job's credit hold covers the poll window plus the create call. */
 export const VIDEO_HOLD_TTL_MS = VIDEO_POLL_WINDOW_MS + 5 * 60 * 1000;
 
+/**
+ * How long a job that outlived the window is still followed after the caller
+ * got its 504. One still pending after this is charged its estimate.
+ */
+export const LATE_JOB_WINDOW_MS = 60 * 60 * 1000;
+const LATE_HOLD_RENEW_MS = 5 * 60 * 1000;
+
 // Provider wording for input the model does not accept, including Together's
 // camelCase codes (`invalidDuration`, `missingFrameImagesForImageToVideoModel`).
 const INVALID_INPUT_PATTERN =
@@ -47,10 +56,11 @@ export const pollTimeoutError = (
     provider: string,
     providerLabel: string,
     cause?: unknown,
+    noun: 'video' | 'image' = 'video',
 ): HttpError =>
     new HttpError(
         504,
-        `Timed out waiting for ${providerLabel} video generation to complete`,
+        `Timed out waiting for ${providerLabel} ${noun} generation to complete`,
         {
             legacyCode: 'upstream_timeout',
             fields: { provider },
@@ -107,11 +117,34 @@ export const abortableDelay = (
         signal?.addEventListener('abort', done, { once: true });
     });
 
+/**
+ * A job's credit hold. Released when the request ends, unless a job that
+ * outlived the window took it over; that job releases it once it settles.
+ */
+export class JobHold {
+    #hold: CreditHold;
+    #taken = false;
+
+    constructor(hold: CreditHold) {
+        this.#hold = hold;
+    }
+
+    async release(): Promise<void> {
+        if (!this.#taken) await this.#hold.release();
+    }
+
+    take(): CreditHold {
+        this.#taken = true;
+        return this.#hold;
+    }
+}
+
 export interface PollOptions<T> {
     /** Goes into `fields.provider` on every error raised here. */
     provider: string;
     /** Human-readable name for the timeout message. */
     providerLabel: string;
+    noun?: 'video' | 'image';
     intervalMs: number;
     windowMs?: number;
     /** The state the create call already returned, if it returned one. */
@@ -120,17 +153,21 @@ export interface PollOptions<T> {
     fetch: (previous: T | undefined) => Promise<T>;
     isPending: (job: T) => boolean;
     /**
-     * Meters a job that outlived the window: the provider still runs it and
-     * bills for it. Receives the last state seen.
+     * Records what the job cost once it settles, failed or not: the provider
+     * bills what it bills. `settled` is false for a job given up on while still
+     * pending, which is charged as the provider would charge a finished one.
      */
-    onTimeout?: (last: T | undefined) => Promise<unknown>;
+    meter: (job: T | undefined, settled: boolean) => Promise<unknown>;
+    /** Kept past the window for a job still running, until it settles. */
+    hold: JobHold;
 }
 
 /**
- * Polls a provider job until it settles. A transient poll failure is a missed
- * poll, not a failed job. A client disconnect doesn't stop it: the provider
- * bills the job either way, so it is still metered once it settles. The window
- * closes with a 504 that carries the last poll error.
+ * Polls a provider job until it settles, then meters it. A transient poll
+ * failure is a missed poll, not a failed job. A client disconnect doesn't stop
+ * it: the provider bills the job either way. When the window closes the caller
+ * gets a 504 carrying the last poll error, and the job is followed in the
+ * background, holding its credit and concurrency slot, until it settles.
  */
 export const pollUntilSettled = async <T>(opts: PollOptions<T>): Promise<T> => {
     const windowMs = opts.windowMs ?? VIDEO_POLL_WINDOW_MS;
@@ -140,13 +177,18 @@ export const pollUntilSettled = async <T>(opts: PollOptions<T>): Promise<T> => {
     let firstFetch = job === undefined;
 
     for (;;) {
-        if (job !== undefined && !opts.isPending(job)) return job;
+        if (job !== undefined && !opts.isPending(job)) {
+            await opts.meter(job, true);
+            return job;
+        }
         if (Date.now() - start > windowMs) {
-            await opts.onTimeout?.(job);
+            const late = followLateJob(opts, job, opts.hold.take());
+            Context.get('keepDriverSlot')?.(late);
             throw pollTimeoutError(
                 opts.provider,
                 opts.providerLabel,
                 lastError,
+                opts.noun,
             );
         }
         if (!firstFetch) await abortableDelay(opts.intervalMs);
@@ -157,6 +199,51 @@ export const pollUntilSettled = async <T>(opts: PollOptions<T>): Promise<T> => {
         } catch (err) {
             if (!isTransientUpstreamError(err)) throw err;
             lastError = err;
+        }
+    }
+};
+
+/** Polls a job past its window and meters it once it settles or is given up. */
+const followLateJob = async <T>(
+    opts: PollOptions<T>,
+    initial: T | undefined,
+    hold: CreditHold,
+): Promise<void> => {
+    const extend = async () => {
+        try {
+            await hold.extend?.();
+        } catch {
+            // The next tick retries.
+        }
+    };
+    // The hold is near the end of its TTL by now.
+    void extend();
+    const renew = setInterval(extend, LATE_HOLD_RENEW_MS);
+    renew.unref?.();
+    let job = initial;
+    try {
+        const deadline = Date.now() + LATE_JOB_WINDOW_MS;
+        while (job === undefined || opts.isPending(job)) {
+            if (Date.now() > deadline) break;
+            await abortableDelay(opts.intervalMs);
+            try {
+                job = await opts.fetch(job);
+            } catch (err) {
+                if (!isTransientUpstreamError(err)) break;
+            }
+        }
+        await opts.meter(job, job !== undefined && !opts.isPending(job));
+    } catch (err) {
+        console.error(
+            `[${opts.provider}] metering a job that outlived its window failed:`,
+            err,
+        );
+    } finally {
+        clearInterval(renew);
+        try {
+            await hold.release();
+        } catch {
+            // Left to its TTL.
         }
     }
 };

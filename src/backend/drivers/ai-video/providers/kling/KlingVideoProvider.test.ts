@@ -665,10 +665,11 @@ describe('KlingVideoProvider failures', () => {
         });
     });
 
-    it('fails when the finished task has no video', async () => {
+    // Kling bills a task it reports as succeeded, video or not.
+    it('fails, still metered, when the finished task has no video', async () => {
         mockTaskFlow(succeededTask({ outputs: [] }));
         await expect(generate({})).rejects.toThrow(/video URL/);
-        expect(incrementUsageSpy).not.toHaveBeenCalled();
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -685,17 +686,23 @@ describe('KlingVideoProvider after the caller leaves', () => {
         expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('meters the held seconds when the task outlives the window', async () => {
+    /** Times out on the first status poll; later polls return `late()`. */
+    const outliveWindow = async (late: () => unknown) => {
         fetchSpy.mockResolvedValueOnce(
             jsonResponse(envelope({ id: 'task-1', status: 'submitted' })),
         );
         const realNow = Date.now.bind(Date);
         let skew = 0;
         vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skew);
+        let polls = 0;
         fetchSpy.mockImplementation(async () => {
             skew = VIDEO_POLL_WINDOW_MS + 1;
             return jsonResponse(
-                envelope([{ id: 'task-1', status: 'processing' }]),
+                envelope([
+                    polls++ === 0
+                        ? { id: 'task-1', status: 'processing' }
+                        : late(),
+                ]),
             );
         });
 
@@ -709,9 +716,31 @@ describe('KlingVideoProvider after the caller leaves', () => {
             statusCode: 504,
             legacyCode: 'upstream_timeout',
         });
-        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+    };
+
+    it('meters a task that finishes after the window', async () => {
+        let finished = false;
+        await outliveWindow(() =>
+            finished ? succeededTask() : { id: 'task-1', status: 'processing' },
+        );
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+
+        finished = true;
+        await vi.waitFor(() =>
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1),
+        );
         const [, usageType, amount] = incrementUsageSpy.mock.calls[0]!;
         expect(usageType).toMatch(/^kling-video-generation:/);
         expect(amount).toBe(5);
+    });
+
+    it('meters nothing for a task that fails after the window', async () => {
+        await outliveWindow(() => ({
+            id: 'task-1',
+            status: 'failed',
+            message: 'boom',
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 });

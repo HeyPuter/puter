@@ -453,43 +453,74 @@ describe('TogetherVideoProvider.generate polling', () => {
         }
     });
 
-    it('gives up after the wait window as HttpError 504 upstream_timeout, metering the held estimate', async () => {
+    /** Starts a job that is still running when the wait window closes. */
+    const outliveWindow = async () => {
+        const provider = makeProvider();
+        videosCreateMock.mockResolvedValueOnce({ id: 'job-slow' });
+        videosRetrieveMock.mockResolvedValue({
+            id: 'job-slow',
+            status: 'in_progress',
+        });
+
+        const rejection = (async () => {
+            try {
+                await withTestActor(() =>
+                    provider.generate({
+                        prompt: 'hi',
+                        model: 'togetherai:minimax/video-01-director',
+                    }),
+                );
+            } catch (e) {
+                return e;
+            }
+        })();
+
+        // Ten-minute wait window, polled every 5s.
+        await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 5_000);
+
+        expect(await rejection).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+            message:
+                'Timed out waiting for Together AI video generation to complete',
+            fields: { provider: 'together' },
+        });
+        // Together still renders and bills the job past the window.
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    };
+
+    it('passes through what Together charged for a job that fails after the window', async () => {
         vi.useFakeTimers();
         try {
-            const provider = makeProvider();
-            videosCreateMock.mockResolvedValueOnce({ id: 'job-slow' });
+            await outliveWindow();
             videosRetrieveMock.mockResolvedValue({
                 id: 'job-slow',
-                status: 'in_progress',
+                status: 'failed',
+                outputs: { cost: 0.5 },
             });
+            await vi.advanceTimersByTimeAsync(10_000);
 
-            const rejection = (async () => {
-                try {
-                    await withTestActor(() =>
-                        provider.generate({
-                            prompt: 'hi',
-                            model: 'togetherai:minimax/video-01-director',
-                        }),
-                    );
-                } catch (e) {
-                    return e;
-                }
-            })();
-
-            // Ten-minute wait window, polled every 5s.
-            await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 5_000);
-
-            expect(await rejection).toMatchObject({
-                statusCode: 504,
-                legacyCode: 'upstream_timeout',
-                message:
-                    'Timed out waiting for Together AI video generation to complete',
-                fields: { provider: 'together' },
-            });
-            // Together still renders and bills the job past the window.
             expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
             const [, usageType, count, cost] = incrementUsageSpy.mock.calls[0]!;
             expect(usageType).toBe('together-video:minimax/video-01-director');
+            expect(count).toBe(1);
+            expect(cost).toBe(50 * 1_000_000);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('charges the held estimate when Together loses track of a late job', async () => {
+        vi.useFakeTimers();
+        try {
+            await outliveWindow();
+            videosRetrieveMock.mockRejectedValue(
+                Object.assign(new Error('no such job'), { status: 404 }),
+            );
+            await vi.advanceTimersByTimeAsync(10_000);
+
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+            const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
             expect(count).toBe(1);
             expect(cost).toBe(28 * 1_000_000);
         } finally {

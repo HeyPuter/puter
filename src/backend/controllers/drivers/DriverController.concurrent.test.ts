@@ -21,7 +21,7 @@
 import { EventEmitter } from 'node:events';
 import type { Request, RequestHandler, Response } from 'express';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { runWithContext } from '../../core/context.js';
+import { Context, runWithContext } from '../../core/context.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { configureRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { DriverController } from './DriverController.js';
@@ -275,6 +275,86 @@ describe('DriverController — concurrent acquire/release', () => {
             makeReq({ interface: 'test-iface', method: 'ping' }, 'already-aborted'),
             res2 as unknown as Response);
         res2.emit('finish');
+        expect(res2.body).toMatchObject({ success: true, result: 'pong' });
+    });
+
+    // A driver that keeps working after the caller hangs up (async video
+    // polling) must keep counting against the cap until it settles.
+    it('holds the slot while the driver still works after a disconnect', async () => {
+        let finish = () => {};
+        const driver = {
+            ...makeSyntheticDriver(),
+            ping: () =>
+                new Promise<string>((resolve) => {
+                    finish = () => resolve('pong');
+                }),
+        };
+        const handler = captureCallHandler(buildController(driver));
+        const req = () =>
+            makeReq({ interface: 'test-iface', method: 'ping' }, 'working');
+
+        const res1 = new StubRes();
+        const first = callInScope(handler, req(), res1 as unknown as Response);
+        await new Promise((r) => setImmediate(r));
+        res1.emit('close');
+        await new Promise((r) => setImmediate(r));
+
+        await expect(
+            callInScope(handler, req(), new StubRes() as unknown as Response),
+        ).rejects.toSatisfy(
+            (e) =>
+                isHttpError(e) &&
+                (e as { statusCode: number }).statusCode === 429,
+        );
+
+        finish();
+        await first;
+        await new Promise((r) => setImmediate(r));
+        const res2 = new StubRes();
+        const second = callInScope(handler, req(), res2 as unknown as Response);
+        await new Promise((r) => setImmediate(r));
+        finish();
+        await second;
+        res2.emit('finish');
+        expect(res2.body).toMatchObject({ success: true, result: 'pong' });
+    });
+
+    it('holds the slot for work a driver keeps past its response', async () => {
+        let settleWork = () => {};
+        const driver = {
+            ...makeSyntheticDriver(),
+            ping: async () => {
+                Context.get('keepDriverSlot')?.(
+                    new Promise<void>((resolve) => {
+                        settleWork = resolve;
+                    }),
+                );
+                return 'pong';
+            },
+        };
+        const handler = captureCallHandler(buildController(driver));
+        const req = () =>
+            makeReq({ interface: 'test-iface', method: 'ping' }, 'kept');
+
+        const res1 = new StubRes();
+        await callInScope(handler, req(), res1 as unknown as Response);
+        res1.emit('finish');
+        await new Promise((r) => setImmediate(r));
+
+        await expect(
+            callInScope(handler, req(), new StubRes() as unknown as Response),
+        ).rejects.toSatisfy(
+            (e) =>
+                isHttpError(e) &&
+                (e as { statusCode: number }).statusCode === 429,
+        );
+
+        settleWork();
+        await new Promise((r) => setImmediate(r));
+        const res2 = new StubRes();
+        await callInScope(handler, req(), res2 as unknown as Response);
+        res2.emit('finish');
+        settleWork();
         expect(res2.body).toMatchObject({ success: true, result: 'pong' });
     });
 

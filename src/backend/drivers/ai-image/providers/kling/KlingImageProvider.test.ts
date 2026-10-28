@@ -366,14 +366,17 @@ describe('KlingImageProvider after the caller leaves', () => {
         expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('meters the held image when the task outlives the window', async () => {
+    it('meters an image that finishes after the window', async () => {
         fetchSpy.mockResolvedValueOnce(envelope(task('submitted')));
         const realNow = Date.now.bind(Date);
         let skew = 0;
         vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skew);
+        let finished = false;
         fetchSpy.mockImplementation(async () => {
             skew = 6 * 60 * 1000;
-            return envelope(task('processing'));
+            return finished
+                ? envelope(succeeded)
+                : envelope(task('processing'));
         });
 
         let failure: unknown;
@@ -385,8 +388,14 @@ describe('KlingImageProvider after the caller leaves', () => {
         expect(failure).toMatchObject({
             statusCode: 504,
             legacyCode: 'upstream_timeout',
+            message: 'Timed out waiting for Kling image generation to complete',
         });
-        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+
+        finished = true;
+        await vi.waitFor(() =>
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1),
+        );
         const [, usageType, amount, cost] = incrementUsageSpy.mock.calls[0]!;
         expect(usageType).toBe('kling-image-generation:kling-v3-omni:4k');
         expect(amount).toBe(1);
