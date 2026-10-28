@@ -1,4 +1,4 @@
-import { clearEpoxyClientCache, getEpoxyClient } from './index.js';
+import { discardOnRelayFailure, getEpoxyClient } from './index.js';
 
 function logFetchResult ({ params, result, error }) {
     if ( ! globalThis.puter?.apiCallLogger?.isEnabled() ) {
@@ -94,13 +94,12 @@ async function assertRequestIsFetchable (args) {
  */
 export async function pFetch (...args) {
     const params = getFetchLogParams(args);
-    let usedEpoxyClient = false;
+    let client;
 
     try {
         await assertRequestIsFetchable(args);
 
-        const client = await getEpoxyClient();
-        usedEpoxyClient = true;
+        client = await getEpoxyClient();
         const response = await client.fetch(...args);
 
         logFetchResult({
@@ -113,9 +112,7 @@ export async function pFetch (...args) {
 
         return response;
     } catch ( error ) {
-        if ( usedEpoxyClient ) {
-            clearEpoxyClientCache();
-        }
+        discardOnRelayFailure(client, error);
 
         logFetchResult({
             params,
