@@ -21,7 +21,9 @@ the handler. It also runs for changes made somewhere else:
 - Another person writes to a folder shared with the user.
 
 To subscribe, use the [`puter.events.onLocal()`](/Events/onLocal/) method. The
-subscription lasts until you end it or the user closes the tab.
+subscription lasts until you end it or the user closes the tab, which is what a
+page that only updates what it shows needs. To run code while your app is
+closed, see [Run Code in the Background](/recipes/run-code-in-the-background/).
 
 ## Watch a Key
 

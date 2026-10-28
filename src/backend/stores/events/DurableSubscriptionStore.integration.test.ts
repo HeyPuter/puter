@@ -67,11 +67,6 @@ const input = (
     match: null,
     op: null,
     delivery: 'broadcast',
-    // Null `appUid` is the default here (a session/account row), and a
-    // worker target needs an app to run one for — see "one events worker per
-    // app" below. Tests that want an app-scoped row with a worker target
-    // override both.
-    targets: ['socket'],
     handlerName: null,
     context: null,
     permission: 'list',
@@ -128,7 +123,6 @@ describe('creating a subscription', () => {
                 appUid,
                 handlerName: 'onWrite',
                 match: '*.txt',
-                targets: ['socket', 'worker'],
             }),
         );
 
@@ -139,8 +133,44 @@ describe('creating a subscription', () => {
             handlerName: 'onWrite',
             match: '*.txt',
             delivery: 'broadcast',
-            targets: ['socket', 'worker'],
             durable: true,
+        });
+    });
+
+    it('writes the legacy targets column and never reads it back', async () => {
+        const appUid = `app-${uuidv4()}`;
+        const { row: appRow } = await durable().create(input({ appUid }));
+        const { row: accountRow } = await durable().create(input());
+
+        const stored = async (subId: string) => {
+            const [raw] = await env.server.clients.db.read(
+                'SELECT `targets` FROM `event_subscriptions` WHERE `sub_id` = ?',
+                [subId],
+            );
+            const value = (raw as { targets: unknown }).targets;
+            return typeof value === 'string' ? JSON.parse(value) : value;
+        };
+        await expect(stored(appRow.subId)).resolves.toEqual([
+            'socket',
+            'worker',
+        ]);
+        await expect(stored(accountRow.subId)).resolves.toEqual(['socket']);
+        expect(
+            (await durable().getBySubId(appRow.subId)) as unknown as Record<
+                string,
+                unknown
+            >,
+        ).not.toHaveProperty('targets');
+    });
+
+    it('reads any stored delivery other than `single` as a broadcast', async () => {
+        const { row } = await durable().create(input());
+        await env.server.clients.db.write(
+            'UPDATE `event_subscriptions` SET `delivery` = ? WHERE `sub_id` = ?',
+            ['fanout', row.subId],
+        );
+        await expect(durable().getBySubId(row.subId)).resolves.toMatchObject({
+            delivery: 'broadcast',
         });
     });
 
@@ -232,87 +262,6 @@ describe('creating a subscription', () => {
 });
 
 describe('validation at the row write', () => {
-    it('refuses a target outside the known set', async () => {
-        await expect(
-            durable().create(
-                input({ targets: ['socket', 'carrier-pigeon'] as never }),
-            ),
-        ).rejects.toSatisfy(codeOf('invalid_targets'));
-    });
-
-    it('refuses an empty target set', async () => {
-        await expect(
-            durable().create(input({ targets: [] })),
-        ).rejects.toSatisfy(codeOf('invalid_targets'));
-    });
-
-    it('refuses a `single` row that wants a device notification', async () => {
-        await expect(
-            durable().create(
-                input({
-                    delivery: 'single',
-                    handlerName: 'onWrite',
-                    targets: ['socket', 'push'],
-                }),
-            ),
-        ).rejects.toSatisfy(codeOf('invalid_targets'));
-        await expect(durable().countForHolder(userId)).resolves.toMatchObject({
-            total: 0,
-        });
-    });
-
-    it('refuses an app`s `single` row with no worker to fall back to', async () => {
-        await expect(
-            durable().create(
-                input({
-                    appUid: 'app-single-rule',
-                    delivery: 'single',
-                    handlerName: 'onWrite',
-                    targets: ['socket'],
-                }),
-            ),
-        ).rejects.toSatisfy(codeOf('invalid_targets'));
-    });
-
-    it('lets an account`s own `single` row stand on the socket alone', async () => {
-        const { row } = await durable().create(
-            input({
-                delivery: 'single',
-                handlerName: 'onWrite',
-                targets: ['socket'],
-            }),
-        );
-        expect(row.targets).toEqual(['socket']);
-    });
-
-    it('keeps the same targets on a `broadcast` row, where push is fine', async () => {
-        const { row } = await durable().create(
-            input({ targets: ['socket', 'push'] }),
-        );
-        expect(row.targets).toEqual(['socket', 'push']);
-    });
-
-    it('refuses a `worker` target on a row with no app', async () => {
-        // Exactly one events worker per app: a row nobody's app made has
-        // nothing for that target to invoke.
-        await expect(
-            durable().create(input({ appUid: null, targets: ['socket', 'worker'] })),
-        ).rejects.toSatisfy(codeOf('invalid_targets'));
-        await expect(durable().countForHolder(userId)).resolves.toMatchObject({
-            total: 0,
-        });
-    });
-
-    it('allows a `worker` target once the row has an app', async () => {
-        const { row } = await durable().create(
-            input({
-                appUid: `app-${uuidv4()}`,
-                targets: ['socket', 'worker'],
-            }),
-        );
-        expect(row.targets).toEqual(['socket', 'worker']);
-    });
-
     it('refuses a context past the hard cap', async () => {
         await expect(
             durable().create(input({ context: 'x'.repeat(4097) })),
@@ -704,18 +653,17 @@ describe('listHolderIdsForApp', () => {
     it('names every distinct holder bound to the app`s handlers', async () => {
         const appUid = `app-${uuidv4()}`;
         await durable().create(
-            input({ appUid, holderUserId: userId, targets: ['socket', 'worker'] }),
+            input({ appUid, holderUserId: userId }),
         );
         await durable().create(
             input({
                 appUid,
                 holderUserId: otherUserId,
-                targets: ['socket', 'worker'],
             }),
         );
         // A second row for the same holder must not double the name.
         await durable().create(
-            input({ appUid, holderUserId: userId, targets: ['socket', 'worker'] }),
+            input({ appUid, holderUserId: userId }),
         );
 
         const holders = await durable().listHolderIdsForApp(appUid);
@@ -725,7 +673,7 @@ describe('listHolderIdsForApp', () => {
     it('finds a suspended row`s holder too', async () => {
         const appUid = `app-${uuidv4()}`;
         const { row } = await durable().create(
-            input({ appUid, targets: ['socket', 'worker'] }),
+            input({ appUid }),
         );
         await durable().suspend([row], 'handler_not_found');
 
@@ -743,7 +691,7 @@ describe('reapForApp', () => {
     it('deletes every row bound to the app and bumps its owner`s generation', async () => {
         const appUid = `app-${uuidv4()}`;
         const mine = await durable().create(
-            input({ appUid, targets: ['socket', 'worker'] }),
+            input({ appUid }),
         );
         const untouched = await durable().create(input());
         const before = await cache().getGeneration(userId);
@@ -762,9 +710,9 @@ describe('reapForApp', () => {
     it('never touches another app`s rows', async () => {
         const appUid = `app-${uuidv4()}`;
         const otherAppUid = `app-${uuidv4()}`;
-        await durable().create(input({ appUid, targets: ['socket', 'worker'] }));
+        await durable().create(input({ appUid }));
         const theirs = await durable().create(
-            input({ appUid: otherAppUid, targets: ['socket', 'worker'] }),
+            input({ appUid: otherAppUid }),
         );
 
         await durable().reapForApp(appUid, 500);
