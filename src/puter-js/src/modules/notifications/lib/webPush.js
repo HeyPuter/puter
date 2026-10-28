@@ -122,6 +122,19 @@ const subscriptionBody = (subscription) => {
     return { endpoint, keys: { p256dh: keys?.p256dh, auth: keys?.auth } };
 };
 
+const subscribeWith = (registration, key) =>
+    registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: key,
+    });
+
+/** Tells the server about `subscription`; `active` or `pending`. */
+const announce = (puter, subscription, label) =>
+    request(puter, 'POST', '/push/web/subscriptions', {
+        subscription: subscriptionBody(subscription),
+        ...(label ? { label } : {}),
+    });
+
 /**
  * Subscribes this browser and registers it with the server. A new subscription
  * is confirmed by a push the worker hands back; a known one is only refreshed.
@@ -151,31 +164,28 @@ export async function syncWebPush(
         await subscription.unsubscribe();
         subscription = null;
     }
-    subscription ??= await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: key,
-    });
+    subscription ??= await subscribeWith(registration, key);
 
-    const body = {
-        subscription: subscriptionBody(subscription),
-        ...(label ? { label } : {}),
-    };
     // Listening first: the confirmation can arrive before the POST returns.
     const challenge = nextChallenge(nav);
     try {
-        const result = await request(
-            puter,
-            'POST',
-            '/push/web/subscriptions',
-            body,
-        );
+        let result;
+        try {
+            result = await announce(puter, subscription, label);
+        } catch (error) {
+            if (error?.code !== 'push_subscription_invalid') throw error;
+            // The push service may not know a brand-new subscription yet; one fresh one is tried.
+            await subscription.unsubscribe();
+            subscription = await subscribeWith(registration, key);
+            result = await announce(puter, subscription, label);
+        }
         if (result.status === 'active') return result.device;
         const { device } = await request(
             puter,
             'POST',
             '/push/web/subscriptions/verify',
             {
-                subscription: body.subscription,
+                subscription: subscriptionBody(subscription),
                 challenge: await challenge.promise,
             },
         );
