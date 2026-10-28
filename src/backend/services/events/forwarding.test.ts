@@ -1647,6 +1647,21 @@ describe('presence moving in another region', () => {
     });
 });
 
+describe('isOnline', () => {
+    it('is true for a socket on this node, in this region or in a peer region', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        await register(west);
+        expect(await west.forward.isOnline(userId, null)).toBe(false);
+
+        east.rooms.add(String(userId));
+        await east.forward.noteConnect(actorFor(), 'tab-1');
+        expect(await east.forward.isOnline(userId, null)).toBe(true);
+        expect(await west.forward.isOnline(userId, null)).toBe(true);
+        expect(await west.forward.isOnline(userId, 'app-other')).toBe(false);
+    });
+});
+
 // -- Decommissioned regions --------------------------------------------
 
 describe('a row naming a region that is not a peer', () => {
