@@ -717,6 +717,12 @@ const examples = [
                 slug: 'notifications-notify',
                 source: '/playground/examples/notifications-notify.html',
             },
+            {
+                title: 'Push Notifications',
+                description: 'Turn on push notifications for a website on its own domain and send one with the Puter.js Notifications API. Run it in the playground.',
+                slug: 'notifications-push',
+                source: '/playground/examples/notifications-push.html',
+            },
         ],
     },
     {

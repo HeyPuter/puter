@@ -535,6 +535,14 @@ let sidebar = [
         path: '/Notifications',
         children: [
             {
+                title: 'Push notifications for your app',
+                page_title: 'Push notifications for your app',
+                title_tag: 'Push notifications for your app',
+                icon: '/assets/img/object.svg',
+                source: '/Notifications/push.md',
+                path: '/Notifications/push',
+            },
+            {
                 title: '<code>notify()</code>',
                 page_title: '<code>puter.notifications.notify()</code>',
                 title_tag: 'puter.notifications.notify()',
