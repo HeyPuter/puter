@@ -128,7 +128,6 @@ describe('showLocalBanner', () => {
         active = { postMessage: vi.fn() },
         pushEnabled = true,
         subscribed = true,
-        holds = true,
     } = {}) => ({
         params: { pushEnabled },
         doc: { visibilityState },
@@ -141,7 +140,6 @@ describe('showLocalBanner', () => {
                     : undefined)),
             },
         },
-        holdsPush: vi.fn(async () => holds),
         active,
     });
 
@@ -174,33 +172,11 @@ describe('showLocalBanner', () => {
         expect(off.active.postMessage).not.toHaveBeenCalled();
     });
 
-    it('shows an app`s message only when the app may push', async () => {
-        const message = (uid) => ({ type: 'app.message', title: 'Hi', app: { uid } });
-        const denied = env({ holds: false });
-        expect(await showLocalBanner({ uid: 'n1', notification: message('app-1'), appUid: 'app-1' }, {}, denied)).toBe(false);
-        expect(denied.holdsPush).toHaveBeenCalledWith('app-1');
-        const allowed = env();
-        expect(await showLocalBanner({ uid: 'n1', notification: message('app-2'), appUid: 'app-2' }, {}, allowed)).toBe(true);
-    });
-
-    it('asks once a minute whether an app may push', async () => {
-        vi.useFakeTimers({ toFake: ['Date'] });
-        try {
-            vi.setSystemTime(1_000);
-            const e = env();
-            const message = { type: 'app.message', title: 'Hi', app: { uid: 'app-busy' } };
-            const show = (uid) => showLocalBanner({ uid, notification: message, appUid: 'app-busy' }, {}, e);
-            expect(await Promise.all([show('n1'), show('n2')])).toEqual([true, true]);
-            expect(await show('n3')).toBe(true);
-            expect(e.holdsPush).toHaveBeenCalledTimes(1);
-            expect(e.active.postMessage).toHaveBeenCalledTimes(3);
-
-            vi.setSystemTime(1_000 + 60 * 1000);
-            expect(await show('n4')).toBe(true);
-            expect(e.holdsPush).toHaveBeenCalledTimes(2);
-        } finally {
-            vi.useRealTimers();
-        }
+    it("hands nothing over for an app's message, even one from an app that may push", async () => {
+        const e = { ...env(), holdsPush: vi.fn(async () => true) };
+        const message = { type: 'app.message', title: 'Hi', text: 'see you', app: { uid: 'app-1', name: 'Chat' } };
+        expect(await showLocalBanner({ uid: 'n1', notification: message, appUid: 'app-1' }, {}, e)).toBe(false);
+        expect(e.active.postMessage).not.toHaveBeenCalled();
     });
 
     it('hands nothing over where push is off for the deployment', async () => {
