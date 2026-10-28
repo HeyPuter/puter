@@ -494,6 +494,63 @@ describe('PSocket write', () => {
     });
 });
 
+describe('PSocket throwing listeners', () => {
+    // Listener throws are rethrown on a 0 ms timer; capture those rather
+    // than letting them fail the run.
+    const captureRethrows = () => {
+        const rethrows = [];
+        const realSetTimeout = globalThis.setTimeout;
+        vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...args) => {
+            if ( ms === 0 ) {
+                rethrows.push(fn);
+                return 0;
+            }
+            return realSetTimeout(fn, ms, ...args);
+        });
+        return rethrows;
+    };
+
+    it('closes once when an error listener throws', async () => {
+        const rethrows = captureRethrows();
+        const stream = makeStream({ failWrite: new Error('write failed') });
+        const { socket, events } = await connected(stream);
+        const listenerError = new Error('handler bug');
+        socket.on('error', () => {
+            throw listenerError;
+        });
+
+        socket.write('doomed');
+        await until(() => expect(events.close).toHaveBeenCalled());
+
+        expect(events.error).toHaveBeenCalledTimes(1);
+        expect(events.close).toHaveBeenCalledTimes(1);
+        expect(events.close).toHaveBeenCalledWith(true);
+        expect(rethrows).toHaveLength(1);
+        expect(() => rethrows[0]()).toThrow(listenerError);
+    });
+
+    it('does not reconnect when an open listener throws', async () => {
+        const rethrows = captureRethrows();
+        const stream = makeStream();
+        mockGetEpoxyClient.mockResolvedValue(makeClient(stream));
+        mockDiscardOnRelayFailure.mockReturnValue(true);
+        const socket = new PSocket('example.com', 80);
+        const events = listen(socket);
+        socket.on('open', () => {
+            throw new Error('handler bug');
+        });
+
+        await until(() => expect(rethrows).toHaveLength(1));
+        socket.write('still works');
+        await until(() => expect(stream.written).toHaveLength(1));
+
+        expect(events.open).toHaveBeenCalledTimes(1);
+        expect(mockGetEpoxyClient).toHaveBeenCalledTimes(1);
+        expect(events.error).not.toHaveBeenCalled();
+        socket.close();
+    });
+});
+
 describe('PSocket close', () => {
     it('emits close exactly once, even when called repeatedly', async () => {
         const { socket, events } = await connected();

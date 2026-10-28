@@ -67,6 +67,7 @@ export class PSocket extends EventListener {
     #closed = false;
     #pendingWrites = [];
     #flushing = false;
+    #errored = false;
 
     /**
      * @param {string} host hostname or IP address of the server to connect to
@@ -203,7 +204,8 @@ export class PSocket extends EventListener {
 
         await this.#flushPendingWrites();
         if (this.#closed || this.#closing) return;
-        this.emit(this.#eventName('open'));
+        // A throwing handler must not read as a failed connect and retry.
+        this.#emitFromListener(this.#eventName('open'));
         void this.#readLoop();
     }
 
@@ -327,13 +329,25 @@ export class PSocket extends EventListener {
     }
 
     #emitErrorAndClose (reason) {
-        if ( this.#closed ) {
+        if ( this.#closed || this.#errored ) {
             return;
         }
 
-        this.emit('error', normalizeError(reason));
+        this.#errored = true;
         this.#closing = true;
+        this.#emitFromListener('error', normalizeError(reason));
         void this.#closeStreams(true);
+    }
+
+    // Emits on an internal path, surfacing a listener's throw on its own tick.
+    #emitFromListener (event, ...args) {
+        try {
+            this.emit(event, ...args);
+        } catch ( listenerError ) {
+            setTimeout(() => {
+                throw listenerError;
+            }, 0);
+        }
     }
 
     #emitClose (hadError) {
