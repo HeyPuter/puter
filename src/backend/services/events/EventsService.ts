@@ -278,6 +278,15 @@ export interface AckRequest {
     origin?: unknown;
 }
 
+/** Why a client handed a queued delivery back. */
+export type DeclineReason = 'no_handler' | 'failed';
+
+/** Body of the `events.nack` verb: an ack's fields, plus why. */
+export interface NackRequest extends AckRequest {
+    /** `failed` counts as a handler failure; anything else does not. */
+    reason?: unknown;
+}
+
 /** Body of `POST /events/subscribe`. */
 export interface DurableSubscribeRequest extends SubscribeRequest {
     queue?: unknown;
@@ -607,6 +616,8 @@ interface RouteLimits {
 export const EVENTS_SUBSCRIBE_VERB = 'events.subscribe';
 export const EVENTS_UNSUBSCRIBE_VERB = 'events.unsubscribe';
 export const EVENTS_ACK_VERB = 'events.ack';
+/** Client→server: hand a queued delivery back, so the worker takes it now. */
+export const EVENTS_NACK_VERB = 'events.nack';
 export const EVENTS_DELIVERY_CHANNEL = 'events.delivery';
 /** Server→client, no ack: the server ended a session subscription itself. */
 export const EVENTS_ENDED_CHANNEL = 'events.ended';
@@ -658,11 +669,11 @@ const WORKER_SESSION_SWEEP_MAX_PAGES = 2;
 // -- Owed deliveries --------------------------------------------------
 
 /**
- * Socket attempts one `single` delivery gets before its handler takes it. Two,
- * because the second is what a client that reconnected — or a second connection
- * of the same account — is worth trying; a third is just a slower hand-off.
+ * Socket attempts one queued delivery gets before the worker takes it. One: a
+ * client with no handler for it, or whose handler fails, declines it at once,
+ * and a second try would only delay the worker by another socket lease.
  */
-const SINGLE_SOCKET_ATTEMPTS = 2;
+const QUEUE_SOCKET_ATTEMPTS = 1;
 
 /** How often expired leases are reclaimed and owed deliveries retried. */
 const PENDING_SWEEP_INTERVAL_MS = 10_000;
@@ -1504,6 +1515,13 @@ export class EventsService extends PuterService {
             });
         }) as (...args: never[]) => void);
 
+        socket.on(EVENTS_NACK_VERB, ((payload: NackRequest, ack: unknown) => {
+            void this.#answer(ack, async () => {
+                await this.declineDelivery(actor, payload);
+                return {};
+            });
+        }) as (...args: never[]) => void);
+
         // Presence is per (user, app) and per region, so it is the connection
         // rather than the subscription that moves it — a client that has not
         // subscribed yet is still somewhere, and that is what a peer needs.
@@ -1566,6 +1584,19 @@ export class EventsService extends PuterService {
 
         await this.stores.pendingDelivery.settle(subId, entryId);
         if (row.suspendedAt === null) await this.#drain(row);
+    }
+
+    /** Apply a decline whose client gave it in another region. */
+    async declineRelayed(
+        holderUserId: number,
+        subId: string,
+        entryId: string,
+        reason: DeclineReason,
+    ): Promise<void> {
+        if (!this.enabled || !subId || !entryId) return;
+        const row = await this.stores.durableSubscription.getBySubId(subId);
+        if (!row || row.holderUserId !== holderUserId) return;
+        await this.#declined(row, entryId, reason);
     }
 
     async #answer<T extends object>(
@@ -2002,6 +2033,59 @@ export class EventsService extends PuterService {
      * not an error: at-least-once makes a duplicate ack routine.
      */
     async ackDelivery(actor: Actor, request: AckRequest): Promise<void> {
+        const { row, entryId, relayTo } = await this.#ackTarget(actor, request);
+        // The lease lives where the event was emitted, which is not always
+        // where the client ended up connected. Nothing about the delivery is
+        // held here to settle, so the ack goes home rather than being applied.
+        if (relayTo) {
+            this.services.eventForward.relayAck(
+                relayTo,
+                row.holderUserId,
+                row.subId,
+                entryId,
+            );
+            return;
+        }
+
+        const subId = row.subId;
+        await this.stores.pendingDelivery.settle(subId, entryId);
+        // A suspended row is not delivered to: settling what it already handed
+        // out must not be the trigger that hands out the next one.
+        if (row.suspendedAt === null) await this.#drain(row);
+    }
+
+    /**
+     * Hand back a queued delivery a client will not take. The worker gets it
+     * now rather than when the client's lease lapses. A stale decline (the
+     * entry already settled, or handed on since) is ignored like a duplicate
+     * ack.
+     */
+    async declineDelivery(actor: Actor, request: NackRequest): Promise<void> {
+        const { row, entryId, relayTo } = await this.#ackTarget(actor, request);
+        const reason: DeclineReason =
+            request?.reason === 'failed' ? 'failed' : 'no_handler';
+        if (relayTo) {
+            this.services.eventForward.relayNack(
+                relayTo,
+                row.holderUserId,
+                row.subId,
+                entryId,
+                reason,
+            );
+            return;
+        }
+        await this.#declined(row, entryId, reason);
+    }
+
+    /** The row an ack or decline names, and the region it belongs to. */
+    async #ackTarget(
+        actor: Actor,
+        request: AckRequest,
+    ): Promise<{
+        row: DurableSubscription;
+        entryId: string;
+        relayTo: string | null;
+    }> {
         if (!this.enabled) throw disabled();
         const holderUserId = actor.user?.id;
         if (holderUserId === undefined) throw disabled();
@@ -2025,20 +2109,40 @@ export class EventsService extends PuterService {
         )
             throw unknownSubscription();
 
-        // The lease lives where the event was emitted, which is not always
-        // where the client ended up connected. Nothing about the delivery is
-        // held here to settle, so the ack goes home rather than being applied.
         const origin = String(request?.origin ?? '');
         const forward = this.services.eventForward;
-        if (origin && origin !== forward.region && forward.isPeer(origin)) {
-            forward.relayAck(origin, holderUserId, subId, entryId);
+        const relayTo =
+            origin && origin !== forward.region && forward.isPeer(origin)
+                ? origin
+                : null;
+        return { row, entryId, relayTo };
+    }
+
+    /**
+     * Take a declined delivery off the client's lease. A failed handler counts
+     * like a failed worker run and waits out the backoff; a client with no
+     * handler costs nothing and the worker runs it now. A row with no worker
+     * has nothing to hand it to, so its lease is left to lapse.
+     */
+    async #declined(
+        row: DurableSubscription,
+        entryId: string,
+        reason: DeclineReason,
+    ): Promise<void> {
+        if (reason === 'no_handler' && !runsInWorker(row)) return;
+        const claimed = await this.stores.pendingDelivery.takeFromSocket(
+            row.subId,
+            entryId,
+        );
+        if (!claimed) return;
+
+        singleAttempt.add(1, { target: 'socket', result: `declined-${reason}` });
+        if (reason === 'failed') {
+            await this.#handlerFailed(row, claimed, 'retriable');
             return;
         }
-
-        await this.stores.pendingDelivery.settle(subId, entryId);
-        // A suspended row is not delivered to: settling what it already handed
-        // out must not be the trigger that hands out the next one.
-        if (row.suspendedAt === null) await this.#drain(row);
+        if (row.suspendedAt !== null) return;
+        if (await this.#runInWorker(row, claimed)) await this.#drain(row);
     }
 
     // -- Handlers ----------------------------------------------------
@@ -4891,9 +4995,10 @@ export class EventsService extends PuterService {
     }
 
     /**
-     * One attempt at one owed delivery. Sockets first and one at a time, the
-     * handler once they are spent — a client that is there answers faster than
-     * anything else, and one that is not must not stall the delivery forever.
+     * One attempt at one owed delivery. A connected client first, the worker
+     * once that client declines it or its socket lease lapses — a client that
+     * is there answers faster than anything else, and one that is not must not
+     * stall the delivery.
      *
      * Returns whether the delivery settled, which is what says the next one may
      * go out now rather than when this lease lapses.
@@ -4924,7 +5029,7 @@ export class EventsService extends PuterService {
         // entry forever even after it reappears.
         if (
             !hasWorkerFallback &&
-            claimed.socketAttempts >= SINGLE_SOCKET_ATTEMPTS &&
+            claimed.socketAttempts >= QUEUE_SOCKET_ATTEMPTS &&
             heldHere
         ) {
             await this.stores.pendingDelivery.resetSocketAttempts(
@@ -4934,13 +5039,12 @@ export class EventsService extends PuterService {
             claimed = { ...claimed, socketAttempts: 0, triedRegions: [] };
         }
 
-        // Candidates in order: this region's own connection, then the regions
-        // presence names, most recently connected first. The attempt counter
-        // spans them, so two attempts is two candidates however they are split.
-        const socketsLeft = claimed.socketAttempts < SINGLE_SOCKET_ATTEMPTS;
+        // This region's own connection first, otherwise the region presence
+        // names, most recently connected first.
+        const socketsLeft = claimed.socketAttempts < QUEUE_SOCKET_ATTEMPTS;
         const here = socketsLeft && heldHere;
         const region =
-            socketsLeft && !(here && claimed.socketAttempts === 0)
+            socketsLeft && !here
                 ? await this.services.eventForward.candidateRegion(
                       row.holderUserId,
                       row.appUid,
@@ -4949,7 +5053,7 @@ export class EventsService extends PuterService {
                 : null;
 
         if (here || region) {
-            await this.stores.pendingDelivery.recordSocketAttempt(
+            await this.stores.pendingDelivery.leaseToSocket(
                 row.subId,
                 claimed.entryId,
             );
@@ -4997,6 +5101,18 @@ export class EventsService extends PuterService {
             return false;
         }
 
+        return this.#runInWorker(row, claimed);
+    }
+
+    /**
+     * Run one claimed delivery in the events worker. Returns whether it
+     * settled, which is what says the next one may go out now.
+     */
+    async #runInWorker(
+        row: DispatchSubscription,
+        claimed: ClaimedDelivery,
+    ): Promise<boolean> {
+        const meter = meterFor(row);
         const invocation = this.#workerInvocation(
             row,
             claimed.event,

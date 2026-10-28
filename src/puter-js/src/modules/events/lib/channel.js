@@ -35,11 +35,12 @@ const subscribePayload = (sub) => ({
     ...(sub.includeValue ? { includeValue: true } : {}),
 });
 
-// The wire, fixed by the server: three verbs answered with an ack, one channel
+// The wire, fixed by the server: four verbs answered with an ack, one channel
 // events arrive on.
 const SUBSCRIBE_VERB = 'events.subscribe';
 const UNSUBSCRIBE_VERB = 'events.unsubscribe';
 const ACK_VERB = 'events.ack';
+const NACK_VERB = 'events.nack';
 const DELIVERY_CHANNEL = 'events.delivery';
 const ENDED_CHANNEL = 'events.ended';
 
@@ -501,7 +502,7 @@ export class EventChannel {
 
     /**
      * @internal
-     * @param {{ subId?: string, event?: unknown, ackRequired?: boolean, ackId?: string, skipHandler?: boolean }} envelope
+     * @param {{ subId?: string, event?: unknown, ackRequired?: boolean, ackId?: string, origin?: string, skipHandler?: boolean }} envelope
      * @returns {void}
      */
     route (envelope) {
@@ -516,9 +517,15 @@ export class EventChannel {
             return;
         }
         const registered = this.durable.get(subId);
-        // An event for something this client has already unsubscribed from:
-        // in flight when `off()` was called, and no longer anybody's.
-        if ( registered ) this.runDurable(registered, envelope);
+        if ( registered ) {
+            this.runDurable(registered, envelope);
+            return;
+        }
+        // A queued delivery this client has no handler for goes back at once,
+        // so the events worker takes it instead of waiting out the lease.
+        if ( envelope.ackRequired && typeof envelope.ackId === 'string' ) {
+            this.nack(subId, envelope.ackId, envelope.origin, 'no_handler');
+        }
     }
 
     /**
@@ -546,7 +553,7 @@ export class EventChannel {
      * app's events worker, so one body runs unchanged in either place. A
      * delivery owed to exactly one consumer carries `ack`: calling it settles
      * the delivery, resolving without calling it settles it anyway, and
-     * throwing settles nothing — the lease lapses and it is delivered again.
+     * throwing hands it back to the server as failed.
      *
      * @internal
      * @param {DurableRegistration} registration
@@ -585,6 +592,16 @@ export class EventChannel {
         settleHandler(
             () => registration.handler({ ...delivery, ack }),
             () => ack(),
+            () => {
+                if ( acked ) return;
+                acked = true;
+                this.nack(
+                    registration.subId,
+                    /** @type {string} */ (envelope.ackId),
+                    envelope.origin,
+                    'failed',
+                );
+            },
         );
     }
 
@@ -610,6 +627,30 @@ export class EventChannel {
             );
         } catch (error) {
             console.warn('[puter.events] could not acknowledge a delivery', error);
+        }
+    }
+
+    /**
+     * Hand a queued delivery back so the server gives it to the events worker
+     * now. Best effort: a lost decline costs only the wait for the lease.
+     *
+     * @internal
+     * @param {string} subId
+     * @param {string} ackId
+     * @param {string} [origin] Echoed back untouched, as for `ack`.
+     * @param {'no_handler' | 'failed'} reason `failed` counts as a handler
+     *   failure; `no_handler` does not.
+     * @returns {Promise<void>}
+     */
+    async nack (subId, ackId, origin, reason) {
+        try {
+            await this.request(
+                NACK_VERB,
+                { subId, id: ackId, reason, ...(origin ? { origin } : {}) },
+                DEFAULT_TIMEOUT_MS,
+            );
+        } catch (error) {
+            console.warn('[puter.events] could not decline a delivery', error);
         }
     }
 
@@ -734,24 +775,26 @@ const timeoutFor = (sub) =>
 /**
  * Run a handler and, if it finishes without throwing, do whatever the delivery
  * still needs. A handler that throws is the app's bug: it is reported, and
- * nothing is settled on its behalf.
+ * `onFailed` hands the delivery back.
  *
  * @param {() => unknown} run
  * @param {() => unknown} [onResolved]
+ * @param {() => unknown} [onFailed]
  * @returns {void}
  */
-const settleHandler = (run, onResolved) => {
+const settleHandler = (run, onResolved, onFailed) => {
+    const failed = error => {
+        console.error('[puter.events] subscription handler failed', error);
+        onFailed?.();
+    };
     try {
         const result = run();
         if ( result instanceof Promise ) {
-            result.then(
-                () => onResolved?.(),
-                error => console.error('[puter.events] subscription handler failed', error),
-            );
+            result.then(() => onResolved?.(), failed);
             return;
         }
         onResolved?.();
     } catch (error) {
-        console.error('[puter.events] subscription handler failed', error);
+        failed(error);
     }
 };

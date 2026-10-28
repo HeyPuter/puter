@@ -23,6 +23,7 @@ import {
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_REGION_PENDING_CEILING,
     EVENTS_SINGLE_DELIVERY_LIMIT,
+    EVENTS_SOCKET_LEASE_MS,
     EVENTS_WORKER_INVOCATION_LIMIT,
     deliveryBackoffMs,
 } from '../../controllers/events/limits.js';
@@ -274,6 +275,7 @@ beforeEach(async () => {
                 fanOut: async () => undefined,
                 handOff: () => undefined,
                 relayAck: () => undefined,
+                relayNack: () => undefined,
                 announceWatch: () => undefined,
                 forwardEvent: () => undefined,
                 announceGeneration: () => undefined,
@@ -398,32 +400,47 @@ describe('a delivery owed to exactly one consumer', () => {
         expect(sent[1].event.id).not.toBe(sent[0].event.id);
     });
 
-    it('tries the socket twice, then hands it to the handler', async () => {
+    it('tries the socket once, then hands it to the handler', async () => {
         const row = await register();
         await dispatch();
         expect(sent).toHaveLength(1);
 
-        // First lease lapses with no ack: a second socket attempt, which is
-        // what a reconnected client is worth.
-        jump(61_000);
+        // Still within the socket lease: nothing moves.
+        jump(EVENTS_SOCKET_LEASE_MS - 1_000);
         await service.sweepPending();
-        expect(sent).toHaveLength(2);
         expect(invoked).toEqual([]);
 
-        // Second lapses too. Sockets are spent, so the handler takes it.
+        // The client never answered. Its one attempt is spent, so the handler
+        // takes it.
         workerOutcome = 'settled';
-        jump(61_000);
+        jump(2_000);
         await service.sweepPending();
-        expect(sent).toHaveLength(2);
+        expect(sent).toHaveLength(1);
         expect(invoked).toHaveLength(1);
         expect(invoked[0]).toMatchObject({
             subId: row.subId,
             handlerName: 'onWrite',
             holderUserId: userId,
         });
-        // Three attempts at the one event it was never acked for — not three
+        // Two attempts at the one event it was never acked for — not two
         // bills. A retry after a lease expiry is not a new delivery.
         expect(metered).toHaveLength(1);
+    });
+
+    it('holds the worker to its own, longer lease', async () => {
+        socketConnected = false;
+        await register();
+        await dispatch();
+        expect(invoked).toHaveLength(1);
+
+        // Past a socket lease, but not the worker's: no second run yet.
+        jump(EVENTS_SOCKET_LEASE_MS + 1_000);
+        await service.sweepPending();
+        expect(invoked).toHaveLength(1);
+
+        jump(61_000);
+        await service.sweepPending();
+        expect(invoked).toHaveLength(2);
     });
 
     it('bills a retried delivery once, however many attempts an outage costs', async () => {
@@ -480,8 +497,8 @@ describe('a delivery owed to exactly one consumer', () => {
         await dispatch();
         expect(sent).toHaveLength(1);
 
-        // A second attempt while still connected spends the whole budget —
-        // there is no worker to fall back to on this row.
+        // Still connected once the lease lapses: with no worker to fall back
+        // to, the client gets another attempt.
         jump(61_000);
         await service.sweepPending();
         expect(sent).toHaveLength(2);
@@ -506,26 +523,105 @@ describe('a delivery owed to exactly one consumer', () => {
         await expect(pending.depth(row.subId)).resolves.toBe(0);
     });
 
-    it('does not skip a remote candidate when the local socket disappears between attempts', async () => {
-        const regions = ['east', 'west'];
-        candidateRegionImpl = async (_holderUserId, _appUid, tried) =>
-            regions.find((region) => !tried.includes(region)) ?? null;
+    it('offers it to a region presence names when nothing is connected here', async () => {
+        socketConnected = false;
+        candidateRegionImpl = async () => 'east';
         await register();
 
         await dispatch();
-        // The local socket takes the first attempt; no remote candidate is
-        // spent on a first attempt that had somewhere to go.
-        expect(sent).toHaveLength(1);
-        expect(candidateRegionCalls).toEqual([]);
 
-        // The local socket is gone by the next attempt.
-        socketConnected = false;
+        expect(candidateRegionCalls).toEqual([[]]);
+        expect(sent).toEqual([]);
+        expect(invoked).toEqual([]);
+    });
+
+    it('hands a delivery the client has no handler for straight to the worker', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        await dispatch();
+        expect(sent).toHaveLength(1);
+
+        await service.declineDelivery(actorFor(), {
+            subId: row.subId,
+            id: sent[0].ackId,
+            reason: 'no_handler',
+        });
+
+        expect(invoked).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+        // Not a failure: nothing ran.
+        await expect(redis.get(`ev:qf:{${row.subId}}`)).resolves.toBeNull();
+        expect(metered).toHaveLength(1);
+    });
+
+    it('counts a client handler that failed, and retries in the worker after the backoff', async () => {
+        workerOutcome = 'settled';
+        const row = await register();
+        await dispatch();
+
+        await service.declineDelivery(actorFor(), {
+            subId: row.subId,
+            id: sent[0].ackId,
+            reason: 'failed',
+        });
+
+        expect(invoked).toEqual([]);
+        await expect(redis.get(`ev:qf:{${row.subId}}`)).resolves.toBe('1');
+
+        // Held for the backoff, not offered again before it.
+        await service.sweepPending();
+        expect(invoked).toEqual([]);
+
+        jump(deliveryBackoffMs(1) + 1);
+        await service.sweepPending();
+        expect(sent).toHaveLength(1);
+        expect(invoked).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+    });
+
+    it('ignores a duplicate or stale decline', async () => {
+        workerOutcome = 'deferred';
+        const row = await register();
+        await dispatch();
+        const decline = {
+            subId: row.subId,
+            id: sent[0].ackId,
+            reason: 'no_handler',
+        };
+
+        await service.declineDelivery(actorFor(), decline);
+        await service.declineDelivery(actorFor(), decline);
+        expect(invoked).toHaveLength(1);
+
+        // The worker's lease lapses and it runs again; a decline arriving now
+        // names a lease that is no longer the client's.
         jump(61_000);
         await service.sweepPending();
+        expect(invoked).toHaveLength(2);
+        await service.declineDelivery(actorFor(), decline);
+        expect(invoked).toHaveLength(2);
 
-        // The first remote candidate, not the second — nothing was actually
-        // spent on a remote region before this.
-        expect(candidateRegionCalls).toEqual([[]]);
+        // And one for a delivery already settled changes nothing.
+        workerOutcome = 'settled';
+        jump(61_000);
+        await service.sweepPending();
+        expect(invoked).toHaveLength(3);
+        await service.declineDelivery(actorFor(), decline);
+        expect(invoked).toHaveLength(3);
+    });
+
+    it('leaves a declined delivery to its lease on a row with no worker', async () => {
+        const row = await register({ appUid: null });
+        await dispatch();
+
+        await service.declineDelivery(actorFor(), {
+            subId: row.subId,
+            id: sent[0].ackId,
+            reason: 'no_handler',
+        });
+
+        expect(invoked).toEqual([]);
+        await expect(pending.depth(row.subId)).resolves.toBe(1);
     });
 
     it('goes straight to the handler when nothing is connected', async () => {

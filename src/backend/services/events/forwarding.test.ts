@@ -1384,33 +1384,6 @@ describe('a delivery owed to exactly one consumer', () => {
         expect(eastA.invoked).toEqual([]);
     });
 
-    it('moves on to the next region when the one it tried leaves the row', async () => {
-        const west = makeRegion('west', ['east', 'south']);
-        const east = makeRegion('east', ['west', 'south']);
-        const south = makeRegion('south', ['west', 'east']);
-        east.rooms.add(String(userId));
-        south.rooms.add(String(userId));
-        await east.forward.noteConnect(actorFor(), 'tab-1');
-        await quiet(5);
-        await south.forward.noteConnect(actorFor(), 'tab-1');
-        await single(west);
-
-        await dispatch(west);
-        await arrived(south);
-
-        // South's client goes without acking, and south leaves the row.
-        south.rooms.clear();
-        await south.forward.noteDisconnect(actorFor(), 'tab-1');
-        await vi.waitFor(() => expect(rowFor().regions.south).toBeUndefined());
-
-        jump(61_000);
-        await west.events.sweepPending();
-        await arrived(east);
-
-        expect(east.sent[0]).toMatchObject({ ackRequired: true });
-        expect(west.invoked).toEqual([]);
-    });
-
     it('hands off to the most recently connected region when it holds none', async () => {
         const west = makeRegion('west', ['east', 'south']);
         const east = makeRegion('east', ['west', 'south']);
@@ -1487,6 +1460,43 @@ describe('a delivery owed to exactly one consumer', () => {
         });
     });
 
+    it('sends a decline home, and the emitting region runs the worker', async () => {
+        const west = makeRegion('west', ['east']);
+        const east = makeRegion('east', ['west']);
+        east.rooms.add(appSocketRoom(userId, APP_UID));
+        await east.forward.noteConnect(actorFor(APP_UID), 'tab-1');
+        workerOutcome = 'settled';
+        const row = await register(west, {
+            appUid: APP_UID,
+            delivery: 'single',
+            handlerName: 'onWrite',
+        });
+
+        await dispatch(west);
+        await posted(west);
+        await arrived(east);
+        expect(west.invoked).toEqual([]);
+
+        const envelope = east.sent[0];
+        await east.events.declineDelivery(actorFor(APP_UID), {
+            subId: row.subId,
+            id: envelope.ackId,
+            origin: envelope.origin,
+            reason: 'no_handler',
+        });
+
+        await vi.waitFor(() => expect(west.invoked).toHaveLength(1), {
+            timeout: 3_000,
+            interval: 20,
+        });
+        expect(east.invoked).toEqual([]);
+        expect(east.posts.at(-1)?.batch.items[0]).toMatchObject({
+            kind: 'nack',
+            subId: row.subId,
+            reason: 'no_handler',
+        });
+    });
+
     it('never settles a lease in the region the client happened to reach', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
@@ -1507,7 +1517,7 @@ describe('a delivery owed to exactly one consumer', () => {
         expect(await east.pending.depth(row.subId)).toBe(0);
     });
 
-    it('gives the handler what two socket candidates could not take', async () => {
+    it('gives the handler what the socket candidate could not take', async () => {
         const west = makeRegion('west', ['east']);
         const east = makeRegion('east', ['west']);
         east.rooms.add(appSocketRoom(userId, APP_UID));

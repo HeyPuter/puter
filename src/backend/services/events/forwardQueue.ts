@@ -53,7 +53,7 @@ export interface ForwardDelivery {
     ackId?: string;
     /** The region holding the lease, which is where the ack has to end up. */
     origin?: string;
-    /** Client skips its handler: the worker has it, or it is too deep. */
+    /** Client skips its handler: the event is past the handler-chain limit. */
     skipHandler?: true;
 }
 
@@ -63,6 +63,15 @@ export interface ForwardAck {
     userId: number;
     subId: string;
     entryId: string;
+}
+
+/** A client's decline, on its way back to the region that owns the lease. */
+export interface ForwardNack {
+    kind: 'nack';
+    userId: number;
+    subId: string;
+    entryId: string;
+    reason: 'no_handler' | 'failed';
 }
 
 /** Region R now has (or no longer has) session watchers on one anchor token. */
@@ -123,7 +132,12 @@ export interface ForwardBump {
 }
 
 export type ForwardItem =
-    ForwardDelivery | ForwardAck | ForwardWatch | ForwardEvent | ForwardBump;
+    | ForwardDelivery
+    | ForwardAck
+    | ForwardNack
+    | ForwardWatch
+    | ForwardEvent
+    | ForwardBump;
 
 /** One batch, as a peer receives it. */
 export interface ForwardBatch {
