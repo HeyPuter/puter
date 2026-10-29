@@ -127,6 +127,7 @@ describe('showLocalBanner', () => {
         permission = 'granted',
         active = { postMessage: vi.fn() },
         pushEnabled = true,
+        subscribed = true,
     } = {}) => ({
         params: { pushEnabled },
         doc: { visibilityState },
@@ -134,7 +135,9 @@ describe('showLocalBanner', () => {
         nav: {
             serviceWorker: {
                 register: vi.fn(),
-                getRegistration: vi.fn(async () => (active ? { active } : undefined)),
+                getRegistration: vi.fn(async () => (active
+                    ? { active, pushManager: { getSubscription: async () => (subscribed ? {} : null) } }
+                    : undefined)),
             },
         },
         active,
@@ -161,6 +164,19 @@ describe('showLocalBanner', () => {
         expect(replay.active.postMessage).not.toHaveBeenCalled();
 
         expect(await showLocalBanner({ uid: 'n1', notification: share }, {}, env({ active: null }))).toBe(false);
+    });
+
+    it('hands nothing over while push is off in this browser', async () => {
+        const off = env({ subscribed: false });
+        expect(await showLocalBanner({ uid: 'n1', notification: share }, {}, off)).toBe(false);
+        expect(off.active.postMessage).not.toHaveBeenCalled();
+    });
+
+    it("hands nothing over for an app's message, even one from an app that may push", async () => {
+        const e = { ...env(), holdsPush: vi.fn(async () => true) };
+        const message = { type: 'app.message', title: 'Hi', text: 'see you', app: { uid: 'app-1', name: 'Chat' } };
+        expect(await showLocalBanner({ uid: 'n1', notification: message, appUid: 'app-1' }, {}, e)).toBe(false);
+        expect(e.active.postMessage).not.toHaveBeenCalled();
     });
 
     it('hands nothing over where push is off for the deployment', async () => {
