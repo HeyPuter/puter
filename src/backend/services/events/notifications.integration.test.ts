@@ -109,7 +109,13 @@ const withServer = (config: IConfig) => {
         ).mockImplementation(async (specifier, key, data) => {
             const spec = Array.isArray(specifier) ? specifier[0] : specifier;
             state.sent.push({ room: spec.room ?? spec.socket, key, data });
-            return { responses: [], timedOut: false, sockets: 0, acking: 0 };
+            return {
+                responses: [],
+                timedOut: false,
+                sockets: 0,
+                acking: 0,
+                complete: true,
+            };
         });
         state.server.services.events.onDelivered = (envelope) => {
             state.delivered.push(envelope);
@@ -347,7 +353,13 @@ describe('notifications with the fold-in on', () => {
             const d = data as { uid: string; userId: number; outcome: string };
             if (d.userId === user.id) settled.push(d);
         };
+        const sendIds: string[] = [];
+        const onWritten = (_k: string, data: unknown) => {
+            const d = data as { userId: number; sendId: string };
+            if (d.userId === user.id) sendIds.push(d.sendId);
+        };
         state.server.clients.event.on('notif.delivery.settled', handler);
+        state.server.clients.event.on('notif.written', onWritten);
         try {
             const uid = await state.server.services.notification.notify(
                 [user.id],
@@ -355,8 +367,14 @@ describe('notifications with the fold-in on', () => {
                 { type: 'share.received' },
             );
             await waitFor(() => settled.length > 0);
+            // The send id rides through dispatch to the socket adapter.
+            expect(sendIds).toEqual([expect.any(String)]);
             expect(settled).toEqual([
-                expect.objectContaining({ uid, outcome: 'no-socket' }),
+                expect.objectContaining({
+                    uid,
+                    outcome: 'no-socket',
+                    sendId: sendIds[0],
+                }),
             ]);
 
             await waitFor(() => forwardedFor(user.id).length > 0);
@@ -366,6 +384,7 @@ describe('notifications with the fold-in on', () => {
             expect(settled).toHaveLength(1);
         } finally {
             state.server.clients.event.off?.('notif.delivery.settled', handler);
+            state.server.clients.event.off?.('notif.written', onWritten);
         }
     });
 

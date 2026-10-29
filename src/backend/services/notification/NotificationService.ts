@@ -171,6 +171,7 @@ export class NotificationService extends PuterService {
                 }
 
                 if (!opts.silent) {
+                    const sendId = uuidv4();
                     // Listeners get their own copy; the socket sends `payload`.
                     this.clients.event.emit(
                         'notif.written',
@@ -181,6 +182,7 @@ export class NotificationService extends PuterService {
                             audience: registered.audience,
                             appUid,
                             value: structuredClone(payload),
+                            sendId,
                         },
                         {},
                     );
@@ -188,6 +190,7 @@ export class NotificationService extends PuterService {
                         type: registered.type,
                         audience: registered.audience,
                         appUid,
+                        sendId,
                     });
                 }
                 return uid;
@@ -230,7 +233,8 @@ export class NotificationService extends PuterService {
             // the wire rather than through dispatch — the row was already
             // published, and republishing it under its own id is a duplicate
             // to anything deduplicating on `event.id`.
-            this.#socket().message(userId, uid, payload);
+            const sendId = uuidv4();
+            this.#socket().message(userId, uid, payload, sendId);
             this.#markDelivered(uid, userId);
             const row = await this.stores.notification.getByUid(uid, {
                 userId,
@@ -248,6 +252,7 @@ export class NotificationService extends PuterService {
                         (typeof app?.uid === 'string' ? app.uid : null),
                     value: structuredClone(payload),
                     updated: true,
+                    sendId,
                 },
                 {},
             );
@@ -278,12 +283,13 @@ export class NotificationService extends PuterService {
      * layer decides who is owed a delivery; this turns that decision into the
      * message the GUI has always listened for.
      */
-    deliverOverSocket(context: NotifEventContext): void {
+    deliverOverSocket(context: NotifEventContext, sendId?: string): void {
         if (!inAccountMailbox(context.type)) return;
         this.#socket().message(
             context.userId,
             context.uid,
             context.notification,
+            sendId,
         );
     }
 
@@ -347,12 +353,17 @@ export class NotificationService extends PuterService {
         userId: number,
         uid: string,
         payload: Record<string, unknown>,
-        scope: { type: string; audience: string; appUid: string | null },
+        scope: {
+            type: string;
+            audience: string;
+            appUid: string | null;
+            sendId: string;
+        },
     ): Promise<void> {
         const desktop = inAccountMailbox(scope.type);
         if (!notificationsFoldInEnabled(this.config)) {
             if (!desktop) return;
-            this.#socket().message(userId, uid, payload);
+            this.#socket().message(userId, uid, payload, scope.sendId);
             this.#markDelivered(uid, userId);
             return;
         }
@@ -362,7 +373,7 @@ export class NotificationService extends PuterService {
         const user = await this.stores.user.getById(userId);
         if (!user?.uuid) {
             if (!desktop) return;
-            this.#socket().message(userId, uid, payload);
+            this.#socket().message(userId, uid, payload, scope.sendId);
             this.#markDelivered(uid, userId);
             return;
         }
@@ -382,6 +393,7 @@ export class NotificationService extends PuterService {
                 value: payload,
                 createdAt: Date.now(),
                 ...(handlerDepth > 0 ? { handlerDepth } : {}),
+                sendId: scope.sendId,
             },
             {},
         );

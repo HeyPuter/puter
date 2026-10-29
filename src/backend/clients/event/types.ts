@@ -551,6 +551,7 @@ export type EventMap = {
         createdAt: number;
         /** Events handler runs behind whatever created it. */
         handlerDepth?: number;
+        sendId?: string;
     };
     /**
      * Every non-silent write or update, only on the node that wrote it. The
@@ -566,6 +567,8 @@ export type EventMap = {
         value: Record<string, unknown>;
         /** An earlier notification rewritten in place. */
         updated?: true;
+        /** Names this one send; its `notif.delivery.settled` carries the same. */
+        sendId: string;
     };
     /**
      * One notification, addressed at whatever sockets each region holds for the
@@ -577,17 +580,21 @@ export type EventMap = {
         userId: number;
         wire: 'notif.message' | 'notif.unreads' | 'notif.ack';
         response: unknown;
+        sendId?: string;
     };
-    /**
-     * How one live `notif.message` went, on the node that sent it. `received`
-     * once a socket acknowledged it within the window, `unreceived` when none
-     * did; `ackCapable` false means no socket there acknowledges at all.
-     */
+    /** How one live `notif.message` went, on the node that sent it. */
     'notif.delivery.settled': {
+        sendId?: string;
         uid: string;
         userId: number;
+        type?: string;
         outcome: NotifDeliveryOutcome;
+        /** A socket in this region acknowledges `notif.message`. */
         ackCapable: boolean;
+        /** Socket counts covered every node here, not just this one. */
+        complete: boolean;
+        /** A peer region holds a socket for the user. */
+        peerRegions: boolean;
         responders: NotifDeliveryResponder[];
     };
 
@@ -1009,10 +1016,7 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
     ? Extract<EventKey, `${Prefix}.${string}`>
     : P & EventKey;
 
-/**
- * Where a live `notif.message` ended up: acknowledged, sent but not
- * acknowledged, no socket anywhere, or sockets only in a peer region.
- */
+/** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
     'received' | 'unreceived' | 'no-socket' | 'remote-only';
 

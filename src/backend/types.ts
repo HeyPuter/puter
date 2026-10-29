@@ -971,10 +971,7 @@ interface IConfigOptional {
      */
     notificationRetentionDays?: number;
 
-    /**
-     * How long a live notification waits for the recipient's sockets to
-     * acknowledge it before its delivery settles as unreceived. Default 5000.
-     */
+    /** Ms a live notification waits for sockets to acknowledge it; 5000. */
     notificationAckTimeoutMs?: number;
 
     /**

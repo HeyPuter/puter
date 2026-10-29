@@ -521,7 +521,7 @@ describe('SocketService (live socket.io)', () => {
         tabB.disconnect();
     });
 
-    describe('sendWithAck', () => {
+    describe('sendWithAck where the adapter cannot count servers', () => {
         const userIdOf = async () =>
             (await server.stores.user.getByUsername(user.username))!.id;
 
@@ -558,6 +558,7 @@ describe('SocketService (live socket.io)', () => {
                 timedOut: false,
                 sockets: 2,
                 acking: 1,
+                complete: false,
             });
             // A socket that never declared it gets the event with no callback.
             expect(await plainGot).toEqual([{ n: 1 }]);
@@ -595,6 +596,7 @@ describe('SocketService (live socket.io)', () => {
                 timedOut: true,
                 sockets: 2,
                 acking: 2,
+                complete: false,
             });
             expect(await silentGot).toEqual({ n: 2 });
             await closeAll(userId, [answers, silent]);
@@ -624,6 +626,7 @@ describe('SocketService (live socket.io)', () => {
                 timedOut: false,
                 sockets: 1,
                 acking: 0,
+                complete: false,
             });
             expect(await got).toEqual({ n: 3 });
             await closeAll(userId, [other]);
@@ -642,6 +645,7 @@ describe('SocketService (live socket.io)', () => {
                 timedOut: false,
                 sockets: 0,
                 acking: 0,
+                complete: false,
             });
         });
     });
@@ -1314,5 +1318,201 @@ describe('SocketService — before attachHttpServer', () => {
         ] as unknown as ConstructorParameters<typeof SocketService>;
         const service = new SocketService(...args);
         expect(await service.getLastChangeTimestamp(1)).toBe(0);
+    });
+});
+
+describe('SocketService.sendWithAck through the cluster adapter', () => {
+    let server: PuterServer;
+    let socketService: SocketService;
+    let origin: string;
+    let user: TestUserCredentials;
+    let userId: number;
+    let adapter: {
+        serverCount: () => Promise<number>;
+        fetchSockets: (opts: unknown) => Promise<unknown[]>;
+        doPublish: (message: unknown) => Promise<string>;
+    };
+    const openSockets: ClientSocket[] = [];
+
+    const connect = (acks?: string[]): Promise<ClientSocket> =>
+        new Promise((resolve, reject) => {
+            const socket = ioClient(origin, {
+                auth: { auth_token: user.token, ...(acks ? { acks } : {}) },
+                transports: ['websocket'],
+                reconnection: false,
+            });
+            openSockets.push(socket);
+            socket.on('connect', () => resolve(socket));
+            socket.on('connect_error', reject);
+        });
+
+    beforeAll(async () => {
+        const port = await allocateEphemeralPort();
+        server = await setupTestServer({ port } as never, { listen: true });
+        socketService = server.services.socket as unknown as SocketService;
+        origin = `http://puter.localhost:${port}`;
+        user = await createTestUser(server, {
+            username: 'sock-cluster',
+            password: 'sock-cluster-password',
+        });
+        userId = (await server.stores.user.getByUsername(user.username))!.id;
+
+        // A one-node count stands in for a real cluster's, which the mock lacks.
+        const seen = new Promise<typeof adapter>((resolve) => {
+            server.clients.event.on('web.socket.connected', (_k, data) => {
+                const socket = (data as { socket: { nsp: { adapter: never } } })
+                    .socket;
+                resolve(socket.nsp.adapter);
+            });
+        });
+        const first = await connect();
+        adapter = await seen;
+        vi.spyOn(adapter, 'serverCount').mockResolvedValue(1);
+        // Other test servers share the mock's channels and would answer too.
+        vi.spyOn(adapter, 'doPublish').mockResolvedValue('');
+        first.disconnect();
+        await vi.waitFor(() =>
+            expect(socketService.has({ room: userId })).toBe(false),
+        );
+    }, 60_000);
+
+    afterEach(async () => {
+        vi.mocked(adapter.fetchSockets).mockRestore?.();
+        for (const socket of openSockets.splice(0)) socket.disconnect();
+        await vi.waitFor(() =>
+            expect(socketService.has({ room: userId })).toBe(false),
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    }, 60_000);
+
+    it('counts every node and returns as soon as each acking socket answered', async () => {
+        const tab = await connect(['demo.ack']);
+        tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+            ack('seen'),
+        );
+
+        const started = Date.now();
+        const sent = await socketService.sendWithAck(
+            { room: userId },
+            'demo.ack',
+            { n: 1 },
+            { timeoutMs: 5_000 },
+        );
+
+        expect(Date.now() - started).toBeLessThan(2_000);
+        expect(sent).toEqual({
+            responses: ['seen'],
+            timedOut: false,
+            sockets: 1,
+            acking: 1,
+            complete: true,
+        });
+    });
+
+    it('delivers before the socket listing finishes', async () => {
+        const tab = await connect(['demo.ack']);
+        let release: (sockets: unknown[]) => void = () => {};
+        vi.spyOn(adapter, 'fetchSockets').mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    release = resolve;
+                }),
+        );
+        const got = new Promise<unknown>((resolve) =>
+            tab.once('demo.ack', (d: unknown, ack: (r: unknown) => void) => {
+                ack('seen');
+                resolve(d);
+            }),
+        );
+
+        const sent = socketService.sendWithAck(
+            { room: userId },
+            'demo.ack',
+            { n: 2 },
+            { timeoutMs: 5_000 },
+        );
+
+        await expect(got).resolves.toEqual({ n: 2 });
+        release([]);
+        await expect(sent).resolves.toMatchObject({ responses: ['seen'] });
+    });
+
+    it('says the count is this node only when the listing fails, once a minute', async () => {
+        const tab = await connect(['demo.ack']);
+        tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+            ack('seen'),
+        );
+        vi.spyOn(adapter, 'fetchSockets').mockRejectedValue(
+            new Error('timeout reached'),
+        );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        for (let i = 0; i < 2; i++) {
+            expect(
+                await socketService.sendWithAck(
+                    { room: userId },
+                    'demo.ack',
+                    {},
+                    { timeoutMs: 2_000 },
+                ),
+            ).toEqual({
+                responses: ['seen'],
+                timedOut: false,
+                sockets: 1,
+                acking: 1,
+                complete: false,
+            });
+        }
+        expect(
+            warn.mock.calls.filter((c) => String(c[0]).includes('listing')),
+        ).toHaveLength(1);
+        warn.mockRestore();
+    });
+
+    it('keeps the acks it got when a socket that never acks is in the room', async () => {
+        const tab = await connect(['demo.ack']);
+        tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+            ack('seen'),
+        );
+        const old = await connect();
+        const oldGot = new Promise<unknown>((resolve) =>
+            old.once('demo.ack', resolve),
+        );
+
+        const sent = await socketService.sendWithAck(
+            { room: userId },
+            'demo.ack',
+            { n: 3 },
+            { timeoutMs: 300 },
+        );
+
+        expect(sent).toEqual({
+            responses: ['seen'],
+            timedOut: true,
+            sockets: 2,
+            acking: 1,
+            complete: true,
+        });
+        await expect(oldGot).resolves.toEqual({ n: 3 });
+    });
+
+    it('reports an empty room as complete', async () => {
+        expect(
+            await socketService.sendWithAck(
+                { room: 'nobody-here' },
+                'demo.ack',
+                {},
+                { timeoutMs: 1_000 },
+            ),
+        ).toEqual({
+            responses: [],
+            timedOut: false,
+            sockets: 0,
+            acking: 0,
+            complete: true,
+        });
     });
 });

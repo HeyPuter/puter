@@ -218,10 +218,18 @@ export interface AckedSend {
     sockets: number;
     /** Of those, the ones that acknowledge this event. */
     acking: number;
+    /** The counts cover every node; false when only this node's were seen. */
+    complete: boolean;
 }
 
 /** A listing that waits on another node longer than this counts this node only. */
 const SOCKET_LIST_TIMEOUT_MS = 1_000;
+const LIST_WARN_INTERVAL_MS = 60_000;
+
+interface ListedSocket {
+    id: string;
+    data: unknown;
+}
 const MAX_HANDSHAKE_ACKS = 16;
 const MAX_ACK_EVENT_LENGTH = 64;
 
@@ -242,6 +250,11 @@ const acksEvent = (data: unknown, key: string): boolean => {
     const acks = (data as { acks?: unknown } | undefined)?.acks;
     return Array.isArray(acks) && acks.includes(key);
 };
+
+const countAcking = (sockets: ListedSocket[], key: string) => ({
+    sockets: sockets.length,
+    acking: sockets.filter((socket) => acksEvent(socket.data, key)).length,
+});
 
 interface UploadProgressPayload {
     upload_tracker: UploadProgressTrackerLike;
@@ -285,6 +298,8 @@ export class SocketService extends PuterService {
     #reauthTimer: ReturnType<typeof setInterval> | null = null;
     /** The sweep running now, so a slow one is joined instead of stacked. */
     #reauthSweep: Promise<void> | null = null;
+    #countsServers: Promise<boolean> | null = null;
+    #lastListWarn = -Infinity;
 
     // -- Lifecycle ---------------------------------------------------
 
@@ -377,12 +392,7 @@ export class SocketService extends PuterService {
         }
     }
 
-    /**
-     * Send an event and wait up to `timeoutMs` for the sockets that declared
-     * they acknowledge it (`handshake.auth.acks`); the rest get a plain emit.
-     * Covers every node in the cluster, or this node alone when the adapter
-     * can't list the others.
-     */
+    /** Sends at once; acks are awaited from sockets listing it in `auth.acks`. */
     async sendWithAck(
         specifiers: SocketSpecifier | SocketSpecifier[],
         key: string,
@@ -394,6 +404,7 @@ export class SocketService extends PuterService {
             timedOut: false,
             sockets: 0,
             acking: 0,
+            complete: false,
         };
         const io = this.#io;
         if (!io) return none;
@@ -408,70 +419,109 @@ export class SocketService extends PuterService {
         );
         if (targets.length === 0) return none;
 
-        const { sockets, clustered } = await this.#listSockets(targets);
+        if (!(await this.#adapterCountsServers())) {
+            return this.#sendWithAckHere(targets, key, data, timeoutMs);
+        }
+        const heard = new Promise<Pick<AckedSend, 'responses' | 'timedOut'>>(
+            (resolve) => {
+                io.to(targets)
+                    .timeout(timeoutMs)
+                    .emit(
+                        key,
+                        data,
+                        (err: Error | null, responses: unknown[]) => {
+                            resolve({
+                                responses: responses ?? [],
+                                timedOut: !!err,
+                            });
+                        },
+                    );
+            },
+        );
+        const [listed, acks] = await Promise.all([
+            this.#listSockets(targets),
+            heard,
+        ]);
+        return {
+            ...acks,
+            ...countAcking(listed.sockets, key),
+            complete: listed.complete,
+        };
+    }
+
+    /** Whether the adapter can reach the cluster's other nodes for acks. */
+    #adapterCountsServers(): Promise<boolean> {
+        this.#countsServers ??= Promise.resolve()
+            .then(() => this.#io!.of('/').adapter.serverCount())
+            .then(
+                () => true,
+                () => {
+                    console.warn(
+                        '[socket] adapter cannot count servers; acks cover this node only',
+                    );
+                    return false;
+                },
+            );
+        return this.#countsServers;
+    }
+
+    async #listSockets(
+        targets: string[],
+    ): Promise<{ sockets: ListedSocket[]; complete: boolean }> {
+        const io = this.#io!;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const sockets = await Promise.race([
+                io.in(targets).timeout(SOCKET_LIST_TIMEOUT_MS).fetchSockets(),
+                new Promise<never>((_resolve, reject) => {
+                    timer = setTimeout(
+                        () => reject(new Error('socket listing timed out')),
+                        SOCKET_LIST_TIMEOUT_MS,
+                    );
+                }),
+            ]);
+            return { sockets, complete: true };
+        } catch (err) {
+            const now = Date.now();
+            if (now - this.#lastListWarn >= LIST_WARN_INTERVAL_MS) {
+                this.#lastListWarn = now;
+                console.warn('[socket] cluster socket listing failed', err);
+            }
+            return { sockets: this.#localSockets(targets), complete: false };
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    #localSockets(targets: string[]): ListedSocket[] {
+        const io = this.#io!;
+        const ids = new Set<string>();
+        for (const target of targets) {
+            io.sockets.adapter.rooms.get(target)?.forEach((id) => {
+                ids.add(id);
+            });
+        }
+        return [...ids].flatMap((id) => {
+            const socket = io.sockets.sockets.get(id);
+            return socket ? [{ id, data: socket.data as unknown }] : [];
+        });
+    }
+
+    async #sendWithAckHere(
+        targets: string[],
+        key: string,
+        data: unknown,
+        timeoutMs: number,
+    ): Promise<AckedSend> {
+        const io = this.#io!;
+        const sockets = this.#localSockets(targets);
         const acking = sockets
             .filter((socket) => acksEvent(socket.data, key))
             .map((socket) => socket.id);
         io.to(targets).except(acking).emit(key, data);
-        if (acking.length === 0) return { ...none, sockets: sockets.length };
-
-        const heard = clustered
-            ? await this.#broadcastWithAck(acking, key, data, timeoutMs)
-            : await this.#emitWithAckHere(acking, key, data, timeoutMs);
-        return { ...heard, sockets: sockets.length, acking: acking.length };
-    }
-
-    /** `fetchSockets` needs the adapter's server count, which a mock lacks. */
-    async #listSockets(targets: string[]): Promise<{
-        sockets: { id: string; data: unknown }[];
-        clustered: boolean;
-    }> {
-        const io = this.#io!;
-        try {
-            const sockets = await io
-                .in(targets)
-                .timeout(SOCKET_LIST_TIMEOUT_MS)
-                .fetchSockets();
-            return { sockets, clustered: true };
-        } catch {
-            const ids = new Set<string>();
-            for (const target of targets) {
-                io.sockets.adapter.rooms.get(target)?.forEach((id) => {
-                    ids.add(id);
-                });
-            }
-            const sockets = [...ids].flatMap((id) => {
-                const socket = io.sockets.sockets.get(id);
-                return socket ? [{ id, data: socket.data as unknown }] : [];
-            });
-            return { sockets, clustered: false };
-        }
-    }
-
-    #broadcastWithAck(
-        ids: string[],
-        key: string,
-        data: unknown,
-        timeoutMs: number,
-    ): Promise<Pick<AckedSend, 'responses' | 'timedOut'>> {
-        return new Promise((resolve) => {
-            this.#io!.to(ids)
-                .timeout(timeoutMs)
-                .emit(key, data, (err: Error | null, responses: unknown[]) => {
-                    resolve({ responses: responses ?? [], timedOut: !!err });
-                });
-        });
-    }
-
-    async #emitWithAckHere(
-        ids: string[],
-        key: string,
-        data: unknown,
-        timeoutMs: number,
-    ): Promise<Pick<AckedSend, 'responses' | 'timedOut'>> {
         const heard = await Promise.all(
-            ids.map(async (id) => {
-                const socket = this.#io!.sockets.sockets.get(id);
+            acking.map(async (id) => {
+                const socket = io.sockets.sockets.get(id);
                 if (!socket) return { ok: false as const };
                 try {
                     const response: unknown = await socket
@@ -486,6 +536,9 @@ export class SocketService extends PuterService {
         return {
             responses: heard.flatMap((h) => (h.ok ? [h.response] : [])),
             timedOut: heard.some((h) => !h.ok),
+            sockets: sockets.length,
+            acking: acking.length,
+            complete: false,
         };
     }
 
@@ -890,13 +943,12 @@ export class SocketService extends PuterService {
      *
      * Every connection for the account goes, not just the revoked session's —
      * which is what the account room is for, since an app socket is not in the
-     * user room. Narrowing would mean matching each socket to its session via
-     * `fetchSockets`, which the adapter implements on top of `serverCount()` —
-     * and that path is unavailable with our Redis client. Dropping the room is
-     * the safe direction — a client does not reconnect by itself after a
-     * server-side disconnect, so one that wants to stay connected opens a new
-     * connection, and that handshake re-authenticates: only the revoked session
-     * is refused.
+     * user room. Narrowing would mean matching each socket to its session via a
+     * cluster-wide `fetchSockets` round trip. Dropping the room is the safe
+     * direction — a client does not reconnect by itself after a server-side
+     * disconnect, so one that wants to stay connected opens a new connection,
+     * and that handshake re-authenticates: only the revoked session is
+     * refused.
      */
     async #evictUserSockets(userId: number): Promise<void> {
         const io = this.#io;

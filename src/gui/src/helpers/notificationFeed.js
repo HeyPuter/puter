@@ -40,13 +40,7 @@ export const NOTIFICATION_SOCKET_ACKS = Object.freeze(['notif.message']);
 
 const acknowledged = new WeakSet();
 
-/**
- * Answer a live `notif.message`'s acknowledgement callback with whether the
- * page is in view. Every listener gets the same callback, so this answers once.
- *
- * @param {unknown} ack - The callback socket.io passes, when the server asked for one
- * @param {{ visibilityState?: string }} [doc]
- */
+/** Acks a live `notif.message` once, saying whether the page is in view. */
 export const acknowledgeDelivery = (ack, doc = globalThis.document) => {
     if ( typeof ack !== 'function' || acknowledged.has(ack) ) return;
     acknowledged.add(ack);

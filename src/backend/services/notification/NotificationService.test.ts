@@ -365,6 +365,7 @@ describe("NotificationService — 'notif.written'", () => {
             audience: 'app-user',
             appUid,
             value: { title: 'ended', type: 'app.events.ended' },
+            sendId: expect.any(String),
         }));
         expect(written.seen).toEqual(expect.arrayContaining(expected));
         written.stop();
@@ -410,6 +411,7 @@ describe("NotificationService — 'notif.written'", () => {
             appUid: null,
             value: { title: 'two shares', type: 'share.received' },
             updated: true,
+            sendId: expect.any(String),
         });
         written.stop();
     });

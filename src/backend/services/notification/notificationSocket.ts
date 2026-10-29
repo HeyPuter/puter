@@ -45,23 +45,24 @@ import type { IConfig } from '../../types.js';
  * advertised (`gui_params.eventsNotifications`) and falls back to this wire
  * when that lapses, so the adapter is what keeps older clients and the fallback
  * working. It goes when the flag is on everywhere.
- *
- * Either way, the emitting region sends `notif.message` itself, asking sockets
- * that acknowledge it for a receipt, and reports the result as the node-local
- * `notif.delivery.settled`.
  */
 
 export type NotifWire = 'notif.message' | 'notif.unreads' | 'notif.ack';
 
 export const NOTIF_DELIVERY_EVENT = 'outer.notif.delivery';
 
-/** How long a delivered `notif.message` waits for receipts by default. */
+/** Default receipt window for a delivered `notif.message`. */
 export const DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS = 5_000;
 
 interface MessageResponse {
     uid: string;
     notification: unknown;
 }
+
+const typeOf = (notification: unknown): string | undefined => {
+    const type = (notification as { type?: unknown } | null)?.type;
+    return typeof type === 'string' ? type : undefined;
+};
 
 /** One unread as the replay payload carries it. */
 export interface UnreadNotification {
@@ -87,14 +88,14 @@ export const notificationAckTimeoutMs = (config: IConfig): number => {
         : DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS;
 };
 
-const deliveryOutcome = async (
+/** An incomplete count never reads as nobody being here. */
+const deliveryOutcome = (
     sent: AckedSend,
-    heldInPeerRegion: () => Promise<boolean>,
-): Promise<NotifDeliveryOutcome> => {
-    if (sent.sockets === 0) {
-        return (await heldInPeerRegion()) ? 'remote-only' : 'no-socket';
-    }
-    return sent.responses.length > 0 ? 'received' : 'unreceived';
+    peerRegions: boolean,
+): NotifDeliveryOutcome => {
+    if (sent.responses.length > 0) return 'received';
+    if (sent.sockets > 0 || !sent.complete) return 'unreceived';
+    return peerRegions ? 'remote-only' : 'no-socket';
 };
 
 const responderOf = (response: unknown): NotifDeliveryResponder => {
@@ -122,16 +123,16 @@ export class NotificationSocketAdapter {
         this.#deps = deps;
     }
 
-    /**
-     * Start delivering what the events layer dispatches. Both the region that
-     * emitted and the peers that received it land here exactly once; only the
-     * emitting region waits on receipts for a `notif.message`.
-     */
+    /** Only the emitting region waits on receipts for a `notif.message`. */
     attach(): void {
         this.#deps.event.on(NOTIF_DELIVERY_EVENT, (_key, data, meta) => {
-            const { userId, wire, response } = data;
+            const { userId, wire, response, sendId } = data;
             if (wire === 'notif.message' && !meta?.from_outside) {
-                this.#deliverMessage(userId, response as MessageResponse);
+                this.#deliverMessage(
+                    userId,
+                    response as MessageResponse,
+                    sendId,
+                );
                 return;
             }
             void this.#deps.socket
@@ -143,10 +144,17 @@ export class NotificationSocketAdapter {
     }
 
     /** One notification, in the shape `UIDesktop` has always received. */
-    message(userId: number, uid: string, notification: unknown): void {
+    message(
+        userId: number,
+        uid: string,
+        notification: unknown,
+        sendId?: string,
+    ): void {
         const response = { uid, notification };
-        if (this.#dispatched(userId, 'notif.message', response)) return;
-        this.#deliverMessage(userId, response);
+        if (this.#dispatched(userId, 'notif.message', response, sendId)) {
+            return;
+        }
+        this.#deliverMessage(userId, response, sendId);
         this.#deps.event.emit(
             'outer.gui.notif.message',
             { user_id_list: [userId], response },
@@ -181,32 +189,44 @@ export class NotificationSocketAdapter {
         return this.#deps.socket.has({ room: userId });
     }
 
-    #deliverMessage(userId: number, response: MessageResponse): void {
-        void this.#sendWithReceipt(userId, response).catch((err: unknown) => {
-            console.warn('[notification] socket send failed', err);
-        });
+    #deliverMessage(
+        userId: number,
+        response: MessageResponse,
+        sendId?: string,
+    ): void {
+        void this.#sendWithReceipt(userId, response, sendId).catch(
+            (err: unknown) => {
+                console.warn('[notification] socket send failed', err);
+            },
+        );
     }
 
     async #sendWithReceipt(
         userId: number,
         response: MessageResponse,
+        sendId?: string,
     ): Promise<void> {
-        const sent = await this.#deps.socket.sendWithAck(
-            { room: userId },
-            'notif.message',
-            response,
-            { timeoutMs: this.#deps.ackTimeoutMs() },
-        );
-        const outcome = await deliveryOutcome(sent, () =>
+        const [sent, peerRegions] = await Promise.all([
+            this.#deps.socket.sendWithAck(
+                { room: userId },
+                'notif.message',
+                response,
+                { timeoutMs: this.#deps.ackTimeoutMs() },
+            ),
             this.#deps.heldInPeerRegion(userId),
-        );
+        ]);
+        const type = typeOf(response.notification);
         this.#deps.event.emit(
             'notif.delivery.settled',
             {
+                ...(sendId ? { sendId } : {}),
                 uid: response.uid,
                 userId,
-                outcome,
+                ...(type ? { type } : {}),
+                outcome: deliveryOutcome(sent, peerRegions),
                 ackCapable: sent.acking > 0,
+                complete: sent.complete,
+                peerRegions,
                 responders: sent.responses.map(responderOf),
             },
             {},
@@ -214,11 +234,16 @@ export class NotificationSocketAdapter {
     }
 
     /** Take the events-layer route, or report that the legacy one applies. */
-    #dispatched(userId: number, wire: NotifWire, response: unknown): boolean {
+    #dispatched(
+        userId: number,
+        wire: NotifWire,
+        response: unknown,
+        sendId?: string,
+    ): boolean {
         if (!this.#deps.foldIn()) return false;
         this.#deps.event.emit(
             NOTIF_DELIVERY_EVENT,
-            { userId, wire, response },
+            { userId, wire, response, ...(sendId ? { sendId } : {}) },
             {},
         );
         return true;
