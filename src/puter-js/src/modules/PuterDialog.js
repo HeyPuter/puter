@@ -601,18 +601,35 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         }
     }
 
-    open () {
+    /**
+     * Opens `options.popupURL` now when the page has user activation.
+     * Otherwise, or when the browser returns no window anyway, shows a
+     * consent dialog whose Continue click opens it. `onLaunch` gets the popup
+     * either way.
+     *
+     * @param {Object} options - Launcher-mode options, as for the constructor.
+     * @returns {PuterDialog | null} The dialog shown, or null when the popup
+     *   opened directly.
+     */
+    static launch (options) {
         if ( hasUserActivation() ) {
-            const popup = this.#openPopup();
-            // Pinned as the expected event.source in messageListener.
-            this.authPopup = popup;
-            if ( this.options.popupURL && typeof this.options.onLaunch === 'function' ) {
-                this.options.onLaunch(popup);
+            const popup = openAuthPopup(options.popupURL, options.popupName);
+            // Safari can report activation after awaited work and still
+            // refuse the popup, and iOS home-screen apps return null here.
+            if ( popup ) {
+                options.onLaunch?.(popup);
+                return null;
             }
         }
-        else {
-            this.shadowRoot.querySelector('dialog').showModal();
+        const dialog = new PuterDialog(() => {}, () => {}, options);
+        document.body.appendChild(dialog);
+        try {
+            dialog.shadowRoot.querySelector('dialog').showModal();
+        } catch (e) {
+            dialog.remove();
+            throw e;
         }
+        return dialog;
     }
 
     close () {
