@@ -228,8 +228,12 @@ const LIST_WARN_INTERVAL_MS = 60_000;
 
 interface ListedSocket {
     id: string;
-    data: unknown;
+    rooms: Set<string>;
 }
+
+/** The room a socket that acknowledges `event` joins beside `room`. */
+export const ackRoom = (room: string, event: string): string =>
+    `${room}:acks:${event}`;
 const MAX_HANDSHAKE_ACKS = 16;
 const MAX_ACK_EVENT_LENGTH = 64;
 
@@ -245,11 +249,6 @@ export const handshakeAcks = (raw: unknown): string[] =>
               )
               .slice(0, MAX_HANDSHAKE_ACKS)
         : [];
-
-const acksEvent = (data: unknown, key: string): boolean => {
-    const acks = (data as { acks?: unknown } | undefined)?.acks;
-    return Array.isArray(acks) && acks.includes(key);
-};
 
 interface CountingAdapter {
     serverCount(): Promise<number>;
@@ -275,11 +274,6 @@ export const steadyServerCount = (
             },
         );
 };
-
-const countAcking = (sockets: ListedSocket[], key: string) => ({
-    sockets: sockets.length,
-    acking: sockets.filter((socket) => acksEvent(socket.data, key)).length,
-});
 
 interface UploadProgressPayload {
     upload_tracker: UploadProgressTrackerLike;
@@ -327,6 +321,7 @@ export class SocketService extends PuterService {
     #countProbing = false;
     #lastCountProbe = -Infinity;
     #lastCountWarn = -Infinity;
+    #countFailures = 0;
     #lastListWarn = -Infinity;
 
     // -- Lifecycle ---------------------------------------------------
@@ -451,13 +446,22 @@ export class SocketService extends PuterService {
         );
         if (targets.length === 0) return none;
 
+        const ackTargets = targets.map((target) => ackRoom(target, key));
         if (!this.#serverCountWorks) {
             this.#probeServerCount();
-            return this.#sendWithAckHere(targets, key, data, timeoutMs);
+            return this.#sendWithAckHere(
+                targets,
+                ackTargets,
+                key,
+                data,
+                timeoutMs,
+            );
         }
+        const failuresBefore = this.#countFailures;
+        io.to(targets).except(ackTargets).emit(key, data);
         const heard = new Promise<Pick<AckedSend, 'responses' | 'timedOut'>>(
             (resolve) => {
-                io.to(targets)
+                io.to(ackTargets)
                     .timeout(timeoutMs)
                     .emit(
                         key,
@@ -475,10 +479,14 @@ export class SocketService extends PuterService {
             this.#listSockets(targets),
             heard,
         ]);
+        const acking = new Set(ackTargets);
         return {
             ...acks,
-            ...countAcking(listed.sockets, key),
-            complete: listed.complete,
+            sockets: listed.sockets.length,
+            acking: listed.sockets.filter((socket) =>
+                [...socket.rooms].some((room) => acking.has(room)),
+            ).length,
+            complete: listed.complete && this.#countFailures === failuresBefore,
         };
     }
 
@@ -504,7 +512,10 @@ export class SocketService extends PuterService {
             this.#serverCountWorks = true;
             return;
         }
+        this.#countFailures++;
         const now = Date.now();
+        // Never counted (an in-memory Redis): say so once, not every minute.
+        if (!this.#serverCountWorks && this.#lastCountWarn > -Infinity) return;
         if (now - this.#lastCountWarn < LIST_WARN_INTERVAL_MS) return;
         this.#lastCountWarn = now;
         console.warn('[socket] adapter server count failed', err);
@@ -525,7 +536,10 @@ export class SocketService extends PuterService {
                     );
                 }),
             ]);
-            return { sockets, complete: true };
+            return {
+                sockets: sockets.map(({ id, rooms }) => ({ id, rooms })),
+                complete: true,
+            };
         } catch (err) {
             const now = Date.now();
             if (now - this.#lastListWarn >= LIST_WARN_INTERVAL_MS) {
@@ -548,21 +562,20 @@ export class SocketService extends PuterService {
         }
         return [...ids].flatMap((id) => {
             const socket = io.sockets.sockets.get(id);
-            return socket ? [{ id, data: socket.data as unknown }] : [];
+            return socket ? [{ id, rooms: socket.rooms }] : [];
         });
     }
 
     async #sendWithAckHere(
         targets: string[],
+        ackTargets: string[],
         key: string,
         data: unknown,
         timeoutMs: number,
     ): Promise<AckedSend> {
         const io = this.#io!;
         const sockets = this.#localSockets(targets);
-        const acking = sockets
-            .filter((socket) => acksEvent(socket.data, key))
-            .map((socket) => socket.id);
+        const acking = this.#localSockets(ackTargets).map(({ id }) => id);
         io.to(targets).except(acking).emit(key, data);
         const heard = await Promise.all(
             acking.map(async (id) => {
@@ -715,10 +728,18 @@ export class SocketService extends PuterService {
 
                 socket.actor = decision.accept;
                 socket.authToken = token;
-                socket.data.acks = handshakeAcks(handshakeAuth?.acks);
                 // user.id is numeric in the DB; stringify for room name
                 // so adapter lookups key on a stable type.
-                socket.join(socketRoomsFor(decision.accept));
+                const rooms = socketRoomsFor(decision.accept);
+                const acks = handshakeAcks(handshakeAuth?.acks);
+                socket.join([
+                    ...rooms,
+                    ...acks.flatMap((event) =>
+                        [...rooms, socket.id].map((room) =>
+                            ackRoom(room, event),
+                        ),
+                    ),
+                ]);
                 next();
             } catch (err) {
                 console.warn('[socket] auth error', err);

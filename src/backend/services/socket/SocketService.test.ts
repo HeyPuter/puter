@@ -45,6 +45,7 @@ import {
     accountSocketRoom,
     buildSocketReauthError,
     decideSocketAuth,
+    ackRoom,
     handshakeAcks,
     socketRoomsFor,
     steadyServerCount,
@@ -1557,31 +1558,99 @@ describe('SocketService.sendWithAck through the cluster adapter', () => {
         warn.mockRestore();
     });
 
-    it('keeps the acks it got when a socket that never acks is in the room', async () => {
+    it('asks only acking sockets, so one that never acks neither waits nor is asked', async () => {
         const tab = await connect(['demo.ack']);
         tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
             ack('seen'),
         );
         const old = await connect();
-        const oldGot = new Promise<unknown>((resolve) =>
-            old.once('demo.ack', resolve),
+        const oldGot = new Promise<unknown[]>((resolve) =>
+            old.once('demo.ack', (...args: unknown[]) => resolve(args)),
         );
 
+        const started = Date.now();
         const sent = await socketService.sendWithAck(
             { room: userId },
             'demo.ack',
             { n: 3 },
-            { timeoutMs: 300 },
+            { timeoutMs: 5_000 },
         );
 
+        expect(Date.now() - started).toBeLessThan(2_000);
         expect(sent).toEqual({
             responses: ['seen'],
-            timedOut: true,
+            timedOut: false,
             sockets: 2,
             acking: 1,
             complete: true,
         });
-        await expect(oldGot).resolves.toEqual({ n: 3 });
+        expect(await oldGot).toEqual([{ n: 3 }]);
+    });
+
+    it('keeps the plain copy on the ordinary broadcast and asks only the ack room', async () => {
+        await connect(['demo.split']);
+        const published = vi.mocked(adapter.doPublish);
+        published.mockClear();
+
+        await socketService.sendWithAck(
+            { room: userId },
+            'demo.split',
+            {},
+            { timeoutMs: 1_000 },
+        );
+
+        type Published = {
+            data?: {
+                requestId?: string;
+                packet?: { data?: unknown[] };
+                opts?: { rooms?: string[]; except?: string[] };
+            };
+        };
+        const ours = published.mock.calls
+            .map(([message]) => message as Published)
+            .filter((m) => m.data?.packet?.data?.[0] === 'demo.split');
+        const room = ackRoom(String(userId), 'demo.split');
+        expect(ours).toHaveLength(2);
+        expect(ours.find((m) => !m.data?.requestId)?.data?.opts).toMatchObject({
+            rooms: [String(userId)],
+            except: [room],
+        });
+        expect(ours.find((m) => m.data?.requestId)?.data?.opts).toMatchObject({
+            rooms: [room],
+        });
+    });
+
+    it('marks counts taken while a server count failed as incomplete, and warns', async () => {
+        const tab = await connect(['demo.ack']);
+        tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+            ack('seen'),
+        );
+        countSpy.mockRejectedValue(new Error('cluster node down'));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const later = Date.now() + 61_000;
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(later);
+        try {
+            const sent = await socketService.sendWithAck(
+                { room: userId },
+                'demo.ack',
+                {},
+                { timeoutMs: 2_000 },
+            );
+
+            expect(sent).toMatchObject({
+                responses: ['seen'],
+                complete: false,
+            });
+            expect(
+                warn.mock.calls.filter((c) =>
+                    String(c[0]).includes('server count failed'),
+                ),
+            ).toHaveLength(1);
+        } finally {
+            countSpy.mockResolvedValue(1);
+            warn.mockRestore();
+            clock.mockRestore();
+        }
     });
 
     it('reports an empty room as complete', async () => {
@@ -1709,5 +1778,47 @@ describe('SocketService.sendWithAck while the server count is unsettled', () => 
         await waitForClusterCounts(socketService);
         expect((await once()).complete).toBe(true);
         warn.mockRestore();
+    });
+});
+
+describe('SocketService server count warnings before any count succeeded', () => {
+    let server: PuterServer;
+    let retryMs: number;
+
+    beforeAll(async () => {
+        retryMs = SocketService.COUNT_RETRY_MS;
+        SocketService.COUNT_RETRY_MS = 0;
+        const port = await allocateEphemeralPort();
+        server = await setupTestServer({ port } as never, { listen: true });
+    }, 60_000);
+
+    afterAll(async () => {
+        SocketService.COUNT_RETRY_MS = retryMs;
+        vi.restoreAllMocks();
+        await server?.shutdown();
+    }, 60_000);
+
+    it('warns once, not every minute, while no server count has ever succeeded', async () => {
+        const socketService = server.services
+            .socket as unknown as SocketService;
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        let now = Date.now();
+        vi.spyOn(Date, 'now').mockImplementation(() => (now += 120_000));
+
+        for (let i = 0; i < 3; i++) {
+            await socketService.sendWithAck(
+                { room: 'nobody-here' },
+                'demo.ack',
+                {},
+                { timeoutMs: 1_000 },
+            );
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+
+        expect(
+            warn.mock.calls.filter((c) =>
+                String(c[0]).includes('server count failed'),
+            ),
+        ).toEqual([]);
     });
 });
