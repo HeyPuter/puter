@@ -1578,7 +1578,7 @@ export class MeteringService extends PuterService {
     }> {
         const [userSubscription, addons, totals] = await Promise.all([
             this.getActorSubscription(actor),
-            this.getActorAddons(actor),
+            this.#addonsForSettle(actor),
             this.currentMonthTotals(actor),
         ]);
 
@@ -2244,7 +2244,7 @@ export class MeteringService extends PuterService {
             : null;
     }
 
-    /** `getActorAddons`, through `#spentAddons`. */
+    /** `getActorAddons`, through `#spentAddons`. Shared by gates and settles. */
     async #addonsForSettle(actor: Actor): Promise<UsageAddons> {
         const uuid = actor.user?.uuid;
         const cached = uuid ? this.#spentAddons.get(uuid) : undefined;

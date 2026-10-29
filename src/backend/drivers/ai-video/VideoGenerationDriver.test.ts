@@ -41,7 +41,8 @@ import {
 } from 'vitest';
 
 import { v4 as uuidv4 } from 'uuid';
-import { runWithContext } from '../../core/context.js';
+import { Context, runWithContext } from '../../core/context.js';
+import { HttpError } from '../../core/http/HttpError.js';
 import { type Actor, SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
@@ -924,6 +925,29 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
         expect(meta.overwrite).toBe(true);
 
         expect(result).toBe(`data:video/mp4;base64,${videoBytes}`);
+    });
+
+    it('returns the result and flags it unsaved when write access is revoked mid-job', async () => {
+        vi.spyOn(server.services.acl, 'check').mockResolvedValueOnce(true);
+        vi.spyOn(server.services.fs, 'checkFSAccess').mockRejectedValueOnce(
+            new HttpError(403, 'Access denied', { legacyCode: 'forbidden' }),
+        );
+        const fsWriteSpy = vi.spyOn(server.services.fs, 'write');
+        const videoBytes = Buffer.from('video-bytes').toString('base64');
+        completeTogetherJob(`data:video/mp4;base64,${videoBytes}`);
+
+        const [result, metadata] = await withTestUser(async () => [
+            await driver.generate({
+                prompt: 'hi',
+                model: DEFAULT_MODEL,
+                puter_output_path: '/testuser/videos/clip.mp4',
+            } as never),
+            Context.get('driverMetadata'),
+        ]);
+
+        expect(result).toBe(`data:video/mp4;base64,${videoBytes}`);
+        expect(fsWriteSpy).not.toHaveBeenCalled();
+        expect(metadata).toEqual({ outputSaved: false });
     });
 
     it('does not forward puter_output_path to the upstream provider call', async () => {
