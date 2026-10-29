@@ -336,13 +336,16 @@ export class VideoGenerationDriver extends PuterDriver {
         });
 
         if (resolvedOutputPath) {
-            await saveGeneratedMediaToFS(
+            // False when write access was revoked while the job ran; the
+            // result still comes back.
+            const outputSaved = await saveGeneratedMediaToFS(
                 this.services.fs,
                 actor,
                 result,
                 resolvedOutputPath,
                 { noun: 'video', defaultType: 'video/mp4' },
             );
+            Context.set('driverMetadata', { outputSaved });
         }
 
         return result;

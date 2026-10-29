@@ -297,8 +297,16 @@ describe('UserAccountService', () => {
                 );
                 expect(deletes.map((e) => e.data)).toEqual(
                     expect.arrayContaining([
-                        { subdomain: site.subdomain, uid: site.uuid },
-                        { subdomain: worker.subdomain, uid: worker.uuid },
+                        {
+                            subdomain: site.subdomain,
+                            uid: site.uuid,
+                            userId: user.id,
+                        },
+                        {
+                            subdomain: worker.subdomain,
+                            uid: worker.uuid,
+                            userId: user.id,
+                        },
                     ]),
                 );
                 // Listeners keyed on the user still see the sites go first.

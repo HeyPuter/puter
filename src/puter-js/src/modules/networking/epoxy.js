@@ -76,11 +76,74 @@ export function createPuterPasswordBuilder (runtime, wispToken) {
     return new PuterPasswordExtBuilder(['', wispToken]);
 }
 
-export let initEpoxy = async ({ wispToken, wispServer }) => {
+/**
+ * The runtime's `WebSocketJsProvider`, except that each relay websocket is
+ * recorded on `transport`: `down` says whether the current one is unusable, and
+ * a `closed` transport refuses to dial again.
+ *
+ * @param {string} url
+ * @param {string | undefined} protocol
+ * @param {import('./types.js').RelayTransport} transport
+ * @returns {Promise<[ReadableStream, WritableStream]>}
+ */
+export function openRelaySocket (url, protocol, transport) {
+    if ( transport.closed ) {
+        return Promise.reject(new Error('Relay connection was closed.'));
+    }
+
+    const ws = new WebSocket(url, protocol ? [protocol] : []);
+    ws.binaryType = 'arraybuffer';
+    transport.sockets.add(ws);
+    transport.current = ws;
+
+    const markDown = () => {
+        transport.sockets.delete(ws);
+        if ( transport.current === ws ) {
+            transport.down = true;
+        }
+    };
+    ws.addEventListener('error', markDown);
+    ws.addEventListener('close', markDown);
+
+    return new Promise((resolve, reject) => {
+        ws.addEventListener('error', reject);
+        ws.addEventListener('open', () => {
+            ws.removeEventListener('error', reject);
+            if ( transport.current === ws ) {
+                transport.down = false;
+            }
+
+            const readable = new ReadableStream({
+                start (controller) {
+                    ws.addEventListener('message', ({ data }) => {
+                        controller.enqueue(typeof data === 'string' ? data : new Uint8Array(data));
+                    });
+                    ws.addEventListener('error', error => controller.error(error));
+                    ws.addEventListener('close', () => {
+                        try {
+                            controller.close();
+                        } catch {
+                            // already errored
+                        }
+                    });
+                },
+                cancel: () => ws.close(),
+            });
+            const writable = new WritableStream({
+                write: chunk => ws.send(chunk),
+                abort: () => ws.close(),
+                close: () => ws.close(),
+            });
+            resolve([readable, writable]);
+        });
+    });
+}
+
+export let initEpoxy = async ({ wispToken, wispServer, transport }) => {
     const runtime = await getEpoxyRuntime();
 
     const provider = new runtime.WispSocketProvider(
-        new runtime.WebSocketJsProvider(),
+        new runtime.JsProvider((url, protocol) => openRelaySocket(url, protocol, transport)),
         wispServer,
         () => ({
             builders: [createPuterPasswordBuilder(runtime, wispToken)],
