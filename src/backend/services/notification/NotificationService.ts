@@ -18,6 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import type { EventMap } from '../../clients/event/types.js';
 import { handlerDepthOf, type Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import type { NotifEventContext } from '../events/registry.js';
@@ -294,6 +295,22 @@ export class NotificationService extends PuterService {
     }
 
     /**
+     * Ask the app's own sockets whether the live copy of an app's notification
+     * reached a page, and settle it as `notif.delivery.settled` with `appUid`.
+     * Costs a round trip to every node, so callers ask only when the answer
+     * changes what they do. Null when asking failed.
+     */
+    appReceipt(scope: {
+        userId: number;
+        appUid: string;
+        uid: string;
+        type: string;
+        sendId?: string;
+    }): Promise<EventMap['notif.delivery.settled'] | null> {
+        return this.#socket().appReceipt(scope);
+    }
+
+    /**
      * Drop notifications past the retention window, in batches, and report how
      * many went. Deleting is all there is to it: nothing is pushed, because a
      * two-week-old row is not news, and a client listing again simply stops
@@ -328,17 +345,21 @@ export class NotificationService extends PuterService {
             socket: this.services.socket,
             foldIn: () => notificationsFoldInEnabled(this.config),
             ackTimeoutMs: () => notificationAckTimeoutMs(this.config),
-            heldInPeerRegion: (userId) => this.#heldInPeerRegion(userId),
+            heldInPeerRegion: (userId, appUid) =>
+                this.#heldInPeerRegion(userId, appUid),
         });
         return this.#adapter;
     }
 
     /** A presence read that errors counts as no peer socket. */
-    async #heldInPeerRegion(userId: number): Promise<boolean> {
+    async #heldInPeerRegion(
+        userId: number,
+        appUid: string | null,
+    ): Promise<boolean> {
         const eventForward = this.services.eventForward;
         if (!eventForward?.active) return false;
         try {
-            return (await eventForward.regionsFor(userId, null)).length > 0;
+            return (await eventForward.regionsFor(userId, appUid)).length > 0;
         } catch {
             return false;
         }

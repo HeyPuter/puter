@@ -4,6 +4,7 @@ import { disable } from './disable.js';
 import { enable } from './enable.js';
 import { enablePush } from './enablePush.js';
 import { CLICKS_STORE, idbDelete, idbGet } from './lib/pushStore.js';
+import { ReceiptLog } from './lib/receipts.js';
 import { toClick } from './lib/shapes.js';
 import { listDevices } from './listDevices.js';
 import { notify } from './notify.js';
@@ -50,6 +51,7 @@ export class NotificationsModule extends EventListener {
     #stopWaitingForAuth = null;
     /** @type {(() => Promise<void>) | null} */
     #resync = null;
+    #receipts = new ReceiptLog();
 
     /** @param {import('../../index.js').Puter} puter */
     constructor(puter) {
@@ -123,6 +125,16 @@ export class NotificationsModule extends EventListener {
             if (this.#pushHandlers.size === 0) await this.#stopPushFeed();
             return !this.#pushHandlers.has(key);
         };
+    }
+
+    /** @internal A notification feed on this page received `uid`. */
+    _noteReceived(uid) {
+        this.#receipts.note(uid);
+    }
+
+    /** @internal The server asks whether this page received a notification. */
+    _answerReceipt(data, ack) {
+        this.#receipts.answer(data, ack);
     }
 
     /** @internal Registers again when the worker reports a replaced subscription. */

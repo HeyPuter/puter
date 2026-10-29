@@ -1,5 +1,6 @@
 import { io } from 'socket.io-client';
 import { PuterJSError } from '../../../lib/PuterJSError.js';
+import { RECEIPT_EVENT } from '../../notifications/lib/receipts.js';
 import { socketAutoUnref } from '../../../lib/socketOptions.js';
 import { uuidv4 } from '../../../lib/utils.js';
 import { isRetryableError } from './retryable.js';
@@ -314,7 +315,9 @@ export class EventChannel {
         }
 
         const socket = io(this.module.APIOrigin, {
-            auth: { auth_token: this.module.authToken },
+            // Every socket of the page answers receipt asks, so one that
+            // can't is an older client.
+            auth: { auth_token: this.module.authToken, acks: [RECEIPT_EVENT] },
             autoUnref: socketAutoUnref(this.module.puter),
             transports: ['websocket', 'polling'],
             withCredentials: true,
@@ -350,6 +353,9 @@ export class EventChannel {
         });
         socket.on(DELIVERY_CHANNEL, envelope => this.route(envelope));
         socket.on(ENDED_CHANNEL, notice => this.ended(notice));
+        socket.on(RECEIPT_EVENT, (data, ack) => {
+            this.module.puter?.notifications?._answerReceipt(data, ack);
+        });
 
         this.socket = socket;
         return socket;

@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import { PuterModule } from '../../lib/PuterModule.js';
 import { socketAutoUnref } from '../../lib/socketOptions.js';
 import * as utils from '../../lib/utils.js';
+import { RECEIPT_EVENT } from '../notifications/lib/receipts.js';
 
 // Constants
 //
@@ -110,6 +111,7 @@ export class PuterJSFileSystemModule extends PuterModule {
         this.socket = io(this.APIOrigin, {
             auth: {
                 auth_token: this.authToken,
+                acks: [RECEIPT_EVENT],
             },
             // socket.io's autoUnref path expects ws._socket.unref() to exist.
             // Enable it only for Node runtimes that expose a ws-like WebSocket.
@@ -126,6 +128,10 @@ export class PuterJSFileSystemModule extends PuterModule {
     }
 
     bindSocketEvents () {
+        this.socket.on(RECEIPT_EVENT, (data, ack) => {
+            this.puter.notifications?._answerReceipt(data, ack);
+        });
+
         this.socket.on('item.renamed', (item) => {
             puter._cache.flushall();
         });

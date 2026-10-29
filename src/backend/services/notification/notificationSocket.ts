@@ -19,10 +19,16 @@
 
 import type { EventClient } from '../../clients/event/EventClient.js';
 import type {
+    EventMap,
     NotifDeliveryOutcome,
     NotifDeliveryResponder,
 } from '../../clients/event/types.js';
-import type { AckedSend, SocketService } from '../socket/SocketService.js';
+import {
+    appSocketRoom,
+    type AckedAsk,
+    type AckedSend,
+    type SocketService,
+} from '../socket/SocketService.js';
 import type { IConfig } from '../../types.js';
 
 /**
@@ -53,6 +59,12 @@ export const NOTIF_DELIVERY_EVENT = 'outer.notif.delivery';
 
 /** Default receipt window for a delivered `notif.message`. */
 export const DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS = 5_000;
+
+/**
+ * Asked of an app's own sockets with `{ uid }`. A client acknowledges once its
+ * live notification feed has received that notification.
+ */
+export const NOTIF_RECEIPT_EVENT = 'notif.receipt';
 
 interface MessageResponse {
     uid: string;
@@ -88,13 +100,43 @@ export const notificationAckTimeoutMs = (config: IConfig): number => {
         : DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS;
 };
 
+/** What a receipt heard back, from either kind of acked send. */
+interface Heard {
+    responses: unknown[];
+    /** A socket here got it. */
+    reached: boolean;
+    ackCapable: boolean;
+    everySocketAcks: boolean;
+    complete: boolean;
+}
+
+const heardFromSend = (sent: AckedSend): Heard => ({
+    responses: sent.responses,
+    reached: sent.sockets > 0,
+    ackCapable: sent.acking > 0,
+    everySocketAcks: sent.acking === sent.sockets,
+    complete: sent.complete,
+});
+
+/** An ack-capable socket either answered or let the ask time out. */
+const heardFromAsk = (asked: AckedAsk): Heard => {
+    const ackCapable = asked.responses.length > 0 || asked.timedOut;
+    return {
+        responses: asked.responses,
+        reached: ackCapable || asked.others,
+        ackCapable,
+        everySocketAcks: !asked.others,
+        complete: asked.complete,
+    };
+};
+
 /** An incomplete count never reads as nobody being here. */
 const deliveryOutcome = (
-    sent: AckedSend,
+    heard: Heard,
     peerRegions: boolean,
 ): NotifDeliveryOutcome => {
-    if (sent.responses.length > 0) return 'received';
-    if (sent.sockets > 0 || !sent.complete) return 'unreceived';
+    if (heard.responses.length > 0) return 'received';
+    if (heard.reached || !heard.complete) return 'unreceived';
     return peerRegions ? 'remote-only' : 'no-socket';
 };
 
@@ -112,8 +154,22 @@ interface AdapterDeps {
     socket: SocketService;
     foldIn: () => boolean;
     ackTimeoutMs: () => number;
-    /** Whether a peer region holds a socket for the user. */
-    heldInPeerRegion: (userId: number) => Promise<boolean>;
+    /** Whether a peer region holds a socket for the user, or for this app. */
+    heldInPeerRegion: (
+        userId: number,
+        appUid: string | null,
+    ) => Promise<boolean>;
+}
+
+type SettledDelivery = EventMap['notif.delivery.settled'];
+
+/** What a receipt settles; `appUid` names the app whose sockets were asked. */
+interface ReceiptScope {
+    userId: number;
+    uid: string;
+    type?: string;
+    sendId?: string;
+    appUid: string | null;
 }
 
 export class NotificationSocketAdapter {
@@ -184,6 +240,31 @@ export class NotificationSocketAdapter {
         );
     }
 
+    /**
+     * Asks the app's own sockets whether its live copy of `uid` reached them,
+     * and settles that like a desktop delivery, marked with `appUid`. Resolves
+     * the settle it emitted, or null when asking failed.
+     */
+    appReceipt(scope: {
+        userId: number;
+        appUid: string;
+        uid: string;
+        type: string;
+        sendId?: string;
+    }): Promise<SettledDelivery | null> {
+        const { userId, appUid, uid } = scope;
+        return this.#settle(scope, async () =>
+            heardFromAsk(
+                await this.#deps.socket.askWithAck(
+                    { room: appSocketRoom(userId, appUid) },
+                    NOTIF_RECEIPT_EVENT,
+                    { uid },
+                    { timeoutMs: this.#deps.ackTimeoutMs() },
+                ),
+            ),
+        );
+    }
+
     /** Whether this region holds a socket for the recipient right now. */
     hasSocket(userId: number): boolean {
         return this.#deps.socket.has({ room: userId });
@@ -194,44 +275,58 @@ export class NotificationSocketAdapter {
         response: MessageResponse,
         sendId?: string,
     ): void {
-        void this.#sendWithReceipt(userId, response, sendId).catch(
-            (err: unknown) => {
-                console.warn('[notification] socket send failed', err);
-            },
+        const scope: ReceiptScope = {
+            userId,
+            uid: response.uid,
+            type: typeOf(response.notification),
+            sendId,
+            appUid: null,
+        };
+        void this.#settle(scope, async () =>
+            heardFromSend(
+                await this.#deps.socket.sendWithAck(
+                    { room: userId },
+                    'notif.message',
+                    response,
+                    { timeoutMs: this.#deps.ackTimeoutMs() },
+                ),
+            ),
         );
     }
 
-    async #sendWithReceipt(
-        userId: number,
-        response: MessageResponse,
-        sendId?: string,
-    ): Promise<void> {
-        const [sent, peerRegions] = await Promise.all([
-            this.#deps.socket.sendWithAck(
-                { room: userId },
-                'notif.message',
-                response,
-                { timeoutMs: this.#deps.ackTimeoutMs() },
-            ),
-            this.#deps.heldInPeerRegion(userId),
-        ]);
-        const type = typeOf(response.notification);
-        this.#deps.event.emit(
-            'notif.delivery.settled',
-            {
+    async #settle(
+        scope: ReceiptScope,
+        hear: () => Promise<Heard>,
+    ): Promise<SettledDelivery | null> {
+        const { userId, uid, type, sendId, appUid } = scope;
+        try {
+            const [heard, peerRegions] = await Promise.all([
+                hear(),
+                this.#deps.heldInPeerRegion(userId, appUid),
+            ]);
+            const settled: SettledDelivery = {
                 ...(sendId ? { sendId } : {}),
-                uid: response.uid,
+                uid,
                 userId,
                 ...(type ? { type } : {}),
-                outcome: deliveryOutcome(sent, peerRegions),
-                ackCapable: sent.acking > 0,
-                everySocketAcks: sent.acking === sent.sockets,
-                complete: sent.complete,
+                ...(appUid ? { appUid } : {}),
+                outcome: deliveryOutcome(heard, peerRegions),
+                ackCapable: heard.ackCapable,
+                everySocketAcks: heard.everySocketAcks,
+                complete: heard.complete,
                 peerRegions,
-                responders: sent.responses.map(responderOf),
-            },
-            {},
-        );
+                responders: heard.responses.map(responderOf),
+            };
+            this.#deps.event.emit(
+                'notif.delivery.settled',
+                structuredClone(settled),
+                {},
+            );
+            return settled;
+        } catch (err) {
+            console.warn('[notification] socket send failed', err);
+            return null;
+        }
     }
 
     /** Take the events-layer route, or report that the legacy one applies. */

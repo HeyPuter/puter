@@ -222,6 +222,27 @@ export interface AckedSend {
     complete: boolean;
 }
 
+/** What one {@link SocketService.askWithAck} heard back. */
+export interface AckedAsk {
+    /** One per socket that acknowledged, as that socket sent it. */
+    responses: unknown[];
+    /** A socket that acknowledges this event did not answer in time. */
+    timedOut: boolean;
+    /** A socket in the target does not acknowledge this event. */
+    others: boolean;
+    /** Every node answered; false when only this node's sockets were asked. */
+    complete: boolean;
+}
+
+const roomsOf = (specifiers: SocketSpecifier | SocketSpecifier[]): string[] =>
+    (Array.isArray(specifiers) ? specifiers : [specifiers]).flatMap((spec) =>
+        spec.room !== undefined
+            ? [String(spec.room)]
+            : spec.socket
+              ? [spec.socket]
+              : [],
+    );
+
 /** A listing that waits on another node longer than this counts this node only. */
 const SOCKET_LIST_TIMEOUT_MS = 1_000;
 const LIST_WARN_INTERVAL_MS = 60_000;
@@ -435,15 +456,7 @@ export class SocketService extends PuterService {
         };
         const io = this.#io;
         if (!io) return none;
-        const targets = (
-            Array.isArray(specifiers) ? specifiers : [specifiers]
-        ).flatMap((spec) =>
-            spec.room !== undefined
-                ? [String(spec.room)]
-                : spec.socket
-                  ? [spec.socket]
-                  : [],
-        );
+        const targets = roomsOf(specifiers);
         if (targets.length === 0) return none;
 
         const ackTargets = targets.map((target) => ackRoom(target, key));
@@ -487,6 +500,73 @@ export class SocketService extends PuterService {
                 [...socket.rooms].some((room) => acking.has(room)),
             ).length,
             complete: listed.complete && this.#countFailures === failuresBefore,
+        };
+    }
+
+    /**
+     * {@link sendWithAck} without listing sockets across the cluster. Sockets
+     * that don't acknowledge `key` get it as an acked broadcast too, which can
+     * only time out, and that says whether any is there.
+     */
+    async askWithAck(
+        specifiers: SocketSpecifier | SocketSpecifier[],
+        key: string,
+        data: unknown,
+        { timeoutMs }: { timeoutMs: number },
+    ): Promise<AckedAsk> {
+        const io = this.#io;
+        const targets = roomsOf(specifiers);
+        if (!io || targets.length === 0) {
+            return {
+                responses: [],
+                timedOut: false,
+                others: false,
+                complete: false,
+            };
+        }
+        const ackTargets = targets.map((target) => ackRoom(target, key));
+        if (!this.#serverCountWorks) {
+            this.#probeServerCount();
+            const here = await this.#sendWithAckHere(
+                targets,
+                ackTargets,
+                key,
+                data,
+                timeoutMs,
+            );
+            return {
+                responses: here.responses,
+                timedOut: here.timedOut,
+                others: here.sockets > here.acking,
+                complete: false,
+            };
+        }
+        const failuresBefore = this.#countFailures;
+        const heard = (
+            operator: ReturnType<typeof io.to>,
+        ): Promise<{ responses: unknown[]; timedOut: boolean }> =>
+            new Promise((resolve) => {
+                operator
+                    .timeout(timeoutMs)
+                    .emit(
+                        key,
+                        data,
+                        (err: Error | null, responses: unknown[]) => {
+                            resolve({
+                                responses: responses ?? [],
+                                timedOut: !!err,
+                            });
+                        },
+                    );
+            });
+        const [acks, others] = await Promise.all([
+            heard(io.to(ackTargets)),
+            heard(io.to(targets).except(ackTargets)),
+        ]);
+        return {
+            ...acks,
+            others: others.timedOut || others.responses.length > 0,
+            complete: this.#countFailures === failuresBefore,
         };
     }
 

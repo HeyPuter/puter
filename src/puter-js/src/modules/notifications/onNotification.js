@@ -27,7 +27,9 @@ export async function onNotification(handler, options = {}) {
         );
     }
 
-    const feed = new NotificationFeed(this.puter, handler, options);
+    const feed = new NotificationFeed(this.puter, handler, options, (uid) =>
+        this._noteReceived(uid),
+    );
     await feed.start();
     return { off: () => feed.off() };
 }

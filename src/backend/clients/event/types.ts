@@ -582,14 +582,19 @@ export type EventMap = {
         response: unknown;
         sendId?: string;
     };
-    /** How one live `notif.message` went, on the node that sent it. */
+    /**
+     * How one live notification went, on the node that sent it: the desktop's
+     * `notif.message`, or with `appUid` the app's own sockets.
+     */
     'notif.delivery.settled': {
         sendId?: string;
         uid: string;
         userId: number;
         type?: string;
+        /** The app whose own sockets were asked; absent for the desktop's. */
+        appUid?: string;
         outcome: NotifDeliveryOutcome;
-        /** A socket in this region acknowledges `notif.message`. */
+        /** A socket in this region acknowledges the receipt. */
         ackCapable: boolean;
         /** No socket here declines to acknowledge, such as an older client. */
         everySocketAcks: boolean;
@@ -1022,7 +1027,7 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 export type NotifDeliveryOutcome =
     'received' | 'unreceived' | 'no-socket' | 'remote-only';
 
-/** One socket's receipt for a `notif.message`. */
+/** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {
     visibilityState: 'visible' | 'hidden' | 'unknown';
 }

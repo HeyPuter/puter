@@ -810,6 +810,100 @@ describe('onNotification', () => {
     });
 });
 
+describe('receipts', () => {
+    it('acknowledges a notification a feed already received', async () => {
+        const events = makeEvents();
+        const notifications = makeModule({ events });
+        await notifications.onNotification(() => {});
+        events.state.push(event('n-1'));
+
+        const ack = vi.fn();
+        notifications._answerReceipt({ uid: 'n-1' }, ack);
+
+        expect(ack).toHaveBeenCalledWith({ visibilityState: 'unknown' });
+    });
+
+    it('acknowledges when the notification arrives after the ask, before handlers run', async () => {
+        const events = makeEvents();
+        const notifications = makeModule({ events });
+        const order = [];
+        await notifications.onNotification(() => {
+            order.push('handler');
+            throw new Error('handler bug');
+        });
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        notifications._answerReceipt({ uid: 'n-1' }, () => order.push('ack'));
+        expect(order).toEqual([]);
+        events.state.push(event('n-1'));
+
+        expect(order).toEqual(['ack', 'handler']);
+        errors.mockRestore();
+    });
+
+    it('sends the page visibility with the acknowledgement', async () => {
+        const events = makeEvents();
+        const notifications = makeModule({ events });
+        await notifications.onNotification(() => {});
+        events.state.push(event('n-1'));
+        vi.stubGlobal('document', { visibilityState: 'hidden' });
+
+        const ack = vi.fn();
+        try {
+            notifications._answerReceipt({ uid: 'n-1' }, ack);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+
+        expect(ack).toHaveBeenCalledWith({ visibilityState: 'hidden' });
+    });
+
+    it('never acknowledges without a feed that received it', async () => {
+        vi.useFakeTimers();
+        try {
+            const events = makeEvents();
+            const notifications = makeModule({ events });
+            const ack = vi.fn();
+
+            notifications._answerReceipt({ uid: 'n-1' }, ack);
+            await notifications.onNotification(() => {});
+            events.state.push(event('n-2'));
+            events.state.push(event('n-3', {}, { type: 'kv.share.received' }));
+            notifications._answerReceipt({ uid: 'n-3' }, ack);
+            vi.advanceTimersByTime(60_000);
+            events.state.push(event('n-1'));
+
+            expect(ack).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('acknowledges nothing a stopped feed would have received', async () => {
+        const events = makeEvents();
+        const notifications = makeModule({ events });
+        const listener = await notifications.onNotification(() => {});
+        await listener.off();
+        const ack = vi.fn();
+
+        notifications._answerReceipt({ uid: 'n-1' }, ack);
+        events.state.push(event('n-1'));
+
+        expect(ack).not.toHaveBeenCalled();
+    });
+
+    it('ignores an ask without a callback or a uid', async () => {
+        const notifications = makeModule();
+        expect(() =>
+            notifications._answerReceipt({ uid: 'n-1' }),
+        ).not.toThrow();
+        const ack = vi.fn();
+        notifications._answerReceipt({}, ack);
+        notifications._answerReceipt(null, ack);
+        expect(ack).not.toHaveBeenCalled();
+    });
+});
+
 describe('requestPermission and hasPermission', () => {
     it('asks for notifications:push through puter.perms', async () => {
         const notifications = makeModule();

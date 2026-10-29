@@ -126,7 +126,18 @@ describe('connection lifetime', () => {
         await subscribed(events, 'fs:~/Documents', () => {});
         expect(sockets).toHaveLength(1);
         expect(sockets[0].url).toBe('https://api.test');
-        expect(sockets[0].options.auth).toEqual({ auth_token: 'token-1' });
+        expect(sockets[0].options.auth).toEqual({ auth_token: 'token-1', acks: ['notif.receipt'] });
+    });
+
+    it('hands receipt asks to the page\'s notifications', async () => {
+        const answer = vi.fn();
+        const events = makeModule({ notifications: { _answerReceipt: answer } });
+        await subscribed(events, 'notif:app-user', () => {});
+        const ack = vi.fn();
+
+        sockets[0].fire('notif.receipt', { uid: 'n-1' }, ack);
+
+        expect(answer).toHaveBeenCalledWith({ uid: 'n-1' }, ack);
     });
 
     it('carries several subscriptions on one socket, and closes with the last', async () => {
@@ -450,7 +461,7 @@ describe('reconnect', () => {
 
         expect(sockets).toHaveLength(2);
         expect(sockets[0].disconnected).toBe(true);
-        expect(sockets[1].options.auth).toEqual({ auth_token: 'token-2' });
+        expect(sockets[1].options.auth).toEqual({ auth_token: 'token-2', acks: ['notif.receipt'] });
     });
 
     it('off() after the connection dropped resolves without asking the server', async () => {
@@ -1191,7 +1202,7 @@ describe('signing in', () => {
         await vi.waitFor(() => expect(sockets.length).toBeGreaterThan(0));
 
         expect(events.puter.ui.authenticateWithPuter).toHaveBeenCalledTimes(1);
-        expect(sockets[0].options.auth).toEqual({ auth_token: 'token-2' });
+        expect(sockets[0].options.auth).toEqual({ auth_token: 'token-2', acks: ['notif.receipt'] });
 
         sockets[0].answer('events.subscribe', okSub('sub-1', 'fs:~/a'));
         await pending;

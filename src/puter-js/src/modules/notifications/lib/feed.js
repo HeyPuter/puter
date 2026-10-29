@@ -48,6 +48,8 @@ export class NotificationFeed {
     #catchUp;
     /** @type {number | undefined} */
     #since;
+    /** @type {(uid: string) => void} */
+    #onReceived;
 
     #seen = new Set();
     /** What was already there when a listener started without catch-up. */
@@ -69,9 +71,11 @@ export class NotificationFeed {
     /** @type {(() => unknown) | null} */
     #stopWatchingAuth = null;
 
-    constructor(puter, handler, options) {
+    /** @param {(uid: string) => void} [onReceived] Told of each live arrival. */
+    constructor(puter, handler, options, onReceived = () => {}) {
         this.#puter = puter;
         this.#handler = handler;
+        this.#onReceived = onReceived;
         this.#onError = options.onError;
         this.#catchUp = options.catchUp !== false;
         this.#since =
@@ -140,6 +144,9 @@ export class NotificationFeed {
             this.#readAfterGap();
             return;
         }
+        // Before any handler runs, so a slow or failing one still counts.
+        const uid = toNotification(event)?.uid;
+        if (uid) this.#onReceived(uid);
         if (this.#reading) {
             this.#queued.push(event);
             return;

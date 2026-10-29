@@ -4,9 +4,9 @@ description: Handle your app's notifications for one key, live while the app is 
 platforms: [websites, apps]
 ---
 
-Handles the notifications your app sends with `channel: key` in [`notify()`](/Notifications/notify/). While your app is open and connected, the handler runs in the page as each one arrives. While it isn't, Puter sends a browser push instead, and the handler runs in your site's service worker to decide what the notification shows.
+Handles the notifications your app sends with `channel: key` in [`notify()`](/Notifications/notify/). While a page of your app is open with this handler, the handler runs in the page as each one arrives, and that notification isn't pushed. When no page of your app receives a notification within 5 seconds, for example because the app is closed or the browser put the page to sleep, Puter sends a browser push instead, and the handler runs in your site's service worker to decide what the notification shows.
 
-Puter picks the route: a notification never goes both ways. The user turns pushes on once with [`enable()`](/Notifications/enable/); after that, `onPush()` keeps this browser's subscription current on every page load without asking again. Different keys share that one permission.
+Puter picks the route. A page tells Puter on its own when it receives a notification, before your handler runs. The user turns pushes on once with [`enable()`](/Notifications/enable/); after that, `onPush()` keeps this browser's subscription current on every page load without asking again. Different keys share that one permission.
 
 On a website, pushes reach your own origin, so your site has to serve a service worker that loads Puter's push script. Put this in `/puter-sw.js` at the root of your site:
 

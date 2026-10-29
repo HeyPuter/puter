@@ -4,7 +4,7 @@ description: Reach the user when your app isn't open, from a website on its own 
 platforms: [websites, apps]
 ---
 
-A push notification reaches the user when they have neither Puter nor your app open. It shows on their phone or desktop, and a tap opens your app. Your app sends it with [`notify()`](/Notifications/notify/), the same call that puts a notification in the user's Puter notifications panel. Puter decides the route. While your app is open and connected, the notification reaches the page live. While it isn't, it goes out as a push.
+A push notification reaches the user when your app isn't open to receive a notification live. It shows on their phone or desktop, and a tap opens your app. Your app sends it with [`notify()`](/Notifications/notify/), the same call that puts a notification in the user's Puter notifications panel. Puter decides the route. A page of your app that receives the notification through [`onNotification()`](/Notifications/onNotification/) or [`onPush()`](/Notifications/onPush/) tells Puter so on its own, and the notification isn't pushed. When no page of your app receives it within 5 seconds, it goes out as a push.
 
 This page is the setup. A website on its own domain needs three steps, and an app inside the Puter desktop needs one.
 
@@ -86,7 +86,7 @@ await puter.notifications.notify({
 });
 ```
 
-It works from the page and from a worker. The notification always shows in the user's Puter notifications panel. It goes out as a push only while the user has neither your app nor Puter open, and a user gets at most one push a minute from each app. The other limits are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
+It works from the page and from a worker. The notification always shows in the user's Puter notifications panel. It goes out as a push only when no page of your app received it live within 5 seconds, and a user gets at most one push a minute from each app. The other limits are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
 
 When the user taps the push, the browser opens the handler's `url` on your domain. When the user clicks the notification in the Puter panel instead, Puter opens your app and hands the `target` and `data` back through [`on('click')`](/Notifications/on/).
 
