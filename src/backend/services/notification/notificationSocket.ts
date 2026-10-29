@@ -225,6 +225,7 @@ export class NotificationSocketAdapter {
                 ...(type ? { type } : {}),
                 outcome: deliveryOutcome(sent, peerRegions),
                 ackCapable: sent.acking > 0,
+                everySocketAcks: sent.acking === sent.sockets,
                 complete: sent.complete,
                 peerRegions,
                 responders: sent.responses.map(responderOf),

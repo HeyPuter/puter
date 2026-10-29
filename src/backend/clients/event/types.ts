@@ -591,6 +591,8 @@ export type EventMap = {
         outcome: NotifDeliveryOutcome;
         /** A socket in this region acknowledges `notif.message`. */
         ackCapable: boolean;
+        /** No socket here declines to acknowledge, such as an older client. */
+        everySocketAcks: boolean;
         /** Socket counts covered every node here, not just this one. */
         complete: boolean;
         /** A peer region holds a socket for the user. */

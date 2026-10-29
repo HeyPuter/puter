@@ -225,6 +225,7 @@ describe('live notification delivery receipts', () => {
             type: 'share.received',
             outcome: 'received',
             ackCapable: true,
+            everySocketAcks: true,
             complete: true,
             peerRegions: false,
             responders: [{ visibilityState: 'hidden' }],
@@ -272,9 +273,24 @@ describe('live notification delivery receipts', () => {
         expect(await settledFor(uid)).toMatchObject({
             outcome: 'unreceived',
             ackCapable: false,
+            everySocketAcks: false,
             responders: [],
         });
         await expect(got).resolves.toMatchObject({ uid });
+    });
+
+    it('says an older tab beside an acknowledging one does not acknowledge', async () => {
+        await connect({ acks: ['notif.message'] });
+        await connect({});
+
+        const uid = await notify();
+
+        expect(await settledFor(uid)).toMatchObject({
+            outcome: 'unreceived',
+            ackCapable: true,
+            everySocketAcks: false,
+            complete: true,
+        });
     });
 
     it('settles as no-socket when the user has no connection anywhere', async () => {
