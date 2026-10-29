@@ -1,6 +1,6 @@
 import { fetchUrl } from '../../lib/networkUtils.js';
 import { promptIfUpgradeRequired } from '../../lib/upgradePrompt.js';
-import { RealtimeSession, createRealtimeSocket } from './assistant.js';
+import { RealtimeSession, createRealtimeSocket } from './convoTransport.js';
 import { RealtimeEvents } from './realtimeEvents.js';
 import { ConvoMicrophone, ConvoSpeaker } from './convoMedia.js';
 

@@ -53,7 +53,6 @@ export type {
     ConvoSessionOptions,
     ConvoPlaybackPosition,
     ConvoSpeakerOptions,
-    RealtimeConnectOptions,
     RealtimeServerEvent,
     Speech2SpeechOptions,
     Speech2TxtOptions,
@@ -69,8 +68,7 @@ export type {
     Txt2SpeechOptions,
     Txt2VidOptions,
 } from './types/modules/ai/types.js';
-export type { Assistant, Txt2Speech } from './types/modules/ai/index.js';
-export type { RealtimeSession } from './types/modules/ai/assistant.js';
+export type { Txt2Speech } from './types/modules/ai/index.js';
 
 // -- puter.apps --
 export type {

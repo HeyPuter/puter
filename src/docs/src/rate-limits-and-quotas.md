@@ -91,7 +91,7 @@ Gemini speech-to-text first counts the audio's tokens, which times out after 30 
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
-Realtime sessions ([`puter.ai.assistant.connect()`](/AI/assistant.connect/), `/puterai/openai/v1/realtime`) require a paid plan, like the other OpenAI-compatible endpoints, and are capped at 20 open at once per account. An account without a plan gets an `error` event with code `subscription_required`. A session over the cap gets `rate_limit_exceeded`. Both close with 1008.
+Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtime`) require a paid plan, like the other OpenAI-compatible endpoints, and are capped at 20 open at once per account. An account without a plan gets an `error` event with code `subscription_required`. A session over the cap gets `rate_limit_exceeded`. Both close with 1008.
 
 | Realtime transport limit | Value | Behavior at the limit |
 | --- | --- | --- |

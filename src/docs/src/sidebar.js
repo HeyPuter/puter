@@ -156,12 +156,9 @@ let sidebar = [
                 path: '/AI/convo',
             },
             {
-                title: '<code>assistant.connect()</code>',
-                page_title: '<code>puter.ai.assistant.connect()</code>',
-                title_tag: 'puter.ai.assistant.connect()',
-                icon: '/assets/img/function.svg',
-                source: '/AI/assistant.connect.md',
-                path: '/AI/assistant.connect',
+                title: 'Realtime WebSocket API (Beta)',
+                source: '/AI/realtime.md',
+                path: '/AI/realtime',
             },
             {
                 title: '<code>speech2speech()</code>',

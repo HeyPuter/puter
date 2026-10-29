@@ -1,8 +1,11 @@
 # OpenAI Realtime relay
 
 The relay serves `/puterai/openai/v1/realtime` on the API host. The SDK exposes
-it through `puter.ai.convo()` and `puter.ai.assistant.connect()`. The composable conversation
-API is specified in [CONVERSATION_API.md](CONVERSATION_API.md).
+it through [`puter.ai.convo()`](../../../docs/src/AI/convo.md).
+
+**Beta:** This API is incomplete. Its methods, options, events, and behavior may change abruptly, including breaking changes without notice.
+
+Direct clients are documented in the [Realtime WebSocket API reference](../../../docs/src/AI/realtime.md).
 
 ## Transport
 
@@ -20,21 +23,12 @@ The socket opens before authentication completes. Authentication and model
 failures arrive as OpenAI-shaped error events followed by a close frame.
 
 ```js
-const session = await puter.ai.assistant.connect();
-session.on('error', ({ error }) => console.error(error.code, error.message));
-session.on('response.output_text.delta', ({ delta }) => console.log(delta));
-session.send({
-    type: 'session.update',
-    session: { type: 'realtime', output_modalities: ['text'] },
-});
-session.send({
-    type: 'conversation.item.create',
-    item: {
-        type: 'message', role: 'user',
-        content: [{ type: 'input_text', text: 'Hello!' }],
-    },
-});
-session.send({ type: 'response.create' });
+const conversation = await puter.ai.convo({ output: ['text'] });
+conversation.on('error', (event) => console.error(event));
+conversation.on('text', ({ delta }) => console.log(delta));
+conversation.on('turn.done', () => conversation.close());
+await conversation.connect();
+conversation.sendText('Hello!');
 ```
 
 ## Limits and lifecycle
@@ -70,8 +64,9 @@ The provider key resolves through `openai-realtime`, `openai-completion`, then
 `realtime.maxConnectionsPerUser` and defaults to 20.
 
 The relay does not run load generators, periodic process-memory sampling, or
-per-frame statistics counters. Tests use a local WebSocket fixture, not provider
-credentials.
+per-frame statistics counters. Unit tests use a local WebSocket fixture.
+Optional live integration tests use
+`PUTER_TEST_AI_OPENAI_API_KEY`.
 
 ## Remaining constraints
 

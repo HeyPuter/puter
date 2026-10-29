@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { RealtimeSession } from './assistant.js';
+import { RealtimeSession } from './convoTransport.js';
 
 /** Just enough of a WebSocket to drive the session's listeners. */
 const fakeSocket = () => {
@@ -51,17 +51,5 @@ describe('RealtimeSession', () => {
         session.on('close', handler);
         socket.dispatchEvent(Object.assign(new Event('close'), { code: 1008, reason: 'model_not_found' }));
         expect(handler).toHaveBeenCalledWith({ type: 'close', code: 1008, reason: 'model_not_found' });
-    });
-
-    it('serializes sent events and refuses once closed', () => {
-        const socket = fakeSocket();
-        const session = new RealtimeSession(/** @type {any} */ (socket));
-        session.send({ type: 'response.create' });
-        expect(socket.sent).toEqual(['{"type":"response.create"}']);
-
-        socket.readyState = 3;
-        expect(() => session.send({ type: 'response.create' })).toThrow(
-            expect.objectContaining({ code: 'session_closed' }),
-        );
     });
 });

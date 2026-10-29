@@ -6,6 +6,12 @@ platforms: [websites, apps, nodejs, workers]
 
 The conversation API prepares a realtime session, verifies Puter sign-in, and lets you connect when your app is ready. Realtime conversations require a paid Puter plan; usage is billed to the signed-in user. Native OpenAI events and convenience methods use the same session. Microphone capture and speaker playback start when your app requests them.
 
+In Node.js, the SDK requires a global `WebSocket`, available in Node.js 22 or later.
+
+**Beta:** This API is incomplete. Its methods, options, events, and behavior may change abruptly, including breaking changes without notice.
+
+To connect without puter.js, see the [Realtime WebSocket API](/AI/realtime/).
+
 ## Syntax
 
 ```js
@@ -79,7 +85,7 @@ The optional microphone and speaker helpers require a browser with Web Audio sup
 | `microphone.mute()` | Disables capture tracks and stops forwarding captured chunks. |
 | `microphone.unmute()` | Enables capture tracks and forwarding. |
 | `microphone.stop()` | Stops capture tracks and releases capture resources. |
-| `speaker.start({ bargeIn: true })` | Starts playback. With barge-in enabled, provider speech-start events interrupt playback and synchronize played audio with conversation history. Starting the speaker requests no microphone access. |
+| `speaker.start({ bargeIn: true })` | Starts playback. Barge-in defaults to `true`. With barge-in enabled, provider speech-start events interrupt playback and synchronize played audio with conversation history. Starting the speaker requests no microphone access. |
 | `speaker.stop()` | Clears playback and releases its audio context. |
 
 Both start methods require a connected session. Capture and playback are independent, so custom audio input can use the built-in speaker, and built-in capture can use custom playback.

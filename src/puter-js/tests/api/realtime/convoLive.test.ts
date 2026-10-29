@@ -1,3 +1,4 @@
+import WebSocket from 'ws';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
     closeNodePuter,
@@ -8,7 +9,6 @@ import type {
     PuterSDK,
 } from '../harness/types';
 import type { Conversation } from '../../../types/modules/ai/convo';
-import type { RealtimeSession } from '../../../types/modules/ai/assistant';
 import type { RealtimeServerEvent } from '../../../types/modules/ai/types';
 import { optionalEnv } from '@heyputer/backend/drivers/integrationTestUtil.ts';
 import { setupPuterTestEnv, type PuterTestEnv } from '@heyputer/backend/testUtil.ts';
@@ -19,7 +19,7 @@ const apiKey = optionalEnv('PUTER_TEST_AI_OPENAI_API_KEY');
 describe.skipIf(!apiKey)('OpenAI realtime live relay', () => {
     let env: PuterTestEnv;
     let puter: PuterSDK;
-    const sessions = new Set<RealtimeSession | Conversation>();
+    const sessions = new Set<Conversation>();
 
     beforeAll(async () => {
         env = await setupPuterTestEnv({
@@ -41,7 +41,7 @@ describe.skipIf(!apiKey)('OpenAI realtime live relay', () => {
     }, 60_000);
 
     const waitFor = (
-        session: RealtimeSession | Conversation,
+        session: Conversation,
         type: string,
     ): Promise<RealtimeServerEvent> =>
         new Promise((resolve, reject) => {
@@ -73,6 +73,61 @@ describe.skipIf(!apiKey)('OpenAI realtime live relay', () => {
                 reject(new Error(`Realtime closed: ${event.code}`));
             });
         });
+
+    it('streams a native text turn without the SDK', async () => {
+        const url = new URL('/puterai/openai/v1/realtime', env.apiOrigin);
+        url.protocol = 'ws:';
+        url.searchParams.set('model', 'gpt-realtime-2.1-mini');
+        const socket = new WebSocket(url, {
+            headers: { Authorization: `Bearer ${env.users.user.token}` },
+        });
+        let text = '';
+        try {
+            await new Promise<void>((resolve, reject) => {
+                const timer = setTimeout(() => reject(new Error('Realtime timeout')), 20_000);
+                const fail = (error: Error) => {
+                    clearTimeout(timer);
+                    reject(error);
+                };
+                socket.on('error', fail);
+                socket.on('close', () => fail(new Error('Realtime closed before completion')));
+                socket.on('message', (data) => {
+                    const event = JSON.parse(data.toString());
+                    const send = (payload: Record<string, unknown>) => socket.send(JSON.stringify(payload));
+                    if (event.type === 'session.created') {
+                        send({
+                            type: 'session.update',
+                            session: {
+                                type: 'realtime',
+                                output_modalities: ['text'],
+                                instructions: 'Reply with exactly realtime-ok',
+                            },
+                        });
+                    }
+                    if (event.type === 'session.updated') {
+                        send({
+                            type: 'conversation.item.create',
+                            item: {
+                                type: 'message', role: 'user',
+                                content: [{ type: 'input_text', text: 'Hello!' }],
+                            },
+                        });
+                        send({ type: 'response.create' });
+                    }
+                    if (event.type === 'response.output_text.delta') text += event.delta;
+                    if (event.type === 'error') fail(new Error(`Realtime error: ${event.error?.code}`));
+                    if (event.type === 'response.done') {
+                        clearTimeout(timer);
+                        if (event.response?.status !== 'completed') fail(new Error('Realtime response incomplete'));
+                        else resolve();
+                    }
+                });
+            });
+            expect(text).toBe('realtime-ok');
+        } finally {
+            socket.close();
+        }
+    }, 30_000);
 
     it.each([undefined, 'gpt-realtime-mini'])(
         'streams a text reply through the SDK and records usage (model %s)',

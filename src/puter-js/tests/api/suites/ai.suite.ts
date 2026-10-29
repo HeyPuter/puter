@@ -1779,24 +1779,9 @@ export default suite('ai', {
         }
     },
 
-    // Keyless: the relay rejects an unknown model before dialing OpenAI, so
-    // this covers the SDK socket, the subprotocol credential and the
-    // error-event shape without an upstream.
-    'assistant.connect surfaces relay errors as OpenAI error events': async (
-        t,
-    ) => {
-        const session = await t.puter.ai.assistant.connect({
-            model: 'not-a-realtime-model',
-        });
-        const [error, closed] = await Promise.all([
-            new Promise<{ error?: { code?: string } }>((resolve) =>
-                session.on('error', resolve),
-            ),
-            new Promise<{ code?: unknown }>((resolve) =>
-                session.on('close', resolve),
-            ),
-        ]);
-        t.assert.equal(error.error?.code, 'model_not_found');
-        t.assert.equal(closed.code, 1008);
+    'convo is the realtime SDK entry point': async (t) => {
+        t.assert.equal('assistant' in t.puter.ai, false);
+        t.assert.equal('conversation' in t.puter.ai, false);
+        t.assert.equal(typeof t.puter.ai.convo, 'function');
     },
 });

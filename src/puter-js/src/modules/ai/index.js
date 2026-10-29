@@ -1,5 +1,4 @@
 import { PuterModule } from '../../lib/PuterModule.js';
-import { connect } from './assistant.js';
 import { convo } from './convo.js';
 import { chat } from './chat.js';
 import { txt2img } from './image.js';
@@ -21,11 +20,6 @@ import { txt2vid } from './video.js';
  */
 
 /**
- * Realtime voice/text sessions over OpenAI's Realtime API.
- * @typedef {{ connect: OmitThisParameter<typeof connect> }} Assistant
- */
-
-/**
  * The `puter.ai` module.
  *
  * Method implementations live in the sibling files as `this`-context
@@ -36,9 +30,6 @@ import { txt2vid } from './video.js';
 export class AIModule extends PuterModule {
     /** @type {Txt2Speech} */
     txt2speech;
-
-    /** @type {Assistant} */
-    assistant;
 
     /**
      * SDK-wide switch for response-format normalization. Left unset (the
@@ -80,8 +71,6 @@ export class AIModule extends PuterModule {
         ] ) {
             methods[name] = methods[name].bind(this);
         }
-
-        this.assistant = { connect: connect.bind(this) };
 
         this.txt2speech = /** @type {Txt2Speech} */ (/** @type {unknown} */ (
             Object.assign(txt2speech.bind(this), {
