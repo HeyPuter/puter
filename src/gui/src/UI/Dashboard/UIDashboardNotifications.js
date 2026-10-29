@@ -19,18 +19,31 @@
 
 import UINotification from '../UINotification.js';
 import { reveal_dashboard } from '../UIWindow.js';
-import { listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
+import { getNotification, listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
 import { applyToastMark, createNotificationFeed } from '../../helpers/notificationFeed.js';
 import { formatAbsoluteTime, formatRelativeTime } from '../../i18n/formatTime.js';
 import {
+    handleNotificationTap,
+    openAppForTap,
+    setPushTapHandler,
+    storedTapHandler,
+    tapRoute,
+} from '../../helpers/notificationTap.js';
+import { showLocalBanner, startPushWorker } from '../../helpers/pushWorker.js';
+import { syncBrowserPush } from '../../helpers/pushSync.js';
+import { get_app_by_uid } from '../../helpers/getAppByUid.js';
+import launch_app from '../../helpers/launchApp.js';
+import {
     badgeLabel,
     glyphKey,
+    httpsIconFor,
     isUnread,
     listedEntries,
     mergeEntries,
     notificationTarget,
     planBurstToasts,
     reconcileWithServer,
+    senderNameFor,
     setReadAt,
     titleWithBadge,
     toEntry,
@@ -82,6 +95,12 @@ const GLYPHS = {
 
 const glyphFor = (notification) => GLYPHS[glyphKey(notification)];
 
+/** An app message's own image where it has an https one, else the glyph. */
+const iconHtmlFor = (notification) => {
+    const url = httpsIconFor(notification);
+    return url ? `<img src="${html_encode(url)}" alt="">` : glyphFor(notification);
+};
+
 /** The same glyph as an image source, for toasts. */
 const toastIconFor = (notification) => {
     const iconName = notification?.icon;
@@ -89,6 +108,8 @@ const toastIconFor = (notification) => {
         ? window.icons[iconName]
         : null;
     if ( named ) return named;
+    const remote = httpsIconFor(notification);
+    if ( remote ) return remote;
     const color = glyphKey(notification) === 'sharing' ? '#2563eb' : '#64748b';
     // Loaded as an image rather than inlined, the SVG needs its namespace.
     const svg = glyphFor(notification)
@@ -265,10 +286,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             <time class="dashboard-notification-time" datetime="${new Date(entry.createdAt).toISOString()}"
                 title="${html_encode(formatAbsoluteTime(entry.createdAt, window.locale))}">${html_encode(formatRelativeTime(entry.createdAt, Date.now(), window.locale))}</time>`;
         const title = titleFor(notification);
+        const sender = senderNameFor(notification);
         const unread = isUnread(entry);
         // Only an entry with somewhere to go is a control; the rest is text,
         // with the check to mark it read as its one action while unread.
-        const actionable = notificationTarget(notification) !== null;
+        const actionable = notificationTarget(notification) !== null
+            || tapRoute({ uid: entry.uid, notification, appUid: entry.appUid }).kind === 'app';
         const mainTag = actionable ? 'button type="button"' : 'div';
         const classes = [
             'dashboard-notification',
@@ -278,8 +301,9 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         return `
             <li class="${classes}" data-uid="${html_encode(entry.uid)}">
                 <${mainTag} class="dashboard-notification-main${actionable ? ' is-actionable' : ''}">
-                    <span class="dashboard-notification-icon dashboard-notification-icon-${glyph}">${glyphFor(notification)}<span class="dashboard-notification-unread-dot" aria-hidden="true"></span></span>
+                    <span class="dashboard-notification-icon dashboard-notification-icon-${glyph}">${iconHtmlFor(notification)}<span class="dashboard-notification-unread-dot" aria-hidden="true"></span></span>
                     <span class="dashboard-notification-content">
+                        ${sender ? `<span class="dashboard-notification-sender">${html_encode(sender)}</span>` : ''}
                         <span class="dashboard-notification-title">${unread ? `<span class="dashboard-notification-sr">${i18n('notification_unread')}: </span>` : ''}${html_encode(title)}</span>
                         ${text ? `<span class="dashboard-notification-text">${html_encode(text)}</span>` : ''}
                         ${time}
@@ -452,17 +476,47 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         if ( paths?.length ) filesTab.selectSharedRows?.(paths);
     };
 
-    const actOn = (entry) => {
-        const target = notificationTarget(entry.notification);
-        close({ restoreFocus: false });
-        // Acknowledged first: what the click leads to may take a moment, and
-        // the entry should read as seen by the time it lands.
-        void markRead(entry.uid);
+    const openShare = (notification) => {
+        const target = notificationTarget(notification);
         if ( target?.kind === 'shared-item' ) {
             void goToShared([target.path]);
         } else if ( target?.kind === 'shared' ) {
             void goToShared([]);
         }
+    };
+
+    const tapSurface = {
+        share: openShare,
+        panel: () => open(),
+        openApp: (route) => openAppForTap(route, { getApp: get_app_by_uid, launch: launch_app }),
+    };
+
+    const actOn = (entry) => {
+        close({ restoreFocus: false });
+        // Acknowledged first: what the click leads to may take a moment, and
+        // the entry should read as seen by the time it lands.
+        void markRead(entry.uid);
+        void handleNotificationTap({ uid: entry.uid, notification: entry.notification, appUid: entry.appUid }, tapSurface);
+    };
+
+    const actOnStored = storedTapHandler({
+        fetchRow: getNotification,
+        surface: tapSurface,
+        found: (uid) => void acknowledge(uid).catch((err) => {
+            console.warn('Could not acknowledge notification:', err);
+        }),
+        missing: () => open(),
+    });
+
+    const actOnPush = async (push) => {
+        await reveal_dashboard();
+        if ( ! loaded ) await refresh();
+        const entry = entries.find((e) => e.uid === push.uid);
+        if ( entry ) {
+            actOn(entry);
+            return;
+        }
+        await actOnStored(push);
     };
 
     // -- Toasts -------------------------------------------------------------
@@ -474,6 +528,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const { notification } = entry;
         UINotification({
             uid: entry.uid,
+            sender: senderNameFor(notification),
             title: titleFor(notification),
             text: textFor(notification),
             icon: toastIconFor(notification),
@@ -535,6 +590,9 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
 
         const fresh = incoming.filter((entry) => ! surfaced.has(entry.uid));
         for ( const entry of fresh ) surfaced.add(entry.uid);
+        for ( const entry of fresh ) {
+            void showLocalBanner(entry, { replay, acknowledged: ! isUnread(entry) });
+        }
         for ( const entry of result.added ) justAdded.add(entry.uid);
         render();
         announce(fresh);
@@ -717,7 +775,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     });
     socket.on('notif.unreads', ({ unreads }) => {
         if ( feed.isActive() ) return;
-        receive(Array.isArray(unreads) ? unreads : []);
+        receive(Array.isArray(unreads) ? unreads : [], { replay: true });
     });
     // Not gated: an ack marks an entry read rather than adding one, so it
     // can't duplicate anything — and the events surface carries only
@@ -741,6 +799,9 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     document.addEventListener('visibilitychange', () => {
         if ( document.visibilityState === 'visible' && loaded ) void refresh();
     });
+
+    setPushTapHandler(actOnPush);
+    startPushWorker().then(() => syncBrowserPush());
 
     render();
     void refresh();

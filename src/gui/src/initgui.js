@@ -39,6 +39,7 @@ import { takeOidcLoginChallenge } from './helpers/authRedirect.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
+import UIEnablePushDialog from './UI/UIEnablePushDialog.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
@@ -58,7 +59,9 @@ import {
     wantsFullToken,
 } from './util/authmeGrant.js';
 import init_device_signals from './helpers/deviceSignals.js';
-import { holdsPermissions } from './helpers/holdsPermissions.js';
+import { appHoldsPermissions, holdsPermissions } from './helpers/holdsPermissions.js';
+import { PUSH_PERMISSION, withEnableDeadline } from './helpers/pushClient.js';
+import { startPushWorker } from './helpers/pushWorker.js';
 import item_icon from './helpers/itemIcon.js';
 import { installAppIconFallback } from './helpers/appIcon.js';
 import launch_app from './helpers/launchApp.js';
@@ -794,6 +797,12 @@ const postAuthActions = async (action) => {
             : (raw_create === 'dir' || raw_create === 'file') ? raw_create
             : undefined;
 
+        // The browser registration Allow begins; the answer is posted before it is waited on.
+        let push_enable = null;
+        if ( permissions.includes(PUSH_PERMISSION) ) {
+            startPushWorker();
+        }
+
         // Whatever happens, the requester must get an answer and the popup
         // must close — otherwise the popup wedges open with the caller's
         // promise pending until the user closes it by hand.
@@ -826,6 +835,9 @@ const postAuthActions = async (action) => {
                 permission: permissions.length === 1 ? permissions[0] : undefined,
                 origin: origin,
                 create,
+                on_push_enable: (enabling) => {
+                    push_enable = enabling;
+                },
             });
         } catch (e) {
             console.error('request-permission action failed', e);
@@ -852,6 +864,52 @@ const postAuthActions = async (action) => {
         }
 
         // The popup exists only to host this dialog; close it once answered.
+        if ( window.embedded_in_popup ) {
+            // Closing would take the browser's own prompt down with it, so its time doesn't count.
+            if ( push_enable ) await withEnableDeadline(push_enable);
+            window.close();
+            window.open('', '_self').close();
+        }
+    }
+
+    // -- Action: Enable Push: offer to turn push on in this browser for the opener site, then report the state --
+    if ( action === 'enable-push' ) {
+        const msg_id = window.url_query_params.get('msg_id');
+        // Browser-attested only, same rule as request-permission above.
+        const origin = window.openerOrigin;
+
+        let state = 'unavailable';
+        try {
+            if ( ! origin ) {
+                throw new Error('no opener origin; not prompting');
+            }
+            // The dialog says this site wants to send pushes, so only a site whose app may.
+            const app_uid = await window.getAppUIDFromOrigin(origin);
+            if ( app_uid && await appHoldsPermissions([PUSH_PERMISSION], app_uid) ) {
+                startPushWorker();
+                state = await UIEnablePushDialog({ origin });
+            }
+        } catch (e) {
+            console.error('enable-push action failed', e);
+        }
+
+        let target_origin = '*';
+        try {
+            target_origin = origin ? new URL(origin).origin : '*';
+        } catch (e) {
+            console.error('enable-push: unusable origin', origin);
+        }
+        const messageTarget = window.embedded_in_popup ? window.opener : window.parent;
+        try {
+            messageTarget?.postMessage({
+                msg: 'pushEnabled',
+                state,
+                original_msg_id: msg_id,
+            }, target_origin);
+        } catch (e) {
+            console.error('enable-push: could not answer the requester', e);
+        }
+
         if ( window.embedded_in_popup ) {
             window.close();
             window.open('', '_self').close();
@@ -1605,6 +1663,20 @@ window.initgui = async function (options) {
                         {
                             msg: 'permissionGranted',
                             granted: false,
+                            original_msg_id:
+                                window.url_query_params.get('msg_id'),
+                        },
+                        '*',
+                    );
+                } catch (e) {
+                    console.error('could not answer the requester', e);
+                }
+            } else if (action === 'enable-push') {
+                try {
+                    window.opener?.postMessage(
+                        {
+                            msg: 'pushEnabled',
+                            state: 'unavailable',
                             original_msg_id:
                                 window.url_query_params.get('msg_id'),
                         },

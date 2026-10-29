@@ -140,8 +140,19 @@ The `'permission'` resource, and a permission string passed as the only argument
 | `manage:kv-share:{uuid}:{appUid}:{prefix}` | `'kvShare'` with `access: 'watch'` |
 | `manage:kv-share-read:{uuid}:{appUid}:{prefix}` | `'kvShare'` with `access: 'read'` |
 | `manage:kv-share-write:{uuid}:{appUid}:{prefix}` | `'kvShare'` with `access: 'write'` |
+| `notifications:push` | None yet, see [Push notifications](#push-notifications) below |
 
 Any other string, or one that names another user, is denied without a prompt. Inside a path, write a `:` as `\C` and a `\` as `\\`. A string with any other `\` escape is denied without a prompt too.
+
+## Push notifications
+
+Your app's notifications always show inside Puter. To also have them sent to the user's devices as push notifications, even while your app is closed, the user has to grant your app **`notifications:push`**:
+
+```js
+const granted = await puter.perms.request('notifications:push');
+```
+
+The grant is per app and per user, and is checked every time a notification is sent. Without it, or once the user revokes it, your notifications still show inside Puter but none go out as pushes.
 
 ## Batching
 
