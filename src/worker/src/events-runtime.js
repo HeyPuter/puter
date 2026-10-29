@@ -13,6 +13,10 @@
  * naming which one: `bad-key`, `bad-body`, `handler-broken`, `unknown-handler`,
  * `no-token`, `handler-threw`, `handler-terminal`.
  *
+ * A handler that throws a retryable error (see `isRetryableError`, inlined
+ * ahead of this file) answers 500 and is retried; any other throw answers 400
+ * and drops the event.
+ *
  * An unauthorized invocation answers 500 rather than 401: the only way to get
  * one is a platform-side fault (a key rotated under a resident script), which
  * a redeploy fixes, and a 4xx would retire the delivery instead.
@@ -24,6 +28,9 @@
     // Captured before any handler code can run, so a handler cannot forge the
     // handled header by reassigning the global `Response`.
     const NativeResponse = Response;
+    // Captured for the same reason: handler code cannot replace it.
+    const isRetryable =
+        typeof isRetryableError === 'function' ? isRetryableError : () => false;
 
     const INVOKE_PATH = '/__events/invoke';
     const HANDLED_HEADER = 'x-puter-events-handled';
@@ -166,7 +173,7 @@
         if (!token)
             return answer(500, { error: 'missing delivery token' }, 'no-token');
 
-        // `ack()` marks the delivery taken; a later throw does not unsay it.
+        // `ack()` releases the delivery early; a later throw does not unsay it.
         let acked = false;
         const ack = () => {
             acked = true;
@@ -187,15 +194,13 @@
             return answer(200, { ok: true });
         } catch (err) {
             if (acked) return answer(200, { ok: true });
-            const terminal =
-                !!err &&
-                (err.terminal === true || err.code === 'events_terminal');
+            const retry = isRetryable(err);
             const message =
                 err && err.message ? String(err.message) : String(err);
             return answer(
-                terminal ? 400 : 500,
+                retry ? 500 : 400,
                 { error: message },
-                terminal ? 'handler-terminal' : 'handler-threw',
+                retry ? 'handler-threw' : 'handler-terminal',
             );
         }
     };

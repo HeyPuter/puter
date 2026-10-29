@@ -29,4 +29,16 @@
  * Fetch an http/https resource without being bound by CORS restrictions.
  */
 
+/**
+ * The relay websockets behind one epoxy client.
+ *
+ * @typedef {{
+ *     sockets: Set<WebSocket>;
+ *     current: WebSocket | undefined;
+ *     down: boolean;
+ *     closed: boolean;
+ * }} RelayTransport
+ * @internal
+ */
+
 export {};

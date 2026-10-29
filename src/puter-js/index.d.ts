@@ -187,7 +187,11 @@ export type {
 } from './types/modules/FSItem.js';
 
 // -- puter.hosting --
-export type { Subdomain } from './types/modules/hosting/types.js';
+export type {
+    CustomDomain,
+    CustomDomainRecord,
+    Subdomain,
+} from './types/modules/hosting/types.js';
 
 // -- puter.kv --
 export type {

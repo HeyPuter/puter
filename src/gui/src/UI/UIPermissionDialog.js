@@ -712,6 +712,10 @@ export async function get_permission_description (permission, options = {}) {
         return { html: i18n('perm_events_background'), icon: 'zap' };
     }
 
+    if ( permission === 'custom-domains:manage' ) {
+        return { html: i18n('perm_custom_domains_manage'), icon: 'globe' };
+    }
+
     const parts = split_permission(permission);
     // The grant route refuses any other spelling of the same parts.
     if ( parts.map(escape_permission_component).join(':') !== permission ) return null;

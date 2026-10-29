@@ -2251,8 +2251,33 @@ export class UIModule extends EventListener {
         if ( this.env !== 'web' ) {
             return false;
         }
+        // The app's identity is deliberately NOT in the popup URL: the GUI
+        // derives it from the browser-attested opener origin, so a link
+        // can't open a feedback dialog in another app's name.
+        const result = await this.#runGuiActionPopup({
+            action: 'send-feedback',
+            replyMsg: 'feedbackDialogClosed',
+            popupName: 'puter-feedback',
+        });
+        return result?.sent === true;
+    };
+
+    /**
+     * Opens `/action/<action>` on the GUI origin in a popup and waits for
+     * its single result message. Resolves the message's data, or `null` when
+     * the popup is blocked, dismissed, or cut off from this page (COOP).
+     * Never rejects.
+     *
+     * @param {Object} opts
+     * @param {string} opts.action Popup action the GUI handles.
+     * @param {Record<string, string>} [opts.params] Extra query parameters.
+     * @param {string} opts.replyMsg `msg` of the result the GUI posts back.
+     * @param {string} opts.popupName Prefix for the popup's window name.
+     * @returns {Promise<Record<string, unknown> | null>}
+     */
+    async #runGuiActionPopup ({ action, params = {}, replyMsg, popupName }) {
         if ( ! globalThis.open || ! globalThis.document ) {
-            return false;
+            return null;
         }
 
         // See requestPermission: canonical-to-canonical origin comparison. A
@@ -2261,7 +2286,7 @@ export class UIModule extends EventListener {
         try {
             gui_origin = new URL(puter.defaultGUIOrigin).origin;
         } catch (e) {
-            return false;
+            return null;
         }
 
         // How long to wait, after the popup is observed closed, for a result
@@ -2270,12 +2295,11 @@ export class UIModule extends EventListener {
 
         return new Promise((resolve) => {
             // Unique per request and not reused across page loads — same
-            // stale-popup collision reasoning as requestPermission. The app's
-            // identity is deliberately NOT in this URL: the GUI derives it
-            // from the browser-attested opener origin, so a link can't open a
-            // feedback dialog in another app's name.
+            // stale-popup collision reasoning as requestPermission.
             const msg_id = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
-            const url = `${gui_origin}/action/send-feedback?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}`;
+            const query = new URLSearchParams({ embedded_in_popup: 'true', msg_id, ...params });
+            const url = `${gui_origin}/action/${action}?${query}`;
+            const name = `${popupName}-${msg_id}`;
 
             // Guards against settling more than once across the message,
             // popup-closed, and dialog-cancel code paths.
@@ -2294,11 +2318,11 @@ export class UIModule extends EventListener {
                 consentDialog = null;
             };
 
-            const settle = (sent) => {
+            const settle = (data) => {
                 if ( settled ) return;
                 settled = true;
                 cleanup();
-                resolve(sent === true);
+                resolve(data ?? null);
             };
 
             const messageHandler = (e) => {
@@ -2309,28 +2333,26 @@ export class UIModule extends EventListener {
                 if ( e.origin !== gui_origin ) return;
                 if ( popupWindow && e.source !== popupWindow ) return;
                 if ( e.data?.original_msg_id != msg_id ) return;
-                if ( e.data?.msg !== 'feedbackDialogClosed' ) return;
-                settle(e.data.sent === true);
+                if ( e.data?.msg !== replyMsg ) return;
+                settle(e.data);
             };
             window.addEventListener('message', messageHandler);
 
             const watchPopup = (popup) => {
                 if ( settled ) return;
                 if ( ! popup ) {
-                    settle(false);
+                    settle(null);
                     return;
                 }
                 // Pin the expected event.source before anything can return
                 // early.
                 popupWindow = popup;
                 // A severed opener relationship (COOP) means the popup can't
-                // post the result back and `popup.closed` tells us nothing.
-                // Unlike a permission grant, a feedback submission can't be
-                // read back from the server, so the outcome is unknowable
-                // here: report false now rather than hang. The popup stays
-                // open — the user can still send their feedback.
+                // post the result back and `popup.closed` tells us nothing,
+                // so the outcome is unknowable here: report null now rather
+                // than hang. The popup stays open for the user.
                 if ( window.crossOriginIsolated || popup.closed ) {
-                    settle(false);
+                    settle(null);
                     return;
                 }
                 checkClosed = setInterval(() => {
@@ -2342,37 +2364,77 @@ export class UIModule extends EventListener {
                     // relative to `closed` becoming true — give an in-flight
                     // result its grace period before treating the close as a
                     // dismissal.
-                    setTimeout(() => settle(false), CLOSE_GRACE_MS);
+                    setTimeout(() => settle(null), CLOSE_GRACE_MS);
                 }, 100);
             };
 
-            // Every path out of here resolves a boolean, so anything that
-            // throws while launching has to resolve false rather than reject.
+            // Every path out of here resolves, so anything that throws while
+            // launching has to resolve null rather than reject.
             try {
                 if ( hasUserActivation() ) {
                     // Unique window name per request: window.open() reuses a
                     // window with the same name, which would hijack a popup an
                     // earlier, still-pending request is waiting on.
-                    watchPopup(openAuthPopup(url, `puter-feedback-${msg_id}`));
+                    watchPopup(openAuthPopup(url, name));
                 } else {
                     // No user gesture: a popup opened now would be blocked.
                     // Show a consent dialog first; the popup is then opened
                     // from the user's click on it.
                     const dialog = new PuterDialog(() => {}, () => {}, {
                         popupURL: url,
-                        popupName: `puter-feedback-${msg_id}`,
+                        popupName: name,
                         onLaunch: (popup) => watchPopup(popup),
-                        onCancel: () => settle(false),
+                        onCancel: () => settle(null),
                     });
                     consentDialog = dialog;
                     document.body.appendChild(dialog);
                     dialog.open();
                 }
             } catch (e) {
-                settle(false);
+                settle(null);
             }
         });
-    };
+    }
+
+    /**
+     * Backs `puter.hosting.attach()`: lets the user pick or add a custom
+     * domain for `subdomain` in a Puter dialog. The app learns only the
+     * domain the user chose.
+     *
+     * @internal
+     * @param {string} subdomain
+     * @returns {Promise<import('./hosting/types.js').CustomDomain | null>}
+     */
+    async attachCustomDomain_ (subdomain) {
+        if ( this.env === 'app' ) {
+            // An older desktop has no handler and would never reply; see
+            // showFeedbackDialog.
+            const features = new URLSearchParams(globalThis.location?.search ?? '')
+                .get('puter.gui_features')?.split(',') ?? [];
+            if ( ! features.includes('custom-domains') ) {
+                throw new PuterJSError(
+                    'Custom domains are not available on this Puter desktop',
+                    'not_supported',
+                );
+            }
+            const result = await this.#postMessageAsync('attachCustomDomain', { subdomain });
+            return result?.domain ?? null;
+        }
+
+        if ( this.env !== 'web' ) {
+            throw new PuterJSError(
+                'puter.hosting.attach() needs a browser page or a Puter app',
+                'not_available',
+            );
+        }
+        const result = await this.#runGuiActionPopup({
+            action: 'attach-custom-domain',
+            params: { subdomain },
+            replyMsg: 'customDomainAttached',
+            popupName: 'puter-custom-domain',
+        });
+        return /** @type {import('./hosting/types.js').CustomDomain | null} */ (result?.domain ?? null);
+    }
 
     /**
      * Greys out a menubar item so it cannot be clicked.

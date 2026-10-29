@@ -47,7 +47,13 @@ import { PuterServer } from '../../server.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
-import type { VoiceChangerDriver } from './VoiceChangerDriver.js';
+import type { DriverStreamResult } from '../meta.js';
+import {
+    OggOpusClock,
+    outputBytesPerSecond,
+    type VoiceChangerDriver,
+    wavDataOffset,
+} from './VoiceChangerDriver.js';
 import {
     callerError,
     readStreamResult,
@@ -330,11 +336,11 @@ describe('VoiceChangerDriver.convert success path', () => {
 
     it('meters one usage line at the per-second rate from costs.ts', async () => {
         const { actor } = await makeUser();
+        // 32 KB of mp3_44100_128 back = 2 seconds.
         fetchSpy.mockResolvedValueOnce(
-            okResponse(new ArrayBuffer(8), 'audio/mpeg'),
+            okResponse(new ArrayBuffer(32_000), 'audio/mpeg'),
         );
 
-        // 32 KB audio at 16 kbit/s = 2 seconds rounded up.
         const buf = Buffer.alloc(32_000);
         await readStreamResult(
             await withActor(actor, () =>
@@ -344,7 +350,7 @@ describe('VoiceChangerDriver.convert success path', () => {
 
         const usageType = 'elevenlabs:eleven_multilingual_sts_v2:second';
         const perSecond = VOICE_CHANGER_COSTS[usageType];
-        const expectedSeconds = Math.max(1, Math.ceil(32_000 / 16000));
+        const expectedSeconds = 2;
 
         const calls = incrementUsageSpy.mock.calls.filter(
             ([, type]) => type === usageType,
@@ -365,7 +371,7 @@ describe('VoiceChangerDriver.convert success path', () => {
                 .map(([, , , cost]) => cost);
         const convert = async (charges: number) => {
             fetchSpy.mockResolvedValueOnce(
-                okResponse(new ArrayBuffer(8), 'audio/mpeg'),
+                okResponse(new ArrayBuffer(32_000), 'audio/mpeg'),
             );
             await readStreamResult(
                 await withActor(actor, () =>
@@ -383,6 +389,230 @@ describe('VoiceChangerDriver.convert success path', () => {
         expect(factored).toBe(base! * 2);
         const held = hasCreditsSpy.mock.calls.map(([, amount]) => amount);
         expect(held).toEqual([base, base! * 2]);
+    });
+
+    it.each<[string, number]>([
+        ['mp3_44100_128', 16_000],
+        ['mp3_22050_32', 4_000],
+        ['opus_48000_64', 8_000],
+        ['pcm_44100', 88_200],
+        ['ulaw_8000', 8_000],
+        ['wav_44100', 88_200],
+        ['mp3_44100_999999', 16_000],
+        ['flac_44100', 16_000],
+    ])('sizes %s at %s bytes per second', (format, bytes) => {
+        expect(outputBytesPerSecond(format)).toBe(bytes);
+    });
+
+    /** A 16-bit mono WAV header, with an optional LIST chunk before data. */
+    const wavHeader = (sampleRate: number, dataBytes: number, list = 0) => {
+        const listChunk = list
+            ? Buffer.concat([
+                  Buffer.from('LIST'),
+                  Buffer.from(new Uint32Array([list]).buffer),
+                  Buffer.alloc(list),
+              ])
+            : Buffer.alloc(0);
+        const fmt = Buffer.alloc(24);
+        fmt.write('fmt ', 0, 'ascii');
+        fmt.writeUInt32LE(16, 4);
+        fmt.writeUInt16LE(1, 8);
+        fmt.writeUInt16LE(1, 10);
+        fmt.writeUInt32LE(sampleRate, 12);
+        fmt.writeUInt32LE(sampleRate * 2, 16);
+        fmt.writeUInt16LE(2, 20);
+        fmt.writeUInt16LE(16, 22);
+        const data = Buffer.alloc(8);
+        data.write('data', 0, 'ascii');
+        data.writeUInt32LE(dataBytes, 4);
+        const body = Buffer.concat([fmt, listChunk, data]);
+        const riff = Buffer.alloc(12);
+        riff.write('RIFF', 0, 'ascii');
+        riff.writeUInt32LE(4 + body.length + dataBytes, 4);
+        riff.write('WAVE', 8, 'ascii');
+        return Buffer.concat([riff, body]);
+    };
+
+    it("finds where a WAV stream's samples start", () => {
+        expect(wavDataOffset(wavHeader(16_000, 0))).toBe(44);
+        expect(wavDataOffset(wavHeader(16_000, 0, 26))).toBe(78);
+        expect(wavDataOffset(wavHeader(16_000, 0).subarray(0, 40))).toBe(
+            undefined,
+        );
+        expect(wavDataOffset(Buffer.alloc(64))).toBe(undefined);
+    });
+
+    /** One Ogg page carrying `body` as a single packet. */
+    const oggPage = (granule: bigint, sequence: number, body: Buffer) => {
+        const lacing: number[] = [];
+        let left = body.length;
+        while (left >= 255) {
+            lacing.push(255);
+            left -= 255;
+        }
+        lacing.push(left);
+        const header = Buffer.alloc(27);
+        header.write('OggS', 0, 'ascii');
+        header.writeBigUInt64LE(granule, 6);
+        header.writeUInt32LE(sequence, 18);
+        header[26] = lacing.length;
+        return Buffer.concat([header, Buffer.from(lacing), body]);
+    };
+
+    /** A sparse Ogg Opus stream: `seconds` of audio in very few bytes. */
+    const oggOpus = (seconds: number, preSkip = 312) => {
+        const opusHead = Buffer.alloc(19);
+        opusHead.write('OpusHead', 0, 'ascii');
+        opusHead[8] = 1;
+        opusHead[9] = 1;
+        opusHead.writeUInt16LE(preSkip, 10);
+        opusHead.writeUInt32LE(48_000, 12);
+        const pages = [
+            oggPage(0n, 0, opusHead),
+            oggPage(0n, 1, Buffer.from('OpusTags')),
+        ];
+        for (let s = 1; s <= seconds; s++) {
+            pages.push(
+                oggPage(BigInt(preSkip + s * 48_000), s + 1, Buffer.alloc(300)),
+            );
+        }
+        return Buffer.concat(pages);
+    };
+
+    it('times an Ogg Opus stream by its last granule, however it is chunked', () => {
+        const stream = oggOpus(7);
+        const whole = new OggOpusClock();
+        whole.push(stream);
+        expect(whole.seconds).toBe(7);
+
+        const trickle = new OggOpusClock();
+        for (const byte of stream) trickle.push(Buffer.from([byte]));
+        expect(trickle.seconds).toBe(7);
+    });
+
+    it('does not time a stream that is not Ogg Opus', () => {
+        const clock = new OggOpusClock();
+        clock.push(Buffer.alloc(4096, 1));
+        expect(clock.seconds).toBe(undefined);
+    });
+
+    describe('meters the length of the audio that comes back', () => {
+        const usageType = 'elevenlabs:eleven_multilingual_sts_v2:second';
+        const billed = async () => {
+            await vi.waitFor(() =>
+                expect(
+                    incrementUsageSpy.mock.calls.filter(
+                        ([, type]) => type === usageType,
+                    ),
+                ).toHaveLength(1),
+            );
+            const [, , count, cost] = incrementUsageSpy.mock.calls.find(
+                ([, type]) => type === usageType,
+            )!;
+            expect(cost).toBe(VOICE_CHANGER_COSTS[usageType]! * count);
+            return count;
+        };
+        const convert = async (
+            actor: Actor,
+            inputBytes: number,
+            args: Record<string, unknown> = {},
+        ) =>
+            readStreamResult(
+                await withActor(actor, () =>
+                    driver.convert({
+                        audio: dataUrl(Buffer.alloc(inputBytes), 'audio/ogg'),
+                        ...args,
+                    }),
+                ),
+            );
+
+        it('bills 600 s for a compact 600 s clip, not its byte size', async () => {
+            const { actor } = await makeUser();
+            // 600 s of Opus at 8 kbps in; 600 s of mp3_44100_128 out.
+            fetchSpy.mockResolvedValueOnce(
+                okResponse(new ArrayBuffer(600 * 16_000)),
+            );
+            await convert(actor, 441_078);
+            expect(await billed()).toBe(600);
+        });
+
+        it('sizes the output by the requested output_format', async () => {
+            const { actor } = await makeUser();
+            // pcm_16000 is 16-bit mono: 32,000 bytes per second.
+            fetchSpy.mockResolvedValueOnce(
+                okResponse(new ArrayBuffer(3 * 32_000), 'audio/pcm'),
+            );
+            await convert(actor, 1_000_000, { output_format: 'pcm_16000' });
+            expect(await billed()).toBe(3);
+        });
+
+        it('does not bill a WAV header as audio', async () => {
+            const { actor } = await makeUser();
+            // 3 s of wav_16000 is 96,000 bytes of samples plus its header.
+            fetchSpy.mockResolvedValueOnce(
+                okResponse(
+                    new Uint8Array(
+                        Buffer.concat([
+                            wavHeader(16_000, 3 * 32_000, 26),
+                            Buffer.alloc(3 * 32_000),
+                        ]),
+                    ).buffer,
+                    'audio/wav',
+                ),
+            );
+            await convert(actor, 1_000_000, { output_format: 'wav_16000' });
+            expect(await billed()).toBe(3);
+        });
+
+        it('bills sparse Opus output by its duration, not its bytes', async () => {
+            const { actor } = await makeUser();
+            // 20 s of mostly silent opus_48000_64 is far under 20 s of bytes.
+            const body = oggOpus(20);
+            expect(body.length).toBeLessThan(8_000 * 2);
+            fetchSpy.mockResolvedValueOnce(
+                okResponse(new Uint8Array(body).buffer, 'audio/ogg'),
+            );
+            await convert(actor, 1_000, { output_format: 'opus_48000_64' });
+            expect(await billed()).toBe(20);
+        });
+
+        it('sizes an undocumented output_format as the default', async () => {
+            const { actor } = await makeUser();
+            // 3 s at the default mp3_44100_128.
+            fetchSpy.mockResolvedValueOnce(
+                okResponse(new ArrayBuffer(3 * 16_000)),
+            );
+            await convert(actor, 1_000_000, {
+                output_format: 'mp3_44100_999999',
+            });
+            expect(await billed()).toBe(3);
+        });
+
+        it('charges at least the input estimate when the caller hangs up', async () => {
+            const { actor } = await makeUser();
+            fetchSpy.mockResolvedValueOnce(
+                new Response(
+                    new ReadableStream({
+                        start(controller) {
+                            controller.enqueue(new Uint8Array(16_000));
+                        },
+                    }),
+                    { status: 200, headers: { 'content-type': 'audio/mpeg' } },
+                ),
+            );
+            const result = (await withActor(actor, () =>
+                driver.convert({
+                    audio: dataUrl(Buffer.alloc(80_000), 'audio/mpeg'),
+                }),
+            )) as DriverStreamResult;
+            for await (const _chunk of result.stream) break;
+            expect(await billed()).toBe(5);
+            await vi.waitFor(async () =>
+                expect(
+                    await server.stores.creditHold.outstanding(actor.user.uuid),
+                ).toBe(0),
+            );
+        });
     });
 
     it('meters nothing when ElevenLabs breaks off before any audio', async () => {

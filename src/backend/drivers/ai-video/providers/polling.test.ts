@@ -21,9 +21,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Context, runWithContext } from '../../../core/context.js';
 import { HttpError } from '../../../core/http/HttpError.js';
 import {
+    JobHold,
+    LATE_JOB_WINDOW_MS,
     VIDEO_POLL_WINDOW_MS,
     abortableDelay,
-    clientAbortedError,
     pollTimeoutError,
     pollUntilSettled,
     videoJobFailure,
@@ -45,16 +46,6 @@ describe('pollTimeoutError', () => {
                 'Timed out waiting for Together AI video generation to complete',
             fields: { provider: 'together' },
             cause,
-        });
-    });
-});
-
-describe('clientAbortedError', () => {
-    it('builds a 400 client_aborted that names the provider', () => {
-        expect(clientAbortedError('gemini')).toMatchObject({
-            statusCode: 400,
-            legacyCode: 'client_aborted',
-            fields: { provider: 'gemini' },
         });
     });
 });
@@ -164,9 +155,19 @@ describe('pollUntilSettled', () => {
     const pending: Job = { status: 'pending' };
     const done: Job = { status: 'done' };
 
+    const fakeHold = () => ({
+        release: vi.fn(() => Promise.resolve()),
+        extend: vi.fn(() => Promise.resolve()),
+    });
+
     const poll = (
         fetch: (previous: Job | undefined) => Promise<Job>,
-        extra: { initial?: Job; windowMs?: number } = {},
+        extra: {
+            initial?: Job;
+            windowMs?: number;
+            meter?: (job: Job | undefined, settled: boolean) => Promise<void>;
+            hold?: JobHold;
+        } = {},
     ) =>
         runWithContext({}, () =>
             pollUntilSettled<Job>({
@@ -175,9 +176,22 @@ describe('pollUntilSettled', () => {
                 intervalMs: 5_000,
                 fetch,
                 isPending: (job) => job.status === 'pending',
+                meter: () => Promise.resolve(),
+                hold: new JobHold(fakeHold()),
                 ...extra,
             }),
         );
+
+    /** Settles a poll that is expected to reject, for later inspection. */
+    const rejectionOf = (run: Promise<unknown>) =>
+        (async () => {
+            try {
+                await run;
+            } catch (e) {
+                return e;
+            }
+            throw new Error('expected the poll to reject');
+        })();
 
     it('fetches immediately, then on the interval, until the job settles', async () => {
         vi.useFakeTimers();
@@ -195,6 +209,13 @@ describe('pollUntilSettled', () => {
 
         expect(await result).toBe(done);
         expect(fetch).toHaveBeenCalledTimes(3);
+    });
+
+    it('meters the settled job once before returning it', async () => {
+        const meter = vi.fn(() => Promise.resolve());
+        expect(await poll(() => Promise.resolve(done), { meter })).toBe(done);
+        expect(meter).toHaveBeenCalledOnce();
+        expect(meter).toHaveBeenCalledWith(done, true);
     });
 
     it('waits one interval before re-fetching a pending initial state', async () => {
@@ -228,13 +249,27 @@ describe('pollUntilSettled', () => {
         expect(fetch).toHaveBeenCalledTimes(2);
     });
 
-    it('rethrows a poll failure that is the provider\'s verdict', async () => {
+    it("rethrows a poll failure that is the provider's verdict, metering the job as unsettled", async () => {
         const notFound = Object.assign(new Error('no such job'), {
             status: 404,
         });
-        await expect(poll(() => Promise.reject(notFound))).rejects.toBe(
-            notFound,
-        );
+        const meter = vi.fn(() => Promise.resolve());
+        await expect(
+            poll(() => Promise.reject(notFound), { meter }),
+        ).rejects.toBe(notFound);
+        expect(meter).toHaveBeenCalledOnce();
+        expect(meter).toHaveBeenCalledWith(undefined, false);
+    });
+
+    it("meters nothing when a poll is refused as the provider's verdict on the job", async () => {
+        const refused = Object.assign(new Error('sensitive content'), {
+            status: 400,
+        });
+        const meter = vi.fn(() => Promise.resolve());
+        await expect(
+            poll(() => Promise.reject(refused), { meter }),
+        ).rejects.toBe(refused);
+        expect(meter).not.toHaveBeenCalled();
     });
 
     it('gives up after the window with a 504 carrying the last poll error', async () => {
@@ -244,7 +279,7 @@ describe('pollUntilSettled', () => {
             .fn<(p: Job | undefined) => Promise<Job>>()
             .mockRejectedValue(flaky);
 
-        const rejection = poll(fetch).catch((e: unknown) => e);
+        const rejection = rejectionOf(poll(fetch));
         await vi.advanceTimersByTimeAsync(VIDEO_POLL_WINDOW_MS + 5_000);
 
         expect(await rejection).toMatchObject({
@@ -256,22 +291,50 @@ describe('pollUntilSettled', () => {
 
     it('honours a shorter window when one is given', async () => {
         vi.useFakeTimers();
-        const rejection = poll(() => Promise.resolve(pending), {
-            windowMs: 20_000,
-        }).catch((e: unknown) => e);
+        const rejection = rejectionOf(
+            poll(() => Promise.resolve(pending), { windowMs: 20_000 }),
+        );
         await vi.advanceTimersByTimeAsync(25_000);
 
         expect(await rejection).toMatchObject({ statusCode: 504 });
     });
 
-    it('stops as soon as the request context signals a client abort', async () => {
+    it('names the media in the timeout message', async () => {
+        vi.useFakeTimers();
+        const rejection = rejectionOf(
+            runWithContext({}, () =>
+                pollUntilSettled<Job>({
+                    provider: 'kling',
+                    providerLabel: 'Kling',
+                    noun: 'image',
+                    intervalMs: 5_000,
+                    windowMs: 0,
+                    initial: pending,
+                    fetch: () => Promise.resolve(pending),
+                    isPending: (job) => job.status === 'pending',
+                    meter: () => Promise.resolve(),
+                    hold: new JobHold(fakeHold()),
+                }),
+            ),
+        );
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        expect(await rejection).toMatchObject({
+            message: 'Timed out waiting for Kling image generation to complete',
+        });
+    });
+
+    it('keeps polling after a client abort, so the settled job is metered', async () => {
         vi.useFakeTimers();
         const abort = new AbortController();
+        abort.abort();
+        const meter = vi.fn(() => Promise.resolve());
         const fetch = vi
             .fn<(p: Job | undefined) => Promise<Job>>()
-            .mockResolvedValue(pending);
+            .mockResolvedValueOnce(pending)
+            .mockResolvedValueOnce(done);
 
-        const rejection = runWithContext({}, () => {
+        const result = runWithContext({}, () => {
             Context.set('abortSignal', abort.signal);
             return pollUntilSettled<Job>({
                 provider: 'gemini',
@@ -279,19 +342,131 @@ describe('pollUntilSettled', () => {
                 intervalMs: 10_000,
                 fetch,
                 isPending: (job) => job.status === 'pending',
+                meter,
+                hold: new JobHold(fakeHold()),
             });
-        }).catch((e: unknown) => e);
-
-        await vi.advanceTimersByTimeAsync(10_000);
-        abort.abort();
-        await vi.advanceTimersByTimeAsync(0);
-
-        expect(await rejection).toMatchObject({
-            statusCode: 400,
-            legacyCode: 'client_aborted',
-            fields: { provider: 'gemini' },
         });
-        // The abort cut the second wait short; no third poll went out.
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(await result).toBe(done);
         expect(fetch).toHaveBeenCalledTimes(2);
+        expect(meter).toHaveBeenCalledWith(done, true);
+    });
+
+    describe('a job that outlives the window', () => {
+        /** Times out on the first poll, then lets the test drive the job. */
+        const lateJob = (fetch: (p: Job | undefined) => Promise<Job>) => {
+            const hold = fakeHold();
+            const jobHold = new JobHold(hold);
+            const meter = vi.fn(() => Promise.resolve());
+            const kept: Promise<unknown>[] = [];
+            const rejection = rejectionOf(
+                runWithContext({}, () => {
+                    Context.set('keepDriverSlot', (work) => kept.push(work));
+                    return pollUntilSettled<Job>({
+                        provider: 'together',
+                        providerLabel: 'Together AI',
+                        intervalMs: 5_000,
+                        windowMs: 0,
+                        initial: pending,
+                        fetch,
+                        isPending: (job) => job.status === 'pending',
+                        meter,
+                        hold: jobHold,
+                    });
+                }),
+            );
+            return { hold, jobHold, meter, kept, rejection };
+        };
+
+        it('answers 504 and meters the job once it settles', async () => {
+            vi.useFakeTimers();
+            const fetch = vi
+                .fn<(p: Job | undefined) => Promise<Job>>()
+                .mockResolvedValueOnce(pending)
+                .mockResolvedValueOnce(pending)
+                .mockResolvedValueOnce(done);
+            const { hold, jobHold, meter, kept, rejection } = lateJob(fetch);
+
+            await vi.advanceTimersByTimeAsync(5_000);
+            expect(await rejection).toMatchObject({ statusCode: 504 });
+            // The request's own release leaves the hold to the late job.
+            await jobHold.release();
+            expect(hold.release).not.toHaveBeenCalled();
+            expect(meter).not.toHaveBeenCalled();
+            expect(kept).toHaveLength(1);
+
+            await vi.advanceTimersByTimeAsync(10_000);
+            await kept[0];
+            expect(meter).toHaveBeenCalledOnce();
+            expect(meter).toHaveBeenCalledWith(done, true);
+            expect(hold.release).toHaveBeenCalledOnce();
+        });
+
+        it('renews the hold while it follows the job', async () => {
+            vi.useFakeTimers();
+            const { hold, rejection } = lateJob(() => Promise.resolve(pending));
+            await vi.advanceTimersByTimeAsync(5_000);
+            await rejection;
+
+            expect(hold.extend).toHaveBeenCalledTimes(1);
+            await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+            expect(hold.extend).toHaveBeenCalledTimes(3);
+            expect(hold.release).not.toHaveBeenCalled();
+        });
+
+        it('meters a job still pending at the late deadline as unsettled', async () => {
+            vi.useFakeTimers();
+            const { hold, meter, kept, rejection } = lateJob(() =>
+                Promise.resolve(pending),
+            );
+            await vi.advanceTimersByTimeAsync(5_000);
+            await rejection;
+
+            vi.setSystemTime(Date.now() + LATE_JOB_WINDOW_MS);
+            await vi.advanceTimersByTimeAsync(10_000);
+            await kept[0];
+            expect(meter).toHaveBeenCalledOnce();
+            expect(meter).toHaveBeenCalledWith(pending, false);
+            expect(hold.release).toHaveBeenCalledOnce();
+        });
+
+        it('meters nothing when a late poll is refused as a verdict', async () => {
+            vi.useFakeTimers();
+            const fetch = vi
+                .fn<(p: Job | undefined) => Promise<Job>>()
+                .mockResolvedValueOnce(pending)
+                .mockRejectedValueOnce(
+                    Object.assign(new Error('sensitive content'), {
+                        status: 400,
+                    }),
+                );
+            const { hold, meter, kept, rejection } = lateJob(fetch);
+            await vi.advanceTimersByTimeAsync(5_000);
+            await rejection;
+
+            await vi.advanceTimersByTimeAsync(5_000);
+            await kept[0];
+            expect(meter).not.toHaveBeenCalled();
+            expect(hold.release).toHaveBeenCalledOnce();
+        });
+
+        it('meters as unsettled when the provider loses track of the job', async () => {
+            vi.useFakeTimers();
+            const fetch = vi
+                .fn<(p: Job | undefined) => Promise<Job>>()
+                .mockResolvedValueOnce(pending)
+                .mockRejectedValueOnce(
+                    Object.assign(new Error('no such job'), { status: 404 }),
+                );
+            const { hold, meter, kept, rejection } = lateJob(fetch);
+            await vi.advanceTimersByTimeAsync(5_000);
+            await rejection;
+
+            await vi.advanceTimersByTimeAsync(5_000);
+            await kept[0];
+            expect(meter).toHaveBeenCalledWith(pending, false);
+            expect(hold.release).toHaveBeenCalledOnce();
+        });
     });
 });

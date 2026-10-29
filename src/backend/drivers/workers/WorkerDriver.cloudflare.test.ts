@@ -52,6 +52,7 @@ import { resolveCallableMethods } from '../meta.js';
 import {
     INTERNAL_ADMIN_DESTROY,
     INTERNAL_ADMISSION_BYPASS,
+    INTERNAL_DEPLOY_TARGET,
     type WorkerDriver,
 } from './WorkerDriver.js';
 
@@ -193,6 +194,27 @@ const workerSession = (userId: number, workerName: string) =>
 // -- create ----------------------------------------------------------
 
 describe('WorkerDriver.create with a configured deploy backend', () => {
+    it('retains its deployment backend after a separate local server starts', async () => {
+        const localServer = await setupTestServer({
+            workers: { localServer: true },
+        } as never);
+        await localServer.shutdown();
+        const { actor, user } = await makeUser();
+        const path = `/${user.username}/backend.js`;
+        await writeSource(actor, user.id, path, 'export default {}');
+        const name = `backend-${user.username}`;
+        expect(
+            await inCtx(actor, () =>
+                target.create({
+                    appId: '',
+                    workerName: name,
+                    filePath: path,
+                }),
+            ),
+        ).toMatchObject({ success: true, url: `https://${name}.puter.work` });
+        expect(putCalls()).toHaveLength(1);
+    });
+
     it('creates the subdomain row, deploys the source, and returns the worker URL', async () => {
         const { user, actor } = await makeUser();
         const path = `/${user.username}/worker.js`;
@@ -547,6 +569,62 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
             `workers.puter.${name}`,
         );
         expect(Number(row!.root_dir_id)).toBe(ownEntry.id);
+    });
+
+    describe('to an internal deploy target', () => {
+        const deployTo = (actor: Actor, filePath: string, scriptName: string) =>
+            inCtx(actor, () =>
+                target.create({
+                    appId: '',
+                    workerName: scriptName,
+                    filePath,
+                    [INTERNAL_DEPLOY_TARGET]: { scriptName },
+                }),
+            );
+
+        it('deploys the deployer’s own file', async () => {
+            const { user, actor } = await makeUser();
+            const path = `/${user.username}/site.worker.js`;
+            await writeSource(actor, user.id, path, 'export default {}');
+            const scriptName = `dt-own-${user.username}`;
+            expect(await deployTo(actor, path, scriptName)).toMatchObject({
+                success: true,
+            });
+            expect(putCalls()).toHaveLength(1);
+        });
+
+        it('refuses a file another user owns, even with manage on it', async () => {
+            const owner = await makeUser();
+            const deployer = await makeUser();
+            const path = `/${owner.user.username}/site.worker.js`;
+            const entry = await writeSource(
+                owner.actor,
+                owner.user.id,
+                path,
+                'v1',
+            );
+            await server.services.acl.setUserUser(
+                owner.actor,
+                deployer.actor,
+                {
+                    path: entry.path,
+                    resolveAncestors: () =>
+                        server.services.fs.getAncestorChain(entry.path),
+                },
+                'manage',
+            );
+            const scriptName = `dt-foreign-${deployer.user.username}`;
+            await expect(
+                deployTo(deployer.actor, path, scriptName),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            });
+            expect(putCalls()).toHaveLength(0);
+            expect(
+                await workerSession(deployer.user.id, scriptName),
+            ).toBeNull();
+        });
     });
 
     it('surfaces an edge deploy failure with stack lines rebased past the preamble', async () => {
@@ -920,7 +998,11 @@ describe('WorkerDriver operator teardown (INTERNAL_ADMIN_DESTROY)', () => {
             invalid: true,
         });
         expect(seen).toEqual([
-            { subdomain: `workers.puter.${name}`, uid: row.uuid },
+            {
+                subdomain: `workers.puter.${name}`,
+                uid: row.uuid,
+                userId: user.id,
+            },
         ]);
 
         // The driver's own listener hears this and leaves the script alone.
@@ -1122,7 +1204,11 @@ describe('WorkerDriver operator teardown (INTERNAL_ADMIN_DESTROY)', () => {
         await server.stores.subdomain.deleteByUuid(second.uuid);
         server.clients.event.emit(
             'subdomain.delete',
-            { subdomain: `workers.puter.${name}`, uid: second.uuid },
+            {
+                subdomain: `workers.puter.${name}`,
+                uid: second.uuid,
+                userId: Number(second.user_id),
+            },
             {},
         );
 
@@ -1642,7 +1728,11 @@ describe('WorkerDriver keeps a worker`s token tied to the worker', () => {
         await server.stores.subdomain.deleteByUuid(String(row!.uuid));
         server.clients.event.emit(
             'subdomain.delete',
-            { subdomain: `workers.puter.${name}`, uid: String(row!.uuid) },
+            {
+                subdomain: `workers.puter.${name}`,
+                uid: String(row!.uuid),
+                userId: user.id,
+            },
             {},
         );
 
