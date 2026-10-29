@@ -3,10 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // pFetch is a thin wrapper over the epoxy client, so the client module is
 // stubbed: the tests care about delegation, cache invalidation, and logging.
 const mockGetEpoxyClient = vi.fn();
-const mockClearEpoxyClientCache = vi.fn();
+const mockDiscardOnRelayFailure = vi.fn();
 vi.mock('./index.js', () => ({
     getEpoxyClient: (...args) => mockGetEpoxyClient(...args),
-    clearEpoxyClientCache: (...args) => mockClearEpoxyClientCache(...args),
+    discardOnRelayFailure: (...args) => mockDiscardOnRelayFailure(...args),
 }));
 
 const { pFetch } = await import('./requests.js');
@@ -14,16 +14,17 @@ const { pFetch } = await import('./requests.js');
 const origPuter = globalThis.puter;
 
 let mockClientFetch;
+let client;
 let logRequest;
 
 // Matches what the epoxy client resolves to: a Response-like object.
 const RESPONSE = { status: 204, statusText: 'No Content' };
 
 beforeEach(() => {
-    mockClearEpoxyClientCache.mockReset();
+    mockDiscardOnRelayFailure.mockReset().mockReturnValue(false);
     mockClientFetch = vi.fn(async () => RESPONSE);
-    mockGetEpoxyClient.mockReset()
-        .mockResolvedValue({ fetch: (...args) => mockClientFetch(...args) });
+    client = { fetch: (...args) => mockClientFetch(...args) };
+    mockGetEpoxyClient.mockReset().mockResolvedValue(client);
 
     logRequest = vi.fn();
     globalThis.puter = {
@@ -57,22 +58,36 @@ describe('pFetch delegation', () => {
         await expect(pFetch('https://example.com')).rejects.toThrow('socket closed');
     });
 
-    it('drops the cached client when the request fails', async () => {
-        mockClientFetch.mockRejectedValue(new Error('socket closed'));
+    it('reports a failed request to the client cache', async () => {
+        const error = new Error('socket closed');
+        mockClientFetch.mockRejectedValue(error);
 
-        await expect(pFetch('https://example.com')).rejects.toThrow();
+        await expect(pFetch('https://example.com')).rejects.toThrow(
+            'socket closed',
+        );
 
-        expect(mockClearEpoxyClientCache).toHaveBeenCalledTimes(1);
+        expect(mockDiscardOnRelayFailure).toHaveBeenCalledWith(client, error);
     });
 
-    // Nothing was cached if the client itself never came up, so there is
-    // nothing to invalidate -- clearing here would just mask the real failure.
-    it('leaves the cache alone when the client could not be created', async () => {
-        mockGetEpoxyClient.mockRejectedValue(new Error('wasm unavailable'));
+    it('rethrows unchanged when the failure was a relay failure', async () => {
+        const error = new Error('Wisp: Multiplexor task ended');
+        mockClientFetch.mockRejectedValue(error);
+        mockDiscardOnRelayFailure.mockReturnValue(true);
+
+        await expect(pFetch('https://example.com')).rejects.toBe(error);
+    });
+
+    // No client came up, so there is nothing to discard.
+    it('reports no client when the client could not be created', async () => {
+        const error = new Error('wasm unavailable');
+        mockGetEpoxyClient.mockRejectedValue(error);
 
         await expect(pFetch('https://example.com')).rejects.toThrow('wasm unavailable');
 
-        expect(mockClearEpoxyClientCache).not.toHaveBeenCalled();
+        expect(mockDiscardOnRelayFailure).toHaveBeenCalledWith(
+            undefined,
+            error,
+        );
     });
 });
 
@@ -225,13 +240,17 @@ describe('pFetch request validation', () => {
         await expect(request.text()).resolves.toBe('payload');
     });
 
-    it('logs a validation failure without clearing the client cache', async () => {
+    it('logs a validation failure without dialing', async () => {
         await expect(pFetch('ftp://example.com/file.txt')).rejects.toBeTruthy();
 
         const [entry] = logRequest.mock.calls[0];
         expect(entry.error.message).toBe(
             'Failed to fetch. URL scheme "ftp:" is not supported.',
         );
-        expect(mockClearEpoxyClientCache).not.toHaveBeenCalled();
+        expect(mockGetEpoxyClient).not.toHaveBeenCalled();
+        expect(mockDiscardOnRelayFailure).toHaveBeenCalledWith(
+            undefined,
+            expect.anything(),
+        );
     });
 });

@@ -508,6 +508,26 @@ describe('SpeechToTextDriver model selection and payload shape', () => {
         expect(sent.temperature).toBe(0.2);
     });
 
+    it('keeps extra_body from overriding the response shape billing reads', async () => {
+        const { actor } = await makeUser();
+        transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
+
+        await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                model: 'gpt-transcribe',
+                extra_body: {
+                    response_format: 'text',
+                    stream: true,
+                    chunking_strategy: 'auto',
+                },
+            }),
+        );
+
+        const sent = transcriptionsCreateMock.mock.calls[0]![0];
+        expect(sent.extra_body).toEqual({ chunking_strategy: 'auto' });
+    });
+
     it('does not forward timestamp_granularities, which gpt-transcribe ignores', async () => {
         const { actor } = await makeUser();
         transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
@@ -682,6 +702,72 @@ describe('SpeechToTextDriver metering', () => {
         const expected = SPEECH_TO_TEXT_COSTS[usageType] * 2;
         const creditCall = hasCreditsSpy.mock.calls[0]!;
         expect(creditCall[1]).toBe(expected);
+    });
+
+    it('meters the duration OpenAI reports, not the byte estimate', async () => {
+        const { actor } = await makeUser();
+        const usageType = 'openai:gpt-transcribe:second';
+        const billed = async (bytes: number, seconds: number) => {
+            incrementUsageSpy.mockClear();
+            transcriptionsCreateMock.mockResolvedValueOnce({
+                text: 'x',
+                usage: { type: 'duration', seconds },
+            });
+            await withActor(actor, () =>
+                driver.transcribe({
+                    file: dataUrl(Buffer.alloc(bytes, 1), 'audio/ogg'),
+                }),
+            );
+            const [, , count, cost] = incrementUsageSpy.mock.calls.find(
+                ([, type]) => type === usageType,
+            )!;
+            expect(cost).toBe(SPEECH_TO_TEXT_COSTS[usageType]! * count);
+            return count;
+        };
+        // 600 s of Opus at 8 kbps, and 60 s of 44.1 kHz stereo WAV.
+        expect(await billed(441_078, 600)).toBe(600);
+        expect(await billed(10_584_078, 59.2)).toBe(60);
+    });
+
+    it('asks for json behind response_format=text so usage comes back', async () => {
+        const { actor } = await makeUser();
+        transcriptionsCreateMock.mockResolvedValueOnce({
+            text: 'plain transcript',
+            usage: { type: 'duration', seconds: 42 },
+        });
+        const result = await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                response_format: 'text',
+            }),
+        );
+        expect(result).toBe('plain transcript');
+        expect(transcriptionsCreateMock.mock.calls[0]![0].response_format).toBe(
+            'json',
+        );
+        const usageType = 'openai:gpt-transcribe:second';
+        const [, , count] = incrementUsageSpy.mock.calls.find(
+            ([, type]) => type === usageType,
+        )!;
+        expect(count).toBe(42);
+    });
+
+    it('falls back to the byte estimate when OpenAI reports token usage', async () => {
+        const { actor } = await makeUser();
+        transcriptionsCreateMock.mockResolvedValueOnce({
+            text: 'x',
+            usage: { type: 'tokens', input_tokens: 10, output_tokens: 2 },
+        });
+        await withActor(actor, () =>
+            driver.transcribe({
+                file: dataUrl(Buffer.alloc(32000, 0), 'audio/mp3'),
+            }),
+        );
+        const usageType = 'openai:gpt-transcribe:second';
+        const [, , count] = incrementUsageSpy.mock.calls.find(
+            ([, type]) => type === usageType,
+        )!;
+        expect(count).toBe(2);
     });
 
     it('holds and meters at the AI cost factor', async () => {

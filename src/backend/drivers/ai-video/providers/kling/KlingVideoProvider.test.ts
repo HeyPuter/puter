@@ -37,12 +37,14 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import type { IGenerateVideoParams } from '../../types.js';
+import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { KlingVideoProvider } from './KlingVideoProvider.js';
 import { KLING_VIDEO_GENERATION_MODELS } from './models.js';
 
@@ -663,9 +665,82 @@ describe('KlingVideoProvider failures', () => {
         });
     });
 
-    it('fails when the finished task has no video', async () => {
+    // Kling bills a task it reports as succeeded, video or not.
+    it('fails, still metered, when the finished task has no video', async () => {
         mockTaskFlow(succeededTask({ outputs: [] }));
         await expect(generate({})).rejects.toThrow(/video URL/);
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('KlingVideoProvider after the caller leaves', () => {
+    it('keeps polling after a disconnect and meters the finished clip', async () => {
+        mockTaskFlow({ id: 'task-1', status: 'processing' }, succeededTask());
+        const result = await withTestActor(() => {
+            const abort = new AbortController();
+            abort.abort();
+            Context.set('abortSignal', abort.signal);
+            return makeProvider().generate({ prompt: 'a ball rolls' });
+        });
+        expect(result).toBe('https://kling.example/out.mp4');
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+    });
+
+    /** Times out on the first status poll; later polls return `late()`. */
+    const outliveWindow = async (late: () => unknown) => {
+        fetchSpy.mockResolvedValueOnce(
+            jsonResponse(envelope({ id: 'task-1', status: 'submitted' })),
+        );
+        const realNow = Date.now.bind(Date);
+        let skew = 0;
+        vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skew);
+        let polls = 0;
+        fetchSpy.mockImplementation(async () => {
+            skew = VIDEO_POLL_WINDOW_MS + 1;
+            return jsonResponse(
+                envelope([
+                    polls++ === 0
+                        ? { id: 'task-1', status: 'processing' }
+                        : late(),
+                ]),
+            );
+        });
+
+        let failure: unknown;
+        try {
+            await generate({ seconds: 5 });
+        } catch (e) {
+            failure = e;
+        }
+        expect(failure).toMatchObject({
+            statusCode: 504,
+            legacyCode: 'upstream_timeout',
+        });
+    };
+
+    it('meters a task that finishes after the window', async () => {
+        let finished = false;
+        await outliveWindow(() =>
+            finished ? succeededTask() : { id: 'task-1', status: 'processing' },
+        );
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+
+        finished = true;
+        await vi.waitFor(() =>
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1),
+        );
+        const [, usageType, amount] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toMatch(/^kling-video-generation:/);
+        expect(amount).toBe(5);
+    });
+
+    it('meters nothing for a task that fails after the window', async () => {
+        await outliveWindow(() => ({
+            id: 'task-1',
+            status: 'failed',
+            message: 'boom',
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 20));
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 });
