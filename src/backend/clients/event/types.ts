@@ -553,6 +553,21 @@ export type EventMap = {
         handlerDepth?: number;
     };
     /**
+     * Every non-silent write or update, only on the node that wrote it. The
+     * value is the listener's own copy of what the socket carries.
+     */
+    'notif.written': {
+        userId: number;
+        uid: string;
+        type: string;
+        audience: string;
+        /** The row's app; null when it names none or an update could not tell. */
+        appUid: string | null;
+        value: Record<string, unknown>;
+        /** An earlier notification rewritten in place. */
+        updated?: true;
+    };
+    /**
      * One notification, addressed at whatever sockets each region holds for the
      * recipient. `outer.*` reaches peer regions and never sibling nodes, so
      * every region applies it exactly once — which is what keeps a socket from

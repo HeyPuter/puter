@@ -54,7 +54,7 @@ describe('deliversTokenAtBoot', () => {
     });
 
     it('keeps withholding the token from the popups that answer a question', () => {
-        for ( const action of ['request-permission', 'send-feedback', 'attach-custom-domain'] ) {
+        for ( const action of ['request-permission', 'send-feedback', 'enable-push', 'attach-custom-domain'] ) {
             expect(deliversTokenAtBoot(action)).toBe(false);
             expect(defersTokenToOpener(action)).toBe(false);
         }
@@ -72,6 +72,10 @@ describe('deliversTokenToOpener', () => {
     it('withholds the token from a feedback popup', () => {
         // Sending feedback is not consent to sign the site in either.
         expect(deliversTokenToOpener('send-feedback')).toBe(false);
+    });
+
+    it('withholds the token from an enable-push popup', () => {
+        expect(deliversTokenToOpener('enable-push')).toBe(false);
     });
 
     it('withholds the token from a custom domain popup', () => {
@@ -113,6 +117,12 @@ describe('offersFederatedSignInInPopup', () => {
             expect(offersFederatedSignInInPopup(action)).toBe(true);
         }
     });
+
+    it('withholds it from the popups that answer a question', () => {
+        for ( const action of ['send-feedback', 'enable-push'] ) {
+            expect(offersFederatedSignInInPopup(action)).toBe(false);
+        }
+    });
 });
 
 describe('runsUserAppTokenExchange', () => {
@@ -123,6 +133,10 @@ describe('runsUserAppTokenExchange', () => {
         // origin server-side, so opening (or cancelling) the dialog must not
         // connect the site to the account.
         expect(runsUserAppTokenExchange('send-feedback')).toBe(false);
+    });
+
+    it('skips the exchange for an enable-push popup, which registers a device only', () => {
+        expect(runsUserAppTokenExchange('enable-push')).toBe(false);
     });
 
     it('skips the exchange for a custom domain popup', () => {

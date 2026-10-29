@@ -132,6 +132,11 @@ describe('notificationFromEvent', () => {
         expect(notificationFromEvent('notif')).toBe(null);
     });
 
+    it('carries the app a row names, as its row does', () => {
+        expect(notificationFromEvent(event('n1', { appUid: 'app-1' })).app_uid).toBe('app-1');
+        expect(notificationFromEvent(event('n1', { appUid: null }))).not.toHaveProperty('app_uid');
+    });
+
     it('falls back to the event id when the projection names no uid', () => {
         expect(notificationFromEvent({ id: 'n9', op: 'post', notification: {} }).uid).toBe('n9');
     });

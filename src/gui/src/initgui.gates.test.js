@@ -69,6 +69,70 @@ describe('the popup token hand-off in postAuthActions', () => {
     });
 });
 
+describe('the permission popup and browser push', () => {
+    const postAuthActions = src.slice(
+        src.indexOf('const postAuthActions = async'),
+        src.indexOf('window.initgui = async'),
+    );
+    const requestPermission = postAuthActions.slice(
+        postAuthActions.indexOf("if ( action === 'request-permission' )"),
+        postAuthActions.indexOf("if ( action === 'enable-push' )"),
+    );
+    const enablePush = postAuthActions.slice(
+        postAuthActions.indexOf("if ( action === 'enable-push' )"),
+        postAuthActions.indexOf("if ( action === 'send-feedback' )"),
+    );
+
+    it('starts the service worker before the dialog when pushes are requested', () => {
+        const start = requestPermission.indexOf('startPushWorker()');
+        expect(start).toBeGreaterThan(-1);
+        expect(requestPermission.indexOf('permissions.includes(PUSH_PERMISSION)')).toBeLessThan(start);
+        expect(start).toBeLessThan(requestPermission.indexOf('await UIPermissionDialog({'));
+    });
+
+    it('takes the registration Allow began and waits for it after answering', () => {
+        expect(requestPermission).toContain('on_push_enable: (enabling) => {');
+        const answered = requestPermission.indexOf("msg: 'permissionGranted'");
+        // The deadline leaves the browser's own prompt its time.
+        const waited = requestPermission.indexOf('await withEnableDeadline(push_enable)');
+        const closed = requestPermission.indexOf('window.close()');
+        expect(answered).toBeGreaterThan(-1);
+        expect(waited).toBeGreaterThan(answered);
+        expect(closed).toBeGreaterThan(waited);
+        expect(requestPermission).not.toContain('setTimeout');
+    });
+
+    it('shows the enable-push dialog only for a site whose app may send pushes', () => {
+        const resolved = enablePush.indexOf('await window.getAppUIDFromOrigin(origin)');
+        const checked = enablePush.indexOf('await appHoldsPermissions([PUSH_PERMISSION], app_uid)');
+        const dialog = enablePush.indexOf('await UIEnablePushDialog({ origin })');
+        expect(resolved).toBeGreaterThan(-1);
+        expect(checked).toBeGreaterThan(resolved);
+        expect(dialog).toBeGreaterThan(checked);
+    });
+
+    it('answers an enable-push opener it cannot attest, like a permission prompt', () => {
+        const unattested = src.slice(
+            src.indexOf('if (!isAttestedOrigin(window.openerOrigin))'),
+            src.indexOf("i18n('popup_opener_origin_unsupported')"),
+        );
+        expect(unattested).toContain("if (action === 'request-permission')");
+        expect(unattested).toContain("else if (action === 'enable-push')");
+        expect(unattested).toContain("state: 'unavailable'");
+    });
+
+    it('answers the enable-push opener after the dialog, then closes', () => {
+        expect(enablePush).toContain('startPushWorker()');
+        const dialog = enablePush.indexOf('await UIEnablePushDialog({ origin })');
+        const answered = enablePush.indexOf("msg: 'pushEnabled'");
+        const closed = enablePush.indexOf('window.close()');
+        expect(dialog).toBeGreaterThan(-1);
+        expect(answered).toBeGreaterThan(dialog);
+        expect(closed).toBeGreaterThan(answered);
+        expect(enablePush).toContain('const origin = window.openerOrigin;');
+    });
+});
+
 describe('the account pickers in a popup', () => {
     const PICKER = 'picked_a_user_for_sdk_login = await UIWindowSessionList(';
 

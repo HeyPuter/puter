@@ -19,6 +19,15 @@
 
 import { fsCreateKindFor } from '../helpers/fsCreateKind.js';
 import { get_app_by_uid } from '../helpers/getAppByUid.js';
+import {
+    browserPushOptedOut,
+    browserPushState,
+    enableBrowserPush,
+    getPushClient,
+    PUSH_PERMISSION,
+    pushClientWithin,
+    setBrowserPushOptOut,
+} from '../helpers/pushClient.js';
 
 // Keeps a second request for the same (entity, permission) from stacking a
 // duplicate dialog; both callers await the same user decision.
@@ -33,7 +42,7 @@ let dialog_queue = Promise.resolve();
 // Buttons stay disabled until the dialog has been visible and focused this long
 // without a break, so a click aimed at whatever covered it can't land on
 // "Allow". See `guard_input`.
-const INPUT_PROTECTION_MS = 350;
+export const INPUT_PROTECTION_MS = 350;
 
 // How long the grant request may take before it is aborted and the dialog
 // re-enables its buttons for a retry.
@@ -62,6 +71,7 @@ const LOOKUP_TIMEOUT_MS = 10000;
  * @param {boolean|'dir'|'file'} [options.create] - Create the fs path if it
  *   does not exist, after the user approves. Defaults to `true`; `false` opts
  *   out. Forwarded to the grant only.
+ * @param {(enabling: Promise<boolean>) => void} [options.on_push_enable] - Called from Allow with the browser registration that click began, when the request includes `notifications:push` and push is off here; it never affects the decision.
  * @returns {Promise<boolean>} `true` only if the permission was granted.
  */
 async function UIPermissionDialog (options) {
@@ -180,11 +190,18 @@ async function show_permission_dialog (options) {
     }
     if ( ! descriptions ) return false;
 
-    const entity = await resolve_requesting_entity(options);
+    const [entity, push_state] = await Promise.all([
+        resolve_requesting_entity(options),
+        resolve_browser_push_state(options),
+    ]);
 
     return new Promise((resolve) => {
-        const el_dialog = create_dialog_element(entity, descriptions);
+        const el_dialog = create_dialog_element(entity, descriptions, push_state);
         document.body.appendChild(el_dialog);
+        // The registration Allow began, kept so a second Allow doesn't start another.
+        let push_enable = null;
+        const user_uid = window.user?.uuid;
+        const opted_out_before = browserPushOptedOut(user_uid);
 
         // Set once a grant request has been sent without the server definitively
         // refusing it. A client-side timeout or a dropped response says nothing
@@ -203,6 +220,9 @@ async function show_permission_dialog (options) {
                 // Not awaited: the requester gets its answer now, and the
                 // account is reconciled in the background.
                 undo_uncertain_grant(options);
+            }
+            if ( ! granted && push_enable ) {
+                undo_browser_push(push_enable, user_uid, opted_out_before);
             }
             // `close()` fires the 'close' event; the handler below resolves
             // false, so resolve first.
@@ -258,6 +278,11 @@ async function show_permission_dialog (options) {
             $allow.addClass('perm-dialog-busy');
             sync_buttons();
             $error.hide();
+
+            if ( push_state === 'off' && ! push_enable ) {
+                push_enable = enableBrowserPush(getPushClient());
+                options.on_push_enable?.(push_enable);
+            }
 
             // Time-box the request: while it is outstanding the dialog can't
             // be dismissed, so a hung network must not strand the user in
@@ -431,6 +456,17 @@ export function guard_input ({ win, doc, ms, on_change }) {
     };
 }
 
+/** Turns push back off in this browser when Allow began a registration and the dialog still ended in a denial. @param {Promise<boolean>} push_enable @param {string|undefined} user_uid @param {boolean} opted_out_before */
+function undo_browser_push (push_enable, user_uid, opted_out_before) {
+    push_enable.then((ok) => {
+        if ( ! ok ) return;
+        getPushClient()?.disable().then(
+            () => setBrowserPushOptOut(user_uid, opted_out_before),
+            (e) => console.debug('[push] disable failed', e),
+        );
+    });
+}
+
 /**
  * Withdraws a grant whose POST may have committed even though the dialog never
  * saw a success response, so a "Don't Allow" can't leave a live permission the
@@ -476,6 +512,16 @@ function is_web_origin (origin) {
     }
 }
 
+/** Null for a request without `notifications:push`; otherwise this browser's push state, where `'off'` means Allow also turns it on. @param {{ permissions: string[] }} options @returns {Promise<import('../helpers/pushClient.js').BrowserPushState | null>} */
+async function resolve_browser_push_state (options) {
+    if ( ! options.permissions.includes(PUSH_PERMISSION) ) return null;
+    return with_timeout(
+        pushClientWithin().then(browserPushState),
+        LOOKUP_TIMEOUT_MS,
+        'unavailable',
+    );
+}
+
 /**
  * Resolves `promise`, or `fallback` if it hasn't settled within `ms`.
  *
@@ -484,7 +530,7 @@ function is_web_origin (origin) {
  * timeout of its own. One stalled request would hold the slot forever and every
  * later permission request in the page would wait behind it.
  */
-function with_timeout (promise, ms, fallback) {
+export function with_timeout (promise, ms, fallback) {
     let timer;
     return Promise.race([
         promise,
@@ -498,24 +544,12 @@ function with_timeout (promise, ms, fallback) {
  * Builds the dialog DOM from the requesting entity and the permission
  * description. Returns a detached <dialog> element.
  */
-function create_dialog_element (entity, descriptions) {
+function create_dialog_element (entity, descriptions, push_state) {
     let h = '';
     h += '<div class="perm-dialog-body">';
 
     // requesting entity identity
-    h += '<div class="perm-dialog-identity">';
-    h += entity.icon_html;
-    // A host is elided from the left, keeping the registrable domain visible —
-    // the part that says who is actually asking. Truncating the other end would
-    // let `accounts.google.com.attacker.example` read as `accounts.google.com…`.
-    const name_class = entity.is_host
-        ? 'perm-dialog-entity-name perm-dialog-entity-host'
-        : 'perm-dialog-entity-name';
-    h += `<h1 class="${name_class}">${html_encode(entity.display_name)}</h1>`;
-    if ( entity.subtitle ) {
-        h += `<span class="perm-dialog-entity-origin">${html_encode(entity.subtitle)}</span>`;
-    }
-    h += '</div>';
+    h += identity_html(entity);
 
     // what is being requested
     h += `<p class="perm-dialog-lead">${i18n('perm_dialog_wants_to')}</p>`;
@@ -524,6 +558,9 @@ function create_dialog_element (entity, descriptions) {
         h += `<div class="perm-dialog-perm-icon">${permission_icon_svg(description.icon)}</div>`;
         h += `<div class="perm-dialog-perm-text">${description.html}</div>`;
         h += '</div>';
+    }
+    if ( push_state === 'off' ) {
+        h += `<p class="perm-dialog-push-note">${i18n('perm_dialog_push_note')}</p>`;
     }
 
     // error message (hidden until a grant attempt fails)
@@ -547,12 +584,28 @@ function create_dialog_element (entity, descriptions) {
     return el_dialog;
 }
 
+/** The block naming who is asking: icon, display name and the subtitle carrying the unique identity. @param {{ display_name: string, subtitle: string|null, icon_html: string, is_host: boolean }} entity @returns {string} */
+export function identity_html (entity) {
+    let h = '<div class="perm-dialog-identity">';
+    h += entity.icon_html;
+    // A host is elided from the left, so its registrable domain stays visible.
+    const name_class = entity.is_host
+        ? 'perm-dialog-entity-name perm-dialog-entity-host'
+        : 'perm-dialog-entity-name';
+    h += `<h1 class="${name_class}">${html_encode(entity.display_name)}</h1>`;
+    if ( entity.subtitle ) {
+        h += `<span class="perm-dialog-entity-origin">${html_encode(entity.subtitle)}</span>`;
+    }
+    h += '</div>';
+    return h;
+}
+
 /**
  * Resolves how the requesting app or site is presented: display name, a
  * subtitle carrying the identity that is actually unique (the app's registered
  * name, or the site's host), and an icon (app icon or letter avatar).
  */
-async function resolve_requesting_entity (options) {
+export async function resolve_requesting_entity (options) {
     let display_name = options.app_name ?? options.origin ?? '';
     let subtitle = null;
     let icon_url = null;

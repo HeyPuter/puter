@@ -35,11 +35,7 @@ import {
     markNotificationShown,
 } from './notificationApi.js';
 
-/**
- * Every slice of their own mailbox a user session can name: `notif:<audience>`
- * expands against the session, which covers the rows naming no app. Rows about
- * an app are addressed by its uid and are that app's own to watch.
- */
+/** A session's own mailbox slices; each covers its audience's rows for every app. */
 export const NOTIFICATION_SUBJECTS = Object.freeze([
     'notif:account',
     'notif:developer',
@@ -67,6 +63,7 @@ const UNACKNOWLEDGED_LIMIT = 200;
  * @property {string} uid
  * @property {Object} notification - The payload, as the socket wire carries it
  * @property {number} created_at - Epoch milliseconds
+ * @property {string} [app_uid] - The app the row is about, when it names one
  */
 
 /**
@@ -109,6 +106,7 @@ export const notificationFromEvent = (event) => {
         uid,
         notification: type === undefined ? notification : { ...notification, type },
         created_at: Number.isFinite(event.ts) ? event.ts : Date.now(),
+        ...(typeof event.appUid === 'string' && event.appUid ? { app_uid: event.appUid } : {}),
     };
 };
 

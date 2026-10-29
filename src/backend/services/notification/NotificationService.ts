@@ -169,12 +169,26 @@ export class NotificationService extends PuterService {
                     return null;
                 }
 
-                if (!opts.silent)
+                if (!opts.silent) {
+                    // Listeners get their own copy; the socket sends `payload`.
+                    this.clients.event.emit(
+                        'notif.written',
+                        {
+                            userId,
+                            uid,
+                            type: registered.type,
+                            audience: registered.audience,
+                            appUid,
+                            value: structuredClone(payload),
+                        },
+                        {},
+                    );
                     await this.#push(userId, uid, payload, {
                         type: registered.type,
                         audience: registered.audience,
                         appUid,
                     });
+                }
                 return uid;
             }),
         );
@@ -217,6 +231,25 @@ export class NotificationService extends PuterService {
             // to anything deduplicating on `event.id`.
             this.#socket().message(userId, uid, payload);
             this.#markDelivered(uid, userId);
+            const row = await this.stores.notification.getByUid(uid, {
+                userId,
+            });
+            const app = notification.app as { uid?: unknown } | undefined;
+            this.clients.event.emit(
+                'notif.written',
+                {
+                    userId,
+                    uid,
+                    type: registered.type,
+                    audience: registered.audience,
+                    appUid:
+                        row?.app_uid ??
+                        (typeof app?.uid === 'string' ? app.uid : null),
+                    value: structuredClone(payload),
+                    updated: true,
+                },
+                {},
+            );
         }
         return true;
     }

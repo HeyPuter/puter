@@ -45,7 +45,18 @@ import item_icon from '../helpers/itemIcon.js';
 import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
 import { applyToastMark, createNotificationFeed } from '../helpers/notificationFeed.js';
-import { notificationTarget, senderNameFor } from './Dashboard/notificationCenter.js';
+import { getNotification, markNotificationAcknowledged } from '../helpers/notificationApi.js';
+import {
+    elementsWithData,
+    handleNotificationTap,
+    openAppForTap,
+    setPushTapHandler,
+    storedTapHandler,
+} from '../helpers/notificationTap.js';
+import { showLocalBanner, startPushWorker } from '../helpers/pushWorker.js';
+import { syncBrowserPush } from '../helpers/pushSync.js';
+import { get_app_by_uid } from '../helpers/getAppByUid.js';
+import { httpsIconFor, notificationTarget, senderNameFor } from './Dashboard/notificationCenter.js';
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import UIWindowSearch from './UIWindowSearch.js';
@@ -240,16 +251,39 @@ async function UIDesktop (options) {
         };
     };
 
+    // The desktop has no notification list, so other types only clear.
+    const tap_surface = {
+        share: (notification) => share_notification_click(notification)?.(),
+        openApp: (route) => openAppForTap(route, { getApp: get_app_by_uid, launch: launch_app }),
+    };
+    const tap_notification = (tap) => handleNotificationTap(tap, tap_surface);
+
+    const toasts_for = (uid) => $(elementsWithData($('.notification').get(), 'uid', uid));
+
+    setPushTapHandler(storedTapHandler({
+        fetchRow: getNotification,
+        surface: tap_surface,
+        found: (uid) => {
+            toasts_for(uid).remove();
+            update_tab_notif_count_badge();
+            void markNotificationAcknowledged(uid).catch((err) => {
+                console.warn('Could not acknowledge notification:', err);
+            });
+        },
+    }));
+    startPushWorker().then(() => syncBrowserPush());
+
     /**
      * Raise one notification, whichever path it arrived on. `replay` names
      * what the feed already claimed as shown while catching up, so the same
      * row isn't marked twice.
      */
-    const show_notification = ({ uid, notification }, { replay = false } = {}) => {
+    const show_notification = ({ uid, notification, app_uid }, { replay = false } = {}) => {
+        void showLocalBanner({ uid, notification, appUid: app_uid }, { replay });
         // A notification can be re-sent under its own uid when what it says has
         // grown — several people sharing with you is one notification that
         // counts them. Refresh the one on screen rather than stacking a copy.
-        const $showing = $(`.notification[data-uid="${html_encode(uid)}"]`);
+        const $showing = toasts_for(uid);
         if ( $showing.length ) {
             $showing.find('.notification-title').text(notification.title);
             $showing.find('.notification-text').text(notification.text ?? '');
@@ -260,10 +294,10 @@ async function UIDesktop (options) {
             sender: senderNameFor(notification),
             title: notification.title,
             text: notification.text,
-            icon: window.icons[notification.icon],
+            icon: window.icons[notification.icon] ?? httpsIconFor(notification) ?? undefined,
             value: notification,
             uid,
-            click: share_notification_click(notification),
+            click: () => void tap_notification({ uid, notification, appUid: app_uid }),
             close: () => applyToastMark('dismissed', uid, {
                 eventsPath: notification_feed.isActive(),
             }),
@@ -324,7 +358,7 @@ async function UIDesktop (options) {
     // it can't double-render — and the events surface carries only postings,
     // which leaves this the one thing that still dismisses across tabs.
     window.socket.on('notif.ack', ({ uid }) => {
-        $(`.notification[data-uid="${uid}"]`).remove();
+        toasts_for(uid).remove();
         update_tab_notif_count_badge();
     });
 

@@ -444,6 +444,10 @@ export const UNPUBLISHED_INTERNAL_EVENTS = [
         event: 'kv.share.retired',
         reason: 'A share handle stopping is not a change to any key; it ends the subscriptions made through the handle rather than being delivered to them.',
     },
+    {
+        event: 'notif.written',
+        reason: 'A node-local hook after a notification is written, for extensions; the notification itself publishes through `notif.created`.',
+    },
 ] as const satisfies readonly UnpublishedInternalEvent[];
 
 // Every `fs.*`/`kv.*`/`notif.*` bus key needs a decision. A new key that is in

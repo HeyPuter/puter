@@ -176,6 +176,7 @@ async function build (options) {
         'manifest.json',
         'favicon.ico',
         'security.txt',
+        'sw.js',
     ];
 
     const recursive_copy = (src, dest) => {
