@@ -218,6 +218,8 @@ export interface AckedSend {
     sockets: number;
     /** Of those, the ones that acknowledge this event. */
     acking: number;
+    /** Of those, the ones that acknowledge any event: not an older client. */
+    declaring: number;
     /** The counts cover every node; false when only this node's were seen. */
     complete: boolean;
 }
@@ -256,6 +258,10 @@ interface ListedSocket {
 export const ackRoom = (room: string, event: string): string =>
     `${room}:acks:${event}`;
 const MAX_HANDSHAKE_ACKS = 16;
+
+/** Whether a socket listed any event in `auth.acks`. */
+const declaresAcks = (socket: ListedSocket): boolean =>
+    [...socket.rooms].some((room) => room.startsWith(ackRoom(socket.id, '')));
 const MAX_ACK_EVENT_LENGTH = 64;
 
 /** The events a client says it acknowledges, from `handshake.auth.acks`. */
@@ -452,6 +458,7 @@ export class SocketService extends PuterService {
             timedOut: false,
             sockets: 0,
             acking: 0,
+            declaring: 0,
             complete: false,
         };
         const io = this.#io;
@@ -499,6 +506,7 @@ export class SocketService extends PuterService {
             acking: listed.sockets.filter((socket) =>
                 [...socket.rooms].some((room) => acking.has(room)),
             ).length,
+            declaring: listed.sockets.filter(declaresAcks).length,
             complete: listed.complete && this.#countFailures === failuresBefore,
         };
     }
@@ -676,6 +684,7 @@ export class SocketService extends PuterService {
             timedOut: heard.some((h) => !h.ok),
             sockets: sockets.length,
             acking: acking.length,
+            declaring: sockets.filter(declaresAcks).length,
             complete: false,
         };
     }

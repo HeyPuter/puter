@@ -335,6 +335,21 @@ describe('live notification delivery receipts', () => {
         });
     });
 
+    it('counts a socket that acknowledges only other events as current', async () => {
+        await connect({ acks: ['notif.message'] });
+        // puter.js's own socket on the desktop page, which never shows these.
+        await connect({ acks: [NOTIF_RECEIPT_EVENT] });
+
+        const uid = await notify();
+
+        expect(await settledFor(uid)).toMatchObject({
+            outcome: 'unreceived',
+            ackCapable: true,
+            everySocketAcks: true,
+            complete: true,
+        });
+    });
+
     it('settles as no-socket when the user has no connection anywhere', async () => {
         const uid = await notify();
         expect(await settledFor(uid)).toMatchObject({

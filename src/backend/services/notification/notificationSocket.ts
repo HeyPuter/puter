@@ -114,7 +114,9 @@ const heardFromSend = (sent: AckedSend): Heard => ({
     responses: sent.responses,
     reached: sent.sockets > 0,
     ackCapable: sent.acking > 0,
-    everySocketAcks: sent.acking === sent.sockets,
+    // A socket acknowledging other events (puter.js beside the desktop) never
+    // shows this one, so only one that declares nothing is an older client.
+    everySocketAcks: sent.declaring === sent.sockets,
     complete: sent.complete,
 });
 

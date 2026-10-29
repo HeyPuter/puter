@@ -596,7 +596,7 @@ export type EventMap = {
         outcome: NotifDeliveryOutcome;
         /** A socket in this region acknowledges the receipt. */
         ackCapable: boolean;
-        /** No socket here declines to acknowledge, such as an older client. */
+        /** No socket here is an older client that acknowledges nothing. */
         everySocketAcks: boolean;
         /** Socket counts covered every node here, not just this one. */
         complete: boolean;

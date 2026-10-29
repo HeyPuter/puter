@@ -114,6 +114,7 @@ const withServer = (config: IConfig) => {
                 timedOut: false,
                 sockets: 0,
                 acking: 0,
+                declaring: 0,
                 complete: true,
             };
         });

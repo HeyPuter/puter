@@ -560,6 +560,7 @@ describe('SocketService (live socket.io)', () => {
                 timedOut: false,
                 sockets: 2,
                 acking: 1,
+                declaring: 1,
                 complete: false,
             });
             // A socket that never declared it gets the event with no callback.
@@ -598,6 +599,7 @@ describe('SocketService (live socket.io)', () => {
                 timedOut: true,
                 sockets: 2,
                 acking: 2,
+                declaring: 2,
                 complete: false,
             });
             expect(await silentGot).toEqual({ n: 2 });
@@ -628,6 +630,7 @@ describe('SocketService (live socket.io)', () => {
                 timedOut: false,
                 sockets: 1,
                 acking: 0,
+                declaring: 1,
                 complete: false,
             });
             expect(await got).toEqual({ n: 3 });
@@ -647,6 +650,7 @@ describe('SocketService (live socket.io)', () => {
                 timedOut: false,
                 sockets: 0,
                 acking: 0,
+                declaring: 0,
                 complete: false,
             });
         });
@@ -1494,6 +1498,7 @@ describe('SocketService.sendWithAck through the cluster adapter', () => {
             timedOut: false,
             sockets: 1,
             acking: 1,
+            declaring: 1,
             complete: true,
         });
     });
@@ -1549,6 +1554,7 @@ describe('SocketService.sendWithAck through the cluster adapter', () => {
                 timedOut: false,
                 sockets: 1,
                 acking: 1,
+                declaring: 1,
                 complete: false,
             });
         }
@@ -1582,6 +1588,7 @@ describe('SocketService.sendWithAck through the cluster adapter', () => {
             timedOut: false,
             sockets: 2,
             acking: 1,
+            declaring: 1,
             complete: true,
         });
         expect(await oldGot).toEqual([{ n: 3 }]);
@@ -1666,6 +1673,7 @@ describe('SocketService.sendWithAck through the cluster adapter', () => {
             timedOut: false,
             sockets: 0,
             acking: 0,
+            declaring: 0,
             complete: true,
         });
     });
