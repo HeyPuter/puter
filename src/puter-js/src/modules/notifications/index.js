@@ -211,13 +211,20 @@ export class NotificationsModule extends EventListener {
                     );
             }
         }
-        await this.#showIfHidden(notification, result);
+        await this.#showIfAway(notification, result);
     }
 
-    /** A connected page that is hidden shows what the push would have. */
-    async #showIfHidden(notification, result) {
+    /**
+     * A website page that is hidden or in an unfocused window shows what the
+     * push would have. Inside the Puter desktop, the desktop's banner shows
+     * it.
+     */
+    async #showIfAway(notification, result) {
         if (this.puter.env !== 'web') return;
-        if (globalThis.document?.visibilityState !== 'hidden') return;
+        const doc = globalThis.document;
+        const away =
+            doc?.visibilityState === 'hidden' || doc?.hasFocus?.() === false;
+        if (!away) return;
         if (globalThis.Notification?.permission !== 'granted') return;
         try {
             const registration =

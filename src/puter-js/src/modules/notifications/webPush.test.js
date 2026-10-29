@@ -302,9 +302,10 @@ describe('shownFrom', () => {
 
 describe('onPush', () => {
     let feedHandler;
-    const makeModule = () => {
+    const makeModule = (env = puter.env) => {
         const module = new NotificationsModule({
             ...puter,
+            env,
             onAuthStateChanged: () => () => {},
         });
         module.onNotification = vi.fn(async (handler) => {
@@ -389,6 +390,65 @@ describe('onPush', () => {
             expect.objectContaining({ code: 'internal_error' }),
         );
         error.mockRestore();
+    });
+
+    describe('live delivery while the user is elsewhere', () => {
+        let nav;
+        const page = ({ visibilityState = 'visible', focused = true } = {}) => {
+            globalThis.document = { visibilityState, hasFocus: () => focused };
+        };
+        const deliver = async (module) => {
+            await module.onPush('chat', () => ({ title: 'From the handler' }));
+            await feedHandler({ uid: 'n1', channel: 'chat', title: 'Hi' });
+        };
+
+        beforeEach(() => {
+            nav = makeNav();
+            nav.registration.showNotification = vi.fn(async () => {});
+            withBrowser(nav);
+            globalThis.location = { origin: 'https://app.example' };
+            mockRequest.mockResolvedValue({});
+        });
+
+        afterEach(() => {
+            delete globalThis.document;
+            delete globalThis.location;
+        });
+
+        it.each([
+            ['hidden', { visibilityState: 'hidden', focused: false }],
+            ['visible in an unfocused window', { focused: false }],
+        ])(
+            'shows the handler`s result when the page is %s',
+            async (_, state) => {
+                page(state);
+                await deliver(makeModule());
+                expect(nav.registration.showNotification).toHaveBeenCalledWith(
+                    'From the handler',
+                    expect.objectContaining({
+                        tag: 'n1',
+                        data: {
+                            puter: expect.objectContaining({
+                                uid: 'n1',
+                                url: 'https://app.example/',
+                            }),
+                        },
+                    }),
+                );
+            },
+        );
+
+        it('shows nothing while the page has focus', async () => {
+            page();
+            await deliver(makeModule());
+            expect(nav.registration.showNotification).not.toHaveBeenCalled();
+        });
+
+        it('shows nothing inside the Puter desktop, which shows its own banner', async () => {
+            page({ focused: false });
+            await deliver(makeModule('app'));
+            expect(nav.registration.showNotification).not.toHaveBeenCalled();
+        });
     });
 });
 

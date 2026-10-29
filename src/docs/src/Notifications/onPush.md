@@ -33,7 +33,7 @@ Called with the notification (the same shape [`onNotification()`](/Notifications
 - `title`, `body`, `icon`, `badge`, `image`, `tag`: strings, as in the browser's `showNotification()`.
 - `url`: a path or URL on your origin, opened when the notification is tapped. Defaults to the notification's `target`. Other origins are replaced with your site's root.
 
-Returning nothing shows the notification's own `title` and `text`. In the page, the result is only shown when the tab is hidden.
+Returning nothing shows the notification's own `title` and `text`. In the page, the result is only shown when the tab is hidden or its window isn't focused. Inside the Puter desktop, the desktop shows the notification itself and the result isn't used.
 
 #### `options` (Object) (optional)
 - `serviceWorker` (String): path of the worker that imports `push-sw.js`. Default `/puter-sw.js`.
