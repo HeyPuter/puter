@@ -225,6 +225,10 @@ beforeAll(async () => {
         kv: { shareHandles: true },
         unlimitedMetering: true,
         jwt_secret_v2: SECRET,
+        // Warm-read SQL assertions must exclude periodic database health probes.
+        server_health: {
+            disabled_checks: ['database-liveness', 'database-primary-liveness'],
+        },
     } as IConfig);
 
     const strangerCreds = await createTestUser(env.server, {
