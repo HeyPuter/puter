@@ -23,6 +23,7 @@ import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
 import type { FSService } from '../../services/fs/FSService.js';
+import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import {
     expandTildePath,
     normalizeAbsolutePath,
@@ -77,7 +78,10 @@ export async function resolveOutputPath(
 
 /**
  * Writes a generated image or video (a data URI, or a provider-minted URL) to
- * `path` in the actor's filesystem.
+ * `path` in the actor's filesystem. Write access is checked again first, since
+ * a share or grant can be revoked while the job runs; without it nothing is
+ * written and false is returned, leaving the (already billed) result to the
+ * caller.
  */
 export async function saveGeneratedMediaToFS(
     fsService: FSService,
@@ -85,7 +89,7 @@ export async function saveGeneratedMediaToFS(
     result: unknown,
     path: string,
     media: { noun: 'image' | 'video'; defaultType: string },
-): Promise<void> {
+): Promise<boolean> {
     if (typeof result !== 'string') {
         throw new HttpError(
             500,
@@ -117,6 +121,9 @@ export async function saveGeneratedMediaToFS(
         buffer = Buffer.from(await response.arrayBuffer());
     }
 
+    if (!(await canStillWrite(fsService, actor, pathPosix.dirname(path)))) {
+        return false;
+    }
     await fsService.write(actor.user!.id!, {
         fileMetadata: {
             path,
@@ -127,4 +134,19 @@ export async function saveGeneratedMediaToFS(
         },
         fileContent: Readable.from(buffer),
     });
+    return true;
+}
+
+async function canStillWrite(
+    fsService: FSService,
+    actor: Actor,
+    parentPath: string,
+): Promise<boolean> {
+    try {
+        await fsService.checkFSAccess({ path: parentPath } as FSEntry, actor);
+        return true;
+    } catch (err) {
+        if (err instanceof HttpError && err.statusCode < 500) return false;
+        throw err;
+    }
 }
