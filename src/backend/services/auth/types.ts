@@ -56,6 +56,10 @@ export interface SessionTokenPayload extends TokenPayloadBase {
     worker_name?: string;
     /** Uuid of the worker's subdomain row; the token dies with that row. */
     worker_uid?: string;
+    /** Site row that owns a dynamically deployed worker. */
+    workerSiteUid?: string;
+    /** That site's subdomain name, for the cached lookup. */
+    workerSite?: string;
 }
 
 /**
@@ -74,6 +78,10 @@ export interface AppUnderUserTokenPayload extends TokenPayloadBase {
     worker_name?: string;
     /** Uuid of the worker's subdomain row; the token dies with that row. */
     worker_uid?: string;
+    /** Site row that owns a dynamically deployed worker. */
+    workerSiteUid?: string;
+    /** That site's subdomain name, for the cached lookup. */
+    workerSite?: string;
 }
 
 /**

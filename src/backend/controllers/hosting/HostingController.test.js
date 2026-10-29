@@ -198,7 +198,7 @@ describe('HostingController /delete-site', () => {
             );
             expect(emitSpy).toHaveBeenCalledWith(
                 'subdomain.delete',
-                { subdomain: site.subdomain, uid: String(site.uuid) },
+                { subdomain: site.subdomain, uid: String(site.uuid), userId },
                 {},
             );
         } finally {

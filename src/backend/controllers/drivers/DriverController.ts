@@ -50,6 +50,7 @@ import { PermissionUtil } from '../../services/permission/permissionUtil.js';
 import type { WithLifecycle } from '../../types';
 import { withSpan } from '../../util/span.js';
 import { PuterController } from '../types.js';
+import { CallSlot } from './callSlot.js';
 
 type DriverInstance = WithLifecycle & Record<string, unknown>;
 
@@ -259,6 +260,17 @@ export class DriverController extends PuterController {
     // -- Handlers ----------------------------------------------------
 
     #handleCall = async (req: Request, res: Response): Promise<void> => {
+        const slot = new CallSlot();
+        const call = this.#call(req, res, slot);
+        slot.keep(call);
+        await call;
+    };
+
+    #call = async (
+        req: Request,
+        res: Response,
+        slot: CallSlot,
+    ): Promise<void> => {
         const {
             interface: ifaceName,
             method,
@@ -395,10 +407,9 @@ export class DriverController extends PuterController {
 
         // Per-method rate-limit and concurrent specs both live on the
         // driver's resolved meta. Rate-limit is single-shot; concurrent
-        // acquires a slot that must be released when the response is done
-        // — we hook `res.finish` / `res.close` for that so streamed
-        // responses hold their slot until the stream drains, and aborted
-        // requests still give the slot back.
+        // acquires a slot held until the response is done and the call's
+        // work has settled, so streamed responses hold it until the stream
+        // drains and work that continues after a disconnect still counts.
         const rateLimitSpec = resolvePerMethod(driverMeta?.rateLimit, method);
         if (
             !(await checkDriverRateLimit(req, ifaceName, method, rateLimitSpec))
@@ -430,18 +441,8 @@ export class DriverController extends PuterController {
                     legacyCode: 'too_many_requests',
                 });
             }
-            let released = false;
-            const release = () => {
-                if (released) return;
-                released = true;
-                void handle.release();
-            };
-            // If the handler throws before responding, the express error
-            // handler will eventually send a response — `finish` fires then,
-            // so we still release. `close` covers client aborts.
-            res.once('finish', release);
-            res.once('close', release);
-            if (res.destroyed || res.writableFinished) release();
+            slot.attach(handle, res);
+            Context.set('keepDriverSlot', (work) => slot.keep(work));
         }
 
         // Stash the requested driver name in Context so multi-provider
