@@ -626,4 +626,4 @@ export {};
 /**
  * @typedef {{ type: 'interrupted'; source: 'manual' | 'speech'; responseId: string }} ConvoInterruptedEvent */
 /** Native provider events retain their provider-owned fields.
- * @typedef {Record<string, RealtimeServerEvent> & { text: ConvoTextEvent; audio: ConvoAudioEvent; transcript: ConvoTranscriptEvent; interrupted: ConvoInterruptedEvent; ready: { type: 'ready'; model: string; provider: 'openai' }; close: { type: 'close'; code: number; reason: string } }} ConvoEventMap */
+ * @typedef {Record<string, RealtimeServerEvent> & { text: ConvoTextEvent; audio: ConvoAudioEvent; transcript: ConvoTranscriptEvent; interrupted: ConvoInterruptedEvent; ready: { type: 'ready'; model: string; provider: 'openai'; reconnected?: boolean }; reconnecting: { type: 'reconnecting'; code: number; reason: string }; close: { type: 'close'; code: number; reason: string } }} ConvoEventMap */

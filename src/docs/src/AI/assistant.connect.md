@@ -6,6 +6,8 @@ platforms: [websites, apps, nodejs]
 
 Opens a live session with OpenAI's Realtime API through Puter. The session is a WebSocket: you send [OpenAI Realtime client events](https://developers.openai.com/api/docs/guides/realtime) and receive its server events unchanged, so OpenAI's realtime guides apply as written.
 
+Realtime sessions require a paid Puter plan; an account without one receives an `error` event with code `subscription_required` and the session closes. This low-level session does not reconnect; [`puter.ai.convo()`](/AI/convo/) does.
+
 In Node.js this needs a global `WebSocket` (Node.js 22 or later).
 
 ## Syntax

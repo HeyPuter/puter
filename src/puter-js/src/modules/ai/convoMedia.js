@@ -5,6 +5,8 @@
 
 const SAMPLE_RATE = 24000;
 const MEDIA_TIMEOUT_MS = 10_000;
+// Replies arrive faster than they play; this bounds what may be scheduled.
+const MAX_SCHEDULED_SECONDS = 300;
 
 /**
  * @template T
@@ -28,17 +30,24 @@ function mediaTimeout(operation) {
     ]).finally(() => clearTimeout(timer));
 }
 
-/** @returns {AudioContext} */
-function audioContext() {
+/**
+ * Capture runs at the device rate (Firefox can't connect a microphone to a
+ * context at another rate) and the worklet resamples; playback runs at 24 kHz.
+ *
+ * @param {number} [sampleRate]
+ * @returns {AudioContext}
+ */
+function audioContext(sampleRate) {
     if (typeof window === 'undefined' || typeof AudioContext === 'undefined')
         throw {
             code: 'unsupported_environment',
             message: 'Audio helpers require a browser with Web Audio support',
         };
-    return new AudioContext({ sampleRate: SAMPLE_RATE });
+    return new AudioContext(sampleRate ? { sampleRate } : undefined);
 }
 
-// The worklet owns resampling and allows at most two unacknowledged chunks.
+// The worklet owns resampling. Chunks the main thread hasn't taken within
+// about half a second are dropped rather than queued.
 const CAPTURE_WORKLET = `
 class PuterConvoCapture extends AudioWorkletProcessor {
     constructor() {
@@ -49,11 +58,9 @@ class PuterConvoCapture extends AudioWorkletProcessor {
         this.sum = 0;
         this.count = 0;
         this.pending = 0;
-        this.failed = false;
         this.port.onmessage = () => { this.pending = Math.max(0, this.pending - 1); };
     }
     process(inputs) {
-        if (this.failed) return false;
         const channel = inputs[0]?.[0];
         if (!channel) return true;
         for (const sample of channel) {
@@ -67,10 +74,9 @@ class PuterConvoCapture extends AudioWorkletProcessor {
                 this.sum = 0;
                 this.count = 0;
                 if (this.length === 480) {
-                    if (this.pending >= 2) {
-                        this.failed = true;
-                        this.port.postMessage({ overflow: true });
-                        return false;
+                    if (this.pending >= 25) {
+                        this.length = 0;
+                        continue;
                     }
                     this.pending++;
                     this.port.postMessage({ pcm: this.samples }, [this.samples.buffer]);
@@ -116,12 +122,24 @@ export class ConvoMicrophone {
      * @returns {Promise<void>}
      */
     start() {
-        this.#convo.assertConnected();
+        try {
+            this.#convo.assertConnected();
+        } catch (error) {
+            return Promise.reject(error);
+        }
         if (this.#starting) return this.#starting;
         if (this.#stream) return Promise.resolve();
         const generation = ++this.#generation;
         this.#starting = this.#start(generation).catch((error) => {
             if (generation === this.#generation) this.stop();
+            if (
+                error?.name === 'NotAllowedError' ||
+                error?.name === 'SecurityError'
+            )
+                throw {
+                    code: 'permission_denied',
+                    message: 'Microphone access was denied',
+                };
             throw typeof error?.code === 'string'
                 ? error
                 : {
@@ -147,9 +165,9 @@ export class ConvoMicrophone {
             };
         const context = audioContext();
         this.#context = context;
+        // A reconnect keeps capture running; chunks are dropped meanwhile.
         const current = () =>
-            generation === this.#generation &&
-            this.#convo.state === 'connected';
+            generation === this.#generation && this.#convo.state !== 'closed';
         const permission = navigator.mediaDevices
             .getUserMedia({
                 audio: {
@@ -169,7 +187,8 @@ export class ConvoMicrophone {
                 this.#stream = stream;
                 return stream;
             });
-        const stream = await mediaTimeout(permission);
+        // Not timed: the user may take a while to answer the prompt.
+        const stream = await permission;
         await mediaTimeout(context.resume());
         if (!current())
             throw { code: 'session_closed', message: 'Capture was stopped' };
@@ -187,24 +206,14 @@ export class ConvoMicrophone {
         this.#source = context.createMediaStreamSource(stream);
         const node = this.#node;
         node.port.onmessage = ({ data }) => {
-            if (!current())
-                throw {
-                    code: 'session_closed',
-                    message: 'Capture was stopped',
-                };
+            if (!current()) return;
             node.port.postMessage('ack');
-            if (data.overflow) {
-                this.stop();
-                this.#convo.reportMediaError({
-                    code: 'queue_full',
-                    message: 'Microphone processing fell behind',
-                });
-                return;
-            }
-            if (this.#muted) return;
+            if (this.#muted || this.#convo.state !== 'connected') return;
             try {
                 this.#convo.appendAudio(data.pcm);
             } catch (error) {
+                // A congested socket drops audio instead of ending capture.
+                if (error?.code === 'queue_full') return;
                 this.stop();
                 this.#convo.reportMediaError(error);
             }
@@ -282,6 +291,8 @@ export class ConvoSpeaker {
     #last = null;
     #nextAt = 0;
     #bargeIn = true;
+    // The response whose overflow was last reported, so it's reported once.
+    #overflowed = '';
 
     /**
      * @param {Conversation} convo
@@ -319,7 +330,11 @@ export class ConvoSpeaker {
      * @returns {Promise<void>}
      */
     start(options = {}) {
-        this.#convo.assertConnected();
+        try {
+            this.#convo.assertConnected();
+        } catch (error) {
+            return Promise.reject(error);
+        }
         if (
             !options ||
             typeof options !== 'object' ||
@@ -332,7 +347,11 @@ export class ConvoSpeaker {
             });
         this.#bargeIn = options.bargeIn ?? true;
         if (this.#starting) return this.#starting;
-        this.#context = audioContext();
+        try {
+            this.#context = audioContext(SAMPLE_RATE);
+        } catch (error) {
+            return Promise.reject(error);
+        }
         const context = this.#context;
         this.#starting = mediaTimeout(context.resume())
             .then(() => {
@@ -360,17 +379,15 @@ export class ConvoSpeaker {
         if (!context || context.state !== 'running' || !pcm.length) return;
         const duration = pcm.length / SAMPLE_RATE;
         const start = Math.max(context.currentTime, this.#nextAt);
-        if (
-            start + duration - context.currentTime > 5 ||
-            this.#sources.size >= 128
-        ) {
-            void this.#convo
-                .interrupt()
-                .catch((error) => this.#convo.reportMediaError(error));
-            this.#convo.reportMediaError({
-                code: 'queue_full',
-                message: 'Playback exceeds five seconds or 128 chunks',
-            });
+        if (start + duration - context.currentTime > MAX_SCHEDULED_SECONDS) {
+            const responseId = String(event.response_id ?? '');
+            if (this.#overflowed !== responseId) {
+                this.#overflowed = responseId;
+                this.#convo.reportMediaError({
+                    code: 'queue_full',
+                    message: `Playback exceeds ${MAX_SCHEDULED_SECONDS} seconds`,
+                });
+            }
             return;
         }
         const itemId = String(event.item_id ?? '');
@@ -419,22 +436,37 @@ export class ConvoSpeaker {
     }
 
     /**
+     * How much the listener has heard: the context clock less output latency
+     * (Bluetooth adds hundreds of milliseconds). Between chunks, when nothing
+     * is scheduled, it is the end of what played for `responseId`.
+     *
+     * @param {string} [responseId] The response still generating, if any.
      * @returns {ConvoPlaybackPosition | undefined}
      * @internal
      */
-    playbackPosition() {
-        const now = this.#context?.currentTime ?? 0;
+    playbackPosition(responseId) {
+        const context = this.#context;
+        const heard =
+            (context?.currentTime ?? 0) -
+            (context?.outputLatency || context?.baseLatency || 0);
         for (const source of this.#sources) {
-            if (source.end > now)
+            if (source.end > heard)
                 return {
                     itemId: source.itemId,
                     contentIndex: source.contentIndex,
                     playedMs: Math.floor(
-                        (source.offset + Math.max(0, now - source.start)) *
+                        (source.offset + Math.max(0, heard - source.start)) *
                             1000,
                     ),
                 };
         }
+        const last = this.#last;
+        if (last && responseId && last.responseId === responseId)
+            return {
+                itemId: last.itemId,
+                contentIndex: last.contentIndex,
+                playedMs: Math.floor(last.playedMs),
+            };
         return undefined;
     }
 

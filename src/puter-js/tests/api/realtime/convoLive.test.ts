@@ -2,17 +2,17 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
     closeNodePuter,
     loadNodePuter,
-} from '../../../puter-js/tests/api/harness/nodeSdkLoader';
+} from '../harness/nodeSdkLoader';
 import type {
     EnvManifest,
     PuterSDK,
-} from '../../../puter-js/tests/api/harness/types';
-import type { Conversation } from '../../../puter-js/types/modules/ai/convo';
-import type { RealtimeSession } from '../../../puter-js/types/modules/ai/assistant';
-import type { RealtimeServerEvent } from '../../../puter-js/types/modules/ai/types';
-import { optionalEnv } from '../../drivers/integrationTestUtil';
-import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil';
-import type { IConfig } from '../../types';
+} from '../harness/types';
+import type { Conversation } from '../../../types/modules/ai/convo';
+import type { RealtimeSession } from '../../../types/modules/ai/assistant';
+import type { RealtimeServerEvent } from '../../../types/modules/ai/types';
+import { optionalEnv } from '@heyputer/backend/drivers/integrationTestUtil.ts';
+import { setupPuterTestEnv, type PuterTestEnv } from '@heyputer/backend/testUtil.ts';
+import type { IConfig } from '@heyputer/backend/types.ts';
 
 const apiKey = optionalEnv('PUTER_TEST_AI_OPENAI_API_KEY');
 

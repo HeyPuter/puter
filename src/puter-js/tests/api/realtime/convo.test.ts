@@ -6,13 +6,13 @@ import type { AddressInfo } from 'node:net';
 import {
     loadNodePuter,
     closeNodePuter,
-} from '../../../puter-js/tests/api/harness/nodeSdkLoader';
+} from '../harness/nodeSdkLoader';
 import type {
     EnvManifest,
     PuterSDK,
-} from '../../../puter-js/tests/api/harness/types';
-import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil';
-import type { IConfig } from '../../types';
+} from '../harness/types';
+import { setupPuterTestEnv, type PuterTestEnv } from '@heyputer/backend/testUtil.ts';
+import type { IConfig } from '@heyputer/backend/types.ts';
 
 describe('convo built SDK and browser media', () => {
     let env: PuterTestEnv;
@@ -148,7 +148,7 @@ describe('convo built SDK and browser media', () => {
         });
         const page = await browser.newPage();
         const sdk = readFileSync(
-            new URL('../../../puter-js/dist/puter.js', import.meta.url),
+            new URL('../../../dist/puter.js', import.meta.url),
             'utf8',
         );
         await page.route('**/__convo_test__', (route) =>

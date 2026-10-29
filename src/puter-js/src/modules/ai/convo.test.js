@@ -169,14 +169,71 @@ describe('Conversation lifecycle', () => {
         const closed = vi.fn();
         c.on('close', closed);
         const update = c.configure({ instructions: 'new' });
-        socket().close(1012);
+        socket().close(1008);
         await expect(update).rejects.toMatchObject({ code: 'session_closed' });
         expect(closed).toHaveBeenCalledExactlyOnceWith({
             type: 'close',
-            code: 1012,
+            code: 1008,
             reason: '',
         });
         expect(c.state).toBe('closed');
+    });
+    it('reconnects after a dropped connection and reapplies settings', async () => {
+        const c = await connected({ instructions: 'Be brief.' });
+        vi.useFakeTimers();
+        const events = [];
+        c.on('*', (event) => events.push(event.type));
+        const update = c.configure({ voice: 'marin' });
+        const first = socket();
+        first.close(1006);
+        await expect(update).rejects.toMatchObject({ code: 'connection_lost' });
+        expect(c.state).toBe('connecting');
+        expect(() => c.sendText('hi')).toThrow(
+            expect.objectContaining({ code: 'session_not_ready' }),
+        );
+        await vi.advanceTimersByTimeAsync(500);
+        expect(socket()).not.toBe(first);
+        socket().deliver({ type: 'session.created', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(socket().sent.at(-1).session.instructions).toBe('Be brief.');
+        socket().deliver({ type: 'session.updated', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connected');
+        expect(events).toEqual(
+            expect.arrayContaining(['reconnecting', 'ready']),
+        );
+        expect(events).not.toContain('close');
+    });
+    it('gives up after repeated failures or a refusal', async () => {
+        const c = await connected();
+        vi.useFakeTimers();
+        const closed = vi.fn();
+        c.on('close', closed);
+        socket().close(1012);
+        await vi.advanceTimersByTimeAsync(500);
+        socket().deliver({
+            type: 'error',
+            error: { code: 'insufficient_funds', message: 'No usage left' },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('closed');
+        expect(closed).toHaveBeenCalledOnce();
+
+        const d = await connected();
+        const dClosed = vi.fn();
+        d.on('close', dClosed);
+        socket().close(1011);
+        for (let i = 0; i < 5; i++) {
+            await vi.advanceTimersByTimeAsync(500 * 2 ** i);
+            socket().close(1006);
+        }
+        await vi.advanceTimersByTimeAsync(0);
+        expect(d.state).toBe('closed');
+        expect(dClosed).toHaveBeenCalledExactlyOnceWith({
+            type: 'close',
+            code: 1011,
+            reason: '',
+        });
     });
 });
 
@@ -193,7 +250,8 @@ describe('conversation helpers and limits', () => {
         c.sendText('hello');
         c.appendAudio(new Int16Array([1, -2]));
         c.commitAudio();
-        expect(socket().sent).toEqual([
+        expect(socket().sent.every((event) => event.event_id)).toBe(true);
+        expect(socket().sent.map(({ event_id, ...event }) => event)).toEqual([
             {
                 type: 'conversation.item.create',
                 item: {
@@ -233,10 +291,74 @@ describe('conversation helpers and limits', () => {
         expect(() => c.send(cyclic)).toThrow(
             expect.objectContaining({ code: 'input_too_large' }),
         );
+        // Audio stops at 128 KiB queued; control events keep 64 KiB more.
         socket().bufferedAmount = 128 * 1024;
+        expect(() => c.appendAudio(new Int16Array(480))).toThrow(
+            expect.objectContaining({ code: 'queue_full' }),
+        );
+        expect(() => c.send({ type: 'x' })).not.toThrow();
+        socket().bufferedAmount = 192 * 1024;
         expect(() => c.send({ type: 'x' })).toThrow(
             expect.objectContaining({ code: 'queue_full' }),
         );
+    });
+    it('rejects only the operation an error names', async () => {
+        const c = await connected({ turnDetection: false });
+        const update = c.configure({ instructions: 'changed' });
+        c.commitAudio();
+        const commitId = socket().sent.at(-2).event_id;
+        socket().deliver({
+            type: 'error',
+            error: {
+                code: 'input_audio_buffer_commit_empty',
+                event_id: commitId,
+            },
+        });
+        socket().deliver({ type: 'error', error: { code: 'uncorrelated' } });
+        socket().deliver({ type: 'session.updated', session: {} });
+        await update;
+    });
+    it('rejects only its own request when a send fails', async () => {
+        const c = await connected();
+        socket().deliver({ type: 'response.created', response: { id: 'r' } });
+        const update = c.configure({ instructions: 'changed' });
+        socket().bufferedAmount = 192 * 1024;
+        await expect(c.interrupt()).rejects.toMatchObject({
+            code: 'queue_full',
+        });
+        socket().bufferedAmount = 0;
+        socket().deliver({ type: 'session.updated', session: {} });
+        await update;
+    });
+    it('updates only the settings given and settles on its own acknowledgment', async () => {
+        const c = await connected();
+        c.send({ type: 'session.update', session: { type: 'realtime' } });
+        const update = c.configure({ voice: 'marin' });
+        expect(socket().sent.at(-1).session).toEqual({
+            type: 'realtime',
+            audio: { output: { voice: 'marin' } },
+        });
+        let settled = false;
+        void update.then(() => {
+            settled = true;
+        });
+        // The first acknowledgment belongs to the native update.
+        socket().deliver({ type: 'session.updated', session: {} });
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        socket().deliver({ type: 'session.updated', session: {} });
+        await update;
+    });
+    it('follows turn detection set through native events', async () => {
+        const c = await connected();
+        expect(() => c.commitAudio()).toThrow(
+            expect.objectContaining({ code: 'invalid_argument' }),
+        );
+        socket().deliver({
+            type: 'session.updated',
+            session: { audio: { input: { turn_detection: null } } },
+        });
+        expect(() => c.commitAudio()).not.toThrow();
     });
     it('allows one configuration update at a time and correlates errors', async () => {
         const c = await connected();
@@ -358,6 +480,50 @@ describe('asynchronous interruption', () => {
         socket().deliver({ type: 'response.done', response: { id: 'new' } });
         await next;
     });
+    it('cancels a requested reply once it starts', async () => {
+        const c = await connected();
+        const audio = vi.fn();
+        c.on('audio', audio);
+        c.sendText('hello');
+        const pending = c.interrupt();
+        socket().deliver({ type: 'response.created', response: { id: 'r' } });
+        await Promise.resolve();
+        expect(socket().sent.at(-1)).toMatchObject({
+            type: 'response.cancel',
+            response_id: 'r',
+        });
+        socket().deliver({
+            type: 'response.output_audio.delta',
+            delta: 'AQD+/w==',
+            response_id: 'r',
+        });
+        expect(audio).not.toHaveBeenCalled();
+        socket().deliver({ type: 'response.done', response: { id: 'r' } });
+        await pending;
+    });
+    it('drops text from cancelled replies and gives wildcard listeners audio', async () => {
+        const c = await connected({ output: ['text', 'audio'] });
+        const all = [];
+        c.on('*', (event) => all.push(event.type));
+        socket().deliver({
+            type: 'response.output_audio.delta',
+            delta: 'AQD+/w==',
+            response_id: 'r',
+        });
+        expect(all).toContain('audio');
+        socket().deliver({ type: 'response.created', response: { id: 'r' } });
+        const pending = c.interrupt();
+        all.length = 0;
+        socket().deliver({
+            type: 'response.output_audio_transcript.delta',
+            delta: 'late',
+            response_id: 'r',
+        });
+        expect(all).not.toContain('transcript');
+        expect(all).not.toContain('text');
+        socket().deliver({ type: 'response.done', response: { id: 'r' } });
+        await pending;
+    });
     it('is a no-op when idle and rejects invalid playback positions', async () => {
         const c = await connected();
         const count = socket().sent.length;
@@ -417,7 +583,10 @@ it('preflights both events of a text turn before sending either', async () => {
         },
     };
     socket().bufferedAmount =
-        128 * 1024 - new TextEncoder().encode(JSON.stringify(item)).byteLength;
+        192 * 1024 -
+        new TextEncoder().encode(
+            JSON.stringify({ ...item, event_id: 'puter_convo_99' }),
+        ).byteLength;
     expect(() => c.sendText(text)).toThrow(
         expect.objectContaining({ code: 'queue_full' }),
     );

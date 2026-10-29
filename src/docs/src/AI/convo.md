@@ -4,7 +4,7 @@ description: Prepare an OpenAI realtime conversation with optional audio and tex
 platforms: [websites, apps, nodejs, workers]
 ---
 
-The conversation API prepares a realtime session, verifies Puter sign-in, and lets you connect when your app is ready. Native OpenAI events and convenience methods use the same session. Microphone capture and speaker playback start when your app requests them.
+The conversation API prepares a realtime session, verifies Puter sign-in, and lets you connect when your app is ready. Realtime conversations require a paid Puter plan; usage is billed to the signed-in user. Native OpenAI events and convenience methods use the same session. Microphone capture and speaker playback start when your app requests them.
 
 ## Syntax
 
@@ -36,17 +36,19 @@ The conversation exposes these properties and methods.
 | `state` | `prepared`, `connecting`, `connected`, or `closed`. |
 | `model` | Resolved model name. |
 | `connect()` | Opens the connection and applies settings. Resolves after the provider acknowledges session configuration. Concurrent calls share one attempt. Calling it while connected opens no additional connection. |
-| `configure(options)` | Updates session settings and resolves after acknowledgment. Accepts the factory options except `model`. One update can be pending at a time. Provider rules apply to changes such as switching a voice after audio has been generated. |
+| `configure(options)` | Updates the given session settings and resolves after the provider acknowledges this update. Settings it isn't given, including ones set through native events, are left alone. Accepts the factory options except `model`. One update can be pending at a time. Provider rules apply to changes such as switching a voice after audio has been generated. |
 | `sendText(text)` | Adds a user message and requests a response. Text must be nonempty and at most 8192 characters. |
 | `appendAudio(pcm)` | Appends an `Int16Array` containing PCM16, 24 kHz mono audio. A chunk contains at most 12000 samples. |
-| `commitAudio()` | Commits buffered audio and requests a response. Requires `turnDetection: false`. The provider requires at least 100 ms of buffered audio. |
-| `interrupt(position?)` | Stops built-in playback immediately and waits for cancellation and playback-history synchronization. Custom players provide `{ itemId, contentIndex, playedMs }`. An idle call resolves immediately. |
+| `commitAudio()` | Commits buffered audio and requests a response. Requires turn detection to be off, through `turnDetection: false` or a native session update. The provider requires at least 100 ms of buffered audio. |
+| `interrupt(position?)` | Stops built-in playback immediately and waits for cancellation and playback-history synchronization. A reply requested but not yet started is cancelled as soon as it starts. Custom players provide `{ itemId, contentIndex, playedMs }`. An idle call resolves immediately. |
 | `send(event)` | Sends a native OpenAI JSON event. |
 | `on(type, handler)` | Registers a listener and returns an unsubscribe function. Use `'*'` to receive every native and convenience event. |
 | `off(type, handler)` | Removes a listener. |
 | `close()` | Closes the session, rejects pending operations, and releases SDK-owned capture and playback resources. Repeated calls have no additional effect. |
 
-Attach listeners before connecting to receive initial session events. Closing during connection rejects the pending attempt. A closed conversation cannot reconnect. Prepare a new conversation to start another session.
+Attach listeners before connecting to receive initial session events. Closing during connection rejects the pending attempt.
+
+If the connection drops (network loss, a server restart or a provider error), the conversation reconnects on its own: `state` returns to `connecting`, a `reconnecting` event fires, pending operations reject with `connection_lost`, and `ready` fires again with `reconnected: true` once settings are reapplied. Listeners, the microphone and the speaker carry over; microphone audio captured while reconnecting is dropped. The provider starts a fresh session, so earlier conversation items are not restored. After five failed attempts, or a refusal such as `insufficient_funds`, the conversation closes. A closed conversation cannot reconnect; prepare a new one to start another session.
 
 Native event definitions are listed in the [OpenAI realtime reference](https://developers.openai.com/api/reference/resources/realtime/server-events). Native events retain their provider fields. Sending native events preserves direct control of the session. Audio helpers expect the session to use PCM16 at 24 kHz.
 
@@ -56,7 +58,8 @@ The conversation emits these events alongside native events.
 
 | Event | Fields |
 | --- | --- |
-| `ready` | `model`, `provider` |
+| `ready` | `model`, `provider`, and `reconnected: true` after a reconnection |
+| `reconnecting` | `code`, `reason` of the dropped connection |
 | `text` | `delta`, `responseId` |
 | `transcript` | `role`, `text`, `final`. Assistant deltas use `final: false`. Completed assistant and user transcripts use `final: true`. User transcripts require transcription to be configured through native session settings. |
 | `audio` | `pcm`, `sampleRate`, `responseId`, `itemId`, `contentIndex`. The PCM chunk is an `Int16Array`. |
@@ -72,7 +75,7 @@ The optional microphone and speaker helpers require a browser with Web Audio sup
 
 | Member | Behavior |
 | --- | --- |
-| `microphone.start()` | Requests microphone access and streams resampled PCM16 in 20 ms chunks through an AudioWorklet. |
+| `microphone.start()` | Requests microphone access and streams PCM16, resampled to 24 kHz, in 20 ms chunks through an AudioWorklet. If the page or network falls behind, chunks are dropped rather than stopping capture. |
 | `microphone.mute()` | Disables capture tracks and stops forwarding captured chunks. |
 | `microphone.unmute()` | Enables capture tracks and forwarding. |
 | `microphone.stop()` | Stops capture tracks and releases capture resources. |
@@ -83,9 +86,9 @@ Both start methods require a connected session. Capture and playback are indepen
 
 ## Errors and limits
 
-Failures use objects containing `code` and `message`. Preparation can reject with `invalid_argument`, `model_not_found`, `auth_required`, `auth_canceled`, or `auth_failed`. Connection and asynchronous operations can reject with provider errors, `session_closed`, `operation_timeout`, or `operation_in_progress`. Sending before readiness throws `session_not_ready`.
+Failures use objects containing `code` and `message`. Preparation can reject with `invalid_argument`, `model_not_found`, `auth_required`, `auth_canceled`, or `auth_failed`. Connection can reject with `subscription_required` or `insufficient_funds`, which also show the Puter upgrade prompt. Connection and asynchronous operations can reject with provider errors, `session_closed`, `connection_lost`, `operation_timeout`, or `operation_in_progress`. Sending before readiness, or while reconnecting, throws `session_not_ready`.
 
-Invalid input throws `invalid_argument`, `invalid_event`, or `input_too_large`. A full SDK send queue throws `queue_full`. Media helpers report `unsupported_environment`, `media_error`, `media_timeout`, or `queue_full`. Runtime media errors arrive through the `error` event. Provider errors also arrive as native `error` events with a nested `error` object.
+Invalid input throws `invalid_argument`, `invalid_event`, or `input_too_large`. A full SDK send queue throws `queue_full`. Media helpers report `unsupported_environment`, `permission_denied`, `media_error`, `media_timeout`, or `queue_full`. Runtime media errors arrive through the `error` event. Provider errors also arrive as native `error` events with a nested `error` object.
 
 Each native event is capped at 64 KiB. The SDK bounds JSON traversal, outgoing queues, acknowledgment waits, microphone work, and playback. All numeric limits are listed on [rate limits and quotas](/rate-limits-and-quotas/).
 

@@ -1,4 +1,5 @@
 import { fetchUrl } from '../../lib/networkUtils.js';
+import { promptIfUpgradeRequired } from '../../lib/upgradePrompt.js';
 import { RealtimeSession, createRealtimeSocket } from './assistant.js';
 import { RealtimeEvents } from './realtimeEvents.js';
 import { ConvoMicrophone, ConvoSpeaker } from './convoMedia.js';
@@ -21,6 +22,22 @@ const DEFAULT_MODEL = 'gpt-realtime-2.1-mini';
 const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_BUFFERED_BYTES = 128 * 1024;
 const OPERATION_TIMEOUT_MS = 10_000;
+// Close codes after which a dropped connection is replaced: going away,
+// abnormal closure, server error, service restart, try again later.
+const RECONNECT_CODES = new Set([1001, 1006, 1011, 1012, 1013]);
+// Failures while reconnecting that are worth another attempt.
+const RETRYABLE_ERRORS = new Set([
+    'session_closed',
+    'operation_timeout',
+    'connection_lost',
+    'connection_timeout',
+    'server_restarting',
+    'upstream_error',
+    'rate_limit_exceeded',
+    'internal_error',
+]);
+const RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY_MS = 500;
 const encoder = new TextEncoder();
 
 /**
@@ -93,7 +110,7 @@ function validateOptions(options, allowModel = false) {
  * Bounds traversal before JSON serialization.
  *
  * @param {RealtimeServerEvent} event
- * @returns {string}
+ * @returns {{ json: string; bytes: number }}
  */
 function encodeEvent(event) {
     if (
@@ -145,9 +162,10 @@ function encodeEvent(event) {
             throw failure('input_too_large', 'Event exceeds 64 KiB');
     }
     const json = JSON.stringify(event);
-    if (encoder.encode(json).byteLength > MAX_MESSAGE_BYTES)
+    const bytes = encoder.encode(json).byteLength;
+    if (bytes > MAX_MESSAGE_BYTES)
         throw failure('input_too_large', 'Event exceeds 64 KiB');
-    return json;
+    return { json, bytes };
 }
 
 /**
@@ -164,8 +182,12 @@ export class Conversation extends RealtimeEvents {
     #state = 'prepared';
     /** @type {RealtimeSession | null} */
     #session = null;
+    /** @type {(() => void) | null} */
+    #unsubscribe = null;
     /** @type {Promise<void> | null} */
     #connection = null;
+    /** @type {{ type: 'close'; code: number; reason: string } | null} */
+    #lastClose = null;
     /**
      * @type {Set<{
      *     type: string;
@@ -174,12 +196,22 @@ export class Conversation extends RealtimeEvents {
      *     reject: (error: ConvoError) => void;
      *     timer: ReturnType<typeof setTimeout>;
      *     eventId?: string;
+     *     anyError?: boolean;
      * }>}
      */
     #pending = new Set();
     #sequence = 0;
     #configuring = false;
     #activeResponse = '';
+    // `session.update` event IDs awaiting `session.updated`, in send order.
+    /** @type {string[]} */
+    #sessionUpdates = [];
+    /** @type {string | undefined} */
+    #acknowledgedUpdate;
+    // `response.create` event IDs whose response hasn't been created yet.
+    /** @type {Set<string>} */
+    #requestedResponses = new Set();
+    #turnDetection = true;
     /**
      * @type {{
      *     id: string;
@@ -207,6 +239,7 @@ export class Conversation extends RealtimeEvents {
             output: options.output ? [...options.output] : ['audio'],
             model: options.model ?? DEFAULT_MODEL,
         };
+        this.#turnDetection = this.#options.turnDetection !== false;
         this.microphone = new ConvoMicrophone(this);
         this.speaker = new ConvoSpeaker(this);
     }
@@ -238,14 +271,7 @@ export class Conversation extends RealtimeEvents {
         this.#state = 'connecting';
         this.#connection = (async () => {
             try {
-                this.#session = new RealtimeSession(
-                    createRealtimeSocket(this.#puter, this.model),
-                );
-                this.#session.on('*', (event) => this.#receive(event));
-                await this.#wait('session.created');
-                await this.#configure(this.#options);
-                if (this.#state === 'closed')
-                    throw failure('session_closed', 'Conversation is closed');
+                await this.#open();
                 this.#state = 'connected';
                 this.emitRealtime({
                     type: 'ready',
@@ -253,11 +279,114 @@ export class Conversation extends RealtimeEvents {
                     provider: 'openai',
                 });
             } catch (error) {
-                this.close();
+                this.#finish(
+                    this.#lastClose ?? {
+                        type: 'close',
+                        code: 1000,
+                        reason: '',
+                    },
+                );
                 throw error;
             }
         })();
         return this.#connection;
+    }
+
+    /**
+     * Opens a socket, waits for the provider session and applies settings.
+     *
+     * @returns {Promise<void>}
+     */
+    async #open() {
+        let socket;
+        try {
+            socket = createRealtimeSocket(this.#puter, this.model);
+        } catch {
+            throw failure(
+                'unsupported_environment',
+                'Realtime conversations require WebSocket support',
+            );
+        }
+        this.#session = new RealtimeSession(socket);
+        this.#unsubscribe = this.#session.on('*', (event) =>
+            this.#receive(event),
+        );
+        await this.#wait('session.created', undefined, undefined, true);
+        await this.#configure(this.#options, true);
+        if (this.#state === 'closed')
+            throw failure('session_closed', 'Conversation is closed');
+    }
+
+    /**
+     * Replaces a dropped connection, keeping settings, listeners and media. The
+     * provider session restarts, so earlier conversation items are gone.
+     *
+     * @param {{ code: number; reason: string }} event
+     * @returns {Promise<void>}
+     */
+    async #reconnect(event) {
+        this.#state = 'connecting';
+        this.#detach();
+        this.#resetTurnState();
+        this.#rejectPending(
+            failure('connection_lost', 'Connection lost; reconnecting'),
+        );
+        this.emitRealtime({
+            type: 'reconnecting',
+            code: event.code,
+            reason: event.reason,
+        });
+        for (let attempt = 0; attempt < RECONNECT_ATTEMPTS; attempt++) {
+            await new Promise((resolve) =>
+                setTimeout(resolve, RECONNECT_DELAY_MS * 2 ** attempt),
+            );
+            if (this.#state === 'closed') return;
+            try {
+                await this.#open();
+                this.#state = 'connected';
+                this.emitRealtime({
+                    type: 'ready',
+                    model: this.model,
+                    provider: 'openai',
+                    reconnected: true,
+                });
+                return;
+            } catch (error) {
+                if (this.#state === 'closed') return;
+                this.#detach();
+                this.#rejectPending(
+                    failure('connection_lost', 'Connection lost; reconnecting'),
+                );
+                if (!RETRYABLE_ERRORS.has(error?.code)) {
+                    this.#finish({
+                        type: 'close',
+                        code: 1008,
+                        reason: error?.message ?? 'Reconnection failed',
+                    });
+                    return;
+                }
+            }
+        }
+        this.#finish({ type: 'close', code: event.code, reason: event.reason });
+    }
+
+    /** @returns {void} */
+    #detach() {
+        this.#unsubscribe?.();
+        this.#unsubscribe = null;
+        const session = this.#session;
+        this.#session = null;
+        if (session && session.socket.readyState < 2) session.close();
+    }
+
+    /** @returns {void} */
+    #resetTurnState() {
+        this.#activeResponse = '';
+        this.#sessionUpdates = [];
+        this.#requestedResponses.clear();
+        this.#interruption = null;
+        this.#cancelled.clear();
+        this.speaker.clearPlayback();
     }
 
     /**
@@ -282,7 +411,9 @@ export class Conversation extends RealtimeEvents {
      */
     send(event) {
         this.assertConnected();
-        this.#write(event);
+        if (event && typeof event === 'object' && !Array.isArray(event))
+            event = { ...event, event_id: event.event_id ?? this.#eventId() };
+        this.#write([event]);
     }
 
     /**
@@ -296,10 +427,15 @@ export class Conversation extends RealtimeEvents {
     }
 
     /**
+     * Sends the given settings; `full` sends every SDK-managed setting, as a
+     * new session needs. A partial update leaves settings made through native
+     * events alone.
+     *
      * @param {ConvoSessionOptions} options
+     * @param {boolean} [full]
      * @returns {Promise<void>}
      */
-    async #configure(options) {
+    async #configure(options, full = false) {
         if (this.#configuring)
             throw failure(
                 'operation_in_progress',
@@ -311,33 +447,40 @@ export class Conversation extends RealtimeEvents {
             ...options,
             output: [...(options.output ?? this.#options.output)],
         };
-        const audio = next.output.includes('audio');
-        const eventId = this.#eventId();
-        const session = {
-            type: 'realtime',
-            output_modalities: [audio ? 'audio' : 'text'],
-            ...(next.instructions !== undefined
-                ? { instructions: next.instructions }
+        /** @type {Record<string, any>} */
+        const session = { type: 'realtime' };
+        if (full || options.output)
+            session.output_modalities = [
+                next.output.includes('audio') ? 'audio' : 'text',
+            ];
+        if (options.instructions !== undefined)
+            session.instructions = options.instructions;
+        const input = {
+            ...(full ? { format: { type: 'audio/pcm', rate: 24000 } } : {}),
+            ...(full || options.turnDetection !== undefined
+                ? {
+                      turn_detection:
+                          next.turnDetection === false
+                              ? null
+                              : { type: 'server_vad' },
+                  }
                 : {}),
-            audio: {
-                input: {
-                    format: { type: 'audio/pcm', rate: 24000 },
-                    turn_detection:
-                        next.turnDetection === false
-                            ? null
-                            : { type: 'server_vad' },
-                },
-                output: {
-                    format: { type: 'audio/pcm', rate: 24000 },
-                    ...(next.voice ? { voice: next.voice } : {}),
-                },
-            },
         };
+        const output = {
+            ...(full ? { format: { type: 'audio/pcm', rate: 24000 } } : {}),
+            ...(options.voice ? { voice: options.voice } : {}),
+        };
+        if (Object.keys(input).length || Object.keys(output).length)
+            session.audio = {
+                ...(Object.keys(input).length ? { input } : {}),
+                ...(Object.keys(output).length ? { output } : {}),
+            };
+        const eventId = this.#eventId();
         try {
             await this.#request(
                 'session.updated',
                 { type: 'session.update', event_id: eventId, session },
-                () => true,
+                () => this.#acknowledgedUpdate === eventId,
             );
             this.#options = next;
         } finally {
@@ -357,17 +500,18 @@ export class Conversation extends RealtimeEvents {
             throw failure('invalid_argument', 'Text must be a nonempty string');
         if (text.length > 8192)
             throw failure('input_too_large', 'Text exceeds 8192 characters');
-        this.#write(
+        this.#write([
             {
                 type: 'conversation.item.create',
+                event_id: this.#eventId(),
                 item: {
                     type: 'message',
                     role: 'user',
                     content: [{ type: 'input_text', text }],
                 },
             },
-            { type: 'response.create' },
-        );
+            { type: 'response.create', event_id: this.#eventId() },
+        ]);
     }
 
     /**
@@ -394,7 +538,16 @@ export class Conversation extends RealtimeEvents {
             bytes.setInt16(i * 2, pcm[i], true);
         for (const byte of new Uint8Array(bytes.buffer))
             binary += String.fromCharCode(byte);
-        this.#write({ type: 'input_audio_buffer.append', audio: btoa(binary) });
+        this.#write(
+            [
+                {
+                    type: 'input_audio_buffer.append',
+                    event_id: this.#eventId(),
+                    audio: btoa(binary),
+                },
+            ],
+            MAX_BUFFERED_BYTES,
+        );
     }
 
     /**
@@ -404,15 +557,15 @@ export class Conversation extends RealtimeEvents {
      */
     commitAudio() {
         this.assertConnected();
-        if (this.#options.turnDetection !== false)
+        if (this.#turnDetection)
             throw failure(
                 'invalid_argument',
                 'Disable turnDetection before manually committing audio',
             );
-        this.#write(
-            { type: 'input_audio_buffer.commit' },
-            { type: 'response.create' },
-        );
+        this.#write([
+            { type: 'input_audio_buffer.commit', event_id: this.#eventId() },
+            { type: 'response.create', event_id: this.#eventId() },
+        ]);
     }
 
     /**
@@ -433,7 +586,8 @@ export class Conversation extends RealtimeEvents {
      * @returns {Promise<void>}
      */
     #interrupt(position, source) {
-        const playback = position ?? this.speaker.playbackPosition();
+        const playback =
+            position ?? this.speaker.playbackPosition(this.#activeResponse);
         if (
             playback &&
             (typeof playback.itemId !== 'string' ||
@@ -457,28 +611,39 @@ export class Conversation extends RealtimeEvents {
                           'Another response interruption is pending',
                       ),
                   );
-        if (!id && !playback) return Promise.resolve();
-        if (id) {
-            this.#cancelled.add(id);
-            if (this.#cancelled.size > 32)
-                this.#cancelled.delete(this.#cancelled.values().next().value);
-        }
+        // A requested reply that hasn't started yet is cancelled once it does.
+        const requested = !id && this.#requestedResponses.size > 0;
+        if (!id && !playback && !requested) return Promise.resolve();
+        if (id) this.#markCancelled(id);
         this.speaker.clearPlayback();
         const waits = [];
+        const cancel = (/** @type {string} */ responseId) =>
+            this.#request(
+                'response.done',
+                {
+                    type: 'response.cancel',
+                    response_id: responseId,
+                    event_id: this.#eventId(),
+                },
+                (event) => event.response?.id === responseId,
+            );
         if (this.#activeResponse) {
-            const matches = (event) => event.response?.id === id;
             waits.push(
                 source === 'speech'
-                    ? this.#wait('response.done', matches)
-                    : this.#request(
+                    ? this.#wait(
                           'response.done',
-                          {
-                              type: 'response.cancel',
-                              response_id: id,
-                              event_id: this.#eventId(),
-                          },
-                          matches,
-                      ),
+                          (event) => event.response?.id === id,
+                      )
+                    : cancel(id),
+            );
+        } else if (requested) {
+            waits.push(
+                this.#wait('response.created').then((created) => {
+                    const responseId = created.response?.id;
+                    if (typeof responseId !== 'string') return;
+                    this.#markCancelled(responseId);
+                    return cancel(responseId);
+                }),
             );
         }
         if (playback)
@@ -500,11 +665,22 @@ export class Conversation extends RealtimeEvents {
         const promise = Promise.all(waits)
             .then(() => {})
             .finally(() => {
-                this.#interruption = null;
+                if (this.#interruption?.promise === promise)
+                    this.#interruption = null;
             });
         this.#interruption = { id, itemId: playback?.itemId, promise };
         this.emitRealtime({ type: 'interrupted', source, responseId: id });
         return promise;
+    }
+
+    /**
+     * @param {string} id
+     * @returns {void}
+     */
+    #markCancelled(id) {
+        this.#cancelled.add(id);
+        if (this.#cancelled.size > 32)
+            this.#cancelled.delete(this.#cancelled.values().next().value);
     }
 
     /**
@@ -528,7 +704,7 @@ export class Conversation extends RealtimeEvents {
         this.#rejectPending(
             failure('session_closed', 'Conversation is closed'),
         );
-        this.#session?.close();
+        this.#detach();
         this.#cancelled.clear();
         this.emitRealtime(event);
         this.clearRealtimeListeners();
@@ -549,17 +725,78 @@ export class Conversation extends RealtimeEvents {
     }
 
     /**
+     * Shows the upgrade prompt for refusals a plan or more credit clears.
+     *
+     * @param {unknown} error
+     * @returns {void}
+     */
+    #promptUpgrade(error) {
+        try {
+            promptIfUpgradeRequired(
+                error,
+                {
+                    method: 'puter.ai.convo',
+                    subscriptionMessage:
+                        'Realtime conversations require a subscription.',
+                },
+                this.#puter,
+            );
+        } catch {
+            // The prompt is best effort; the caller still gets the error.
+        }
+    }
+
+    /**
      * @param {RealtimeServerEvent} event
      * @returns {void}
      */
     #receive(event) {
         if (this.#state === 'closed') return;
         if (event.type === 'close') {
-            this.#finish(event);
+            this.#lastClose = {
+                type: 'close',
+                code: event.code,
+                reason: event.reason,
+            };
+            if (this.#state === 'connecting') {
+                // `connect()` or the reconnect loop handles the failure.
+                this.#rejectPending(
+                    failure(
+                        'session_closed',
+                        event.reason || 'Realtime connection closed',
+                    ),
+                );
+            } else if (RECONNECT_CODES.has(event.code)) {
+                void this.#reconnect(event);
+            } else {
+                this.#finish(event);
+            }
             return;
         }
-        if (event.type === 'response.created')
+        if (event.type === 'response.created') {
             this.#activeResponse = event.response?.id ?? '';
+            const [requested] = this.#requestedResponses;
+            if (requested) this.#requestedResponses.delete(requested);
+        }
+        if (event.type === 'session.updated')
+            this.#acknowledgedUpdate = this.#sessionUpdates.shift();
+        if (
+            event.type === 'session.created' ||
+            event.type === 'session.updated'
+        ) {
+            const input = event.session?.audio?.input;
+            if (input && 'turn_detection' in input)
+                this.#turnDetection = input.turn_detection != null;
+        }
+        if (event.type === 'error') {
+            const failed = event.error?.event_id;
+            if (failed) {
+                this.#requestedResponses.delete(failed);
+                const index = this.#sessionUpdates.indexOf(failed);
+                if (index >= 0) this.#sessionUpdates.splice(index, 1);
+            }
+            this.#promptUpgrade(event.error);
+        }
         for (const operation of [...this.#pending]) {
             if (event.type === operation.type && operation.matches(event)) {
                 clearTimeout(operation.timer);
@@ -567,9 +804,9 @@ export class Conversation extends RealtimeEvents {
                 operation.resolve(event);
             } else if (
                 event.type === 'error' &&
-                (!event.error?.event_id ||
-                    !operation.eventId ||
-                    event.error.event_id === operation.eventId)
+                (operation.anyError ||
+                    (operation.eventId &&
+                        event.error?.event_id === operation.eventId))
             ) {
                 clearTimeout(operation.timer);
                 this.#pending.delete(operation);
@@ -581,18 +818,23 @@ export class Conversation extends RealtimeEvents {
                 );
             }
         }
+        this.#acknowledgedUpdate = undefined;
         if (
             event.type === 'response.done' &&
             event.response?.id === this.#activeResponse
         )
             this.#activeResponse = '';
-        if (event.type === 'response.output_text.delta')
+        const cancelled = this.#cancelled.has(event.response_id);
+        if (event.type === 'response.output_text.delta' && !cancelled)
             this.emitRealtime({
                 type: 'text',
                 delta: event.delta,
                 responseId: event.response_id,
             });
-        if (event.type === 'response.output_audio_transcript.delta') {
+        if (
+            event.type === 'response.output_audio_transcript.delta' &&
+            !cancelled
+        ) {
             this.emitRealtime({
                 type: 'transcript',
                 role: 'assistant',
@@ -625,8 +867,10 @@ export class Conversation extends RealtimeEvents {
             });
         if (
             event.type === 'response.output_audio.delta' &&
-            !this.#cancelled.has(event.response_id) &&
-            (this.speaker.active || this.hasRealtimeListeners('audio'))
+            !cancelled &&
+            (this.speaker.active ||
+                this.hasRealtimeListeners('audio') ||
+                this.hasRealtimeListeners('*'))
         ) {
             if (typeof event.delta === 'string') {
                 let binary;
@@ -689,28 +933,39 @@ export class Conversation extends RealtimeEvents {
         return `puter_convo_${++this.#sequence}`;
     }
     /**
-     * @param {...RealtimeServerEvent} events
+     * Sends events together or not at all. `limit` caps the socket's send
+     * queue; audio gets less room than control events so a backlog of audio
+     * never blocks a cancel or truncate.
+     *
+     * @param {RealtimeServerEvent[]} events
+     * @param {number} [limit]
      * @returns {void}
      */
-    #write(...events) {
-        if (!this.#session || this.#session.socket.readyState !== 1)
+    #write(events, limit = MAX_BUFFERED_BYTES + MAX_MESSAGE_BYTES) {
+        const socket = this.#session?.socket;
+        if (!socket || socket.readyState !== 1)
             throw failure('session_closed', 'Conversation socket is closed');
         const messages = events.map((event) => encodeEvent(event));
-        const bytes = messages.reduce(
-            (sum, json) => sum + encoder.encode(json).byteLength,
-            0,
-        );
-        if (this.#session.socket.bufferedAmount + bytes > MAX_BUFFERED_BYTES)
-            throw failure('queue_full', 'Realtime send queue exceeds 128 KiB');
-        for (const json of messages) this.#session.socket.send(json);
+        const bytes = messages.reduce((sum, m) => sum + m.bytes, 0);
+        if ((socket.bufferedAmount ?? 0) + bytes > limit)
+            throw failure('queue_full', 'Realtime send queue is full');
+        for (const [i, { json }] of messages.entries()) {
+            const event = events[i];
+            if (event.type === 'session.update')
+                this.#sessionUpdates.push(event.event_id);
+            if (event.type === 'response.create')
+                this.#requestedResponses.add(event.event_id);
+            socket.send(json);
+        }
     }
     /**
      * @param {string} type
      * @param {(event: RealtimeServerEvent) => boolean} [matches]
-     * @param {string} [eventId]
+     * @param {string} [eventId] Rejects on an error for this event.
+     * @param {boolean} [anyError] Rejects on any error.
      * @returns {Promise<RealtimeServerEvent>}
      */
-    #wait(type, matches = () => true, eventId) {
+    #wait(type, matches = () => true, eventId, anyError = false) {
         if (this.#pending.size >= 8)
             return Promise.reject(
                 failure(
@@ -723,6 +978,7 @@ export class Conversation extends RealtimeEvents {
                 type,
                 matches,
                 eventId,
+                anyError,
                 resolve,
                 reject,
                 timer: setTimeout(() => {
@@ -739,19 +995,28 @@ export class Conversation extends RealtimeEvents {
         });
     }
     /**
+     * Sends `event` and waits for its acknowledgment. A failed send rejects
+     * only this request.
+     *
      * @param {string} type
      * @param {RealtimeServerEvent} event
      * @param {(event: RealtimeServerEvent) => boolean} matches
      * @returns {Promise<RealtimeServerEvent>}
      */
     #request(type, event, matches) {
-        const result = this.#wait(type, matches, event.event_id);
+        if (this.#pending.size >= 8)
+            return Promise.reject(
+                failure(
+                    'operation_in_progress',
+                    'Too many pending realtime operations',
+                ),
+            );
         try {
-            this.#write(event);
+            this.#write([event]);
         } catch (error) {
-            this.#rejectPending(error);
+            return Promise.reject(error);
         }
-        return result;
+        return this.#wait(type, matches, event.event_id);
     }
     /**
      * @param {ConvoError} error
@@ -794,13 +1059,15 @@ export async function convo(options = {}) {
     try {
         response = await fetchUrl(`${puter.APIOrigin}/whoami`, {
             authToken: puter.authToken,
-            interactiveReauth: false,
             retry: false,
             signal: AbortSignal.timeout(OPERATION_TIMEOUT_MS),
         });
     } catch {
         throw failure('auth_failed', 'Could not verify authentication');
     }
-    if (!response.ok) throw failure('auth_required', 'Authentication required');
+    if (response.status === 401 || response.status === 403)
+        throw failure('auth_required', 'Authentication required');
+    if (!response.ok)
+        throw failure('auth_failed', 'Could not verify authentication');
     return new Conversation(puter, settings);
 }

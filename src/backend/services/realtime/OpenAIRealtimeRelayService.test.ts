@@ -4,12 +4,14 @@ import {
     afterAll,
     afterEach,
     beforeAll,
+    beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
+import { withAiCostFactorHook } from '../../drivers/integrationTestUtil';
 import type { IConfig } from '../../types';
 import type { PuterServer } from '../../server';
 import {
@@ -25,6 +27,7 @@ import {
     type RealtimeUsage,
     type RealtimeTranscriptionUsage,
     realtimeAuthKey,
+    realtimeBillingModel,
     realtimeTokenFrom,
     realtimeTranscriptionRows,
     realtimeUsageRows,
@@ -154,13 +157,48 @@ describe('realtimeTranscriptionRows', () => {
     });
 });
 
+describe('realtimeBillingModel', () => {
+    it('bills the model the session reports, dated snapshots included', () => {
+        expect(
+            realtimeBillingModel({ model: 'gpt-realtime' }, 'gpt-realtime-mini'),
+        ).toBe('gpt-realtime');
+        expect(
+            realtimeBillingModel(
+                { model: 'gpt-realtime-mini-2025-10-06' },
+                'gpt-realtime',
+            ),
+        ).toBe('gpt-realtime-mini');
+    });
+
+    it('keeps the connection model when the session reports none we price', () => {
+        expect(realtimeBillingModel({}, 'gpt-realtime-mini')).toBe(
+            'gpt-realtime-mini',
+        );
+        expect(
+            realtimeBillingModel({ model: 'gpt-9' }, 'gpt-realtime-mini'),
+        ).toBe('gpt-realtime-mini');
+        expect(realtimeBillingModel(null, 'gpt-realtime')).toBe('gpt-realtime');
+    });
+});
+
 describe('OpenAIRealtimeRelayService relay', () => {
     let server: PuterServer;
     let upstream: WebSocketServer;
     let user: TestUserCredentials;
     let relayUrl: string;
     const upstreamRequests: IncomingMessage[] = [];
+    const upstreamEvents: { type: string; response_id?: string }[] = [];
     const clients = new Set<WebSocket>();
+
+    // Realtime is subscriber-only; the test user is on a paid plan unless a
+    // test says otherwise.
+    beforeEach(() => {
+        const metering = server.services.metering;
+        const plan = metering.getActorSubscription.bind(metering);
+        vi.spyOn(metering, 'getActorSubscription').mockImplementation(
+            async (actor) => ({ ...(await plan(actor)), id: 'test_paid' }),
+        );
+    });
 
     afterEach(() => {
         for (const client of clients) client.terminate();
@@ -192,6 +230,7 @@ describe('OpenAIRealtimeRelayService relay', () => {
                     return;
                 }
                 const event = JSON.parse(data.toString());
+                upstreamEvents.push(event);
                 if (event.type === 'test.upstream') {
                     ws.send(event.payload, { binary: event.binary ?? false });
                     return;
@@ -264,6 +303,29 @@ describe('OpenAIRealtimeRelayService relay', () => {
                                 input_token_details: { audio_tokens: 4 },
                                 output_tokens: 2,
                             } satisfies RealtimeTranscriptionUsage,
+                        }),
+                    );
+                }
+                // Generates until cancelled, then reports usage like OpenAI.
+                if (event.type === 'hold.response') {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'response.created',
+                            response: { id: 'resp_hold' },
+                        }),
+                    );
+                }
+                if (event.type === 'response.cancel') {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'response.done',
+                            response: {
+                                id: event.response_id,
+                                status: 'cancelled',
+                                usage: {
+                                    output_token_details: { audio_tokens: 50 },
+                                } satisfies RealtimeUsage,
+                            },
                         }),
                     );
                 }
@@ -603,19 +665,10 @@ describe('OpenAIRealtimeRelayService relay', () => {
         c.ws.close();
     });
 
-    it('bounds upstream byte floods before JSON parsing', async () => {
+    it('forwards upstream bursts faster than real time', async () => {
         const c = open(`${relayUrl}?auth_token=${user.token}`);
         await c.waitFor('session.created');
         c.ws.send(JSON.stringify({ type: 'test.largeBurst' }));
-        expect(await c.waitFor('error')).toMatchObject({
-            error: { code: 'rate_limit_exceeded' },
-        });
-        expect((await c.closed).code).toBe(1008);
-    });
-
-    it('bounds upstream message floods', async () => {
-        const c = open(`${relayUrl}?auth_token=${user.token}`);
-        await c.waitFor('session.created');
         c.ws.send(
             JSON.stringify({
                 type: 'test.burst',
@@ -623,8 +676,88 @@ describe('OpenAIRealtimeRelayService relay', () => {
                 eventType: 'test.delta',
             }),
         );
+        await vi.waitFor(
+            () => {
+                expect(
+                    c.events.filter((e) => e.type === 'test.delta'),
+                ).toHaveLength(250);
+            },
+            { timeout: 5_000 },
+        );
+        expect(
+            c.events.filter((e) => e.type === 'response.output_text.delta'),
+        ).toHaveLength(6);
+        expect(c.events.some((e) => e.type === 'error')).toBe(false);
+        c.ws.close();
+    });
+
+    it('bills a response still generating when the client disconnects', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await c.waitFor('response.created');
+        c.ws.close();
+        await vi.waitFor(() =>
+            expect(
+                spy.mock.calls.some(([, rows]) =>
+                    rows.some(
+                        (r) =>
+                            r.usageType ===
+                            'openai:gpt-realtime-mini:realtime:audio_output',
+                    ),
+                ),
+            ).toBe(true),
+        );
+        expect(upstreamEvents).toContainEqual({
+            type: 'response.cancel',
+            response_id: 'resp_hold',
+        });
+    });
+
+    it('records costs through the AI cost factor', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        await withAiCostFactorHook(server.clients.event, 2, async () => {
+            const c = open(
+                `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+            );
+            await c.waitFor('session.created');
+            c.ws.send(JSON.stringify({ type: 'response.create' }));
+            await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+            c.ws.close();
+        });
+        const [, rows] = spy.mock.calls.at(-1)!;
+        expect(rows.map((r) => [r.usageType, r.costOverride])).toEqual([
+            ['openai:gpt-realtime-mini:realtime:text_input', 7 * 60 * 2],
+            ['openai:gpt-realtime-mini:realtime:text_output', 3 * 240 * 2],
+        ]);
+    });
+
+    it('refuses a session.update that changes the model', async () => {
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'session.update',
+                session: { type: 'realtime', model: 'gpt-realtime' },
+            }),
+        );
         expect(await c.waitFor('error')).toMatchObject({
-            error: { code: 'rate_limit_exceeded' },
+            error: { code: 'invalid_event' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('refuses accounts without a subscription', async () => {
+        // The test user's own plan is a free one.
+        vi.mocked(server.services.metering.getActorSubscription).mockRestore();
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'subscription_required' },
         });
         expect((await c.closed).code).toBe(1008);
     });

@@ -45,10 +45,17 @@ Message size applies in both directions and includes reassembled fragments.
 Read backpressure is supplemented by hard queue admission limits because a
 paused socket can still deliver messages already in its receive buffer.
 
-Each frame is parsed once and the original bytes are forwarded. Usage and
-session configuration events enter a bounded serial metering queue. Other
-frames do not schedule metering tasks. Metering yields between events and does
-not delay forwarding. Accepted usage events continue to be billed after close.
+Each frame is parsed once and the original bytes are forwarded. Upstream
+traffic is not rate limited: OpenAI sends audio faster than real time, and
+backpressure bounds what a slow client can queue. Usage is priced as each event
+arrives, before any forwarding decision, and recorded serially off the
+forwarding path through the AI cost-factor hook. Pricing follows the model the
+session reports, falling back to the connection's; a client `session.update`
+that changes the model is refused.
+
+When a session closes with a response still generating, the relay cancels it
+and keeps the upstream open for up to five seconds so the cancelled response
+reports, and is billed for, what it generated.
 
 Credential checks run in batches of at most 16 with no overlapping sweeps.
 During drain, new sessions receive `server_restarting` and close with 1012.
@@ -58,8 +65,8 @@ Open sessions can finish an in-flight response for up to five seconds at shutdow
 
 The provider key resolves through `openai-realtime`, `openai-completion`, then
 `openai`. The default upstream is OpenAI. A deployment may override
-`realtime.upstreamUrl`; the integration tests point it at an in-process fake
-provider. The per-user connection cap is configured with
+`realtime.upstreamUrl`; the tests point it at an in-process fake provider
+(the SDK tests live in `src/puter-js/tests/api/realtime`). The per-user connection cap is configured with
 `realtime.maxConnectionsPerUser` and defaults to 20.
 
 The relay does not run load generators, periodic process-memory sampling, or
@@ -69,6 +76,7 @@ credentials.
 ## Remaining constraints
 
 Responses and input transcriptions are billed after completion. There is no
-credit hold. The relay's session gate is separate from the shared AI driver
-gates and AI cost-factor hook. It accepts session and app tokens on every plan.
-Conversation state lives upstream and is lost when a connection ends.
+credit hold. Sessions require a paid plan (`subscription.gate.realtime.openai`
+can waive it) and accept session, app and full-access API tokens. Conversation
+state lives upstream and is lost when a connection ends; the SDK reconnects
+with the same settings but an empty conversation.

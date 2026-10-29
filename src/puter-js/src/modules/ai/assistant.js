@@ -27,7 +27,8 @@ export class RealtimeSession extends RealtimeEvents {
                     data.length > 65536 ||
                     encoder.encode(data).byteLength > 65536
                 ) {
-                    socket.close(1009);
+                    // Browsers only accept 1000 and 3000-4999 here.
+                    socket.close(4009, 'message too large');
                     return;
                 }
                 event = JSON.parse(data);

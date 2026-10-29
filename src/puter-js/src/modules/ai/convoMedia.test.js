@@ -122,7 +122,7 @@ it('releases a stream when permission resolves after stop', async () => {
     await expect(pending).rejects.toMatchObject({ code: 'session_closed' });
     expect(audioTrack.stop).toHaveBeenCalled();
 });
-it('stops capture on overflow or a full outbound queue', async () => {
+it('drops chunks under backpressure or while reconnecting, and stops on other errors', async () => {
     const c = makeConvo();
     const audioTrack = track();
     vi.stubGlobal('navigator', {
@@ -133,11 +133,58 @@ it('stops capture on overflow or a full outbound queue', async () => {
     const mic = new ConvoMicrophone(c);
     helpers.push(mic);
     await mic.start();
-    FakeWorklet.instances[0].port.onmessage({ data: { overflow: true } });
+    const port = FakeWorklet.instances[0].port;
+    const pcm = new Int16Array(480);
+    c.appendAudio.mockImplementationOnce(() => {
+        throw { code: 'queue_full', message: 'full' };
+    });
+    port.onmessage({ data: { pcm } });
+    expect(audioTrack.stop).not.toHaveBeenCalled();
+    c.state = 'connecting';
+    port.onmessage({ data: { pcm } });
+    expect(c.appendAudio).toHaveBeenCalledOnce();
+    expect(port.postMessage).toHaveBeenCalledTimes(2);
+    c.state = 'connected';
+    c.appendAudio.mockImplementationOnce(() => {
+        throw { code: 'session_closed', message: 'closed' };
+    });
+    port.onmessage({ data: { pcm } });
     expect(audioTrack.stop).toHaveBeenCalled();
     expect(c.reportMediaError).toHaveBeenCalledWith(
-        expect.objectContaining({ code: 'queue_full' }),
+        expect.objectContaining({ code: 'session_closed' }),
     );
+});
+it('captures at the device rate', async () => {
+    vi.stubGlobal('navigator', {
+        mediaDevices: {
+            getUserMedia: async () => ({ getTracks: () => [track()] }),
+        },
+    });
+    const ContextSpy = vi.fn(function (options) {
+        this.options = options;
+        return new FakeContext();
+    });
+    vi.stubGlobal('AudioContext', ContextSpy);
+    const mic = new ConvoMicrophone(makeConvo());
+    helpers.push(mic);
+    await mic.start();
+    expect(ContextSpy).toHaveBeenCalledWith(undefined);
+});
+it('reports a denied permission', async () => {
+    vi.stubGlobal('navigator', {
+        mediaDevices: {
+            getUserMedia: async () => {
+                throw Object.assign(new Error('denied'), {
+                    name: 'NotAllowedError',
+                });
+            },
+        },
+    });
+    const mic = new ConvoMicrophone(makeConvo());
+    helpers.push(mic);
+    await expect(mic.start()).rejects.toMatchObject({
+        code: 'permission_denied',
+    });
 });
 it('rejects unsupported capture environments', async () => {
     vi.stubGlobal('navigator', {});
@@ -147,7 +194,7 @@ it('rejects unsupported capture environments', async () => {
         code: 'unsupported_environment',
     });
 });
-it('times out media initialization and stops late permission grants', async () => {
+it('waits on the permission prompt but times out a stuck audio context', async () => {
     vi.useFakeTimers();
     let grant;
     const audioTrack = track();
@@ -164,10 +211,11 @@ it('times out media initialization and stops late permission grants', async () =
     const result = expect(mic.start()).rejects.toMatchObject({
         code: 'media_timeout',
     });
-    await vi.advanceTimersByTimeAsync(10000);
-    await result;
+    await vi.advanceTimersByTimeAsync(30_000);
+    FakeContext.instances[0].resume = vi.fn(() => new Promise(() => {}));
     grant({ getTracks: () => [audioTrack] });
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await result;
     expect(audioTrack.stop).toHaveBeenCalled();
 });
 it('tracks played position and clears playback immediately', async () => {
@@ -195,24 +243,52 @@ it('tracks played position and clears playback immediately', async () => {
     await speaker.stop();
     expect(context.close).toHaveBeenCalled();
 });
-it('bounds playback duration and requests interruption on overflow', async () => {
+it('bounds scheduled playback without interrupting the reply', async () => {
     const c = makeConvo();
     const speaker = new ConvoSpeaker(c);
     helpers.push(speaker);
     await speaker.start({ bargeIn: false });
-    for (let i = 0; i < 6; i++)
-        speaker.enqueue(new Int16Array(24000), {
-            type: 'response.output_audio.delta',
-            item_id: 'item',
-            response_id: 'r',
-            content_index: 0,
-        });
-    expect(FakeContext.instances[0].nodes).toHaveLength(5);
-    expect(c.interrupt).toHaveBeenCalledOnce();
-    expect(c.reportMediaError).toHaveBeenCalledWith(
+    const delta = {
+        type: 'response.output_audio.delta',
+        item_id: 'item',
+        response_id: 'r',
+        content_index: 0,
+    };
+    // Fifteen seconds arriving at once plays in full.
+    for (let i = 0; i < 15; i++) speaker.enqueue(new Int16Array(24000), delta);
+    expect(FakeContext.instances[0].nodes).toHaveLength(15);
+    expect(c.reportMediaError).not.toHaveBeenCalled();
+    for (let i = 0; i < 300; i++) speaker.enqueue(new Int16Array(24000), delta);
+    expect(FakeContext.instances[0].nodes).toHaveLength(300);
+    expect(c.interrupt).not.toHaveBeenCalled();
+    expect(c.reportMediaError).toHaveBeenCalledExactlyOnceWith(
         expect.objectContaining({ code: 'queue_full' }),
     );
     expect(speaker.bargeIn).toBe(false);
+});
+it('subtracts output latency and covers gaps between chunks', async () => {
+    const speaker = new ConvoSpeaker(makeConvo());
+    helpers.push(speaker);
+    await speaker.start();
+    const context = FakeContext.instances[0];
+    context.outputLatency = 0.2;
+    speaker.enqueue(new Int16Array(24000), {
+        type: 'response.output_audio.delta',
+        item_id: 'item',
+        response_id: 'r',
+        content_index: 0,
+    });
+    context.currentTime = 0.5;
+    expect(speaker.playbackPosition('r')).toMatchObject({ playedMs: 300 });
+    // The chunk finished and the next hasn't arrived.
+    context.nodes[0].onended();
+    context.currentTime = 1.5;
+    expect(speaker.playbackPosition('r')).toEqual({
+        itemId: 'item',
+        contentIndex: 0,
+        playedMs: 1000,
+    });
+    expect(speaker.playbackPosition('other')).toBeUndefined();
 });
 
 it('a late canceled permission request does not stop a newer capture', async () => {
