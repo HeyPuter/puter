@@ -339,13 +339,16 @@ export class ImageGenerationDriver extends PuterDriver {
         );
 
         if (resolvedOutputPath) {
-            await saveGeneratedMediaToFS(
+            // False when write access was revoked while the job ran; the
+            // result still comes back.
+            const outputSaved = await saveGeneratedMediaToFS(
                 this.services.fs,
                 actor,
                 result,
                 resolvedOutputPath,
                 { noun: 'image', defaultType: 'application/octet-stream' },
             );
+            Context.set('driverMetadata', { outputSaved });
         }
 
         return result;

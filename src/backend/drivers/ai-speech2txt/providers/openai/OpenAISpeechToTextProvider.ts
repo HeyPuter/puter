@@ -170,9 +170,9 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
             );
         }
 
-        // Estimate seconds from raw bytes — 16 kbps is a conservative speech-audio
-        // lower bound. Full metadata parsing (music-metadata) is deferred — clients
-        // aren't observably sensitive to billing-time delta vs real duration.
+        // The hold estimates seconds from bytes at 128 kbps: compact audio is
+        // under-held rather than refused, and usage is metered from the
+        // duration OpenAI reports.
         const estimatedSeconds = Math.max(
             1,
             Math.ceil(loaded.buffer.byteLength / 16000),
@@ -198,8 +198,13 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
                 file: openaiFile,
                 model: selectedModel,
             };
+            // A `text` response carries no usage, so json is asked for and
+            // its text returned.
             if (args.response_format)
-                payload.response_format = args.response_format;
+                payload.response_format =
+                    args.response_format === 'text'
+                        ? 'json'
+                        : args.response_format;
             if (args.language) payload.language = args.language;
             if (typeof args.temperature === 'number')
                 payload.temperature = args.temperature;
@@ -207,7 +212,15 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
             // The API ignores a bare `logprobs` flag; it only honors `include`.
             if (args.logprobs && caps.canLogprobs)
                 payload.include = ['logprobs'];
-            if (args.extra_body) payload.extra_body = args.extra_body;
+            if (args.extra_body && typeof args.extra_body === 'object') {
+                // Billing reads usage off the response; these can strip it.
+                const extra = {
+                    ...(args.extra_body as Record<string, unknown>),
+                };
+                delete extra.response_format;
+                delete extra.stream;
+                payload.extra_body = extra;
+            }
 
             const result = await this.#openai.audio.transcriptions.create(
                 payload as unknown as Parameters<
@@ -215,11 +228,12 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
                 >[0],
             );
 
+            const billedSeconds = reportedSeconds(result) ?? estimatedSeconds;
             this.deps.metering.incrementUsage(
                 actor,
                 usageType,
-                estimatedSeconds,
-                ucentsPerSecond * estimatedSeconds,
+                billedSeconds,
+                ucentsPerSecond * billedSeconds,
             );
 
             // Text response_format: return raw string; otherwise forward the OpenAI object.
@@ -233,4 +247,19 @@ export class OpenAISpeechToTextProvider extends SpeechToTextProvider {
             await hold.release();
         }
     }
+}
+
+/** Whole seconds of audio OpenAI reports billing for, if it reports them. */
+function reportedSeconds(result: unknown): number | undefined {
+    if (!result || typeof result !== 'object') return undefined;
+    const { usage, duration } = result as {
+        usage?: { type?: string; seconds?: unknown };
+        duration?: unknown;
+    };
+    const seconds = usage?.type === 'duration' ? usage.seconds : duration;
+    return typeof seconds === 'number' &&
+        Number.isFinite(seconds) &&
+        seconds > 0
+        ? Math.max(1, Math.ceil(seconds))
+        : undefined;
 }

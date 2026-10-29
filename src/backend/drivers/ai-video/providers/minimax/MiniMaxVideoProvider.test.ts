@@ -37,12 +37,14 @@ import {
     type MockInstance,
 } from 'vitest';
 
+import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { PuterServer } from '../../../../server.js';
 import { setupTestServer } from '../../../../testUtil.js';
 import { withTestActor } from '../../../integrationTestUtil.js';
 import { withAiCostFactor } from '../../../util/aiCostFactor.js';
 import type { IGenerateVideoParams } from '../../types.js';
+import { VIDEO_POLL_WINDOW_MS } from '../polling.js';
 import { MiniMaxVideoProvider } from './MiniMaxVideoProvider.js';
 import { MINIMAX_VIDEO_GENERATION_MODELS } from './models.js';
 
@@ -648,6 +650,7 @@ describe('MiniMaxVideoProvider failures', () => {
                 h3Task({
                     status,
                     content: undefined,
+                    usage: undefined,
                     error: { code: '1000', message: 'unknown error' },
                 }),
             );
@@ -659,11 +662,26 @@ describe('MiniMaxVideoProvider failures', () => {
         },
     );
 
+    it('passes through the seconds a failed H3 task reports', async () => {
+        mockH3Flow(
+            h3Task({
+                status: 'failed',
+                content: undefined,
+                usage: { output_seconds: 3 },
+                error: { code: '1000', message: 'unknown error' },
+            }),
+        );
+        await expect(generate({})).rejects.toMatchObject({ statusCode: 502 });
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+        expect(incrementUsageSpy.mock.calls[0]![2]).toBe(3);
+    });
+
     it('maps an H3 task failed by the content filter to moderation_flagged', async () => {
         mockH3Flow(
             h3Task({
                 status: 'failed',
                 content: undefined,
+                usage: undefined,
                 error: {
                     code: '1026',
                     message: 'video description contains sensitive content',
@@ -854,13 +872,14 @@ describe('MiniMaxVideoProvider failures', () => {
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
-    it('fails when the finished H3 task has no video', async () => {
+    // MiniMax bills a task it reports as succeeded, video or not.
+    it('fails, still metered, when the finished H3 task has no video', async () => {
         mockH3Flow(h3Task({ content: {} }));
         await expect(generate({})).rejects.toThrow(/video URL/);
-        expect(incrementUsageSpy).not.toHaveBeenCalled();
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('fails when the Hailuo file has no download URL', async () => {
+    it('fails, still metered, when the Hailuo file has no download URL', async () => {
         fetchSpy.mockResolvedValueOnce(
             jsonResponse({ task_id: 'task-1', base_resp: ok }),
         );
@@ -871,6 +890,119 @@ describe('MiniMaxVideoProvider failures', () => {
         await expect(generate({ model: 'minimax-hailuo-2.3' })).rejects.toThrow(
             /video URL/,
         );
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+    });
+    it('retries a Hailuo file lookup that hits a transient error', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            jsonResponse({ task_id: 'task-1', base_resp: ok }),
+        );
+        fetchSpy.mockResolvedValueOnce(jsonResponse(hailuoTask('Success')));
+        fetchSpy.mockResolvedValueOnce(
+            jsonResponse({ error: { message: 'upstream busy' } }, 503),
+        );
+        fetchSpy.mockResolvedValueOnce(
+            jsonResponse({
+                file: { download_url: 'https://minimax.example/hailuo.mp4' },
+                base_resp: ok,
+            }),
+        );
+        await expect(generate({ model: 'minimax-hailuo-2.3' })).resolves.toBe(
+            'https://minimax.example/hailuo.mp4',
+        );
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('MiniMaxVideoProvider after the caller leaves', () => {
+    const disconnected = (params: Partial<IGenerateVideoParams>) =>
+        withTestActor(() => {
+            const abort = new AbortController();
+            abort.abort();
+            Context.set('abortSignal', abort.signal);
+            return makeProvider().generate({
+                prompt: 'a ball rolls',
+                ...params,
+            });
+        });
+
+    /**
+     * Moves the clock past the poll window on the first status poll; later
+     * polls return `late()`.
+     */
+    const expireOnPoll = (pending: unknown, late: () => unknown) => {
+        const realNow = Date.now.bind(Date);
+        let skew = 0;
+        vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skew);
+        let polls = 0;
+        fetchSpy.mockImplementation(async () => {
+            skew = VIDEO_POLL_WINDOW_MS + 1;
+            return jsonResponse(polls++ === 0 ? pending : late());
+        });
+    };
+
+    const timedOut = async (params: Partial<IGenerateVideoParams>) => {
+        try {
+            await generate(params);
+        } catch (e) {
+            return e;
+        }
+        throw new Error('expected the call to reject');
+    };
+
+    it('keeps polling an H3 task after a disconnect and meters it', async () => {
+        mockH3Flow(h3Task({ status: 'running' }), h3Task());
+        await expect(
+            disconnected({ model: 'minimax-h3', seconds: 5 }),
+        ).resolves.toBe('https://minimax.example/out.mp4');
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+        expect(incrementUsageSpy.mock.calls[0]![2]).toBe(5);
+    });
+
+    it('keeps polling a Hailuo task after a disconnect and meters it', async () => {
+        mockHailuoFlow(hailuoTask('Processing'), hailuoTask('Success'));
+        await expect(
+            disconnected({ model: 'minimax-hailuo-2.3', seconds: 6 }),
+        ).resolves.toBe('https://minimax.example/hailuo.mp4');
+        expect(incrementUsageSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('meters the H3 seconds reported after the window', async () => {
+        fetchSpy.mockResolvedValueOnce(jsonResponse({ task_id: 'task-1' }));
+        let finished = false;
+        const running = { task: h3Task({ status: 'running' }) };
+        expireOnPoll(running, () =>
+            finished
+                ? { task: h3Task({ usage: { output_seconds: 4 } }) }
+                : running,
+        );
+        expect(
+            await timedOut({ model: 'minimax-h3', seconds: 5 }),
+        ).toMatchObject({ statusCode: 504, legacyCode: 'upstream_timeout' });
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+
+        finished = true;
+        await vi.waitFor(() =>
+            expect(incrementUsageSpy).toHaveBeenCalledTimes(1),
+        );
+        const [, usageType, amount, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toBe(
+            'minimax-video-generation:minimax-h3:per-second:768p',
+        );
+        expect(amount).toBe(4);
+        expect(cost).toBeCloseTo(
+            4 * rate('minimax-h3', 'per-second:768p') * 1_000_000,
+        );
+    });
+
+    it('meters nothing for a Hailuo clip that fails after the window', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            jsonResponse({ task_id: 'task-1', base_resp: ok }),
+        );
+        expireOnPoll(hailuoTask('Processing'), () => hailuoTask('Fail'));
+        expect(
+            await timedOut({ model: 'minimax-hailuo-2.3', seconds: 6 }),
+        ).toMatchObject({ statusCode: 504 });
+        await new Promise((resolve) => setTimeout(resolve, 20));
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 });

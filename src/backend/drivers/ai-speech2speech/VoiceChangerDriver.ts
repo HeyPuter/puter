@@ -17,9 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { pipeline, Readable, Transform } from 'node:stream';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { DriverStreamResult } from '../meta.js';
+import { OUTPUT_FORMATS } from '../ai-tts/providers/elevenlabs/ElevenLabsTTSProvider.js';
 import { PuterDriver } from '../types.js';
 import {
     type AiMeteringService,
@@ -198,10 +200,9 @@ export class VoiceChangerDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
 
-        // Metering: estimate duration from file size if we don't parse metadata.
-        // 16 kbit/s is a safe lower bound for speech audio; pre-check credits
-        // before we hit the ElevenLabs API. Post-usage we increment by the same
-        // estimate — duration parsing is deferred to v2.1 if needed.
+        // The hold estimates seconds from the input at 128 kbps: compact audio
+        // is under-held rather than refused. Usage is metered from the length
+        // of the audio that comes back.
         const estimatedSeconds = Math.max(
             1,
             Math.ceil(loaded.buffer.byteLength / 16000),
@@ -263,6 +264,10 @@ export class VoiceChangerDriver extends PuterDriver {
         if (search) url.search = search;
 
         const metering = this.#aiMetering;
+        const output = measuredOutput(
+            outputBytesPerSecond(outputFormat),
+            outputFormat,
+        );
         return withStreamedAiCharge(
             metering,
             actor,
@@ -287,16 +292,206 @@ export class VoiceChangerDriver extends PuterDriver {
                     dataType: 'stream',
                     content_type:
                         response.headers.get('content-type') ?? 'audio/mpeg',
-                    stream: upstreamBodyStream(response),
+                    stream: output.measure(upstreamBodyStream(response)),
                 };
             },
-            () =>
-                metering.incrementUsage(
+            async () => {
+                const measured = await output.seconds;
+                // A stream cut short was still converted in full upstream.
+                const seconds =
+                    measured.complete && measured.seconds
+                        ? measured.seconds
+                        : Math.max(measured.seconds ?? 0, estimatedSeconds);
+                return metering.incrementUsage(
                     actor,
                     usageKey,
-                    estimatedSeconds,
-                    estimatedCost,
-                ),
+                    seconds,
+                    ucentsPerSecond * seconds,
+                );
+            },
         );
     }
+}
+
+/**
+ * Bytes per second of an ElevenLabs `output_format`. A format outside the
+ * documented set is sized as the default, so a made-up bitrate can't shrink the
+ * bill.
+ */
+export function outputBytesPerSecond(format: string): number {
+    const known = OUTPUT_FORMATS.has(format) ? format : DEFAULT_OUTPUT_FORMAT;
+    const [codec, rate, kbps] = known.split('_');
+    if (codec === 'mp3' || codec === 'opus') return Number(kbps) * 125;
+    if (codec === 'ulaw' || codec === 'alaw') return Number(rate);
+    // pcm and wav: 16-bit mono.
+    return Number(rate) * 2;
+}
+
+// Past this, a WAV whose data chunk hasn't started is billed by raw length.
+const WAV_HEADER_MAX_BYTES = 64 * 1024;
+
+/**
+ * Where the samples of a RIFF/WAVE stream start, once `head` reaches its `data`
+ * chunk; undefined until then, or if `head` isn't a WAV.
+ */
+export function wavDataOffset(head: Buffer): number | undefined {
+    if (head.length < 12) return undefined;
+    if (
+        head.toString('ascii', 0, 4) !== 'RIFF' ||
+        head.toString('ascii', 8, 12) !== 'WAVE'
+    )
+        return undefined;
+    let offset = 12;
+    while (offset + 8 <= head.length) {
+        if (head.toString('ascii', offset, offset + 4) === 'data')
+            return offset + 8;
+        const size = head.readUInt32LE(offset + 4);
+        offset += 8 + size + (size & 1);
+    }
+    return undefined;
+}
+
+const OGG_HEADER_BYTES = 27;
+const NO_GRANULE = 2n ** 64n - 1n;
+
+/**
+ * Walks an Ogg Opus stream page by page as it arrives. Opus is variable
+ * bitrate, so its length comes from the last page's granule position (48 kHz
+ * samples, less the stream's pre-skip) rather than its byte count.
+ */
+export class OggOpusClock {
+    #header = Buffer.alloc(0);
+    #skip = 0;
+    #firstBody: Buffer | undefined = Buffer.alloc(0);
+    #firstBodyBytes = 0;
+    #granule: bigint | undefined;
+    #preSkip = 0;
+    #broken = false;
+
+    push(chunk: Buffer): void {
+        let offset = 0;
+        while (!this.#broken && offset < chunk.length) {
+            if (this.#skip > 0) {
+                const n = Math.min(this.#skip, chunk.length - offset);
+                if (this.#firstBody && this.#firstBody.length < 19) {
+                    this.#firstBody = Buffer.concat([
+                        this.#firstBody,
+                        chunk.subarray(offset, offset + n),
+                    ]);
+                }
+                this.#skip -= n;
+                offset += n;
+                if (this.#skip === 0 && this.#firstBody) this.#readOpusHead();
+                continue;
+            }
+            const want =
+                this.#header.length < OGG_HEADER_BYTES
+                    ? OGG_HEADER_BYTES
+                    : OGG_HEADER_BYTES + this.#header[26]!;
+            const n = Math.min(
+                want - this.#header.length,
+                chunk.length - offset,
+            );
+            this.#header = Buffer.concat([
+                this.#header,
+                chunk.subarray(offset, offset + n),
+            ]);
+            offset += n;
+            if (this.#header.length < want) continue;
+            if (this.#header.toString('ascii', 0, 4) !== 'OggS') {
+                this.#broken = true;
+                return;
+            }
+            if (want === OGG_HEADER_BYTES && this.#header[26]! > 0) continue;
+            const granule = this.#header.readBigUInt64LE(6);
+            if (granule !== NO_GRANULE) this.#granule = granule;
+            let body = 0;
+            for (const lacing of this.#header.subarray(OGG_HEADER_BYTES)) {
+                body += lacing;
+            }
+            this.#header = Buffer.alloc(0);
+            this.#skip = body;
+            if (this.#firstBody) this.#firstBodyBytes = body;
+        }
+    }
+
+    /** Whole seconds so far, once the stream has proven to be Ogg Opus. */
+    get seconds(): number | undefined {
+        if (this.#broken || this.#granule === undefined) return undefined;
+        const samples = Number(this.#granule) - this.#preSkip;
+        return samples > 0
+            ? Math.max(1, Math.ceil(samples / 48_000))
+            : undefined;
+    }
+
+    #readOpusHead(): void {
+        const head = this.#firstBody!;
+        this.#firstBody = undefined;
+        if (
+            this.#firstBodyBytes < 19 ||
+            head.toString('ascii', 0, 8) !== 'OpusHead'
+        ) {
+            this.#broken = true;
+            return;
+        }
+        this.#preSkip = head.readUInt16LE(10);
+    }
+}
+
+/**
+ * Counts the bytes of a converted stream. `seconds` settles when the stream
+ * ends or closes: its length in whole seconds (undefined when nothing came
+ * back), and whether the upstream sent all of it. A WAV's header isn't audio,
+ * so it isn't counted; Opus is timed by its pages.
+ */
+function measuredOutput(bytesPerSecond: number, format: string) {
+    let bytes = 0;
+    let head: Buffer | undefined = format.startsWith('wav_')
+        ? Buffer.alloc(0)
+        : undefined;
+    const opus = format.startsWith('opus_') ? new OggOpusClock() : undefined;
+    let headerBytes = 0;
+    let settle!: (measured: { seconds?: number; complete: boolean }) => void;
+    const seconds = new Promise<{ seconds?: number; complete: boolean }>(
+        (resolve) => {
+            settle = resolve;
+        },
+    );
+    const lengthOf = () => {
+        const timed = opus?.seconds;
+        if (timed !== undefined) return timed;
+        const audio = bytes - headerBytes;
+        return audio > 0
+            ? Math.max(1, Math.ceil(audio / bytesPerSecond))
+            : undefined;
+    };
+    const measure = (source: Readable): Readable => {
+        const counter = new Transform({
+            transform(chunk: Buffer, _encoding, callback) {
+                bytes += chunk.length;
+                opus?.push(chunk);
+                if (head) {
+                    head = Buffer.concat([head, chunk]);
+                    const offset = wavDataOffset(head);
+                    if (offset !== undefined) headerBytes = offset;
+                    if (
+                        offset !== undefined ||
+                        head.length >= WAV_HEADER_MAX_BYTES
+                    )
+                        head = undefined;
+                }
+                callback(null, chunk);
+            },
+            flush(callback) {
+                settle({ seconds: lengthOf(), complete: true });
+                callback();
+            },
+        });
+        counter.once('close', () =>
+            settle({ seconds: lengthOf(), complete: false }),
+        );
+        pipeline(source, counter, () => {});
+        return counter;
+    };
+    return { measure, seconds };
 }

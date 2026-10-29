@@ -726,7 +726,7 @@ export type EventMap = {
     // ---- Subdomains ----
     // `uid` is the row uuid — for `delete` it is the only surviving handle a
     // listener can use to find state keyed to the row after it is gone.
-    'subdomain.delete': { subdomain: string; uid?: string };
+    'subdomain.delete': { subdomain: string; uid?: string; userId: number };
     'subdomain.update': { subdomain: string; uid?: string };
     'site.htmlServed': {
         subdomain: string;

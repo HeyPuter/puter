@@ -17,10 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { resolveOutputPath, saveGeneratedMediaToFS } from './generatedMedia.js';
 
 const { secureFetchMock } = vi.hoisted(() => ({ secureFetchMock: vi.fn() }));
@@ -88,21 +99,65 @@ describe('resolveOutputPath', () => {
 });
 
 describe('saveGeneratedMediaToFS', () => {
+    beforeEach(() => {
+        vi.spyOn(server.services.acl, 'check').mockResolvedValue(true);
+    });
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     const written = () => {
         const write = vi.spyOn(server.services.fs, 'write');
         write.mockResolvedValueOnce(undefined as never);
         return write;
     };
 
+    it('re-checks write on the parent and skips the write once access is gone', async () => {
+        const check = vi.mocked(server.services.acl.check);
+        check.mockResolvedValue(false);
+        const write = vi.spyOn(server.services.fs, 'write');
+        expect(
+            await saveGeneratedMediaToFS(
+                server.services.fs,
+                actor,
+                `data:image/png;base64,${Buffer.from('img').toString('base64')}`,
+                '/bob/shared/a.png',
+                { noun: 'image', defaultType: 'application/octet-stream' },
+            ),
+        ).toBe(false);
+        expect(check.mock.calls[0]![1]).toMatchObject({ path: '/bob/shared' });
+        expect(check.mock.calls[0]![2]).toBe('write');
+        expect(write).not.toHaveBeenCalled();
+    });
+
+    it('surfaces an access check that fails for another reason', async () => {
+        vi.mocked(server.services.acl.check).mockRejectedValue(
+            new Error('db down'),
+        );
+        const write = vi.spyOn(server.services.fs, 'write');
+        await expect(
+            saveGeneratedMediaToFS(
+                server.services.fs,
+                actor,
+                `data:image/png;base64,${Buffer.from('img').toString('base64')}`,
+                '/alice/a.png',
+                { noun: 'image', defaultType: 'application/octet-stream' },
+            ),
+        ).rejects.toThrow('db down');
+        expect(write).not.toHaveBeenCalled();
+    });
+
     it('writes the bytes of a data URI with its declared type', async () => {
         const write = written();
-        await saveGeneratedMediaToFS(
-            server.services.fs,
-            actor,
-            `data:image/webp;base64,${Buffer.from('img').toString('base64')}`,
-            '/alice/a.webp',
-            { noun: 'image', defaultType: 'application/octet-stream' },
-        );
+        await expect(
+            saveGeneratedMediaToFS(
+                server.services.fs,
+                actor,
+                `data:image/webp;base64,${Buffer.from('img').toString('base64')}`,
+                '/alice/a.webp',
+                { noun: 'image', defaultType: 'application/octet-stream' },
+            ),
+        ).resolves.toBe(true);
         expect(write.mock.calls[0]![1].fileMetadata).toMatchObject({
             path: '/alice/a.webp',
             size: 3,
@@ -163,5 +218,88 @@ describe('saveGeneratedMediaToFS', () => {
                 { noun: 'video', defaultType: 'video/mp4' },
             ),
         ).rejects.toMatchObject({ statusCode: 500 });
+    });
+});
+
+describe('saveGeneratedMediaToFS into a shared folder', () => {
+    const makeUser = async (): Promise<Actor> => {
+        const username = `gm-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: 100 * 1024 * 1024,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            server.clients.db,
+            server.stores.user,
+            created,
+        );
+        const u = (await server.stores.user.getById(created.id))!;
+        return {
+            user: {
+                id: u.id,
+                uuid: u.uuid,
+                username: u.username,
+                email: u.email ?? null,
+                email_confirmed: true,
+            } as Actor['user'],
+        };
+    };
+    const png = (text: string) =>
+        `data:image/png;base64,${Buffer.from(text).toString('base64')}`;
+    const media = { noun: 'image', defaultType: 'image/png' } as const;
+
+    it('writes for a recipient with write, and not after the share is revoked', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const folder = `/${owner.user!.username}/Documents`;
+        const target = `${folder}/portrait.png`;
+        const folderEntry = await server.stores.fsEntry.getEntryByPath(folder);
+        const perm = `fs:${folderEntry!.uuid}:write`;
+        await server.services.permission.grantUserUserPermission(
+            owner,
+            recipient.user!.username!,
+            perm,
+            {},
+        );
+
+        const resolved = await resolveOutputPath(
+            server.services,
+            recipient,
+            target,
+        );
+        expect(
+            await saveGeneratedMediaToFS(
+                server.services.fs,
+                recipient,
+                png('first'),
+                resolved,
+                media,
+            ),
+        ).toBe(true);
+        const first = await server.stores.fsEntry.getEntryByPath(target);
+        expect(first!.size).toBe(5);
+
+        // Revoked while a second job ran.
+        await server.services.permission.revokeUserUserPermission(
+            owner,
+            recipient.user!.username!,
+            perm,
+        );
+        expect(
+            await saveGeneratedMediaToFS(
+                server.services.fs,
+                recipient,
+                png('after-revoke'),
+                resolved,
+                media,
+            ),
+        ).toBe(false);
+        const after = await server.stores.fsEntry.getEntryByPath(target);
+        expect(after!.uuid).toBe(first!.uuid);
+        expect(after!.size).toBe(5);
     });
 });
