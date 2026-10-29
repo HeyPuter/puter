@@ -11,6 +11,7 @@ const recipeTags = {
     fs: 'File System',
     kv: 'Key-Value',
     events: 'Events',
+    notifications: 'Notifications',
     hosting: 'Hosting',
     workers: 'Workers',
     email: 'Email',

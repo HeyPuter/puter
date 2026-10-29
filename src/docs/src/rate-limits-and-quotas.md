@@ -403,6 +403,8 @@ An app, its workers and the tokens it issues can send the user they act for an `
 | Limit                            | Value                             | Scope             |
 | -------------------------------- | --------------------------------- | ----------------- |
 | `app.message` notifications      | 30/min, 300/day                   | Per user, per app |
+| Pushes                           | 1/min, 100/day                    | Per user, per app |
+| Pushes while an app is new       | 20/day                            | Per user, per app |
 | `title`                          | 120 characters                    |                   |
 | `text`                           | 240 characters                    |                   |
 | `icon` (an `https` URL)          | 2,048 characters                  |                   |
@@ -415,6 +417,8 @@ An app, its workers and the tokens it issues can send the user they act for an `
 `ttl` is how long a push provider keeps trying to reach an offline device, not how long the notification is kept. `sensitive`, `target`, `group` and `channel` are used by push delivery and by clients that show the notification. Every message carries the name of the app that sent it.
 
 Over the rate limit the call fails with `429 too_many_requests`, and a refused call counts against neither window. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
+
+A notification goes out as a push only while the user has neither Puter nor the app open, and the push limits count those. An app is new for its first 30 days, or until it's approved for listing, whichever is later. Over a push limit the call still succeeds and the notification still shows in the user's notifications panel. It just isn't pushed. Pushes are billed to the user who receives them. See [What pushes cost](#what-pushes-cost).
 
 ### Teams
 
@@ -585,6 +589,16 @@ Deliveries are billed to the account holding the subscription:
 Free: idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, deliveries with no client connected to receive them and no handler run, and gap markers.
 
 When the holder's balance runs out, deliveries stop and persistent subscriptions are suspended with `no_credit`, and the holder is notified. The backlog is kept for 1 hour. Topping up resumes them within a few minutes.
+
+#### What pushes cost
+
+A push an app sends with [`puter.notifications.notify()`](/Notifications/notify/) is billed to the user who receives it:
+
+| What                        | Rate                       | Counted per                   |
+| --------------------------- | -------------------------- | ----------------------------- |
+| A push from an app          | 250 µ¢ ($2.50 per million) | Device that received the push |
+
+A push to three of the user's devices counts three times. A push that didn't reach a device isn't charged. Puter's own notifications, such as a share or a finished deploy, are free.
 
 ### Networking
 

@@ -535,6 +535,14 @@ let sidebar = [
         path: '/Notifications',
         children: [
             {
+                title: 'Push notifications for your app',
+                page_title: 'Push notifications for your app',
+                title_tag: 'Push notifications for your app',
+                icon: '/assets/img/object.svg',
+                source: '/Notifications/push.md',
+                path: '/Notifications/push',
+            },
+            {
                 title: '<code>notify()</code>',
                 page_title: '<code>puter.notifications.notify()</code>',
                 title_tag: 'puter.notifications.notify()',
@@ -549,6 +557,30 @@ let sidebar = [
                 icon: '/assets/img/function.svg',
                 source: '/Notifications/onNotification.md',
                 path: '/Notifications/onNotification',
+            },
+            {
+                title: '<code>onPush()</code>',
+                page_title: '<code>puter.notifications.onPush()</code>',
+                title_tag: 'puter.notifications.onPush()',
+                icon: '/assets/img/function.svg',
+                source: '/Notifications/onPush.md',
+                path: '/Notifications/onPush',
+            },
+            {
+                title: '<code>enable()</code>',
+                page_title: '<code>puter.notifications.enable()</code>',
+                title_tag: 'puter.notifications.enable()',
+                icon: '/assets/img/function.svg',
+                source: '/Notifications/enable.md',
+                path: '/Notifications/enable',
+            },
+            {
+                title: '<code>disable()</code>',
+                page_title: '<code>puter.notifications.disable()</code>',
+                title_tag: 'puter.notifications.disable()',
+                icon: '/assets/img/function.svg',
+                source: '/Notifications/disable.md',
+                path: '/Notifications/disable',
             },
             {
                 title: "<code>on('click')</code>",

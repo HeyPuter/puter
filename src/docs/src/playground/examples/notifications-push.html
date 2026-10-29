@@ -1,0 +1,30 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="enable">Turn on notifications</button>
+    <button id="send">Send me a notification</button>
+    <script>
+        // Runs in the page while it's open, and in /puter-sw.js while it isn't.
+        puter.notifications.onPush('chat', (n) => ({
+            title: n.title,
+            body: n.text ?? '',
+            url: n.target ?? '/',
+        }));
+
+        document.getElementById('enable').addEventListener('click', async () => {
+            const on = await puter.notifications.enable();
+            puter.print(on ? 'Pushes are on<br>' : 'Pushes are off<br>');
+        });
+
+        document.getElementById('send').addEventListener('click', async () => {
+            await puter.notifications.notify({
+                title: 'New message from Ana',
+                text: 'See you at 6?',
+                target: '/chats/42',
+                channel: 'chat',
+            });
+            puter.print('Sent<br>');
+        });
+    </script>
+</body>
+</html>

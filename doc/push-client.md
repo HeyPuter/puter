@@ -2,7 +2,7 @@
 
 Puter's desktop shows pushes through `/sw.js`. Core registers it, and shows Settings → Notifications, only when the `pushEnabled` gui param is `true`; core never sets it. A backend extension that delivers pushes sets it with `services.homepage.setGuiParam('pushEnabled', true)` and can load its own code into the worker with `services.homepage.registerServiceWorkerScript(path)`.
 
-Core does not subscribe the browser to a push service, and it has no `/push/*` routes. The device, app and preference endpoints below come from that extension. On a deployment without one, such as most self-hosted servers, they answer core's plain 404 (`code: 'not_found'`), which `puter.notifications` reports as `push_unavailable` and the Notifications tab shows as unavailable. A device the extension can't find is `device_not_found`.
+Core subscribes the browser to a push service only when the server also publishes `pushWebPushKey` (see [Built-in Web Push client](#built-in-web-push-client)), and it has no `/push/*` routes of its own. The device, app, preference and subscription endpoints below come from that extension. On a deployment without one, such as most self-hosted servers, they answer core's plain 404 (`code: 'not_found'`), which `puter.notifications` reports as `push_unavailable` and the Notifications tab shows as unavailable. A device the extension can't find is `device_not_found`.
 
 ## Push payload
 
@@ -10,7 +10,8 @@ Core does not subscribe the browser to a push service, and it has no `/push/*` r
 
 ```ts
 { uid?: string; title?: string; body?: string; icon?: string; group?: string;
-  target?: { app?: string; path?: string }; data?: unknown }
+  target?: { app?: string; path?: string }; data?: unknown; channel?: string;
+  type?: 'challenge'; challenge?: string }
 ```
 
 `uid` is the notification's uid, a later push with the same `group` replaces the one showing, and `target` and `data` reach the app when the user taps it.
@@ -30,6 +31,17 @@ service_script(async (api) => {
 `use(id)` throws when nothing is registered under `id`, so the form above also runs on a Puter version without the registry and does nothing there. Any script that runs after the GUI bundle can call `use()['push.registerPushClient']?.(client)` the same way. Registering again replaces the client. Registering dispatches `push-client-registered` on `window`, and an open Notifications tab redraws.
 
 With no client registered, the tab says push notifications aren't available in this browser.
+
+### Built-in Web Push client
+
+When the server also sets the `pushWebPushKey` gui param (a VAPID public key), core registers its own client ([webPushClient.js](../src/gui/src/helpers/webPushClient.js)) unless an extension registered one first. It uses `puter.notifications.enable()` / `disable()`, the same standard Web Push flow apps use on their own origins:
+
+1. `GET /push/web/key` for the key, then `pushManager.subscribe()` on the `/sw.js` registration.
+2. `POST /push/web/subscriptions { subscription }`. A subscription the server already has answers `{ status: 'active' }`. A new one answers `{ status: 'pending' }`, and the server sends it a push with `{ type: 'challenge', challenge }`.
+3. The worker shows that push and posts `{ type: 'puter-push-challenge', challenge }` to the origin's windows; the page sends it to `POST /push/web/subscriptions/verify`. The device is registered once the page hands the confirmation back.
+4. `DELETE /push/web/subscriptions { endpoint }` removes it.
+
+Apps on their own origin do the same through `push-sw.js`, which they import into their own worker. A subscription made with an app token is the app's: its pushes are that app's notifications only.
 
 ## Interface
 

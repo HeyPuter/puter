@@ -319,6 +319,27 @@ describe('service worker pushsubscriptionchange', () => {
     });
 });
 
+describe('service worker challenge push', () => {
+    it('shows it, then hands the challenge to this origin`s windows', async () => {
+        const desktop = windowClient(`${ORIGIN}/desktop`);
+        const other = windowClient('https://elsewhere.example/');
+        const worker = loadWorker({ windows: [desktop, other] });
+        await worker.fire('push', {
+            data: pushData({ puter: { type: 'challenge', challenge: 'c.sig', uid: 'n1', title: 'Notifications are on', group: 'puter-push-challenge' } }),
+        });
+        expect(worker.shown.map((n) => n.title)).toEqual(['Notifications are on']);
+        expect(desktop.postMessage).toHaveBeenCalledWith({ type: 'puter-push-challenge', challenge: 'c.sig' });
+        expect(other.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('posts nothing for an ordinary push', async () => {
+        const desktop = windowClient(`${ORIGIN}/desktop`);
+        const worker = loadWorker({ windows: [desktop] });
+        await worker.fire('push', { data: pushData({ puter: { uid: 'n1', title: 'Hi' } }) });
+        expect(desktop.postMessage).not.toHaveBeenCalled();
+    });
+});
+
 describe('service worker lifecycle', () => {
     it('takes over at once and adds no fetch handler', async () => {
         const worker = loadWorker();

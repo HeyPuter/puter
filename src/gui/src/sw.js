@@ -22,6 +22,9 @@
 // is { uid, title, body, icon, group, target: { app, path }, data }.
 // On `pushsubscriptionchange` it posts { type: 'puter-push-subscription-changed' }
 // to this origin's windows, so a signed-in page can register again.
+// A `type: 'challenge'` message is shown, then its `challenge` is posted to
+// this origin's windows as { type: 'puter-push-challenge', challenge } for the
+// page to confirm the subscription with the server.
 
 const DEFAULT_TITLE = 'New notification';
 const DEFAULT_ICON = '/favicons/android-icon-192x192.png';
@@ -29,6 +32,7 @@ const SHOW_MESSAGE = 'puter-show-notification';
 const CLICK_MESSAGE = 'puter-notification-click';
 const CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
 const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
+const CHALLENGE_MESSAGE = 'puter-push-challenge';
 const CLICK_PARAM = 'puter.notification';
 // Browsers allow openWindow only shortly after the click.
 const CLICK_ACK_BUDGET_MS = 600;
@@ -192,11 +196,22 @@ async function showPageMessage (scope, message) {
     await showMessage(scope.registration, message, scope.location.origin);
 }
 
-async function announceSubscriptionChange (scope) {
+async function postToWindows (scope, message) {
     const origin = scope.location.origin;
     const windowClients = await scope.clients.matchAll({ type: 'window', includeUncontrolled: true });
     for ( const client of windowClients ) {
-        if ( sameOriginUrl(client.url, origin) ) client.postMessage({ type: SUBSCRIPTION_CHANGED_MESSAGE });
+        if ( sameOriginUrl(client.url, origin) ) client.postMessage(message);
+    }
+}
+
+function announceSubscriptionChange (scope) {
+    return postToWindows(scope, { type: SUBSCRIPTION_CHANGED_MESSAGE });
+}
+
+async function handlePush (scope, message) {
+    await showMessage(scope.registration, message, scope.location.origin);
+    if ( message?.type === 'challenge' && nonEmptyString(message.challenge) ) {
+        await postToWindows(scope, { type: CHALLENGE_MESSAGE, challenge: message.challenge });
     }
 }
 
@@ -209,7 +224,7 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('push', (event) => {
-    event.waitUntil(showMessage(self.registration, readPushPayload(event.data), self.location.origin));
+    event.waitUntil(handlePush(self, readPushPayload(event.data)));
 });
 
 self.addEventListener('message', (event) => {

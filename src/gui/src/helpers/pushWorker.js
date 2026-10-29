@@ -28,6 +28,8 @@ import {
     PUSH_TAP_PARAM,
 } from './notificationTap.js';
 import { clear_query_param } from './parseSharedPath.js';
+import { getPushClient, registerPushClient } from './pushClient.js';
+import { webPushClient } from './webPushClient.js';
 
 export const WORKER_URL = '/sw.js';
 export const WORKER_CLICK_MESSAGE = 'puter-notification-click';
@@ -95,18 +97,20 @@ export const pushMessageFor = (uid, notification, appUid = null) => {
 };
 
 /**
- * @param {{ uid: string, notification: Object, appUid?: string|null }} item
+ * Only while push is on in this browser, and only for Puter's own notifications: an app's message is shown by the app's page while it is open, and by the app's own push while it is closed.
+ * @param {{ uid: string, notification: Object }} item
  * @param {{ replay?: boolean, acknowledged?: boolean }} [meta]
  * @param {{ params?: Object, doc?: Document, nav?: Navigator, NotificationApi?: { permission: string } }} [env]
  * @returns {Promise<boolean>} Whether one was handed to the worker
  */
-export const showLocalBanner = async ({ uid, notification, appUid = null }, { replay = false, acknowledged = false } = {}, {
+export const showLocalBanner = async ({ uid, notification }, { replay = false, acknowledged = false } = {}, {
     params = globalThis.gui_params,
     doc = globalThis.document,
     nav = globalThis.navigator,
     NotificationApi = globalThis.Notification,
 } = {}) => {
     if ( ! pushWorkerEnabled(params, nav) ) return false;
+    if ( notification?.type === APP_MESSAGE_TYPE ) return false;
     if ( ! shouldShowLocalBanner({
         replay,
         acknowledged,
@@ -118,7 +122,8 @@ export const showLocalBanner = async ({ uid, notification, appUid = null }, { re
         const registration = await nav.serviceWorker.getRegistration?.('/');
         const worker = registration?.active;
         if ( ! worker ) return false;
-        worker.postMessage({ type: WORKER_SHOW_MESSAGE, puter: pushMessageFor(uid, notification, appUid) });
+        if ( ! await registration.pushManager?.getSubscription() ) return false;
+        worker.postMessage({ type: WORKER_SHOW_MESSAGE, puter: pushMessageFor(uid, notification) });
         return true;
     } catch ( err ) {
         console.warn('Could not show a browser notification:', err);
@@ -151,6 +156,9 @@ export const startPushWorker = async ({
 
     // Leave an existing worker: removing it ends this browser's subscription.
     if ( ! pushWorkerEnabled(params, nav) ) return;
+    if ( typeof params.pushWebPushKey === 'string' && params.pushWebPushKey && ! getPushClient() ) {
+        registerPushClient(webPushClient());
+    }
     nav.serviceWorker.addEventListener('message', (event) => {
         if ( event.data?.type !== WORKER_CLICK_MESSAGE || ! normalizePushTap(event.data.notification) ) return;
         event.source?.postMessage?.({ type: WORKER_CLICK_ACK_MESSAGE, id: event.data.id });

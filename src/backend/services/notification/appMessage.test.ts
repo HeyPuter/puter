@@ -210,7 +210,19 @@ describe('appMessageSender', () => {
                 icon: 'data:image/png;base64,AAAA',
             }),
         ).toEqual({ uid: 'app-1', name: 'chat' });
-        expect(appMessageSender('app-1', null)).toEqual({ uid: 'app-1' });
+        expect(appMessageSender('app-1', null)).toEqual({
+            uid: 'app-1',
+            name: 'app-1',
+        });
+    });
+
+    it('never ends up without a visible name', () => {
+        expect(
+            appMessageSender('app-1', { title: '\u200b\u200b', name: 'chat' }),
+        ).toEqual({ uid: 'app-1', name: 'chat' });
+        expect(
+            appMessageSender('app-1', { title: '\u3164', name: '\u2800' }),
+        ).toEqual({ uid: 'app-1', name: 'app-1' });
     });
 
     it('caps the name at the title length, counting an emoji once', () => {
