@@ -1933,6 +1933,97 @@ describe('AuthService (integration)', () => {
             expect((await authService.authenticate(token)).actor).toBeTruthy();
         });
 
+        describe('bound to the site that deployed it', () => {
+            const makeSite = async (
+                userId: number,
+                subdomain = `site-${uuidv4()}`,
+            ) => await server.stores.subdomain.create({ userId, subdomain });
+            const mint = async (
+                user: Awaited<ReturnType<typeof makeUser>>,
+                site: { uuid?: string; subdomain?: string },
+            ) =>
+                (
+                    await authService.createWorkerSessionToken(
+                        makeActor({ user }),
+                        user,
+                        'd'.repeat(48),
+                        {},
+                        {
+                            workerSiteUid: site.uuid,
+                            workerSite: site.subdomain,
+                        },
+                    )
+                ).token;
+
+            it('authenticates from the subdomain cache, never the primary', async () => {
+                const user = await makeUser();
+                const site = await makeSite(user.id);
+                const token = await mint(user, site);
+                expect(
+                    (await authService.authenticate(token)).actor?.user?.id,
+                ).toBe(user.id);
+
+                const pread = vi.spyOn(server.clients.db, 'pread');
+                const byUuid = vi.spyOn(server.stores.subdomain, 'getByUuid');
+                try {
+                    expect(
+                        (await authService.authenticate(token)).actor?.user?.id,
+                    ).toBe(user.id);
+                    expect(
+                        pread.mock.calls.filter(([sql]) =>
+                            String(sql).includes('subdomains'),
+                        ),
+                    ).toEqual([]);
+                    expect(byUuid).not.toHaveBeenCalled();
+                } finally {
+                    pread.mockRestore();
+                    byUuid.mockRestore();
+                }
+            });
+
+            it('dies with the site and stays dead when the name is re-created', async () => {
+                const user = await makeUser();
+                const other = await makeUser();
+                const site = await makeSite(user.id);
+                const token = await mint(user, site);
+                await server.stores.subdomain.deleteByUuid(String(site.uuid));
+                expect(await authService.authenticate(token)).toEqual({
+                    invalid: true,
+                });
+
+                const again = await makeSite(user.id, site.subdomain);
+                expect(await authService.authenticate(token)).toEqual({
+                    invalid: true,
+                });
+                await server.stores.subdomain.deleteByUuid(String(again.uuid));
+
+                await makeSite(other.id, site.subdomain);
+                expect(await authService.authenticate(token)).toEqual({
+                    invalid: true,
+                });
+            });
+
+            it("refuses another user's site, a worker row, a mismatched name, or no name", async () => {
+                const user = await makeUser();
+                const other = await makeUser();
+                const own = await makeSite(user.id);
+                const foreign = await makeSite(other.id);
+                const workerRow = await deployRow(user.id, newName());
+                for (const site of [
+                    foreign,
+                    workerRow,
+                    { uuid: own.uuid, subdomain: foreign.subdomain },
+                    { uuid: own.uuid },
+                ]) {
+                    expect(
+                        await authService.authenticate(await mint(user, site)),
+                    ).toEqual({
+                        invalid: true,
+                    });
+                }
+            });
+        });
+
         it('leaves events handler sessions alone; they have no worker row', async () => {
             const user = await makeUser();
             const app = await server.stores.app.create(
@@ -1953,6 +2044,63 @@ describe('AuthService (integration)', () => {
     });
 
     describe('deleting worker sessions', () => {
+        it("keeps another owner's session when a script name is shared", async () => {
+            const first = await makeUser();
+            const second = await makeUser();
+            const workerName = `shared-${uuidv4().slice(0, 8)}`;
+            const firstSite = await server.stores.subdomain.create({
+                userId: first.id,
+                subdomain: `site-${uuidv4()}`,
+            });
+            const secondSite = await server.stores.subdomain.create({
+                userId: second.id,
+                subdomain: `site-${uuidv4()}`,
+            });
+            const one = await authService.createWorkerSessionToken(
+                makeActor({ user: first }),
+                first,
+                workerName,
+                {},
+                {
+                    workerSiteUid: firstSite.uuid,
+                    workerSite: firstSite.subdomain,
+                },
+            );
+            const two = await authService.createWorkerSessionToken(
+                makeActor({ user: second }),
+                second,
+                workerName,
+                {},
+                {
+                    workerSiteUid: secondSite.uuid,
+                    workerSite: secondSite.subdomain,
+                },
+            );
+            expect(
+                (await authService.authenticate(two.token)).actor?.user?.id,
+            ).toBe(second.id);
+            await authService.deleteWorkerSessionsByName(workerName, first.id);
+            expect(await authService.authenticate(one.token)).toEqual({
+                invalid: true,
+            });
+            expect(
+                (await authService.authenticate(two.token)).actor?.user?.id,
+            ).toBe(second.id);
+            const wrongSite = await authService.createWorkerSessionToken(
+                makeActor({ user: first }),
+                first,
+                workerName,
+                {},
+                {
+                    workerSiteUid: secondSite.uuid,
+                    workerSite: secondSite.subdomain,
+                },
+            );
+            expect(await authService.authenticate(wrongSite.token)).toEqual({
+                invalid: true,
+            });
+        });
+
         it('deleteWorkerSessionsByName ends the token and drops a derived token`s grants', async () => {
             const user = await makeUser();
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
@@ -1980,7 +2128,7 @@ describe('AuthService (integration)', () => {
                 [childUid, user.id, 'fs:x:read'],
             );
 
-            await authService.deleteWorkerSessionsByName(workerName);
+            await authService.deleteWorkerSessionsByName(workerName, user.id);
 
             // The worker row is still there: only the session went.
             expect(await authService.authenticate(token)).toEqual({
