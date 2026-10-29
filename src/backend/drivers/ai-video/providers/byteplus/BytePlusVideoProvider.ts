@@ -23,7 +23,7 @@ import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { capSecondsToRemainingCredits } from '../../creditCap.js';
 import { VideoProvider } from '../VideoProvider.js';
-import { pollUntilSettled, videoJobFailure } from '../polling.js';
+import { JobHold, pollUntilSettled, videoJobFailure } from '../polling.js';
 import {
     BYTEPLUS_VIDEO_GENERATION_MODELS,
     BYTEPLUS_VIDEO_SPECS,
@@ -171,6 +171,7 @@ export class BytePlusVideoProvider extends VideoProvider {
                 allowedSeconds: model.durationSeconds,
             });
 
+        const jobHold = new JobHold(hold);
         try {
             const body: Record<string, unknown> = {
                 model: model.id,
@@ -198,8 +199,44 @@ export class BytePlusVideoProvider extends VideoProvider {
                 body.seed = Math.round(seed);
             }
 
+            // Bills the tokens the task reports. A finished task without
+            // usage falls back to the estimate, a failed one to nothing.
+            const meter = async (
+                finalTask: ArkVideoTask | undefined,
+                settled: boolean,
+            ) => {
+                const finalCostKey = this.#costKey(
+                    model,
+                    this.#normalizeResolution(
+                        finalTask?.resolution,
+                        model,
+                        resolutionKey,
+                    ),
+                    audioOn,
+                );
+                const finalCentsPerToken =
+                    model.costs?.[finalCostKey] ?? centsPerToken;
+                const estimate = Math.round(tokensPerSecond * cappedSeconds);
+                const tokens =
+                    finalTask?.usage?.completion_tokens ??
+                    (finalTask?.status === 'succeeded' || !settled
+                        ? estimate
+                        : 0);
+                if (!tokens) return;
+                await this.#meteringService.incrementUsage(
+                    actor,
+                    `byteplus-video-generation:${model.id}:${finalCostKey}`,
+                    tokens,
+                    tokens * finalCentsPerToken * 1_000_000,
+                );
+            };
+
             const task = await this.#createTask(body);
-            const finalTask = await this.#pollUntilComplete(task.id);
+            const finalTask = await this.#pollUntilComplete(
+                task.id,
+                meter,
+                jobHold,
+            );
 
             if (finalTask.status !== 'succeeded') {
                 const errorMessage =
@@ -219,33 +256,9 @@ export class BytePlusVideoProvider extends VideoProvider {
                 );
             }
 
-            // Bill the tokens the task actually reports; fall back to the
-            // pre-flight estimate if usage is missing.
-            const finalResolutionKey = this.#normalizeResolution(
-                finalTask.resolution,
-                model,
-                resolutionKey,
-            );
-            const finalCostKey = this.#costKey(
-                model,
-                finalResolutionKey,
-                audioOn,
-            );
-            const finalCentsPerToken =
-                model.costs?.[finalCostKey] ?? centsPerToken;
-            const tokens =
-                finalTask.usage?.completion_tokens ??
-                Math.round(tokensPerSecond * cappedSeconds);
-            await this.#meteringService.incrementUsage(
-                actor,
-                `byteplus-video-generation:${model.id}:${finalCostKey}`,
-                tokens,
-                tokens * finalCentsPerToken * 1_000_000,
-            );
-
             return videoUrl;
         } finally {
-            await hold.release();
+            await jobHold.release();
         }
     }
 
@@ -345,7 +358,14 @@ export class BytePlusVideoProvider extends VideoProvider {
         })) as ArkVideoTask;
     }
 
-    async #pollUntilComplete(taskId: string): Promise<ArkVideoTask> {
+    async #pollUntilComplete(
+        taskId: string,
+        meter: (
+            task: ArkVideoTask | undefined,
+            settled: boolean,
+        ) => Promise<unknown>,
+        hold: JobHold,
+    ): Promise<ArkVideoTask> {
         return await pollUntilSettled<ArkVideoTask>({
             provider: 'byteplus',
             providerLabel: 'BytePlus',
@@ -357,6 +377,8 @@ export class BytePlusVideoProvider extends VideoProvider {
                 ) as Promise<ArkVideoTask>,
             isPending: (task) =>
                 task.status === 'queued' || task.status === 'running',
+            meter,
+            hold,
         });
     }
 
