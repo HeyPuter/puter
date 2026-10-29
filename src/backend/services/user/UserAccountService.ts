@@ -222,7 +222,11 @@ export class UserAccountService extends PuterService {
                 try {
                     this.clients.event.emit(
                         'subdomain.delete',
-                        { subdomain: row.subdomain, uid: String(row.uuid) },
+                        {
+                            subdomain: row.subdomain,
+                            uid: String(row.uuid),
+                            userId,
+                        },
                         {},
                     );
                 } catch {

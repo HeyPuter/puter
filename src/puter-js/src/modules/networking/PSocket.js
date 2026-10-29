@@ -1,5 +1,5 @@
 import EventListener from '../../lib/EventListener.js';
-import { clearEpoxyClientCache, getEpoxyClient } from './index.js';
+import { discardOnRelayFailure, getEpoxyClient } from './index.js';
 
 const textEncoder = new TextEncoder();
 
@@ -58,6 +58,7 @@ export class PSocket extends EventListener {
     #port;
     #useTls;
 
+    #client;
     #reader;
     #writer;
 
@@ -65,6 +66,8 @@ export class PSocket extends EventListener {
     #closing = false;
     #closed = false;
     #pendingWrites = [];
+    #flushing = false;
+    #errored = false;
 
     /**
      * @param {string} host hostname or IP address of the server to connect to
@@ -130,7 +133,8 @@ export class PSocket extends EventListener {
             throw new Error('Socket is already closed.');
         }
 
-        if ( ! this.#writer ) {
+        // Writes made while the queue is still flushing go behind it.
+        if ( !this.#writer || this.#flushing ) {
             this.#pendingWrites.push({ payload, callback });
             return;
         }
@@ -154,24 +158,31 @@ export class PSocket extends EventListener {
 
     async #connect () {
         try {
-            await this.#connectWithClient(false);
-        } catch {
+            await this.#connectWithClient();
+        } catch ( error ) {
+            // Retry only when the client could not be built or its relay is
+            // dead; a refused port or failed TLS handshake would fail again.
+            if ( this.#client && !discardOnRelayFailure(this.#client, error) ) {
+                this.#emitErrorAndClose(error);
+                return;
+            }
             try {
-                await this.#connectWithClient(true);
+                await this.#connectWithClient();
             } catch ( retryError ) {
-                clearEpoxyClientCache();
+                discardOnRelayFailure(this.#client, retryError);
                 this.#emitErrorAndClose(retryError);
             }
         }
     }
 
-    async #connectWithClient (refresh) {
+    async #connectWithClient () {
         if ( this.#closing || this.#closed ) {
             return;
         }
 
-        const client = await getEpoxyClient({ refresh });
-        const stream = await this.#openStream(client);
+        this.#client = undefined;
+        this.#client = await getEpoxyClient();
+        const stream = await this.#openStream(this.#client);
 
         if ( this.#closing || this.#closed ) {
             try {
@@ -191,8 +202,10 @@ export class PSocket extends EventListener {
         this.#writer = stream.write.getWriter();
         this.#open = true;
 
-        this.emit(this.#eventName('open'));
         await this.#flushPendingWrites();
+        if (this.#closed || this.#closing) return;
+        // A throwing handler must not read as a failed connect and retry.
+        this.#emitFromListener(this.#eventName('open'));
         void this.#readLoop();
     }
 
@@ -205,9 +218,16 @@ export class PSocket extends EventListener {
     }
 
     async #flushPendingWrites () {
-        while ( this.#pendingWrites.length && !this.#closed && !this.#closing ) {
-            const { payload, callback } = this.#pendingWrites.shift();
-            await this.#writePayload(payload, callback);
+        this.#flushing = true;
+        try {
+            while ( this.#pendingWrites.length && !this.#closed && !this.#closing ) {
+                const { payload, callback } = this.#pendingWrites.shift();
+                await this.#writePayload(payload, callback);
+            }
+        } finally {
+            // Cleared in the same tick as the last queue check; a write
+            // landing before the caller resumes would otherwise stay queued.
+            this.#flushing = false;
         }
     }
 
@@ -226,7 +246,7 @@ export class PSocket extends EventListener {
                 }
             }
         } catch ( error ) {
-            clearEpoxyClientCache();
+            discardOnRelayFailure(this.#client, error);
             this.#emitErrorAndClose(error);
         }
     }
@@ -261,7 +281,7 @@ export class PSocket extends EventListener {
                 return;
             }
 
-            clearEpoxyClientCache();
+            discardOnRelayFailure(this.#client, error);
             this.#emitErrorAndClose(error);
         } finally {
             try {
@@ -309,13 +329,25 @@ export class PSocket extends EventListener {
     }
 
     #emitErrorAndClose (reason) {
-        if ( this.#closed ) {
+        if ( this.#closed || this.#errored ) {
             return;
         }
 
-        this.emit('error', normalizeError(reason));
+        this.#errored = true;
         this.#closing = true;
+        this.#emitFromListener('error', normalizeError(reason));
         void this.#closeStreams(true);
+    }
+
+    // Emits on an internal path, surfacing a listener's throw on its own tick.
+    #emitFromListener (event, ...args) {
+        try {
+            this.emit(event, ...args);
+        } catch ( listenerError ) {
+            setTimeout(() => {
+                throw listenerError;
+            }, 0);
+        }
     }
 
     #emitClose (hadError) {
