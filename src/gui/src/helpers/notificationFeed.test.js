@@ -19,7 +19,9 @@
 
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
+    NOTIFICATION_SOCKET_ACKS,
     NOTIFICATION_SUBJECTS,
+    acknowledgeDelivery,
     applyToastMark,
     createNotificationFeed,
     eventsNotificationsAvailable,
@@ -372,5 +374,34 @@ describe('createNotificationFeed', () => {
         await feed.stop();
         expect(feed.isActive()).toBe(false);
         for ( const sub of sdk.subs ) expect(sub.off).toHaveBeenCalled();
+    });
+});
+
+describe('acknowledgeDelivery', () => {
+    it('answers with whether the page is in view', () => {
+        const ack = vi.fn();
+        acknowledgeDelivery(ack, { visibilityState: 'hidden' });
+        expect(ack).toHaveBeenCalledWith({ visibilityState: 'hidden' });
+    });
+
+    it('answers once when two listeners get the same message', () => {
+        const ack = vi.fn();
+        acknowledgeDelivery(ack, { visibilityState: 'visible' });
+        acknowledgeDelivery(ack, { visibilityState: 'visible' });
+        expect(ack).toHaveBeenCalledTimes(1);
+    });
+
+    it('does nothing for a message sent without a callback', () => {
+        expect(() => acknowledgeDelivery(undefined)).not.toThrow();
+    });
+
+    it('says unknown where there is no document to ask', () => {
+        const ack = vi.fn();
+        acknowledgeDelivery(ack, undefined);
+        expect(ack).toHaveBeenCalledWith({ visibilityState: 'unknown' });
+    });
+
+    it('lists notif.message as acknowledged in the handshake', () => {
+        expect(NOTIFICATION_SOCKET_ACKS).toEqual(['notif.message']);
     });
 });

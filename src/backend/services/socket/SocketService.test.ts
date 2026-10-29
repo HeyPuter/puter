@@ -45,6 +45,7 @@ import {
     accountSocketRoom,
     buildSocketReauthError,
     decideSocketAuth,
+    handshakeAcks,
     socketRoomsFor,
     SocketService,
     type SocketReauthError,
@@ -285,6 +286,32 @@ describe('socketRoomsFor', () => {
 
 // -- Live socket.io integration --------------------------------------
 
+describe('handshakeAcks', () => {
+    it('keeps the event names a client lists', () => {
+        expect(handshakeAcks(['notif.message', 'other'])).toEqual([
+            'notif.message',
+            'other',
+        ]);
+    });
+
+    it('drops anything that is not a short non-empty string', () => {
+        expect(
+            handshakeAcks(['ok', '', 7, null, { a: 1 }, 'x'.repeat(65)]),
+        ).toEqual(['ok']);
+    });
+
+    it('reads nothing from a value that is not a list', () => {
+        expect(handshakeAcks(undefined)).toEqual([]);
+        expect(handshakeAcks('notif.message')).toEqual([]);
+        expect(handshakeAcks({ 0: 'notif.message' })).toEqual([]);
+    });
+
+    it('takes at most 16 names', () => {
+        const many = Array.from({ length: 20 }, (_, i) => `e${i}`);
+        expect(handshakeAcks(many)).toEqual(many.slice(0, 16));
+    });
+});
+
 describe('SocketService (live socket.io)', () => {
     let server: PuterServer;
     let socketService: SocketService;
@@ -492,6 +519,131 @@ describe('SocketService (live socket.io)', () => {
 
         tabA.disconnect();
         tabB.disconnect();
+    });
+
+    describe('sendWithAck', () => {
+        const userIdOf = async () =>
+            (await server.stores.user.getByUsername(user.username))!.id;
+
+        const closeAll = async (userId: number, sockets: ClientSocket[]) => {
+            for (const socket of sockets) socket.disconnect();
+            await vi.waitFor(() =>
+                expect(socketService.has({ room: userId })).toBe(false),
+            );
+        };
+
+        it('collects the acknowledgement of each socket that declared it', async () => {
+            const userId = await userIdOf();
+            const acking = await connect({
+                auth_token: user.token,
+                acks: ['demo.ack'],
+            });
+            const plain = await connect({ auth_token: user.token });
+            acking.on('demo.ack', (data: unknown, ack: (r: unknown) => void) =>
+                ack({ got: data }),
+            );
+            const plainGot = new Promise<unknown[]>((resolve) =>
+                plain.once('demo.ack', (...args: unknown[]) => resolve(args)),
+            );
+
+            const sent = await socketService.sendWithAck(
+                { room: userId },
+                'demo.ack',
+                { n: 1 },
+                { timeoutMs: 2_000 },
+            );
+
+            expect(sent).toEqual({
+                responses: [{ got: { n: 1 } }],
+                timedOut: false,
+                sockets: 2,
+                acking: 1,
+            });
+            // A socket that never declared it gets the event with no callback.
+            expect(await plainGot).toEqual([{ n: 1 }]);
+            await closeAll(userId, [acking, plain]);
+        });
+
+        it('times out with the acknowledgements that did arrive', async () => {
+            const userId = await userIdOf();
+            const answers = await connect({
+                auth_token: user.token,
+                acks: ['demo.ack'],
+            });
+            const silent = await connect({
+                auth_token: user.token,
+                acks: ['demo.ack'],
+            });
+            answers.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+                ack('here'),
+            );
+            const silentGot = new Promise<unknown>((resolve) =>
+                silent.once('demo.ack', resolve),
+            );
+
+            const started = Date.now();
+            const sent = await socketService.sendWithAck(
+                { room: userId },
+                'demo.ack',
+                { n: 2 },
+                { timeoutMs: 300 },
+            );
+
+            expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+            expect(sent).toEqual({
+                responses: ['here'],
+                timedOut: true,
+                sockets: 2,
+                acking: 2,
+            });
+            expect(await silentGot).toEqual({ n: 2 });
+            await closeAll(userId, [answers, silent]);
+        });
+
+        it('returns at once when no socket acknowledges the event', async () => {
+            const userId = await userIdOf();
+            const other = await connect({
+                auth_token: user.token,
+                acks: ['some.other.event'],
+            });
+            const got = new Promise<unknown>((resolve) =>
+                other.once('demo.ack', resolve),
+            );
+
+            const started = Date.now();
+            const sent = await socketService.sendWithAck(
+                { room: userId },
+                'demo.ack',
+                { n: 3 },
+                { timeoutMs: 10_000 },
+            );
+
+            expect(Date.now() - started).toBeLessThan(2_000);
+            expect(sent).toEqual({
+                responses: [],
+                timedOut: false,
+                sockets: 1,
+                acking: 0,
+            });
+            expect(await got).toEqual({ n: 3 });
+            await closeAll(userId, [other]);
+        });
+
+        it('reports no sockets for a room nobody is in', async () => {
+            await expect(
+                socketService.sendWithAck(
+                    { room: 'nobody-here' },
+                    'demo.ack',
+                    {},
+                    { timeoutMs: 10_000 },
+                ),
+            ).resolves.toEqual({
+                responses: [],
+                timedOut: false,
+                sockets: 0,
+                acking: 0,
+            });
+        });
     });
 
     it('emits web.socket.user-connected when the GUI signals it is really open', async () => {
@@ -892,6 +1044,29 @@ describe('SocketService — outer.gui fan-out', () => {
         expect(sends[0].key).toBe('notif.message');
         // `cache.updated` is itself a notification about the stamp.
         expect(await socketService.getLastChangeTimestamp(4343)).toBe(0);
+        spy.mockRestore();
+    });
+
+    it('leaves this region to the emitter that already delivered to it', async () => {
+        const spy = captureSends();
+        await server.clients.event.emitAndWait(
+            'outer.gui.notif.message',
+            { user_id_list: [4344], response: { uid: 'n-2' } },
+            { region_delivered: true },
+        );
+        expect(sends).toHaveLength(0);
+
+        // A peer region still delivers the copy it was handed.
+        await server.clients.event.emitAndWait(
+            'outer.gui.notif.message',
+            { user_id_list: [4344], response: { uid: 'n-2' } },
+            { region_delivered: true, from_outside: true },
+        );
+        await vi.waitFor(() => expect(sends).toHaveLength(1));
+        expect(sends[0]).toMatchObject({
+            spec: { room: 4344 },
+            key: 'notif.message',
+        });
         spy.mockRestore();
     });
 

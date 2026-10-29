@@ -35,6 +35,24 @@ import {
     markNotificationShown,
 } from './notificationApi.js';
 
+/** Socket events this page acknowledges, listed in the handshake's `acks`. */
+export const NOTIFICATION_SOCKET_ACKS = Object.freeze(['notif.message']);
+
+const acknowledged = new WeakSet();
+
+/**
+ * Answer a live `notif.message`'s acknowledgement callback with whether the
+ * page is in view. Every listener gets the same callback, so this answers once.
+ *
+ * @param {unknown} ack - The callback socket.io passes, when the server asked for one
+ * @param {{ visibilityState?: string }} [doc]
+ */
+export const acknowledgeDelivery = (ack, doc = globalThis.document) => {
+    if ( typeof ack !== 'function' || acknowledged.has(ack) ) return;
+    acknowledged.add(ack);
+    ack({ visibilityState: doc?.visibilityState ?? 'unknown' });
+};
+
 /** A session's own mailbox slices; each covers its audience's rows for every app. */
 export const NOTIFICATION_SUBJECTS = Object.freeze([
     'notif:account',

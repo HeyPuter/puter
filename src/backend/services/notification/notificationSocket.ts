@@ -18,7 +18,11 @@
  */
 
 import type { EventClient } from '../../clients/event/EventClient.js';
-import type { SocketService } from '../socket/SocketService.js';
+import type {
+    NotifDeliveryOutcome,
+    NotifDeliveryResponder,
+} from '../../clients/event/types.js';
+import type { AckedSend, SocketService } from '../socket/SocketService.js';
 import type { IConfig } from '../../types.js';
 
 /**
@@ -41,11 +45,23 @@ import type { IConfig } from '../../types.js';
  * advertised (`gui_params.eventsNotifications`) and falls back to this wire
  * when that lapses, so the adapter is what keeps older clients and the fallback
  * working. It goes when the flag is on everywhere.
+ *
+ * Either way, the emitting region sends `notif.message` itself, asking sockets
+ * that acknowledge it for a receipt, and reports the result as the node-local
+ * `notif.delivery.settled`.
  */
 
 export type NotifWire = 'notif.message' | 'notif.unreads' | 'notif.ack';
 
 export const NOTIF_DELIVERY_EVENT = 'outer.notif.delivery';
+
+/** How long a delivered `notif.message` waits for receipts by default. */
+export const DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS = 5_000;
+
+interface MessageResponse {
+    uid: string;
+    notification: unknown;
+}
 
 /** One unread as the replay payload carries it. */
 export interface UnreadNotification {
@@ -63,10 +79,40 @@ export const notificationsFoldInEnabled = (config: IConfig): boolean =>
     config.events?.enabled === true &&
     config.events?.notificationsFoldIn === true;
 
+/** Configured receipt window for a delivered `notif.message`. */
+export const notificationAckTimeoutMs = (config: IConfig): number => {
+    const configured = Number(config.notificationAckTimeoutMs);
+    return Number.isFinite(configured) && configured > 0
+        ? configured
+        : DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS;
+};
+
+const deliveryOutcome = async (
+    sent: AckedSend,
+    heldInPeerRegion: () => Promise<boolean>,
+): Promise<NotifDeliveryOutcome> => {
+    if (sent.sockets === 0) {
+        return (await heldInPeerRegion()) ? 'remote-only' : 'no-socket';
+    }
+    return sent.responses.length > 0 ? 'received' : 'unreceived';
+};
+
+const responderOf = (response: unknown): NotifDeliveryResponder => {
+    const state = (response as { visibilityState?: unknown } | null)
+        ?.visibilityState;
+    return {
+        visibilityState:
+            state === 'visible' || state === 'hidden' ? state : 'unknown',
+    };
+};
+
 interface AdapterDeps {
     event: EventClient;
     socket: SocketService;
     foldIn: () => boolean;
+    ackTimeoutMs: () => number;
+    /** Whether a peer region holds a socket for the user. */
+    heldInPeerRegion: (userId: number) => Promise<boolean>;
 }
 
 export class NotificationSocketAdapter {
@@ -78,12 +124,16 @@ export class NotificationSocketAdapter {
 
     /**
      * Start delivering what the events layer dispatches. Both the region that
-     * emitted and the peers that received it land here exactly once, so the
-     * handler makes no distinction between them.
+     * emitted and the peers that received it land here exactly once; only the
+     * emitting region waits on receipts for a `notif.message`.
      */
     attach(): void {
-        this.#deps.event.on(NOTIF_DELIVERY_EVENT, (_key, data) => {
+        this.#deps.event.on(NOTIF_DELIVERY_EVENT, (_key, data, meta) => {
             const { userId, wire, response } = data;
+            if (wire === 'notif.message' && !meta?.from_outside) {
+                this.#deliverMessage(userId, response as MessageResponse);
+                return;
+            }
             void this.#deps.socket
                 .send({ room: userId }, wire, response)
                 .catch((err: unknown) => {
@@ -96,10 +146,11 @@ export class NotificationSocketAdapter {
     message(userId: number, uid: string, notification: unknown): void {
         const response = { uid, notification };
         if (this.#dispatched(userId, 'notif.message', response)) return;
+        this.#deliverMessage(userId, response);
         this.#deps.event.emit(
             'outer.gui.notif.message',
             { user_id_list: [userId], response },
-            {},
+            { region_delivered: true },
         );
     }
 
@@ -128,6 +179,38 @@ export class NotificationSocketAdapter {
     /** Whether this region holds a socket for the recipient right now. */
     hasSocket(userId: number): boolean {
         return this.#deps.socket.has({ room: userId });
+    }
+
+    #deliverMessage(userId: number, response: MessageResponse): void {
+        void this.#sendWithReceipt(userId, response).catch((err: unknown) => {
+            console.warn('[notification] socket send failed', err);
+        });
+    }
+
+    async #sendWithReceipt(
+        userId: number,
+        response: MessageResponse,
+    ): Promise<void> {
+        const sent = await this.#deps.socket.sendWithAck(
+            { room: userId },
+            'notif.message',
+            response,
+            { timeoutMs: this.#deps.ackTimeoutMs() },
+        );
+        const outcome = await deliveryOutcome(sent, () =>
+            this.#deps.heldInPeerRegion(userId),
+        );
+        this.#deps.event.emit(
+            'notif.delivery.settled',
+            {
+                uid: response.uid,
+                userId,
+                outcome,
+                ackCapable: sent.acking > 0,
+                responders: sent.responses.map(responderOf),
+            },
+            {},
+        );
     }
 
     /** Take the events-layer route, or report that the legacy one applies. */

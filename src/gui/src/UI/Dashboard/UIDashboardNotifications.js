@@ -20,7 +20,11 @@
 import UINotification from '../UINotification.js';
 import { reveal_dashboard } from '../UIWindow.js';
 import { getNotification, listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
-import { applyToastMark, createNotificationFeed } from '../../helpers/notificationFeed.js';
+import {
+    acknowledgeDelivery,
+    applyToastMark,
+    createNotificationFeed,
+} from '../../helpers/notificationFeed.js';
 import { formatAbsoluteTime, formatRelativeTime } from '../../i18n/formatTime.js';
 import {
     handleNotificationTap,
@@ -769,7 +773,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     });
     void feed.start();
 
-    socket.on('notif.message', ({ uid, notification }) => {
+    socket.on('notif.message', ({ uid, notification }, ack) => {
+        acknowledgeDelivery(ack);
         if ( feed.isActive() ) return;
         receive([{ uid, notification }]);
     });

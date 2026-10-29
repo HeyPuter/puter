@@ -578,6 +578,18 @@ export type EventMap = {
         wire: 'notif.message' | 'notif.unreads' | 'notif.ack';
         response: unknown;
     };
+    /**
+     * How one live `notif.message` went, on the node that sent it. `received`
+     * once a socket acknowledged it within the window, `unreceived` when none
+     * did; `ackCapable` false means no socket there acknowledges at all.
+     */
+    'notif.delivery.settled': {
+        uid: string;
+        userId: number;
+        outcome: NotifDeliveryOutcome;
+        ackCapable: boolean;
+        responders: NotifDeliveryResponder[];
+    };
 
     // ---- Metering ----
     // Recurring charges are pure mechanism here: the metering service knows
@@ -997,8 +1009,22 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
     ? Extract<EventKey, `${Prefix}.${string}`>
     : P & EventKey;
 
+/**
+ * Where a live `notif.message` ended up: acknowledged, sent but not
+ * acknowledged, no socket anywhere, or sockets only in a peer region.
+ */
+export type NotifDeliveryOutcome =
+    'received' | 'unreceived' | 'no-socket' | 'remote-only';
+
+/** One socket's receipt for a `notif.message`. */
+export interface NotifDeliveryResponder {
+    visibilityState: 'visible' | 'hidden' | 'unknown';
+}
+
 export type EventMetadata = {
     from_outside?: boolean;
+    /** The emitter sent it to this region's sockets; peers still deliver it. */
+    region_delivered?: boolean;
     /** Set by `emitAndWait` when a listener threw, so a verdict hook can refuse. */
     listener_failed?: boolean;
 };

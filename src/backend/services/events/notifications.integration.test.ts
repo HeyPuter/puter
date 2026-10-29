@@ -103,6 +103,14 @@ const withServer = (config: IConfig) => {
                 state.sent.push({ room: spec.room ?? spec.socket, key, data });
             },
         );
+        vi.spyOn(
+            state.server.services.socket,
+            'sendWithAck',
+        ).mockImplementation(async (specifier, key, data) => {
+            const spec = Array.isArray(specifier) ? specifier[0] : specifier;
+            state.sent.push({ room: spec.room ?? spec.socket, key, data });
+            return { responses: [], timedOut: false, sockets: 0, acking: 0 };
+        });
         state.server.services.events.onDelivered = (envelope) => {
             state.delivered.push(envelope);
         };
@@ -330,6 +338,35 @@ describe('notifications with the fold-in on', () => {
         expect(notifSends(state.sent)[1].data).toEqual(
             notifSends(state.sent)[0].data,
         );
+    });
+
+    it('settles the delivery once, on the region that sent it', async () => {
+        const user = await makeUser(state.server);
+        const settled: Array<{ uid: string; outcome: string }> = [];
+        const handler = (_k: string, data: unknown) => {
+            const d = data as { uid: string; userId: number; outcome: string };
+            if (d.userId === user.id) settled.push(d);
+        };
+        state.server.clients.event.on('notif.delivery.settled', handler);
+        try {
+            const uid = await state.server.services.notification.notify(
+                [user.id],
+                { title: 'receipt' },
+                { type: 'share.received' },
+            );
+            await waitFor(() => settled.length > 0);
+            expect(settled).toEqual([
+                expect.objectContaining({ uid, outcome: 'no-socket' }),
+            ]);
+
+            await waitFor(() => forwardedFor(user.id).length > 0);
+            await applyAsPeer(state.server, forwardedFor(user.id)[0]);
+            await settle();
+            expect(notifSends(state.sent)).toHaveLength(2);
+            expect(settled).toHaveLength(1);
+        } finally {
+            state.server.clients.event.off?.('notif.delivery.settled', handler);
+        }
     });
 
     it('delivers to a subscription on the mailbox slice, and to no other', async () => {
@@ -591,6 +628,28 @@ describe('notifications with the fold-in off', () => {
         expect(dispatched).toEqual([]);
         expect(state.delivered).toEqual([]);
         state.server.clients.event.off?.(NOTIF_DELIVERY_EVENT, handler);
+
+        // The peer region still gets the GUI event and sends its own copy.
+        await waitFor(() =>
+            forwarded().some(
+                (event) =>
+                    event.key === 'outer.gui.notif.message' &&
+                    (event.data as { user_id_list?: number[] })
+                        .user_id_list?.[0] === user.id,
+            ),
+        );
+        const forward = forwarded().find(
+            (event) =>
+                event.key === 'outer.gui.notif.message' &&
+                (event.data as { user_id_list?: number[] })
+                    .user_id_list?.[0] === user.id,
+        )!;
+        await applyAsPeer(state.server, forward);
+        await settle();
+        expect(notifSends(state.sent)).toHaveLength(2);
+        expect(notifSends(state.sent)[1].data).toEqual(
+            notifSends(state.sent)[0].data,
+        );
     });
 });
 

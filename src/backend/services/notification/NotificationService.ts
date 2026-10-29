@@ -24,6 +24,7 @@ import type { NotifEventContext } from '../events/registry.js';
 import { PuterService } from '../types.js';
 import {
     NotificationSocketAdapter,
+    notificationAckTimeoutMs,
     notificationsFoldInEnabled,
 } from './notificationSocket.js';
 import {
@@ -320,8 +321,21 @@ export class NotificationService extends PuterService {
             event: this.clients.event,
             socket: this.services.socket,
             foldIn: () => notificationsFoldInEnabled(this.config),
+            ackTimeoutMs: () => notificationAckTimeoutMs(this.config),
+            heldInPeerRegion: (userId) => this.#heldInPeerRegion(userId),
         });
         return this.#adapter;
+    }
+
+    /** A presence read that errors counts as no peer socket. */
+    async #heldInPeerRegion(userId: number): Promise<boolean> {
+        const eventForward = this.services.eventForward;
+        if (!eventForward?.active) return false;
+        try {
+            return (await eventForward.regionsFor(userId, null)).length > 0;
+        } catch {
+            return false;
+        }
     }
 
     /**

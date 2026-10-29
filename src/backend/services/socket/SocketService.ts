@@ -208,6 +208,41 @@ interface OuterGuiPayload {
     response: unknown;
 }
 
+/** What one {@link SocketService.sendWithAck} reached and heard back. */
+export interface AckedSend {
+    /** One per socket that acknowledged, as that socket sent it. */
+    responses: unknown[];
+    /** A socket that acknowledges this event did not answer in time. */
+    timedOut: boolean;
+    /** Sockets the event went to, across this cluster's nodes. */
+    sockets: number;
+    /** Of those, the ones that acknowledge this event. */
+    acking: number;
+}
+
+/** A listing that waits on another node longer than this counts this node only. */
+const SOCKET_LIST_TIMEOUT_MS = 1_000;
+const MAX_HANDSHAKE_ACKS = 16;
+const MAX_ACK_EVENT_LENGTH = 64;
+
+/** The events a client says it acknowledges, from `handshake.auth.acks`. */
+export const handshakeAcks = (raw: unknown): string[] =>
+    Array.isArray(raw)
+        ? raw
+              .filter(
+                  (key): key is string =>
+                      typeof key === 'string' &&
+                      key.length > 0 &&
+                      key.length <= MAX_ACK_EVENT_LENGTH,
+              )
+              .slice(0, MAX_HANDSHAKE_ACKS)
+        : [];
+
+const acksEvent = (data: unknown, key: string): boolean => {
+    const acks = (data as { acks?: unknown } | undefined)?.acks;
+    return Array.isArray(acks) && acks.includes(key);
+};
+
 interface UploadProgressPayload {
     upload_tracker: UploadProgressTrackerLike;
     meta?: Record<string, unknown>;
@@ -343,6 +378,118 @@ export class SocketService extends PuterService {
     }
 
     /**
+     * Send an event and wait up to `timeoutMs` for the sockets that declared
+     * they acknowledge it (`handshake.auth.acks`); the rest get a plain emit.
+     * Covers every node in the cluster, or this node alone when the adapter
+     * can't list the others.
+     */
+    async sendWithAck(
+        specifiers: SocketSpecifier | SocketSpecifier[],
+        key: string,
+        data: unknown,
+        { timeoutMs }: { timeoutMs: number },
+    ): Promise<AckedSend> {
+        const none: AckedSend = {
+            responses: [],
+            timedOut: false,
+            sockets: 0,
+            acking: 0,
+        };
+        const io = this.#io;
+        if (!io) return none;
+        const targets = (
+            Array.isArray(specifiers) ? specifiers : [specifiers]
+        ).flatMap((spec) =>
+            spec.room !== undefined
+                ? [String(spec.room)]
+                : spec.socket
+                  ? [spec.socket]
+                  : [],
+        );
+        if (targets.length === 0) return none;
+
+        const { sockets, clustered } = await this.#listSockets(targets);
+        const acking = sockets
+            .filter((socket) => acksEvent(socket.data, key))
+            .map((socket) => socket.id);
+        io.to(targets).except(acking).emit(key, data);
+        if (acking.length === 0) return { ...none, sockets: sockets.length };
+
+        const heard = clustered
+            ? await this.#broadcastWithAck(acking, key, data, timeoutMs)
+            : await this.#emitWithAckHere(acking, key, data, timeoutMs);
+        return { ...heard, sockets: sockets.length, acking: acking.length };
+    }
+
+    /** `fetchSockets` needs the adapter's server count, which a mock lacks. */
+    async #listSockets(targets: string[]): Promise<{
+        sockets: { id: string; data: unknown }[];
+        clustered: boolean;
+    }> {
+        const io = this.#io!;
+        try {
+            const sockets = await io
+                .in(targets)
+                .timeout(SOCKET_LIST_TIMEOUT_MS)
+                .fetchSockets();
+            return { sockets, clustered: true };
+        } catch {
+            const ids = new Set<string>();
+            for (const target of targets) {
+                io.sockets.adapter.rooms.get(target)?.forEach((id) => {
+                    ids.add(id);
+                });
+            }
+            const sockets = [...ids].flatMap((id) => {
+                const socket = io.sockets.sockets.get(id);
+                return socket ? [{ id, data: socket.data as unknown }] : [];
+            });
+            return { sockets, clustered: false };
+        }
+    }
+
+    #broadcastWithAck(
+        ids: string[],
+        key: string,
+        data: unknown,
+        timeoutMs: number,
+    ): Promise<Pick<AckedSend, 'responses' | 'timedOut'>> {
+        return new Promise((resolve) => {
+            this.#io!.to(ids)
+                .timeout(timeoutMs)
+                .emit(key, data, (err: Error | null, responses: unknown[]) => {
+                    resolve({ responses: responses ?? [], timedOut: !!err });
+                });
+        });
+    }
+
+    async #emitWithAckHere(
+        ids: string[],
+        key: string,
+        data: unknown,
+        timeoutMs: number,
+    ): Promise<Pick<AckedSend, 'responses' | 'timedOut'>> {
+        const heard = await Promise.all(
+            ids.map(async (id) => {
+                const socket = this.#io!.sockets.sockets.get(id);
+                if (!socket) return { ok: false as const };
+                try {
+                    const response: unknown = await socket
+                        .timeout(timeoutMs)
+                        .emitWithAck(key, data);
+                    return { ok: true as const, response };
+                } catch {
+                    return { ok: false as const };
+                }
+            }),
+        );
+        return {
+            responses: heard.flatMap((h) => (h.ok ? [h.response] : [])),
+            timedOut: heard.some((h) => !h.ok),
+        };
+    }
+
+    /**
      * Check whether the specifier currently resolves to at least one live
      * socket on _this_ node. Note: doesn't check other cluster nodes — intended
      * for best-effort local checks only.
@@ -419,8 +566,7 @@ export class SocketService extends PuterService {
             // `{ auth: { ... } }`, not the query string. puter-js uses
             // `io(url, { auth: { auth_token } })`.
             const handshakeAuth = socket.handshake.auth as
-                | Record<string, unknown>
-                | undefined;
+                Record<string, unknown> | undefined;
             const tokenRaw =
                 typeof handshakeAuth?.auth_token === 'string'
                     ? handshakeAuth.auth_token
@@ -471,6 +617,7 @@ export class SocketService extends PuterService {
 
                 socket.actor = decision.accept;
                 socket.authToken = token;
+                socket.data.acks = handshakeAcks(handshakeAuth?.acks);
                 // user.id is numeric in the DB; stringify for room name
                 // so adapter lookups key on a stable type.
                 socket.join(socketRoomsFor(decision.accept));
@@ -851,7 +998,9 @@ export class SocketService extends PuterService {
         // notification (item.added/updated/removed/moved/pending,
         // cache.updated, submission.done, …). EventClient walks the
         // dot-prefix tree at emit time so we get them all.
-        this.clients.event.on('outer.gui.*', (key: string, data: unknown) => {
+        this.clients.event.on('outer.gui.*', (key, data, meta) => {
+            // The emitter already reached this region's sockets itself.
+            if (meta?.region_delivered && !meta.from_outside) return;
             this.#handleOuterGui(key, data as OuterGuiPayload).catch(
                 (err: unknown) => {
                     console.error('[socket] outer.gui handler error', err);
@@ -929,8 +1078,7 @@ export class SocketService extends PuterService {
                 // their next poll of /cache/last-change-timestamp.
                 const originalSocketId = (
                     data.response as
-                        | { original_client_socket_id?: string }
-                        | undefined
+                        { original_client_socket_id?: string } | undefined
                 )?.original_client_socket_id;
                 await this.send({ room: userId }, 'cache.updated', {
                     timestamp,
@@ -944,9 +1092,7 @@ export class SocketService extends PuterService {
     #handleUploadProgress(data: UploadProgressPayload): void {
         const meta = data.meta ?? {};
         const userId = (meta.user_id ?? meta.userId) as
-            | number
-            | string
-            | undefined;
+            number | string | undefined;
         if (!userId) {
             console.warn('[socket] upload-progress missing user_id', { meta });
             return;

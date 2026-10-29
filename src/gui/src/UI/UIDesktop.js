@@ -44,7 +44,12 @@ import { urlFileLaunchOptions } from '../helpers/confirmUrlFileAccess.js';
 import item_icon from '../helpers/itemIcon.js';
 import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
-import { applyToastMark, createNotificationFeed } from '../helpers/notificationFeed.js';
+import {
+    NOTIFICATION_SOCKET_ACKS,
+    acknowledgeDelivery,
+    applyToastMark,
+    createNotificationFeed,
+} from '../helpers/notificationFeed.js';
 import { getNotification, markNotificationAcknowledged } from '../helpers/notificationApi.js';
 import {
     elementsWithData,
@@ -140,6 +145,7 @@ async function UIDesktop (options) {
     window.socket = io(`${window.gui_origin }/`, {
         auth: {
             auth_token: window.auth_token,
+            acks: [...NOTIFICATION_SOCKET_ACKS],
         },
         transports: ['websocket', 'polling'],
         withCredentials: true,
@@ -324,7 +330,8 @@ async function UIDesktop (options) {
      * This event is triggered if a user receives a notification during
      * an active session.
      */
-    window.socket.on('notif.message', async ({ uid, notification }) => {
+    window.socket.on('notif.message', async ({ uid, notification }, ack) => {
+        acknowledgeDelivery(ack);
         if ( notification_feed.isActive() ) return;
         show_notification({ uid, notification });
     });

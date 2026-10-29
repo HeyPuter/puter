@@ -972,6 +972,12 @@ interface IConfigOptional {
     notificationRetentionDays?: number;
 
     /**
+     * How long a live notification waits for the recipient's sockets to
+     * acknowledge it before its delivery settles as unreceived. Default 5000.
+     */
+    notificationAckTimeoutMs?: number;
+
+    /**
      * How many `app.message` notifications one app may create for one user.
      * Omit a field for the built-in default (30 per minute, 300 per day); a
      * non-positive value removes that bound.
