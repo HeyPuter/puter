@@ -25,11 +25,16 @@ import type { CreditHold } from '../../../../services/metering/types.js';
 import type { AiMeteringService } from '../../../util/aiCostFactor.js';
 import { readBoundedBody } from '../../../util/fileInput.js';
 import { toUrlOrDataUri } from '../../../util/imageInput.js';
-import { sanitizeUpstreamMessage } from '../../../util/upstreamErrors.js';
+import {
+    isTransientUpstreamError,
+    sanitizeUpstreamMessage,
+} from '../../../util/upstreamErrors.js';
 import { capSecondsToRemainingCredits } from '../../creditCap.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
 import { VideoProvider } from '../VideoProvider.js';
 import {
+    abortableDelay,
+    JobHold,
     pollUntilSettled,
     VIDEO_HOLD_TTL_MS,
     videoJobFailure,
@@ -46,6 +51,7 @@ const DEFAULT_MODEL = 'minimax-h3';
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 60_000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+const FILE_RETRIEVE_ATTEMPTS = 3;
 const PROVIDER = 'minimax';
 
 const ASPECT_RATIOS = ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'];
@@ -323,6 +329,7 @@ export class MiniMaxVideoProvider extends VideoProvider {
                 allowedSeconds: model.durationSeconds,
             });
 
+        const jobHold = new JobHold(hold);
         try {
             const content: Array<Record<string, unknown>> = [
                 { type: 'text', text: input.prompt },
@@ -384,6 +391,31 @@ export class MiniMaxVideoProvider extends VideoProvider {
                 },
                 isPending: (task) =>
                     task.status === 'queued' || task.status === 'running',
+                // MiniMax bills the seconds of output the task reports. A
+                // finished task without them is billed its clip length, or
+                // the one it was asked for; a failed one only what it reports.
+                meter: async (task, settled) => {
+                    const succeeded = task?.status === 'succeeded';
+                    const outputSeconds =
+                        task?.usage?.output_seconds ??
+                        (succeeded ? task?.duration : undefined);
+                    const billedSeconds =
+                        typeof outputSeconds === 'number' &&
+                        Number.isFinite(outputSeconds) &&
+                        outputSeconds > 0
+                            ? Math.max(1, Math.round(outputSeconds))
+                            : succeeded || !settled
+                              ? cappedSeconds
+                              : 0;
+                    if (!billedSeconds) return;
+                    await this.#meteringService.incrementUsage(
+                        actor,
+                        usageType,
+                        billedSeconds,
+                        Math.round(billedSeconds * centsPerSecond * 1_000_000),
+                    );
+                },
+                hold: jobHold,
             });
             if (task.status !== 'succeeded') {
                 throw videoJobFailure(
@@ -396,24 +428,9 @@ export class MiniMaxVideoProvider extends VideoProvider {
             if (typeof url !== 'string' || !url.trim()) {
                 throw new Error('MiniMax response did not include a video URL');
             }
-
-            // MiniMax bills the seconds of output the task reports.
-            const outputSeconds = task.usage?.output_seconds ?? task.duration;
-            const billedSeconds =
-                typeof outputSeconds === 'number' &&
-                Number.isFinite(outputSeconds) &&
-                outputSeconds > 0
-                    ? Math.max(1, Math.round(outputSeconds))
-                    : cappedSeconds;
-            await this.#meteringService.incrementUsage(
-                actor,
-                usageType,
-                billedSeconds,
-                Math.round(billedSeconds * centsPerSecond * 1_000_000),
-            );
             return url;
         } finally {
-            await hold.release();
+            await jobHold.release();
         }
     }
 
@@ -453,6 +470,7 @@ export class MiniMaxVideoProvider extends VideoProvider {
             throw insufficientCreditsError();
         }
 
+        const jobHold = new JobHold(hold);
         try {
             const body: Record<string, unknown> = {
                 model: spec.apiModel,
@@ -484,6 +502,17 @@ export class MiniMaxVideoProvider extends VideoProvider {
                     task.status === 'Preparing' ||
                     task.status === 'Queueing' ||
                     task.status === 'Processing',
+                // Billed per clip; a failed one isn't.
+                meter: async (task, settled) => {
+                    if (settled && task?.status !== 'Success') return;
+                    await this.#meteringService.incrementUsage(
+                        actor,
+                        usageType,
+                        1,
+                        microCents,
+                    );
+                },
+                hold: jobHold,
             });
             if (task.status !== 'Success' || !task.file_id) {
                 throw videoJobFailure(
@@ -492,27 +521,17 @@ export class MiniMaxVideoProvider extends VideoProvider {
                 );
             }
             // The clip is a file in MiniMax's store; its download link is
-            // minted on request and works for an hour.
-            const { file } = await this.#request<{
-                file?: { download_url?: string };
-            }>(
-                'GET',
-                `/v1/files/retrieve?file_id=${encodeURIComponent(task.file_id)}`,
-            );
+            // minted on request and works for an hour. The clip is already
+            // billed, so a blip here is retried rather than failing it.
+            const { file } = await this.#retrieveFile(task.file_id);
             const url = file?.download_url;
             if (typeof url !== 'string' || !url.trim()) {
                 throw new Error('MiniMax response did not include a video URL');
             }
 
-            await this.#meteringService.incrementUsage(
-                actor,
-                usageType,
-                1,
-                microCents,
-            );
             return url;
         } finally {
-            await hold.release();
+            await jobHold.release();
         }
     }
 
@@ -566,6 +585,26 @@ export class MiniMaxVideoProvider extends VideoProvider {
             throw badRequest(
                 `${model.id} renders ${resolutionKey} only from an input_reference image without last_frame`,
             );
+        }
+    }
+
+    async #retrieveFile(
+        fileId: string,
+    ): Promise<{ file?: { download_url?: string } }> {
+        for (let attempt = 1; ; attempt++) {
+            try {
+                return await this.#request(
+                    'GET',
+                    `/v1/files/retrieve?file_id=${encodeURIComponent(fileId)}`,
+                );
+            } catch (err) {
+                if (
+                    attempt >= FILE_RETRIEVE_ATTEMPTS ||
+                    !isTransientUpstreamError(err)
+                )
+                    throw err;
+                await abortableDelay(this.#pollIntervalMs);
+            }
         }
     }
 

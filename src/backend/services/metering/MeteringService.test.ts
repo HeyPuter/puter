@@ -2264,6 +2264,28 @@ describe('MeteringService', () => {
             expect(allowed.remaining).toBe(allowed.monthUsageAllowance + 5_000);
         });
 
+        it('reads a spent addons record once across gate checks', async () => {
+            const addonsKey = `${POLICY_PREFIX}:actor:${actor.user.uuid}:addons`;
+            const getSpy = vi.spyOn(server.stores.kv, 'get');
+            try {
+                for (let i = 0; i < 3; i++) await target.getAllowedUsage(actor);
+                const addonReads = getSpy.mock.calls.filter(
+                    ([{ key }]) => key === addonsKey,
+                );
+                expect(addonReads).toHaveLength(1);
+            } finally {
+                getSpy.mockRestore();
+            }
+        });
+
+        it('sees credit granted after a gate check memoized the spent record', async () => {
+            const before = await target.getAllowedUsage(actor);
+            expect(before.addons).toEqual({});
+            await target.updateAddonCredit(actor.user.uuid!, 5_000);
+            const after = await target.getAllowedUsage(actor);
+            expect(after.remaining).toBe(after.monthUsageAllowance + 5_000);
+        });
+
         it('clamps remaining at zero when over allowance with no credits', async () => {
             const sub = await target.getActorSubscription(actor);
             await target.incrementUsage(
