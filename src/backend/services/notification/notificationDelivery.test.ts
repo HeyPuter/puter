@@ -30,6 +30,7 @@ import {
 } from 'vitest';
 import type { EventMap } from '../../clients/event/types.js';
 import type { PuterServer } from '../../server.js';
+import { SocketService } from '../socket/SocketService.js';
 import {
     allocateEphemeralPort,
     createTestUser,
@@ -116,15 +117,46 @@ const withServer = (opts: { cluster: boolean }) => {
         first.disconnect();
         state.openSockets.length = 0;
         await emptyRoom();
+        if (opts.cluster) await takeClusterPath();
         state.server.clients.event.on('notif.delivery.settled', onSettled);
         state.server.clients.event.on('notif.written', onWritten);
     }, 60_000);
 
-    beforeEach(() => {
-        if (!opts.cluster) return;
-        // One node counted, nothing published: the mock is shared across servers.
-        vi.spyOn(state.adapter, 'serverCount').mockResolvedValue(1);
+    // One node counted, nothing published: the mock is shared across servers.
+    const stubCluster = () => {
+        vi.spyOn(
+            Object.getPrototypeOf(state.adapter) as ClusterAdapter,
+            'serverCount',
+        ).mockResolvedValue(1);
         vi.spyOn(state.adapter, 'doPublish').mockResolvedValue('');
+    };
+
+    /** Once a count succeeds, the cluster path stays in use. */
+    const takeClusterPath = async () => {
+        const retryMs = SocketService.COUNT_RETRY_MS;
+        SocketService.COUNT_RETRY_MS = 0;
+        stubCluster();
+        try {
+            await vi.waitFor(async () =>
+                expect(
+                    (
+                        await state.server.services.socket.sendWithAck(
+                            { room: 'nobody-here' },
+                            'demo.ack',
+                            {},
+                            { timeoutMs: 100 },
+                        )
+                    ).complete,
+                ).toBe(true),
+            );
+        } finally {
+            SocketService.COUNT_RETRY_MS = retryMs;
+            vi.restoreAllMocks();
+        }
+    };
+
+    beforeEach(() => {
+        if (opts.cluster) stubCluster();
     });
 
     afterEach(async () => {

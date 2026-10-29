@@ -47,6 +47,7 @@ import {
     decideSocketAuth,
     handshakeAcks,
     socketRoomsFor,
+    steadyServerCount,
     SocketService,
     type SocketReauthError,
 } from './SocketService.js';
@@ -1321,12 +1322,61 @@ describe('SocketService — before attachHttpServer', () => {
     });
 });
 
+/** Send until a server count has succeeded and the cluster path is in use. */
+const waitForClusterCounts = (socketService: SocketService) =>
+    vi.waitFor(async () =>
+        expect(
+            (
+                await socketService.sendWithAck(
+                    { room: 'nobody-here' },
+                    'demo.ack',
+                    {},
+                    { timeoutMs: 100 },
+                )
+            ).complete,
+        ).toBe(true),
+    );
+
+describe('steadyServerCount', () => {
+    class FakeAdapter {
+        calls = 0;
+        results: Array<number | Error> = [];
+        serverCount(): Promise<number> {
+            const next = this.results[this.calls++];
+            return next instanceof Error
+                ? Promise.reject(next)
+                : Promise.resolve(next);
+        }
+    }
+
+    it('reports the last good count when a later one fails', async () => {
+        const adapter = new FakeAdapter();
+        adapter.results = [3, new Error('down')];
+        const seen: unknown[] = [];
+        steadyServerCount(adapter, (err) => seen.push(err));
+
+        await expect(adapter.serverCount()).resolves.toBe(3);
+        await expect(adapter.serverCount()).resolves.toBe(3);
+        expect(seen).toEqual([undefined, expect.any(Error)]);
+    });
+
+    it('reports one server when no count has succeeded yet', async () => {
+        const adapter = new FakeAdapter();
+        adapter.results = [new Error('down')];
+        steadyServerCount(adapter, () => {});
+
+        await expect(adapter.serverCount()).resolves.toBe(1);
+    });
+});
+
 describe('SocketService.sendWithAck through the cluster adapter', () => {
     let server: PuterServer;
     let socketService: SocketService;
     let origin: string;
     let user: TestUserCredentials;
     let userId: number;
+    let countSpy: ReturnType<typeof vi.spyOn>;
+    let retryMs: number;
     let adapter: {
         serverCount: () => Promise<number>;
         fetchSockets: (opts: unknown) => Promise<unknown[]>;
@@ -1367,13 +1417,18 @@ describe('SocketService.sendWithAck through the cluster adapter', () => {
         });
         const first = await connect();
         adapter = await seen;
-        vi.spyOn(adapter, 'serverCount').mockResolvedValue(1);
+        countSpy = vi
+            .spyOn(Object.getPrototypeOf(adapter), 'serverCount')
+            .mockResolvedValue(1);
         // Other test servers share the mock's channels and would answer too.
         vi.spyOn(adapter, 'doPublish').mockResolvedValue('');
         first.disconnect();
         await vi.waitFor(() =>
             expect(socketService.has({ room: userId })).toBe(false),
         );
+        retryMs = SocketService.COUNT_RETRY_MS;
+        SocketService.COUNT_RETRY_MS = 0;
+        await waitForClusterCounts(socketService);
     }, 60_000);
 
     afterEach(async () => {
@@ -1385,8 +1440,38 @@ describe('SocketService.sendWithAck through the cluster adapter', () => {
     });
 
     afterAll(async () => {
+        SocketService.COUNT_RETRY_MS = retryMs;
+        countSpy.mockRestore();
         await server?.shutdown();
     }, 60_000);
+
+    it('keeps delivering when a later server count fails', async () => {
+        const tab = await connect(['demo.ack']);
+        tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+            ack('seen'),
+        );
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown) => unhandled.push(reason);
+        process.on('unhandledRejection', onUnhandled);
+        countSpy.mockRejectedValue(new Error('cluster node down'));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            const sent = await socketService.sendWithAck(
+                { room: userId },
+                'demo.ack',
+                {},
+                { timeoutMs: 2_000 },
+            );
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            expect(sent).toMatchObject({ responses: ['seen'], sockets: 1 });
+            expect(unhandled).toEqual([]);
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+            countSpy.mockResolvedValue(1);
+            warn.mockRestore();
+        }
+    });
 
     it('counts every node and returns as soon as each acking socket answered', async () => {
         const tab = await connect(['demo.ack']);
@@ -1514,5 +1599,115 @@ describe('SocketService.sendWithAck through the cluster adapter', () => {
             acking: 0,
             complete: true,
         });
+    });
+});
+
+describe('SocketService.sendWithAck while the server count is unsettled', () => {
+    let server: PuterServer;
+    let socketService: SocketService;
+    let origin: string;
+    let user: TestUserCredentials;
+    let userId: number;
+    let proto: { serverCount: () => Promise<number> };
+    let retryMs: number;
+    const openSockets: ClientSocket[] = [];
+
+    const connect = (): Promise<ClientSocket> =>
+        new Promise((resolve, reject) => {
+            const socket = ioClient(origin, {
+                auth: { auth_token: user.token, acks: ['demo.ack'] },
+                transports: ['websocket'],
+                reconnection: false,
+            });
+            openSockets.push(socket);
+            socket.on('connect', () => resolve(socket));
+            socket.on('connect_error', reject);
+        });
+
+    beforeAll(async () => {
+        retryMs = SocketService.COUNT_RETRY_MS;
+        SocketService.COUNT_RETRY_MS = 0;
+        const port = await allocateEphemeralPort();
+        server = await setupTestServer({ port } as never, { listen: true });
+        socketService = server.services.socket as unknown as SocketService;
+        origin = `http://puter.localhost:${port}`;
+        user = await createTestUser(server, {
+            username: 'sock-unsettled',
+            password: 'sock-unsettled-password',
+        });
+        userId = (await server.stores.user.getByUsername(user.username))!.id;
+        const seen = new Promise<object>((resolve) => {
+            server.clients.event.on('web.socket.connected', (_k, data) => {
+                resolve(
+                    (data as { socket: { nsp: { adapter: object } } }).socket
+                        .nsp.adapter,
+                );
+            });
+        });
+        await connect();
+        const adapter = await seen;
+        proto = Object.getPrototypeOf(adapter);
+        vi.spyOn(adapter as never, 'doPublish').mockResolvedValue('' as never);
+    }, 60_000);
+
+    afterEach(() => {
+        vi.mocked(proto.serverCount).mockRestore?.();
+    });
+
+    afterAll(async () => {
+        SocketService.COUNT_RETRY_MS = retryMs;
+        for (const socket of openSockets.splice(0)) socket.disconnect();
+        await server?.shutdown();
+    }, 60_000);
+
+    it('delivers at once while a server count hangs', async () => {
+        let fail: (err: Error) => void = () => {};
+        vi.spyOn(proto, 'serverCount').mockImplementation(
+            () =>
+                new Promise((_resolve, reject) => {
+                    fail = reject;
+                }),
+        );
+        const tab = openSockets[0];
+        tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+            ack('seen'),
+        );
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        const started = Date.now();
+        const sent = await socketService.sendWithAck(
+            { room: userId },
+            'demo.ack',
+            {},
+            { timeoutMs: 5_000 },
+        );
+
+        expect(Date.now() - started).toBeLessThan(1_000);
+        expect(sent).toMatchObject({ responses: ['seen'], complete: false });
+        fail(new Error('gave up'));
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        warn.mockRestore();
+    });
+
+    it('takes up cluster counts once a later server count succeeds', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const count = vi
+            .spyOn(proto, 'serverCount')
+            .mockRejectedValue(new Error('not ready'));
+        const once = () =>
+            socketService.sendWithAck(
+                { room: userId },
+                'demo.ack',
+                {},
+                { timeoutMs: 1_000 },
+            );
+
+        expect((await once()).complete).toBe(false);
+        expect((await once()).complete).toBe(false);
+
+        count.mockResolvedValue(1);
+        await waitForClusterCounts(socketService);
+        expect((await once()).complete).toBe(true);
+        warn.mockRestore();
     });
 });

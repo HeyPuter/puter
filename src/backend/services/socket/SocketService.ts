@@ -251,6 +251,31 @@ const acksEvent = (data: unknown, key: string): boolean => {
     return Array.isArray(acks) && acks.includes(key);
 };
 
+interface CountingAdapter {
+    serverCount(): Promise<number>;
+}
+
+/** A failed count reports the last good one; socket.io never catches it. */
+export const steadyServerCount = (
+    adapter: CountingAdapter,
+    onCount: (err?: unknown) => void,
+): void => {
+    const proto = Object.getPrototypeOf(adapter) as CountingAdapter;
+    let lastGood: number | undefined;
+    adapter.serverCount = () =>
+        proto.serverCount.call(adapter).then(
+            (count: number) => {
+                lastGood = count;
+                onCount();
+                return count;
+            },
+            (err: unknown) => {
+                onCount(err ?? new Error('server count failed'));
+                return lastGood ?? 1;
+            },
+        );
+};
+
 const countAcking = (sockets: ListedSocket[], key: string) => ({
     sockets: sockets.length,
     acking: sockets.filter((socket) => acksEvent(socket.data, key)).length,
@@ -298,7 +323,10 @@ export class SocketService extends PuterService {
     #reauthTimer: ReturnType<typeof setInterval> | null = null;
     /** The sweep running now, so a slow one is joined instead of stacked. */
     #reauthSweep: Promise<void> | null = null;
-    #countsServers: Promise<boolean> | null = null;
+    #serverCountWorks = false;
+    #countProbing = false;
+    #lastCountProbe = -Infinity;
+    #lastCountWarn = -Infinity;
     #lastListWarn = -Infinity;
 
     // -- Lifecycle ---------------------------------------------------
@@ -338,6 +366,10 @@ export class SocketService extends PuterService {
             },
             adapter,
         });
+        steadyServerCount(this.#io.of('/').adapter, (err) =>
+            this.#noteServerCount(err),
+        );
+        this.#probeServerCount();
 
         this.#installAuthMiddleware();
         this.#installConnectionHandler();
@@ -419,7 +451,8 @@ export class SocketService extends PuterService {
         );
         if (targets.length === 0) return none;
 
-        if (!(await this.#adapterCountsServers())) {
+        if (!this.#serverCountWorks) {
+            this.#probeServerCount();
             return this.#sendWithAckHere(targets, key, data, timeoutMs);
         }
         const heard = new Promise<Pick<AckedSend, 'responses' | 'timedOut'>>(
@@ -449,20 +482,32 @@ export class SocketService extends PuterService {
         };
     }
 
-    /** Whether the adapter can reach the cluster's other nodes for acks. */
-    #adapterCountsServers(): Promise<boolean> {
-        this.#countsServers ??= Promise.resolve()
-            .then(() => this.#io!.of('/').adapter.serverCount())
-            .then(
-                () => true,
-                () => {
-                    console.warn(
-                        '[socket] adapter cannot count servers; acks cover this node only',
-                    );
-                    return false;
-                },
-            );
-        return this.#countsServers;
+    /** How long after a failed server count the next one is tried. */
+    static COUNT_RETRY_MS = 30_000;
+
+    /** Until one count succeeds, acks are collected on this node only. */
+    #probeServerCount(): void {
+        const now = Date.now();
+        if (this.#serverCountWorks || this.#countProbing) return;
+        if (now - this.#lastCountProbe < SocketService.COUNT_RETRY_MS) return;
+        this.#lastCountProbe = now;
+        this.#countProbing = true;
+        void this.#io!.of('/')
+            .adapter.serverCount()
+            .finally(() => {
+                this.#countProbing = false;
+            });
+    }
+
+    #noteServerCount(err?: unknown): void {
+        if (err === undefined) {
+            this.#serverCountWorks = true;
+            return;
+        }
+        const now = Date.now();
+        if (now - this.#lastCountWarn < LIST_WARN_INTERVAL_MS) return;
+        this.#lastCountWarn = now;
+        console.warn('[socket] adapter server count failed', err);
     }
 
     async #listSockets(
