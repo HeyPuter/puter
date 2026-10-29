@@ -723,16 +723,25 @@ describe('OpenAIRealtimeRelayService relay', () => {
             const c = open(
                 `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
             );
-            await c.waitFor('session.created');
-            c.ws.send(JSON.stringify({ type: 'response.create' }));
-            await vi.waitFor(() => expect(spy).toHaveBeenCalled());
-            c.ws.close();
+            try {
+                await c.waitFor('session.created');
+                c.ws.send(JSON.stringify({ type: 'response.create' }));
+                // Closed sessions can still record usage from earlier tests.
+                await vi.waitFor(() =>
+                    expect(
+                        spy.mock.calls.map(([, rows]) =>
+                            rows.map((row) => [row.usageType, row.costOverride]),
+                        ),
+                    ).toContainEqual([
+                        ['openai:gpt-realtime-mini:realtime:text_input', 7 * 60 * 2],
+                        ['openai:gpt-realtime-mini:realtime:text_output', 3 * 240 * 2],
+                    ]),
+                );
+            } finally {
+                c.ws.close();
+                await c.closed;
+            }
         });
-        const [, rows] = spy.mock.calls.at(-1)!;
-        expect(rows.map((r) => [r.usageType, r.costOverride])).toEqual([
-            ['openai:gpt-realtime-mini:realtime:text_input', 7 * 60 * 2],
-            ['openai:gpt-realtime-mini:realtime:text_output', 3 * 240 * 2],
-        ]);
     });
 
     it('refuses a session.update that changes the model', async () => {
