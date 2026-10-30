@@ -208,22 +208,6 @@ interface OuterGuiPayload {
     response: unknown;
 }
 
-/** What one {@link SocketService.sendWithAck} reached and heard back. */
-export interface AckedSend {
-    /** One per socket that acknowledged, as that socket sent it. */
-    responses: unknown[];
-    /** A socket that acknowledges this event did not answer in time. */
-    timedOut: boolean;
-    /** Sockets the event went to, across this cluster's nodes. */
-    sockets: number;
-    /** Of those, the ones that acknowledge this event. */
-    acking: number;
-    /** Of those, the ones that acknowledge any event: not an older client. */
-    declaring: number;
-    /** The counts cover every node; false when only this node's were seen. */
-    complete: boolean;
-}
-
 /** What one {@link SocketService.askWithAck} heard back. */
 export interface AckedAsk {
     /** One per socket that acknowledged, as that socket sent it. */
@@ -245,23 +229,12 @@ const roomsOf = (specifiers: SocketSpecifier | SocketSpecifier[]): string[] =>
               : [],
     );
 
-/** A listing that waits on another node longer than this counts this node only. */
-const SOCKET_LIST_TIMEOUT_MS = 1_000;
-const LIST_WARN_INTERVAL_MS = 60_000;
-
-interface ListedSocket {
-    id: string;
-    rooms: Set<string>;
-}
+const COUNT_WARN_INTERVAL_MS = 60_000;
 
 /** The room a socket that acknowledges `event` joins beside `room`. */
 export const ackRoom = (room: string, event: string): string =>
     `${room}:acks:${event}`;
 const MAX_HANDSHAKE_ACKS = 16;
-
-/** Whether a socket listed any event in `auth.acks`. */
-const declaresAcks = (socket: ListedSocket): boolean =>
-    [...socket.rooms].some((room) => room.startsWith(ackRoom(socket.id, '')));
 const MAX_ACK_EVENT_LENGTH = 64;
 
 /** The events a client says it acknowledges, from `handshake.auth.acks`. */
@@ -349,7 +322,6 @@ export class SocketService extends PuterService {
     #lastCountProbe = -Infinity;
     #lastCountWarn = -Infinity;
     #countFailures = 0;
-    #lastListWarn = -Infinity;
 
     // -- Lifecycle ---------------------------------------------------
 
@@ -446,75 +418,11 @@ export class SocketService extends PuterService {
         }
     }
 
-    /** Sends at once; acks are awaited from sockets listing it in `auth.acks`. */
-    async sendWithAck(
-        specifiers: SocketSpecifier | SocketSpecifier[],
-        key: string,
-        data: unknown,
-        { timeoutMs }: { timeoutMs: number },
-    ): Promise<AckedSend> {
-        const none: AckedSend = {
-            responses: [],
-            timedOut: false,
-            sockets: 0,
-            acking: 0,
-            declaring: 0,
-            complete: false,
-        };
-        const io = this.#io;
-        if (!io) return none;
-        const targets = roomsOf(specifiers);
-        if (targets.length === 0) return none;
-
-        const ackTargets = targets.map((target) => ackRoom(target, key));
-        if (!this.#serverCountWorks) {
-            this.#probeServerCount();
-            return this.#sendWithAckHere(
-                targets,
-                ackTargets,
-                key,
-                data,
-                timeoutMs,
-            );
-        }
-        const failuresBefore = this.#countFailures;
-        io.to(targets).except(ackTargets).emit(key, data);
-        const heard = new Promise<Pick<AckedSend, 'responses' | 'timedOut'>>(
-            (resolve) => {
-                io.to(ackTargets)
-                    .timeout(timeoutMs)
-                    .emit(
-                        key,
-                        data,
-                        (err: Error | null, responses: unknown[]) => {
-                            resolve({
-                                responses: responses ?? [],
-                                timedOut: !!err,
-                            });
-                        },
-                    );
-            },
-        );
-        const [listed, acks] = await Promise.all([
-            this.#listSockets(targets),
-            heard,
-        ]);
-        const acking = new Set(ackTargets);
-        return {
-            ...acks,
-            sockets: listed.sockets.length,
-            acking: listed.sockets.filter((socket) =>
-                [...socket.rooms].some((room) => acking.has(room)),
-            ).length,
-            declaring: listed.sockets.filter(declaresAcks).length,
-            complete: listed.complete && this.#countFailures === failuresBefore,
-        };
-    }
-
     /**
-     * {@link sendWithAck} without listing sockets across the cluster. Sockets
-     * that don't acknowledge `key` get it as an acked broadcast too, which can
-     * only time out, and that says whether any is there.
+     * Asks the sockets in `specifiers` that listed `key` in `auth.acks`,
+     * without listing sockets across the cluster. The others get it as an acked
+     * broadcast too, which can only time out, and that says whether any is
+     * there.
      */
     async askWithAck(
         specifiers: SocketSpecifier | SocketSpecifier[],
@@ -535,19 +443,7 @@ export class SocketService extends PuterService {
         const ackTargets = targets.map((target) => ackRoom(target, key));
         if (!this.#serverCountWorks) {
             this.#probeServerCount();
-            const here = await this.#sendWithAckHere(
-                targets,
-                ackTargets,
-                key,
-                data,
-                timeoutMs,
-            );
-            return {
-                responses: here.responses,
-                timedOut: here.timedOut,
-                others: here.sockets > here.acking,
-                complete: false,
-            };
+            return this.#askHere(targets, ackTargets, key, data, timeoutMs);
         }
         const failuresBefore = this.#countFailures;
         const heard = (
@@ -604,69 +500,36 @@ export class SocketService extends PuterService {
         const now = Date.now();
         // Never counted (an in-memory Redis): say so once, not every minute.
         if (!this.#serverCountWorks && this.#lastCountWarn > -Infinity) return;
-        if (now - this.#lastCountWarn < LIST_WARN_INTERVAL_MS) return;
+        if (now - this.#lastCountWarn < COUNT_WARN_INTERVAL_MS) return;
         this.#lastCountWarn = now;
         console.warn('[socket] adapter server count failed', err);
     }
 
-    async #listSockets(
-        targets: string[],
-    ): Promise<{ sockets: ListedSocket[]; complete: boolean }> {
-        const io = this.#io!;
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        try {
-            const sockets = await Promise.race([
-                io.in(targets).timeout(SOCKET_LIST_TIMEOUT_MS).fetchSockets(),
-                new Promise<never>((_resolve, reject) => {
-                    timer = setTimeout(
-                        () => reject(new Error('socket listing timed out')),
-                        SOCKET_LIST_TIMEOUT_MS,
-                    );
-                }),
-            ]);
-            return {
-                sockets: sockets.map(({ id, rooms }) => ({ id, rooms })),
-                complete: true,
-            };
-        } catch (err) {
-            const now = Date.now();
-            if (now - this.#lastListWarn >= LIST_WARN_INTERVAL_MS) {
-                this.#lastListWarn = now;
-                console.warn('[socket] cluster socket listing failed', err);
-            }
-            return { sockets: this.#localSockets(targets), complete: false };
-        } finally {
-            clearTimeout(timer);
-        }
-    }
-
-    #localSockets(targets: string[]): ListedSocket[] {
-        const io = this.#io!;
+    /** Socket ids in any of `rooms` on this node. */
+    #localIds(rooms: string[]): Set<string> {
         const ids = new Set<string>();
-        for (const target of targets) {
-            io.sockets.adapter.rooms.get(target)?.forEach((id) => {
+        for (const room of rooms) {
+            this.#io!.sockets.adapter.rooms.get(room)?.forEach((id) => {
                 ids.add(id);
             });
         }
-        return [...ids].flatMap((id) => {
-            const socket = io.sockets.sockets.get(id);
-            return socket ? [{ id, rooms: socket.rooms }] : [];
-        });
+        return ids;
     }
 
-    async #sendWithAckHere(
+    async #askHere(
         targets: string[],
         ackTargets: string[],
         key: string,
         data: unknown,
         timeoutMs: number,
-    ): Promise<AckedSend> {
+    ): Promise<AckedAsk> {
         const io = this.#io!;
-        const sockets = this.#localSockets(targets);
-        const acking = this.#localSockets(ackTargets).map(({ id }) => id);
-        io.to(targets).except(acking).emit(key, data);
+        const acking = this.#localIds(ackTargets);
+        const others = [...this.#localIds(targets)].some(
+            (id) => !acking.has(id),
+        );
         const heard = await Promise.all(
-            acking.map(async (id) => {
+            [...acking].map(async (id) => {
                 const socket = io.sockets.sockets.get(id);
                 if (!socket) return { ok: false as const };
                 try {
@@ -682,9 +545,7 @@ export class SocketService extends PuterService {
         return {
             responses: heard.flatMap((h) => (h.ok ? [h.response] : [])),
             timedOut: heard.some((h) => !h.ok),
-            sockets: sockets.length,
-            acking: acking.length,
-            declaring: sockets.filter(declaresAcks).length,
+            others,
             complete: false,
         };
     }
@@ -1205,9 +1066,7 @@ export class SocketService extends PuterService {
         // notification (item.added/updated/removed/moved/pending,
         // cache.updated, submission.done, …). EventClient walks the
         // dot-prefix tree at emit time so we get them all.
-        this.clients.event.on('outer.gui.*', (key, data, meta) => {
-            // The emitter already reached this region's sockets itself.
-            if (meta?.region_delivered && !meta.from_outside) return;
+        this.clients.event.on('outer.gui.*', (key: string, data: unknown) => {
             this.#handleOuterGui(key, data as OuterGuiPayload).catch(
                 (err: unknown) => {
                     console.error('[socket] outer.gui handler error', err);

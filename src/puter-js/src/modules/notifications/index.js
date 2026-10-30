@@ -127,7 +127,7 @@ export class NotificationsModule extends EventListener {
         };
     }
 
-    /** @internal A notification feed on this page received `uid`. */
+    /** @internal This page received `uid` live, in a feed or the desktop. */
     _noteReceived(uid) {
         this.#receipts.note(uid);
     }

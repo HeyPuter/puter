@@ -26,7 +26,6 @@ import type {
 import {
     appSocketRoom,
     type AckedAsk,
-    type AckedSend,
     type SocketService,
 } from '../socket/SocketService.js';
 import type { IConfig } from '../../types.js';
@@ -57,24 +56,14 @@ export type NotifWire = 'notif.message' | 'notif.unreads' | 'notif.ack';
 
 export const NOTIF_DELIVERY_EVENT = 'outer.notif.delivery';
 
-/** Default receipt window for a delivered `notif.message`. */
+/** Default receipt window for a live notification. */
 export const DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS = 5_000;
 
 /**
- * Asked of an app's own sockets with `{ uid }`. A client acknowledges once its
- * live notification feed has received that notification.
+ * Asked of the desktop's or an app's sockets with `{ uid }`. A client
+ * acknowledges once its page has received that notification live.
  */
 export const NOTIF_RECEIPT_EVENT = 'notif.receipt';
-
-interface MessageResponse {
-    uid: string;
-    notification: unknown;
-}
-
-const typeOf = (notification: unknown): string | undefined => {
-    const type = (notification as { type?: unknown } | null)?.type;
-    return typeof type === 'string' ? type : undefined;
-};
 
 /** One unread as the replay payload carries it. */
 export interface UnreadNotification {
@@ -92,7 +81,7 @@ export const notificationsFoldInEnabled = (config: IConfig): boolean =>
     config.events?.enabled === true &&
     config.events?.notificationsFoldIn === true;
 
-/** Configured receipt window for a delivered `notif.message`. */
+/** Configured receipt window for a live notification. */
 export const notificationAckTimeoutMs = (config: IConfig): number => {
     const configured = Number(config.notificationAckTimeoutMs);
     return Number.isFinite(configured) && configured > 0
@@ -100,45 +89,14 @@ export const notificationAckTimeoutMs = (config: IConfig): number => {
         : DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS;
 };
 
-/** What a receipt heard back, from either kind of acked send. */
-interface Heard {
-    responses: unknown[];
-    /** A socket here got it. */
-    reached: boolean;
-    ackCapable: boolean;
-    everySocketAcks: boolean;
-    complete: boolean;
-}
-
-const heardFromSend = (sent: AckedSend): Heard => ({
-    responses: sent.responses,
-    reached: sent.sockets > 0,
-    ackCapable: sent.acking > 0,
-    // A socket acknowledging other events (puter.js beside the desktop) never
-    // shows this one, so only one that declares nothing is an older client.
-    everySocketAcks: sent.declaring === sent.sockets,
-    complete: sent.complete,
-});
-
-/** An ack-capable socket either answered or let the ask time out. */
-const heardFromAsk = (asked: AckedAsk): Heard => {
-    const ackCapable = asked.responses.length > 0 || asked.timedOut;
-    return {
-        responses: asked.responses,
-        reached: ackCapable || asked.others,
-        ackCapable,
-        everySocketAcks: !asked.others,
-        complete: asked.complete,
-    };
-};
-
 /** An incomplete count never reads as nobody being here. */
 const deliveryOutcome = (
-    heard: Heard,
+    asked: AckedAsk,
     peerRegions: boolean,
 ): NotifDeliveryOutcome => {
-    if (heard.responses.length > 0) return 'received';
-    if (heard.reached || !heard.complete) return 'unreceived';
+    if (asked.responses.length > 0) return 'received';
+    // An ack-capable socket either answered or let the ask time out.
+    if (asked.timedOut || asked.others || !asked.complete) return 'unreceived';
     return peerRegions ? 'remote-only' : 'no-socket';
 };
 
@@ -165,13 +123,14 @@ interface AdapterDeps {
 
 type SettledDelivery = EventMap['notif.delivery.settled'];
 
-/** What a receipt settles; `appUid` names the app whose sockets were asked. */
-interface ReceiptScope {
+/** What a receipt settles; `appUid` names the app whose sockets are asked. */
+export interface ReceiptScope {
     userId: number;
-    uid: string;
-    type?: string;
-    sendId?: string;
+    /** Null asks the desktop's sockets. */
     appUid: string | null;
+    uid: string;
+    type: string;
+    sendId?: string;
 }
 
 export class NotificationSocketAdapter {
@@ -181,18 +140,14 @@ export class NotificationSocketAdapter {
         this.#deps = deps;
     }
 
-    /** Only the emitting region waits on receipts for a `notif.message`. */
+    /**
+     * Start delivering what the events layer dispatches. Both the region that
+     * emitted and the peers that received it land here exactly once, so the
+     * handler makes no distinction between them.
+     */
     attach(): void {
-        this.#deps.event.on(NOTIF_DELIVERY_EVENT, (_key, data, meta) => {
-            const { userId, wire, response, sendId } = data;
-            if (wire === 'notif.message' && !meta?.from_outside) {
-                this.#deliverMessage(
-                    userId,
-                    response as MessageResponse,
-                    sendId,
-                );
-                return;
-            }
+        this.#deps.event.on(NOTIF_DELIVERY_EVENT, (_key, data) => {
+            const { userId, wire, response } = data;
             void this.#deps.socket
                 .send({ room: userId }, wire, response)
                 .catch((err: unknown) => {
@@ -202,21 +157,13 @@ export class NotificationSocketAdapter {
     }
 
     /** One notification, in the shape `UIDesktop` has always received. */
-    message(
-        userId: number,
-        uid: string,
-        notification: unknown,
-        sendId?: string,
-    ): void {
+    message(userId: number, uid: string, notification: unknown): void {
         const response = { uid, notification };
-        if (this.#dispatched(userId, 'notif.message', response, sendId)) {
-            return;
-        }
-        this.#deliverMessage(userId, response, sendId);
+        if (this.#dispatched(userId, 'notif.message', response)) return;
         this.#deps.event.emit(
             'outer.gui.notif.message',
             { user_id_list: [userId], response },
-            { region_delivered: true },
+            {},
         );
     }
 
@@ -243,81 +190,35 @@ export class NotificationSocketAdapter {
     }
 
     /**
-     * Asks the app's own sockets whether its live copy of `uid` reached them,
-     * and settles that like a desktop delivery, marked with `appUid`. Resolves
-     * the settle it emitted, or null when asking failed.
+     * Asks the desktop's sockets, or with `appUid` the app's own, whether the
+     * live copy of `uid` reached a page, and settles that as
+     * `notif.delivery.settled`. Resolves the settle it emitted, or null when
+     * asking failed.
      */
-    appReceipt(scope: {
-        userId: number;
-        appUid: string;
-        uid: string;
-        type: string;
-        sendId?: string;
-    }): Promise<SettledDelivery | null> {
-        const { userId, appUid, uid } = scope;
-        return this.#settle(scope, async () =>
-            heardFromAsk(
-                await this.#deps.socket.askWithAck(
-                    { room: appSocketRoom(userId, appUid) },
+    async receipt(scope: ReceiptScope): Promise<SettledDelivery | null> {
+        const { userId, appUid, uid, type, sendId } = scope;
+        try {
+            const [asked, peerRegions] = await Promise.all([
+                this.#deps.socket.askWithAck(
+                    { room: appUid ? appSocketRoom(userId, appUid) : userId },
                     NOTIF_RECEIPT_EVENT,
                     { uid },
                     { timeoutMs: this.#deps.ackTimeoutMs() },
                 ),
-            ),
-        );
-    }
-
-    /** Whether this region holds a socket for the recipient right now. */
-    hasSocket(userId: number): boolean {
-        return this.#deps.socket.has({ room: userId });
-    }
-
-    #deliverMessage(
-        userId: number,
-        response: MessageResponse,
-        sendId?: string,
-    ): void {
-        const scope: ReceiptScope = {
-            userId,
-            uid: response.uid,
-            type: typeOf(response.notification),
-            sendId,
-            appUid: null,
-        };
-        void this.#settle(scope, async () =>
-            heardFromSend(
-                await this.#deps.socket.sendWithAck(
-                    { room: userId },
-                    'notif.message',
-                    response,
-                    { timeoutMs: this.#deps.ackTimeoutMs() },
-                ),
-            ),
-        );
-    }
-
-    async #settle(
-        scope: ReceiptScope,
-        hear: () => Promise<Heard>,
-    ): Promise<SettledDelivery | null> {
-        const { userId, uid, type, sendId, appUid } = scope;
-        try {
-            const [heard, peerRegions] = await Promise.all([
-                hear(),
                 this.#deps.heldInPeerRegion(userId, appUid),
             ]);
             const settled: SettledDelivery = {
                 ...(sendId ? { sendId } : {}),
                 uid,
                 userId,
-                ...(type ? { type } : {}),
+                type,
                 ...(appUid ? { appUid } : {}),
-                outcome: deliveryOutcome(heard, peerRegions),
-                ackCapable: heard.ackCapable,
-                everySocketAcks: heard.everySocketAcks,
-                complete: heard.complete,
+                outcome: deliveryOutcome(asked, peerRegions),
+                ackCapable: asked.responses.length > 0 || asked.timedOut,
+                everySocketAcks: !asked.others,
+                complete: asked.complete,
                 peerRegions,
-                responders: heard.responses.map(responderOf),
+                responders: asked.responses.map(responderOf),
             };
             this.#deps.event.emit(
                 'notif.delivery.settled',
@@ -326,22 +227,22 @@ export class NotificationSocketAdapter {
             );
             return settled;
         } catch (err) {
-            console.warn('[notification] socket send failed', err);
+            console.warn('[notification] receipt failed', err);
             return null;
         }
     }
 
+    /** Whether this region holds a socket for the recipient right now. */
+    hasSocket(userId: number): boolean {
+        return this.#deps.socket.has({ room: userId });
+    }
+
     /** Take the events-layer route, or report that the legacy one applies. */
-    #dispatched(
-        userId: number,
-        wire: NotifWire,
-        response: unknown,
-        sendId?: string,
-    ): boolean {
+    #dispatched(userId: number, wire: NotifWire, response: unknown): boolean {
         if (!this.#deps.foldIn()) return false;
         this.#deps.event.emit(
             NOTIF_DELIVERY_EVENT,
-            { userId, wire, response, ...(sendId ? { sendId } : {}) },
+            { userId, wire, response },
             {},
         );
         return true;

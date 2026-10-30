@@ -551,7 +551,6 @@ export type EventMap = {
         createdAt: number;
         /** Events handler runs behind whatever created it. */
         handlerDepth?: number;
-        sendId?: string;
     };
     /**
      * Every non-silent write or update, only on the node that wrote it. The
@@ -567,7 +566,7 @@ export type EventMap = {
         value: Record<string, unknown>;
         /** An earlier notification rewritten in place. */
         updated?: true;
-        /** Names this one send; its `notif.delivery.settled` carries the same. */
+        /** Names this one send, for a receipt asked about it. */
         sendId: string;
     };
     /**
@@ -580,17 +579,16 @@ export type EventMap = {
         userId: number;
         wire: 'notif.message' | 'notif.unreads' | 'notif.ack';
         response: unknown;
-        sendId?: string;
     };
     /**
-     * How one live notification went, on the node that sent it: the desktop's
-     * `notif.message`, or with `appUid` the app's own sockets.
+     * How one live notification went, on the node that asked for its receipt:
+     * from the desktop's sockets, or with `appUid` the app's own.
      */
     'notif.delivery.settled': {
         sendId?: string;
         uid: string;
         userId: number;
-        type?: string;
+        type: string;
         /** The app whose own sockets were asked; absent for the desktop's. */
         appUid?: string;
         outcome: NotifDeliveryOutcome;
@@ -598,7 +596,7 @@ export type EventMap = {
         ackCapable: boolean;
         /** No socket here is an older client that acknowledges nothing. */
         everySocketAcks: boolean;
-        /** Socket counts covered every node here, not just this one. */
+        /** Every node here answered the ask, not just this one. */
         complete: boolean;
         /** A peer region holds a socket for the user. */
         peerRegions: boolean;
@@ -1034,8 +1032,6 @@ export interface NotifDeliveryResponder {
 
 export type EventMetadata = {
     from_outside?: boolean;
-    /** The emitter sent it to this region's sockets; peers still deliver it. */
-    region_delivered?: boolean;
     /** Set by `emitAndWait` when a listener threw, so a verdict hook can refuse. */
     listener_failed?: boolean;
 };

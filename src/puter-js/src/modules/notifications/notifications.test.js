@@ -823,6 +823,16 @@ describe('receipts', () => {
         expect(ack).toHaveBeenCalledWith({ visibilityState: 'unknown' });
     });
 
+    it('acknowledges a notification the desktop noted on its own socket', () => {
+        const notifications = makeModule();
+        notifications._noteReceived('n-1');
+
+        const ack = vi.fn();
+        notifications._answerReceipt({ uid: 'n-1' }, ack);
+
+        expect(ack).toHaveBeenCalledWith({ visibilityState: 'unknown' });
+    });
+
     it('acknowledges when the notification arrives after the ask, before handlers run', async () => {
         const events = makeEvents();
         const notifications = makeModule({ events });

@@ -47,7 +47,6 @@ const ACK_TIMEOUT_MS = 300;
 
 interface ClusterAdapter {
     serverCount: () => Promise<number>;
-    fetchSockets: (opts: unknown) => Promise<unknown[]>;
     doPublish: (message: unknown) => Promise<string>;
 }
 
@@ -178,7 +177,7 @@ const withServer = (opts: {
             await vi.waitFor(async () =>
                 expect(
                     (
-                        await state.server.services.socket.sendWithAck(
+                        await state.server.services.socket.askWithAck(
                             { room: 'nobody-here' },
                             'demo.ack',
                             {},
@@ -222,16 +221,22 @@ const withServer = (opts: {
                 : { type },
         ))!;
 
-    /** The desktop's settle, or with `appUid` the app's own. */
-    const settledFor = async (
-        uid: string,
-        appUid?: string,
-    ): Promise<Settled> => {
-        const match = (s: Settled) => s.uid === uid && s.appUid === appUid;
-        await vi.waitFor(() => expect(state.settled.some(match)).toBe(true), {
-            timeout: 3_000,
+    /** Notify, then ask for the receipt the way a push decision does. */
+    const ask = async (
+        appUid: string | null = null,
+        type: 'share.received' | 'app.message' = appUid
+            ? 'app.message'
+            : 'share.received',
+    ) => {
+        const uid = await notify(type);
+        const settled = await state.server.services.notification.receipt({
+            userId: state.userId,
+            appUid,
+            uid,
+            type,
+            sendId: state.written.at(-1)!.sendId,
         });
-        return state.settled.find(match)!;
+        return { uid, settled: settled! };
     };
 
     const peerRegionHolds = () => {
@@ -241,27 +246,60 @@ const withServer = (opts: {
         return eventForward;
     };
 
-    return { state, connect, appToken, notify, settledFor, peerRegionHolds };
+    return { state, connect, appToken, notify, ask, peerRegionHolds };
+};
+
+type Ack = (response: unknown) => void;
+
+/** A desktop tab: notes each live `notif.message`, answers receipts for those. */
+const desktopTab = (socket: ClientSocket, visibilityState: string | null) => {
+    const got: unknown[] = [];
+    socket.on('notif.message', (msg: unknown, ...rest: unknown[]) => {
+        got.push([msg, ...rest]);
+    });
+    socket.on(NOTIF_RECEIPT_EVENT, (_data: unknown, ack: Ack) => {
+        if (visibilityState) ack({ visibilityState });
+    });
+    return got;
 };
 
 describe('live notification delivery receipts', () => {
-    const { state, connect, notify, settledFor, peerRegionHolds } = withServer({
+    const { state, connect, ask, peerRegionHolds } = withServer({
         cluster: true,
     });
 
+    it('sends notif.message plainly and settles nothing until asked', async () => {
+        const got = desktopTab(
+            await connect({ acks: [NOTIF_RECEIPT_EVENT] }),
+            'visible',
+        );
+
+        const uid = (await state.server.services.notification.notify(
+            [state.userId],
+            { title: 'hello' },
+            { type: 'share.received' },
+        ))!;
+        await vi.waitFor(() => expect(got).toHaveLength(1));
+        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        expect(got).toEqual([
+            [
+                {
+                    uid,
+                    notification: { title: 'hello', type: 'share.received' },
+                },
+            ],
+        ]);
+        expect(state.settled).toEqual([]);
+    });
+
     it('settles as received once a tab acknowledges, with its visibility', async () => {
-        const tab = await connect({ acks: ['notif.message'] });
-        const got: unknown[] = [];
-        tab.on('notif.message', (msg: unknown, ack: (r: unknown) => void) => {
-            got.push(msg);
-            ack({ visibilityState: 'hidden' });
-        });
+        desktopTab(await connect({ acks: [NOTIF_RECEIPT_EVENT] }), 'hidden');
 
-        const uid = await notify();
+        const { uid, settled } = await ask();
 
-        const [written] = state.written;
-        expect(await settledFor(uid)).toEqual({
-            sendId: written.sendId,
+        const expected = {
+            sendId: state.written[0].sendId,
             uid,
             userId: state.userId,
             type: 'share.received',
@@ -271,88 +309,55 @@ describe('live notification delivery receipts', () => {
             complete: true,
             peerRegions: false,
             responders: [{ visibilityState: 'hidden' }],
-        });
-        expect(written.sendId).toEqual(expect.any(String));
-        expect(got).toEqual([
-            {
-                uid,
-                notification: { title: 'hello', type: 'share.received' },
-            },
-        ]);
+        };
+        expect(settled).toEqual(expected);
+        expect(state.settled).toEqual([expected]);
     });
 
     it('settles as unreceived when no tab acknowledges within the window', async () => {
-        const tab = await connect({ acks: ['notif.message'] });
-        const got = new Promise((resolve) =>
-            tab.once('notif.message', resolve),
-        );
+        desktopTab(await connect({ acks: [NOTIF_RECEIPT_EVENT] }), null);
 
         const started = Date.now();
-        const uid = await notify();
-        const result = await settledFor(uid);
+        const { settled } = await ask();
 
         expect(Date.now() - started).toBeGreaterThanOrEqual(
             ACK_TIMEOUT_MS - 50,
         );
-        expect(result).toMatchObject({
+        expect(settled).toMatchObject({
             outcome: 'unreceived',
             ackCapable: true,
+            everySocketAcks: true,
             complete: true,
             peerRegions: false,
             responders: [],
         });
-        await expect(got).resolves.toMatchObject({ uid });
     });
 
     it('reports a socket that never offered to acknowledge as not ack-capable', async () => {
-        const tab = await connect({});
-        const got = new Promise((resolve) =>
-            tab.once('notif.message', resolve),
-        );
+        await connect({});
 
-        const uid = await notify();
-
-        expect(await settledFor(uid)).toMatchObject({
+        expect((await ask()).settled).toMatchObject({
             outcome: 'unreceived',
             ackCapable: false,
             everySocketAcks: false,
             responders: [],
         });
-        await expect(got).resolves.toMatchObject({ uid });
     });
 
     it('says an older tab beside an acknowledging one does not acknowledge', async () => {
-        await connect({ acks: ['notif.message'] });
+        desktopTab(await connect({ acks: [NOTIF_RECEIPT_EVENT] }), 'visible');
         await connect({});
 
-        const uid = await notify();
-
-        expect(await settledFor(uid)).toMatchObject({
-            outcome: 'unreceived',
+        expect((await ask()).settled).toMatchObject({
+            outcome: 'received',
             ackCapable: true,
             everySocketAcks: false,
             complete: true,
         });
     });
 
-    it('counts a socket that acknowledges only other events as current', async () => {
-        await connect({ acks: ['notif.message'] });
-        // puter.js's own socket on the desktop page, which never shows these.
-        await connect({ acks: [NOTIF_RECEIPT_EVENT] });
-
-        const uid = await notify();
-
-        expect(await settledFor(uid)).toMatchObject({
-            outcome: 'unreceived',
-            ackCapable: true,
-            everySocketAcks: true,
-            complete: true,
-        });
-    });
-
     it('settles as no-socket when the user has no connection anywhere', async () => {
-        const uid = await notify();
-        expect(await settledFor(uid)).toMatchObject({
+        expect((await ask()).settled).toMatchObject({
             outcome: 'no-socket',
             ackCapable: false,
             complete: true,
@@ -363,9 +368,7 @@ describe('live notification delivery receipts', () => {
     it('settles as remote-only when only a peer region holds a socket', async () => {
         const eventForward = peerRegionHolds();
 
-        const uid = await notify();
-
-        expect(await settledFor(uid)).toMatchObject({
+        expect((await ask()).settled).toMatchObject({
             outcome: 'remote-only',
             ackCapable: false,
             peerRegions: true,
@@ -377,103 +380,46 @@ describe('live notification delivery receipts', () => {
     });
 
     it('says a peer region holds the user beside an unacknowledged tab here', async () => {
-        await connect({ acks: ['notif.message'] });
+        desktopTab(await connect({ acks: [NOTIF_RECEIPT_EVENT] }), null);
         peerRegionHolds();
 
-        const uid = await notify();
-
-        expect(await settledFor(uid)).toMatchObject({
+        expect((await ask()).settled).toMatchObject({
             outcome: 'unreceived',
             ackCapable: true,
             peerRegions: true,
         });
     });
 
-    it('never reads an incomplete count as nobody being here', async () => {
-        vi.spyOn(state.adapter, 'fetchSockets').mockRejectedValue(
-            new Error('timeout reached'),
+    it('sends nothing for a silent notification', async () => {
+        const got = desktopTab(
+            await connect({ acks: [NOTIF_RECEIPT_EVENT] }),
+            'visible',
         );
-        vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-        const uid = await notify();
-
-        expect(await settledFor(uid)).toMatchObject({
-            outcome: 'unreceived',
-            ackCapable: false,
-            complete: false,
-        });
-    });
-
-    it('settles an app message on the desktop wire with its type', async () => {
-        const tab = await connect({ acks: ['notif.message'] });
-        tab.on('notif.message', (_m: unknown, ack: (r: unknown) => void) =>
-            ack({ visibilityState: 'visible' }),
-        );
-
-        const uid = await notify('app.message');
-
-        expect(await settledFor(uid)).toMatchObject({
-            type: 'app.message',
-            outcome: 'received',
-            responders: [{ visibilityState: 'visible' }],
-        });
-    });
-
-    it('settles a rewritten notification under a send id of its own', async () => {
-        const tab = await connect({ acks: ['notif.message'] });
-        tab.on('notif.message', (_m: unknown, ack: (r: unknown) => void) =>
-            ack({ visibilityState: 'visible' }),
-        );
-        const uid = await notify();
-        const first = await settledFor(uid);
-        state.settled.length = 0;
-
-        await state.server.services.notification.notifyUpdate(
-            uid,
-            state.userId,
-            { title: 'hello again' },
-            { type: 'share.received' },
-        );
-
-        const again = await settledFor(uid);
-        expect(again).toMatchObject({ outcome: 'received' });
-        expect(again.sendId).toEqual(expect.any(String));
-        expect(again.sendId).not.toBe(first.sendId);
-        await vi.waitFor(() => expect(state.written).toHaveLength(2));
-        expect(state.written[1].sendId).toBe(again.sendId);
-    });
-
-    it('sends nothing and settles nothing for a silent notification', async () => {
         await state.server.services.notification.notify(
             [state.userId],
             { title: 'quiet' },
             { type: 'share.received', silent: true },
         );
         await new Promise((resolve) => setTimeout(resolve, 100));
-        expect(state.settled).toEqual([]);
+        expect(got).toEqual([]);
+        expect(state.written).toEqual([]);
     });
 });
 
 describe('live notification receipts where the adapter cannot count servers', () => {
-    const { connect, notify, settledFor } = withServer({ cluster: false });
+    const { connect, ask } = withServer({ cluster: false });
 
     it('still collects this node’s acknowledgements', async () => {
-        const tab = await connect({ acks: ['notif.message'] });
-        tab.on('notif.message', (_m: unknown, ack: (r: unknown) => void) =>
-            ack({ visibilityState: 'visible' }),
-        );
+        desktopTab(await connect({ acks: [NOTIF_RECEIPT_EVENT] }), 'visible');
 
-        const uid = await notify();
-
-        expect(await settledFor(uid)).toMatchObject({
+        expect((await ask()).settled).toMatchObject({
             outcome: 'received',
             complete: false,
         });
     });
 
     it('reports no socket here as unreceived, not as nobody anywhere', async () => {
-        const uid = await notify();
-        expect(await settledFor(uid)).toMatchObject({
+        expect((await ask()).settled).toMatchObject({
             outcome: 'unreceived',
             ackCapable: false,
             complete: false,
@@ -481,12 +427,10 @@ describe('live notification receipts where the adapter cannot count servers', ()
     });
 });
 
-type Ack = (response: unknown) => void;
-
 /** App receipts, asked the way a push decision asks for them. */
 const withAppReceipts = (opts: { cluster: boolean }) => {
     const server = withServer({ ...opts, events: true, appUid: OWN_APP });
-    const { state, connect, appToken, notify } = server;
+    const { connect, appToken } = server;
     let token = '';
 
     beforeAll(async () => {
@@ -506,19 +450,9 @@ const withAppReceipts = (opts: { cluster: boolean }) => {
         return page;
     };
 
-    const ask = async () => {
-        const uid = await notify('app.message');
-        const settled = await state.server.services.notification.appReceipt({
-            userId: state.userId,
-            appUid: OWN_APP,
-            uid,
-            type: 'app.message',
-            sendId: state.written.at(-1)!.sendId,
-        });
-        return { uid, settled: settled! };
-    };
+    const askApp = () => server.ask(OWN_APP);
 
-    return { ...server, appSocket, answeringPage, ask };
+    return { ...server, appSocket, answeringPage, ask: askApp };
 };
 
 describe('live receipts from an app’s own sockets', () => {
@@ -527,7 +461,6 @@ describe('live receipts from an app’s own sockets', () => {
         connect,
         appToken,
         notify,
-        settledFor,
         peerRegionHolds,
         appSocket,
         answeringPage,
@@ -554,10 +487,8 @@ describe('live receipts from an app’s own sockets', () => {
             responders: [{ visibilityState: 'visible' }],
         };
         expect(settled).toEqual(expected);
-        expect(await settledFor(uid, OWN_APP)).toEqual(expected);
+        expect(state.settled).toEqual([expected]);
         expect(asked).toEqual([{ uid }]);
-        // The desktop settles its own copy apart from the app's.
-        expect(await settledFor(uid)).toMatchObject({ outcome: 'no-socket' });
     });
 
     it('settles as unreceived when the app’s page never acknowledges', async () => {
@@ -654,11 +585,25 @@ describe('live receipts from an app’s own sockets', () => {
         const asked: unknown[] = [];
         await answeringPage(asked);
 
-        const uid = await notify('app.message');
+        await notify('app.message');
 
-        await settledFor(uid);
         await new Promise((resolve) => setTimeout(resolve, 100));
-        expect(state.settled.filter((s) => s.appUid)).toEqual([]);
+        expect(state.settled).toEqual([]);
+        expect(asked).toEqual([]);
+    });
+
+    it('does not ask the app’s pages about the desktop’s copy', async () => {
+        const asked: unknown[] = [];
+        await answeringPage(asked);
+
+        expect(
+            (await state.server.services.notification.receipt({
+                userId: state.userId,
+                appUid: null,
+                uid: await notify('app.message'),
+                type: 'app.message',
+            }))!,
+        ).toMatchObject({ outcome: 'no-socket' });
         expect(asked).toEqual([]);
     });
 });

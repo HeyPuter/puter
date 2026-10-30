@@ -594,7 +594,6 @@ export interface NotifDispatchInput {
     createdAt: number;
     /** Handler runs behind whatever created it; see `Actor.handlerDepth`. */
     handlerDepth?: number;
-    sendId?: string;
 }
 
 /** One committed KV mutation, as the bus reports it. */
@@ -3747,7 +3746,7 @@ export class EventsService extends PuterService {
         // The adapter is not a subscription: the desktop is delivered to
         // whether or not anything subscribed, which is what keeps the wire
         // contract identical with the fold-in on.
-        this.services.notification.deliverOverSocket(context, input.sendId);
+        this.services.notification.deliverOverSocket(context);
 
         if (!(await this.#userHasAny(userId))) return;
 

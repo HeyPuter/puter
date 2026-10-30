@@ -103,21 +103,6 @@ const withServer = (config: IConfig) => {
                 state.sent.push({ room: spec.room ?? spec.socket, key, data });
             },
         );
-        vi.spyOn(
-            state.server.services.socket,
-            'sendWithAck',
-        ).mockImplementation(async (specifier, key, data) => {
-            const spec = Array.isArray(specifier) ? specifier[0] : specifier;
-            state.sent.push({ room: spec.room ?? spec.socket, key, data });
-            return {
-                responses: [],
-                timedOut: false,
-                sockets: 0,
-                acking: 0,
-                declaring: 0,
-                complete: true,
-            };
-        });
         state.server.services.events.onDelivered = (envelope) => {
             state.delivered.push(envelope);
         };
@@ -345,48 +330,6 @@ describe('notifications with the fold-in on', () => {
         expect(notifSends(state.sent)[1].data).toEqual(
             notifSends(state.sent)[0].data,
         );
-    });
-
-    it('settles the delivery once, on the region that sent it', async () => {
-        const user = await makeUser(state.server);
-        const settled: Array<{ uid: string; outcome: string }> = [];
-        const handler = (_k: string, data: unknown) => {
-            const d = data as { uid: string; userId: number; outcome: string };
-            if (d.userId === user.id) settled.push(d);
-        };
-        const sendIds: string[] = [];
-        const onWritten = (_k: string, data: unknown) => {
-            const d = data as { userId: number; sendId: string };
-            if (d.userId === user.id) sendIds.push(d.sendId);
-        };
-        state.server.clients.event.on('notif.delivery.settled', handler);
-        state.server.clients.event.on('notif.written', onWritten);
-        try {
-            const uid = await state.server.services.notification.notify(
-                [user.id],
-                { title: 'receipt' },
-                { type: 'share.received' },
-            );
-            await waitFor(() => settled.length > 0);
-            // The send id rides through dispatch to the socket adapter.
-            expect(sendIds).toEqual([expect.any(String)]);
-            expect(settled).toEqual([
-                expect.objectContaining({
-                    uid,
-                    outcome: 'no-socket',
-                    sendId: sendIds[0],
-                }),
-            ]);
-
-            await waitFor(() => forwardedFor(user.id).length > 0);
-            await applyAsPeer(state.server, forwardedFor(user.id)[0]);
-            await settle();
-            expect(notifSends(state.sent)).toHaveLength(2);
-            expect(settled).toHaveLength(1);
-        } finally {
-            state.server.clients.event.off?.('notif.delivery.settled', handler);
-            state.server.clients.event.off?.('notif.written', onWritten);
-        }
     });
 
     it('delivers to a subscription on the mailbox slice, and to no other', async () => {

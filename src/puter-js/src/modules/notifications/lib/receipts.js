@@ -1,6 +1,6 @@
 /**
- * Asked by the server with `{ uid }` on the page's socket: acknowledged once a
- * notification feed on this page has received that notification.
+ * Asked by the server with `{ uid }` on the page's sockets: acknowledged once
+ * this page has received that notification live.
  */
 export const RECEIPT_EVENT = 'notif.receipt';
 
@@ -20,7 +20,7 @@ const receipt = () => {
 
 /** @typedef {{ ack: Function; timer: ReturnType<typeof setTimeout> }} WaitingAsk */
 
-/** Notifications this page's feeds received, for the server's receipt asks. */
+/** Notifications this page received live, for the server's receipt asks. */
 export class ReceiptLog {
     /** @type {Set<string>} */
     #received = new Set();
@@ -41,8 +41,8 @@ export class ReceiptLog {
     }
 
     /**
-     * Acknowledges now when a feed has the notification, or when it arrives;
-     * never when no feed on this page gets it.
+     * Acknowledges now when the page has the notification, or when it
+     * arrives; never when the page doesn't get it.
      *
      * @param {unknown} data
      * @param {unknown} ack
