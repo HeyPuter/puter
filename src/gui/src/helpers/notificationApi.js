@@ -140,7 +140,7 @@ export async function getNotification (uid) {
     }
 }
 
-/** @typedef {{ uid: string, platform: 'web'|'ios'|'android', label: string|null, user_agent: string|null, created_at: number, last_seen_at: number, current: boolean }} PushDevice */
+/** @typedef {{ uid: string, platform: 'webpush'|'ios'|'android', label: string|null, user_agent: string|null, created_at: number, last_seen_at: number, current: boolean }} PushDevice */
 
 /** @typedef {{ uid: string, name: string, title: string, icon: string|null }} PushApp */
 

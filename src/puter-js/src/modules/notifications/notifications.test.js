@@ -963,7 +963,7 @@ describe('enablePush', () => {
 describe('devices', () => {
     const device = {
         uid: 'd-1',
-        platform: 'web',
+        platform: 'ios',
         label: 'Laptop',
         user_agent: 'UA',
         created_at: 10,
@@ -972,7 +972,7 @@ describe('devices', () => {
     };
     const mapped = {
         uid: 'd-1',
-        platform: 'web',
+        platform: 'ios',
         label: 'Laptop',
         userAgent: 'UA',
         createdAt: 10,
@@ -983,7 +983,7 @@ describe('devices', () => {
     it('registers with POST /push/devices', async () => {
         mockFetchUrl.mockResolvedValue(jsonResponse({ device }));
         const result = await makeModule().registerDevice({
-            platform: 'web',
+            platform: 'ios',
             token: 'tok',
             label: 'Laptop',
         });
@@ -993,7 +993,7 @@ describe('devices', () => {
         expect(url).toBe('https://api.test/push/devices');
         expect(init).toMatchObject({ method: 'POST', includePuterAuth: true });
         expect(JSON.parse(init.body)).toEqual({
-            platform: 'web',
+            platform: 'ios',
             token: 'tok',
             label: 'Laptop',
         });
@@ -1083,7 +1083,7 @@ describe('devices', () => {
     it.each([
         [
             'registerDevice',
-            (m) => m.registerDevice({ platform: 'web', token: 't' }),
+            (m) => m.registerDevice({ platform: 'ios', token: 't' }),
         ],
         ['listDevices', (m) => m.listDevices()],
         ['removeDevice', (m) => m.removeDevice('d-1')],

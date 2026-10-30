@@ -17,7 +17,7 @@ puter.notifications.registerDevice({ platform, token, label })
 
 #### `registration` (Object) (required)
 
-- `platform` (String) (required): `'web'`, `'ios'` or `'android'`.
+- `platform` (String) (required): `'ios'` or `'android'`.
 - `token` (String) (required): The push token the platform issued for this device.
 - `label` (String): A name the user will recognize, such as `Pixel 8`. Up to 64 characters.
 
@@ -43,4 +43,5 @@ It rejects with an error carrying `message` and `code`:
 | `forbidden` | Not called from a signed-in Puter session. |
 | `push_device_conflict` | The token is registered to another account. |
 | `push_disabled` | This server doesn't send push notifications. |
+| `push_platform_unavailable` | This server doesn't send push notifications to that platform. |
 | `push_unavailable` | This deployment has no push notification service, as on most self-hosted servers. |

@@ -126,13 +126,13 @@
  *   subscription current fails.
  */
 
-/** @typedef {'web' | 'webpush' | 'ios' | 'android'} PushPlatform */
+/** @typedef {'webpush' | 'ios' | 'android'} PushPlatform */
 
 /**
  * What `registerDevice()` takes.
  *
  * @typedef {Object} PushDeviceRegistration
- * @property {PushPlatform} platform
+ * @property {'ios' | 'android'} platform
  * @property {string} token The push token the platform issued.
  * @property {string} [label] A name the user will recognize, up to 64
  *   characters.
