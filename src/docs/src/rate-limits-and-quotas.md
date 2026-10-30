@@ -405,6 +405,8 @@ An app, its workers and the tokens it issues can send the user they act for an `
 | `app.message` notifications       | 30/min, 300/day                   | Per user, per app |
 | Pushes                            | 12/min, 1,000/day                 | Per user, per app |
 | Pushes from a new or unlisted app | 6/min, 200/day                    | Per user, per app |
+| Browsers with pushes turned on    | 10 per app, 20 for Puter          | Per user          |
+| Turning pushes on in a browser    | 10/min                            | Per user          |
 | `title`                           | 120 characters                    |                   |
 | `text`                            | 240 characters                    |                   |
 | `icon` (an `https` URL)           | 2,048 characters                  |                   |
@@ -418,7 +420,7 @@ An app, its workers and the tokens it issues can send the user they act for an `
 
 Over the rate limit the call fails with `429 too_many_requests`, and a refused call counts against neither window. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
 
-A notification goes out as a push only when no open page of the app answers within 5 seconds that it's visible and focused, or that it shows the notification itself. The push limits count those pushes. An app gets the lower push limits while it's younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower limits. Over a push limit the call still succeeds and the notification still shows in the user's notifications panel. It just isn't pushed. Pushes are billed to the user who receives them. See [What pushes cost](#what-pushes-cost).
+A notification goes out as a push only when no open page of the app answers within 5 seconds that it's visible and focused, or that it shows the notification itself. The push limits count those pushes. An app gets the lower push limits while it's younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower limits. Over a push limit the call still succeeds and the notification still shows in the user's notifications panel. It just isn't pushed. Pushes are billed to the user who receives them. See [What pushes cost](#what-pushes-cost). Turning pushes on in another browser past an app's 10 removes that app's least recently seen one.
 
 ### Teams
 

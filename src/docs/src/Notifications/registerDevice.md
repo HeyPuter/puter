@@ -6,7 +6,7 @@ platforms: [websites, apps]
 
 <div class="info">This is for Puter's own web and mobile apps, which decide where pushes go. It needs a signed-in Puter session; an app's token is refused with <code>forbidden</code>. Apps send notifications with <a href="/Notifications/notify/"><code>notify()</code></a> and never need it.</div>
 
-Registers a device to receive the user's push notifications, or refreshes it if its token is already registered. A user can have up to 20 devices. Registering another removes the one seen least recently.
+Registers a device to receive the user's push notifications, or refreshes it if its token is already registered. A user can have up to 20 devices for Puter. Registering another removes the one seen least recently.
 
 On puter.com, this call doesn't register devices. It rejects with `push_platform_unavailable` for every platform. A browser turns pushes on with [`enable()`](/Notifications/enable/) instead.
 
