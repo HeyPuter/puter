@@ -28,7 +28,7 @@ puter.notifications.enable(options)
 - `serviceWorker` (String): path of the worker that imports `push-sw.js`. Default `/puter-sw.js`. Pass the same path to [`onPush()`](/Notifications/onPush/) and [`disable()`](/Notifications/disable/).
 
 ## Return value
-A `Promise` that resolves to `true` when this browser receives pushes for your app, and `false` when the user didn't allow notifications or the browser can't receive pushes.
+A `Promise` that resolves to `true` when this browser receives pushes for your app, and `false` when the user didn't allow notifications or the browser can't receive pushes, such as a private window or an iPhone page that isn't opened from the Home Screen. [Where pushes work](/Notifications/push/#where-pushes-work) lists what each browser needs.
 
 It rejects with an error carrying `message` and `code`:
 

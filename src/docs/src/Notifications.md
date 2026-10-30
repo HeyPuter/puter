@@ -21,7 +21,7 @@ A notification always shows in the user's Puter notifications panel. It also rea
 - **Live**, on every open page of your app, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). A page in the background with an [`onPush()`](/Notifications/onPush/) handler shows the notification itself.
 - **As a push**, when no page answers within 5 seconds that it's visible and focused or that it shows the notification itself. It goes to the browsers where the user turned pushes on for your app.
 
-For a push, the user has to have turned them on. On a website, call [`enable()`](/Notifications/enable/) from a click and handle pushes with [`onPush()`](/Notifications/onPush/). Pushes arrive on your own origin through a small service worker, and [Push notifications for your app](/Notifications/push/) has the setup step by step. Inside the Puter desktop, pushes go through Puter. Ask with [`requestPermission()`](/Notifications/requestPermission/), and [`enablePush()`](/Notifications/enablePush/) offers to turn them on in the browser.
+For a push, the user has to have turned them on. On a website, call [`enable()`](/Notifications/enable/) from a click and handle pushes with [`onPush()`](/Notifications/onPush/). Pushes arrive on your own origin through a small service worker. [Push notifications for your app](/Notifications/push/) has the setup step by step and the browsers and devices that can receive them. On iPhone and iPad, the user first adds your site to the Home Screen. Inside the Puter desktop, pushes go through Puter: ask with [`requestPermission()`](/Notifications/requestPermission/), and [`enablePush()`](/Notifications/enablePush/) offers to turn them on in the browser.
 
 A user gets at most 12 pushes a minute and 1,000 a day from each app. A new or unlisted app gets 6 a minute and 200 a day, and a website using Puter.js starts out unlisted. A notification over that still shows in the panel. It just isn't pushed.
 
@@ -152,3 +152,9 @@ For Puter's own web and mobile apps, which decide where pushes go:
 
 - [Send a Notification](/playground/notifications-notify/)
 - [Push notifications for a website](/Notifications/push/#a-minimal-page)
+
+## Recipes
+
+- [Reach a User When Your App Is Closed](/recipes/push-when-closed/)
+- [Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/)
+- [Alert Users When Shared Data Changes](/recipes/alert-users-when-shared-data-changes/)

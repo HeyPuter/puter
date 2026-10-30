@@ -18,12 +18,14 @@ On a website, pushes reach your own origin, so your site has to serve a service 
 importScripts('https://js.puter.com/push-sw.js');
 ```
 
+The worker has to be on your origin and served over HTTPS.
+
 - If your site already has a service worker for that scope, add that line to it instead and pass its path as `serviceWorker`. A second worker for the same scope makes [`enable()`](/Notifications/enable/) reject with `push_worker_conflict`.
 - If that worker already gets pushes from another service, such as Firebase or OneSignal, give Puter its own worker in a folder, such as `/puter/puter-sw.js`, and pass that path as `serviceWorker`.
 - If the worker is served with a Content-Security-Policy, its `script-src` has to allow `https://js.puter.com` and `'unsafe-eval'`.
 - A changed worker only runs once it activates. Call `self.skipWaiting()` in it, or close every tab of your site.
 
-[Push notifications for your app](/Notifications/push/#1-serve-a-service-worker) has the worker rules in full. Inside the Puter desktop, pushes go through Puter itself and no worker is needed.
+[Push notifications for your app](/Notifications/push/#requirements) has the full setup and the browsers that can receive pushes. Inside the Puter desktop, pushes go through Puter itself and no worker is needed.
 
 ## Syntax
 ```js
@@ -52,7 +54,7 @@ A [sensitive](/Notifications/notify/#parameters) push carries no `channel`, so n
 
 ## Handler limits
 
-On a website, the handler is saved as source and run again in your service worker when a push arrives. There it follows the Web Push rules:
+On a website, the handler is saved as source in this browser and run again in your service worker when a push arrives. A browser that hasn't run `onPush()` for a key shows that key's pushes with the notification's own title and text. There it follows the Web Push rules:
 
 - **Plain function.** It's re-created from `handler.toString()`, so it has to be a plain `function` or an arrow function. A method shorthand, a bound function or a class method is refused with `invalid_handler`.
 - **Self-contained.** It can't use variables, functions or imports from around it. Everything it needs must come from its argument or be written inside it.
