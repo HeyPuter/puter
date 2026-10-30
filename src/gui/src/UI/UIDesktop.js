@@ -61,7 +61,7 @@ import {
 import { showLocalBanner, startPushWorker } from '../helpers/pushWorker.js';
 import { syncBrowserPush } from '../helpers/pushSync.js';
 import { get_app_by_uid } from '../helpers/getAppByUid.js';
-import { httpsIconFor, notificationTarget, senderNameFor } from './Dashboard/notificationCenter.js';
+import { httpsIconFor, isAppOnlyNotification, notificationTarget, senderNameFor } from './Dashboard/notificationCenter.js';
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import UIWindowSearch from './UIWindowSearch.js';
@@ -286,6 +286,7 @@ async function UIDesktop (options) {
      * row isn't marked twice.
      */
     const show_notification = ({ uid, notification, app_uid }, { replay = false } = {}) => {
+        if ( isAppOnlyNotification(notification) ) return;
         void showLocalBanner({ uid, notification }, { replay });
         // A notification can be re-sent under its own uid when what it says has
         // grown — several people sharing with you is one notification that

@@ -82,7 +82,7 @@
  */
 
 /**
- * What a click handler receives, for a push or a panel entry the user clicked.
+ * What a click handler receives, for a push the user clicked.
  *
  * @typedef {Object} NotificationClick
  * @property {string} uid The notification's uid.

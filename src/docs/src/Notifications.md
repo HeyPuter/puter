@@ -4,7 +4,7 @@ description: Send notifications from your app to its user, as pushes too when th
 platforms: [websites, apps]
 ---
 
-The Notifications API lets your app notify the user it runs for: a new message, a finished export, a reminder. Each notification shows in the user's Puter notifications panel. When no page of your app receives it live, it can also reach the user's phone or browser as a push notification.
+The Notifications API lets your app notify the user it runs for: a new message, a finished export, a reminder. Each notification reaches your app, not the Puter desktop's notifications panel. When no page of your app receives it live, it can reach the user's phone or browser as a push notification.
 
 ```js
 await puter.notifications.notify({
@@ -16,21 +16,21 @@ await puter.notifications.notify({
 
 ## Where a notification shows
 
-A notification always shows in the user's Puter notifications panel. Puter then routes it one of two ways:
+A notification goes to your app alone, and the Puter desktop's notifications panel doesn't show it. Puter routes it one of two ways:
 
 - **Live**, while your app is open and connected: it reaches the app through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/).
 - **As a push**, when no page of your app receives it live within 5 seconds: to the browsers where the user turned pushes on for your app.
 
 For a push, the user has to have turned them on. On a website, call [`enable()`](/Notifications/enable/) from a click and handle pushes with [`onPush()`](/Notifications/onPush/). Pushes arrive on your own origin through a small service worker. [Push notifications for your app](/Notifications/push/) has the setup step by step and the browsers and devices that can receive them. On iPhone and iPad, the user first adds your site to the Home Screen. Inside the Puter desktop, pushes go through Puter: ask with [`requestPermission()`](/Notifications/requestPermission/), and [`enablePush()`](/Notifications/enablePush/) offers to turn them on in the browser.
 
-A user gets at most 12 pushes a minute and 1,000 a day from each app, and fewer while the app is new. A notification over that still shows in the panel. It just isn't pushed.
+A user gets at most 12 pushes a minute and 1,000 a day from each app, and fewer while the app is new. A notification over that still reaches your app live and through [`puter.events.fetch()`](/Events/fetch/). It just isn't pushed.
 
 ## What a notification carries
 
 - `title`, and optionally `text` and an `icon`.
 - `target`: a path inside your app, such as `/chats/42`. When the user clicks the notification, Puter opens your app and hands the `target` back through [`on('click')`](/Notifications/on/).
 - `data`: a small JSON value handed back on click. Push providers can read it, so put IDs in it, not personal content.
-- `sensitive`: pushes show a generic line instead of the title and text. The panel still shows them.
+- `sensitive`: pushes show a generic line instead of the title and text. Your app still gets them in full.
 
 See [`notify()`](/Notifications/notify/) for every field, and [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications) for the size limits and how many notifications an app can send.
 

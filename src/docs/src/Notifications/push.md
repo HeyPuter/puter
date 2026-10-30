@@ -106,9 +106,9 @@ await puter.notifications.notify({
 
 [`notify()`](/Notifications/notify/) sends to the user your app runs for. It works from a page, from a [worker](/Workers/) as `user.puter.notifications.notify()`, and from an [events handler](/Events/handlers/) as `user.notifications.notify()`. To notify another user, have a handler that runs for them call it, as in [Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/).
 
-The notification always shows in the user's Puter notifications panel. It goes out as a push only when no page of your app received it live within 5 seconds. A user gets at most 12 pushes a minute and 1,000 a day from each app, and fewer while the app is new. The other limits are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
+The notification reaches your app, not the Puter desktop's notifications panel. It goes out as a push only when no page of your app received it live within 5 seconds. A user gets at most 12 pushes a minute and 1,000 a day from each app, and fewer while the app is new. The other limits are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
 
-When the user taps the push, the browser focuses an open tab of your site or opens the handler's `url`, and the page gets the tap through [`on('click')`](/Notifications/on/). When the user clicks the notification in the Puter panel instead, Puter opens your app and hands the `target` and `data` back through [`on('click')`](/Notifications/on/) as well.
+When the user taps the push, the browser focuses an open tab of your site or opens the handler's `url`, and the page gets the tap through [`on('click')`](/Notifications/on/). Inside the Puter desktop, a tap on the push opens your app and hands the `target` and `data` back through [`on('click')`](/Notifications/on/) as well.
 
 ## A minimal page
 
@@ -243,7 +243,7 @@ The browser can be allowed to show notifications while the operating system hide
 ## Good to know
 
 - Say who did what. "Ana shared Q3-report.pdf" reads well as a push. A push that only says there's something new can be hidden as spam on Android.
-- The `data` field is handed back on click, and push services can read it, so put IDs in it and fetch the rest. Set `sensitive: true` when the title and text shouldn't leave Puter. The push then shows a generic line, and the panel still shows the notification.
+- The `data` field is handed back on click, and push services can read it, so put IDs in it and fetch the rest. Set `sensitive: true` when the title and text shouldn't leave Puter. The push then shows a generic line, and your app still gets the notification in full.
 - A push carries about 4 KB, with `data` at most 1 KB.
 - A tap opens your domain. The `url` a handler returns has to be on your origin, and other origins are replaced with your site's root.
 - Pushes from your app count toward the user's usage. See [What pushes cost](/rate-limits-and-quotas/#what-pushes-cost). Puter's own notifications are free.

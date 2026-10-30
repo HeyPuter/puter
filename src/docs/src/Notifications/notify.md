@@ -1,10 +1,10 @@
 ---
 title: puter.notifications.notify()
-description: Send the user a notification from your app. It shows in their Puter notifications panel, and as a push when no page of the app receives it live.
+description: Send the user a notification from your app. It reaches your app live, and as a push when no page of the app receives it live.
 platforms: [websites, apps]
 ---
 
-Sends the user your app runs for a notification. It shows in their Puter notifications panel and reaches your app through [`onNotification()`](/Notifications/onNotification/) while it's open. When no page of your app receives it live within 5 seconds, it also goes out as a push notification, if the user [allowed pushes](/Notifications/requestPermission/) from your app and has push notifications turned on on a device.
+Sends the user your app runs for a notification. It reaches your app through [`onNotification()`](/Notifications/onNotification/) while it's open. When no page of your app receives it live within 5 seconds, it also goes out as a push notification, if the user [allowed pushes](/Notifications/requestPermission/) from your app and has push notifications turned on on a device.
 
 Only an app can send notifications: an app running on Puter, or a website using Puter.js. Every notification carries your app's name, and a user gets at most 12 pushes a minute and 1,000 a day from each app (the rest still show in the panel).
 
@@ -26,7 +26,7 @@ puter.notifications.notify(notification)
 - `data` (any): A JSON value of up to 1 KB, handed back on click. Push providers can read it, so put IDs in it, not personal content.
 - `group` (String): Notifications with the same group are shown together. Letters, digits and `. _ : -`, up to 64 characters.
 - `channel` (String): What kind of notification it is, such as `messages` or `reminders`. Lowercase letters, digits and `-`, up to 32 characters.
-- `sensitive` (Boolean): Pushes show a generic line instead of the title and text. The notifications panel still shows them.
+- `sensitive` (Boolean): Pushes show a generic line instead of the title and text. Your app still gets them in full.
 - `priority` (String): Only `'normal'` is available to apps.
 - `ttl` (Number): How long, in seconds, a push may wait for a device that's offline. 1 to 86400, default 3600. It doesn't change how long the notification is kept.
 

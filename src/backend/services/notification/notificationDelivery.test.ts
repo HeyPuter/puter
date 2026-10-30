@@ -568,6 +568,26 @@ describe('live receipts from an app’s own sockets', () => {
         expect(asked).toEqual([]);
     });
 
+    it('keeps an app message off a visible desktop tab, which leaves its receipt to the app', async () => {
+        const got = desktopTab(
+            await connect({ acks: [NOTIF_RECEIPT_EVENT] }),
+            'visible',
+        );
+
+        expect((await ask()).settled).toMatchObject({ outcome: 'no-socket' });
+        const share = await notify('share.received');
+
+        await vi.waitFor(() => expect(got).toHaveLength(1));
+        expect(got).toEqual([
+            [
+                {
+                    uid: share,
+                    notification: { title: 'hello', type: 'share.received' },
+                },
+            ],
+        ]);
+    });
+
     it('settles as remote-only when only a peer region holds the app', async () => {
         const eventForward = peerRegionHolds();
 

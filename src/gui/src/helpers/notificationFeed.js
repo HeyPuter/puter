@@ -29,6 +29,7 @@
  * straight back to them rather than leaving the GUI deaf.
  */
 
+import { isAppOnlyNotification } from '../UI/Dashboard/notificationCenter.js';
 import {
     listNotifications,
     markNotificationAcknowledged,
@@ -51,7 +52,8 @@ export const answerNotificationReceipts = (socket, sdk = globalThis.puter) => {
     const log = receiptLog(sdk);
     if ( ! log ) return;
     socket.on('notif.message', (message) => {
-        if ( typeof message?.uid === 'string' ) log._noteReceived(message.uid);
+        if ( typeof message?.uid !== 'string' ) return;
+        if ( ! isAppOnlyNotification(message.notification) ) log._noteReceived(message.uid);
     });
     socket.on('notif.receipt', (data, ack) => log._answerReceipt(data, ack));
 };

@@ -5,7 +5,7 @@ tags: [notifications]
 order: 67
 ---
 
-With `puter.notifications`, your app can notify the user it runs for. Each notification shows in the user's Puter notifications panel, and while your app is open it reaches the page right away. Once the user closes your app and Puter, the same notification goes out as a push. The browser shows it on their phone or desktop, and a tap opens your site.
+With `puter.notifications`, your app can notify the user it runs for. While your app is open, each notification reaches the page right away. Once the user closes your app and Puter, the same notification goes out as a push. The browser shows it on their phone or desktop, and a tap opens your site.
 
 This recipe sets that up for a website on its own domain. An app inside the Puter desktop only needs [`requestPermission()`](/Notifications/requestPermission/). [Push notifications for your app](/Notifications/push/) covers both cases.
 
@@ -74,7 +74,7 @@ await puter.notifications.notify({
 });
 ```
 
-It works from the page and from a worker. The notification always shows in the user's Puter notifications panel. It goes out as a push only when no page of your app received it live within 5 seconds, and a user gets at most 12 pushes a minute and 1,000 a day from each app, and fewer while the app is new. A notification over that still shows in the panel. The other limits are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
+It works from the page and from a worker. The notification goes to your app, not the Puter desktop's notifications panel. It goes out as a push only when no page of your app received it live within 5 seconds, and a user gets at most 12 pushes a minute and 1,000 a day from each app, and fewer while the app is new. A notification over that still reaches your app live. The other limits are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
 
 Push services can read `data`, so put IDs in it and fetch the rest. For a notification whose text shouldn't leave Puter, set `sensitive: true`, and the push shows a generic line instead.
 

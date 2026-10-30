@@ -418,6 +418,18 @@ describe('notification receipts', () => {
         expect(sdk.notifications._answerReceipt).toHaveBeenCalledWith({ uid: 'n-1' }, ack);
     });
 
+    it("does not note an app's own message, so the desktop never vouches for it", () => {
+        const sdk = sdkWithLog();
+        const socket = fakeSocket();
+        answerNotificationReceipts(socket, sdk);
+
+        socket.handlers['notif.message'][0]({ uid: 'n-2', notification: { type: 'app.message', title: 'hi' } });
+        socket.handlers['notif.message'][0]({ uid: 'n-3', notification: { type: 'share.received' } });
+
+        expect(sdk.notifications._noteReceived).toHaveBeenCalledTimes(1);
+        expect(sdk.notifications._noteReceived).toHaveBeenCalledWith('n-3');
+    });
+
     it('registers nothing with a puter.js that has no log', () => {
         const socket = fakeSocket();
         answerNotificationReceipts(socket, { notifications: {} });
