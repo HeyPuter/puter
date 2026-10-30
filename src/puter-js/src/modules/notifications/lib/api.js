@@ -6,12 +6,16 @@ const UNAVAILABLE_MESSAGE =
 
 /**
  * One `/push` call; the server's `{ message, code }` passes through. A 404 the
- * device routes didn't answer themselves becomes `push_unavailable`.
+ * device routes didn't answer themselves becomes `push_unavailable`. With
+ * `authToken`, that token is sent instead of the live one, and a rejected one
+ * opens no sign-in.
  */
-export async function request(puter, method, route, body) {
+export async function request(puter, method, route, body, { authToken } = {}) {
     const response = await fetchUrl(`${puter.APIOrigin}${route}`, {
         method,
-        includePuterAuth: true,
+        ...(authToken
+            ? { authToken, interactiveReauth: false }
+            : { includePuterAuth: true }),
         headers: { 'Content-Type': 'application/json' },
         ...(body ? { body: JSON.stringify(body) } : {}),
     });

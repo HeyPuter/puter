@@ -12,8 +12,8 @@
  *   `/chats/42`. Handed back to the app when the user clicks the notification.
  * @property {unknown} [data] Any JSON value up to 1 KB, handed back to the app
  *   on click. Push providers can read it, so keep it to IDs.
- * @property {string} [group] Notifications sharing a group are shown together.
- *   Letters, digits and `. _ : -`.
+ * @property {string} [group] A newer notification with the same group replaces
+ *   the one showing and alerts again. Letters, digits and `. _ : -`.
  * @property {string} [channel] The kind of notification, such as `messages`.
  *   Lowercase letters, digits and `-`.
  * @property {boolean} [sensitive] Pushes show a generic line instead of the
@@ -46,6 +46,8 @@
  * @property {unknown} data
  * @property {string | null} group
  * @property {string | null} channel
+ * @property {boolean} sensitive Sent with `sensitive: true`; its push and the
+ *   notification the page shows for it name only the app.
  * @property {number} createdAt Milliseconds since the epoch.
  * @property {NotificationSender | null} app
  */
@@ -122,8 +124,8 @@
  * @property {string} [serviceWorker] Path of the app's worker that imports
  *   `push-sw.js`. Default `/puter-sw.js`.
  * @property {(error: Error & { code?: string }) => void} [onError] Called when
- *   the handler throws, the live listener stops, or keeping the browser's
- *   subscription current fails.
+ *   the handler throws or runs past 5 seconds (`push_handler_timeout`), the
+ *   live listener stops, or keeping the browser's subscription current fails.
  */
 
 /** @typedef {'web' | 'webpush' | 'ios' | 'android'} PushPlatform */

@@ -338,6 +338,7 @@ describe('onNotification', () => {
                 data: { id: 1 },
                 group: 'g',
                 channel: 'messages',
+                sensitive: false,
                 createdAt: 1234,
                 app: { uid: 'app-1', name: 'Chat' },
             },
