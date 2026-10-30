@@ -4,7 +4,7 @@ description: Set up push notifications for a website on its own domain or an app
 platforms: [websites, apps]
 ---
 
-A push notification reaches the user when your app isn't open to receive a notification live. It shows on their phone or computer, and a tap opens your app. Your app sends it with [`notify()`](/Notifications/notify/), the same call that puts a notification in the user's Puter notifications panel.
+A push notification reaches the user when your app isn't open to receive a notification live. It shows on their phone or computer, and a tap opens your app. Your app sends it with [`notify()`](/Notifications/notify/), the same call that delivers a notification to your app while it's open.
 
 Puter decides the route. A page of your app that receives the notification through [`onNotification()`](/Notifications/onNotification/) or [`onPush()`](/Notifications/onPush/) tells Puter so on its own, and the notification isn't pushed. When no page of your app receives it within 5 seconds, it goes out as a push.
 
