@@ -750,8 +750,134 @@ it('preflights both events of a text turn before sending either', async () => {
     expect(socket().sent).toHaveLength(before);
 });
 
-// -- Reconnect retries --
+// -- Context replay and retries --
 
+const userText = (id, text, previous = null) => ({
+    type: 'conversation.item.added',
+    previous_item_id: previous,
+    item: {
+        id,
+        object: 'realtime.item',
+        type: 'message',
+        role: 'user',
+        status: 'completed',
+        content: [{ type: 'input_text', text }],
+    },
+});
+/** PCM16 24 kHz base64 for `ms` of silence. */
+const pcmFor = (ms) => 'A'.repeat(((ms * 48) / 3) * 4);
+/** Streams a whole assistant message the way OpenAI does. */
+const reply = (
+    ws,
+    {
+        responseId,
+        itemId,
+        text,
+        audioMs = 0,
+        status = 'completed',
+        finish = true,
+    },
+) => {
+    const audio = audioMs > 0;
+    ws.deliver({ type: 'response.created', response: { id: responseId } });
+    ws.deliver({
+        type: 'response.output_item.added',
+        response_id: responseId,
+        item: {
+            id: itemId,
+            type: 'message',
+            role: 'assistant',
+            status: 'in_progress',
+            content: [],
+        },
+    });
+    if (audio)
+        ws.deliver({
+            type: 'response.output_audio.delta',
+            response_id: responseId,
+            item_id: itemId,
+            content_index: 0,
+            delta: pcmFor(audioMs),
+        });
+    ws.deliver({
+        type: audio
+            ? 'response.output_audio_transcript.delta'
+            : 'response.output_text.delta',
+        response_id: responseId,
+        item_id: itemId,
+        content_index: 0,
+        delta: text,
+    });
+    if (!finish) return;
+    ws.deliver({
+        type: 'response.output_item.done',
+        response_id: responseId,
+        item: {
+            id: itemId,
+            type: 'message',
+            role: 'assistant',
+            status,
+            content: [
+                audio
+                    ? { type: 'output_audio', transcript: text }
+                    : { type: 'output_text', text },
+            ],
+        },
+    });
+    ws.deliver({
+        type: 'response.done',
+        response: {
+            id: responseId,
+            status: status === 'completed' ? 'completed' : 'cancelled',
+        },
+    });
+};
+/** A function call reply followed by the app's output for it. */
+const toolTurn = (c, ws, { responseId, callId, output = '42' }) => {
+    ws.deliver({ type: 'response.created', response: { id: responseId } });
+    const call = {
+        id: `fc_${callId}`,
+        type: 'function_call',
+        call_id: callId,
+        name: 'lookup',
+        arguments: '{"q":1}',
+    };
+    ws.deliver({
+        type: 'response.output_item.done',
+        response_id: responseId,
+        item: { ...call, status: 'completed' },
+    });
+    ws.deliver({ type: 'response.done', response: { id: responseId } });
+    if (output === null) return;
+    c.send({
+        type: 'conversation.item.create',
+        item: { type: 'function_call_output', call_id: callId, output },
+    });
+    ws.deliver({
+        type: 'conversation.item.added',
+        item: {
+            id: `out_${callId}`,
+            type: 'function_call_output',
+            call_id: callId,
+            output,
+            status: 'completed',
+        },
+    });
+};
+/** Answers the replacement socket's handshake once the backoff elapses. */
+const replayed = () =>
+    socket()
+        .sent.filter((event) => event.type === 'conversation.item.create')
+        .map((event) => event.item);
+const track = (c) => {
+    const events = [];
+    c.on('*', (event) => events.push(event));
+    return {
+        events,
+        types: () => events.map((event) => event.type),
+        errors: () => events.filter((event) => event.type === 'error'),
+    };
+};
 const answerReconnect = async (delay = 500) => {
     const before = socket();
     await vi.advanceTimersByTimeAsync(delay);
@@ -765,6 +891,418 @@ const fakeTime = () => {
     vi.useFakeTimers();
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
 };
+describe('context replay after a reconnect', () => {
+    it('restores finished items in order, before ready, after a dropped connection', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        c.sendText('What is the weather?');
+        first.deliver(userText('u1', 'What is the weather?'));
+        reply(first, {
+            responseId: 'r1',
+            itemId: 'a1',
+            text: 'Sunny today.',
+            audioMs: 600,
+        });
+        first.deliver({ type: 'input_audio_buffer.speech_started' });
+        first.deliver({ type: 'input_audio_buffer.committed', item_id: 'u2' });
+        first.deliver({
+            type: 'conversation.item.added',
+            previous_item_id: 'a1',
+            item: {
+                id: 'u2',
+                type: 'message',
+                role: 'user',
+                status: 'completed',
+                content: [{ type: 'input_audio', transcript: null }],
+            },
+        });
+        first.deliver({
+            type: 'conversation.item.input_audio_transcription.completed',
+            item_id: 'u2',
+            content_index: 0,
+            transcript: 'And tomorrow?',
+        });
+        toolTurn(c, first, { responseId: 'r2', callId: 'call_1' });
+        reply(first, { responseId: 'r3', itemId: 'a2', text: 'Rain.' });
+
+        let sentAtReady;
+        c.on('ready', () => {
+            sentAtReady = socket().sent.map((event) => event.type);
+        });
+        first.close(1006);
+        await answerReconnect();
+        expect(replayed()).toEqual([
+            {
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text: 'What is the weather?' }],
+            },
+            {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'Sunny today.' }],
+            },
+            {
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text: 'And tomorrow?' }],
+            },
+            {
+                type: 'function_call',
+                call_id: 'call_1',
+                name: 'lookup',
+                arguments: '{"q":1}',
+            },
+            { type: 'function_call_output', call_id: 'call_1', output: '42' },
+            {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'Rain.' }],
+            },
+        ]);
+        expect(sentAtReady).toEqual([
+            'session.update',
+            ...Array(6).fill('conversation.item.create'),
+        ]);
+        expect(c.state).toBe('connected');
+    });
+
+    it('honors previous_item_id when the provider inserts an item mid-conversation', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver(userText('u1', 'one'));
+        first.deliver(userText('u3', 'three', 'u1'));
+        first.deliver(userText('u2', 'two', 'u1'));
+        first.close(1006);
+        await answerReconnect();
+        expect(replayed().map((item) => item.content[0].text)).toEqual([
+            'one',
+            'two',
+            'three',
+        ]);
+    });
+
+    it('leaves out what it cannot recreate faithfully', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        // Audio without a transcript, and one whose transcription failed.
+        for (const id of ['u1', 'u2'])
+            first.deliver({
+                type: 'conversation.item.added',
+                item: {
+                    id,
+                    type: 'message',
+                    role: 'user',
+                    status: 'completed',
+                    content: [{ type: 'input_audio', transcript: null }],
+                },
+            });
+        first.deliver({
+            type: 'conversation.item.input_audio_transcription.failed',
+            item_id: 'u2',
+            content_index: 0,
+            error: { code: 'x' },
+        });
+        // An image message.
+        first.deliver({
+            type: 'conversation.item.added',
+            item: {
+                id: 'u3',
+                type: 'message',
+                role: 'user',
+                status: 'completed',
+                content: [
+                    { type: 'input_text', text: 'What is this?' },
+                    {
+                        type: 'input_image',
+                        image_url: 'data:image/png;base64,',
+                    },
+                ],
+            },
+        });
+        // A function call cut off by a cancellation.
+        first.deliver({
+            type: 'response.output_item.done',
+            response_id: 'r1',
+            item: {
+                id: 'fc1',
+                type: 'function_call',
+                call_id: 'call_1',
+                name: 'lookup',
+                arguments: '{"q":',
+                status: 'incomplete',
+            },
+        });
+        // A reply still generating when the connection drops.
+        reply(first, {
+            responseId: 'r2',
+            itemId: 'a1',
+            text: 'Half a',
+            finish: false,
+        });
+        first.deliver(userText('u4', 'kept'));
+        first.close(1006);
+        await answerReconnect();
+        expect(replayed()).toEqual([
+            {
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text: 'kept' }],
+            },
+        ]);
+    });
+
+    it('never restores items the provider or the app deleted', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        for (const id of ['u1', 'u2', 'u3']) first.deliver(userText(id, id));
+        first.deliver({ type: 'conversation.item.deleted', item_id: 'u2' });
+        c.send({ type: 'conversation.item.delete', item_id: 'u3' });
+        // A late copy of a deleted item doesn't bring it back.
+        first.deliver({
+            ...userText('u2', 'u2'),
+            type: 'conversation.item.done',
+        });
+        first.close(1006);
+        await answerReconnect();
+        expect(replayed().map((item) => item.content[0].text)).toEqual(['u1']);
+    });
+
+    it('cuts truncated assistant audio to the share that was heard', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        reply(first, {
+            responseId: 'r1',
+            itemId: 'a1',
+            text: 'one two three four',
+            audioMs: 1_000,
+        });
+        first.deliver({
+            type: 'conversation.item.truncated',
+            item_id: 'a1',
+            content_index: 0,
+            audio_end_ms: 500,
+        });
+        reply(first, {
+            responseId: 'r2',
+            itemId: 'a2',
+            text: 'never heard',
+            audioMs: 400,
+        });
+        first.deliver({
+            type: 'conversation.item.truncated',
+            item_id: 'a2',
+            content_index: 0,
+            audio_end_ms: 0,
+        });
+        first.close(1006);
+        await answerReconnect();
+        expect(replayed()).toEqual([
+            {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'one two' }],
+            },
+        ]);
+    });
+
+    it('cuts audio still playing when the connection drops', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        reply(first, {
+            responseId: 'r1',
+            itemId: 'a1',
+            text: 'one two three four',
+            audioMs: 1_000,
+        });
+        vi.spyOn(c.speaker, 'playbackPosition').mockReturnValue({
+            itemId: 'a1',
+            contentIndex: 0,
+            playedMs: 250,
+        });
+        first.close(1006);
+        await answerReconnect();
+        expect(replayed()[0].content[0].text).toBe('one');
+    });
+
+    it('cuts a cancelled text reply to what the app was shown', async () => {
+        const c = await connected({ output: ['text'] });
+        fakeTime();
+        const first = socket();
+        reply(first, {
+            responseId: 'r1',
+            itemId: 'a1',
+            text: 'Hello ',
+            finish: false,
+        });
+        const interrupted = c.interrupt();
+        first.deliver({
+            type: 'response.output_text.delta',
+            response_id: 'r1',
+            item_id: 'a1',
+            delta: 'there',
+        });
+        first.deliver({
+            type: 'response.output_item.done',
+            response_id: 'r1',
+            item: {
+                id: 'a1',
+                type: 'message',
+                role: 'assistant',
+                status: 'incomplete',
+                content: [{ type: 'output_text', text: 'Hello there' }],
+            },
+        });
+        first.deliver({
+            type: 'response.done',
+            response: { id: 'r1', status: 'cancelled' },
+        });
+        await interrupted;
+        first.close(1006);
+        await answerReconnect();
+        expect(replayed()).toEqual([
+            {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'Hello' }],
+            },
+        ]);
+    });
+
+    it('restores only the newest items within the item and byte caps', async () => {
+        const c = await connected();
+        fakeTime();
+        let first = socket();
+        for (let i = 1; i <= 50; i++) first.deliver(userText(`u${i}`, `m${i}`));
+        first.close(1006);
+        await answerReconnect();
+        const items = replayed();
+        expect(items).toHaveLength(40);
+        expect(items[0].content[0].text).toBe('m11');
+        expect(items.at(-1).content[0].text).toBe('m50');
+
+        const d = await connected();
+        first = socket();
+        for (let i = 1; i <= 20; i++)
+            first.deliver(userText(`v${i}`, `${i} `.padEnd(4_000, 'x')));
+        first.close(1006);
+        await answerReconnect();
+        const creates = socket().sent.filter(
+            (event) => event.type === 'conversation.item.create',
+        );
+        const bytes = creates.reduce(
+            (sum, event) =>
+                sum +
+                new TextEncoder().encode(JSON.stringify(event)).byteLength,
+            0,
+        );
+        expect(creates.length).toBe(11);
+        expect(bytes).toBeLessThanOrEqual(48 * 1024);
+        expect(creates.at(-1).item.content[0].text.startsWith('20 ')).toBe(
+            true,
+        );
+        expect(d.state).toBe('connected');
+    });
+
+    it('drops a function output whose call fell outside the window', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        toolTurn(c, first, { responseId: 'r1', callId: 'call_1' });
+        for (let i = 1; i <= 39; i++) first.deliver(userText(`u${i}`, `m${i}`));
+        first.close(1006);
+        await answerReconnect();
+        const items = replayed();
+        expect(items).toHaveLength(39);
+        expect(items.every((item) => item.type === 'message')).toBe(true);
+    });
+
+    it('reports a refused item once, stays connected and leaves it out later', async () => {
+        const c = await connected();
+        fakeTime();
+        const log = track(c);
+        let current = socket();
+        for (const id of ['u1', 'u2', 'u3']) current.deliver(userText(id, id));
+        current.close(1006);
+        await answerReconnect();
+        current = socket();
+        const ids = current.sent
+            .filter((event) => event.type === 'conversation.item.create')
+            .map((event) => event.event_id);
+        expect(ids).toHaveLength(3);
+        for (const id of ids.slice(0, 2))
+            current.deliver({
+                type: 'error',
+                error: { code: 'invalid_value', message: 'Nope', event_id: id },
+            });
+        // The provider's copy of the item it accepted, under a new ID.
+        current.deliver(userText('n3', 'u3'));
+        expect(log.errors()).toEqual([
+            {
+                type: 'error',
+                code: 'context_restore_failed',
+                message:
+                    'Earlier conversation items could not be restored: Nope',
+                error: {
+                    code: 'context_restore_failed',
+                    message:
+                        'Earlier conversation items could not be restored: Nope',
+                },
+            },
+        ]);
+        expect(c.state).toBe('connected');
+
+        // Deleting the new ID removes the restored item; nothing is doubled.
+        current.deliver(userText('n4', 'new'));
+        current.deliver({ type: 'conversation.item.deleted', item_id: 'n3' });
+        current.close(1006);
+        await answerReconnect(500);
+        expect(replayed().map((item) => item.content[0].text)).toEqual(['new']);
+    });
+
+    it('keeps items whose restored copy never arrived for the next reconnect', async () => {
+        const c = await connected();
+        fakeTime();
+        socket().deliver(userText('u1', 'hello'));
+        socket().close(1006);
+        await answerReconnect();
+        expect(replayed()).toHaveLength(1);
+        socket().close(1006);
+        await answerReconnect();
+        expect(replayed().map((item) => item.content[0].text)).toEqual([
+            'hello',
+        ]);
+        expect(c.state).toBe('connected');
+    });
+
+    it('reconnects even when the replay cannot be sent', async () => {
+        const c = await connected();
+        fakeTime();
+        const log = track(c);
+        socket().deliver(userText('u1', 'hello'));
+        socket().close(1006);
+        await vi.advanceTimersByTimeAsync(500);
+        socket().deliver({ type: 'session.created', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        socket().bufferedAmount = 192 * 1024;
+        socket().deliver({ type: 'session.updated', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connected');
+        expect(log.errors()).toMatchObject([
+            { code: 'context_restore_failed' },
+        ]);
+        expect(log.events.at(-1)).toMatchObject({
+            type: 'ready',
+            reconnected: true,
+        });
+    });
+});
 describe('reconnect retries', () => {
     it('retries a reconnect refused by a draining server', async () => {
         const c = await connected();

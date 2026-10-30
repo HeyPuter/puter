@@ -3,6 +3,7 @@ import { promptIfUpgradeRequired } from '../../lib/upgradePrompt.js';
 import { RealtimeSession, createRealtimeSocket } from './convoTransport.js';
 import { RealtimeEvents } from './realtimeEvents.js';
 import { ConvoMicrophone, ConvoSpeaker } from './convoMedia.js';
+import { ConvoHistory } from './convoHistory.js';
 
 /** @typedef {import('./types.js').ConvoOptions} ConvoOptions */
 /** @typedef {import('./types.js').ConvoSessionOptions} ConvoSessionOptions */
@@ -45,6 +46,10 @@ const RECONNECT_DELAY_MS = 500;
 const RECONNECT_MAX_DELAY_MS = 10_000;
 // Per reconnect, the longest wait for a browser that reports being offline.
 const OFFLINE_WAIT_MS = 120_000;
+// Context restored after a reconnect. The byte cap stays under the server's
+// 64 KiB upload burst, so the replay never trips its rate limit.
+const MAX_REPLAY_ITEMS = 40;
+const MAX_REPLAY_BYTES = 48 * 1024;
 const encoder = new TextEncoder();
 
 /**
@@ -272,6 +277,11 @@ export class Conversation extends RealtimeEvents {
      */
     #interruption = null;
     #cancelled = new Set();
+    #history = new ConvoHistory((id) => this.#cancelled.has(id));
+    // Replayed `conversation.item.create` event IDs on the current session.
+    /** @type {Map<string, import('./convoHistory.js').ReplayEntry>} */
+    #replayEvents = new Map();
+    #replayReported = false;
     /** @type {ConvoMicrophone} */
     microphone;
     /** @type {ConvoSpeaker} */
@@ -352,7 +362,7 @@ export class Conversation extends RealtimeEvents {
      * Opens a socket, waits for the provider session and applies settings.
      *
      * @param {boolean} [reapply] Reapply every acknowledged setting instead of
-     *   the SDK options alone.
+     *   the SDK options alone, and restore earlier conversation items.
      * @returns {Promise<void>}
      */
     async #open(reapply = false) {
@@ -379,6 +389,7 @@ export class Conversation extends RealtimeEvents {
         if (reapply && Object.keys(this.#sessionState).length)
             await this.#reapplySession();
         else await this.#configure(this.#options, true);
+        if (reapply) this.#replayHistory();
         if (this.#state === 'closed')
             throw failure('session_closed', 'Conversation is closed');
     }
@@ -418,8 +429,56 @@ export class Conversation extends RealtimeEvents {
     }
 
     /**
-     * Replaces a dropped connection, keeping settings, listeners and media. The
-     * provider session restarts, so earlier conversation items are gone.
+     * Sends the newest recreatable conversation items to a new session. Not
+     * acknowledged: the provider handles them before anything sent later, and a
+     * refusal is reported without failing the reconnect.
+     *
+     * @returns {void}
+     */
+    #replayHistory() {
+        this.#replayEvents.clear();
+        this.#replayReported = false;
+        const entries = this.#history.replay(
+            MAX_REPLAY_ITEMS,
+            MAX_REPLAY_BYTES,
+        );
+        if (!entries.length) return;
+        const events = entries.map(({ item }) => ({
+            type: 'conversation.item.create',
+            event_id: this.#eventId(),
+            item,
+        }));
+        try {
+            this.#write(events);
+        } catch (error) {
+            if (error?.code === 'session_closed') throw error;
+            this.#replayFailed(error?.message);
+            return;
+        }
+        events.forEach((event, i) =>
+            this.#replayEvents.set(event.event_id, entries[i]),
+        );
+        this.#history.replayed(entries);
+    }
+
+    /**
+     * @param {string} [detail]
+     * @returns {void}
+     */
+    #replayFailed(detail) {
+        if (this.#replayReported) return;
+        this.#replayReported = true;
+        this.reportMediaError(
+            failure(
+                'context_restore_failed',
+                `Earlier conversation items could not be restored${detail ? `: ${detail}` : ''}`,
+            ),
+        );
+    }
+
+    /**
+     * Replaces a dropped connection, keeping settings, listeners, media and
+     * recent conversation items.
      *
      * @param {{ code: number; reason: string }} event
      * @returns {Promise<void>}
@@ -427,6 +486,9 @@ export class Conversation extends RealtimeEvents {
     async #reconnect(event) {
         this.#state = 'connecting';
         this.#reconnecting = true;
+        // Playback stops here, so only what was heard is restored.
+        const heard = this.speaker.playbackPosition(this.#activeResponse);
+        if (heard) this.#history.truncate(heard.itemId, heard.playedMs);
         this.#detach();
         this.#resetTurnState();
         this.#rejectPending(
@@ -858,6 +920,7 @@ export class Conversation extends RealtimeEvents {
         this.#state = 'closed';
         this.#reconnecting = false;
         this.#reconnectWait?.();
+        this.#replayEvents.clear();
         this.microphone.stop();
         void this.speaker.stop().catch(() => {});
         this.#rejectPending(
@@ -939,6 +1002,16 @@ export class Conversation extends RealtimeEvents {
             }
             return;
         }
+        if (event.type === 'error') {
+            const entry = this.#replayEvents.get(event.error?.event_id);
+            if (entry) {
+                this.#replayEvents.delete(event.error.event_id);
+                this.#history.refused(entry);
+                this.#replayFailed(event.error?.message);
+                return;
+            }
+        }
+        this.#history.observe(event);
         if (event.type === 'response.created') {
             this.#activeResponse = event.response?.id ?? '';
             const [requested] = this.#requestedResponses;
@@ -1135,6 +1208,11 @@ export class Conversation extends RealtimeEvents {
             }
             if (event.type === 'response.create')
                 this.#requestedResponses.add(event.event_id);
+            if (
+                event.type === 'conversation.item.delete' &&
+                typeof event.item_id === 'string'
+            )
+                this.#history.forget(event.item_id);
             socket.send(json);
         }
     }
