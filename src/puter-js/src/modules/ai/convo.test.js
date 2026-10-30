@@ -893,9 +893,12 @@ const fakeTime = () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
 };
 
+// Longest spread before a notice opens its replacement, plus the tick a timer
+// scheduled during a tick waits.
+const SPREAD = 3_001;
 /** Answers the replacement session a notice opens. */
 const openReplacement = async () => {
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(SPREAD);
     const replacement = socket();
     replacement.deliver({ type: 'session.created', session: {} });
     await vi.advanceTimersByTimeAsync(0);
@@ -914,7 +917,10 @@ describe('restart notice', () => {
         const log = track(c);
         const first = socket();
         first.deliver({ ...notice, close_in_ms: 90_000 });
-        await vi.advanceTimersByTimeAsync(0);
+        // Opened after a randomized spread, here half of 3 seconds.
+        await vi.advanceTimersByTimeAsync(1_499);
+        expect(socket()).toBe(first);
+        await vi.advanceTimersByTimeAsync(2);
         const replacement = socket();
         expect(replacement).not.toBe(first);
         // The current session keeps working while the replacement opens.
@@ -1156,7 +1162,7 @@ describe('restart notice', () => {
         const log = track(c);
         const first = socket();
         first.deliver(notice);
-        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(SPREAD);
         const refuse = () => {
             socket().deliver({
                 type: 'error',
@@ -1221,6 +1227,153 @@ describe('restart notice', () => {
         expect(next.sent[0].type).toBe('session.update');
     });
 
+    it('stops opening replacements after a refusal more attempts will not fix', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver(notice);
+        await vi.advanceTimersByTimeAsync(SPREAD);
+        socket().deliver({
+            type: 'error',
+            error: { code: 'insufficient_funds', message: 'No usage left' },
+        });
+        socket().close(1008);
+        const sockets = FakeWebSocket.instances.length;
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(FakeWebSocket.instances).toHaveLength(sockets);
+        expect(c.state).toBe('connected');
+        expect(first.readyState).toBe(1);
+        // The server's close still reconnects the usual way.
+        first.close(1012);
+        await answerReconnect();
+        expect(c.state).toBe('connected');
+    });
+
+    it('drops a held replacement that gets its own notice or an error', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver({ type: 'response.created', response: { id: 'r1' } });
+        first.deliver(notice);
+        for (const event of [
+            notice,
+            { type: 'error', error: { code: 'server_error', message: 'x' } },
+        ]) {
+            const held = await openReplacement();
+            held.deliver(event);
+            expect(held.readyState).toBe(3);
+        }
+        const held = await openReplacement();
+        first.deliver({ type: 'response.done', response: { id: 'r1' } });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+        expect(held.sent[0].type).toBe('session.update');
+    });
+
+    it('gives a held replacement a short acknowledgment timeout after a drop', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver({ type: 'response.created', response: { id: 'r1' } });
+        first.deliver(notice);
+        // The held socket died with the network but still reads as open.
+        const held = await openReplacement();
+        first.close(1006);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(held.sent[0].type).toBe('session.update');
+        await vi.advanceTimersByTimeAsync(2_999);
+        expect(socket()).toBe(held);
+        await vi.advanceTimersByTimeAsync(1);
+        await answerReconnect(1_000);
+        expect(c.state).toBe('connected');
+    });
+
+    it('close() while switching to a held replacement closes it too', async () => {
+        const c = await connected();
+        fakeTime();
+        c.on('reconnecting', () => c.close());
+        socket().deliver(notice);
+        const held = await openReplacement();
+        expect(c.state).toBe('closed');
+        expect(held.readyState).toBe(3);
+        expect(held.sent).toEqual([]);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('keeps waiting for an app item when the provider adds a different one', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver(notice);
+        c.send({
+            type: 'conversation.item.create',
+            item: {
+                type: 'function_call_output',
+                call_id: 'call_9',
+                output: '1',
+            },
+        });
+        await openReplacement();
+        first.deliver({
+            type: 'conversation.item.added',
+            item: { id: 'm1', type: 'mcp_list_tools', status: 'completed' },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connected');
+        first.deliver({
+            type: 'conversation.item.added',
+            item: {
+                id: 'o9',
+                type: 'function_call_output',
+                call_id: 'call_9',
+                output: '1',
+                status: 'completed',
+            },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+    });
+
+    it('waits for a transcription, but not past its timeout', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver({
+            type: 'session.updated',
+            session: {
+                audio: {
+                    input: {
+                        transcription: { model: 'gpt-4o-mini-transcribe' },
+                        turn_detection: { type: 'server_vad' },
+                    },
+                },
+            },
+        });
+        first.deliver({ type: 'input_audio_buffer.speech_started' });
+        first.deliver({ type: 'input_audio_buffer.committed', item_id: 'u1' });
+        reply(first, { responseId: 'r1', itemId: 'a1', text: 'Hi.' });
+        first.deliver(notice);
+        await openReplacement();
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(c.state).toBe('connected');
+        // Transcription that never reports stops holding the switch.
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(c.state).toBe('connecting');
+    });
+
+    it('waits for the reply to a committed turn, but not past its timeout', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver({ type: 'input_audio_buffer.committed', item_id: 'u1' });
+        first.deliver(notice);
+        await openReplacement();
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(c.state).toBe('connected');
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(c.state).toBe('connecting');
+    });
+
     it('carries out a notice that arrives while connecting once ready', async () => {
         fakeTime();
         const c = make();
@@ -1257,7 +1410,7 @@ describe('restart notice', () => {
         const c = await connected();
         fakeTime();
         socket().deliver(notice);
-        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(SPREAD);
         const opening = socket();
         c.close();
         expect(opening.readyState).toBe(3);
@@ -1275,7 +1428,7 @@ describe('restart notice', () => {
         // While a refused replacement waits to retry.
         const e = await connected();
         socket().deliver(notice);
-        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(SPREAD);
         socket().close(1012);
         await vi.advanceTimersByTimeAsync(0);
         expect(vi.getTimerCount()).toBeGreaterThan(0);

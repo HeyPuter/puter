@@ -101,7 +101,7 @@ Before Puter restarts the server a session runs on, it sends each open session t
 }
 ```
 
-The `reason` field is `server_restarting`. The `close_in_ms` field, when present, is about how long until the server closes the session itself. The session keeps working until then. Open a new connection right away, and once it gets `session.created` and your client is idle, with no response generating and no user turn in progress, move to it and close the old one. A connection that reaches a server that is also restarting gets a `server_restarting` error and closes with 1012. In that case keep the old session and try again after a short, randomized delay. If the server closes the old session first, the close code is 1012, and your client reconnects the same way.
+The `reason` field is `server_restarting`. The `close_in_ms` field, when present, is about how long until the server closes the session itself. The session keeps working until then. Open a new connection after a short, randomized delay, and once it gets `session.created` and your client is idle, with no response generating and no user turn in progress, move to it and close the old one. A connection that reaches a server that is also restarting gets a `server_restarting` error and closes with 1012. In that case keep the old session and try again after a short, randomized delay. If the server closes the old session first, the close code is 1012, and your client reconnects the same way.
 
 A new connection starts an empty conversation. To keep context, add earlier items back with `conversation.item.create` before you request a response. Event types that start with `puter.` come from Puter, not the provider.
 

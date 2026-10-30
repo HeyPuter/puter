@@ -138,7 +138,7 @@ The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sendin
 | Unacknowledged capture chunks | 25, or 500 ms | Further chunks are dropped until the page catches up. |
 | Queued playback | 300 seconds | Further audio for the reply is dropped and `queue_full` is reported once. |
 | Reconnection attempts | 10, backing off from 500 ms to 10 seconds, each delay randomized between half and one and a half times its value | The conversation closes with the original close code. |
-| Replacement session after a restart notice | Retried from 1 second, backing off to 10 seconds, each delay randomized between half and one and a half times its value | The current session keeps working until the conversation switches or the server closes it. |
+| Replacement session after a restart notice | Opened within 3 seconds of the notice, then retried from 1 second, backing off to 10 seconds, each delay randomized between half and one and a half times its value. Settings on a held replacement are acknowledged within 3 seconds. | The current session keeps working until the conversation switches or the server closes it. A refusal that retrying can't fix stops the attempts. |
 | Offline wait while reconnecting | 2 minutes per reconnection, in browsers that report being offline | Attempts continue after the wait. |
 | Context restored after a reconnection | The 40 most recent restorable items, 48 KiB in total | Older items are left out. |
 | Remembered canceled responses | 32 | Older response IDs are evicted from the suppression set. |

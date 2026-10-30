@@ -20,6 +20,7 @@ import { ConvoHistory } from './convoHistory.js';
  *     timer: ReturnType<typeof setTimeout> | null;
  *     retry: ReturnType<typeof setTimeout> | null;
  *     failures: number;
+ *     refused: boolean;
  *     probe: RealtimeSession | null;
  *     created: RealtimeServerEvent | null;
  *     stopProbe: (() => void) | null;
@@ -69,22 +70,17 @@ const RECONNECT_NOTICE = 'puter.reconnect';
 // 64 KiB upload burst, so the replay never trips its rate limit.
 const MAX_REPLAY_ITEMS = 40;
 const MAX_REPLAY_BYTES = 48 * 1024;
+// A restart notice opens the replacement session within this long, spread so
+// sessions notified together don't open together.
+const REPLACEMENT_SPREAD_MS = 3_000;
+// Acknowledgment timeout on a held replacement, whose socket may have died
+// with the connection it was meant to replace.
+const REPLACEMENT_ACK_MS = 3_000;
+const TRANSCRIPT_TIMEOUT_MS = 30_000;
 // Bounds for the idle check's bookkeeping.
-const MAX_PENDING_ITEMS = 32;
+const MAX_OWED = 64;
 const MAX_TRACKED_INPUTS = 16;
 const encoder = new TextEncoder();
-
-/**
- * Adds `value` to `set`, evicting the oldest entry past `MAX_TRACKED_INPUTS`.
- *
- * @param {Set<string>} set
- * @param {string} value
- * @returns {void}
- */
-function bounded(set, value) {
-    set.add(value);
-    if (set.size > MAX_TRACKED_INPUTS) set.delete(set.values().next().value);
-}
 
 /**
  * @param {string} code
@@ -316,22 +312,28 @@ export class Conversation extends RealtimeEvents {
     #handover = null;
     // Speech started and its audio isn't committed or cleared yet.
     #speaking = false;
-    // A committed turn that server turn detection will answer on its own.
-    #awaitingReply = false;
     // Audio appended in manual turn mode and not yet committed or cleared.
     #bufferedAudio = false;
     #autoResponse = true;
     #transcribes = false;
-    // Committed input items whose transcription hasn't finished.
-    /** @type {Set<string>} */
-    #pendingTranscripts = new Set();
+    /**
+     * What the provider still owes before a switch, each until a timeout:
+     * `reply` to a turn server turn detection committed, `transcript:<item>`
+     * per committed item, and `item:<event>` per item the app created.
+     *
+     * @type {Map<
+     *     string,
+     *     {
+     *         timer: ReturnType<typeof setTimeout>;
+     *         item?: { type: unknown; role: unknown; callId: unknown };
+     *     }
+     * >}
+     */
+    #owed = new Map();
     // Items added by committing audio, which no `conversation.item.create`
     // event is waiting for.
     /** @type {Set<string>} */
     #committedItems = new Set();
-    // App `conversation.item.create` event IDs whose item isn't added yet.
-    /** @type {Map<string, ReturnType<typeof setTimeout>>} */
-    #pendingItems = new Map();
     // Replayed `conversation.item.create` event IDs on the current session.
     /** @type {Map<string, import('./convoHistory.js').ReplayEntry>} */
     #replayEvents = new Map();
@@ -454,9 +456,10 @@ export class Conversation extends RealtimeEvents {
                 SESSION_TIMEOUT_MS,
             );
         }
+        const ackMs = prepared ? REPLACEMENT_ACK_MS : OPERATION_TIMEOUT_MS;
         if (reapply && Object.keys(this.#sessionState).length)
-            await this.#reapplySession();
-        else await this.#configure(this.#options, true);
+            await this.#reapplySession(ackMs);
+        else await this.#configure(this.#options, true, ackMs);
         if (reapply) this.#replayHistory();
         if (this.#state === 'closed')
             throw failure('session_closed', 'Conversation is closed');
@@ -466,9 +469,10 @@ export class Conversation extends RealtimeEvents {
      * Sends the acknowledged session state, split by top-level setting so each
      * update stays under the message limit.
      *
+     * @param {number} ackMs
      * @returns {Promise<void>}
      */
-    async #reapplySession() {
+    async #reapplySession(ackMs) {
         /** @type {Record<string, unknown>[]} */
         const updates = [];
         /** @type {Record<string, unknown>} */
@@ -492,6 +496,7 @@ export class Conversation extends RealtimeEvents {
                 'session.updated',
                 { type: 'session.update', event_id: eventId, session: update },
                 () => this.#acknowledgedUpdate === eventId,
+                ackMs,
             );
         }
     }
@@ -577,6 +582,10 @@ export class Conversation extends RealtimeEvents {
         const offlineUntil = Date.now() + OFFLINE_WAIT_MS;
         for (let attempt = 0; attempt < RECONNECT_ATTEMPTS; attempt++) {
             const ready = attempt === 0 ? prepared : null;
+            if (ready && this.#state === 'closed') {
+                if (ready.session.socket.readyState < 2) ready.session.close();
+                return;
+            }
             if (!ready) {
                 const delay = Math.min(
                     RECONNECT_DELAY_MS * 2 ** attempt,
@@ -603,7 +612,10 @@ export class Conversation extends RealtimeEvents {
                 this.#scheduleHandover();
                 return;
             } catch (error) {
-                if (this.#state === 'closed') return;
+                if (this.#state === 'closed') {
+                    this.#detach();
+                    return;
+                }
                 // Nothing from a session that failed setup carries over, such
                 // as its notice or an unacknowledged settings update.
                 this.#endHandover();
@@ -688,11 +700,9 @@ export class Conversation extends RealtimeEvents {
             !this.#interruption &&
             !this.#configuring &&
             !this.#sessionUpdates.length &&
-            !this.#pendingItems.size &&
+            !this.#owed.size &&
             !this.#speaking &&
-            !this.#awaitingReply &&
             !this.#bufferedAudio &&
-            !this.#pendingTranscripts.size &&
             !this.speaker.playing &&
             !this.#history.awaitingToolOutput
         );
@@ -715,7 +725,7 @@ export class Conversation extends RealtimeEvents {
             if (this.#handover !== handover || this.#state !== 'connected')
                 return;
             if (!handover.probe && !handover.retry) {
-                void this.#openReplacement(handover);
+                if (!handover.refused) void this.#openReplacement(handover);
                 return;
             }
             if (!handover.created || !this.#idle()) return;
@@ -725,14 +735,15 @@ export class Conversation extends RealtimeEvents {
                     { code: CLOSE_RESTART, reason: handover.reason },
                     replacement,
                 );
-            else this.#replacementFailed(handover);
+            else this.#replacementFailed(handover, 'session_closed');
         }, 0);
     }
 
     /**
      * Opens a replacement session and holds it once the provider creates it. A
-     * refusal, such as from a server that is itself restarting, is retried with
-     * backoff while the current session keeps working.
+     * refusal more attempts can fix, such as from a server that is itself
+     * restarting, is retried with backoff while the current session keeps
+     * working; any other refusal ends the attempts.
      *
      * @param {ConvoHandover} handover
      * @returns {Promise<void>}
@@ -747,50 +758,68 @@ export class Conversation extends RealtimeEvents {
             return;
         }
         handover.probe = session;
-        /** @type {RealtimeServerEvent | null} */
-        const created = await new Promise((resolve) => {
-            const done = (/** @type {RealtimeServerEvent | null} */ event) => {
+        /** @type {{ created?: RealtimeServerEvent; code?: string }} */
+        const result = await new Promise((resolve) => {
+            const done = (
+                /** @type {{ created?: RealtimeServerEvent; code?: string }} */ value,
+            ) => {
                 clearTimeout(timer);
                 off();
                 handover.stopProbe = null;
-                resolve(event);
+                resolve(value);
             };
-            const timer = setTimeout(() => done(null), SESSION_TIMEOUT_MS);
+            const timer = setTimeout(
+                () => done({ code: 'operation_timeout' }),
+                SESSION_TIMEOUT_MS,
+            );
             const off = session.on('*', (event) => {
-                if (event.type === 'session.created') done(event);
-                else if (event.type === 'error' || event.type === 'close')
-                    done(null);
+                if (event.type === 'session.created') done({ created: event });
+                else if (event.type === 'error')
+                    done({
+                        code: String(event.error?.code ?? 'upstream_error'),
+                    });
+                else if (event.type === 'close')
+                    done({ code: 'session_closed' });
             });
-            handover.stopProbe = () => done(null);
+            handover.stopProbe = () => done({});
         });
         if (this.#handover !== handover) {
             if (session.socket.readyState < 2) session.close();
             return;
         }
-        if (created) {
-            handover.created = created;
-            // A held replacement that closes is replaced.
-            handover.stopProbe = session.on('close', () => {
-                if (handover.probe !== session) return;
-                handover.stopProbe?.();
-                this.#replacementFailed(handover);
-            });
-            this.#scheduleHandover();
+        if (!result.created) {
+            this.#replacementFailed(handover, result.code);
             return;
         }
-        this.#replacementFailed(handover);
+        handover.created = result.created;
+        // While held, a close, an error or the new server's own notice means
+        // the replacement can't be used.
+        handover.stopProbe = session.on('*', (event) => {
+            if (
+                handover.probe === session &&
+                ['close', 'error', RECONNECT_NOTICE].includes(event.type)
+            )
+                this.#replacementFailed(handover, 'session_closed');
+        });
+        this.#scheduleHandover();
     }
 
     /**
      * @param {ConvoHandover} handover
+     * @param {string} [code]
      * @returns {void}
      */
-    #replacementFailed(handover) {
+    #replacementFailed(handover, code) {
         const session = handover.probe;
+        handover.stopProbe?.();
         handover.probe = null;
         handover.created = null;
         handover.stopProbe = null;
         if (session && session.socket.readyState < 2) session.close();
+        if (code && !RETRYABLE_ERRORS.has(code)) {
+            handover.refused = true;
+            return;
+        }
         const delay = Math.min(
             RECONNECT_DELAY_MS * 2 ** ++handover.failures,
             RECONNECT_MAX_DELAY_MS,
@@ -862,11 +891,9 @@ export class Conversation extends RealtimeEvents {
         this.#interruption = null;
         this.#cancelled.clear();
         this.#speaking = false;
-        this.#awaitingReply = false;
         this.#bufferedAudio = false;
-        this.#pendingTranscripts.clear();
+        this.#settleAll();
         this.#committedItems.clear();
-        this.#clearPendingItems();
         this.speaker.clearPlayback();
     }
 
@@ -914,9 +941,10 @@ export class Conversation extends RealtimeEvents {
      *
      * @param {ConvoSessionOptions} options
      * @param {boolean} [full]
+     * @param {number} [ackMs]
      * @returns {Promise<void>}
      */
-    async #configure(options, full = false) {
+    async #configure(options, full = false, ackMs = OPERATION_TIMEOUT_MS) {
         if (this.#configuring)
             throw failure(
                 'operation_in_progress',
@@ -962,6 +990,7 @@ export class Conversation extends RealtimeEvents {
                 'session.updated',
                 { type: 'session.update', event_id: eventId, session },
                 () => this.#acknowledgedUpdate === eventId,
+                ackMs,
             );
             this.#options = next;
         } finally {
@@ -1184,7 +1213,7 @@ export class Conversation extends RealtimeEvents {
         this.#reconnectWait?.();
         this.#endHandover();
         this.#replayEvents.clear();
-        this.#clearPendingItems();
+        this.#settleAll();
         this.microphone.stop();
         void this.speaker.stop().catch(() => {});
         this.#rejectPending(
@@ -1275,8 +1304,9 @@ export class Conversation extends RealtimeEvents {
                 return;
             }
         }
-        if (event.type === RECONNECT_NOTICE)
-            this.#handover ??= {
+        if (event.type === RECONNECT_NOTICE && !this.#handover) {
+            /** @type {ConvoHandover} */
+            const handover = {
                 reason:
                     typeof event.reason === 'string' && event.reason
                         ? event.reason
@@ -1284,10 +1314,17 @@ export class Conversation extends RealtimeEvents {
                 timer: null,
                 retry: null,
                 failures: 0,
+                refused: false,
                 probe: null,
                 created: null,
                 stopProbe: null,
             };
+            handover.retry = setTimeout(() => {
+                handover.retry = null;
+                this.#scheduleHandover();
+            }, Math.random() * REPLACEMENT_SPREAD_MS);
+            this.#handover = handover;
+        }
         // The new session's copies of restored items stay internal.
         const restored = this.#history.observe(event);
         this.#trackTurn(event, restored);
@@ -1325,8 +1362,7 @@ export class Conversation extends RealtimeEvents {
                 const index = this.#sessionUpdates.indexOf(failed);
                 if (index >= 0) this.#sessionUpdates.splice(index, 1);
                 this.#sentSessions.delete(failed);
-                clearTimeout(this.#pendingItems.get(failed));
-                this.#pendingItems.delete(failed);
+                this.#settle(`item:${failed}`);
             }
             this.#promptUpgrade(event.error);
         }
@@ -1481,28 +1517,32 @@ export class Conversation extends RealtimeEvents {
                 this.#speaking = false;
                 this.#bufferedAudio = false;
                 // Server turn detection answers a committed turn on its own.
-                this.#awaitingReply = this.#turnDetection && this.#autoResponse;
+                if (this.#turnDetection && this.#autoResponse)
+                    this.#expect('reply', OPERATION_TIMEOUT_MS);
                 if (!itemId) break;
                 if (this.#transcribes)
-                    bounded(this.#pendingTranscripts, itemId);
-                bounded(this.#committedItems, itemId);
+                    this.#expect(`transcript:${itemId}`, TRANSCRIPT_TIMEOUT_MS);
+                this.#committedItems.add(itemId);
+                if (this.#committedItems.size > MAX_TRACKED_INPUTS)
+                    this.#committedItems.delete(
+                        this.#committedItems.values().next().value,
+                    );
                 break;
             case 'input_audio_buffer.cleared':
                 this.#speaking = false;
                 this.#bufferedAudio = false;
-                this.#awaitingReply = false;
+                this.#settle('reply');
                 break;
             case 'response.created':
-                this.#awaitingReply = false;
+                this.#settle('reply');
                 break;
             case 'conversation.item.input_audio_transcription.completed':
             case 'conversation.item.input_audio_transcription.failed':
             case 'conversation.item.deleted':
-                this.#pendingTranscripts.delete(itemId);
+                this.#settle(`transcript:${itemId}`);
                 break;
             case 'conversation.item.added': {
-                // Items the model generates arrive in progress; the provider
-                // adds client items in the order they were sent.
+                // Items the model generates arrive in progress.
                 const item = event.item;
                 if (
                     restored ||
@@ -1510,19 +1550,59 @@ export class Conversation extends RealtimeEvents {
                     this.#committedItems.delete(item?.id)
                 )
                     break;
-                const [oldest] = this.#pendingItems;
-                if (!oldest) break;
-                clearTimeout(oldest[1]);
-                this.#pendingItems.delete(oldest[0]);
+                for (const [key, entry] of this.#owed) {
+                    const sent = entry.item;
+                    if (
+                        sent &&
+                        sent.type === item?.type &&
+                        (sent.role === undefined || sent.role === item?.role) &&
+                        (sent.callId === undefined ||
+                            sent.callId === item?.call_id)
+                    ) {
+                        this.#settle(key);
+                        break;
+                    }
+                }
                 break;
             }
         }
     }
 
+    /**
+     * Holds off a switch until `key` is settled or `timeoutMs` passes.
+     *
+     * @param {string} key
+     * @param {number} timeoutMs
+     * @param {{ type: unknown; role: unknown; callId: unknown }} [item] The
+     *   item an `item:` key waits to see added.
+     * @returns {void}
+     */
+    #expect(key, timeoutMs, item) {
+        this.#settle(key);
+        const timer = setTimeout(() => {
+            this.#owed.delete(key);
+            this.#scheduleHandover();
+        }, timeoutMs);
+        this.#owed.set(key, { timer, item });
+        if (this.#owed.size > MAX_OWED)
+            this.#settle(this.#owed.keys().next().value);
+    }
+
+    /**
+     * @param {string} key
+     * @returns {void}
+     */
+    #settle(key) {
+        const entry = this.#owed.get(key);
+        if (!entry) return;
+        clearTimeout(entry.timer);
+        this.#owed.delete(key);
+    }
+
     /** @returns {void} */
-    #clearPendingItems() {
-        for (const timer of this.#pendingItems.values()) clearTimeout(timer);
-        this.#pendingItems.clear();
+    #settleAll() {
+        for (const { timer } of this.#owed.values()) clearTimeout(timer);
+        this.#owed.clear();
     }
 
     /** @returns {string} */
@@ -1572,30 +1652,14 @@ export class Conversation extends RealtimeEvents {
                 event.type === 'conversation.item.create' &&
                 this.#state === 'connected'
             )
-                this.#trackItem(event.event_id);
+                this.#expect(`item:${event.event_id}`, OPERATION_TIMEOUT_MS, {
+                    type: event.item?.type,
+                    role: event.item?.role,
+                    callId: event.item?.call_id,
+                });
             socket.send(json);
         }
     }
-    /**
-     * Holds off a handover until the provider adds the item, reports an error
-     * for it, or doesn't answer within the acknowledgment timeout.
-     *
-     * @param {string} eventId
-     * @returns {void}
-     */
-    #trackItem(eventId) {
-        const timer = setTimeout(() => {
-            this.#pendingItems.delete(eventId);
-            this.#scheduleHandover();
-        }, OPERATION_TIMEOUT_MS);
-        this.#pendingItems.set(eventId, timer);
-        if (this.#pendingItems.size > MAX_PENDING_ITEMS) {
-            const [oldest] = this.#pendingItems;
-            clearTimeout(oldest[1]);
-            this.#pendingItems.delete(oldest[0]);
-        }
-    }
-
     /**
      * @param {string} type
      * @param {(event: RealtimeServerEvent) => boolean} [matches]
@@ -1647,9 +1711,10 @@ export class Conversation extends RealtimeEvents {
      * @param {string} type
      * @param {RealtimeServerEvent} event
      * @param {(event: RealtimeServerEvent) => boolean} matches
+     * @param {number} [timeoutMs]
      * @returns {Promise<RealtimeServerEvent>}
      */
-    #request(type, event, matches) {
+    #request(type, event, matches, timeoutMs) {
         if (this.#pending.size >= 8)
             return Promise.reject(
                 failure(
@@ -1662,7 +1727,7 @@ export class Conversation extends RealtimeEvents {
         } catch (error) {
             return Promise.reject(error);
         }
-        return this.#wait(type, matches, event.event_id);
+        return this.#wait(type, matches, event.event_id, false, timeoutMs);
     }
     /**
      * @param {ConvoError} error

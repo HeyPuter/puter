@@ -482,8 +482,8 @@ describe('convo built SDK and browser media', () => {
                 drainMs: 60_000,
             });
             await log.until(() => log.count('puter.reconnect') === 1);
-            // One replacement right away, the next about a second later.
-            await log.until(() => proxyConnections - before >= 2);
+            // One replacement within 3 seconds, the next about a second later.
+            await log.until(() => proxyConnections - before >= 2, 15_000);
             conversation.sendText('Still there?');
             await log.until(() => log.count('turn.done') === 1);
             expect(conversation.state).toBe('connected');
