@@ -331,8 +331,7 @@ async function UIDesktop (options) {
     });
     void notification_feed.start();
 
-    // The replay has always shown the title as the body for a notification
-    // carrying no text of its own.
+    // A replayed notification with no text of its own shows its title twice.
     const showReplayed = ({ uid, notification }) => show_notification({
         uid,
         notification: { ...notification, text: notification.text ?? notification.title },

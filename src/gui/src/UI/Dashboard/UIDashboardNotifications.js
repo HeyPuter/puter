@@ -810,8 +810,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     // Every (re)connection: anything read elsewhere while this tab was
     // offline is marked so in the server's list, and anything new is in it.
     socket.on('connect', () => void refresh());
-    // A frozen or sleeping tab reconnects on resume; the next listing raises
-    // what it missed.
+    // After a reconnect, the next listing raises what this page missed.
     socket.io?.on('reconnect', () => {
         catchUpFrom = Date.now();
         void Promise.resolve(loading).finally(() => refresh());
