@@ -344,6 +344,15 @@ export class ConvoSpeaker {
     get active() {
         return this.#context !== null;
     }
+    /**
+     * Whether audio is scheduled or playing.
+     *
+     * @returns {boolean}
+     * @internal
+     */
+    get playing() {
+        return this.#sources.size > 0;
+    }
 
     /**
      * Starts playback without requesting microphone access.
@@ -454,6 +463,7 @@ export class ConvoSpeaker {
                     this.#last.playedMs,
                     (offset + duration) * 1000,
                 );
+            if (!this.#sources.size) this.#convo.playbackEnded();
         };
         this.#nextAt = source.end;
         node.start(start);

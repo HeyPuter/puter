@@ -46,6 +46,10 @@ const RECONNECT_DELAY_MS = 500;
 const RECONNECT_MAX_DELAY_MS = 10_000;
 // Per reconnect, the longest wait for a browser that reports being offline.
 const OFFLINE_WAIT_MS = 120_000;
+// RFC 6455 "Service Restart".
+const CLOSE_RESTART = 1012;
+// The server's request to reconnect once the conversation is idle.
+const RECONNECT_NOTICE = 'puter.reconnect';
 // Context restored after a reconnect. The byte cap stays under the server's
 // 64 KiB upload burst, so the replay never trips its rate limit.
 const MAX_REPLAY_ITEMS = 40;
@@ -278,6 +282,20 @@ export class Conversation extends RealtimeEvents {
     #interruption = null;
     #cancelled = new Set();
     #history = new ConvoHistory((id) => this.#cancelled.has(id));
+    // A pending reconnect notice, carried out once the conversation is idle.
+    /**
+     * @type {{
+     *     reason: string;
+     *     timer: ReturnType<typeof setTimeout> | null;
+     * } | null}
+     */
+    #handover = null;
+    // The user has started a turn the provider hasn't answered or dropped.
+    #userTurn = false;
+    // Audio appended in manual turn mode and not yet committed or cleared.
+    #bufferedAudio = false;
+    #autoResponse = true;
+    #transcribes = false;
     // Replayed `conversation.item.create` event IDs on the current session.
     /** @type {Map<string, import('./convoHistory.js').ReplayEntry>} */
     #replayEvents = new Map();
@@ -344,6 +362,7 @@ export class Conversation extends RealtimeEvents {
                     model: this.model,
                     provider: 'openai',
                 });
+                this.#scheduleHandover();
             } catch (error) {
                 this.#finish(
                     this.#lastClose ?? {
@@ -477,8 +496,8 @@ export class Conversation extends RealtimeEvents {
     }
 
     /**
-     * Replaces a dropped connection, keeping settings, listeners, media and
-     * recent conversation items.
+     * Replaces a dropped connection, or one the server asked the client to
+     * leave, keeping settings, listeners, media and recent conversation items.
      *
      * @param {{ code: number; reason: string }} event
      * @returns {Promise<void>}
@@ -486,6 +505,7 @@ export class Conversation extends RealtimeEvents {
     async #reconnect(event) {
         this.#state = 'connecting';
         this.#reconnecting = true;
+        this.#endHandover();
         // Playback stops here, so only what was heard is restored.
         const heard = this.speaker.playbackPosition(this.#activeResponse);
         if (heard) this.#history.truncate(heard.itemId, heard.playedMs);
@@ -522,6 +542,7 @@ export class Conversation extends RealtimeEvents {
                     provider: 'openai',
                     reconnected: true,
                 });
+                this.#scheduleHandover();
                 return;
             } catch (error) {
                 if (this.#state === 'closed') return;
@@ -588,6 +609,65 @@ export class Conversation extends RealtimeEvents {
         });
     }
 
+    /**
+     * Whether the conversation can move to a new session without cutting
+     * anything off: no reply requested, generating or playing, no user turn or
+     * transcript in progress, no tool output awaited and no acknowledgment
+     * pending.
+     *
+     * @returns {boolean}
+     */
+    #idle() {
+        return (
+            this.#state === 'connected' &&
+            !this.#activeResponse &&
+            !this.#requestedResponses.size &&
+            !this.#pending.size &&
+            !this.#interruption &&
+            !this.#configuring &&
+            !this.#userTurn &&
+            !this.#bufferedAudio &&
+            !this.speaker.playing &&
+            !(this.#transcribes && this.#history.awaitingTranscript) &&
+            !this.#history.awaitingToolOutput
+        );
+    }
+
+    /**
+     * Checks for a pending reconnect notice whether the conversation is idle,
+     * after promise callbacks already queued have run, and reconnects if so.
+     * Until then the session keeps working; if the server closes it first, the
+     * usual reconnect takes over.
+     *
+     * @returns {void}
+     */
+    #scheduleHandover() {
+        const handover = this.#handover;
+        if (!handover || handover.timer || this.#state !== 'connected') return;
+        handover.timer = setTimeout(() => {
+            handover.timer = null;
+            if (this.#handover !== handover || !this.#idle()) return;
+            void this.#reconnect({
+                code: CLOSE_RESTART,
+                reason: handover.reason,
+            });
+        }, 0);
+    }
+
+    /** @returns {void} */
+    #endHandover() {
+        if (this.#handover?.timer) clearTimeout(this.#handover.timer);
+        this.#handover = null;
+    }
+
+    /**
+     * @returns {void}
+     * @internal
+     */
+    playbackEnded() {
+        this.#scheduleHandover();
+    }
+
     /** @returns {void} */
     #detach() {
         this.#unsubscribe?.();
@@ -605,6 +685,8 @@ export class Conversation extends RealtimeEvents {
         this.#requestedResponses.clear();
         this.#interruption = null;
         this.#cancelled.clear();
+        this.#userTurn = false;
+        this.#bufferedAudio = false;
         this.speaker.clearPlayback();
     }
 
@@ -920,6 +1002,7 @@ export class Conversation extends RealtimeEvents {
         this.#state = 'closed';
         this.#reconnecting = false;
         this.#reconnectWait?.();
+        this.#endHandover();
         this.#replayEvents.clear();
         this.microphone.stop();
         void this.speaker.stop().catch(() => {});
@@ -1011,7 +1094,16 @@ export class Conversation extends RealtimeEvents {
                 return;
             }
         }
+        if (event.type === RECONNECT_NOTICE)
+            this.#handover ??= {
+                reason:
+                    typeof event.reason === 'string' && event.reason
+                        ? event.reason
+                        : 'server_restarting',
+                timer: null,
+            };
         this.#history.observe(event);
+        this.#trackTurn(event);
         if (event.type === 'response.created') {
             this.#activeResponse = event.response?.id ?? '';
             const [requested] = this.#requestedResponses;
@@ -1031,8 +1123,13 @@ export class Conversation extends RealtimeEvents {
             event.type === 'session.updated'
         ) {
             const input = event.session?.audio?.input;
-            if (input && 'turn_detection' in input)
+            if (input && 'turn_detection' in input) {
                 this.#turnDetection = input.turn_detection != null;
+                this.#autoResponse =
+                    input.turn_detection?.create_response !== false;
+            }
+            if (input && 'transcription' in input)
+                this.#transcribes = input.transcription != null;
         }
         if (event.type === 'error') {
             const failed = event.error?.event_id;
@@ -1174,6 +1271,32 @@ export class Conversation extends RealtimeEvents {
                 status: event.response?.status,
             });
         this.emitRealtime(event);
+        this.#scheduleHandover();
+    }
+
+    /**
+     * @param {RealtimeServerEvent} event
+     * @returns {void}
+     */
+    #trackTurn(event) {
+        switch (event.type) {
+            case 'input_audio_buffer.speech_started':
+                this.#userTurn = true;
+                break;
+            case 'input_audio_buffer.committed':
+                this.#bufferedAudio = false;
+                // Server turn detection answers a committed turn on its own.
+                if (!this.#turnDetection || !this.#autoResponse)
+                    this.#userTurn = false;
+                break;
+            case 'input_audio_buffer.cleared':
+                this.#bufferedAudio = false;
+                this.#userTurn = false;
+                break;
+            case 'response.created':
+                this.#userTurn = false;
+                break;
+        }
     }
 
     /** @returns {string} */
@@ -1213,6 +1336,11 @@ export class Conversation extends RealtimeEvents {
                 typeof event.item_id === 'string'
             )
                 this.#history.forget(event.item_id);
+            if (
+                event.type === 'input_audio_buffer.append' &&
+                !this.#turnDetection
+            )
+                this.#bufferedAudio = true;
             socket.send(json);
         }
     }
@@ -1254,6 +1382,7 @@ export class Conversation extends RealtimeEvents {
                             `Timed out waiting for ${type}`,
                         ),
                     );
+                    this.#scheduleHandover();
                 }, timeoutMs),
             };
             this.#pending.add(operation);

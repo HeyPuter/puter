@@ -750,8 +750,9 @@ it('preflights both events of a text turn before sending either', async () => {
     expect(socket().sent).toHaveLength(before);
 });
 
-// -- Context replay and retries --
+// -- Restart notice, context replay and retries --
 
+const notice = { type: 'puter.reconnect', reason: 'server_restarting' };
 const userText = (id, text, previous = null) => ({
     type: 'conversation.item.added',
     previous_item_id: previous,
@@ -865,6 +866,15 @@ const toolTurn = (c, ws, { responseId, callId, output = '42' }) => {
     });
 };
 /** Answers the replacement socket's handshake once the backoff elapses. */
+const answerReconnect = async (delay = 500) => {
+    const before = socket();
+    await vi.advanceTimersByTimeAsync(delay);
+    expect(socket()).not.toBe(before);
+    socket().deliver({ type: 'session.created', session: {} });
+    await vi.advanceTimersByTimeAsync(0);
+    socket().deliver({ type: 'session.updated', session: {} });
+    await vi.advanceTimersByTimeAsync(0);
+};
 const replayed = () =>
     socket()
         .sent.filter((event) => event.type === 'conversation.item.create')
@@ -878,19 +888,225 @@ const track = (c) => {
         errors: () => events.filter((event) => event.type === 'error'),
     };
 };
-const answerReconnect = async (delay = 500) => {
-    const before = socket();
-    await vi.advanceTimersByTimeAsync(delay);
-    expect(socket()).not.toBe(before);
-    socket().deliver({ type: 'session.created', session: {} });
-    await vi.advanceTimersByTimeAsync(0);
-    socket().deliver({ type: 'session.updated', session: {} });
-    await vi.advanceTimersByTimeAsync(0);
-};
 const fakeTime = () => {
     vi.useFakeTimers();
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
 };
+
+describe('restart notice', () => {
+    it('moves an idle conversation to a new session without an error', async () => {
+        const c = await connected({ instructions: 'Be brief.' });
+        fakeTime();
+        const log = track(c);
+        const first = socket();
+        first.deliver({ ...notice, close_in_ms: 90_000 });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+        expect(first.readyState).toBe(3);
+        expect(log.events.find((e) => e.type === 'reconnecting')).toEqual({
+            type: 'reconnecting',
+            code: 1012,
+            reason: 'server_restarting',
+        });
+        await answerReconnect();
+        expect(socket().sent[0].session.instructions).toBe('Be brief.');
+        expect(c.state).toBe('connected');
+        expect(log.events.at(-1)).toMatchObject({
+            type: 'ready',
+            reconnected: true,
+        });
+        expect(log.errors()).toEqual([]);
+        expect(log.types()).not.toContain('close');
+    });
+
+    it('waits for the reply in flight to finish', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver({ type: 'response.created', response: { id: 'r1' } });
+        first.deliver(notice);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(c.state).toBe('connected');
+        expect(first.readyState).toBe(1);
+        first.deliver({ type: 'response.done', response: { id: 'r1' } });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+        await answerReconnect();
+        expect(c.state).toBe('connected');
+    });
+
+    it('waits through user speech until its reply is done', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver({ type: 'input_audio_buffer.speech_started' });
+        first.deliver(notice);
+        for (const event of [
+            { type: 'input_audio_buffer.speech_stopped' },
+            // Server turn detection replies to a committed turn by itself.
+            { type: 'input_audio_buffer.committed', item_id: 'u1' },
+            { type: 'response.created', response: { id: 'r1' } },
+        ]) {
+            first.deliver(event);
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(c.state).toBe('connected');
+        }
+        first.deliver({ type: 'response.done', response: { id: 'r1' } });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+    });
+
+    it('waits for uncommitted audio in manual turn mode', async () => {
+        const c = await connected({ turnDetection: false });
+        fakeTime();
+        const first = socket();
+        c.appendAudio(new Int16Array(480));
+        first.deliver(notice);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(c.state).toBe('connected');
+        first.deliver({ type: 'input_audio_buffer.cleared' });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+    });
+
+    it('waits for a pending acknowledgment', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        const update = c.configure({ voice: 'marin' });
+        first.deliver(notice);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(c.state).toBe('connected');
+        first.deliver({ type: 'session.updated', session: {} });
+        await update;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+    });
+
+    it('waits for built-in playback to end', async () => {
+        const c = await connected();
+        fakeTime();
+        const playing = vi.spyOn(c.speaker, 'playing', 'get');
+        playing.mockReturnValue(true);
+        socket().deliver(notice);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(c.state).toBe('connected');
+        playing.mockReturnValue(false);
+        c.playbackEnded();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+    });
+
+    it('waits for the output of a function call, then restores both', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        toolTurn(c, first, {
+            responseId: 'r1',
+            callId: 'call_1',
+            output: null,
+        });
+        first.deliver(notice);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(c.state).toBe('connected');
+        c.send({
+            type: 'conversation.item.create',
+            item: {
+                type: 'function_call_output',
+                call_id: 'call_1',
+                output: '7',
+            },
+        });
+        first.deliver({
+            type: 'conversation.item.added',
+            item: {
+                id: 'out_1',
+                type: 'function_call_output',
+                call_id: 'call_1',
+                output: '7',
+                status: 'completed',
+            },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+        await answerReconnect();
+        expect(replayed()).toEqual([
+            {
+                type: 'function_call',
+                call_id: 'call_1',
+                name: 'lookup',
+                arguments: '{"q":1}',
+            },
+            { type: 'function_call_output', call_id: 'call_1', output: '7' },
+        ]);
+    });
+
+    it('falls back to the normal reconnect when the server closes first', async () => {
+        const c = await connected();
+        fakeTime();
+        const log = track(c);
+        const first = socket();
+        first.deliver({ type: 'response.created', response: { id: 'r1' } });
+        first.deliver(notice);
+        first.deliver(notice);
+        await vi.advanceTimersByTimeAsync(10_000);
+        first.close(1012, 'server restarting');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(log.types().filter((t) => t === 'reconnecting')).toHaveLength(1);
+        expect(log.events.find((e) => e.type === 'reconnecting')).toMatchObject(
+            {
+                code: 1012,
+                reason: 'server restarting',
+            },
+        );
+        await answerReconnect();
+        expect(c.state).toBe('connected');
+        // The notice belonged to the old session.
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(c.state).toBe('connected');
+        expect(log.types().filter((t) => t === 'reconnecting')).toHaveLength(1);
+    });
+
+    it('carries out a notice that arrives while connecting once ready', async () => {
+        fakeTime();
+        const c = make();
+        const ready = c.connect();
+        socket().deliver({ type: 'session.created', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        socket().deliver(notice);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+        socket().deliver({ type: 'session.updated', session: {} });
+        await ready;
+        expect(c.state).toBe('connected');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+        await answerReconnect();
+        expect(c.state).toBe('connected');
+    });
+
+    it('close() while a notice waits or during the handover leaves nothing running', async () => {
+        const c = await connected();
+        fakeTime();
+        socket().deliver({ type: 'response.created', response: { id: 'r1' } });
+        socket().deliver(notice);
+        await vi.advanceTimersByTimeAsync(0);
+        c.close();
+        expect(vi.getTimerCount()).toBe(0);
+
+        const d = await connected();
+        socket().deliver(notice);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(d.state).toBe('connecting');
+        const sockets = FakeWebSocket.instances.length;
+        d.close();
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(FakeWebSocket.instances).toHaveLength(sockets);
+        expect(d.state).toBe('closed');
+    });
+});
+
 describe('context replay after a reconnect', () => {
     it('restores finished items in order, before ready, after a dropped connection', async () => {
         const c = await connected();
@@ -1303,6 +1519,7 @@ describe('context replay after a reconnect', () => {
         });
     });
 });
+
 describe('reconnect retries', () => {
     it('retries a reconnect refused by a draining server', async () => {
         const c = await connected();

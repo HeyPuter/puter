@@ -50,6 +50,7 @@ const makeConvo = () => ({
     },
     appendAudio: vi.fn(),
     reportMediaError: vi.fn(),
+    playbackEnded: vi.fn(),
     interrupt: vi.fn(async () => {}),
 });
 const track = () => ({ enabled: true, stop: vi.fn() });
@@ -327,6 +328,37 @@ it('subtracts output latency and covers gaps between chunks', async () => {
         playedMs: 1000,
     });
     expect(speaker.playbackPosition('other')).toBeUndefined();
+});
+
+it('reports playing until the last scheduled chunk ends', async () => {
+    const c = makeConvo();
+    const speaker = new ConvoSpeaker(c);
+    helpers.push(speaker);
+    await speaker.start();
+    const context = FakeContext.instances[0];
+    expect(speaker.playing).toBe(false);
+    for (let i = 0; i < 2; i++)
+        speaker.enqueue(new Int16Array(480), {
+            type: 'response.output_audio.delta',
+            item_id: 'item',
+            response_id: 'r',
+        });
+    expect(speaker.playing).toBe(true);
+    context.nodes[0].onended();
+    expect(speaker.playing).toBe(true);
+    expect(c.playbackEnded).not.toHaveBeenCalled();
+    context.nodes[1].onended();
+    expect(speaker.playing).toBe(false);
+    expect(c.playbackEnded).toHaveBeenCalledOnce();
+    // Clearing playback is an interruption, not an end.
+    speaker.enqueue(new Int16Array(480), {
+        type: 'response.output_audio.delta',
+        item_id: 'item',
+        response_id: 'r',
+    });
+    speaker.clearPlayback();
+    expect(speaker.playing).toBe(false);
+    expect(c.playbackEnded).toHaveBeenCalledOnce();
 });
 
 it('a late canceled permission request does not stop a newer capture', async () => {
