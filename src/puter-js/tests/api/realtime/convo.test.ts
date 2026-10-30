@@ -1,17 +1,17 @@
 import { chromium, type Browser } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import net, { type Socket } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
 import type { AddressInfo } from 'node:net';
+import { loadNodePuter, closeNodePuter } from '../harness/nodeSdkLoader';
+import type { EnvManifest, PuterSDK } from '../harness/types';
+import type { Conversation } from '../../../types/modules/ai/convo';
+import type { RealtimeServerEvent } from '../../../types/modules/ai/types';
 import {
-    loadNodePuter,
-    closeNodePuter,
-} from '../harness/nodeSdkLoader';
-import type {
-    EnvManifest,
-    PuterSDK,
-} from '../harness/types';
-import { setupPuterTestEnv, type PuterTestEnv } from '@heyputer/backend/testUtil.ts';
+    setupPuterTestEnv,
+    type PuterTestEnv,
+} from '@heyputer/backend/testUtil.ts';
 import type { IConfig } from '@heyputer/backend/types.ts';
 
 describe('convo built SDK and browser media', () => {
@@ -19,10 +19,26 @@ describe('convo built SDK and browser media', () => {
     let upstream: WebSocketServer;
     let puter: PuterSDK;
     let browser: Browser | undefined;
+    let manifest: EnvManifest;
+    // A TCP hop in front of the server whose connections a test can cut, so
+    // the client sees an abnormal closure (1006).
+    let proxy: net.Server;
+    const proxied = new Set<Socket>();
     const received: { type: string; audio?: string }[] = [];
+    // Events each upstream connection received, in connection order.
+    const connections: {
+        socket: WebSocket;
+        received: { type: string; item?: unknown }[];
+    }[] = [];
+    let ids = 0;
     beforeAll(async () => {
         upstream = new WebSocketServer({ port: 0 });
         upstream.on('connection', (socket) => {
+            const connection = {
+                socket,
+                received: [] as { type: string; item?: unknown }[],
+            };
+            connections.push(connection);
             socket.send(
                 JSON.stringify({ type: 'session.created', session: {} }),
             );
@@ -30,6 +46,19 @@ describe('convo built SDK and browser media', () => {
             socket.on('message', (data) => {
                 const event = JSON.parse(data.toString());
                 received.push(event);
+                connection.received.push(event);
+                const send = (payload: Record<string, unknown>) =>
+                    socket.send(JSON.stringify(payload));
+                if (event.type === 'conversation.item.create') {
+                    const item = {
+                        ...event.item,
+                        id: `item_${++ids}`,
+                        object: 'realtime.item',
+                        status: 'completed',
+                    };
+                    send({ type: 'conversation.item.added', item });
+                    send({ type: 'conversation.item.done', item });
+                }
                 if (event.type === 'session.update')
                     socket.send(
                         JSON.stringify({
@@ -38,28 +67,49 @@ describe('convo built SDK and browser media', () => {
                         }),
                     );
                 if (event.type === 'response.create') {
-                    socket.send(
-                        JSON.stringify({
-                            type: 'response.created',
-                            response: { id: 'r1' },
-                        }),
-                    );
-                    socket.send(
-                        JSON.stringify({
-                            type: 'response.output_text.delta',
-                            response_id: 'r1',
-                            delta: 'Hello',
-                        }),
-                    );
-                    socket.send(
-                        JSON.stringify({
-                            type: 'response.output_audio.delta',
-                            response_id: 'r1',
-                            item_id: 'item1',
-                            content_index: 0,
-                            delta: Buffer.alloc(960).toString('base64'),
-                        }),
-                    );
+                    const responseId = `resp_${++ids}`;
+                    const item = {
+                        id: `item_${++ids}`,
+                        object: 'realtime.item',
+                        type: 'message',
+                        role: 'assistant',
+                    };
+                    send({
+                        type: 'response.created',
+                        response: { id: responseId },
+                    });
+                    send({
+                        type: 'response.output_item.added',
+                        response_id: responseId,
+                        item: { ...item, status: 'in_progress', content: [] },
+                    });
+                    send({
+                        type: 'response.output_text.delta',
+                        response_id: responseId,
+                        item_id: item.id,
+                        content_index: 0,
+                        delta: 'Hello',
+                    });
+                    send({
+                        type: 'response.output_audio.delta',
+                        response_id: responseId,
+                        item_id: item.id,
+                        content_index: 0,
+                        delta: Buffer.alloc(960).toString('base64'),
+                    });
+                    send({
+                        type: 'response.output_item.done',
+                        response_id: responseId,
+                        item: {
+                            ...item,
+                            status: 'completed',
+                            content: [{ type: 'output_text', text: 'Hello' }],
+                        },
+                    });
+                    send({
+                        type: 'response.done',
+                        response: { id: responseId, status: 'completed' },
+                    });
                 }
                 if (event.type === 'response.cancel')
                     socket.send(
@@ -88,16 +138,38 @@ describe('convo built SDK and browser media', () => {
             providers: { 'openai-realtime': { apiKey: 'test-provider-key' } },
             unlimitedMetering: true,
         } as IConfig);
-        const manifest: EnvManifest = {
+        manifest = {
             origin: env.origin,
             apiOrigin: env.apiOrigin,
             users: env.users,
         };
         puter = loadNodePuter(manifest, env.users.user.token);
+        const api = new URL(env.apiOrigin);
+        proxy = net.createServer((inbound) => {
+            const outbound = net.connect({
+                host: api.hostname,
+                port: Number(api.port),
+            });
+            for (const [from, to] of [
+                [inbound, outbound],
+                [outbound, inbound],
+            ]) {
+                proxied.add(from);
+                from.on('error', () => to.destroy());
+                from.on('close', () => {
+                    proxied.delete(from);
+                    to.destroy();
+                });
+                from.pipe(to);
+            }
+        });
+        await new Promise<void>((resolve) => proxy.listen(0, resolve));
     }, 60_000);
     afterAll(async () => {
         await browser?.close();
         if (puter) closeNodePuter(puter);
+        for (const socket of proxied) socket.destroy();
+        await new Promise<void>((resolve) => proxy?.close(() => resolve()));
         for (const socket of upstream?.clients ?? []) socket.terminate();
         await env?.shutdown();
         await new Promise<void>((resolve) => upstream?.close(() => resolve()));
@@ -220,8 +292,31 @@ describe('convo built SDK and browser media', () => {
             }
             c.microphone.mute();
             c.microphone.unmute();
-            c.sendText('Hello');
-            await new Promise((resolve) => setTimeout(resolve, 300));
+            // Closes once captured audio went out and the reply came back.
+            await new Promise<void>((resolve, reject) => {
+                let appended = false;
+                let replied = false;
+                const timer = setTimeout(
+                    () => reject(new Error('no captured audio or reply')),
+                    10_000,
+                );
+                const check = () => {
+                    if (!appended || !replied) return;
+                    clearTimeout(timer);
+                    resolve();
+                };
+                const appendAudio = c.appendAudio.bind(c);
+                c.appendAudio = (pcm: Int16Array) => {
+                    appendAudio(pcm);
+                    appended = true;
+                    check();
+                };
+                c.on('turn.done', () => {
+                    replied = true;
+                    check();
+                });
+                c.sendText('Hello');
+            });
             c.close();
             return {
                 state: c.state,
@@ -247,4 +342,151 @@ describe('convo built SDK and browser media', () => {
             ).toBe(true),
         );
     }, 30_000);
+    /** Collects a conversation's events and waits on them. */
+    const watch = (conversation: Conversation) => {
+        const events: RealtimeServerEvent[] = [];
+        conversation.on('*', (event) => events.push(event));
+        const count = (type: string) =>
+            events.filter((event) => event.type === type).length;
+        const until = (check: () => boolean, timeout = 10_000) =>
+            vi.waitFor(() => expect(check()).toBe(true), { timeout });
+        return { events, count, until };
+    };
+    const restored = (connection: (typeof connections)[number]) =>
+        connection.received
+            .filter((event) => event.type === 'conversation.item.create')
+            .map((event) => event.item);
+    const history = [
+        {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Remember the number 7.' }],
+        },
+        {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'Hello' }],
+        },
+    ];
+
+    it('restores context on a new session after the connection drops', async () => {
+        const proxyOrigin = `http://${new URL(env.apiOrigin).hostname}:${(proxy.address() as AddressInfo).port}`;
+        const dropping = loadNodePuter(
+            { ...manifest, apiOrigin: proxyOrigin },
+            env.users.user.token,
+        );
+        const conversation = await dropping.ai.convo({ output: ['text'] });
+        const log = watch(conversation);
+        try {
+            await conversation.connect();
+            const first = connections.at(-1)!;
+            conversation.sendText('Remember the number 7.');
+            await log.until(() => log.count('turn.done') === 1);
+
+            for (const socket of proxied) socket.destroy();
+            await log.until(() =>
+                log.events.some(
+                    (event) => event.type === 'ready' && event.reconnected,
+                ),
+            );
+            expect(
+                log.events.find((event) => event.type === 'reconnecting'),
+            ).toMatchObject({ code: 1006 });
+            const second = connections.at(-1)!;
+            expect(second).not.toBe(first);
+            // Sent before ready, so they reach the provider ahead of the next turn.
+            await vi.waitFor(() => expect(restored(second)).toEqual(history));
+            expect(second.received[0].type).toBe('session.update');
+            // The relay ended the old provider session.
+            await vi.waitFor(() =>
+                expect(first.socket.readyState).toBe(WebSocket.CLOSED),
+            );
+
+            conversation.sendText('Which number?');
+            await log.until(() => log.count('turn.done') === 2);
+            expect(restored(second)).toEqual([
+                ...history,
+                {
+                    type: 'message',
+                    role: 'user',
+                    content: [{ type: 'input_text', text: 'Which number?' }],
+                },
+            ]);
+            expect(log.count('error')).toBe(0);
+        } finally {
+            conversation.close();
+            closeNodePuter(dropping);
+        }
+    });
+
+    it('moves to a new session when a restart is announced, restoring context', async () => {
+        const conversation = await puter.ai.convo({ output: ['text'] });
+        const log = watch(conversation);
+        try {
+            await conversation.connect();
+            const first = connections.at(-1)!;
+            conversation.sendText('Remember the number 7.');
+            await log.until(() => log.count('turn.done') === 1);
+
+            env.server.clients.event.emit(
+                'serverRestartAnnounced',
+                { closeInMs: 60_000 },
+                {},
+            );
+            await log.until(() =>
+                log.events.some(
+                    (event) => event.type === 'ready' && event.reconnected,
+                ),
+            );
+            expect(
+                log.events.find((event) => event.type === 'puter.reconnect'),
+            ).toMatchObject({
+                reason: 'server_restarting',
+                close_in_ms: 60_000,
+            });
+            expect(
+                log.events.find((event) => event.type === 'reconnecting'),
+            ).toMatchObject({ code: 1012, reason: 'server_restarting' });
+            const second = connections.at(-1)!;
+            expect(second).not.toBe(first);
+            // Sent before ready, so they reach the provider ahead of the next turn.
+            await vi.waitFor(() => expect(restored(second)).toEqual(history));
+            await vi.waitFor(() =>
+                expect(first.socket.readyState).toBe(WebSocket.CLOSED),
+            );
+
+            conversation.sendText('Which number?');
+            await log.until(() => log.count('turn.done') === 2);
+            expect(log.count('error')).toBe(0);
+            expect(log.count('close')).toBe(0);
+        } finally {
+            conversation.close();
+        }
+    });
+
+    // Last: the relay refuses new sessions from here on.
+    it('keeps retrying while a draining server refuses the reconnect', async () => {
+        const conversation = await puter.ai.convo({ output: ['text'] });
+        const log = watch(conversation);
+        try {
+            await conversation.connect();
+            await env.server.services.openaiRealtime.onServerDrainStart({
+                drainMs: 60_000,
+            });
+            await log.until(() => log.count('reconnecting') === 1);
+            const refusals = () =>
+                log.events.filter(
+                    (event) =>
+                        event.type === 'error' &&
+                        (event.error as { code?: string })?.code ===
+                            'server_restarting',
+                ).length;
+            await log.until(() => refusals() >= 2);
+            expect(conversation.state).toBe('connecting');
+            expect(log.count('close')).toBe(0);
+        } finally {
+            conversation.close();
+        }
+        expect(conversation.state).toBe('closed');
+    });
 });

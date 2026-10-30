@@ -1,17 +1,14 @@
 import WebSocket from 'ws';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import {
-    closeNodePuter,
-    loadNodePuter,
-} from '../harness/nodeSdkLoader';
-import type {
-    EnvManifest,
-    PuterSDK,
-} from '../harness/types';
+import { closeNodePuter, loadNodePuter } from '../harness/nodeSdkLoader';
+import type { EnvManifest, PuterSDK } from '../harness/types';
 import type { Conversation } from '../../../types/modules/ai/convo';
 import type { RealtimeServerEvent } from '../../../types/modules/ai/types';
 import { optionalEnv } from '@heyputer/backend/drivers/integrationTestUtil.ts';
-import { setupPuterTestEnv, type PuterTestEnv } from '@heyputer/backend/testUtil.ts';
+import {
+    setupPuterTestEnv,
+    type PuterTestEnv,
+} from '@heyputer/backend/testUtil.ts';
 import type { IConfig } from '@heyputer/backend/types.ts';
 
 const apiKey = optionalEnv('PUTER_TEST_AI_OPENAI_API_KEY');
@@ -84,16 +81,22 @@ describe.skipIf(!apiKey)('OpenAI realtime live relay', () => {
         let text = '';
         try {
             await new Promise<void>((resolve, reject) => {
-                const timer = setTimeout(() => reject(new Error('Realtime timeout')), 20_000);
+                const timer = setTimeout(
+                    () => reject(new Error('Realtime timeout')),
+                    20_000,
+                );
                 const fail = (error: Error) => {
                     clearTimeout(timer);
                     reject(error);
                 };
                 socket.on('error', fail);
-                socket.on('close', () => fail(new Error('Realtime closed before completion')));
+                socket.on('close', () =>
+                    fail(new Error('Realtime closed before completion')),
+                );
                 socket.on('message', (data) => {
                     const event = JSON.parse(data.toString());
-                    const send = (payload: Record<string, unknown>) => socket.send(JSON.stringify(payload));
+                    const send = (payload: Record<string, unknown>) =>
+                        socket.send(JSON.stringify(payload));
                     if (event.type === 'session.created') {
                         send({
                             type: 'session.update',
@@ -108,17 +111,23 @@ describe.skipIf(!apiKey)('OpenAI realtime live relay', () => {
                         send({
                             type: 'conversation.item.create',
                             item: {
-                                type: 'message', role: 'user',
-                                content: [{ type: 'input_text', text: 'Hello!' }],
+                                type: 'message',
+                                role: 'user',
+                                content: [
+                                    { type: 'input_text', text: 'Hello!' },
+                                ],
                             },
                         });
                         send({ type: 'response.create' });
                     }
-                    if (event.type === 'response.output_text.delta') text += event.delta;
-                    if (event.type === 'error') fail(new Error(`Realtime error: ${event.error?.code}`));
+                    if (event.type === 'response.output_text.delta')
+                        text += event.delta;
+                    if (event.type === 'error')
+                        fail(new Error(`Realtime error: ${event.error?.code}`));
                     if (event.type === 'response.done') {
                         clearTimeout(timer);
-                        if (event.response?.status !== 'completed') fail(new Error('Realtime response incomplete'));
+                        if (event.response?.status !== 'completed')
+                            fail(new Error('Realtime response incomplete'));
                         else resolve();
                     }
                 });
@@ -189,6 +198,88 @@ describe.skipIf(!apiKey)('OpenAI realtime live relay', () => {
         },
         45_000,
     );
+    it('restores tool and text context on a new provider session after a restart notice', async () => {
+        const session = await puter.ai.convo({
+            output: ['text'],
+            instructions: 'Answer in one short sentence.',
+        });
+        sessions.add(session);
+        const errors: string[] = [];
+        session.on('error', (event) =>
+            errors.push(
+                String(event.code ?? (event.error as { code?: string })?.code),
+            ),
+        );
+        try {
+            await session.connect();
+            let updated = waitFor(session, 'session.updated');
+            session.send({
+                type: 'session.update',
+                session: {
+                    type: 'realtime',
+                    tools: [
+                        {
+                            type: 'function',
+                            name: 'get_secret_word',
+                            description: 'Returns the secret word.',
+                            parameters: { type: 'object', properties: {} },
+                        },
+                    ],
+                    tool_choice: 'required',
+                },
+            });
+            await updated;
+            let done = waitFor(session, 'response.done');
+            session.sendText('What is the secret word?');
+            const call = (
+                (await done).response as {
+                    output: { type: string; call_id: string }[];
+                }
+            ).output.find((item) => item.type === 'function_call');
+            expect(call).toBeDefined();
+            updated = waitFor(session, 'session.updated');
+            session.send({
+                type: 'session.update',
+                session: { type: 'realtime', tool_choice: 'none' },
+            });
+            await updated;
+            session.send({
+                type: 'conversation.item.create',
+                item: {
+                    type: 'function_call_output',
+                    call_id: call!.call_id,
+                    output: JSON.stringify({ word: 'pineapple' }),
+                },
+            });
+            done = waitFor(session, 'response.done');
+            session.send({ type: 'response.create' });
+            await done;
+
+            const ready = waitFor(session, 'ready');
+            env.server.clients.event.emit('serverRestartAnnounced', {}, {});
+            expect(await ready).toMatchObject({ reconnected: true });
+
+            let text = '';
+            const off = session.on('text', (event) => {
+                text += event.delta;
+            });
+            done = waitFor(session, 'response.done');
+            session.sendText(
+                'Repeat the secret word. Reply with just the word.',
+            );
+            await done;
+            off();
+            expect(text.toLowerCase()).toContain('pineapple');
+            expect(errors).toEqual([]);
+            process.stdout.write(
+                `[live convo] context restored after reconnect, reply=${JSON.stringify(text)}\n`,
+            );
+        } finally {
+            session.close();
+            sessions.delete(session);
+        }
+    }, 60_000);
+
     it('receives live PCM audio and interrupts the current response', async () => {
         const c = await puter.ai.convo({
             output: ['audio'],
