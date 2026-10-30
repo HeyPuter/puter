@@ -49,8 +49,34 @@ log()  { printf '\033[1;36m[puter-install]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[puter-install]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[puter-install]\033[0m %s\n' "$*" >&2; exit 1; }
 
+# Docker is the one dependency users most often don't have yet, and the generic
+# "missing required command" line leaves them guessing. Point at the official
+# installers instead. We deliberately do NOT install it for them: piping a
+# remote script into a root-level package manager is not something an installer
+# should do behind the user's back.
+missing_docker() {
+    die "missing required command: docker
+
+Puter self-hosting runs as a set of Docker containers, so Docker (with the
+compose plugin) has to be installed before this installer can continue.
+
+  macOS / Windows : Docker Desktop -> https://docs.docker.com/get-docker/
+  Linux           : Docker Engine  -> https://docs.docker.com/engine/install/
+
+Once installed, check it is on your PATH and includes the compose plugin:
+
+  docker compose version
+
+Then re-run this installer. Details: doc/self-hosting.md#requirements"
+}
+
 need() {
-    command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+    if ! command -v "$1" >/dev/null 2>&1; then
+        case "$1" in
+            docker) missing_docker ;;
+            *) die "missing required command: $1" ;;
+        esac
+    fi
 }
 
 # ── Step 1: dependency check ────────────────────────────────────────
@@ -59,7 +85,8 @@ need docker
 need curl
 need openssl
 docker compose version >/dev/null 2>&1 \
-    || die "docker compose plugin not found — install docker desktop or 'docker-compose-plugin'"
+    || die "docker compose plugin not found — install docker desktop or 'docker-compose-plugin'
+  See https://docs.docker.com/compose/install/ (Linux: the 'docker-compose-plugin' package)"
 
 # ── Step 2: install dir ─────────────────────────────────────────────
 mkdir -p "$PUTER_DIR"
