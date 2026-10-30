@@ -234,6 +234,17 @@ const COUNT_WARN_INTERVAL_MS = 60_000;
 /** The room a socket that acknowledges `event` joins beside `room`. */
 export const ackRoom = (room: string, event: string): string =>
     `${room}:acks:${event}`;
+
+/**
+ * Each node answers it with how many of its sockets are in rooms, outside
+ * except.
+ */
+export const COUNT_OTHERS_EVENT = 'socket:count-others';
+
+const roomNames = (raw: unknown): string[] =>
+    Array.isArray(raw)
+        ? raw.filter((room): room is string => typeof room === 'string')
+        : [];
 const MAX_HANDSHAKE_ACKS = 16;
 const MAX_ACK_EVENT_LENGTH = 64;
 
@@ -363,6 +374,17 @@ export class SocketService extends PuterService {
         steadyServerCount(this.#io.of('/').adapter, (err) =>
             this.#noteServerCount(err),
         );
+        this.#io
+            .of('/')
+            .on(
+                COUNT_OTHERS_EVENT,
+                (rooms: unknown, except: unknown, reply: unknown) => {
+                    if (typeof reply !== 'function') return;
+                    reply(
+                        this.#othersHere(roomNames(rooms), roomNames(except)),
+                    );
+                },
+            );
         this.#probeServerCount();
 
         this.#installAuthMiddleware();
@@ -420,9 +442,9 @@ export class SocketService extends PuterService {
 
     /**
      * Asks the sockets in `specifiers` that listed `key` in `auth.acks`,
-     * without listing sockets across the cluster. The others get it as an acked
-     * broadcast too, which can only time out, and that says whether any is
-     * there.
+     * without listing sockets across the cluster. The others are only counted:
+     * a socket that never acknowledges would hold an acked emit's callback on
+     * its node until it disconnects.
      */
     async askWithAck(
         specifiers: SocketSpecifier | SocketSpecifier[],
@@ -465,13 +487,55 @@ export class SocketService extends PuterService {
             });
         const [acks, others] = await Promise.all([
             heard(io.to(ackTargets)),
-            heard(io.to(targets).except(ackTargets)),
+            this.#othersInCluster(targets, ackTargets, timeoutMs),
         ]);
         return {
             ...acks,
-            others: others.timedOut || others.responses.length > 0,
+            others,
             complete: this.#countFailures === failuresBefore,
         };
+    }
+
+    /** Sockets on this node in any of `rooms` and in none of `except`. */
+    #othersHere(rooms: string[], except: string[]): number {
+        const skip = this.#localIds(except);
+        let count = 0;
+        for (const id of this.#localIds(rooms)) {
+            if (!skip.has(id)) count++;
+        }
+        return count;
+    }
+
+    /** A node that does not answer in time may hold one. */
+    async #othersInCluster(
+        rooms: string[],
+        except: string[],
+        timeoutMs: number,
+    ): Promise<boolean> {
+        if (this.#othersHere(rooms, except) > 0) return true;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const counts: unknown[] = await Promise.race([
+                this.#io!.of('/').serverSideEmitWithAck(
+                    COUNT_OTHERS_EVENT,
+                    rooms,
+                    except,
+                ),
+                new Promise<never>((_, reject) => {
+                    timer = setTimeout(
+                        () => reject(new Error('count timed out')),
+                        timeoutMs,
+                    );
+                }),
+            ]);
+            return counts.some(
+                (count) => typeof count === 'number' && count > 0,
+            );
+        } catch {
+            return true;
+        } finally {
+            clearTimeout(timer);
+        }
     }
 
     /** How long after a failed server count the next one is tried. */
@@ -525,9 +589,7 @@ export class SocketService extends PuterService {
     ): Promise<AckedAsk> {
         const io = this.#io!;
         const acking = this.#localIds(ackTargets);
-        const others = [...this.#localIds(targets)].some(
-            (id) => !acking.has(id),
-        );
+        const others = this.#othersHere(targets, ackTargets) > 0;
         const heard = await Promise.all(
             [...acking].map(async (id) => {
                 const socket = io.sockets.sockets.get(id);

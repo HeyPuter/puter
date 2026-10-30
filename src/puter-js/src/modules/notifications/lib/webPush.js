@@ -1,5 +1,11 @@
 import { PuterJSError } from '../../../lib/PuterJSError.js';
 import { request } from './api.js';
+import {
+    HANDLERS_STORE,
+    SERVER_KEY_ENTRY,
+    idbGet,
+    idbPut,
+} from './pushStore.js';
 
 /** Posted by the service worker when the server's confirmation push arrives. */
 export const CHALLENGE_MESSAGE = 'puter-push-challenge';
@@ -10,6 +16,11 @@ export const GUI_WORKER = '/sw.js';
 
 const CHALLENGE_TIMEOUT_MS = 30_000;
 const WORKER_START_TIMEOUT_MS = 10_000;
+/** Answers that a fresh subscription can get past; it is tried once. */
+const RENEWABLE_SUBSCRIPTION_ERRORS = new Set([
+    'push_subscription_invalid',
+    'push_endpoint_revoked',
+]);
 
 export const webPushSupported = (g = globalThis) =>
     typeof g.navigator?.serviceWorker?.register === 'function' &&
@@ -34,26 +45,53 @@ export const workerFor = (env, serviceWorker) =>
         ? { url: GUI_WORKER, scope: '/' }
         : { url: serviceWorker ?? DEFAULT_APP_WORKER };
 
-const untilActive = (registration) => {
-    if (registration.active) return Promise.resolve(registration);
-    const worker = registration.installing ?? registration.waiting;
-    if (!worker) return Promise.resolve(registration);
+const scriptUrl = (worker) => {
+    try {
+        return new URL(worker.url, globalThis.location?.href).href;
+    } catch {
+        return worker.url;
+    }
+};
+
+const workerConflict = (worker, other) =>
+    new PuterJSError(
+        `Another service worker (${other.scriptURL}) runs where ${worker.url} would. ` +
+            "Add importScripts('https://js.puter.com/push-sw.js') to it and pass its path as the `serviceWorker` option.",
+        'push_worker_conflict',
+    );
+
+/** Resolves once `worker`'s script is the registration's active one. */
+const untilActive = (registration, worker) => {
+    const url = scriptUrl(worker);
+    const other = registration.active;
+    if (other?.scriptURL === url) return Promise.resolve(registration);
+    const ours = [registration.installing, registration.waiting].find(
+        (candidate) => candidate?.scriptURL === url,
+    );
+    if (!ours) {
+        return other
+            ? Promise.reject(workerConflict(worker, other))
+            : Promise.resolve(registration);
+    }
     return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
-            worker.removeEventListener('statechange', check);
+            ours.removeEventListener('statechange', check);
+            // Waiting behind another worker that keeps its pages.
             reject(
-                new PuterJSError(
-                    'The push service worker did not start',
-                    'push_worker_unavailable',
-                ),
+                other
+                    ? workerConflict(worker, other)
+                    : new PuterJSError(
+                          'The push service worker did not start',
+                          'push_worker_unavailable',
+                      ),
             );
         }, WORKER_START_TIMEOUT_MS);
         function check() {
-            if (worker.state !== 'activated' && worker.state !== 'redundant')
+            if (ours.state !== 'activated' && ours.state !== 'redundant')
                 return;
             clearTimeout(timer);
-            worker.removeEventListener('statechange', check);
-            if (worker.state === 'activated') resolve(registration);
+            ours.removeEventListener('statechange', check);
+            if (ours.state === 'activated') resolve(registration);
             else
                 reject(
                     new PuterJSError(
@@ -62,26 +100,51 @@ const untilActive = (registration) => {
                     ),
                 );
         }
-        worker.addEventListener('statechange', check);
+        ours.addEventListener('statechange', check);
         check();
     });
 };
 
-const registerWorker = async (nav, worker) => {
+/**
+ * The site's own worker at the scope `worker` would take, while none of ours is
+ * there yet, else null. Registering over it would swap it out once the site's
+ * tabs close.
+ */
+const siteWorkerAt = async (nav, worker) => {
+    let scope;
+    let existing;
     try {
-        const registration = await nav.serviceWorker.register(worker.url, {
+        scope = new URL('./', scriptUrl(worker)).href;
+        existing = await nav.serviceWorker.getRegistration(scope);
+    } catch {
+        return null;
+    }
+    if (existing?.scope !== scope) return null;
+    const workers = [existing.active, existing.waiting, existing.installing];
+    const url = scriptUrl(worker);
+    if (workers.some((w) => w?.scriptURL === url)) return null;
+    return workers.find(Boolean) ?? null;
+};
+
+const registerWorker = async (nav, worker, { keepSiteWorker = false } = {}) => {
+    if (keepSiteWorker) {
+        const other = await siteWorkerAt(nav, worker);
+        if (other) throw workerConflict(worker, other);
+    }
+    let registration;
+    try {
+        registration = await nav.serviceWorker.register(worker.url, {
             ...(worker.scope ? { scope: worker.scope } : {}),
             updateViaCache: 'none',
         });
-        return await untilActive(registration);
     } catch (error) {
-        if (error instanceof PuterJSError) throw error;
         throw new PuterJSError(
             `Could not register the push service worker at ${worker.url}`,
             'push_worker_unavailable',
             { cause: error },
         );
     }
+    return await untilActive(registration, worker);
 };
 
 /**
@@ -122,11 +185,20 @@ const subscriptionBody = (subscription) => {
     return { endpoint, keys: { p256dh: keys?.p256dh, auth: keys?.auth } };
 };
 
-const subscribeWith = (registration, key) =>
-    registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: key,
-    });
+const subscribeWith = async (registration, key) => {
+    try {
+        return await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: key,
+        });
+    } catch (error) {
+        throw new PuterJSError(
+            error?.message || 'The browser refused the push subscription',
+            'push_subscribe_failed',
+            { cause: error },
+        );
+    }
+};
 
 /** Tells the server about `subscription`; `active` or `pending`. */
 const announce = (puter, subscription, label) =>
@@ -134,6 +206,45 @@ const announce = (puter, subscription, label) =>
         subscription: subscriptionBody(subscription),
         ...(label ? { label } : {}),
     });
+
+/** Whether `buffer` is the key Puter last subscribed this origin with. */
+const earlierPuterKey = async (buffer) => {
+    try {
+        const stored = await idbGet(HANDLERS_STORE, SERVER_KEY_ENTRY);
+        return (
+            typeof stored === 'string' && sameKey(buffer, fromBase64Url(stored))
+        );
+    } catch {
+        return false;
+    }
+};
+
+const rememberPuterKey = async (publicKey) => {
+    try {
+        await idbPut(HANDLERS_STORE, SERVER_KEY_ENTRY, publicKey);
+    } catch {
+        // Only a later key rotation needs it.
+    }
+};
+
+/**
+ * This registration's subscription made with Puter's `key`, or null. One made
+ * with Puter's earlier key is ended; on a website, one made with any other key
+ * belongs to something else on the site and is left alone.
+ */
+const currentSubscription = async (puter, registration, key) => {
+    const subscription = await registration.pushManager.getSubscription();
+    const existing = subscription?.options?.applicationServerKey;
+    if (!subscription || sameKey(existing, key)) return subscription;
+    if (puter.env === 'web' && existing && !(await earlierPuterKey(existing))) {
+        throw new PuterJSError(
+            'This browser already has a push subscription from another service on this site',
+            'push_subscription_conflict',
+        );
+    }
+    await subscription.unsubscribe();
+    return null;
+};
 
 /**
  * Subscribes this browser and registers it with the server. A new subscription
@@ -154,17 +265,14 @@ export async function syncWebPush(
         );
     }
     const key = fromBase64Url(publicKey);
-    const registration = await registerWorker(nav, worker);
+    const registration = await registerWorker(nav, worker, {
+        keepSiteWorker: puter.env !== 'gui',
+    });
 
-    let subscription = await registration.pushManager.getSubscription();
-    if (
-        subscription &&
-        !sameKey(subscription.options?.applicationServerKey, key)
-    ) {
-        await subscription.unsubscribe();
-        subscription = null;
-    }
-    subscription ??= await subscribeWith(registration, key);
+    let subscription =
+        (await currentSubscription(puter, registration, key)) ??
+        (await subscribeWith(registration, key));
+    await rememberPuterKey(publicKey);
 
     // Listening first: the confirmation can arrive before the POST returns.
     const challenge = nextChallenge(nav);
@@ -173,8 +281,9 @@ export async function syncWebPush(
         try {
             result = await announce(puter, subscription, label);
         } catch (error) {
-            if (error?.code !== 'push_subscription_invalid') throw error;
-            // The push service may not know a brand-new subscription yet; one fresh one is tried.
+            if (!RENEWABLE_SUBSCRIPTION_ERRORS.has(error?.code)) throw error;
+            // A brand-new subscription the push service doesn't know yet, or an
+            // endpoint another account turned off here.
             await subscription.unsubscribe();
             subscription = await subscribeWith(registration, key);
             result = await announce(puter, subscription, label);
@@ -195,10 +304,13 @@ export async function syncWebPush(
     }
 }
 
-/** Ends this browser's subscription for `worker` and tells the server. */
+/**
+ * Ends this browser's subscription for `worker` and tells the server, with
+ * `authToken` in place of the live token when given.
+ */
 export async function removeWebPush(
     puter,
-    { worker, nav = globalThis.navigator } = {},
+    { worker, authToken, nav = globalThis.navigator } = {},
 ) {
     const registration = await nav.serviceWorker.getRegistration(
         worker.scope ?? worker.url,
@@ -206,9 +318,13 @@ export async function removeWebPush(
     const subscription = await registration?.pushManager.getSubscription();
     if (!subscription) return false;
     try {
-        await request(puter, 'DELETE', '/push/web/subscriptions', {
-            endpoint: subscription.endpoint,
-        });
+        await request(
+            puter,
+            'DELETE',
+            '/push/web/subscriptions',
+            { endpoint: subscription.endpoint },
+            { authToken },
+        );
     } finally {
         await subscription.unsubscribe();
     }

@@ -529,11 +529,14 @@ export class AuthModule extends PuterModule {
     }
 
     /**
-     * Signs the user out of this app by discarding its auth token.
+     * Signs the user out of this app by discarding its auth token. On a
+     * website, this browser's push subscription for the app is removed too.
      *
      * @type {() => void}
      */
     signOut = () => {
+        // Started first, so it still holds the token of the user leaving.
+        void puter.notifications?._forgetPush?.(puter.authToken);
         puter.resetAuthToken();
     };
 
