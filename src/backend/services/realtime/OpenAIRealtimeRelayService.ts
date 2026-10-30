@@ -25,6 +25,7 @@ import type { Actor } from '../../core/actor.js';
 import {
     CONCURRENT_SLOT_TTL_MS,
     acquireConcurrent,
+    checkRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
 import { SPEECH_TO_TEXT_COSTS } from '../../drivers/ai-speech2txt/costs.js';
 import {
@@ -35,7 +36,7 @@ import { readProviderKey } from '../../drivers/util/providerRegistry.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { kv } from '../../util/kvSingleton.js';
 import { assertActorHasSubscription } from '../metering/enforcement.js';
-import type { UsageInput } from '../metering/types.js';
+import type { CreditHold, UsageInput } from '../metering/types.js';
 import { decideSocketAuth } from '../socket/SocketService.js';
 import { PuterService } from '../types.js';
 
@@ -146,6 +147,14 @@ const HEARTBEAT_MS = 30_000;
 const UPSTREAM_HANDSHAKE_MS = 10_000;
 const SESSION_SETUP_MS = 15_000;
 const DEFAULT_MAX_PER_USER = 20;
+// Session attempts per credential, checked before authenticating.
+const CONNECTS_PER_MINUTE = 60;
+// Each response holds this much audio, at the session model's rates, from the
+// account's budget until its usage is recorded.
+const RESPONSE_HOLD_INPUT_TOKENS = 8_000;
+const RESPONSE_HOLD_OUTPUT_TOKENS = 4_096;
+// Committed input items whose transcription hasn't completed.
+const MAX_PENDING_TRANSCRIPTIONS = 64;
 // Credentials are re-authenticated once their kv entry expires.
 const AUTH_RECHECK_SEC = 60;
 const AUTH_SWEEP_MS = 15_000;
@@ -159,9 +168,12 @@ const CLOSE_RESTART = 1012;
 const TRANSCRIPTION_DONE =
     'conversation.item.input_audio_transcription.completed';
 const METERING_DRIVER = 'openai-realtime';
+// Provider organization IDs, as OpenAI puts them in some error messages.
+const ORG_ID = /\borg-[A-Za-z0-9]{8,}/g;
 
 interface RealtimeEvent {
     type: string;
+    item_id?: unknown;
     session?: unknown;
     response?: { id?: unknown; usage?: RealtimeUsage | null };
     usage?: RealtimeTranscriptionUsage | null;
@@ -348,6 +360,25 @@ export const realtimeTranscriptionRows = (
         }));
 };
 
+/** Budget held for one response of `model` until its usage is recorded. */
+const responseHoldAmount = (model: string): number => {
+    const price = REALTIME_MODELS[model];
+    return (
+        RESPONSE_HOLD_INPUT_TOKENS * price.audioIn +
+        RESPONSE_HOLD_OUTPUT_TOKENS * price.audioOut
+    );
+};
+
+/** Whichever of two pricings of the same usage costs more. */
+export const costlierRows = (
+    a: UsageInput[],
+    b: UsageInput[],
+): UsageInput[] => {
+    const total = (rows: UsageInput[]) =>
+        rows.reduce((sum, row) => sum + (row.costOverride ?? 0), 0);
+    return total(b) > total(a) ? b : a;
+};
+
 /** The transcription model a `session.created`/`session.updated` configures. */
 const transcriptionModelOf = (session: unknown): string | undefined => {
     const s = session as {
@@ -375,9 +406,23 @@ export const realtimeBillingModel = (
     return Object.hasOwn(REALTIME_MODELS, alias) ? alias : fallback;
 };
 
+const tokenHash = (token: string): string =>
+    createHash('sha256').update(token).digest('base64url');
+
 /** The kv key whose presence means `token` was verified recently. */
 export const realtimeAuthKey = (token: string): string =>
-    `realtime:auth:${createHash('sha256').update(token).digest('base64url')}`;
+    `realtime:auth:${tokenHash(token)}`;
+
+/** The rate-limit key for session attempts with `token`. */
+export const realtimeConnectKey = (token: string): string =>
+    `realtime:connect:${tokenHash(token)}`;
+
+/** `buf` with provider organization IDs removed, or `buf` itself. */
+const redactOrgIds = (buf: Buffer): Buffer => {
+    const text = buf.toString('utf8');
+    const redacted = text.replace(ORG_ID, 'org-redacted');
+    return redacted === text ? buf : Buffer.from(redacted);
+};
 
 /** An error event in OpenAI's realtime shape. */
 const errorEvent = (code: string, message: string): string =>
@@ -528,6 +573,13 @@ export class OpenAIRealtimeRelayService extends PuterService {
         // on `response.done`, so the upstream outlives the client until then.
         let inFlight = 0;
         const inFlightIds = new Set<string>();
+        // Client `response.create` events whose response hasn't started; the
+        // settle waits for them too.
+        let requested = 0;
+        // Credit holds of responses whose usage isn't recorded yet.
+        const responseHolds = new Map<string, Promise<CreditHold | null>>();
+        // The transcription model in force when each input item was committed.
+        const committedModels = new Map<string, string | undefined>();
         let onIdle: (() => void) | null = null;
         const model = url.searchParams.get('model') || DEFAULT_REALTIME_MODEL;
         let billingModel = model;
@@ -561,10 +613,18 @@ export class OpenAIRealtimeRelayService extends PuterService {
         // until each response reports its usage, or SETTLE_MS passes.
         const settleUpstream = () => {
             const up = upstream;
-            if (!up || up.readyState !== WebSocket.OPEN || inFlight === 0) {
+            if (
+                !up ||
+                up.readyState !== WebSocket.OPEN ||
+                (inFlight === 0 && requested === 0)
+            ) {
                 endUpstream();
                 return;
             }
+            if (up.isPaused) up.resume();
+            settleTimer = setTimeout(endUpstream, SETTLE_MS);
+            // A requested response is cancelled once it starts.
+            if (inFlight === 0) return;
             const cancels = inFlightIds.size
                 ? [...inFlightIds].map((id) => ({
                       type: 'response.cancel',
@@ -572,8 +632,6 @@ export class OpenAIRealtimeRelayService extends PuterService {
                   }))
                 : [{ type: 'response.cancel' }];
             for (const cancel of cancels) up.send(JSON.stringify(cancel));
-            if (up.isPaused) up.resume();
-            settleTimer = setTimeout(endUpstream, SETTLE_MS);
         };
 
         const session = {
@@ -724,20 +782,34 @@ export class OpenAIRealtimeRelayService extends PuterService {
 
         // Usage is recorded serially, off the forwarding path, and keeps
         // draining after the session closes.
-        const usageQueue: UsageInput[][] = [];
+        const usageQueue: {
+            rows: UsageInput[];
+            hold?: Promise<CreditHold | null>;
+        }[] = [];
         let recording = false;
         const drainUsage = async () => {
             while (usageQueue.length) {
-                await this.#record(actor!, usageQueue[0], () =>
-                    reject('insufficient_funds', 'No usage left for request'),
-                );
+                const { rows, hold } = usageQueue[0];
+                if (rows.length) {
+                    await this.#record(actor!, rows, () =>
+                        reject(
+                            'insufficient_funds',
+                            'No usage left for request',
+                        ),
+                    );
+                }
+                await releaseHold(hold);
                 usageQueue.shift();
             }
             recording = false;
         };
-        const meter = (rows: UsageInput[]) => {
-            if (!rows.length) return;
-            usageQueue.push(rows);
+        // `hold` is released once `rows` are recorded.
+        const meter = (
+            rows: UsageInput[],
+            hold?: Promise<CreditHold | null>,
+        ) => {
+            if (!rows.length && !hold) return;
+            usageQueue.push({ rows, hold });
             if (!recording) {
                 recording = true;
                 setImmediate(() => void drainUsage());
@@ -747,16 +819,63 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
         };
 
+        const holdResponse = (id: string) => {
+            const hold = (async () => {
+                try {
+                    const taken = await this.#metering.reserveAiCredits(
+                        actor!,
+                        `openai:${billingModel}:realtime:audio_output`,
+                        responseHoldAmount(billingModel),
+                    );
+                    if (!taken) {
+                        reject(
+                            'insufficient_funds',
+                            'No usage left for request',
+                        );
+                    }
+                    return taken;
+                } catch (err) {
+                    console.warn('[realtime] credit hold failed', err);
+                    return null;
+                }
+            })();
+            responseHolds.set(id, hold);
+        };
+        const takeHold = (id: unknown) => {
+            if (typeof id !== 'string') return undefined;
+            const hold = responseHolds.get(id);
+            responseHolds.delete(id);
+            return hold;
+        };
+        const releaseHold = async (hold?: Promise<CreditHold | null>) => {
+            try {
+                await (await hold)?.release();
+            } catch (err) {
+                console.warn('[realtime] credit hold release failed', err);
+            }
+        };
+
         // Upstream state the meter and the settle need. Runs for every
         // upstream event, before (and regardless of) forwarding.
         const track = (event: RealtimeEvent) => {
             switch (event.type) {
-                case 'response.created':
+                case 'response.created': {
                     inFlight++;
-                    if (typeof event.response?.id === 'string') {
-                        inFlightIds.add(event.response.id);
+                    requested = Math.max(0, requested - 1);
+                    const id = event.response?.id;
+                    if (typeof id !== 'string') break;
+                    inFlightIds.add(id);
+                    holdResponse(id);
+                    if (closed) {
+                        upstream?.send(
+                            JSON.stringify({
+                                type: 'response.cancel',
+                                response_id: id,
+                            }),
+                        );
                     }
                     break;
+                }
                 case 'response.done':
                     inFlight = Math.max(0, inFlight - 1);
                     if (typeof event.response?.id === 'string') {
@@ -767,10 +886,20 @@ export class OpenAIRealtimeRelayService extends PuterService {
                             billingModel,
                             event.response?.usage ?? undefined,
                         ),
+                        takeHold(event.response?.id),
                     );
                     if (inFlight === 0) {
                         onIdle?.();
-                        if (closed) endUpstream();
+                        if (closed && requested === 0) endUpstream();
+                    }
+                    break;
+                case 'input_audio_buffer.committed':
+                    if (typeof event.item_id !== 'string') break;
+                    committedModels.set(event.item_id, transcriptionModel);
+                    if (committedModels.size > MAX_PENDING_TRANSCRIPTIONS) {
+                        committedModels.delete(
+                            committedModels.keys().next().value!,
+                        );
                     }
                     break;
                 case 'session.created':
@@ -778,14 +907,30 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     transcriptionModel = transcriptionModelOf(event.session);
                     billingModel = realtimeBillingModel(event.session, model);
                     break;
-                case TRANSCRIPTION_DONE:
+                case TRANSCRIPTION_DONE: {
+                    // Priced at the costlier of the models in force at commit
+                    // and now, whichever the provider used.
+                    const usage = event.usage ?? undefined;
+                    const itemId = event.item_id;
+                    const atCommit =
+                        typeof itemId === 'string' &&
+                        committedModels.has(itemId)
+                            ? committedModels.get(itemId)
+                            : transcriptionModel;
+                    if (typeof itemId === 'string') {
+                        committedModels.delete(itemId);
+                    }
                     meter(
-                        realtimeTranscriptionRows(
-                            transcriptionModel,
-                            event.usage ?? undefined,
+                        costlierRows(
+                            realtimeTranscriptionRows(atCommit, usage),
+                            realtimeTranscriptionRows(
+                                transcriptionModel,
+                                usage,
+                            ),
                         ),
                     );
                     break;
+                }
             }
         };
 
@@ -833,6 +978,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
             spend(size);
             if (closed) return;
+            if (event.type === 'response.create') requested++;
             if (upstream?.readyState === WebSocket.OPEN) {
                 sendUpstream(data, isBinary);
                 return;
@@ -868,6 +1014,21 @@ export class OpenAIRealtimeRelayService extends PuterService {
             return;
         }
 
+        if (
+            token &&
+            !(await checkRateLimit(
+                realtimeConnectKey(token),
+                CONNECTS_PER_MINUTE,
+                60_000,
+            ))
+        ) {
+            reject(
+                'rate_limit_exceeded',
+                'Too many realtime connection attempts',
+            );
+            return;
+        }
+        if (closed) return;
         try {
             actor = token ? await this.#authenticateCached(token, req) : null;
         } catch {
@@ -900,12 +1061,17 @@ export class OpenAIRealtimeRelayService extends PuterService {
             return;
         }
         if (closed) return;
-        if (
-            !(await this.services.metering.hasEnoughCredits(actor, 1_000_000))
-        ) {
+        // Enough for one response's hold, so a session that opens can answer.
+        const probe = await this.#metering.reserveAiCredits(
+            actor,
+            `openai:${model}:realtime:audio_output`,
+            responseHoldAmount(model),
+        );
+        if (!probe) {
             reject('insufficient_funds', 'No usage left for request');
             return;
         }
+        await probe.release();
         if (closed) return;
 
         const userId = actor.user!.uuid;
@@ -976,14 +1142,17 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
             track(event);
             if (closed || client.readyState !== WebSocket.OPEN) return;
+            // Rate limits describe Puter's provider account, not the caller's.
+            if (event.type === 'rate_limits.updated') return;
+            const out = event.type === 'error' ? redactOrgIds(buf) : buf;
             if (
-                client.bufferedAmount + buf.length >
+                client.bufferedAmount + out.length >
                 HIGH_WATER_BYTES + MAX_UPSTREAM_MESSAGE_BYTES
             ) {
                 reject('rate_limit_exceeded', 'Client queue is full');
                 return;
             }
-            client.send(buf, { binary: isBinary }, () => {
+            client.send(out, { binary: isBinary }, () => {
                 if (
                     up.isPaused &&
                     client.bufferedAmount < HIGH_WATER_BYTES &&
@@ -1039,6 +1208,9 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     'warning',
                     { dedup: true },
                 );
+            }
+            for (const id of [...responseHolds.keys()]) {
+                void releaseHold(takeHold(id));
             }
             session.close(
                 code === 1005 || code === 1006 ? 1011 : code,

@@ -10,7 +10,8 @@ Direct clients are documented in the [Realtime WebSocket API reference](../../..
 ## Transport
 
 The relay forwards native OpenAI JSON events unchanged after validating the
-event envelope. An event must be an object with a nonempty string `type` of at
+event envelope, except that `rate_limits.updated` (Puter's provider account) is
+dropped and provider organization IDs are removed from error messages. An event must be an object with a nonempty string `type` of at
 most 128 characters. Binary messages and malformed envelopes close the session.
 Usage fields consumed by metering are validated before use. Event field order
 does not affect billing.
@@ -50,7 +51,16 @@ that changes the model is refused.
 
 When a session closes with a response still generating, the relay cancels it
 and keeps the upstream open for up to five seconds so the cancelled response
-reports, and is billed for, what it generated.
+reports, and is billed for, what it generated. A response the client requested
+that starts during that window is cancelled the same way. An upstream that
+closes with a response unreported raises a warning alarm.
+
+Each response holds a fixed amount of the account's budget
+(`RESPONSE_HOLD_*_TOKENS` at the model's audio rates) from `response.created`
+until its usage is recorded, so concurrent sessions can't overdraw it; a session
+opens only if one hold fits. Input transcription is priced at the costlier of
+the transcription models in force at commit and at completion. Session attempts
+are limited per credential before authentication runs.
 
 Credential checks run in batches of at most 16 with no overlapping sweeps.
 During drain, new sessions receive `server_restarting` and close with 1012.
@@ -64,15 +74,13 @@ The provider key resolves through `openai-realtime`, `openai-completion`, then
 (the SDK tests live in `src/puter-js/tests/api/realtime`). The per-user connection cap is configured with
 `realtime.maxConnectionsPerUser` and defaults to 20.
 
-The relay does not run load generators, periodic process-memory sampling, or
-per-frame statistics counters. Unit tests use a local WebSocket fixture.
-Optional live integration tests use
+Unit tests use a local WebSocket fixture. Optional live integration tests use
 `PUTER_TEST_AI_OPENAI_API_KEY`.
 
 ## Remaining constraints
 
-Responses and input transcriptions are billed after completion. There is no
-credit hold. Sessions require a paid plan (`subscription.gate.realtime.openai`
+Responses and input transcriptions are billed after completion; holds bound
+what is in flight. Sessions require a paid plan (`subscription.gate.realtime.openai`
 can waive it) and accept session, app and full-access API tokens. Conversation
 state lives upstream and is lost when a connection ends; the SDK reconnects
 with the same settings but an empty conversation.

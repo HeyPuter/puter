@@ -11,6 +11,7 @@ import {
     vi,
 } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { withAiCostFactorHook } from '../../drivers/integrationTestUtil';
 import type { IConfig } from '../../types';
 import type { PuterServer } from '../../server';
@@ -30,6 +31,7 @@ import {
     type RealtimeTranscriptionUsage,
     realtimeAuthKey,
     realtimeBillingModel,
+    realtimeConnectKey,
     realtimeTokenFrom,
     realtimeTranscriptionRows,
     realtimeUsageRows,
@@ -192,13 +194,17 @@ describe('OpenAIRealtimeRelayService relay', () => {
     const upstreamEvents: { type: string; response_id?: string }[] = [];
     const clients = new Set<WebSocket>();
 
-    // Realtime is subscriber-only; the test user is on a paid plan unless a
-    // test says otherwise.
+    // Realtime is subscriber-only; the test user is on a paid plan with a $10
+    // allowance unless a test says otherwise.
     beforeEach(() => {
         const metering = server.services.metering;
         const plan = metering.getActorSubscription.bind(metering);
         vi.spyOn(metering, 'getActorSubscription').mockImplementation(
-            async (actor) => ({ ...(await plan(actor)), id: 'test_paid' }),
+            async (actor) => ({
+                ...(await plan(actor)),
+                id: 'test_paid',
+                monthUsageAllowance: 1_000_000_000,
+            }),
         );
     });
 
@@ -317,6 +323,38 @@ describe('OpenAIRealtimeRelayService relay', () => {
                         }),
                     );
                 }
+                // Commits on one transcription model, then switches to a
+                // cheaper one before the transcription completes.
+                if (event.type === 'transcribe.switch') {
+                    const model = (name: string) =>
+                        JSON.stringify({
+                            type: 'session.updated',
+                            session: {
+                                audio: {
+                                    input: { transcription: { model: name } },
+                                },
+                            },
+                        });
+                    ws.send(model('gpt-4o-transcribe'));
+                    ws.send(
+                        JSON.stringify({
+                            type: 'input_audio_buffer.committed',
+                            item_id: 'item_switch',
+                        }),
+                    );
+                    ws.send(model('gpt-4o-mini-transcribe'));
+                    ws.send(
+                        JSON.stringify({
+                            type: 'conversation.item.input_audio_transcription.completed',
+                            item_id: 'item_switch',
+                            usage: {
+                                type: 'tokens',
+                                input_tokens: 4,
+                                input_token_details: { audio_tokens: 4 },
+                            } satisfies RealtimeTranscriptionUsage,
+                        }),
+                    );
+                }
                 // Generates until cancelled, then reports usage like OpenAI.
                 if (event.type === 'hold.response') {
                     ws.send(
@@ -354,7 +392,19 @@ describe('OpenAIRealtimeRelayService relay', () => {
                         300,
                     );
                 }
-                if (event.type === 'response.create') {
+                // Starts only after a delay, like a reply still being queued.
+                if (event.type === 'response.create' && event.late) {
+                    setTimeout(
+                        () =>
+                            ws.send(
+                                JSON.stringify({
+                                    type: 'response.created',
+                                    response: { id: 'resp_late' },
+                                }),
+                            ),
+                        150,
+                    );
+                } else if (event.type === 'response.create') {
                     ws.send(
                         JSON.stringify({
                             type: 'response.done',
@@ -971,6 +1021,151 @@ describe('OpenAIRealtimeRelayService relay', () => {
             error: { code: 'invalid_api_key' },
         });
         expect((await live.closed).code).toBe(1008);
+    });
+
+    it('holds credit for each response until its usage is recorded', async () => {
+        const holder = await createTestUser(server, {
+            username: 'realtime-holds',
+            password: 'realtime-holds-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        const metering = server.services.metering;
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${holder.token}`,
+        );
+        await c.waitFor('session.created');
+        expect(await metering.getOutstandingHolds(actor)).toBe(0);
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await c.waitFor('response.created');
+        // 8,000 audio input and 4,096 audio output tokens at mini rates.
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(
+                8_000 * 1000 + 4_096 * 2000,
+            ),
+        );
+        c.ws.close();
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(0),
+        );
+    });
+
+    it("refuses a session the account can't cover one response of", async () => {
+        const subscription = vi.mocked(
+            server.services.metering.getActorSubscription,
+        );
+        const paid = subscription.getMockImplementation()!;
+        subscription.mockImplementation(async (actor) => ({
+            ...(await paid(actor)),
+            monthUsageAllowance: 10_000_000,
+        }));
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'insufficient_funds' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('limits session attempts per credential', async () => {
+        const burst = await createTestUser(server, {
+            username: 'realtime-burst',
+            password: 'realtime-burst-password',
+        });
+        for (let i = 0; i < 60; i++) {
+            await checkRateLimit(realtimeConnectKey(burst.token), 60, 60_000);
+        }
+        const c = open(`${relayUrl}?auth_token=${burst.token}`);
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        expect((await c.closed).code).toBe(1008);
+    });
+
+    it('cancels and bills a requested response that starts after the client leaves', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        spy.mockClear();
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'response.create', late: true }));
+        await c.waitForEcho('response.create');
+        c.ws.close();
+        await vi.waitFor(() =>
+            expect(upstreamEvents).toContainEqual({
+                type: 'response.cancel',
+                response_id: 'resp_late',
+            }),
+        );
+        await vi.waitFor(() =>
+            expect(
+                spy.mock.calls.some(([, rows]) =>
+                    rows.some(
+                        (r) =>
+                            r.usageType ===
+                            'openai:gpt-realtime-mini:realtime:audio_output',
+                    ),
+                ),
+            ).toBe(true),
+        );
+    });
+
+    it('prices a transcription at the costlier of its commit and current models', async () => {
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        spy.mockClear();
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'transcribe.switch' }));
+        await c.waitFor('conversation.item.input_audio_transcription.completed');
+        await vi.waitFor(() =>
+            expect(
+                spy.mock.calls.flatMap(([, rows]) =>
+                    rows.map((r) => [r.usageType, r.costOverride]),
+                ),
+            ).toContainEqual([
+                'openai:gpt-4o-transcribe:realtime:transcription_audio_input',
+                4 * 600,
+            ]),
+        );
+        c.ws.close();
+    });
+
+    it('drops rate_limits.updated and redacts organization IDs from errors', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.upstream',
+                payload: '{"type":"rate_limits.updated","rate_limits":[]}',
+            }),
+        );
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.upstream',
+                payload: JSON.stringify({
+                    type: 'error',
+                    error: {
+                        code: 'rate_limit_exceeded',
+                        message:
+                            'Rate limit reached in organization org-AbCdEf1234567890 on tokens',
+                    },
+                }),
+            }),
+        );
+        const error = (await c.waitFor('error')) as {
+            error: { message: string };
+        };
+        expect(error.error.message).toBe(
+            'Rate limit reached in organization org-redacted on tokens',
+        );
+        expect(c.events.some((e) => e.type === 'rate_limits.updated')).toBe(
+            false,
+        );
+        c.ws.close();
     });
 
     // Last: the relay stays in drain mode afterwards.
