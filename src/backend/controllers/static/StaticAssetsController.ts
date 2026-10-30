@@ -26,7 +26,7 @@ import type { PuterRouter } from '../../core/http/PuterRouter';
 /**
  * Static asset routes.
  *
- * /puter.js/v1, /puter.js/v2 → any subdomain /v1, /v2, /v2/push-sw.js,
+ * /puter.js/v1, /puter.js/v2 → any subdomain /v1, /v2, /push-sw.js,
  * /putility/v1 → js subdomain /sdk/* → root subdomain — puter-js bundle
  * /dist/_, /src/_, /assets/* → root subdomain
  *
@@ -55,9 +55,12 @@ export class StaticAssetsController extends PuterController {
             router.get('/putility/v1', { subdomain: 'js' }, (_req, res) => {
                 res.sendFile('putility.js/v1.js', { root });
             });
-            router.get('/v2/push-sw.js', { subdomain: 'js' }, (_req, res) => {
-                res.sendFile('puter.js/push-sw.js', { root });
-            });
+            // `/v2/push-sw.js` is the path older docs gave.
+            for (const route of ['/push-sw.js', '/v2/push-sw.js']) {
+                router.get(route, { subdomain: 'js' }, (_req, res) => {
+                    res.sendFile('puter.js/push-sw.js', { root });
+                });
+            }
         }
 
         // puter-js SDK mount. GUI loads it at `/sdk/puter.dev.js`; the
@@ -103,13 +106,11 @@ export class StaticAssetsController extends PuterController {
                 router.get('/v2', { subdomain: 'js' }, (_req, res) => {
                     res.sendFile(puterJsFile, { root: puterjsRoot });
                 });
-                router.get(
-                    '/v2/push-sw.js',
-                    { subdomain: 'js' },
-                    (_req, res) => {
+                for (const route of ['/push-sw.js', '/v2/push-sw.js']) {
+                    router.get(route, { subdomain: 'js' }, (_req, res) => {
                         res.sendFile('push-sw.js', { root: puterjsRoot });
-                    },
-                );
+                    });
+                }
             }
         }
 

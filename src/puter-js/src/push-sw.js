@@ -1,8 +1,8 @@
 // Puter push notifications on an app's own origin, served at
-// https://js.puter.com/v2/push-sw.js. The app serves a worker (default
+// https://js.puter.com/push-sw.js. The app serves a worker (default
 // `/puter-sw.js`) that contains:
 //
-//     importScripts('https://js.puter.com/v2/push-sw.js');
+//     importScripts('https://js.puter.com/push-sw.js');
 //
 // It shows each Puter push, running the handler the page saved with
 // `puter.notifications.onPush(key, handler)`, and routes taps back to the app.

@@ -11,7 +11,7 @@ Puter picks the route. A page tells Puter on its own when it receives a notifica
 On a website, pushes reach your own origin, so your site has to serve a service worker that loads Puter's push script. Put this in `/puter-sw.js` at the root of your site:
 
 ```js
-importScripts('https://js.puter.com/v2/push-sw.js');
+importScripts('https://js.puter.com/push-sw.js');
 ```
 
 If your site already has a service worker, add that line to it instead and pass its path as `serviceWorker`. Inside the Puter desktop, pushes go through Puter itself and no worker is needed.
@@ -53,7 +53,7 @@ On a website, the handler is saved as source and run again in your service worke
 A handler that needs more, such as imported code, can be registered in the worker itself, where it wins over the saved one:
 
 ```js
-importScripts('https://js.puter.com/v2/push-sw.js', '/my-formatting.js');
+importScripts('https://js.puter.com/push-sw.js', '/my-formatting.js');
 puterPush.onPush('chat', (n) => ({ title: formatTitle(n) }));
 ```
 

@@ -152,9 +152,11 @@ describe('StaticAssetsController client_libs_root', () => {
         const sentPutility = await callGetHandler(router, '/putility/v1');
         expect(sentPutility).toEqual({ filename: 'putility.js/v1.js', root });
 
-        expect(findRoute(router, 'get', '/v2/push-sw.js')?.options.subdomain).toBe('js');
-        const sentWorker = await callGetHandler(router, '/v2/push-sw.js');
-        expect(sentWorker).toEqual({ filename: 'puter.js/push-sw.js', root });
+        for (const route of ['/push-sw.js', '/v2/push-sw.js']) {
+            expect(findRoute(router, 'get', route)?.options.subdomain).toBe('js');
+            const sentWorker = await callGetHandler(router, route);
+            expect(sentWorker).toEqual({ filename: 'puter.js/push-sw.js', root });
+        }
     });
 
     it('does not register the client_libs routes when the root is unset', () => {
@@ -191,8 +193,10 @@ describe('StaticAssetsController puterjs_root', () => {
         const bareV1 = await callGetHandler(router, '/v1');
         expect(bareV1.filename).toBe('puter.js');
 
-        const worker = await callGetHandler(router, '/v2/push-sw.js');
-        expect(worker).toEqual({ filename: 'push-sw.js', root });
+        for (const route of ['/push-sw.js', '/v2/push-sw.js']) {
+            const worker = await callGetHandler(router, route);
+            expect(worker).toEqual({ filename: 'push-sw.js', root });
+        }
     });
 
     it('serves puter.dev.js when present (dev webpack build)', async () => {
