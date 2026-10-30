@@ -524,6 +524,20 @@ export class PuterServer {
             // body-parser hands over a fresh buffer and never writes to it.
             (req as { rawBody?: Buffer }).rawBody = buf;
         };
+        // Claude's Messages and Token Counting APIs accept larger JSON bodies.
+        this.#app.post(
+            [
+                '/puterai/anthropic/v1/messages',
+                '/puterai/anthropic/v1/messages/count_tokens',
+            ],
+            express.json({ limit: '128mb', verify: captureRawBody }),
+            express.json({
+                limit: '128mb',
+                type: (req) =>
+                    req.headers['content-type'] === 'text/plain;actually=json',
+                verify: captureRawBody,
+            }),
+        );
         this.#app.use(express.json({ limit: '50mb', verify: captureRawBody }));
         this.#app.use(
             express.json({

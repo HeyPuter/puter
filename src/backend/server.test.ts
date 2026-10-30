@@ -560,6 +560,34 @@ describe('PuterServer request parsing', () => {
 
     const host = () => `puter.localhost:${port}`;
 
+    it.each([
+        '/puterai/anthropic/v1/messages',
+        '/puterai/anthropic/v1/messages/count_tokens',
+    ])('accepts JSON above 50 MiB on %s before applying auth gates', async (path) => {
+        const payload = JSON.stringify({ text: 'x'.repeat(51 * 1024 * 1024) });
+        for (const contentType of ['application/json', 'text/plain;actually=json']) {
+            const res = await rawRequest(port, path, {
+                host: `api.puter.localhost:${port}`,
+                'content-type': contentType,
+            }, 'POST', payload);
+            expect(res.status).toBe(401);
+        }
+    });
+
+    it.each([
+        '/puterai/anthropic/v1/messages',
+        '/puterai/anthropic/v1/messages/count_tokens',
+        '/raw-probe',
+    ])('rejects bodies above the JSON limit on %s', async (path) => {
+        const limitMiB = path === '/raw-probe' ? 50 : 128;
+        const payload = JSON.stringify({ text: 'x'.repeat(limitMiB * 1024 * 1024) });
+        const res = await rawRequest(port, path, {
+            host: `api.puter.localhost:${port}`,
+            'content-type': 'application/json',
+        }, 'POST', payload);
+        expect(res.status).toBe(413);
+    });
+
     it('parses the user agent the first time a handler reads it', async () => {
         const agent =
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36';

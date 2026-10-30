@@ -93,6 +93,8 @@ The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/putera
 
 `/puterai/anthropic/v1/messages/count_tokens` has its own budget of 120 requests per minute per user, with no concurrency limit, and is not charged.
 
+POST requests to `/puterai/anthropic/v1/messages` and `/puterai/anthropic/v1/messages/count_tokens` accept JSON bodies up to 128 MiB (134,217,728 bytes), including `text/plain;actually=json` bodies. Larger bodies return HTTP 413. The default JSON body limit for other routes is 50 MiB.
+
 Claude's server-executed tools are clamped so a request can't reserve an unbounded amount of credit:
 
 | Tool | Limit |
