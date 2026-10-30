@@ -14,7 +14,7 @@ On a website, pushes reach your own origin, so your site has to serve a service 
 importScripts('https://js.puter.com/push-sw.js');
 ```
 
-If your site already has a service worker, add that line to it instead and pass its path as `serviceWorker`. Inside the Puter desktop, pushes go through Puter itself and no worker is needed.
+If your site already has a service worker, add that line to it instead and pass its path as `serviceWorker`. The worker has to be on your origin, at the root of your site, over HTTPS. [Push notifications for your app](/Notifications/push/#requirements) has the full setup and the browsers that can receive pushes. Inside the Puter desktop, pushes go through Puter itself and no worker is needed.
 
 ## Syntax
 ```js
@@ -41,7 +41,7 @@ Returning nothing shows the notification's own `title` and `text`. In the page, 
 
 ## Handler limits
 
-On a website, the handler is saved as source and run again in your service worker when a push arrives with no page open. There it follows the Web Push rules:
+On a website, the handler is saved as source in this browser and run again in your service worker when a push arrives with no page open. A browser that hasn't run `onPush()` for a key shows that key's pushes with the notification's own title and text. There it follows the Web Push rules:
 
 - **Self-contained.** It is re-created from its source, so it can't use variables, functions or imports from around it. Everything it needs must come from its argument or be written inside it.
 - **No page.** It runs in a service worker: no `window`, `document` or `localStorage`. `fetch`, `indexedDB` and `caches` are available.
