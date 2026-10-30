@@ -48,7 +48,7 @@ A [sensitive](/Notifications/notify/#parameters) push carries no `channel`, so n
 
 #### `options` (Object) (optional)
 - `serviceWorker` (String): path of the worker that imports `push-sw.js`. Default `/puter-sw.js`.
-- `onError` (Function): called when the handler throws in the page, the live listener stops, or keeping the subscription current fails. Without it, errors go to the console. A server without a push service (`push_unavailable`) and an app the user turned off in Puter (`push_revoked`) are not reported here, since [`enable()`](/Notifications/enable/) rejects with them when called.
+- `onError` (Function): called when the handler throws in the page or runs past 5 seconds there (`push_handler_timeout`, and the notification's own title and text show instead), the live listener stops, or keeping the subscription current fails. Without it, errors go to the console. A server without a push service (`push_unavailable`) and an app the user turned off in Puter (`push_revoked`) are not reported here, since [`enable()`](/Notifications/enable/) rejects with them when called.
 
 ## Handler limits
 
