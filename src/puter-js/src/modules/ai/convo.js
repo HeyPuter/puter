@@ -604,9 +604,11 @@ export class Conversation extends RealtimeEvents {
                 return;
             } catch (error) {
                 if (this.#state === 'closed') return;
-                // A notice from a session that failed setup isn't for the next.
+                // Nothing from a session that failed setup carries over, such
+                // as its notice or an unacknowledged settings update.
                 this.#endHandover();
                 this.#detach();
+                this.#resetTurnState();
                 this.#rejectPending(
                     failure('connection_lost', 'Connection lost; reconnecting'),
                 );

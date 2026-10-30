@@ -1723,6 +1723,19 @@ describe('context replay after a reconnect', () => {
 });
 
 describe('reconnect retries', () => {
+    it('retries after an attempt that dropped before its settings were acknowledged', async () => {
+        const c = await connected({ instructions: 'Be brief.' });
+        fakeTime();
+        socket().close(1006);
+        await vi.advanceTimersByTimeAsync(500);
+        socket().deliver({ type: 'session.created', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(socket().sent[0].type).toBe('session.update');
+        socket().close(1006);
+        await answerReconnect(1_000);
+        expect(c.state).toBe('connected');
+    });
+
     it('retries a reconnect refused by a draining server', async () => {
         const c = await connected();
         fakeTime();
