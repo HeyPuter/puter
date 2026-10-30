@@ -23,7 +23,9 @@ import {
     answerNotificationReceipts,
     applyToastMark,
     createNotificationFeed,
+    createReplayLog,
     eventsNotificationsAvailable,
+    missedSinceReconnect,
     notificationSocketAcks,
     markForToast,
     notificationFromEvent,
@@ -434,5 +436,99 @@ describe('notification receipts', () => {
         const socket = fakeSocket();
         answerNotificationReceipts(socket, { notifications: {} });
         expect(socket.handlers).toEqual({});
+    });
+});
+
+describe('createReplayLog', () => {
+    const item = (uid, notification = { type: 'share.received', title: uid }) => ({ uid, notification });
+    const uids = (items) => items.map((one) => one.uid);
+
+    it('raises from a later replay only what the page missed', () => {
+        const log = createReplayLog();
+        expect(uids(log.admit([item('n-1')], { replay: true }))).toEqual(['n-1']);
+        // A reconnect: the next replay carries the one created meanwhile.
+        expect(uids(log.admit([item('n-1'), item('n-2')], { replay: true }))).toEqual(['n-2']);
+        expect(log.admit([item('n-2')], { replay: true })).toEqual([]);
+    });
+
+    it('does not raise again from a replay what arrived live', () => {
+        const log = createReplayLog();
+        expect(uids(log.admit([item('n-1')]))).toEqual(['n-1']);
+        expect(log.admit([item('n-1')], { replay: true })).toEqual([]);
+        // A live re-send under the same uid still refreshes what is on screen.
+        expect(uids(log.admit([item('n-1')]))).toEqual(['n-1']);
+    });
+
+    it('does not raise what was dismissed', () => {
+        const log = createReplayLog();
+        log.dismissed('n-1');
+        expect(uids(log.admit([item('n-1'), item('n-2')], { replay: true }))).toEqual(['n-2']);
+    });
+
+    it("leaves out an app's own message, live or replayed", () => {
+        const log = createReplayLog();
+        const message = item('n-1', { type: 'app.message', title: 'hi' });
+        expect(log.admit([message])).toEqual([]);
+        expect(log.admit([message], { replay: true })).toEqual([]);
+    });
+
+    it('skips entries without a uid and tolerates a missing list', () => {
+        const log = createReplayLog();
+        expect(log.admit([{ notification: {} }, null, item('')], { replay: true })).toEqual([]);
+        expect(log.admit(undefined, { replay: true })).toEqual([]);
+    });
+});
+
+describe('missedSinceReconnect', () => {
+    const LOADED = Date.UTC(2026, 9, 30, 12, 0, 0);
+    const at = (ms) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
+    const row = (uid, created, over = {}) => ({
+        uid,
+        value: { type: 'share.received', title: uid },
+        created_at: at(created),
+        acknowledged: null,
+        ...over,
+    });
+
+    it('raises, oldest first, what arrived after the page loaded and the page never saw', async () => {
+        const log = createReplayLog();
+        log.admit([{ uid: 'live', notification: { type: 'share.received' } }]);
+        const list = vi.fn().mockResolvedValue([
+            row('newer', LOADED + 90_000),
+            row('missed', LOADED + 60_000),
+            row('live', LOADED + 30_000),
+            row('older', LOADED - 60_000),
+        ]);
+
+        const items = await missedSinceReconnect({ since: LOADED, log, list });
+
+        expect(list).toHaveBeenCalledWith({ predicate: 'unacknowledged', limit: 200 });
+        expect(items.map((item) => item.uid)).toEqual(['missed', 'newer']);
+        expect(items[0].notification).toEqual({ type: 'share.received', title: 'missed' });
+        // A second reconnect raises nothing it already raised.
+        expect(await missedSinceReconnect({ since: LOADED, log, list })).toEqual([]);
+    });
+
+    it('leaves out what was dismissed, here or on the row', async () => {
+        const log = createReplayLog();
+        log.dismissed('acked-here');
+        const list = vi.fn().mockResolvedValue([
+            row('acked-here', LOADED + 1_000),
+            row('acked-row', LOADED + 2_000, { acknowledged: 1793389203 }),
+            row('kept', LOADED + 3_000),
+        ]);
+
+        const items = await missedSinceReconnect({ since: LOADED, log, list });
+
+        expect(items.map((item) => item.uid)).toEqual(['kept']);
+    });
+
+    it("leaves out an app's own message", async () => {
+        const log = createReplayLog();
+        const list = vi.fn().mockResolvedValue([
+            row('message', LOADED + 1_000, { value: { type: 'app.message', title: 'hi' } }),
+        ]);
+
+        expect(await missedSinceReconnect({ since: LOADED, log, list })).toEqual([]);
     });
 });

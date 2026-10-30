@@ -29,7 +29,7 @@
  * straight back to them rather than leaving the GUI deaf.
  */
 
-import { isAppOnlyNotification } from '../UI/Dashboard/notificationCenter.js';
+import { isAppOnlyNotification, parseCreatedAt } from '../UI/Dashboard/notificationCenter.js';
 import {
     listNotifications,
     markNotificationAcknowledged,
@@ -56,6 +56,31 @@ export const answerNotificationReceipts = (socket, sdk = globalThis.puter) => {
         if ( ! isAppOnlyNotification(message.notification) ) log._noteReceived(message.uid);
     });
     socket.on('notif.receipt', (data, ack) => log._answerReceipt(data, ack));
+};
+
+/**
+ * What one page has already raised or seen dismissed, so every unread replay
+ * it gets — one per reconnect — raises only what the page missed, once.
+ *
+ * @returns {{
+ *   admit: (items: Array<{ uid?: string, notification?: Object }>, meta?: { replay?: boolean }) => Array<Object>,
+ *   dismissed: (uid: string) => void,
+ * }}
+ */
+export const createReplayLog = () => {
+    const settled = new Set();
+    const admit = (items, { replay = false } = {}) => (items ?? []).filter((item) => {
+        const uid = item?.uid;
+        if ( typeof uid !== 'string' || uid === '' ) return false;
+        if ( isAppOnlyNotification(item.notification) ) return false;
+        if ( replay && settled.has(uid) ) return false;
+        settled.add(uid);
+        return true;
+    });
+    const dismissed = (uid) => {
+        if ( typeof uid === 'string' && uid !== '' ) settled.add(uid);
+    };
+    return { admit, dismissed };
 };
 
 /** A session's own mailbox slices; each covers its audience's rows for every app. */
@@ -189,6 +214,22 @@ export const applyToastMark = async (phase, uid, { eventsPath = false, api = {} 
     } catch (err) {
         console.warn(`Could not mark notification ${mark}:`, err);
     }
+};
+
+/**
+ * Undismissed notifications created since `since` that this page hasn't raised.
+ * A frozen tab's socket stays registered, so no replay carries what it missed.
+ *
+ * @param {{ since: number, log: ReturnType<typeof createReplayLog>, list?: typeof listNotifications }} opts
+ * @returns {Promise<FeedNotification[]>} Oldest first
+ */
+export const missedSinceReconnect = async ({ since, log, list = listNotifications }) => {
+    const rows = await list({ predicate: 'unacknowledged', limit: UNACKNOWLEDGED_LIMIT });
+    const missed = (rows ?? [])
+        .filter((row) => row && row.acknowledged == null && (parseCreatedAt(row.created_at) ?? 0) >= since)
+        .map((row) => ({ uid: row.uid, notification: row.value ?? {}, created_at: row.created_at }))
+        .reverse();
+    return log.admit(missed, { replay: true });
 };
 
 /** The uids of everything the user has not dismissed. */

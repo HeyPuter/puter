@@ -48,6 +48,8 @@ import {
     answerNotificationReceipts,
     applyToastMark,
     createNotificationFeed,
+    createReplayLog,
+    missedSinceReconnect,
     notificationSocketAcks,
 } from '../helpers/notificationFeed.js';
 import { getNotification, markNotificationAcknowledged } from '../helpers/notificationApi.js';
@@ -61,7 +63,7 @@ import {
 import { showLocalBanner, startPushWorker } from '../helpers/pushWorker.js';
 import { syncBrowserPush } from '../helpers/pushSync.js';
 import { get_app_by_uid } from '../helpers/getAppByUid.js';
-import { httpsIconFor, isAppOnlyNotification, notificationTarget, senderNameFor } from './Dashboard/notificationCenter.js';
+import { httpsIconFor, notificationTarget, senderNameFor } from './Dashboard/notificationCenter.js';
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import parse_item_metadata from '../helpers/parseItemMetadata.js';
 import UIWindowSearch from './UIWindowSearch.js';
@@ -286,7 +288,6 @@ async function UIDesktop (options) {
      * row isn't marked twice.
      */
     const show_notification = ({ uid, notification, app_uid }, { replay = false } = {}) => {
-        if ( isAppOnlyNotification(notification) ) return;
         void showLocalBanner({ uid, notification }, { replay });
         // A notification can be re-sent under its own uid when what it says has
         // grown — several people sharing with you is one notification that
@@ -321,12 +322,23 @@ async function UIDesktop (options) {
      * them. It renders through the same path the socket wire does, and the
      * listeners below stand down only while it is up.
      */
+    const replay_log = createReplayLog();
     const notification_feed = createNotificationFeed({
         deliver: (items, { replay }) => {
-            for ( const item of items ) show_notification(item, { replay });
+            for ( const item of replay_log.admit(items, { replay }) ) show_notification(item, { replay });
         },
     });
     void notification_feed.start();
+
+    // A frozen or sleeping tab reconnects on resume; raise what it missed.
+    const page_loaded_at = Date.now();
+    window.socket.io?.on('reconnect', () => {
+        void missedSinceReconnect({ since: page_loaded_at, log: replay_log })
+            .then((items) => {
+                for ( const item of items ) show_notification(item, { replay: true });
+            })
+            .catch((err) => console.warn('Could not catch up on notifications:', err));
+    });
 
     /**
      * This event is triggered if a user receives a notification during
@@ -334,7 +346,7 @@ async function UIDesktop (options) {
      */
     window.socket.on('notif.message', async ({ uid, notification }) => {
         if ( notification_feed.isActive() ) return;
-        show_notification({ uid, notification });
+        for ( const item of replay_log.admit([{ uid, notification }]) ) show_notification(item);
     });
 
     /**
@@ -344,14 +356,10 @@ async function UIDesktop (options) {
      *
      * It is not necessary to query unreads separately. If this stops working,
      * then this event should be fixed rather than querying unreads separately.
+     * Each reconnect brings one, whichever path is live; this page raises what it missed.
      */
-    window.__already_got_unreads = false;
     window.socket.on('notif.unreads', async ({ unreads }) => {
-        if ( notification_feed.isActive() ) return;
-        if ( window.__already_got_unreads ) return;
-        window.__already_got_unreads = true;
-
-        for ( const notif_info of unreads ) {
+        for ( const notif_info of replay_log.admit(unreads, { replay: true }) ) {
             const notification = notif_info.notification;
             show_notification({
                 uid: notif_info.uid,
@@ -366,6 +374,7 @@ async function UIDesktop (options) {
     // it can't double-render — and the events surface carries only postings,
     // which leaves this the one thing that still dismisses across tabs.
     window.socket.on('notif.ack', ({ uid }) => {
+        replay_log.dismissed(uid);
         toasts_for(uid).remove();
         update_tab_notif_count_badge();
     });
