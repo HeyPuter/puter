@@ -1060,6 +1060,16 @@ interface IConfigOptional {
     peers: IPeersConfig;
     /** WISP relay proxy. */
     wisp: IWispConfig;
+    /** OpenAI Realtime WebSocket relay. */
+    realtime: {
+        /** Concurrent realtime sessions per user. Default 20. */
+        maxConnectionsPerUser?: number;
+        /**
+         * Upstream WebSocket URL. Default OpenAI's; point at a mock to
+         * load-test.
+         */
+        upstreamUrl?: string;
+    };
     /** Cloudflare Workers driver config. */
     workers: IWorkersConfig;
     /** Optional CORS-stripping signed-Worker proxy used by `secureFetch`. */
@@ -1322,6 +1332,12 @@ export interface WithLifecycle extends Object {
     onServerStart?: () => Promise<void> | void;
     onServerShutdown?: () => Promise<void> | void;
     onServerPrepareShutdown?: () => Promise<void> | void;
+    /**
+     * When the drain starts, before `onServerPrepareShutdown`, which waits for
+     * every connection (upgraded sockets included) to close or the drain to
+     * end.
+     */
+    onServerDrainStart?: () => Promise<void> | void;
 }
 
 export interface WithCostsReporting extends WithLifecycle {

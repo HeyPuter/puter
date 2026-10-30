@@ -1693,7 +1693,11 @@ export class PuterServer {
      */
     async #runHook(
         order: 'bottomUp' | 'topDown',
-        hook: 'onServerStart' | 'onServerPrepareShutdown' | 'onServerShutdown',
+        hook:
+            | 'onServerStart'
+            | 'onServerDrainStart'
+            | 'onServerPrepareShutdown'
+            | 'onServerShutdown',
     ) {
         const layers = [
             this.clients,
@@ -1724,6 +1728,11 @@ export class PuterServer {
 
     async prepareShutdown() {
         if (this.#server) {
+            try {
+                await this.#runHook('bottomUp', 'onServerDrainStart');
+            } catch (err) {
+                console.error('[server] onServerDrainStart failed', err);
+            }
             this.#server.close(async () => {
                 console.log(
                     'PuterServer has stopped accepting new connections',
