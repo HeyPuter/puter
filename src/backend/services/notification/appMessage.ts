@@ -118,8 +118,12 @@ const invalid = (field: string, message: string): HttpError =>
         fields: { field },
     });
 
-/** Length in characters rather than UTF-16 units, so an emoji counts once. */
-const charLength = (value: string): number => [...value].length;
+/**
+ * Counts characters rather than UTF-16 units, so an emoji counts once. More
+ * than two units per allowed character can't fit, and isn't counted.
+ */
+const exceedsChars = (value: string, max: number): boolean =>
+    value.length > max && (value.length > 2 * max || [...value].length > max);
 
 const optionalString = (
     input: Record<string, unknown>,
@@ -129,7 +133,7 @@ const optionalString = (
     const value = input[field];
     if (value === undefined) return undefined;
     if (typeof value !== 'string') throw invalid(field, 'must be a string');
-    if (charLength(value) > max) {
+    if (exceedsChars(value, max)) {
         throw invalid(field, `may not exceed ${max} characters`);
     }
     return value;
@@ -185,7 +189,7 @@ const parseText = (input: Record<string, unknown>): string | undefined => {
     if (raw === undefined) return undefined;
     if (typeof raw !== 'string') throw invalid('text', 'must be a string');
     const text = cleanText(raw);
-    if (charLength(text) > APP_MESSAGE_TEXT_MAX) {
+    if (exceedsChars(text, APP_MESSAGE_TEXT_MAX)) {
         throw invalid(
             'text',
             `may not exceed ${APP_MESSAGE_TEXT_MAX} characters`,
@@ -238,7 +242,7 @@ export const parseAppMessage = (input: Record<string, unknown>): AppMessage => {
     }
     const title = cleanText(rawTitle.replace(/[\t\n\r]+/gu, ' ')).trim();
     if (title === '') throw invalid('title', 'may not be empty');
-    if (charLength(title) > APP_MESSAGE_TITLE_MAX) {
+    if (exceedsChars(title, APP_MESSAGE_TITLE_MAX)) {
         throw invalid(
             'title',
             `may not exceed ${APP_MESSAGE_TITLE_MAX} characters`,
