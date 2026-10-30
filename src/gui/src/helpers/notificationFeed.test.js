@@ -20,9 +20,11 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import {
     NOTIFICATION_SUBJECTS,
+    answerNotificationReceipts,
     applyToastMark,
     createNotificationFeed,
     eventsNotificationsAvailable,
+    notificationSocketAcks,
     markForToast,
     notificationFromEvent,
     replayCandidates,
@@ -372,5 +374,53 @@ describe('createNotificationFeed', () => {
         await feed.stop();
         expect(feed.isActive()).toBe(false);
         for ( const sub of sdk.subs ) expect(sub.off).toHaveBeenCalled();
+    });
+});
+
+describe('notification receipts', () => {
+    /** Records listeners the way socket.io-client registers them. */
+    const fakeSocket = () => {
+        const handlers = {};
+        return {
+            handlers,
+            on (event, fn) {
+                (handlers[event] ??= []).push(fn);
+            },
+        };
+    };
+
+    const sdkWithLog = () => ({
+        notifications: {
+            _noteReceived: vi.fn(),
+            _answerReceipt: vi.fn(),
+        },
+    });
+
+    it('lists notif.receipt when the page’s puter.js keeps the log', () => {
+        expect(notificationSocketAcks(sdkWithLog())).toEqual(['notif.receipt']);
+    });
+
+    it('lists nothing with a puter.js that has no log', () => {
+        expect(notificationSocketAcks({ notifications: {} })).toEqual([]);
+        expect(notificationSocketAcks(undefined)).toEqual([]);
+    });
+
+    it('notes each live notif.message and answers asks from the log', () => {
+        const sdk = sdkWithLog();
+        const socket = fakeSocket();
+        answerNotificationReceipts(socket, sdk);
+
+        socket.handlers['notif.message'][0]({ uid: 'n-1', notification: { title: 'hi' } });
+        const ack = vi.fn();
+        socket.handlers['notif.receipt'][0]({ uid: 'n-1' }, ack);
+
+        expect(sdk.notifications._noteReceived).toHaveBeenCalledWith('n-1');
+        expect(sdk.notifications._answerReceipt).toHaveBeenCalledWith({ uid: 'n-1' }, ack);
+    });
+
+    it('registers nothing with a puter.js that has no log', () => {
+        const socket = fakeSocket();
+        answerNotificationReceipts(socket, { notifications: {} });
+        expect(socket.handlers).toEqual({});
     });
 });

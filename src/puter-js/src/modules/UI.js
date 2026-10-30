@@ -1,5 +1,4 @@
 import EventListener from '../lib/EventListener.js';
-import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 import { PuterJSError } from '../lib/PuterJSError.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
@@ -2182,28 +2181,17 @@ export class UIModule extends EventListener {
             // won't construct, no `document.body` yet because this was called
             // from a <head> script — has to deny rather than reject.
             try {
-                if ( hasUserActivation() ) {
-                    // A user gesture is active — open the popup immediately.
-                    // Unique window name per request: window.open() reuses a
-                    // window with the same name, which would hijack a popup an
-                    // earlier, still-pending request is waiting on.
-                    watchPopup(openAuthPopup(url, `puter-permission-${msg_id}`));
-                } else {
-                    // No user gesture: a popup opened now would be blocked by
-                    // the browser. Show a consent dialog first; the popup is
-                    // then opened from the user's click on that dialog, which
-                    // provides the gesture the browser requires.
-                    const dialog = new PuterDialog(() => {}, () => {}, {
-                        popupURL: url,
-                        // Same unique-name reasoning as the direct path above.
-                        popupName: `puter-permission-${msg_id}`,
-                        onLaunch: (popup) => watchPopup(popup),
-                        onCancel: () => settle(false),
-                    });
-                    consentDialog = dialog;
-                    document.body.appendChild(dialog);
-                    dialog.open();
-                }
+                // Opens the popup now under a user gesture, else from the
+                // dialog's Continue click. Unique window name per request:
+                // window.open() reuses a window with the same name, which
+                // would hijack a popup an earlier, still-pending request is
+                // waiting on.
+                consentDialog = PuterDialog.launch({
+                    popupURL: url,
+                    popupName: `puter-permission-${msg_id}`,
+                    onLaunch: (popup) => watchPopup(popup),
+                    onCancel: () => settle(false),
+                });
             } catch (e) {
                 // `settle` runs cleanup, so the message listener is dropped too.
                 settle(false);
@@ -2365,25 +2353,14 @@ export class UIModule extends EventListener {
             // Every path out of here resolves, so anything that throws while
             // launching has to resolve null rather than reject.
             try {
-                if ( hasUserActivation() ) {
-                    // Unique window name per request: window.open() reuses a
-                    // window with the same name, which would hijack a popup an
-                    // earlier, still-pending request is waiting on.
-                    watchPopup(openAuthPopup(url, name));
-                } else {
-                    // No user gesture: a popup opened now would be blocked.
-                    // Show a consent dialog first; the popup is then opened
-                    // from the user's click on it.
-                    const dialog = new PuterDialog(() => {}, () => {}, {
-                        popupURL: url,
-                        popupName: name,
-                        onLaunch: (popup) => watchPopup(popup),
-                        onCancel: () => settle(null),
-                    });
-                    consentDialog = dialog;
-                    document.body.appendChild(dialog);
-                    dialog.open();
-                }
+                // Same launch as requestPermission: popup now, or from the
+                // dialog's Continue click, under a per-request window name.
+                consentDialog = PuterDialog.launch({
+                    popupURL: url,
+                    popupName: name,
+                    onLaunch: (popup) => watchPopup(popup),
+                    onCancel: () => settle(null),
+                });
             } catch (e) {
                 settle(null);
             }
@@ -2525,21 +2502,14 @@ export class UIModule extends EventListener {
 
             // Anything that throws while launching resolves false rather than rejecting.
             try {
-                if ( hasUserActivation() ) {
-                    watchPopup(openAuthPopup(url, `puter-push-${msg_id}`));
-                } else {
-                    // Without a user gesture the popup would be blocked; the dialog's Continue click supplies one.
-                    const dialog = new PuterDialog(() => {}, () => {}, {
-                        popupURL: url,
-                        popupName: `puter-push-${msg_id}`,
-                        message: 'This website wants to send you push notifications through Puter.',
-                        onLaunch: (popup) => watchPopup(popup),
-                        onCancel: () => settle(false),
-                    });
-                    consentDialog = dialog;
-                    document.body.appendChild(dialog);
-                    dialog.open();
-                }
+                // Popup now under a user gesture, else from the dialog's Continue click.
+                consentDialog = PuterDialog.launch({
+                    popupURL: url,
+                    popupName: `puter-push-${msg_id}`,
+                    message: 'This website wants to send you push notifications through Puter.',
+                    onLaunch: (popup) => watchPopup(popup),
+                    onCancel: () => settle(false),
+                });
             } catch (e) {
                 settle(false);
             }

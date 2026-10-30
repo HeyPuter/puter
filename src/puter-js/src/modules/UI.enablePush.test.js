@@ -184,10 +184,14 @@ describe('ui.enablePush on a website', () => {
         await expect(result).resolves.toBe(true);
     });
 
-    it('resolves false when the browser blocks the popup', async () => {
+    it('resolves false when the browser blocks the popup and the Continue click too', async () => {
         window.open = vi.fn(() => null);
         const ui = makeUI({ env: 'web' });
-        await expect(ui.enablePush()).resolves.toBe(false);
+        const result = ui.enablePush();
+        await vi.waitFor(() => expect(document.querySelector('puter-dialog')).not.toBeNull());
+        document.querySelector('puter-dialog').shadowRoot.querySelector('#launch-auth-popup').click();
+        await expect(result).resolves.toBe(false);
+        expect(window.open).toHaveBeenCalledTimes(2);
     });
 
     it('resolves false when the popup closes without answering', async () => {

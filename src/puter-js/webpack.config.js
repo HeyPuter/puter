@@ -20,7 +20,8 @@ class EmitPushWorker {
             compilation.hooks.processAssets.tap(
                 { name: 'EmitPushWorker', stage: webpack.Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL },
                 () => {
-                    compilation.emitAsset('push-sw.js', new webpack.sources.RawSource(readFileSync(PUSH_WORKER, 'utf8')));
+                    // `minimized` keeps terser off it, so the published file is the source.
+                    compilation.emitAsset('push-sw.js', new webpack.sources.RawSource(readFileSync(PUSH_WORKER, 'utf8')), { minimized: true });
                 },
             );
         });

@@ -18,13 +18,16 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import type { EventMap } from '../../clients/event/types.js';
 import { handlerDepthOf, type Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import type { NotifEventContext } from '../events/registry.js';
 import { PuterService } from '../types.js';
 import {
     NotificationSocketAdapter,
+    notificationAckTimeoutMs,
     notificationsFoldInEnabled,
+    type ReceiptScope,
 } from './notificationSocket.js';
 import {
     findNotificationType,
@@ -180,6 +183,7 @@ export class NotificationService extends PuterService {
                             audience: registered.audience,
                             appUid,
                             value: structuredClone(payload),
+                            sendId: uuidv4(),
                         },
                         {},
                     );
@@ -247,6 +251,7 @@ export class NotificationService extends PuterService {
                         (typeof app?.uid === 'string' ? app.uid : null),
                     value: structuredClone(payload),
                     updated: true,
+                    sendId: uuidv4(),
                 },
                 {},
             );
@@ -287,6 +292,18 @@ export class NotificationService extends PuterService {
     }
 
     /**
+     * Ask the desktop's sockets, or with `appUid` the app's own, whether the
+     * live copy of a notification reached a page, and settle it as
+     * `notif.delivery.settled`. Costs a round trip to every node, so callers
+     * ask only when the answer changes what they do. Null when asking failed.
+     */
+    receipt(
+        scope: ReceiptScope,
+    ): Promise<EventMap['notif.delivery.settled'] | null> {
+        return this.#socket().receipt(scope);
+    }
+
+    /**
      * Drop notifications past the retention window, in batches, and report how
      * many went. Deleting is all there is to it: nothing is pushed, because a
      * two-week-old row is not news, and a client listing again simply stops
@@ -320,8 +337,25 @@ export class NotificationService extends PuterService {
             event: this.clients.event,
             socket: this.services.socket,
             foldIn: () => notificationsFoldInEnabled(this.config),
+            ackTimeoutMs: () => notificationAckTimeoutMs(this.config),
+            heldInPeerRegion: (userId, appUid) =>
+                this.#heldInPeerRegion(userId, appUid),
         });
         return this.#adapter;
+    }
+
+    /** A presence read that errors counts as no peer socket. */
+    async #heldInPeerRegion(
+        userId: number,
+        appUid: string | null,
+    ): Promise<boolean> {
+        const eventForward = this.services.eventForward;
+        if (!eventForward?.active) return false;
+        try {
+            return (await eventForward.regionsFor(userId, appUid)).length > 0;
+        } catch {
+            return false;
+        }
     }
 
     /**

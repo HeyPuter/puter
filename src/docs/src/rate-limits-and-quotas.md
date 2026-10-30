@@ -403,8 +403,8 @@ An app, its workers and the tokens it issues can send the user they act for an `
 | Limit                            | Value                             | Scope             |
 | -------------------------------- | --------------------------------- | ----------------- |
 | `app.message` notifications      | 30/min, 300/day                   | Per user, per app |
-| Pushes                           | 1/min, 100/day                    | Per user, per app |
-| Pushes while an app is new       | 20/day                            | Per user, per app |
+| Pushes                           | 12/min, 1,000/day                 | Per user, per app |
+| Pushes while an app is new       | 6/min, 200/day                    | Per user, per app |
 | `title`                          | 120 characters                    |                   |
 | `text`                           | 240 characters                    |                   |
 | `icon` (an `https` URL)          | 2,048 characters                  |                   |
@@ -418,7 +418,7 @@ An app, its workers and the tokens it issues can send the user they act for an `
 
 Over the rate limit the call fails with `429 too_many_requests`, and a refused call counts against neither window. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
 
-A notification goes out as a push only while the user has neither Puter nor the app open, and the push limits count those. An app is new for its first 30 days, or until it's approved for listing, whichever is later. Over a push limit the call still succeeds and the notification still shows in the user's notifications panel. It just isn't pushed. Pushes are billed to the user who receives them. See [What pushes cost](#what-pushes-cost).
+A notification goes out as a push only when no page of the app received it live within 5 seconds, and the push limits count those. An app is new for its first 30 days, or until it's approved for listing, whichever is later. Over a push limit the call still succeeds and the notification still shows in the user's notifications panel. It just isn't pushed. Pushes are billed to the user who receives them. See [What pushes cost](#what-pushes-cost).
 
 ### Teams
 

@@ -4,7 +4,7 @@ description: Ask the user to allow push notifications from your app.
 platforms: [websites, apps]
 ---
 
-Asks the user to let your app send push notifications. Your notifications always show in the user's Puter notifications panel; this decides whether they also reach the user's devices when they have neither Puter nor your app open.
+Asks the user to let your app send push notifications. Your notifications always show in the user's Puter notifications panel; this decides whether they also reach the user's devices when your app isn't open to receive them live.
 
 It asks for the [`notifications:push`](/Perms/request/#push-notifications) permission. Inside the Puter desktop the prompt is a dialog; on a website it opens in a popup on the Puter origin, so call it from a user gesture such as a click. If the user already allowed it, it resolves `true` without asking.
 

@@ -61,9 +61,9 @@ export const hasOpaqueOrigin = () => {
  * Opens a centered Puter authentication popup window.
  *
  * This must be called synchronously from within a user gesture (e.g. a click
- * handler), or the browser will block the popup. Callers must gate any
- * non-gesture invocation behind `hasUserActivation()` and fall back to a
- * consent dialog (which collects a gesture) when there is no activation.
+ * handler), or the browser will block the popup. Flows launch it through
+ * `PuterDialog.launch()`, which falls back to a consent dialog (whose click is
+ * the gesture) when there is no activation or the popup comes back null.
  *
  * @param {string} url - The full URL (including query string) to load.
  * @param {string} [title='Puter'] - The popup window name.

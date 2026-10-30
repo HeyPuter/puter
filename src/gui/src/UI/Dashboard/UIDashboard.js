@@ -28,6 +28,10 @@ import UIWindowFeedback from '../UIWindowFeedback.js';
 import apply_item_added_to_containers from '../../helpers/applyItemAddedToContainers.js';
 import { clear_shared_param } from '../../helpers/parseSharedPath.js';
 import UIDashboardNotifications from './UIDashboardNotifications.js';
+import {
+    answerNotificationReceipts,
+    notificationSocketAcks,
+} from '../../helpers/notificationFeed.js';
 /**
  * Creates and displays the Dashboard window.
  *
@@ -276,10 +280,12 @@ async function UIDashboard (options) {
     window.socket = io(`${window.gui_origin}/`, {
         auth: {
             auth_token: window.auth_token,
+            acks: notificationSocketAcks(),
         },
         transports: ['websocket', 'polling'],
         withCredentials: true,
     });
+    answerNotificationReceipts(window.socket);
 
     window.socket.on('error', (error) => {
         console.error('Dashboard Socket Error:', error);

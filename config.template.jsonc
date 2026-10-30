@@ -350,6 +350,9 @@
     // not, a row past this is swept. Off by default; any value above 0 arms
     // the sweep.
     // "notificationRetentionDays": 14,
+    //
+    // Ms a live notification waits for open tabs to acknowledge it.
+    // "notificationAckTimeoutMs": 5000,
 
     // ── Alarms / alerting ───────────────────────────────────────────────
     // Where system alarms go. Severity is the routing decision — each

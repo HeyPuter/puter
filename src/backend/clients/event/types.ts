@@ -566,6 +566,8 @@ export type EventMap = {
         value: Record<string, unknown>;
         /** An earlier notification rewritten in place. */
         updated?: true;
+        /** Names this one send, for a receipt asked about it. */
+        sendId: string;
     };
     /**
      * One notification, addressed at whatever sockets each region holds for the
@@ -577,6 +579,28 @@ export type EventMap = {
         userId: number;
         wire: 'notif.message' | 'notif.unreads' | 'notif.ack';
         response: unknown;
+    };
+    /**
+     * How one live notification went, on the node that asked for its receipt:
+     * from the desktop's sockets, or with `appUid` the app's own.
+     */
+    'notif.delivery.settled': {
+        sendId?: string;
+        uid: string;
+        userId: number;
+        type: string;
+        /** The app whose own sockets were asked; absent for the desktop's. */
+        appUid?: string;
+        outcome: NotifDeliveryOutcome;
+        /** A socket in this region acknowledges the receipt. */
+        ackCapable: boolean;
+        /** No socket here is an older client that acknowledges nothing. */
+        everySocketAcks: boolean;
+        /** Every node here answered the ask, not just this one. */
+        complete: boolean;
+        /** A peer region holds a socket for the user. */
+        peerRegions: boolean;
+        responders: NotifDeliveryResponder[];
     };
 
     // ---- Metering ----
@@ -996,6 +1020,15 @@ export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
 export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
     ? Extract<EventKey, `${Prefix}.${string}`>
     : P & EventKey;
+
+/** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
+export type NotifDeliveryOutcome =
+    'received' | 'unreceived' | 'no-socket' | 'remote-only';
+
+/** One socket's receipt for a live notification. */
+export interface NotifDeliveryResponder {
+    visibilityState: 'visible' | 'hidden' | 'unknown';
+}
 
 export type EventMetadata = {
     from_outside?: boolean;

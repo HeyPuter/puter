@@ -35,6 +35,27 @@ import {
     markNotificationShown,
 } from './notificationApi.js';
 
+/**
+ * The page's puter.js, when it keeps the receipt log that every socket on the
+ * page answers the server's receipt asks from.
+ */
+const receiptLog = (sdk) =>
+    typeof sdk?.notifications?._answerReceipt === 'function' ? sdk.notifications : null;
+
+/** Socket events the desktop's socket acknowledges, listed in the handshake's `acks`. */
+export const notificationSocketAcks = (sdk = globalThis.puter) =>
+    receiptLog(sdk) ? ['notif.receipt'] : [];
+
+/** Notes each live `notif.message` in the receipt log and answers the server's asks from it. */
+export const answerNotificationReceipts = (socket, sdk = globalThis.puter) => {
+    const log = receiptLog(sdk);
+    if ( ! log ) return;
+    socket.on('notif.message', (message) => {
+        if ( typeof message?.uid === 'string' ) log._noteReceived(message.uid);
+    });
+    socket.on('notif.receipt', (data, ack) => log._answerReceipt(data, ack));
+};
+
 /** A session's own mailbox slices; each covers its audience's rows for every app. */
 export const NOTIFICATION_SUBJECTS = Object.freeze([
     'notif:account',
