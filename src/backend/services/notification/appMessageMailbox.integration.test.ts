@@ -162,13 +162,19 @@ describe('app messages and the desktop', () => {
                 { user: { id: state.userId } } as never,
                 {},
             );
-            // The replay is debounced by two seconds.
-            await new Promise((resolve) => setTimeout(resolve, 2_300));
-            const replayed = emit.mock.calls
-                .filter(([key]) => key === 'outer.gui.notif.unreads')
-                .map(([, data]) => JSON.stringify(data));
-            expect(replayed.some((one) => one.includes(message))).toBe(false);
-            expect(replayed.some((one) => one.includes(share))).toBe(true);
+            const replayed = () =>
+                emit.mock.calls
+                    .filter(([key]) => key === 'outer.gui.notif.unreads')
+                    .map(([, data]) => JSON.stringify(data));
+            // The replay is debounced by two seconds, and carries every unread.
+            await vi.waitFor(
+                () =>
+                    expect(replayed().some((one) => one.includes(share))).toBe(
+                        true,
+                    ),
+                { timeout: 5_000, interval: 50 },
+            );
+            expect(replayed().some((one) => one.includes(message))).toBe(false);
         } finally {
             emit.mockRestore();
         }
