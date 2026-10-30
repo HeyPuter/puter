@@ -24,6 +24,6 @@ puter.notifications.enable(options)
 - `serviceWorker` (String): path of the worker that imports `push-sw.js`. Default `/puter-sw.js`.
 
 ## Return value
-A `Promise` that resolves to `true` when this browser receives pushes for your app, and `false` when the user didn't allow notifications or the browser can't receive pushes. It rejects with `push_unavailable` when the server has no push service, `push_revoked` when the user turned your app off in Puter's settings, `push_worker_unavailable` when the service worker can't be registered, and `push_verification_timeout` when the confirmation push didn't arrive.
+A `Promise` that resolves to `true` when this browser receives pushes for your app, and `false` when the user didn't allow notifications or the browser can't receive pushes, such as a private window or an iPhone page that isn't opened from the Home Screen. [Where pushes work](/Notifications/push/#where-pushes-work) lists what each browser needs. It rejects with `push_unavailable` when the server has no push service, `push_revoked` when the user turned your app off in Puter's settings, `push_worker_unavailable` when the service worker can't be registered, and `push_verification_timeout` when the confirmation push didn't arrive.
 
 On a website with nobody signed in, it opens the sign-in after the browser's prompt. Signing the user in first avoids a blocked popup.

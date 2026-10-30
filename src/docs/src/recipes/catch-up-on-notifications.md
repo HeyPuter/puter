@@ -11,8 +11,8 @@ Puter posts notifications to a user's account when something needs their
 attention, for example when a persistent subscription your app made for them
 ends, or, for the app's owner, when its worker finishes deploying. With the
 [Events API](/Events/) your app can show these as they arrive, and catch up on
-the ones that came in while it was closed. Puter creates notifications itself.
-An app can't post its own.
+the ones that came in while it was closed. These are notifications Puter creates.
+To send your own, use [`puter.notifications.notify()`](/Notifications/notify/).
 
 This recipe builds on [Watch for Changes](/recipes/watch-for-changes/), which
 covers what every subscription shares: sign-in, gaps, stopping and reconnects.

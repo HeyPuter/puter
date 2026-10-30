@@ -21,7 +21,7 @@ A notification always shows in the user's Puter notifications panel. Puter then 
 - **Live**, while your app is open and connected: it reaches the app through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/).
 - **As a push**, when no page of your app receives it live within 5 seconds: to the browsers where the user turned pushes on for your app.
 
-For a push, the user has to have turned them on. On a website, call [`enable()`](/Notifications/enable/) from a click and handle pushes with [`onPush()`](/Notifications/onPush/); they arrive on your own origin through a small service worker, and [Push notifications for your app](/Notifications/push/) has the setup step by step. Inside the Puter desktop, pushes go through Puter: ask with [`requestPermission()`](/Notifications/requestPermission/), and [`enablePush()`](/Notifications/enablePush/) offers to turn them on in the browser.
+For a push, the user has to have turned them on. On a website, call [`enable()`](/Notifications/enable/) from a click and handle pushes with [`onPush()`](/Notifications/onPush/). Pushes arrive on your own origin through a small service worker. [Push notifications for your app](/Notifications/push/) has the setup step by step and the browsers and devices that can receive them. On iPhone and iPad, the user first adds your site to the Home Screen. Inside the Puter desktop, pushes go through Puter: ask with [`requestPermission()`](/Notifications/requestPermission/), and [`enablePush()`](/Notifications/enablePush/) offers to turn them on in the browser.
 
 A user gets at most 12 pushes a minute and 1,000 a day from each app, and fewer while the app is new. A notification over that still shows in the panel. It just isn't pushed.
 
@@ -102,6 +102,9 @@ See [`notify()`](/Notifications/notify/) for every field, and [Rate Limits and Q
 - **[`puter.notifications.notify()`](/Notifications/notify/)** - Send the user a notification
 - **[`puter.notifications.onNotification()`](/Notifications/onNotification/)** - Receive your app's notifications while it's open
 - **[`puter.notifications.on('click')`](/Notifications/on/)** - React when the user clicks one of your notifications
+- **[`puter.notifications.onPush()`](/Notifications/onPush/)** - Handle one kind of notification live, and say what its push shows
+- **[`puter.notifications.enable()`](/Notifications/enable/)** - Turn on pushes for your website in this browser
+- **[`puter.notifications.disable()`](/Notifications/disable/)** - Turn off pushes for your website in this browser
 - **[`puter.notifications.requestPermission()`](/Notifications/requestPermission/)** - Ask the user to allow pushes from your app
 - **[`puter.notifications.hasPermission()`](/Notifications/hasPermission/)** - Check whether your app may send pushes
 - **[`puter.notifications.enablePush()`](/Notifications/enablePush/)** - Offer to turn on pushes in the browser the user is in
@@ -115,3 +118,9 @@ For Puter's own web and mobile apps, which decide where pushes go:
 ## Examples
 
 - [Send a Notification](/playground/notifications-notify/)
+
+## Recipes
+
+- [Reach a User When Your App Is Closed](/recipes/push-when-closed/)
+- [Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/)
+- [Alert Users When Shared Data Changes](/recipes/alert-users-when-shared-data-changes/)

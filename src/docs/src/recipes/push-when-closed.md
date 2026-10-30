@@ -9,6 +9,8 @@ With `puter.notifications`, your app can notify the user it runs for. Each notif
 
 This recipe sets that up for a website on its own domain. An app inside the Puter desktop only needs [`requestPermission()`](/Notifications/requestPermission/). [Push notifications for your app](/Notifications/push/) covers both cases.
 
+Pushes work in a normal tab in desktop browsers and on Android. On iPhone and iPad, the user first adds your site to the Home Screen and turns pushes on from there. [Where pushes work](/Notifications/push/#where-pushes-work) lists what each browser and device needs.
+
 ## Serve the Service Worker
 
 Pushes arrive on your own domain through a service worker. Put this file at the root of your site, as `/puter-sw.js`:
@@ -17,7 +19,7 @@ Pushes arrive on your own domain through a service worker. Put this file at the 
 importScripts('https://js.puter.com/push-sw.js');
 ```
 
-If your site already has a service worker, add that line to it and pass its path as `serviceWorker` in the calls below.
+If your site already has a service worker, add that line to it and pass its path as `serviceWorker` in the calls below. The worker has to be on your origin, at the root of your site, and served as JavaScript over HTTPS. [Puter Hosting](/Hosting/) does this when the file is in the root of the folder you host.
 
 ## Handle Pushes
 
