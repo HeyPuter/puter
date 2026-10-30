@@ -22,6 +22,8 @@ const redirects = {
     '/Perms/requestWriteVideos': '/Perms/request',
     // The raw-permission-string example became the `fs` resource example.
     '/playground/perms-request-permission': '/playground/perms-request-fs',
+    // A push example needs the site's own service worker, which the playground can't serve.
+    '/playground/notifications-push': '/Notifications/push',
 
     // Only the account's own session can call `updateProfile()`, so it is
     // not documented for apps.

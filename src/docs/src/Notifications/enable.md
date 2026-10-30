@@ -4,13 +4,17 @@ description: Turn on push notifications for your app in this browser.
 platforms: [websites, apps]
 ---
 
-Turns on push notifications for your app in the browser the user is in. Call it from a click: it asks the browser's permission first, before anything else, because browsers only show that prompt from a user gesture.
+Turns on push notifications for your app in the browser the user is in. Call it from a click. It asks for the browser's permission first, before anything else, because browsers only show that prompt from a user gesture.
 
-On a website, the browser asks on your own origin, and pushes arrive through your service worker (see [`onPush()`](/Notifications/onPush/)). Puter then sends a confirmation push to that browser, and the device is registered once your page hands the confirmation back. Allowing it also lets your app's notifications go out as pushes. If the user later turns your app off in Puter's settings, that stands and the call rejects with `push_revoked`. To ask again, call [`requestPermission()`](/Notifications/requestPermission/) from a click, which opens Puter's permission prompt, and then call `enable()` again.
+On a website, the browser asks on your own origin, and pushes arrive through your service worker (see [`onPush()`](/Notifications/onPush/)). Puter then sends a confirmation push to that browser, which shows once as "Notifications are on". The browser is registered once your page hands the confirmation back. Allowing it also lets your app's notifications go out as pushes.
+
+The choice sticks. Once enabled, [`onPush()`](/Notifications/onPush/) keeps the subscription current on later page loads without asking again. After [`disable()`](/Notifications/disable/), after the user turns your app off in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/), page loads don't subscribe again until your page calls [`enable()`](/Notifications/enable/) again from a click.
+
+If the user turned your app off in Puter's settings, the call rejects with `push_revoked`. To ask again, call [`requestPermission()`](/Notifications/requestPermission/) from a click, which opens Puter's permission prompt, and then call [`enable()`](/Notifications/enable/) again.
+
+Pushes on a website need HTTPS, or `localhost` while you develop. On iOS and iPadOS they need version 16.4 or later and a site the user added to their Home Screen, with a web app manifest that sets `"display": "standalone"`. In a browser that can't receive pushes, the call resolves `false`.
 
 Inside the Puter desktop it does what [`enablePush()`](/Notifications/enablePush/) does.
-
-Once enabled, [`onPush()`](/Notifications/onPush/) keeps the subscription current on later visits without asking again.
 
 ## Syntax
 ```js
@@ -21,9 +25,49 @@ puter.notifications.enable(options)
 ## Parameters
 
 #### `options` (Object) (optional)
-- `serviceWorker` (String): path of the worker that imports `push-sw.js`. Default `/puter-sw.js`.
+- `serviceWorker` (String): path of the worker that imports `push-sw.js`. Default `/puter-sw.js`. Pass the same path to [`onPush()`](/Notifications/onPush/) and [`disable()`](/Notifications/disable/).
 
 ## Return value
-A `Promise` that resolves to `true` when this browser receives pushes for your app, and `false` when the user didn't allow notifications or the browser can't receive pushes. It rejects with `push_unavailable` when the server has no push service, `push_revoked` when the user turned your app off in Puter's settings, `push_worker_unavailable` when the service worker can't be registered, and `push_verification_timeout` when the confirmation push didn't arrive.
+A `Promise` that resolves to `true` when this browser receives pushes for your app, and `false` when the user didn't allow notifications or the browser can't receive pushes.
+
+It rejects with an error carrying `message` and `code`:
+
+| `code` | Meaning |
+| --- | --- |
+| `push_unavailable` | This server has no push notification service, as on most self-hosted servers. |
+| `push_disabled` | This server has push notifications turned off. |
+| `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click, then call [`enable()`](/Notifications/enable/) again. |
+| `push_worker_unavailable` | The service worker couldn't be registered or didn't start, for example because nothing is served at its path. |
+| `push_worker_conflict` | Another service worker controls the scope. Add the `importScripts()` line to that worker and pass its path as `serviceWorker`. |
+| `push_subscription_conflict` | The worker already has a push subscription from another service, such as Firebase or OneSignal. Give Puter its own worker in a folder, such as `/puter/puter-sw.js`, and pass that path as `serviceWorker`. |
+| `push_subscribe_failed` | The browser's push service refused to create a subscription. |
+| `push_endpoint_revoked` | This browser's push subscription was revoked. Call [`enable()`](/Notifications/enable/) again from a click. |
+| `push_verification_timeout` | The confirmation push didn't arrive. |
+| `user_gesture_required` | The call wasn't made from a user gesture, such as a click. |
+| `too_many_requests` | Pushes were turned on too many times in a short time. Try again later. |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 
 On a website with nobody signed in, it opens the sign-in after the browser's prompt. Signing the user in first avoids a blocked popup.
+
+## Examples
+
+<strong class="example-title">Turn on pushes from a button</strong>
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="enable">Turn on notifications</button>
+    <script>
+        document.getElementById('enable').addEventListener('click', async () => {
+            try {
+                const on = await puter.notifications.enable();
+                puter.print(on ? 'Notifications are on<br>' : 'Notifications are off<br>');
+            } catch (error) {
+                puter.print(`Could not turn on notifications: ${error.code}<br>`);
+            }
+        });
+    </script>
+</body>
+</html>
+```

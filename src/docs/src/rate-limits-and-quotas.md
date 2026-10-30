@@ -400,25 +400,25 @@ Recipients can opt out of share email with the link in the email, and a deployme
 
 An app, its workers and the tokens it issues can send the user they act for an `app.message` notification. Each app has its own budget per user:
 
-| Limit                            | Value                             | Scope             |
-| -------------------------------- | --------------------------------- | ----------------- |
-| `app.message` notifications      | 30/min, 300/day                   | Per user, per app |
-| Pushes                           | 12/min, 1,000/day                 | Per user, per app |
-| Pushes while an app is new       | 6/min, 200/day                    | Per user, per app |
-| `title`                          | 120 characters                    |                   |
-| `text`                           | 240 characters                    |                   |
-| `icon` (an `https` URL)          | 2,048 characters                  |                   |
-| `target` (a path inside the app) | 512 characters                    |                   |
-| `data`                           | 1 KiB, measured as JSON           |                   |
-| `group`                          | 64 characters                     |                   |
-| `channel`                        | 32 characters                     |                   |
-| `ttl`                            | 1 second to 1 day, default 1 hour |                   |
+| Limit                             | Value                             | Scope             |
+| --------------------------------- | --------------------------------- | ----------------- |
+| `app.message` notifications       | 30/min, 300/day                   | Per user, per app |
+| Pushes                            | 12/min, 1,000/day                 | Per user, per app |
+| Pushes from a new or unlisted app | 6/min, 200/day                    | Per user, per app |
+| `title`                           | 120 characters                    |                   |
+| `text`                            | 240 characters                    |                   |
+| `icon` (an `https` URL)           | 2,048 characters                  |                   |
+| `target` (a path inside the app)  | 512 characters                    |                   |
+| `data`                            | 1 KiB, measured as JSON           |                   |
+| `group`                           | 64 characters                     |                   |
+| `channel`                         | 32 characters                     |                   |
+| `ttl`                             | 1 second to 1 day, default 1 hour |                   |
 
 `ttl` is how long a push provider keeps trying to reach an offline device, not how long the notification is kept. `sensitive`, `target`, `group` and `channel` are used by push delivery and by clients that show the notification. Every message carries the name of the app that sent it.
 
 Over the rate limit the call fails with `429 too_many_requests`, and a refused call counts against neither window. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
 
-A notification goes out as a push only when no page of the app received it live within 5 seconds, and the push limits count those. An app is new for its first 30 days, or until it's approved for listing, whichever is later. Over a push limit the call still succeeds and the notification still shows in the user's notifications panel. It just isn't pushed. Pushes are billed to the user who receives them. See [What pushes cost](#what-pushes-cost).
+A notification goes out as a push only when no open page of the app answers within 5 seconds that it's visible and focused, or that it shows the notification itself. The push limits count those pushes. An app gets the lower push limits while it's younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower limits. Over a push limit the call still succeeds and the notification still shows in the user's notifications panel. It just isn't pushed. Pushes are billed to the user who receives them. See [What pushes cost](#what-pushes-cost).
 
 ### Teams
 
