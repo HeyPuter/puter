@@ -91,6 +91,55 @@ Gemini speech-to-text first counts the audio's tokens, which times out after 30 
 
 The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) require a paid plan; a free account gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, and the model catalogue endpoints are open to everyone.
 
+Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtime`) require a paid plan, like the other OpenAI-compatible endpoints, and are capped at 20 open at once per account. An account without a plan gets an `error` event with code `subscription_required`. A session over the cap gets `rate_limit_exceeded`. Both close with 1008.
+
+| Realtime transport limit | Value | Behavior at the limit |
+| --- | --- | --- |
+| Client JSON message size | 64 KiB, including reassembled fragments | Close 1009. |
+| Upstream JSON message size | 4 MiB, including reassembled fragments | Close 1011. |
+| Fragments per client message | 64 | Connection closes. |
+| Buffered receive chunks from the client | 128 | Connection closes. |
+| Event type length | 1–128 characters | Invalid client envelopes receive `invalid_event` and close with 1008. Invalid upstream envelopes close with 1011. |
+| Client message rate | 100/s, burst 100 | Error `rate_limit_exceeded`, close 1008. Ping and pong frames count toward this allowance. |
+| Client upload rate | 128 KiB/s, burst 64 KiB | Reads pause to refill the budget. More than 64 KiB of overdraft closes with `rate_limit_exceeded`. |
+| Input pending session setup | 32 messages or 64 KiB | Error `rate_limit_exceeded`, close 1008. |
+| Forwarding queue in either direction | Reads pause at 128 KiB. Admission stops above 192 KiB toward the provider and above 4 MiB plus 128 KiB toward the client. | A full queue closes with `rate_limit_exceeded`. |
+| Client that stops reading | 30 seconds of paused upstream reads | Close 1008. |
+| Pending usage records | 32 | Error `rate_limit_exceeded`, close 1008. Records already received are still billed. |
+| Numeric usage fields | Finite, nonnegative, at most 1 billion | Invalid upstream usage closes with 1011. A `null` usage counts as none. |
+| Session setup timeout | 15 seconds | Error `connection_timeout`, close 1011. |
+| Upstream handshake timeout | 10 seconds | Close 1011. |
+| Heartbeat interval | 30 seconds | A missing pong terminates the connection on the next heartbeat. |
+| Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. Overlapping sweeps are skipped. |
+| Session attempts per credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
+| Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. |
+| In-flight response drain at shutdown | 5 seconds | Close 1012. |
+| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. |
+
+Send audio as a stream of small chunks. The message cap applies to text, configuration, tool output, and audio alike.
+
+The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sending or retaining data.
+
+| Conversation SDK limit | Value | Behavior at the limit |
+| --- | --- | --- |
+| Text per helper call | 8192 characters | Throws `input_too_large`. |
+| Instructions | 8192 characters | Rejects with `invalid_argument`. |
+| Voice identifier | 128 characters | Rejects with `invalid_argument`. |
+| PCM chunk | 12000 samples at 24 kHz, or 500 ms | Throws `input_too_large`. |
+| Native JSON traversal | Depth 16, 2048 visited values, 2048 array entries or object fields | Throws `input_too_large` before serialization. |
+| Outbound buffered data | 128 KiB for audio, 192 KiB for other events | Throws `queue_full`. The built-in microphone drops the chunk instead. |
+| Pending acknowledgments | 8 | Rejects with `operation_in_progress`. |
+| Concurrent configuration updates | 1 | Rejects with `operation_in_progress`. |
+| Authentication and provider acknowledgment timeout | 10 seconds | Rejects preparation or the pending operation. |
+| Session creation timeout | 20 seconds | Rejects `connect()` with `operation_timeout`. |
+| Browser media initialization timeout | 10 seconds, not counting the permission prompt | Rejects with `media_timeout` and releases resources. |
+| Capture chunk duration | 20 ms | AudioWorklet sends 480 PCM16 samples per chunk. |
+| Unacknowledged capture chunks | 25, or 500 ms | Further chunks are dropped until the page catches up. |
+| Queued playback | 300 seconds | Further audio for the reply is dropped and `queue_full` is reported once. |
+| Reconnection attempts | 5, backing off from 500 ms to 8 seconds, each delay randomized between half and one and a half times its value | The conversation closes with the original close code. |
+| Remembered canceled responses | 32 | Older response IDs are evicted from the suppression set. |
+
+
 `/puterai/anthropic/v1/messages/count_tokens` has its own budget of 120 requests per minute per user, with no concurrency limit, and is not charged.
 
 Claude's server-executed tools are clamped so a request can't reserve an unbounded amount of credit:
@@ -400,25 +449,27 @@ Recipients can opt out of share email with the link in the email, and a deployme
 
 An app, its workers and the tokens it issues can send the user they act for an `app.message` notification. Each app has its own budget per user:
 
-| Limit                            | Value                             | Scope             |
-| -------------------------------- | --------------------------------- | ----------------- |
-| `app.message` notifications      | 30/min, 300/day                   | Per user, per app |
-| Pushes                           | 12/min, 1,000/day                 | Per user, per app |
-| Pushes while an app is new       | 6/min, 200/day                    | Per user, per app |
-| `title`                          | 120 characters                    |                   |
-| `text`                           | 240 characters                    |                   |
-| `icon` (an `https` URL)          | 2,048 characters                  |                   |
-| `target` (a path inside the app) | 512 characters                    |                   |
-| `data`                           | 1 KiB, measured as JSON           |                   |
-| `group`                          | 64 characters                     |                   |
-| `channel`                        | 32 characters                     |                   |
-| `ttl`                            | 1 second to 1 day, default 1 hour |                   |
+| Limit                             | Value                             | Scope             |
+| --------------------------------- | --------------------------------- | ----------------- |
+| `app.message` notifications       | 30/min, 300/day                   | Per user, per app |
+| Pushes                            | 12/min, 1,000/day                 | Per user, per app |
+| Pushes from a new or unlisted app | 6/min, 200/day                    | Per user, per app |
+| Browsers with pushes turned on    | 10 per app, 20 for Puter          | Per user          |
+| Turning pushes on in a browser    | 10/min                            | Per user          |
+| `title`                           | 120 characters                    |                   |
+| `text`                            | 240 characters                    |                   |
+| `icon` (an `https` URL)           | 2,048 characters                  |                   |
+| `target` (a path inside the app)  | 512 characters                    |                   |
+| `data`                            | 1 KiB, measured as JSON           |                   |
+| `group`                           | 64 characters                     |                   |
+| `channel`                         | 32 characters                     |                   |
+| `ttl`                             | 1 second to 1 day, default 1 hour |                   |
 
 `ttl` is how long a push provider keeps trying to reach an offline device, not how long the notification is kept. `sensitive`, `target`, `group` and `channel` are used by push delivery and by clients that show the notification. Every message carries the name of the app that sent it.
 
 Over the rate limit the call fails with `429 too_many_requests`, and a refused call counts against neither window. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
 
-A notification goes out as a push only when no page of the app received it live within 5 seconds, and the push limits count those. An app is new for its first 30 days, or until it's approved for listing, whichever is later. Over a push limit the call still succeeds and the notification still reaches the app live. It just isn't pushed. Pushes are billed to the user who receives them. See [What pushes cost](#what-pushes-cost).
+A notification goes out as a push only when no open page of the app answers within 5 seconds that it's visible and focused, or that it shows the notification itself. The push limits count those pushes. An app gets the lower push limits while it's younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower limits. Over a push limit the call still succeeds and the notification still reaches the app live. It just isn't pushed. Pushes are billed to the user who receives them. See [What pushes cost](#what-pushes-cost). Turning pushes on in another browser past an app's 10 removes that app's least recently seen one.
 
 ### Teams
 

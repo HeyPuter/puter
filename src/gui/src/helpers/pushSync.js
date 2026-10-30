@@ -34,7 +34,7 @@ import {
 /** @type {Promise<PushSyncResult>|null} */
 let inFlight = null;
 
-/** Turns push on here when the browser already grants it, the user has not turned it off here, and an app holds `notifications:push`: the one named by `appUid`, or any app without one. One run at a time; a call during a run joins it. @param {{ appUid?: string }} [scope] @param {{ NotificationApi?: { permission: string }, userUid?: string, storage?: Storage, holdsPush?: () => Promise<boolean> }} [deps] @returns {Promise<PushSyncResult>} */
+/** Turns push on here when the browser already grants it, the user has not turned it off here, and an app holds `notifications:push` for Puter's devices: the one named by `appUid`, or any app without one. One run at a time; a call during a run joins it. @param {{ appUid?: string }} [scope] @param {{ NotificationApi?: { permission: string }, userUid?: string, storage?: Storage, holdsPush?: () => Promise<boolean> }} [deps] @returns {Promise<PushSyncResult>} */
 export const syncBrowserPush = (scope, deps) => {
     if ( inFlight ) return inFlight;
     inFlight = runSync(scope, deps).finally(() => {
@@ -43,13 +43,17 @@ export const syncBrowserPush = (scope, deps) => {
     return inFlight;
 };
 
+/** An app a website's Web Push confirmation let in pushes only to that website's browsers, not to Puter's. */
+const pushesToPuter = (app) => app?.puterDevices !== false;
+
 const runSync = async ({ appUid } = {}, {
     NotificationApi = globalThis.Notification,
     userUid = globalThis.user?.uuid,
     storage = globalThis.localStorage,
     holdsPush = async () => (appUid
-        ? appHoldsPermissions([PUSH_PERMISSION], appUid)
-        : (await listPushApps()).length > 0),
+        ? await appHoldsPermissions([PUSH_PERMISSION], appUid)
+            && pushesToPuter((await listPushApps()).find((app) => app.uid === appUid))
+        : (await listPushApps()).some(pushesToPuter)),
 } = {}) => {
     if ( NotificationApi?.permission !== 'granted' || ! userUid ) return 'skipped';
     if ( browserPushOptedOut(userUid, storage) ) return 'opted_out';

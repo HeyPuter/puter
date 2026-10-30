@@ -70,12 +70,27 @@ async function UIEnablePushDialog (options = {}) {
         };
         sync_buttons();
 
+        /** A registration that failed after its deadline frees the button for a retry. */
+        const late_failure = async (attempt) => {
+            if ( pending !== attempt || waiting ) return;
+            pending = null;
+            const now = await browserPushState(client);
+            if ( now !== 'off' ) {
+                settle(now);
+                return;
+            }
+            $turn_on.removeClass('perm-dialog-busy');
+            sync_buttons();
+        };
+
         $turn_on.on('click', async () => {
             if ( pending ) return;
-            pending = enableBrowserPush(client);
-            pending.then((ok) => {
-                if ( ok ) settle('on');
-            });
+            const attempt = enableBrowserPush(client);
+            pending = attempt;
+            void (async () => {
+                if ( await attempt ) settle('on');
+                else await late_failure(attempt);
+            })();
             waiting = true;
             $turn_on.addClass('perm-dialog-busy');
             sync_buttons();
