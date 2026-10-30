@@ -148,11 +148,33 @@ describe('syncBrowserPush', () => {
     it('asks the server about the launched app', async () => {
         const client = off();
         const check = vi.fn((init) => reply(200, { permissions: Object.fromEntries(JSON.parse(init.body).permissions.map(p => [p, true])) }));
-        serve({ 'POST /auth/check-permissions': check });
+        serve({
+            'POST /auth/check-permissions': check,
+            'GET /push/apps': { apps: [{ uid: 'app-1', name: 'chat', puterDevices: true }] },
+        });
 
         await expect(syncBrowserPush({ appUid: 'app-1' }, { NotificationApi: granted, userUid: 'u-1' })).resolves.toBe('on');
         expect(JSON.parse(check.mock.calls[0][0].body)).toEqual({ permissions: ['notifications:push'], app_uid: 'app-1' });
         expect(client.enable).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not count an app a website let in through Web Push only', async () => {
+        const client = off();
+        serve({ 'GET /push/apps': { apps: [{ uid: 'app-1', name: 'chat', puterDevices: false }] } });
+        await expect(syncBrowserPush({}, { NotificationApi: granted, userUid: 'u-1' })).resolves.toBe('no_app');
+
+        serve({
+            'POST /auth/check-permissions': { permissions: { 'notifications:push': true } },
+            'GET /push/apps': { apps: [{ uid: 'app-1', name: 'chat', puterDevices: false }] },
+        });
+        await expect(syncBrowserPush({ appUid: 'app-1' }, { NotificationApi: granted, userUid: 'u-1' })).resolves.toBe('no_app');
+        expect(client.enable).not.toHaveBeenCalled();
+
+        serve({
+            'POST /auth/check-permissions': { permissions: { 'notifications:push': true } },
+            'GET /push/apps': { apps: [{ uid: 'app-1', name: 'chat', puterDevices: false }, { uid: 'app-2', name: 'mail', puterDevices: true }] },
+        });
+        await expect(syncBrowserPush({ appUid: 'app-2' }, { NotificationApi: granted, userUid: 'u-1' })).resolves.toBe('on');
     });
 
     it('asks the server for the apps that may send pushes when no app is named', async () => {
