@@ -47,3 +47,13 @@ jobs:
                   PUTER_TEST_AI_MOONSHOT_API_KEY: ${{ secrets.PUTER_TEST_AI_MOONSHOT_API_KEY }}
                   PUTER_TEST_AI_ZAI_API_KEY: ${{ secrets.PUTER_TEST_AI_ZAI_API_KEY }}
                   PUTER_TEST_AI_ELEVENLABS_API_KEY: ${{ secrets.PUTER_TEST_AI_ELEVENLABS_API_KEY }}
+
+            # Realtime conversations through the SDK against live OpenAI. The
+            # step above built the SDK bundle these tests load; they skip
+            # themselves without the OpenAI key.
+            - name: Run live realtime conversation tests
+              if: ${{ !cancelled() }}
+              run: npx vitest run --config src/puter-js/tests/api/vitest.config.ts src/puter-js/tests/api/realtime/convoLive.test.ts
+              env:
+                  CI: 'true'
+                  PUTER_TEST_AI_OPENAI_API_KEY: ${{ secrets.PUTER_TEST_AI_OPENAI_API_KEY }}
