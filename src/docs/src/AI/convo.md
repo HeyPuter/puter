@@ -41,7 +41,7 @@ The conversation exposes these properties and methods.
 | --- | --- |
 | `state` | `prepared`, `connecting`, `connected`, or `closed`. |
 | `model` | Resolved model name. |
-| `connect()` | Opens the connection and applies settings. Resolves after the provider acknowledges session configuration. Concurrent calls share one attempt. Calling it while connected opens no additional connection. |
+| `connect()` | Opens the connection and applies settings. Resolves after the provider acknowledges session configuration. Concurrent calls share one attempt. Calling it while connected opens no additional connection. During a reconnection, it resolves when the reconnection succeeds and rejects if the conversation closes instead. |
 | `configure(options)` | Updates the given session settings and resolves after the provider acknowledges this update. Settings it isn't given, including ones set through native events, are left alone. Accepts the factory options except `model`. One update can be pending at a time. Provider rules apply to changes such as switching a voice after audio has been generated. |
 | `sendText(text)` | Adds a user message and requests a response. Text must be nonempty and at most 8192 characters. |
 | `appendAudio(pcm)` | Appends an `Int16Array` containing PCM16, 24 kHz mono audio. A chunk contains at most 12000 samples. |
@@ -54,7 +54,7 @@ The conversation exposes these properties and methods.
 
 Attach listeners before connecting to receive initial session events. Closing during connection rejects the pending attempt.
 
-If the connection drops (network loss, a server restart or a provider error), the conversation reconnects on its own: `state` returns to `connecting`, a `reconnecting` event fires, pending operations reject with `connection_lost`, and `ready` fires again with `reconnected: true` once settings are reapplied. Listeners, the microphone and the speaker carry over; microphone audio captured while reconnecting is dropped. The provider starts a fresh session, so earlier conversation items are not restored. After five failed attempts, or a refusal such as `insufficient_funds`, the conversation closes. A closed conversation cannot reconnect; prepare a new one to start another session.
+If the connection drops because of network loss, a server restart or a provider error, the conversation reconnects on its own. While it reconnects, `state` is `connecting`, a `reconnecting` event fires, and pending operations reject with `connection_lost`. The new session gets every setting the provider acknowledged, from the factory options, `configure()` and native `session.update` events. Then `ready` fires again with `reconnected: true`. Listeners, the microphone and the speaker carry over. Microphone audio captured while reconnecting is dropped. The provider starts a fresh session, so earlier conversation items are not restored. After five failed attempts, or a refusal such as `insufficient_funds`, the conversation closes. A closed conversation cannot reconnect. To start another session, prepare a new one.
 
 Native event definitions are listed in the [OpenAI realtime reference](https://developers.openai.com/api/reference/resources/realtime/server-events). Native events retain their provider fields. Sending native events preserves direct control of the session. Audio helpers expect the session to use PCM16 at 24 kHz.
 

@@ -48,6 +48,33 @@ const encoder = new TextEncoder();
 const failure = (code, message) => ({ code, message });
 
 /**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+const isPlainObject = (value) =>
+    value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/**
+ * Applies a partial `session.update` payload. Nested objects merge, except
+ * typed ones such as `turn_detection`, which replace like any other value.
+ *
+ * @param {Record<string, unknown>} base
+ * @param {Record<string, unknown>} patch
+ * @returns {Record<string, unknown>}
+ */
+function mergeSession(base, patch) {
+    const merged = { ...base };
+    for (const [key, value] of Object.entries(patch)) {
+        const current = merged[key];
+        merged[key] =
+            isPlainObject(value) && !('type' in value) && isPlainObject(current)
+                ? mergeSession(current, value)
+                : value;
+    }
+    return merged;
+}
+
+/**
  * @param {ConvoOptions} options
  * @param {boolean} [allowModel]
  * @returns {void}
@@ -206,8 +233,29 @@ export class Conversation extends RealtimeEvents {
     // `session.update` event IDs awaiting `session.updated`, in send order.
     /** @type {string[]} */
     #sessionUpdates = [];
+    /** @type {Map<string, Record<string, unknown>>} */
+    #sentSessions = new Map();
+    // Every acknowledged session setting, SDK and native, reapplied after a
+    // reconnect.
+    /** @type {Record<string, unknown>} */
+    #sessionState = {};
     /** @type {string | undefined} */
     #acknowledgedUpdate;
+    /**
+     * @type {{
+     *     timer: ReturnType<typeof setTimeout>;
+     *     resolve: (value?: unknown) => void;
+     * } | null}
+     */
+    #reconnectDelay = null;
+    #reconnecting = false;
+    /**
+     * @type {{
+     *     resolve: () => void;
+     *     reject: (error: ConvoError) => void;
+     * }[]}
+     */
+    #reconnectWaiters = [];
     // `response.create` event IDs whose response hasn't been created yet.
     /** @type {Set<string>} */
     #requestedResponses = new Set();
@@ -254,7 +302,8 @@ export class Conversation extends RealtimeEvents {
     }
 
     /**
-     * Opens and configures the session. Concurrent calls share one attempt.
+     * Opens and configures the session. Concurrent calls share one attempt;
+     * during a reconnection, resolves once it succeeds.
      *
      * @returns {Promise<void>}
      */
@@ -262,6 +311,10 @@ export class Conversation extends RealtimeEvents {
         if (this.#state === 'closed')
             return Promise.reject(
                 failure('session_closed', 'Conversation is closed'),
+            );
+        if (this.#reconnecting)
+            return new Promise((resolve, reject) =>
+                this.#reconnectWaiters.push({ resolve, reject }),
             );
         if (this.#connection) return this.#connection;
         if (!this.#puter.authToken)
@@ -295,9 +348,11 @@ export class Conversation extends RealtimeEvents {
     /**
      * Opens a socket, waits for the provider session and applies settings.
      *
+     * @param {boolean} [reapply] Reapply every acknowledged setting instead of
+     *   the SDK options alone.
      * @returns {Promise<void>}
      */
-    async #open() {
+    async #open(reapply = false) {
         let socket;
         try {
             socket = createRealtimeSocket(this.#puter, this.model);
@@ -312,9 +367,45 @@ export class Conversation extends RealtimeEvents {
             this.#receive(event),
         );
         await this.#wait('session.created', undefined, undefined, true);
-        await this.#configure(this.#options, true);
+        if (reapply && Object.keys(this.#sessionState).length)
+            await this.#reapplySession();
+        else await this.#configure(this.#options, true);
         if (this.#state === 'closed')
             throw failure('session_closed', 'Conversation is closed');
+    }
+
+    /**
+     * Sends the acknowledged session state, split by top-level setting so each
+     * update stays under the message limit.
+     *
+     * @returns {Promise<void>}
+     */
+    async #reapplySession() {
+        /** @type {Record<string, unknown>[]} */
+        const updates = [];
+        /** @type {Record<string, unknown>} */
+        let session = { type: 'realtime' };
+        for (const [key, value] of Object.entries(this.#sessionState)) {
+            if (key === 'type') continue;
+            const next = { ...session, [key]: value };
+            if (
+                Object.keys(session).length > 1 &&
+                encoder.encode(JSON.stringify(next)).byteLength >
+                    MAX_MESSAGE_BYTES - 256
+            ) {
+                updates.push(session);
+                session = { type: 'realtime', [key]: value };
+            } else session = next;
+        }
+        updates.push(session);
+        for (const update of updates) {
+            const eventId = this.#eventId();
+            await this.#request(
+                'session.updated',
+                { type: 'session.update', event_id: eventId, session: update },
+                () => this.#acknowledgedUpdate === eventId,
+            );
+        }
     }
 
     /**
@@ -326,6 +417,7 @@ export class Conversation extends RealtimeEvents {
      */
     async #reconnect(event) {
         this.#state = 'connecting';
+        this.#reconnecting = true;
         this.#detach();
         this.#resetTurnState();
         this.#rejectPending(
@@ -337,13 +429,22 @@ export class Conversation extends RealtimeEvents {
             reason: event.reason,
         });
         for (let attempt = 0; attempt < RECONNECT_ATTEMPTS; attempt++) {
-            await new Promise((resolve) =>
-                setTimeout(resolve, RECONNECT_DELAY_MS * 2 ** attempt),
-            );
+            // Jittered so clients dropped together don't return together.
+            const delay = RECONNECT_DELAY_MS * 2 ** attempt;
+            await new Promise((resolve) => {
+                this.#reconnectDelay = {
+                    timer: setTimeout(resolve, delay * (0.5 + Math.random())),
+                    resolve,
+                };
+            });
+            this.#reconnectDelay = null;
             if (this.#state === 'closed') return;
             try {
-                await this.#open();
+                await this.#open(true);
                 this.#state = 'connected';
+                this.#reconnecting = false;
+                for (const waiter of this.#reconnectWaiters.splice(0))
+                    waiter.resolve();
                 this.emitRealtime({
                     type: 'ready',
                     model: this.model,
@@ -383,6 +484,7 @@ export class Conversation extends RealtimeEvents {
     #resetTurnState() {
         this.#activeResponse = '';
         this.#sessionUpdates = [];
+        this.#sentSessions.clear();
         this.#requestedResponses.clear();
         this.#interruption = null;
         this.#cancelled.clear();
@@ -699,11 +801,23 @@ export class Conversation extends RealtimeEvents {
     #finish(event) {
         if (this.#state === 'closed') return;
         this.#state = 'closed';
+        this.#reconnecting = false;
+        if (this.#reconnectDelay) {
+            clearTimeout(this.#reconnectDelay.timer);
+            this.#reconnectDelay.resolve();
+        }
         this.microphone.stop();
         void this.speaker.stop().catch(() => {});
         this.#rejectPending(
             failure('session_closed', 'Conversation is closed'),
         );
+        for (const waiter of this.#reconnectWaiters.splice(0))
+            waiter.reject(
+                failure(
+                    'session_closed',
+                    event.reason || 'Conversation is closed',
+                ),
+            );
         this.#detach();
         this.#cancelled.clear();
         this.emitRealtime(event);
@@ -778,8 +892,15 @@ export class Conversation extends RealtimeEvents {
             const [requested] = this.#requestedResponses;
             if (requested) this.#requestedResponses.delete(requested);
         }
-        if (event.type === 'session.updated')
-            this.#acknowledgedUpdate = this.#sessionUpdates.shift();
+        if (event.type === 'session.updated') {
+            const id = this.#sessionUpdates.shift();
+            this.#acknowledgedUpdate = id;
+            const applied = id && this.#sentSessions.get(id);
+            if (applied) {
+                this.#sentSessions.delete(id);
+                this.#sessionState = mergeSession(this.#sessionState, applied);
+            }
+        }
         if (
             event.type === 'session.created' ||
             event.type === 'session.updated'
@@ -794,6 +915,7 @@ export class Conversation extends RealtimeEvents {
                 this.#requestedResponses.delete(failed);
                 const index = this.#sessionUpdates.indexOf(failed);
                 if (index >= 0) this.#sessionUpdates.splice(index, 1);
+                this.#sentSessions.delete(failed);
             }
             this.#promptUpgrade(event.error);
         }
@@ -951,8 +1073,13 @@ export class Conversation extends RealtimeEvents {
             throw failure('queue_full', 'Realtime send queue is full');
         for (const [i, { json }] of messages.entries()) {
             const event = events[i];
-            if (event.type === 'session.update')
+            if (event.type === 'session.update') {
                 this.#sessionUpdates.push(event.event_id);
+                // A copy, so later changes to the caller's object don't leak in.
+                const { session } = JSON.parse(json);
+                if (isPlainObject(session))
+                    this.#sentSessions.set(event.event_id, session);
+            }
             if (event.type === 'response.create')
                 this.#requestedResponses.add(event.event_id);
             socket.send(json);

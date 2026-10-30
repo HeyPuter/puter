@@ -126,6 +126,9 @@ export interface RealtimeTranscriptionUsage {
 
 const OPENAI_KEY_PROTOCOL = 'openai-insecure-api-key.';
 export const MAX_REALTIME_MESSAGE_BYTES = 64 * 1024;
+// OpenAI events can carry whole items, such as a retrieved audio item or a
+// long reply, so upstream messages get far more room than client ones.
+export const MAX_UPSTREAM_MESSAGE_BYTES = 4 * 1024 * 1024;
 const MAX_PENDING_MESSAGES = 32;
 // Usage batches waiting on metering; past this the session closes, but every
 // batch already received is still recorded.
@@ -160,15 +163,15 @@ const METERING_DRIVER = 'openai-realtime';
 interface RealtimeEvent {
     type: string;
     session?: unknown;
-    response?: { id?: unknown; usage?: RealtimeUsage };
-    usage?: RealtimeTranscriptionUsage;
+    response?: { id?: unknown; usage?: RealtimeUsage | null };
+    usage?: RealtimeTranscriptionUsage | null;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const validUsage = (usage: unknown): boolean => {
-    if (usage === undefined) return true;
+    if (usage === undefined || usage === null) return true;
     if (!isRecord(usage)) return false;
     const validNumbers = (value: Record<string, unknown>) =>
         [
@@ -760,7 +763,10 @@ export class OpenAIRealtimeRelayService extends PuterService {
                         inFlightIds.delete(event.response.id);
                     }
                     meter(
-                        realtimeUsageRows(billingModel, event.response?.usage),
+                        realtimeUsageRows(
+                            billingModel,
+                            event.response?.usage ?? undefined,
+                        ),
                     );
                     if (inFlight === 0) {
                         onIdle?.();
@@ -776,7 +782,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     meter(
                         realtimeTranscriptionRows(
                             transcriptionModel,
-                            event.usage,
+                            event.usage ?? undefined,
                         ),
                     );
                     break;
@@ -942,9 +948,10 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 headers: { Authorization: `Bearer ${apiKey}` },
                 handshakeTimeout: UPSTREAM_HANDSHAKE_MS,
                 perMessageDeflate: false,
-                maxPayload: MAX_REALTIME_MESSAGE_BYTES,
-                maxFragments: 64,
-                maxBufferedChunks: 128,
+                maxPayload: MAX_UPSTREAM_MESSAGE_BYTES,
+                // A large message arrives in many TLS records.
+                maxFragments: 1024,
+                maxBufferedChunks: 16 * 1024,
             },
         );
         const up = upstream;
@@ -971,7 +978,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             if (closed || client.readyState !== WebSocket.OPEN) return;
             if (
                 client.bufferedAmount + buf.length >
-                HIGH_WATER_BYTES + MAX_REALTIME_MESSAGE_BYTES
+                HIGH_WATER_BYTES + MAX_UPSTREAM_MESSAGE_BYTES
             ) {
                 reject('rate_limit_exceeded', 'Client queue is full');
                 return;
@@ -1019,6 +1026,20 @@ export class OpenAIRealtimeRelayService extends PuterService {
         });
         up.on('close', (code, reason) => {
             if (settleTimer) clearTimeout(settleTimer);
+            if (inFlight > 0) {
+                this.clients.alarm.create(
+                    'realtime_unbilled_response',
+                    'Realtime upstream closed before a response reported usage',
+                    {
+                        userId: actor?.user?.uuid,
+                        model: billingModel,
+                        inFlight,
+                        code,
+                    },
+                    'warning',
+                    { dedup: true },
+                );
+            }
             session.close(
                 code === 1005 || code === 1006 ? 1011 : code,
                 reason.toString().slice(0, 120),
@@ -1079,7 +1100,15 @@ export class OpenAIRealtimeRelayService extends PuterService {
             userAgent: typeof ua === 'string' ? ua : undefined,
         });
         if (result.blocked) return null;
-        const decision = decideSocketAuth(result, { allowAppActors: true });
+        const user = result.actor?.user;
+        const seat =
+            user && !user.otp_enabled && typeof user.id === 'number'
+                ? await this.stores.team?.getOrgSeat(user.id)
+                : null;
+        const decision = decideSocketAuth(result, {
+            allowAppActors: true,
+            teamRequires2fa: Number(seat?.require_2fa) === 1,
+        });
         return 'accept' in decision ? decision.accept : null;
     }
 }

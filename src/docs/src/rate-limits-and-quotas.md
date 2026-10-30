@@ -95,17 +95,18 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 
 | Realtime transport limit | Value | Behavior at the limit |
 | --- | --- | --- |
-| JSON message size in either direction | 64 KiB, including reassembled fragments | Oversized client messages close with 1009. Oversized upstream messages close the session with 1011. |
-| Fragments per message | 64 | Connection closes. |
-| Buffered receive chunks | 128 per socket | Connection closes. |
+| Client JSON message size | 64 KiB, including reassembled fragments | Close 1009. |
+| Upstream JSON message size | 4 MiB, including reassembled fragments | Close 1011. |
+| Fragments per client message | 64 | Connection closes. |
+| Buffered receive chunks from the client | 128 | Connection closes. |
 | Event type length | 1–128 characters | Invalid client envelopes receive `invalid_event` and close with 1008. Invalid upstream envelopes close with 1011. |
 | Client message rate | 100/s, burst 100 | Error `rate_limit_exceeded`, close 1008. Ping and pong frames count toward this allowance. |
 | Client upload rate | 128 KiB/s, burst 64 KiB | Reads pause to refill the budget. More than 64 KiB of overdraft closes with `rate_limit_exceeded`. |
 | Input pending session setup | 32 messages or 64 KiB | Error `rate_limit_exceeded`, close 1008. |
-| Forwarding queue in either direction | Reads pause at 128 KiB. Admission stops above 192 KiB. | A full queue closes with `rate_limit_exceeded`. |
+| Forwarding queue in either direction | Reads pause at 128 KiB. Admission stops above 192 KiB toward the provider and above 4 MiB plus 128 KiB toward the client. | A full queue closes with `rate_limit_exceeded`. |
 | Client that stops reading | 30 seconds of paused upstream reads | Close 1008. |
 | Pending usage records | 32 | Error `rate_limit_exceeded`, close 1008. Records already received are still billed. |
-| Numeric usage fields | Finite, nonnegative, at most 1 billion | Invalid upstream usage closes with 1011. |
+| Numeric usage fields | Finite, nonnegative, at most 1 billion | Invalid upstream usage closes with 1011. A `null` usage counts as none. |
 | Session setup timeout | 15 seconds | Error `connection_timeout`, close 1011. |
 | Upstream handshake timeout | 10 seconds | Close 1011. |
 | Heartbeat interval | 30 seconds | A missing pong terminates the connection on the next heartbeat. |
@@ -133,7 +134,7 @@ The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sendin
 | Capture chunk duration | 20 ms | AudioWorklet sends 480 PCM16 samples per chunk. |
 | Unacknowledged capture chunks | 25, or 500 ms | Further chunks are dropped until the page catches up. |
 | Queued playback | 300 seconds | Further audio for the reply is dropped and `queue_full` is reported once. |
-| Reconnection attempts | 5, backing off from 500 ms to 8 seconds | The conversation closes with the original close code. |
+| Reconnection attempts | 5, backing off from 500 ms to 8 seconds, each delay randomized between half and one and a half times its value | The conversation closes with the original close code. |
 | Remembered canceled responses | 32 | Older response IDs are evicted from the suppression set. |
 
 

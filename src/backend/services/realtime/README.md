@@ -35,7 +35,8 @@ conversation.sendText('Hello!');
 
 All transport limits are published in
 [rate-limits-and-quotas.md](../../../docs/src/rate-limits-and-quotas.md).
-Message size applies in both directions and includes reassembled fragments.
+Message size includes reassembled fragments. Client messages are capped at
+64 KiB; upstream messages at 4 MiB, since OpenAI events can carry whole items.
 Read backpressure is supplemented by hard queue admission limits because a
 paused socket can still deliver messages already in its receive buffer.
 

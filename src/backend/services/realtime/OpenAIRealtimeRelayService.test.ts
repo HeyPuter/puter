@@ -14,6 +14,7 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { withAiCostFactorHook } from '../../drivers/integrationTestUtil';
 import type { IConfig } from '../../types';
 import type { PuterServer } from '../../server';
+import { installSeatStub } from '../../testFixtures/seatStub';
 import {
     allocateEphemeralPort,
     createTestUser,
@@ -23,6 +24,7 @@ import {
 import { kv } from '../../util/kvSingleton';
 import {
     MAX_REALTIME_MESSAGE_BYTES,
+    MAX_UPSTREAM_MESSAGE_BYTES,
     REALTIME_PATH,
     type RealtimeUsage,
     type RealtimeTranscriptionUsage,
@@ -269,11 +271,20 @@ describe('OpenAIRealtimeRelayService relay', () => {
                     ws.send(JSON.stringify(envelope));
                     return;
                 }
+                if (event.type === 'test.retrieve') {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'conversation.item.retrieved',
+                            item: { audio: 'A'.repeat(event.bytes) },
+                        }),
+                    );
+                    return;
+                }
                 if (event.type === 'test.oversize') {
                     ws.send(
                         JSON.stringify({
                             type: 'response.output_text.delta',
-                            delta: 'x'.repeat(MAX_REALTIME_MESSAGE_BYTES),
+                            delta: 'x'.repeat(MAX_UPSTREAM_MESSAGE_BYTES),
                         }),
                     );
                     return;
@@ -401,7 +412,19 @@ describe('OpenAIRealtimeRelayService relay', () => {
                 },
                 { timeout: 5_000 },
             );
-        return { ws, events, closed, waitFor };
+        const waitForEcho = (type: string) =>
+            vi.waitFor(
+                () =>
+                    expect(
+                        events.some(
+                            (e) =>
+                                e.type === 'echo' &&
+                                (e.event as { type: string }).type === type,
+                        ),
+                    ).toBe(true),
+                { timeout: 5_000 },
+            );
+        return { ws, events, closed, waitFor, waitForEcho };
     };
 
     it('rejects a missing credential with an error event and 1008', async () => {
@@ -510,9 +533,22 @@ describe('OpenAIRealtimeRelayService relay', () => {
         expect((await c.closed).code).toBe(1008);
     });
 
-    it('rejects oversized upstream messages before forwarding them', async () => {
+    it('forwards upstream messages beyond the client limit', async () => {
         const c = open(`${relayUrl}?auth_token=${user.token}`);
         await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'test.retrieve', bytes: 1024 * 1024 }));
+        await c.waitFor('conversation.item.retrieved');
+        c.ws.send('{"type":"test.alive"}');
+        await c.waitForEcho('test.alive');
+        c.ws.close();
+    });
+
+    it('closes on an oversized upstream message and alarms on the response it loses', async () => {
+        const alarm = vi.spyOn(server.clients.alarm, 'create');
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await c.waitFor('response.created');
         c.ws.send(JSON.stringify({ type: 'test.oversize' }));
         expect((await c.closed).code).toBe(1011);
         expect(
@@ -520,12 +556,48 @@ describe('OpenAIRealtimeRelayService relay', () => {
                 (event) => event.type === 'response.output_text.delta',
             ),
         ).toBe(false);
+        await vi.waitFor(() =>
+            expect(alarm).toHaveBeenCalledWith(
+                'realtime_unbilled_response',
+                expect.any(String),
+                expect.objectContaining({ inFlight: 1 }),
+                'warning',
+                { dedup: true },
+            ),
+        );
+    });
+
+    it('treats a null usage as none and keeps the session', async () => {
+        const alarm = vi.spyOn(server.clients.alarm, 'create');
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await c.waitFor('response.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.upstream',
+                payload:
+                    '{"type":"response.done","response":{"id":"resp_hold","usage":null}}',
+            }),
+        );
+        await c.waitFor('response.done');
+        c.ws.send('{"type":"test.alive"}');
+        await c.waitForEcho('test.alive');
+        c.ws.close();
+        await c.closed;
+        expect(alarm).not.toHaveBeenCalledWith(
+            'realtime_unbilled_response',
+            expect.anything(),
+            expect.anything(),
+            expect.anything(),
+            expect.anything(),
+        );
     });
 
     it.each([
         'null',
         '{"type":"response.done","response":{"usage":{"input_tokens":-1}}}',
-        '{"type":"response.done","response":{"usage":null}}',
+        '{"type":"response.done","response":{"usage":[]}}',
         '{"type":"response.done","response":{"usage":{"input_token_details":null}}}',
     ])('rejects malformed upstream shape %s', async (payload) => {
         const c = open(`${relayUrl}?auth_token=${user.token}`);
@@ -860,16 +932,45 @@ describe('OpenAIRealtimeRelayService relay', () => {
     it('keeps a session when the re-check lookup itself fails', async () => {
         const relay = server.services.openaiRealtime;
         const auth = vi.spyOn(server.services.auth, 'authenticate');
-        const { ws, waitFor } = open(
+        const { ws, events, waitFor, waitForEcho } = open(
             `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
         );
         await waitFor('session.created');
         auth.mockRejectedValue(new Error('db down'));
         kv.del(realtimeAuthKey(user.token));
         await relay.recheckSessions();
-        expect(ws.readyState).toBe(WebSocket.OPEN);
+        // Frames arrive in order, so a close from the recheck would beat this.
+        ws.send('{"type":"test.alive"}');
+        await waitForEcho('test.alive');
+        expect(events.some((e) => e.type === 'error')).toBe(false);
         auth.mockRestore();
         ws.close();
+    });
+
+    it('refuses a seat whose team requires 2FA the account lacks', async () => {
+        const relay = server.services.openaiRealtime;
+        const live = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        await live.waitFor('session.created');
+
+        const row = await server.stores.user.getByUsername(user.username);
+        installSeatStub(server as never, [row!.id], { require2fa: true });
+
+        const fresh = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
+        expect(await fresh.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        expect((await fresh.closed).code).toBe(1008);
+
+        kv.del(realtimeAuthKey(user.token));
+        await relay.recheckSessions();
+        expect(await live.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        expect((await live.closed).code).toBe(1008);
     });
 
     // Last: the relay stays in drain mode afterwards.

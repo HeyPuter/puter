@@ -181,6 +181,7 @@ describe('Conversation lifecycle', () => {
     it('reconnects after a dropped connection and reapplies settings', async () => {
         const c = await connected({ instructions: 'Be brief.' });
         vi.useFakeTimers();
+        vi.spyOn(Math, 'random').mockReturnValue(0.5);
         const events = [];
         c.on('*', (event) => events.push(event.type));
         const update = c.configure({ voice: 'marin' });
@@ -207,6 +208,7 @@ describe('Conversation lifecycle', () => {
     it('gives up after repeated failures or a refusal', async () => {
         const c = await connected();
         vi.useFakeTimers();
+        vi.spyOn(Math, 'random').mockReturnValue(0.5);
         const closed = vi.fn();
         c.on('close', closed);
         socket().close(1012);
@@ -234,6 +236,136 @@ describe('Conversation lifecycle', () => {
             code: 1011,
             reason: '',
         });
+    });
+});
+
+describe('reconnection', () => {
+    /** Drops the connection and answers the replacement's handshake. */
+    const reconnect = async () => {
+        socket().close(1012);
+        await vi.advanceTimersByTimeAsync(500);
+        socket().deliver({ type: 'session.created', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+    };
+
+    it('reapplies acknowledged native settings after the SDK ones', async () => {
+        const c = await connected({ instructions: 'Be brief.' });
+        vi.useFakeTimers();
+        vi.spyOn(Math, 'random').mockReturnValue(0.5);
+        c.send({
+            type: 'session.update',
+            session: {
+                type: 'realtime',
+                audio: { input: { turn_detection: null } },
+                tools: [{ type: 'function', name: 'lookup' }],
+            },
+        });
+        socket().deliver({ type: 'session.updated', session: {} });
+        // Refused by the provider, so never reapplied.
+        c.send({
+            type: 'session.update',
+            event_id: 'bad',
+            session: { type: 'realtime', tool_choice: 'bogus' },
+        });
+        socket().deliver({
+            type: 'error',
+            error: { code: 'invalid_value', message: 'No', event_id: 'bad' },
+        });
+        await reconnect();
+        const [update] = socket().sent;
+        expect(update.type).toBe('session.update');
+        expect(update.session).toMatchObject({
+            type: 'realtime',
+            instructions: 'Be brief.',
+            tools: [{ type: 'function', name: 'lookup' }],
+            audio: {
+                input: {
+                    format: { type: 'audio/pcm', rate: 24000 },
+                    turn_detection: null,
+                },
+            },
+        });
+        expect(update.session).not.toHaveProperty('tool_choice');
+        socket().deliver({ type: 'session.updated', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connected');
+    });
+
+    it('splits reapplied settings that exceed one message', async () => {
+        const c = await connected();
+        vi.useFakeTimers();
+        vi.spyOn(Math, 'random').mockReturnValue(0.5);
+        c.send({
+            type: 'session.update',
+            session: { type: 'realtime', instructions: 'x'.repeat(40_000) },
+        });
+        socket().deliver({ type: 'session.updated', session: {} });
+        c.send({
+            type: 'session.update',
+            session: {
+                type: 'realtime',
+                tools: [{ type: 'function', description: 'y'.repeat(40_000) }],
+            },
+        });
+        socket().deliver({ type: 'session.updated', session: {} });
+        await reconnect();
+        expect(socket().sent).toHaveLength(1);
+        expect(socket().sent[0].session.instructions).toHaveLength(40_000);
+        socket().deliver({ type: 'session.updated', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(socket().sent).toHaveLength(2);
+        expect(socket().sent[1].session.tools).toHaveLength(1);
+        socket().deliver({ type: 'session.updated', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connected');
+    });
+
+    it('settles connect() with the reconnection', async () => {
+        const c = await connected();
+        vi.useFakeTimers();
+        vi.spyOn(Math, 'random').mockReturnValue(0.5);
+        socket().close(1006);
+        const resumed = vi.fn();
+        const ready = c.connect().then(resumed);
+        await vi.advanceTimersByTimeAsync(500);
+        socket().deliver({ type: 'session.created', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(resumed).not.toHaveBeenCalled();
+        socket().deliver({ type: 'session.updated', session: {} });
+        await ready;
+        expect(c.state).toBe('connected');
+
+        socket().close(1006);
+        const failed = c.connect();
+        await vi.advanceTimersByTimeAsync(500);
+        socket().deliver({
+            type: 'error',
+            error: { code: 'insufficient_funds', message: 'No usage left' },
+        });
+        await expect(failed).rejects.toMatchObject({
+            code: 'session_closed',
+            message: 'No usage left',
+        });
+    });
+
+    it('jitters the delay and stops waiting once closed', async () => {
+        const c = await connected();
+        vi.useFakeTimers();
+        vi.spyOn(Math, 'random').mockReturnValue(0);
+        const first = socket();
+        first.close(1012);
+        await vi.advanceTimersByTimeAsync(249);
+        expect(socket()).toBe(first);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(socket()).not.toBe(first);
+
+        const d = await connected();
+        d.on('close', () => {});
+        socket().close(1012);
+        expect(vi.getTimerCount()).toBeGreaterThan(0);
+        d.close();
+        c.close();
+        expect(vi.getTimerCount()).toBe(0);
     });
 });
 

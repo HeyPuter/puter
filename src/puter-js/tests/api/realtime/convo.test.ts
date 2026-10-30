@@ -138,6 +138,8 @@ describe('convo built SDK and browser media', () => {
     });
 
     it('captures through a real AudioWorklet and releases browser media on close', async () => {
+        // The first test appends a chunk of the same size.
+        received.length = 0;
         browser = await chromium.launch({
             args: [
                 '--use-fake-ui-for-media-stream',
