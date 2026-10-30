@@ -1028,6 +1028,13 @@ export type NotifDeliveryOutcome =
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {
     visibilityState: 'visible' | 'hidden' | 'unknown';
+    /** The page's window has focus. Absent from older clients. */
+    focused?: boolean;
+    /**
+     * The page shows its own browser notification while hidden or unfocused.
+     * Absent from older clients.
+     */
+    showsOwn?: boolean;
 }
 
 export type EventMetadata = {
