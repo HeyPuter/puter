@@ -177,7 +177,7 @@ const parseTarget = (input: Record<string, unknown>): string | undefined => {
 };
 
 /** Drops invisible formatting marks and controls; newlines survive. */
-const cleanText = (value: string): string =>
+export const cleanText = (value: string): string =>
     value
         .replace(/\r\n?/gu, '\n')
         .replace(INVISIBLE, '')
