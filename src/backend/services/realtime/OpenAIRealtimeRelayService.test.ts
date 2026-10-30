@@ -1197,29 +1197,164 @@ describe('OpenAIRealtimeRelayService relay', () => {
         c.ws.close();
     });
 
-    // Last: the relay stays in drain mode afterwards.
-    it('drains: refuses new sessions, finishes in-flight responses, then closes with 1012', async () => {
-        const relay = server.services.openaiRealtime;
-        const live = open(
-            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+    it('accepts a context replay burst right after a full-size message', async () => {
+        // The SDK replays up to 40 items and 48 KiB in one burst after its
+        // session settings are acknowledged.
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.settings',
+                pad: 'x'.repeat(MAX_REALTIME_MESSAGE_BYTES - 64),
+            }),
         );
-        await live.waitFor('session.created');
-        live.ws.send(JSON.stringify({ type: 'slow.response' }));
-        await live.waitFor('response.created');
+        await c.waitForEcho('test.settings');
+        const item = JSON.stringify({
+            type: 'test.replay',
+            item: { type: 'message', role: 'user', pad: 'x'.repeat(1100) },
+        });
+        expect(item.length * 40).toBeLessThanOrEqual(48 * 1024);
+        for (let i = 0; i < 40; i++) c.ws.send(item);
+        await vi.waitFor(
+            () =>
+                expect(
+                    c.events.filter(
+                        (e) =>
+                            e.type === 'echo' &&
+                            (e.event as { type: string }).type ===
+                                'test.replay',
+                    ),
+                ).toHaveLength(40),
+            { timeout: 5_000 },
+        );
+        expect(c.events.some((e) => e.type === 'error')).toBe(false);
+        c.ws.close();
+    });
 
-        relay.onServerDrainStart();
-        const late = open(
-            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
-        );
-        const error = (await late.waitFor('error')) as {
-            error: { code: string };
+    describe('restart', () => {
+        type Notice = {
+            type: string;
+            event_id: string;
+            reason: string;
+            close_in_ms?: number;
         };
-        expect(error.error.code).toBe('server_restarting');
-        expect((await late.closed).code).toBe(1012);
-        expect(live.ws.readyState).toBe(WebSocket.OPEN);
+        const notices = (c: ReturnType<typeof open>) =>
+            c.events.filter((e) => e.type === 'puter.reconnect') as Notice[];
 
-        await relay.onServerPrepareShutdown();
-        expect((await live.closed).code).toBe(1012);
-        expect(live.events.some((e) => e.type === 'response.done')).toBe(true);
+        it('sends only a reconnect notice when a host extension announces a restart', async () => {
+            const relay = server.services.openaiRealtime;
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            await c.waitFor('session.created');
+            server.clients.event.emit(
+                'serverRestartAnnounced',
+                { closeInMs: 300_000.4 },
+                {},
+            );
+            const notice = (await c.waitFor('puter.reconnect')) as Notice;
+            expect(notice).toEqual({
+                type: 'puter.reconnect',
+                event_id: expect.stringMatching(/^event_puter_/),
+                reason: 'server_restarting',
+                close_in_ms: 300_000,
+            });
+
+            // Repeats within a minute are dropped; the session keeps working.
+            server.clients.event.emit('serverRestartAnnounced', {}, {});
+            await relay.recheckSessions();
+            c.ws.send('{"type":"test.alive"}');
+            await c.waitForEcho('test.alive');
+            expect(notices(c)).toHaveLength(1);
+
+            // New sessions are still accepted, and get no notice.
+            const fresh = open(`${relayUrl}?auth_token=${user.token}`);
+            await fresh.waitFor('session.created');
+            fresh.ws.send('{"type":"test.alive"}');
+            await fresh.waitForEcho('test.alive');
+            expect(notices(fresh)).toHaveLength(0);
+            expect(c.ws.readyState).toBe(WebSocket.OPEN);
+            c.ws.close();
+            fresh.ws.close();
+        });
+
+        it('omits close_in_ms when the announcement has no usable duration', async () => {
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            await c.waitFor('session.created');
+            server.clients.event.emit(
+                'serverRestartAnnounced',
+                { closeInMs: -1 },
+                {},
+            );
+            const notice = (await c.waitFor('puter.reconnect')) as Notice;
+            expect(notice).not.toHaveProperty('close_in_ms');
+            c.ws.close();
+        });
+
+        // Last: the relay is shut down afterwards.
+        it('drains: notifies open sessions, refuses new ones, bills leavers, then closes the rest with 1012', async () => {
+            const relay = server.services.openaiRealtime;
+            const spy = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            const url = `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`;
+            const idle = open(url);
+            const busy = open(url);
+            const leaver = open(url);
+            await Promise.all(
+                [idle, busy, leaver].map((c) => c.waitFor('session.created')),
+            );
+            leaver.ws.send(JSON.stringify({ type: 'hold.response' }));
+            await leaver.waitFor('response.created');
+
+            await relay.onServerDrainStart({ drainMs: 90_000 });
+            for (const c of [idle, busy, leaver]) {
+                expect(await c.waitFor('puter.reconnect')).toMatchObject({
+                    reason: 'server_restarting',
+                    close_in_ms: 90_000,
+                });
+            }
+
+            const late = open(url);
+            expect(await late.waitFor('error')).toMatchObject({
+                error: { code: 'server_restarting' },
+            });
+            expect((await late.closed).code).toBe(1012);
+
+            // A client that leaves after the notice is billed as before: its
+            // response is cancelled and settled.
+            spy.mockClear();
+            leaver.ws.close();
+            await vi.waitFor(() =>
+                expect(upstreamEvents).toContainEqual({
+                    type: 'response.cancel',
+                    response_id: 'resp_hold',
+                }),
+            );
+            await vi.waitFor(() =>
+                expect(
+                    spy.mock.calls.some(([, rows]) =>
+                        rows.some(
+                            (r) =>
+                                r.usageType ===
+                                'openai:gpt-realtime-mini:realtime:audio_output',
+                        ),
+                    ),
+                ).toBe(true),
+            );
+
+            // The rest keep working until shutdown.
+            idle.ws.send('{"type":"test.alive"}');
+            await idle.waitForEcho('test.alive');
+            busy.ws.send(JSON.stringify({ type: 'slow.response' }));
+            await busy.waitFor('response.created');
+
+            await relay.onServerPrepareShutdown();
+            expect((await idle.closed).code).toBe(1012);
+            expect((await busy.closed).code).toBe(1012);
+            expect(busy.events.some((e) => e.type === 'response.done')).toBe(
+                true,
+            );
+            expect(notices(idle)).toHaveLength(1);
+        });
     });
 });

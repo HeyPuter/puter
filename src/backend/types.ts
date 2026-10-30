@@ -1337,7 +1337,12 @@ export interface WithLifecycle extends Object {
      * every connection (upgraded sockets included) to close or the drain to
      * end.
      */
-    onServerDrainStart?: () => Promise<void> | void;
+    onServerDrainStart?: (info?: ServerDrainInfo) => Promise<void> | void;
+}
+
+export interface ServerDrainInfo {
+    /** The longest the drain runs before teardown, when known. */
+    drainMs?: number;
 }
 
 export interface WithCostsReporting extends WithLifecycle {

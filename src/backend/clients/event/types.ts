@@ -75,6 +75,15 @@ export type EventMap = {
     serverStart: Record<string, never>;
     serverPrepareShutdown: Record<string, never>;
     serverShutdown: Record<string, never>;
+    /**
+     * Emitted by a host extension that knows this server will restart soon.
+     * Long-lived connections ask their clients to reconnect; nothing is refused
+     * or closed, so a false alarm is harmless.
+     */
+    serverRestartAnnounced: {
+        /** How long until the server stops, when known. */
+        closeInMs?: number;
+    };
 
     // ---- AI ----
     'ai.prompt.validate': {

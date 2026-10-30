@@ -38,6 +38,7 @@ import { kv } from '../../util/kvSingleton.js';
 import { assertActorHasSubscription } from '../metering/enforcement.js';
 import type { CreditHold, UsageInput } from '../metering/types.js';
 import { decideSocketAuth } from '../socket/SocketService.js';
+import type { ServerDrainInfo } from '../../types.js';
 import { PuterService } from '../types.js';
 
 export const REALTIME_PATH = '/puterai/openai/v1/realtime';
@@ -165,6 +166,11 @@ const DRAIN_RESPONSE_MS = 5_000;
 const SETTLE_MS = 5_000;
 // RFC 6455 "Service Restart": the client should reconnect.
 const CLOSE_RESTART = 1012;
+// Puter's own server event asking the client to reconnect when idle. OpenAI
+// event types never start with `puter.`.
+export const RECONNECT_EVENT = 'puter.reconnect';
+// A session is sent the reconnect notice at most this often.
+const RECONNECT_NOTICE_INTERVAL_MS = 60_000;
 const TRANSCRIPTION_DONE =
     'conversation.item.input_audio_transcription.completed';
 const METERING_DRIVER = 'openai-realtime';
@@ -439,6 +445,18 @@ const errorEvent = (code: string, message: string): string =>
     });
 
 /**
+ * Asks the client to reconnect at its next idle moment. `close_in_ms`, when
+ * known, is how long until the server closes the session itself.
+ */
+const reconnectEvent = (closeInMs: number | undefined): string =>
+    JSON.stringify({
+        type: RECONNECT_EVENT,
+        event_id: `event_puter_${Date.now()}`,
+        reason: 'server_restarting',
+        ...(closeInMs !== undefined ? { close_in_ms: closeInMs } : {}),
+    });
+
+/**
  * Relays OpenAI's Realtime API over WebSocket at `REALTIME_PATH` on the api
  * host, one upstream connection per client connection. Frames pass through
  * untouched in both directions after bounded envelope validation. Usage events
@@ -456,6 +474,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
         heartbeat: () => void;
         recheck: () => Promise<void>;
         drain: () => Promise<void>;
+        notify: (closeInMs: number | undefined) => void;
     }>();
     #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     #authTimer: ReturnType<typeof setInterval> | null = null;
@@ -519,12 +538,37 @@ export class OpenAIRealtimeRelayService extends PuterService {
         }
     }
 
-    /** New sessions are refused; open ones keep running through the drain. */
-    override onServerDrainStart(): void {
+    /** A host extension can announce a restart before the drain starts. */
+    override onServerStart(): void {
+        this.clients.event.on('serverRestartAnnounced', (_key, data) =>
+            this.#announceRestart(data?.closeInMs),
+        );
+    }
+
+    /**
+     * New sessions are refused; open ones keep running through the drain and
+     * are asked to reconnect.
+     */
+    override onServerDrainStart(info?: ServerDrainInfo): void {
         this.#draining = true;
         console.info(
             `[realtime] draining; ${this.#sessions.size} sessions stay open`,
         );
+        this.#announceRestart(info?.drainMs);
+    }
+
+    /**
+     * Sends every open session the reconnect notice, at most once a minute
+     * each. Nothing is refused or closed here.
+     */
+    #announceRestart(closeInMs: unknown): void {
+        const ms =
+            typeof closeInMs === 'number' &&
+            Number.isFinite(closeInMs) &&
+            closeInMs >= 0
+                ? Math.round(closeInMs)
+                : undefined;
+        for (const session of this.#sessions) session.notify(ms);
     }
 
     /**
@@ -581,6 +625,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
         // The transcription model in force when each input item was committed.
         const committedModels = new Map<string, string | undefined>();
         let onIdle: (() => void) | null = null;
+        let noticeAt = -Infinity;
         const model = url.searchParams.get('model') || DEFAULT_REALTIME_MODEL;
         let billingModel = model;
         let transcriptionModel: string | undefined;
@@ -697,6 +742,13 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     });
                 }
                 session.close(CLOSE_RESTART, 'server restarting');
+            },
+            notify: (closeInMs: number | undefined) => {
+                if (closed || client.readyState !== WebSocket.OPEN) return;
+                const now = Date.now();
+                if (now - noticeAt < RECONNECT_NOTICE_INTERVAL_MS) return;
+                noticeAt = now;
+                client.send(reconnectEvent(closeInMs));
             },
         };
         this.#sessions.add(session);
