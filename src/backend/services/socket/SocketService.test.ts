@@ -625,6 +625,24 @@ describe('SocketService (live socket.io)', () => {
             await closeAll(userId, [other]);
         });
 
+        it('joins only the ack room of the room it is asked in', async () => {
+            const userId = await userIdOf();
+            const socket = await connect({
+                auth_token: user.token,
+                acks: ['demo.ack'],
+            });
+
+            expect(
+                socketService.has({ room: ackRoom(String(userId), 'demo.ack') }),
+            ).toBe(true);
+            for (const room of [accountSocketRoom(userId), socket.id!]) {
+                expect(
+                    socketService.has({ room: ackRoom(room, 'demo.ack') }),
+                ).toBe(false);
+            }
+            await closeAll(userId, [socket]);
+        });
+
         it('hears nothing from a room nobody is in', async () => {
             await expect(
                 socketService.askWithAck(

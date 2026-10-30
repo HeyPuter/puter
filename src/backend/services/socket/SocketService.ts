@@ -681,13 +681,11 @@ export class SocketService extends PuterService {
                 // user.id is numeric in the DB; stringify for room name
                 // so adapter lookups key on a stable type.
                 const rooms = socketRoomsFor(decision.accept);
-                const acks = handshakeAcks(handshakeAuth?.acks);
+                // Asks go to the user's or the app's room, never the others.
                 socket.join([
                     ...rooms,
-                    ...acks.flatMap((event) =>
-                        [...rooms, socket.id].map((room) =>
-                            ackRoom(room, event),
-                        ),
+                    ...handshakeAcks(handshakeAuth?.acks).map((event) =>
+                        ackRoom(rooms[0], event),
                     ),
                 ]);
                 next();
