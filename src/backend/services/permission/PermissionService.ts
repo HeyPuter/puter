@@ -1628,19 +1628,31 @@ export class PermissionService extends PuterService {
             app.id,
             [permission],
         );
+        // A grant without `via` (the user approving it in Puter) replaces a row
+        // a narrower path recorded with one; a narrower one never replaces it.
+        const widens =
+            existing?.extra?.via !== undefined && rowExtra.via === undefined;
         // Skip redundant upserts (saves db roundtrip + cache invalidation),
         // unless the row has yet to record what this grant was asked as.
-        if (existing && (!grantedAs || existing.extra?.grantedAs === grantedAs))
+        if (
+            existing &&
+            !widens &&
+            (!grantedAs || existing.extra?.grantedAs === grantedAs)
+        )
             return;
+        const { via: _via, ...withoutVia } = existing?.extra ?? {};
+        const kept = widens
+            ? withoutVia
+            : grantedAs
+              ? existing?.extra
+              : undefined;
 
         try {
             await this.stores.permission.upsertUserAppPerm(
                 userId,
                 app.id,
                 permission,
-                grantedAs
-                    ? { ...existing?.extra, ...rowExtra, grantedAs }
-                    : rowExtra,
+                { ...kept, ...rowExtra, ...(grantedAs ? { grantedAs } : {}) },
             );
         } catch (error) {
             if (!isMissingParentViolation(error)) throw error;
