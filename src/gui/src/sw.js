@@ -19,7 +19,8 @@
 
 // Shows each push as a notification and routes taps to a Puter window.
 // Push payload: JSON whose `puter` (or `data.puter`, an object or JSON string)
-// is { uid, title, body, icon, group, target: { app, path }, data }.
+// is { uid, title, body, icon, group, target: { app, path }, data, ts }, plus
+// `app: { uid, name, icon }` when an app sent it.
 // On `pushsubscriptionchange` it posts { type: 'puter-push-subscription-changed' }
 // to this origin's windows, so a signed-in page can register again.
 // A `type: 'challenge'` message is shown, then its `challenge` is posted to
@@ -62,19 +63,40 @@ function pushTarget (target) {
     return { ...(app ? { app } : {}), ...(path ? { path } : {}) };
 }
 
+// An app's message is shown under the app's name and Puter's copy of its icon, never an icon the app chose.
+function appMessage (source, origin) {
+    const app = source.app && typeof source.app === 'object' ? source.app : null;
+    if ( ! nonEmptyString(app?.uid) ) return null;
+    const title = nonEmptyString(source.title);
+    const body = nonEmptyString(source.body);
+    // A sensitive message already reads as a line about the app.
+    const text = source.sensitive === true
+        ? body
+        : [title, body].filter(Boolean).join(' — ');
+    return {
+        title: nonEmptyString(app.name) ?? DEFAULT_TITLE,
+        body: nonEmptyString(text),
+        icon: notificationIcon(app.icon, origin),
+    };
+}
+
 function normalizeMessage (message, origin) {
     const source = message && typeof message === 'object' ? message : {};
     const uid = nonEmptyString(source.uid);
-    const body = nonEmptyString(source.body);
+    const app = appMessage(source, origin);
+    const body = app ? app.body : nonEmptyString(source.body);
     const target = pushTarget(source.target);
     const tag = nonEmptyString(source.group) ?? uid;
+    const sentAt = Number.isFinite(source.ts) ? source.ts : undefined;
     return {
-        title: nonEmptyString(source.title) ?? DEFAULT_TITLE,
+        title: app ? app.title : nonEmptyString(source.title) ?? DEFAULT_TITLE,
         options: {
             ...(body ? { body } : {}),
-            icon: notificationIcon(source.icon, origin),
+            icon: app ? app.icon : notificationIcon(source.icon, origin),
             ...(tag ? { tag } : {}),
-            renotify: false,
+            // A group's newer notification replaces the one showing and alerts again.
+            renotify: !! tag && tag !== uid,
+            ...(sentAt !== undefined ? { timestamp: sentAt } : {}),
             data: {
                 ...(uid ? { uid } : {}),
                 ...(target ? { target } : {}),

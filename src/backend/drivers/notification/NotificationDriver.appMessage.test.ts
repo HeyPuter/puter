@@ -300,6 +300,42 @@ describe('app.message with live delivery over the socket wire', () => {
         ).toEqual([]);
     });
 
+    it('names the field over its own limit before the total size', async () => {
+        const holder = await makeUser(state.server);
+        const app = await makeApp(state.server, holder.user.id!);
+        for (const [fields, field] of [
+            [{ data: { blob: 'x'.repeat(20_000) } }, 'data'],
+            [{ text: 'x'.repeat(20_000) }, 'text'],
+            [{ extra: 'x'.repeat(20_000) }, 'extra'],
+        ] as const) {
+            await expect(
+                withActor(asApp(holder, app), () =>
+                    state.driver.create(message(fields)),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+                fields: { field },
+            });
+        }
+    });
+
+    it('still caps the whole value when every field passes', async () => {
+        const holder = await makeUser(state.server);
+        const app = await makeApp(state.server, holder.user.id!);
+        // Invisible marks are dropped from the title, so only the total is over.
+        await expect(
+            withActor(asApp(holder, app), () =>
+                state.driver.create(
+                    message({ title: `${'\u200b'.repeat(20_000)}Hi` }),
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'notification_value_too_large',
+        });
+    });
+
     it('keeps the holder creating other types silently', async () => {
         const holder = await makeUser(state.server);
         const pushed = await captureBus(

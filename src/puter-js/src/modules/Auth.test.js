@@ -232,3 +232,42 @@ describe('whoami', () => {
         });
     });
 });
+
+describe('signOut', () => {
+    it('hands push cleanup the leaving token before discarding it', () => {
+        const order = [];
+        const puter = {
+            authToken: 'leaving-token',
+            notifications: {
+                _forgetPush: vi.fn(async (token) => {
+                    order.push(['forget', token, puter.authToken]);
+                }),
+            },
+            resetAuthToken: vi.fn(() => {
+                order.push(['reset']);
+                puter.authToken = null;
+            }),
+        };
+        vi.stubGlobal('puter', puter);
+        try {
+            makeAuth().signOut();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+        expect(order).toEqual([
+            ['forget', 'leaving-token', 'leaving-token'],
+            ['reset'],
+        ]);
+    });
+
+    it('signs out where there is no notifications module', () => {
+        const puter = { authToken: 't', resetAuthToken: vi.fn() };
+        vi.stubGlobal('puter', puter);
+        try {
+            expect(() => makeAuth().signOut()).not.toThrow();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+        expect(puter.resetAuthToken).toHaveBeenCalled();
+    });
+});

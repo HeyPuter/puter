@@ -21,14 +21,20 @@
     const CLICKS = 'clicks';
     const HANDLER_TIMEOUT_MS = 5000;
     const CLICK_KEEP_MS = 5 * 60 * 1000;
+    // Browsers allow openWindow only shortly after the click.
+    const CLICK_ACK_BUDGET_MS = 600;
     const DEFAULT_TITLE = 'New notification';
     const CHALLENGE_MESSAGE = 'puter-push-challenge';
     const CLICK_MESSAGE = 'puter-notification-click';
+    const CLICK_ACK_MESSAGE = 'puter-notification-click-ack';
+    const SHOW_MESSAGE = 'puter-push-show';
     const CHANGED_MESSAGE = 'puter-push-subscription-changed';
     const CLICK_PARAM = 'puter.notification';
     const SHOWN_FIELDS = ['title', 'body', 'icon', 'badge', 'image', 'tag', 'url'];
 
     const registered = new Map();
+    const pendingClickAcks = new Map();
+    let nextClickId = 0;
 
     const openDB = () => new Promise((resolve, reject) => {
         const req = indexedDB.open(DB_NAME, 1);
@@ -75,6 +81,16 @@
         return message && typeof message === 'object' ? message : null;
     }
 
+    const appOf = (message) => (message.app && typeof message.app === 'object' ? message.app : null);
+
+    // The push names the app's group as `<app uid>:<group>`, or the uid when it has none.
+    function groupOf (message) {
+        const group = str(message.group);
+        const prefix = `${str(appOf(message)?.uid) ?? ''}:`;
+        if ( ! group || group === message.uid ) return null;
+        return group.startsWith(prefix) ? group.slice(prefix.length) || null : group;
+    }
+
     // The shape `onPush` handlers get in the page.
     const toNotification = (message) => ({
         uid: str(message.uid) ?? '',
@@ -83,10 +99,11 @@
         icon: str(message.icon),
         target: str(message.target?.path),
         data: message.data ?? null,
-        group: str(message.group),
+        group: groupOf(message),
         channel: str(message.channel),
-        createdAt: Math.floor(Date.now() / 1000),
-        app: message.app && typeof message.app === 'object' ? message.app : null,
+        sensitive: message.sensitive === true,
+        createdAt: typeof message.ts === 'number' && Number.isFinite(message.ts) ? message.ts : Date.now(),
+        app: appOf(message),
     });
 
     async function handlerFor (channel) {
@@ -103,12 +120,14 @@
         new Promise((_, reject) => setTimeout(() => reject(new Error('push handler timed out')), HANDLER_TIMEOUT_MS)),
     ]);
 
-    async function render (notification) {
+    async function render (notification, message) {
+        const icon = notification.icon ?? str(notification.app?.icon);
         const shown = {
             title: notification.title || DEFAULT_TITLE,
             ...(notification.text ? { body: notification.text } : {}),
-            ...(notification.icon ? { icon: notification.icon } : {}),
-            tag: notification.group ?? notification.uid,
+            ...(icon ? { icon } : {}),
+            // The server's tag, which the page uses for the same notification too.
+            tag: str(message.group) ?? notification.uid,
             ...(notification.target ? { url: notification.target } : {}),
         };
         try {
@@ -125,13 +144,14 @@
         return shown;
     }
 
-    // Taps only ever open this origin.
+    // Taps only ever open this origin; relative paths are read from the worker's scope.
     function sameOriginUrl (url) {
+        const scope = self.registration.scope ?? `${self.location.origin}/`;
         try {
-            const parsed = new URL(url || '/', self.location.origin);
-            return parsed.origin === self.location.origin ? parsed.href : `${self.location.origin}/`;
+            const parsed = new URL(url ?? '', scope);
+            return parsed.origin === self.location.origin ? parsed.href : scope;
         } catch {
-            return `${self.location.origin}/`;
+            return scope;
         }
     }
 
@@ -158,7 +178,7 @@
             return;
         }
         const notification = toNotification(message);
-        const { title, url, ...options } = await render(notification);
+        const { title, url, ...options } = await render(notification, message);
         const data = {
             puter: {
                 uid: notification.uid,
@@ -168,11 +188,29 @@
             },
         };
         try {
-            await self.registration.showNotification(title, { ...options, data });
+            await self.registration.showNotification(title, {
+                ...options,
+                renotify: options.tag !== notification.uid,
+                data,
+            });
         } catch {
             // Browsers count a push with nothing shown against the site.
             await self.registration.showNotification(DEFAULT_TITLE, { data });
         }
+    }
+
+    // A page that got a notification live while away; held back while another window of the app has focus.
+    async function showForPage (message, source) {
+        for ( const win of await windows() ) {
+            if ( win.focused && win.id !== source?.id ) return false;
+        }
+        const options = message.options && typeof message.options === 'object' ? message.options : {};
+        try {
+            await self.registration.showNotification(str(message.title) ?? DEFAULT_TITLE, options);
+        } catch {
+            await self.registration.showNotification(DEFAULT_TITLE, { data: options.data });
+        }
+        return true;
     }
 
     async function forgetOldClicks () {
@@ -189,30 +227,61 @@
         });
     }
 
-    async function routeClick (puter) {
+    function waitForClickAck (id, timeoutMs) {
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                pendingClickAcks.delete(id);
+                resolve(false);
+            }, timeoutMs);
+            pendingClickAcks.set(id, () => {
+                clearTimeout(timer);
+                pendingClickAcks.delete(id);
+                resolve(true);
+            });
+        });
+    }
+
+    // Kept for the page the tap opens, which reads it from the URL.
+    async function keepClick (click) {
+        if ( ! click.uid ) return;
+        try {
+            await forgetOldClicks();
+            await idb(CLICKS, 'readwrite', (s) => s.put({ ...click, at: Date.now() }, click.uid));
+        } catch ( err ) {
+            console.warn('[puter] could not keep a tap', err);
+        }
+    }
+
+    // An open window with a click handler takes the tap; otherwise one opens its URL.
+    async function routeClick (puter, startedAt = Date.now()) {
         const click = { uid: puter.uid, target: puter.target ?? null, data: puter.data ?? null };
         const url = sameOriginUrl(puter.url);
         const open = await windows();
         const win = open.find((c) => c.url === url) ?? open.find((c) => c.focused) ?? open[0];
         if ( win ) {
-            win.postMessage({ type: CLICK_MESSAGE, notification: click });
+            const id = `click-${++nextClickId}`;
+            const acked = waitForClickAck(id, Math.max(0, startedAt + CLICK_ACK_BUDGET_MS - Date.now()));
+            win.postMessage({ type: CLICK_MESSAGE, id, notification: click });
             try {
                 await win.focus();
             } catch {
                 // focus is refused once the click's window has passed
             }
-            return;
+            if ( await acked ) return;
+            // Already there: reloading would only lose what the user had open.
+            if ( win.url === url ) return;
         }
-        if ( click.uid ) {
-            try {
-                await forgetOldClicks();
-                await idb(CLICKS, 'readwrite', (s) => s.put({ ...click, at: Date.now() }, click.uid));
-            } catch ( err ) {
-                console.warn('[puter] could not keep a tap', err);
-            }
-        }
+        await keepClick(click);
         const opened = new URL(url);
         if ( click.uid ) opened.searchParams.set(CLICK_PARAM, click.uid);
+        if ( win?.navigate ) {
+            try {
+                await win.navigate(opened.href);
+                return;
+            } catch {
+                // only a window this worker controls can be navigated
+            }
+        }
         await self.clients.openWindow(opened.href);
     }
 
@@ -222,11 +291,30 @@
         event.waitUntil(showPush(message));
     });
 
+    self.addEventListener('message', (event) => {
+        const message = event.data;
+        if ( ! message || typeof message !== 'object' ) return;
+        if ( message.type === CLICK_ACK_MESSAGE ) {
+            pendingClickAcks.get(message.id)?.();
+        } else if ( message.type === SHOW_MESSAGE ) {
+            event.waitUntil((async () => {
+                let shown = false;
+                try {
+                    shown = await showForPage(message, event.source);
+                } catch ( err ) {
+                    console.warn('[puter] could not show a notification', err);
+                }
+                event.ports?.[0]?.postMessage({ shown });
+            })());
+        }
+    });
+
     self.addEventListener('notificationclick', (event) => {
         const puter = event.notification.data?.puter;
         if ( ! puter || typeof puter !== 'object' ) return;
+        const startedAt = Date.now();
         event.notification.close();
-        event.waitUntil(routeClick(puter));
+        event.waitUntil(routeClick(puter, startedAt));
     });
 
     self.addEventListener('pushsubscriptionchange', (event) => {

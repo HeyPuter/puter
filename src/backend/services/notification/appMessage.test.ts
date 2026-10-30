@@ -66,6 +66,8 @@ describe('parseAppMessage', () => {
             '😀'.repeat(120),
         );
         rejects({ title: 'x'.repeat(121) }, 'title');
+        rejects({ title: '😀'.repeat(121) }, 'title');
+        rejects({ title: 'x'.repeat(1_000_000) }, 'title');
     });
 
     it('caps text at 240 characters', () => {

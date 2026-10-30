@@ -197,6 +197,35 @@ describe('the enable-push dialog', () => {
             await vi.advanceTimersByTimeAsync(10);
             await expect(result).resolves.toBe('on');
         });
+
+        it('stops the spinner and offers a retry when the registration fails after its deadline', async () => {
+            globalThis.Notification = { permission: 'granted' };
+            const client = fakeClient({ permission: 'granted', registered: false });
+            let fail;
+            client.enable.mockImplementationOnce(() => new Promise((_, reject) => {
+                fail = reject;
+            }));
+            registerPushClient(client);
+            const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+            const result = UIEnablePushDialog({ origin: 'https://chat.example' });
+            await shownFake();
+            $('.perm-dialog-allow').trigger('click');
+            await vi.advanceTimersByTimeAsync(16_000);
+            expect($('.perm-dialog-allow').hasClass('perm-dialog-busy')).toBe(true);
+            expect($('.perm-dialog-allow').prop('disabled')).toBe(true);
+
+            fail(new Error('no_worker'));
+            await vi.advanceTimersByTimeAsync(10);
+            expect($('.perm-dialog-allow').hasClass('perm-dialog-busy')).toBe(false);
+            expect($('.perm-dialog-allow').prop('disabled')).toBe(false);
+
+            $('.perm-dialog-allow').trigger('click');
+            await vi.advanceTimersByTimeAsync(10);
+            await expect(result).resolves.toBe('on');
+            expect(client.enable).toHaveBeenCalledTimes(2);
+            debug.mockRestore();
+        });
     });
 
     it('offers a retry when registering failed and push is still off', async () => {
