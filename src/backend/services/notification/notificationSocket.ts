@@ -32,9 +32,9 @@ import type { IConfig } from '../../types.js';
 
 /**
  * The desktop's notification wire, kept byte for byte while its delivery moves
- * underneath it. `notif.message`, `notif.unreads` and `notif.ack` are a live
- * GUI contract, so the adapter is the one place they are shaped, whichever path
- * produced the notification.
+ * underneath it. `notif.message`, `notif.unreads`, `notif.ack` and
+ * `notif.removed` are a live GUI contract, so the adapter is the one place they
+ * are shaped, whichever path produced the notification.
  *
  * Two routes, one wire:
  *
@@ -52,7 +52,8 @@ import type { IConfig } from '../../types.js';
  * working. It goes when the flag is on everywhere.
  */
 
-export type NotifWire = 'notif.message' | 'notif.unreads' | 'notif.ack';
+export type NotifWire =
+    'notif.message' | 'notif.unreads' | 'notif.ack' | 'notif.removed';
 
 export const NOTIF_DELIVERY_EVENT = 'outer.notif.delivery';
 
@@ -184,6 +185,17 @@ export class NotificationSocketAdapter {
         if (this.#dispatched(userId, 'notif.ack', response)) return;
         this.#deps.event.emit(
             'outer.gui.notif.ack',
+            { user_id_list: [userId], response },
+            {},
+        );
+    }
+
+    /** "This is gone", to the recipient's other tabs. */
+    removed(userId: number, uid: string): void {
+        const response = { uid };
+        if (this.#dispatched(userId, 'notif.removed', response)) return;
+        this.#deps.event.emit(
+            'outer.gui.notif.removed',
             { user_id_list: [userId], response },
             {},
         );

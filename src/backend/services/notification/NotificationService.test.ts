@@ -545,6 +545,49 @@ describe('NotificationService.markAcknowledged', () => {
     });
 });
 
+describe('NotificationService.remove', () => {
+    it("deletes the row and tells the user's other tabs", async () => {
+        const user = await makeUser();
+        const row = await server.stores.notification.create({
+            userId: user.id,
+            value: { source: 'test', title: 'remove me' },
+        });
+        const removals = collect('outer.gui.notif.removed');
+
+        const removed = await notifications.remove(row.uid, user.id);
+
+        expect(removed).toBe(true);
+        expect(removals.seen).toEqual([
+            { user_id_list: [user.id], response: { uid: row.uid } },
+        ]);
+        const fresh = await server.stores.notification.getByUid(row.uid, {
+            userId: user.id,
+        });
+        expect(fresh).toBeNull();
+        removals.stop();
+    });
+
+    it("leaves another user's row alone and sends nothing", async () => {
+        const owner = await makeUser();
+        const other = await makeUser();
+        const row = await server.stores.notification.create({
+            userId: owner.id,
+            value: { source: 'test', title: 'not yours' },
+        });
+        const removals = collect('outer.gui.notif.removed');
+
+        const removed = await notifications.remove(row.uid, other.id);
+
+        expect(removed).toBe(false);
+        expect(removals.seen).toEqual([]);
+        const fresh = await server.stores.notification.getByUid(row.uid, {
+            userId: owner.id,
+        });
+        expect(fresh?.uid).toBe(row.uid);
+        removals.stop();
+    });
+});
+
 describe('NotificationService — unread delivery on connect', () => {
     it('sends unseen notifications once per burst of tab connects and marks them shown', async () => {
         vi.useFakeTimers();

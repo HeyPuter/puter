@@ -231,6 +231,25 @@ export const reconcileWithServer = (local, server, now, graceMs = 15_000, readSi
 };
 
 /**
+ * The uids changed after a listing was requested — its snapshot predates
+ * them — from a map of uid to when the change finished (`Infinity` while it
+ * is still out). Entries that finished before are settled in any listing
+ * from now on, so they are dropped from the map.
+ *
+ * @param {Map<string, number>} marks
+ * @param {number} requestedAt - Epoch ms
+ * @returns {Set<string>}
+ */
+export const takeMarksSince = (marks, requestedAt) => {
+    const since = new Set();
+    for ( const [uid, at] of marks ) {
+        if ( at >= requestedAt ) since.add(uid);
+        else marks.delete(uid);
+    }
+    return since;
+};
+
+/**
  * The list with one entry's read state changed; `null` makes it unread
  * again, for rolling back an acknowledgement the server refused.
  *

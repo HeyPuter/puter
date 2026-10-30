@@ -577,7 +577,7 @@ export type EventMap = {
      */
     'outer.notif.delivery': {
         userId: number;
-        wire: 'notif.message' | 'notif.unreads' | 'notif.ack';
+        wire: 'notif.message' | 'notif.unreads' | 'notif.ack' | 'notif.removed';
         response: unknown;
     };
     /**
@@ -743,6 +743,7 @@ export type EventMap = {
     'outer.gui.item.renamed': GuiEvent;
     'outer.gui.notif.ack': GuiEvent<{ uid: string }>;
     'outer.gui.notif.message': GuiEvent<{ uid: string; notification: unknown }>;
+    'outer.gui.notif.removed': GuiEvent<{ uid: string }>;
     'outer.gui.notif.unreads': GuiEvent<{
         unreads: { uid: string; notification: unknown }[];
     }>;

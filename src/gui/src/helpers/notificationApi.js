@@ -48,6 +48,25 @@ export async function markNotificationAcknowledged (uid) {
 }
 
 /**
+ * Delete one of the user's notifications. Resolves once the server has done
+ * it, including when it was already gone; rejects on a network or HTTP
+ * failure so callers can put the entry back.
+ *
+ * @param {string} uid
+ * @returns {Promise<void>}
+ */
+export async function deleteNotification (uid) {
+    const res = await fetch(`${window.api_origin}/notif/delete`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ uid }),
+    });
+    if ( ! res.ok ) {
+        throw new Error(`notification delete failed (${res.status})`);
+    }
+}
+
+/**
  * Claim a notification as shown. Distinct from dismissing it: the mailbox
  * records that it reached someone, which is what keeps a replay from raising
  * it in every tab. Resolves `true` only for the client that got there first,

@@ -33,6 +33,7 @@ import {
     senderNameFor,
     setReadAt,
     sortEntries,
+    takeMarksSince,
     titleWithBadge,
     toEntry,
     unreadCount,
@@ -281,6 +282,19 @@ describe('setReadAt', () => {
         expect(input[0].readAt).toBeNull();
         expect(out[1]).toBe(input[1]);
         expect(setReadAt(input, 'zzz', NOW)).toEqual(input);
+    });
+});
+
+describe('takeMarksSince', () => {
+    it('returns what finished at or after the request, or is still out', () => {
+        const marks = new Map([['before', NOW - 1], ['at', NOW], ['after', NOW + 1], ['out', Infinity]]);
+        expect(takeMarksSince(marks, NOW)).toEqual(new Set(['at', 'after', 'out']));
+    });
+
+    it('forgets what finished before the request', () => {
+        const marks = new Map([['before', NOW - 1], ['out', Infinity]]);
+        takeMarksSince(marks, NOW);
+        expect([...marks.keys()]).toEqual(['out']);
     });
 });
 
