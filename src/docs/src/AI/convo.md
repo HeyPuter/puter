@@ -54,7 +54,13 @@ The conversation exposes these properties and methods.
 
 Attach listeners before connecting to receive initial session events. Closing during connection rejects the pending attempt.
 
-If the connection drops because of network loss, a server restart or a provider error, the conversation reconnects on its own. While it reconnects, `state` is `connecting`, a `reconnecting` event fires, and pending operations reject with `connection_lost`. The new session gets every setting the provider acknowledged, from the factory options, `configure()` and native `session.update` events. Then `ready` fires again with `reconnected: true`. Listeners, the microphone and the speaker carry over. Microphone audio captured while reconnecting is dropped. The provider starts a fresh session, so earlier conversation items are not restored. After five failed attempts, or a refusal such as `insufficient_funds`, the conversation closes. A closed conversation cannot reconnect. To start another session, prepare a new one.
+If the connection drops because of network loss, a server restart or a provider error, the conversation reconnects on its own. While it reconnects, `state` is `connecting`, a `reconnecting` event fires, and pending operations reject with `connection_lost`. The new session gets every setting the provider acknowledged, from the factory options, `configure()` and native `session.update` events. Then `ready` fires again with `reconnected: true`. Listeners, the microphone and the speaker carry over. Microphone audio captured while reconnecting is dropped.
+
+The conversation also restores recent context. Before `ready` fires, it adds back up to 40 of the most recent conversation items, 48 KiB in total. Restored items are user text, user speech that has a transcript, assistant replies as text, and function calls with their outputs. User speech has a transcript only when input transcription is configured through native session settings. An assistant reply that was interrupted, or still playing when the connection dropped, is cut to what the user saw or heard. The cut is estimated from how much of the audio played, so it can be off by a few words. Images, speech without a transcript, deleted items, and replies still generating when the connection dropped are left out. Restored items get new item IDs and count as input tokens on the next response. If the provider refuses a restored item, an `error` event fires with code `context_restore_failed` and the conversation stays connected.
+
+Before Puter restarts the server a session runs on, it sends a `puter.reconnect` event, which also reaches your listeners. The conversation waits until no reply is generating or playing, no user turn is being spoken or transcribed, no function call is waiting for its output, and no operation is pending. Then it reconnects the same way, and the `reconnecting` event has code 1012. If the server closes the session first, the conversation reconnects after the close.
+
+The conversation makes up to ten attempts over about a minute. In a browser that reports being offline, it first waits up to two minutes for the connection to come back. If every attempt fails, or the server refuses with an error such as `insufficient_funds`, the conversation closes. A closed conversation cannot reconnect. To start another session, prepare a new one.
 
 Native event definitions are listed in the [OpenAI realtime reference](https://developers.openai.com/api/reference/resources/realtime/server-events). Native events retain their provider fields. Sending native events preserves direct control of the session. Audio helpers expect the session to use PCM16 at 24 kHz.
 
@@ -65,7 +71,7 @@ The conversation emits these events alongside native events.
 | Event | Fields |
 | --- | --- |
 | `ready` | `model`, `provider`, and `reconnected: true` after a reconnection |
-| `reconnecting` | `code`, `reason` of the dropped connection |
+| `reconnecting` | `code`, `reason` of the dropped connection. After a `puter.reconnect` event, `code` is 1012. |
 | `text` | `delta`, `responseId` |
 | `transcript` | `role`, `text`, `final`. Assistant deltas use `final: false`. Completed assistant and user transcripts use `final: true`. User transcripts require transcription to be configured through native session settings. |
 | `audio` | `pcm`, `sampleRate`, `responseId`, `itemId`, `contentIndex`. The PCM chunk is an `Int16Array`. |
@@ -94,7 +100,7 @@ Both start methods require a connected session. Capture and playback are indepen
 
 Failures use objects containing `code` and `message`. Preparation can reject with `invalid_argument`, `model_not_found`, `auth_required`, `auth_canceled`, or `auth_failed`. Connection can reject with `subscription_required` or `insufficient_funds`, which also show the Puter upgrade prompt. Connection and asynchronous operations can reject with provider errors, `session_closed`, `connection_lost`, `operation_timeout`, or `operation_in_progress`. Sending before readiness, or while reconnecting, throws `session_not_ready`.
 
-Invalid input throws `invalid_argument`, `invalid_event`, or `input_too_large`. A full SDK send queue throws `queue_full`. Media helpers report `unsupported_environment`, `permission_denied`, `media_error`, `media_timeout`, or `queue_full`. Runtime media errors arrive through the `error` event. Provider errors also arrive as native `error` events with a nested `error` object.
+Invalid input throws `invalid_argument`, `invalid_event`, or `input_too_large`. A full SDK send queue throws `queue_full`. Media helpers report `unsupported_environment`, `permission_denied`, `media_error`, `media_timeout`, or `queue_full`. Runtime media errors and `context_restore_failed` arrive through the `error` event. Provider errors also arrive as native `error` events with a nested `error` object.
 
 Each native event is capped at 64 KiB. The SDK bounds JSON traversal, outgoing queues, acknowledgment waits, microphone work, and playback. All numeric limits are listed on [rate limits and quotas](/rate-limits-and-quotas/).
 

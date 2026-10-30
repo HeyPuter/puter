@@ -113,6 +113,7 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 | Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. Overlapping sweeps are skipped. |
 | Session attempts per credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
 | Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. |
+| Restart notice (`puter.reconnect`) | At most once a minute per session | Repeated announcements within the minute aren't sent. |
 | In-flight response drain at shutdown | 5 seconds | Close 1012. |
 | Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. |
 
@@ -136,7 +137,9 @@ The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sendin
 | Capture chunk duration | 20 ms | AudioWorklet sends 480 PCM16 samples per chunk. |
 | Unacknowledged capture chunks | 25, or 500 ms | Further chunks are dropped until the page catches up. |
 | Queued playback | 300 seconds | Further audio for the reply is dropped and `queue_full` is reported once. |
-| Reconnection attempts | 5, backing off from 500 ms to 8 seconds, each delay randomized between half and one and a half times its value | The conversation closes with the original close code. |
+| Reconnection attempts | 10, backing off from 500 ms to 10 seconds, each delay randomized between half and one and a half times its value | The conversation closes with the original close code. |
+| Offline wait while reconnecting | 2 minutes per reconnection, in browsers that report being offline | Attempts continue after the wait. |
+| Context restored after a reconnection | The 40 most recent restorable items, 48 KiB in total | Older items are left out. |
 | Remembered canceled responses | 32 | Older response IDs are evicted from the suppression set. |
 
 

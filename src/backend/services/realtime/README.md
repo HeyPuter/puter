@@ -88,4 +88,5 @@ Responses and input transcriptions are billed after completion; holds bound
 what is in flight. Sessions require a paid plan (`subscription.gate.realtime.openai`
 can waive it) and accept session, app and full-access API tokens. Conversation
 state lives upstream and is lost when a connection ends; the SDK reconnects
-with the same settings but an empty conversation.
+with the same settings and replays its recent items, with assistant replies cut
+to what the user heard.
