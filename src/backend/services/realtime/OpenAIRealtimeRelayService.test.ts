@@ -1197,18 +1197,21 @@ describe('OpenAIRealtimeRelayService relay', () => {
         c.ws.close();
     });
 
-    it('accepts a context replay burst right after a full-size message', async () => {
-        // The SDK replays up to 40 items and 48 KiB in one burst after its
-        // session settings are acknowledged.
+    it('accepts a context replay burst right after full-size settings', async () => {
+        // The SDK reapplies large settings as several updates, each sent after
+        // the last is acknowledged, then replays up to 40 items and 48 KiB in
+        // one burst.
         const c = open(`${relayUrl}?auth_token=${user.token}`);
         await c.waitFor('session.created');
-        c.ws.send(
-            JSON.stringify({
-                type: 'test.settings',
-                pad: 'x'.repeat(MAX_REALTIME_MESSAGE_BYTES - 64),
-            }),
-        );
-        await c.waitForEcho('test.settings');
+        for (let i = 0; i < 2; i++) {
+            c.ws.send(
+                JSON.stringify({
+                    type: `test.settings${i}`,
+                    pad: 'x'.repeat(MAX_REALTIME_MESSAGE_BYTES - 64),
+                }),
+            );
+            await c.waitForEcho(`test.settings${i}`);
+        }
         const item = JSON.stringify({
             type: 'test.replay',
             item: { type: 'message', role: 'user', pad: 'x'.repeat(1100) },

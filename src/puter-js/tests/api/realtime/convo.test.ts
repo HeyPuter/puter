@@ -23,6 +23,8 @@ describe('convo built SDK and browser media', () => {
     // A TCP hop in front of the server whose connections a test can cut, so
     // the client sees an abnormal closure (1006).
     let proxy: net.Server;
+    let proxyOrigin: string;
+    let proxyConnections = 0;
     const proxied = new Set<Socket>();
     const received: { type: string; audio?: string }[] = [];
     // Events each upstream connection received, in connection order.
@@ -146,6 +148,7 @@ describe('convo built SDK and browser media', () => {
         puter = loadNodePuter(manifest, env.users.user.token);
         const api = new URL(env.apiOrigin);
         proxy = net.createServer((inbound) => {
+            proxyConnections++;
             const outbound = net.connect({
                 host: api.hostname,
                 port: Number(api.port),
@@ -164,6 +167,7 @@ describe('convo built SDK and browser media', () => {
             }
         });
         await new Promise<void>((resolve) => proxy.listen(0, resolve));
+        proxyOrigin = `http://${api.hostname}:${(proxy.address() as AddressInfo).port}`;
     }, 60_000);
     afterAll(async () => {
         await browser?.close();
@@ -370,7 +374,6 @@ describe('convo built SDK and browser media', () => {
     ];
 
     it('restores context on a new session after the connection drops', async () => {
-        const proxyOrigin = `http://${new URL(env.apiOrigin).hostname}:${(proxy.address() as AddressInfo).port}`;
         const dropping = loadNodePuter(
             { ...manifest, apiOrigin: proxyOrigin },
             env.users.user.token,
@@ -465,27 +468,30 @@ describe('convo built SDK and browser media', () => {
     });
 
     // Last: the relay refuses new sessions from here on.
-    it('keeps retrying while a draining server refuses the reconnect', async () => {
-        const conversation = await puter.ai.convo({ output: ['text'] });
+    it('keeps the session working while a draining server refuses its replacement', async () => {
+        const draining = loadNodePuter(
+            { ...manifest, apiOrigin: proxyOrigin },
+            env.users.user.token,
+        );
+        const conversation = await draining.ai.convo({ output: ['text'] });
         const log = watch(conversation);
         try {
             await conversation.connect();
+            const before = proxyConnections;
             await env.server.services.openaiRealtime.onServerDrainStart({
                 drainMs: 60_000,
             });
-            await log.until(() => log.count('reconnecting') === 1);
-            const refusals = () =>
-                log.events.filter(
-                    (event) =>
-                        event.type === 'error' &&
-                        (event.error as { code?: string })?.code ===
-                            'server_restarting',
-                ).length;
-            await log.until(() => refusals() >= 2);
-            expect(conversation.state).toBe('connecting');
-            expect(log.count('close')).toBe(0);
+            await log.until(() => log.count('puter.reconnect') === 1);
+            // One replacement right away, the next about a second later.
+            await log.until(() => proxyConnections - before >= 2);
+            conversation.sendText('Still there?');
+            await log.until(() => log.count('turn.done') === 1);
+            expect(conversation.state).toBe('connected');
+            expect(log.count('reconnecting')).toBe(0);
+            expect(log.count('error')).toBe(0);
         } finally {
             conversation.close();
+            closeNodePuter(draining);
         }
         expect(conversation.state).toBe('closed');
     });
