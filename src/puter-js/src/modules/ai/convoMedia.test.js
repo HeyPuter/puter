@@ -122,6 +122,44 @@ it('releases a stream when permission resolves after stop', async () => {
     await expect(pending).rejects.toMatchObject({ code: 'session_closed' });
     expect(audioTrack.stop).toHaveBeenCalled();
 });
+it('settles start() when stopped during the permission prompt', async () => {
+    let grant;
+    const audioTrack = track();
+    vi.stubGlobal('navigator', {
+        mediaDevices: {
+            getUserMedia: () =>
+                new Promise((resolve) => {
+                    grant = resolve;
+                }),
+        },
+    });
+    const mic = new ConvoMicrophone(makeConvo());
+    helpers.push(mic);
+    const pending = mic.start();
+    mic.stop();
+    await expect(pending).rejects.toMatchObject({ code: 'session_closed' });
+    grant({ getTracks: () => [audioTrack] });
+    await vi.waitFor(() => expect(audioTrack.stop).toHaveBeenCalled());
+});
+it('reports browser playback failures with SDK error codes', async () => {
+    vi.stubGlobal(
+        'AudioContext',
+        class {
+            constructor() {
+                throw Object.assign(new Error('Unsupported rate'), {
+                    name: 'NotSupportedError',
+                    code: 9,
+                });
+            }
+        },
+    );
+    const speaker = new ConvoSpeaker(makeConvo());
+    helpers.push(speaker);
+    await expect(speaker.start()).rejects.toEqual({
+        code: 'media_error',
+        message: 'Could not start playback',
+    });
+});
 it('drops chunks under backpressure or while reconnecting, and stops on other errors', async () => {
     const c = makeConvo();
     const audioTrack = track();

@@ -560,6 +560,13 @@
  */
 
 /**
+ * A client event for OpenAI's Realtime API, such as `session.update` or `response.create`, sent
+ * unchanged.
+ *
+ * @typedef {{ type: string } & Record<string, unknown>} RealtimeClientEvent
+ */
+
+/**
  * A server event from OpenAI's Realtime API, passed through unchanged. `type` names the event
  * (`session.created`, `response.output_text.delta`, `error`, ...); the synthetic `close` event
  * carries `code` and `reason`.
@@ -617,5 +624,12 @@ export {};
  * @typedef {{ type: 'transcript'; role: 'user' | 'assistant'; text: string; final: boolean }} ConvoTranscriptEvent */
 /**
  * @typedef {{ type: 'interrupted'; source: 'manual' | 'speech'; responseId: string }} ConvoInterruptedEvent */
+/**
+ * A finished reply. `usage` and `status` are OpenAI's, unchanged.
+ * @typedef {{ type: 'turn.done'; responseId: string | undefined; usage: unknown; status: unknown }} ConvoTurnDoneEvent */
+/**
+ * An OpenAI `error` event, or an SDK media failure, which also carries `code` and `message` at the
+ * top level.
+ * @typedef {{ type: 'error'; error: { code?: string; message?: string } & Record<string, unknown>; code?: string; message?: string }} ConvoErrorEvent */
 /** Native provider events retain their provider-owned fields.
- * @typedef {Record<string, RealtimeServerEvent> & { text: ConvoTextEvent; audio: ConvoAudioEvent; transcript: ConvoTranscriptEvent; interrupted: ConvoInterruptedEvent; ready: { type: 'ready'; model: string; provider: 'openai'; reconnected?: boolean }; reconnecting: { type: 'reconnecting'; code: number; reason: string }; close: { type: 'close'; code: number; reason: string } }} ConvoEventMap */
+ * @typedef {Record<string, RealtimeServerEvent> & { text: ConvoTextEvent; audio: ConvoAudioEvent; transcript: ConvoTranscriptEvent; interrupted: ConvoInterruptedEvent; 'turn.done': ConvoTurnDoneEvent; error: ConvoErrorEvent; ready: { type: 'ready'; model: string; provider: 'openai'; reconnected?: boolean }; reconnecting: { type: 'reconnecting'; code: number; reason: string }; close: { type: 'close'; code: number; reason: string } }} ConvoEventMap */

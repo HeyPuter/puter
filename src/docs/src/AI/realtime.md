@@ -80,7 +80,7 @@ socket.on('close', (code, reason) => console.log(code, reason.toString()));
 
 ## Events, audio, and interruption
 
-Each message contains one JSON object with a nonempty string `type` of at most 128 characters. Binary messages are rejected. Native events retain their provider fields. The endpoint exposes the WebSocket event protocol. Your client manages capture, playback, acknowledgments, and timeouts.
+Each message contains one JSON object with a nonempty string `type` of at most 128 characters. Binary messages are rejected. Native events retain their provider fields. The endpoint doesn't deliver `rate_limits.updated`, which describes Puter's provider account rather than yours, and it removes provider organization IDs from error messages. The endpoint exposes the WebSocket event protocol. Your client manages capture, playback, acknowledgments, and timeouts.
 
 PCM16 audio configured at 24 kHz mono is sent as base64 chunks in `input_audio_buffer.append` events. Output arrives in `response.output_audio.delta` events. With manual turn detection, commit buffered input with `input_audio_buffer.commit`, then request a reply with `response.create`.
 
@@ -94,4 +94,4 @@ API errors arrive as `{ "type": "error", "error": { "code": "...", "message": ".
 
 Policy failures generally close with 1008, oversized client messages with 1009, upstream or setup failures with 1011, and server restarts with 1012. Authentication and model failures can arrive after the WebSocket handshake succeeds.
 
-The endpoint requires a paid Puter plan. Usage is charged after completed responses and input transcriptions. Each account can open 20 sessions at once by default. Each JSON message you send is limited to 64 KiB, including reassembled fragments. Messages from the provider can be up to 4 MiB. Stream audio in small chunks. All message rates, queue caps, timeouts, and other bounds are published in [rate limits and quotas](/rate-limits-and-quotas/).
+The endpoint requires a paid Puter plan. Usage is charged after completed responses and input transcriptions. While a response generates, part of your balance is held for it, so a session opens only if your balance covers one response. Each account can open 20 sessions at once by default. Each JSON message you send is limited to 64 KiB, including reassembled fragments. Messages from the provider can be up to 4 MiB. Stream audio in small chunks. All message rates, queue caps, timeouts, and other bounds are published in [rate limits and quotas](/rate-limits-and-quotas/).

@@ -159,7 +159,10 @@ describe('Conversation lifecycle', () => {
         const result = expect(c.connect()).rejects.toMatchObject({
             code: 'operation_timeout',
         });
-        await vi.advanceTimersByTimeAsync(10_000);
+        // Longer than the server's own 15-second setup budget.
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(c.state).toBe('connecting');
+        await vi.advanceTimersByTimeAsync(5_000);
         await result;
         expect(c.state).toBe('closed');
         expect(vi.getTimerCount()).toBe(0);
@@ -542,6 +545,28 @@ describe('conversation helpers and limits', () => {
         });
         expect(audio.mock.calls[0][0].pcm).toEqual(new Int16Array([1, -2]));
         expect(native).toHaveBeenCalledOnce();
+    });
+    it('fills convenience fields a native event leaves out', async () => {
+        const c = await connected();
+        const text = vi.fn();
+        const audio = vi.fn();
+        c.on('text', text);
+        c.on('audio', audio);
+        socket().deliver({ type: 'response.output_text.delta', delta: 'hi' });
+        socket().deliver({
+            type: 'response.output_audio.delta',
+            delta: 'AQD+/w==',
+        });
+        expect(text).toHaveBeenCalledWith({
+            type: 'text',
+            delta: 'hi',
+            responseId: '',
+        });
+        expect(audio.mock.calls[0][0]).toMatchObject({
+            responseId: '',
+            itemId: '',
+            contentIndex: 0,
+        });
     });
 });
 

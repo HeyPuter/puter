@@ -73,7 +73,7 @@ The conversation emits these events alongside native events.
 | `turn.done` | `responseId`, native provider `usage`, `status` |
 | `close` | `code`, `reason` |
 
-Each event includes its `type`. The `interrupted` event signals local interruption immediately. Its corresponding operation resolves after the provider acknowledges cancellation and any requested truncation. Late audio from a canceled response remains visible as native events and is excluded from convenience audio and built-in playback.
+Each event includes its `type`. When the provider event leaves out an ID, `responseId` and `itemId` are empty strings and `contentIndex` is `0`. The `interrupted` event signals local interruption immediately. Its corresponding operation resolves after the provider acknowledges cancellation and any requested truncation. Late audio from a canceled response remains visible as native events and is excluded from convenience audio and built-in playback.
 
 ## Browser media
 
@@ -84,7 +84,7 @@ The optional microphone and speaker helpers require a browser with Web Audio sup
 | `microphone.start()` | Requests microphone access and streams PCM16, resampled to 24 kHz, in 20 ms chunks through an AudioWorklet. If the page or network falls behind, chunks are dropped rather than stopping capture. |
 | `microphone.mute()` | Disables capture tracks and stops forwarding captured chunks. |
 | `microphone.unmute()` | Enables capture tracks and forwarding. |
-| `microphone.stop()` | Stops capture tracks and releases capture resources. |
+| `microphone.stop()` | Stops capture tracks and releases capture resources. A `start()` still waiting on the permission prompt rejects with `session_closed`. |
 | `speaker.start({ bargeIn: true })` | Starts playback. Barge-in defaults to `true`. With barge-in enabled, provider speech-start events interrupt playback and synchronize played audio with conversation history. Starting the speaker requests no microphone access. |
 | `speaker.stop()` | Clears playback and releases its audio context. |
 

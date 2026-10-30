@@ -31,6 +31,20 @@ function mediaTimeout(operation) {
 }
 
 /**
+ * Keeps SDK errors and replaces browser exceptions, whose `code` is numeric.
+ *
+ * @param {unknown} error
+ * @param {string} message
+ * @returns {{ code: string; message: string }}
+ */
+function mediaError(error, message) {
+    const { code } = /** @type {{ code?: unknown }} */ (error ?? {});
+    return typeof code === 'string'
+        ? /** @type {{ code: string; message: string }} */ (error)
+        : { code: 'media_error', message };
+}
+
+/**
  * Capture runs at the device rate (Firefox can't connect a microphone to a
  * context at another rate) and the worklet resamples; playback runs at 24 kHz.
  *
@@ -107,6 +121,8 @@ export class ConvoMicrophone {
     #starting = null;
     #generation = 0;
     #muted = false;
+    /** @type {(() => void) | null} */
+    #cancelStart = null;
 
     /**
      * @param {Conversation} convo
@@ -140,12 +156,7 @@ export class ConvoMicrophone {
                     code: 'permission_denied',
                     message: 'Microphone access was denied',
                 };
-            throw typeof error?.code === 'string'
-                ? error
-                : {
-                      code: 'media_error',
-                      message: 'Could not start microphone capture',
-                  };
+            throw mediaError(error, 'Could not start microphone capture');
         });
         return this.#starting;
     }
@@ -187,8 +198,17 @@ export class ConvoMicrophone {
                 this.#stream = stream;
                 return stream;
             });
-        // Not timed: the user may take a while to answer the prompt.
-        const stream = await permission;
+        // Not timed: the user may take a while to answer the prompt. Stopping
+        // ends the wait.
+        const stopped = new Promise((_, reject) => {
+            this.#cancelStart = () =>
+                reject({
+                    code: 'session_closed',
+                    message: 'Capture was stopped',
+                });
+        });
+        const stream = await Promise.race([permission, stopped]);
+        this.#cancelStart = null;
         await mediaTimeout(context.resume());
         if (!current())
             throw { code: 'session_closed', message: 'Capture was stopped' };
@@ -250,6 +270,8 @@ export class ConvoMicrophone {
      */
     stop() {
         this.#generation++;
+        this.#cancelStart?.();
+        this.#cancelStart = null;
         this.#node?.disconnect();
         if (this.#node) {
             this.#node.port.onmessage = null;
@@ -350,7 +372,9 @@ export class ConvoSpeaker {
         try {
             this.#context = audioContext(SAMPLE_RATE);
         } catch (error) {
-            return Promise.reject(error);
+            return Promise.reject(
+                mediaError(error, 'Could not start playback'),
+            );
         }
         const context = this.#context;
         this.#starting = mediaTimeout(context.resume())
@@ -363,7 +387,7 @@ export class ConvoSpeaker {
             })
             .catch((error) => {
                 if (context === this.#context) void this.stop();
-                throw error;
+                throw mediaError(error, 'Could not start playback');
             });
         return this.#starting;
     }

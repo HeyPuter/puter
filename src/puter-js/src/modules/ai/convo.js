@@ -8,6 +8,7 @@ import { ConvoMicrophone, ConvoSpeaker } from './convoMedia.js';
 /** @typedef {import('./types.js').ConvoSessionOptions} ConvoSessionOptions */
 /** @typedef {import('./types.js').ConvoPlaybackPosition} ConvoPlaybackPosition */
 /** @typedef {import('./types.js').RealtimeServerEvent} RealtimeServerEvent */
+/** @typedef {import('./types.js').RealtimeClientEvent} RealtimeClientEvent */
 /** @typedef {{ code: string; message: string }} ConvoError */
 
 const MODELS = new Set([
@@ -22,6 +23,8 @@ const DEFAULT_MODEL = 'gpt-realtime-2.1-mini';
 const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_BUFFERED_BYTES = 128 * 1024;
 const OPERATION_TIMEOUT_MS = 10_000;
+// Outlasts the server's 15-second session setup, which includes sign-in.
+const SESSION_TIMEOUT_MS = 20_000;
 // Close codes after which a dropped connection is replaced: going away,
 // abnormal closure, server error, service restart, try again later.
 const RECONNECT_CODES = new Set([1001, 1006, 1011, 1012, 1013]);
@@ -366,7 +369,13 @@ export class Conversation extends RealtimeEvents {
         this.#unsubscribe = this.#session.on('*', (event) =>
             this.#receive(event),
         );
-        await this.#wait('session.created', undefined, undefined, true);
+        await this.#wait(
+            'session.created',
+            undefined,
+            undefined,
+            true,
+            SESSION_TIMEOUT_MS,
+        );
         if (reapply && Object.keys(this.#sessionState).length)
             await this.#reapplySession();
         else await this.#configure(this.#options, true);
@@ -508,7 +517,7 @@ export class Conversation extends RealtimeEvents {
     /**
      * Send a native OpenAI client event.
      *
-     * @param {RealtimeServerEvent} event
+     * @param {RealtimeClientEvent} event
      * @returns {void}
      */
     send(event) {
@@ -947,11 +956,12 @@ export class Conversation extends RealtimeEvents {
         )
             this.#activeResponse = '';
         const cancelled = this.#cancelled.has(event.response_id);
+        const responseId = String(event.response_id ?? '');
         if (event.type === 'response.output_text.delta' && !cancelled)
             this.emitRealtime({
                 type: 'text',
-                delta: event.delta,
-                responseId: event.response_id,
+                delta: String(event.delta ?? ''),
+                responseId,
             });
         if (
             event.type === 'response.output_audio_transcript.delta' &&
@@ -960,21 +970,21 @@ export class Conversation extends RealtimeEvents {
             this.emitRealtime({
                 type: 'transcript',
                 role: 'assistant',
-                text: event.delta,
+                text: String(event.delta ?? ''),
                 final: false,
             });
             if (this.#options.output.includes('text'))
                 this.emitRealtime({
                     type: 'text',
-                    delta: event.delta,
-                    responseId: event.response_id,
+                    delta: String(event.delta ?? ''),
+                    responseId,
                 });
         }
         if (event.type === 'response.output_audio_transcript.done')
             this.emitRealtime({
                 type: 'transcript',
                 role: 'assistant',
-                text: event.transcript,
+                text: String(event.transcript ?? ''),
                 final: true,
             });
         if (
@@ -984,7 +994,7 @@ export class Conversation extends RealtimeEvents {
             this.emitRealtime({
                 type: 'transcript',
                 role: 'user',
-                text: event.transcript,
+                text: String(event.transcript ?? ''),
                 final: true,
             });
         if (
@@ -1026,9 +1036,9 @@ export class Conversation extends RealtimeEvents {
                     type: 'audio',
                     pcm,
                     sampleRate: 24000,
-                    responseId: event.response_id,
-                    itemId: event.item_id,
-                    contentIndex: event.content_index,
+                    responseId,
+                    itemId: String(event.item_id ?? ''),
+                    contentIndex: Number(event.content_index ?? 0),
                 });
             }
         }
@@ -1090,9 +1100,16 @@ export class Conversation extends RealtimeEvents {
      * @param {(event: RealtimeServerEvent) => boolean} [matches]
      * @param {string} [eventId] Rejects on an error for this event.
      * @param {boolean} [anyError] Rejects on any error.
+     * @param {number} [timeoutMs]
      * @returns {Promise<RealtimeServerEvent>}
      */
-    #wait(type, matches = () => true, eventId, anyError = false) {
+    #wait(
+        type,
+        matches = () => true,
+        eventId,
+        anyError = false,
+        timeoutMs = OPERATION_TIMEOUT_MS,
+    ) {
         if (this.#pending.size >= 8)
             return Promise.reject(
                 failure(
@@ -1116,7 +1133,7 @@ export class Conversation extends RealtimeEvents {
                             `Timed out waiting for ${type}`,
                         ),
                     );
-                }, OPERATION_TIMEOUT_MS),
+                }, timeoutMs),
             };
             this.#pending.add(operation);
         });

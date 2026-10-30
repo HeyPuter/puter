@@ -111,9 +111,10 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 | Upstream handshake timeout | 10 seconds | Close 1011. |
 | Heartbeat interval | 30 seconds | A missing pong terminates the connection on the next heartbeat. |
 | Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. Overlapping sweeps are skipped. |
-| Credit needed at connection | 1 cent | Error `insufficient_funds`, close 1008. |
+| Session attempts per credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
+| Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. |
 | In-flight response drain at shutdown | 5 seconds | Close 1012. |
-| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated. |
+| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. |
 
 Send audio as a stream of small chunks. The message cap applies to text, configuration, tool output, and audio alike.
 
@@ -130,6 +131,7 @@ The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sendin
 | Pending acknowledgments | 8 | Rejects with `operation_in_progress`. |
 | Concurrent configuration updates | 1 | Rejects with `operation_in_progress`. |
 | Authentication and provider acknowledgment timeout | 10 seconds | Rejects preparation or the pending operation. |
+| Session creation timeout | 20 seconds | Rejects `connect()` with `operation_timeout`. |
 | Browser media initialization timeout | 10 seconds, not counting the permission prompt | Rejects with `media_timeout` and releases resources. |
 | Capture chunk duration | 20 ms | AudioWorklet sends 480 PCM16 samples per chunk. |
 | Unacknowledged capture chunks | 25, or 500 ms | Further chunks are dropped until the page catches up. |
