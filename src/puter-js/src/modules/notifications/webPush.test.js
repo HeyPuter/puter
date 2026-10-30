@@ -304,6 +304,62 @@ describe('syncWebPush', () => {
         );
     });
 
+    it('never registers over the site`s own worker at that scope', async () => {
+        const nav = makeNav({ active: { scriptURL: `${ORIGIN}/sw.js` } });
+        server();
+        await expect(syncWebPush(puter, { worker, nav })).rejects.toMatchObject(
+            { code: 'push_worker_conflict' },
+        );
+        expect(nav.serviceWorker.getRegistration).toHaveBeenCalledWith(
+            `${ORIGIN}/`,
+        );
+        expect(nav.serviceWorker.register).not.toHaveBeenCalled();
+    });
+
+    it('registers a worker in a folder beside the site`s root worker', async () => {
+        const nav = makeNav({
+            existing: makeSubscription(),
+            active: { scriptURL: `${ORIGIN}/puter/puter-sw.js` },
+        });
+        nav.serviceWorker.getRegistration.mockResolvedValueOnce({
+            scope: `${ORIGIN}/`,
+            active: { scriptURL: `${ORIGIN}/sw.js` },
+        });
+        server();
+        await expect(
+            syncWebPush(puter, {
+                worker: workerFor('web', '/puter/puter-sw.js'),
+                nav,
+            }),
+        ).resolves.toEqual({ uid: 'd1' });
+        expect(nav.serviceWorker.getRegistration).toHaveBeenCalledWith(
+            `${ORIGIN}/puter/`,
+        );
+        expect(nav.serviceWorker.register).toHaveBeenCalledWith(
+            '/puter/puter-sw.js',
+            { updateViaCache: 'none' },
+        );
+    });
+
+    it('lets the GUI replace an older worker of its own', async () => {
+        const nav = makeNav({
+            existing: makeSubscription(),
+            active: { scriptURL: `${ORIGIN}/sw.js` },
+        });
+        nav.serviceWorker.getRegistration.mockResolvedValue({
+            scope: `${ORIGIN}/`,
+            active: { scriptURL: `${ORIGIN}/old-sw.js` },
+        });
+        server();
+        await expect(
+            syncWebPush(
+                { ...puter, env: 'gui' },
+                { worker: workerFor('gui'), nav },
+            ),
+        ).resolves.toEqual({ uid: 'd1' });
+        expect(nav.serviceWorker.register).toHaveBeenCalled();
+    });
+
     it('names a subscription the browser refused push_subscribe_failed, with its message', async () => {
         const nav = makeNav();
         const refusal = new Error('Registration failed - push service error');

@@ -105,7 +105,32 @@ const untilActive = (registration, worker) => {
     });
 };
 
-const registerWorker = async (nav, worker) => {
+/**
+ * The site's own worker at the scope `worker` would take, while none of ours is
+ * there yet, else null. Registering over it would swap it out once the site's
+ * tabs close.
+ */
+const siteWorkerAt = async (nav, worker) => {
+    let scope;
+    let existing;
+    try {
+        scope = new URL('./', scriptUrl(worker)).href;
+        existing = await nav.serviceWorker.getRegistration(scope);
+    } catch {
+        return null;
+    }
+    if (existing?.scope !== scope) return null;
+    const workers = [existing.active, existing.waiting, existing.installing];
+    const url = scriptUrl(worker);
+    if (workers.some((w) => w?.scriptURL === url)) return null;
+    return workers.find(Boolean) ?? null;
+};
+
+const registerWorker = async (nav, worker, { keepSiteWorker = false } = {}) => {
+    if (keepSiteWorker) {
+        const other = await siteWorkerAt(nav, worker);
+        if (other) throw workerConflict(worker, other);
+    }
     let registration;
     try {
         registration = await nav.serviceWorker.register(worker.url, {
@@ -240,7 +265,9 @@ export async function syncWebPush(
         );
     }
     const key = fromBase64Url(publicKey);
-    const registration = await registerWorker(nav, worker);
+    const registration = await registerWorker(nav, worker, {
+        keepSiteWorker: puter.env !== 'gui',
+    });
 
     let subscription =
         (await currentSubscription(puter, registration, key)) ??
