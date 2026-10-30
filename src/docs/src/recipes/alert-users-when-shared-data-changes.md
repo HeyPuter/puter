@@ -79,7 +79,8 @@ await puter.notifications.onPush('scores', (n) => ({
 ```
 
 While your app is open, the alert reaches this handler in the page instead of
-being pushed. While it's closed, the same handler runs in your service worker
+being pushed. The page shows it only when its tab is hidden or its window isn't
+focused. While your app is closed, the same handler runs in your service worker
 to decide what the push shows.
 
 ## Follow a Game
