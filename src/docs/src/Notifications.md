@@ -23,7 +23,7 @@ A notification always shows in the user's Puter notifications panel. Puter then 
 
 For a push, the user has to have turned them on. On a website, call [`enable()`](/Notifications/enable/) from a click and handle pushes with [`onPush()`](/Notifications/onPush/); they arrive on your own origin through a small service worker, and [Push notifications for your app](/Notifications/push/) has the setup step by step. Inside the Puter desktop, pushes go through Puter: ask with [`requestPermission()`](/Notifications/requestPermission/), and [`enablePush()`](/Notifications/enablePush/) offers to turn them on in the browser.
 
-A user gets at most one push a minute from each app. A notification over that still shows in the panel; it's just not pushed.
+A user gets at most 12 pushes a minute and 1,000 a day from each app, and fewer while the app is new. A notification over that still shows in the panel. It just isn't pushed.
 
 ## What a notification carries
 

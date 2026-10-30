@@ -403,8 +403,8 @@ An app, its workers and the tokens it issues can send the user they act for an `
 | Limit                            | Value                             | Scope             |
 | -------------------------------- | --------------------------------- | ----------------- |
 | `app.message` notifications      | 30/min, 300/day                   | Per user, per app |
-| Pushes                           | 1/min, 100/day                    | Per user, per app |
-| Pushes while an app is new       | 20/day                            | Per user, per app |
+| Pushes                           | 12/min, 1,000/day                 | Per user, per app |
+| Pushes while an app is new       | 6/min, 200/day                    | Per user, per app |
 | `title`                          | 120 characters                    |                   |
 | `text`                           | 240 characters                    |                   |
 | `icon` (an `https` URL)          | 2,048 characters                  |                   |

@@ -6,7 +6,7 @@ platforms: [websites, apps]
 
 Sends the user your app runs for a notification. It shows in their Puter notifications panel and reaches your app through [`onNotification()`](/Notifications/onNotification/) while it's open. When no page of your app receives it live within 5 seconds, it also goes out as a push notification, if the user [allowed pushes](/Notifications/requestPermission/) from your app and has push notifications turned on on a device.
 
-Only an app can send notifications: an app running on Puter, or a website using Puter.js. Every notification carries your app's name, and a user gets at most one push a minute from each app (the rest still show in the panel).
+Only an app can send notifications: an app running on Puter, or a website using Puter.js. Every notification carries your app's name, and a user gets at most 12 pushes a minute and 1,000 a day from each app (the rest still show in the panel).
 
 On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do.
 

@@ -86,7 +86,7 @@ await puter.notifications.notify({
 });
 ```
 
-It works from the page and from a worker. The notification always shows in the user's Puter notifications panel. It goes out as a push only when no page of your app received it live within 5 seconds, and a user gets at most one push a minute from each app. The other limits are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
+It works from the page and from a worker. The notification always shows in the user's Puter notifications panel. It goes out as a push only when no page of your app received it live within 5 seconds, and a user gets at most 12 pushes a minute and 1,000 a day from each app, and fewer while the app is new. The other limits are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
 
 When the user taps the push, the browser opens the handler's `url` on your domain. When the user clicks the notification in the Puter panel instead, Puter opens your app and hands the `target` and `data` back through [`on('click')`](/Notifications/on/).
 
