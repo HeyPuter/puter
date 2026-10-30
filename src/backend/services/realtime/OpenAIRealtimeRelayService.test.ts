@@ -164,7 +164,10 @@ describe('realtimeTranscriptionRows', () => {
 describe('realtimeBillingModel', () => {
     it('bills the model the session reports, dated snapshots included', () => {
         expect(
-            realtimeBillingModel({ model: 'gpt-realtime' }, 'gpt-realtime-mini'),
+            realtimeBillingModel(
+                { model: 'gpt-realtime' },
+                'gpt-realtime-mini',
+            ),
         ).toBe('gpt-realtime');
         expect(
             realtimeBillingModel(
@@ -193,6 +196,7 @@ describe('OpenAIRealtimeRelayService relay', () => {
     const upstreamRequests: IncomingMessage[] = [];
     const upstreamEvents: { type: string; response_id?: string }[] = [];
     const clients = new Set<WebSocket>();
+    let responseCount = 0;
 
     // Realtime is subscriber-only; the test user is on a paid plan with a $10
     // allowance unless a test says otherwise.
@@ -208,10 +212,14 @@ describe('OpenAIRealtimeRelayService relay', () => {
         );
     });
 
-    afterEach(() => {
+    afterEach(async () => {
         for (const client of clients) client.terminate();
         clients.clear();
         vi.restoreAllMocks();
+        // Every session, settle included, has ended its upstream.
+        await vi.waitFor(() => expect(upstream.clients.size).toBe(0), {
+            timeout: 8_000,
+        });
     });
 
     beforeAll(async () => {
@@ -405,10 +413,18 @@ describe('OpenAIRealtimeRelayService relay', () => {
                         150,
                     );
                 } else if (event.type === 'response.create') {
+                    const id = `resp_${++responseCount}`;
+                    ws.send(
+                        JSON.stringify({
+                            type: 'response.created',
+                            response: { id },
+                        }),
+                    );
                     ws.send(
                         JSON.stringify({
                             type: 'response.done',
                             response: {
+                                id,
                                 usage: {
                                     input_token_details: { text_tokens: 7 },
                                     output_token_details: { text_tokens: 3 },
@@ -586,7 +602,9 @@ describe('OpenAIRealtimeRelayService relay', () => {
     it('forwards upstream messages beyond the client limit', async () => {
         const c = open(`${relayUrl}?auth_token=${user.token}`);
         await c.waitFor('session.created');
-        c.ws.send(JSON.stringify({ type: 'test.retrieve', bytes: 1024 * 1024 }));
+        c.ws.send(
+            JSON.stringify({ type: 'test.retrieve', bytes: 1024 * 1024 }),
+        );
         await c.waitFor('conversation.item.retrieved');
         c.ws.send('{"type":"test.alive"}');
         await c.waitForEcho('test.alive');
@@ -852,11 +870,20 @@ describe('OpenAIRealtimeRelayService relay', () => {
                 await vi.waitFor(() =>
                     expect(
                         spy.mock.calls.map(([, rows]) =>
-                            rows.map((row) => [row.usageType, row.costOverride]),
+                            rows.map((row) => [
+                                row.usageType,
+                                row.costOverride,
+                            ]),
                         ),
                     ).toContainEqual([
-                        ['openai:gpt-realtime-mini:realtime:text_input', 7 * 60 * 2],
-                        ['openai:gpt-realtime-mini:realtime:text_output', 3 * 240 * 2],
+                        [
+                            'openai:gpt-realtime-mini:realtime:text_input',
+                            7 * 60 * 2,
+                        ],
+                        [
+                            'openai:gpt-realtime-mini:realtime:text_output',
+                            3 * 240 * 2,
+                        ],
                     ]),
                 );
             } finally {
@@ -1120,7 +1147,9 @@ describe('OpenAIRealtimeRelayService relay', () => {
         );
         await c.waitFor('session.created');
         c.ws.send(JSON.stringify({ type: 'transcribe.switch' }));
-        await c.waitFor('conversation.item.input_audio_transcription.completed');
+        await c.waitFor(
+            'conversation.item.input_audio_transcription.completed',
+        );
         await vi.waitFor(() =>
             expect(
                 spy.mock.calls.flatMap(([, rows]) =>
