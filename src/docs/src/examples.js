@@ -158,6 +158,12 @@ const examples = [
                 source: '/playground/examples/ai-img2txt-annotation.html',
             },
             {
+                title: 'Read a Receipt',
+                description: 'Read the merchant, date, currency, and total from a sample receipt image using Puter.js AI API. Run and modify this example in the playground.',
+                slug: 'build-an-expense-report-from-receipts',
+                source: '/playground/examples/build-an-expense-report-from-receipts.html',
+            },
+            {
                 title: 'Text to Image',
                 description: 'Generate images from text with Puter.js AI API. Run and experiment with this text-to-image example in the playground.',
                 slug: 'ai-txt2img',
