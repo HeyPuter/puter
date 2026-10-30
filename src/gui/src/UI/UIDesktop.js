@@ -49,7 +49,8 @@ import {
     applyToastMark,
     createNotificationFeed,
     createReplayLog,
-    missedSinceReconnect,
+    listUndismissed,
+    missedAfterReconnect,
     notificationSocketAcks,
 } from '../helpers/notificationFeed.js';
 import { getNotification, markNotificationAcknowledged } from '../helpers/notificationApi.js';
@@ -322,20 +323,30 @@ async function UIDesktop (options) {
      * them. It renders through the same path the socket wire does, and the
      * listeners below stand down only while it is up.
      */
-    const replay_log = createReplayLog();
+    const replayLog = createReplayLog();
     const notification_feed = createNotificationFeed({
         deliver: (items, { replay }) => {
-            for ( const item of replay_log.admit(items, { replay }) ) show_notification(item, { replay });
+            for ( const item of replayLog.admit(items, { replay }) ) show_notification(item, { replay });
         },
     });
     void notification_feed.start();
 
+    // The replay has always shown the title as the body for a notification
+    // carrying no text of its own.
+    const showReplayed = ({ uid, notification }) => show_notification({
+        uid,
+        notification: { ...notification, text: notification.text ?? notification.title },
+    }, { replay: true });
+
     // A frozen or sleeping tab reconnects on resume; raise what it missed.
-    const page_loaded_at = Date.now();
+    const knownAtLoad = listUndismissed()
+        .then((rows) => new Set(rows.map((row) => row.uid)))
+        .catch(() => null);
     window.socket.io?.on('reconnect', () => {
-        void missedSinceReconnect({ since: page_loaded_at, log: replay_log })
-            .then((items) => {
-                for ( const item of items ) show_notification(item, { replay: true });
+        void Promise.all([knownAtLoad, listUndismissed()])
+            .then(([known, rows]) => {
+                if ( ! known ) return;
+                for ( const item of missedAfterReconnect(rows, { known, log: replayLog }) ) showReplayed(item);
             })
             .catch((err) => console.warn('Could not catch up on notifications:', err));
     });
@@ -346,7 +357,7 @@ async function UIDesktop (options) {
      */
     window.socket.on('notif.message', async ({ uid, notification }) => {
         if ( notification_feed.isActive() ) return;
-        for ( const item of replay_log.admit([{ uid, notification }]) ) show_notification(item);
+        for ( const item of replayLog.admit([{ uid, notification }]) ) show_notification(item);
     });
 
     /**
@@ -359,22 +370,14 @@ async function UIDesktop (options) {
      * Each reconnect brings one, whichever path is live; this page raises what it missed.
      */
     window.socket.on('notif.unreads', async ({ unreads }) => {
-        for ( const notif_info of replay_log.admit(unreads, { replay: true }) ) {
-            const notification = notif_info.notification;
-            show_notification({
-                uid: notif_info.uid,
-                // The replay has always shown the title as the body for a
-                // notification carrying no text of its own.
-                notification: { ...notification, text: notification.text ?? notification.title },
-            }, { replay: true });
-        }
+        for ( const item of replayLog.admit(unreads, { replay: true }) ) showReplayed(item);
     });
 
     // Not gated: an ack takes a toast off screen rather than raising one, so
     // it can't double-render — and the events surface carries only postings,
     // which leaves this the one thing that still dismisses across tabs.
     window.socket.on('notif.ack', ({ uid }) => {
-        replay_log.dismissed(uid);
+        replayLog.dismissed(uid);
         toasts_for(uid).remove();
         update_tab_notif_count_badge();
     });

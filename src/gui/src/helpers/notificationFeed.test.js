@@ -25,7 +25,7 @@ import {
     createNotificationFeed,
     createReplayLog,
     eventsNotificationsAvailable,
-    missedSinceReconnect,
+    missedAfterReconnect,
     notificationSocketAcks,
     markForToast,
     notificationFromEvent,
@@ -479,56 +479,61 @@ describe('createReplayLog', () => {
     });
 });
 
-describe('missedSinceReconnect', () => {
-    const LOADED = Date.UTC(2026, 9, 30, 12, 0, 0);
-    const at = (ms) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
-    const row = (uid, created, over = {}) => ({
+describe('missedAfterReconnect', () => {
+    const row = (uid, over = {}) => ({
         uid,
         value: { type: 'share.received', title: uid },
-        created_at: at(created),
+        created_at: '2026-10-30 12:00:00',
         acknowledged: null,
         ...over,
     });
 
-    it('raises, oldest first, what arrived after the page loaded and the page never saw', async () => {
+    it('never raises what the page knew at load, whatever its time says', () => {
         const log = createReplayLog();
+        // Stamped later than any page clock could be: only the uid decides.
+        const rows = [row('known', { created_at: '2099-01-01 00:00:00' })];
+
+        expect(missedAfterReconnect(rows, { known: new Set(['known']), log })).toEqual([]);
+        expect(missedAfterReconnect(rows, { known: new Set(['known']), log })).toEqual([]);
+    });
+
+    it('raises, oldest first and once, what arrived after load and the page never saw', () => {
+        const log = createReplayLog();
+        const known = new Set(['known']);
         log.admit([{ uid: 'live', notification: { type: 'share.received' } }]);
-        const list = vi.fn().mockResolvedValue([
-            row('newer', LOADED + 90_000),
-            row('missed', LOADED + 60_000),
-            row('live', LOADED + 30_000),
-            row('older', LOADED - 60_000),
-        ]);
+        const rows = [row('newer'), row('missed'), row('live'), row('known', { created_at: '2000-01-01 00:00:00' })];
 
-        const items = await missedSinceReconnect({ since: LOADED, log, list });
+        const items = missedAfterReconnect(rows, { known, log });
 
-        expect(list).toHaveBeenCalledWith({ predicate: 'unacknowledged', limit: 200 });
         expect(items.map((item) => item.uid)).toEqual(['missed', 'newer']);
         expect(items[0].notification).toEqual({ type: 'share.received', title: 'missed' });
-        // A second reconnect raises nothing it already raised.
-        expect(await missedSinceReconnect({ since: LOADED, log, list })).toEqual([]);
+        // The next reconnect raises nothing it already raised.
+        expect(missedAfterReconnect(rows, { known, log })).toEqual([]);
     });
 
-    it('leaves out what was dismissed, here or on the row', async () => {
+    it('leaves out what was dismissed, here or on the row', () => {
         const log = createReplayLog();
         log.dismissed('acked-here');
-        const list = vi.fn().mockResolvedValue([
-            row('acked-here', LOADED + 1_000),
-            row('acked-row', LOADED + 2_000, { acknowledged: 1793389203 }),
-            row('kept', LOADED + 3_000),
-        ]);
+        const rows = [row('acked-here'), row('acked-row', { acknowledged: 1793389203 }), row('kept')];
 
-        const items = await missedSinceReconnect({ since: LOADED, log, list });
-
-        expect(items.map((item) => item.uid)).toEqual(['kept']);
+        expect(missedAfterReconnect(rows, { known: new Set(), log }).map((item) => item.uid)).toEqual(['kept']);
     });
 
-    it("leaves out an app's own message", async () => {
+    it("leaves out an app's own message", () => {
         const log = createReplayLog();
-        const list = vi.fn().mockResolvedValue([
-            row('message', LOADED + 1_000, { value: { type: 'app.message', title: 'hi' } }),
-        ]);
+        const rows = [row('message', { value: { type: 'app.message', title: 'hi' } })];
 
-        expect(await missedSinceReconnect({ since: LOADED, log, list })).toEqual([]);
+        expect(missedAfterReconnect(rows, { known: new Set(), log })).toEqual([]);
+    });
+});
+
+describe('createReplayLog bounds', () => {
+    it('forgets the oldest uid once it holds more than its limit', () => {
+        const log = createReplayLog({ limit: 2 });
+        const item = (uid) => ({ uid, notification: { type: 'share.received' } });
+        log.admit([item('a'), item('b'), item('c')]);
+
+        expect(log.admit([item('c')], { replay: true })).toEqual([]);
+        expect(log.admit([item('a')], { replay: true }).map((one) => one.uid)).toEqual(['a']);
     });
 });
