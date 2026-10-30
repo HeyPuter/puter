@@ -893,30 +893,55 @@ const fakeTime = () => {
     vi.spyOn(Math, 'random').mockReturnValue(0.5);
 };
 
+/** Answers the replacement session a notice opens. */
+const openReplacement = async () => {
+    await vi.advanceTimersByTimeAsync(0);
+    const replacement = socket();
+    replacement.deliver({ type: 'session.created', session: {} });
+    await vi.advanceTimersByTimeAsync(0);
+    return replacement;
+};
+/** Acknowledges the settings a replacement session was sent. */
+const settle = async (ws) => {
+    ws.deliver({ type: 'session.updated', session: {} });
+    await vi.advanceTimersByTimeAsync(0);
+};
+
 describe('restart notice', () => {
-    it('moves an idle conversation to a new session without an error', async () => {
+    it('switches an idle conversation to a replacement session without an error', async () => {
         const c = await connected({ instructions: 'Be brief.' });
         fakeTime();
         const log = track(c);
         const first = socket();
         first.deliver({ ...notice, close_in_ms: 90_000 });
         await vi.advanceTimersByTimeAsync(0);
-        expect(c.state).toBe('connecting');
+        const replacement = socket();
+        expect(replacement).not.toBe(first);
+        // The current session keeps working while the replacement opens.
+        expect(c.state).toBe('connected');
+        expect(first.readyState).toBe(1);
+        replacement.deliver({ type: 'session.created', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
         expect(first.readyState).toBe(3);
+        expect(c.state).toBe('connecting');
         expect(log.events.find((e) => e.type === 'reconnecting')).toEqual({
             type: 'reconnecting',
             code: 1012,
             reason: 'server_restarting',
         });
-        await answerReconnect();
-        expect(socket().sent[0].session.instructions).toBe('Be brief.');
+        expect(replacement.sent[0].session.instructions).toBe('Be brief.');
+        await settle(replacement);
         expect(c.state).toBe('connected');
         expect(log.events.at(-1)).toMatchObject({
             type: 'ready',
             reconnected: true,
         });
+        expect(log.types().filter((t) => t === 'session.created')).toHaveLength(
+            1,
+        );
         expect(log.errors()).toEqual([]);
         expect(log.types()).not.toContain('close');
+        expect(FakeWebSocket.instances).toHaveLength(2);
     });
 
     it('waits for the reply in flight to finish', async () => {
@@ -925,23 +950,25 @@ describe('restart notice', () => {
         const first = socket();
         first.deliver({ type: 'response.created', response: { id: 'r1' } });
         first.deliver(notice);
+        await openReplacement();
         await vi.advanceTimersByTimeAsync(5_000);
         expect(c.state).toBe('connected');
         expect(first.readyState).toBe(1);
         first.deliver({ type: 'response.done', response: { id: 'r1' } });
         await vi.advanceTimersByTimeAsync(0);
         expect(c.state).toBe('connecting');
-        await answerReconnect();
-        expect(c.state).toBe('connected');
     });
 
-    it('waits through user speech until its reply is done', async () => {
+    it('waits through user speech, even past a reply created mid-speech, until the turn is answered', async () => {
         const c = await connected();
         fakeTime();
         const first = socket();
         first.deliver({ type: 'input_audio_buffer.speech_started' });
         first.deliver(notice);
+        await openReplacement();
         for (const event of [
+            { type: 'response.created', response: { id: 'r0' } },
+            { type: 'response.done', response: { id: 'r0' } },
             { type: 'input_audio_buffer.speech_stopped' },
             // Server turn detection replies to a committed turn by itself.
             { type: 'input_audio_buffer.committed', item_id: 'u1' },
@@ -962,6 +989,7 @@ describe('restart notice', () => {
         const first = socket();
         c.appendAudio(new Int16Array(480));
         first.deliver(notice);
+        await openReplacement();
         await vi.advanceTimersByTimeAsync(1_000);
         expect(c.state).toBe('connected');
         first.deliver({ type: 'input_audio_buffer.cleared' });
@@ -969,16 +997,88 @@ describe('restart notice', () => {
         expect(c.state).toBe('connecting');
     });
 
-    it('waits for a pending acknowledgment', async () => {
+    it('waits for a configuration update to be acknowledged', async () => {
         const c = await connected();
         fakeTime();
         const first = socket();
         const update = c.configure({ voice: 'marin' });
         first.deliver(notice);
+        await openReplacement();
         await vi.advanceTimersByTimeAsync(1_000);
         expect(c.state).toBe('connected');
         first.deliver({ type: 'session.updated', session: {} });
         await update;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+    });
+
+    it('waits for native settings and items the provider has not taken yet, then keeps them', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver(notice);
+        // An app adding context right after connecting, without a reply.
+        c.send({
+            type: 'session.update',
+            session: { type: 'realtime', tools: [{ type: 'function' }] },
+        });
+        c.send({
+            type: 'conversation.item.create',
+            item: {
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text: 'context' }],
+            },
+        });
+        await openReplacement();
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(c.state).toBe('connected');
+        first.deliver({ type: 'session.updated', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connected');
+        // A generated item doesn't count as the app's.
+        first.deliver({
+            type: 'conversation.item.added',
+            item: {
+                id: 'g1',
+                type: 'message',
+                role: 'assistant',
+                status: 'in_progress',
+                content: [],
+            },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connected');
+        first.deliver(userText('u1', 'context'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+        const replacement = socket();
+        expect(replacement.sent[0].session.tools).toEqual([
+            { type: 'function' },
+        ]);
+        await settle(replacement);
+        expect(replayed().map((item) => item.content[0].text)).toEqual([
+            'context',
+        ]);
+    });
+
+    it('stops waiting for an item the provider refused', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver(notice);
+        c.send({
+            type: 'conversation.item.create',
+            event_id: 'bad',
+            item: { type: 'message', role: 'user', content: [] },
+        });
+        await openReplacement();
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(c.state).toBe('connected');
+        first.deliver({
+            type: 'error',
+            error: { code: 'invalid_value', message: 'No', event_id: 'bad' },
+        });
         await vi.advanceTimersByTimeAsync(0);
         expect(c.state).toBe('connecting');
     });
@@ -989,6 +1089,7 @@ describe('restart notice', () => {
         const playing = vi.spyOn(c.speaker, 'playing', 'get');
         playing.mockReturnValue(true);
         socket().deliver(notice);
+        await openReplacement();
         await vi.advanceTimersByTimeAsync(1_000);
         expect(c.state).toBe('connected');
         playing.mockReturnValue(false);
@@ -997,74 +1098,127 @@ describe('restart notice', () => {
         expect(c.state).toBe('connecting');
     });
 
-    it('waits for the output of a function call, then restores both', async () => {
+    it('waits for every function call output, then restores calls and outputs', async () => {
         const c = await connected();
         fakeTime();
         const first = socket();
-        toolTurn(c, first, {
-            responseId: 'r1',
-            callId: 'call_1',
-            output: null,
-        });
+        first.deliver({ type: 'response.created', response: { id: 'r1' } });
+        for (const id of ['a', 'b'])
+            first.deliver({
+                type: 'response.output_item.done',
+                response_id: 'r1',
+                item: {
+                    id: `fc_${id}`,
+                    type: 'function_call',
+                    call_id: id,
+                    name: 'lookup',
+                    arguments: '{}',
+                    status: 'completed',
+                },
+            });
+        first.deliver({ type: 'response.done', response: { id: 'r1' } });
         first.deliver(notice);
+        await openReplacement();
+        const answer = (id) => {
+            c.send({
+                type: 'conversation.item.create',
+                item: { type: 'function_call_output', call_id: id, output: id },
+            });
+            first.deliver({
+                type: 'conversation.item.added',
+                item: {
+                    id: `out_${id}`,
+                    type: 'function_call_output',
+                    call_id: id,
+                    output: id,
+                    status: 'completed',
+                },
+            });
+        };
+        answer('b');
         await vi.advanceTimersByTimeAsync(1_000);
         expect(c.state).toBe('connected');
-        c.send({
-            type: 'conversation.item.create',
-            item: {
-                type: 'function_call_output',
-                call_id: 'call_1',
-                output: '7',
-            },
-        });
-        first.deliver({
-            type: 'conversation.item.added',
-            item: {
-                id: 'out_1',
-                type: 'function_call_output',
-                call_id: 'call_1',
-                output: '7',
-                status: 'completed',
-            },
-        });
+        answer('a');
         await vi.advanceTimersByTimeAsync(0);
         expect(c.state).toBe('connecting');
-        await answerReconnect();
-        expect(replayed()).toEqual([
-            {
-                type: 'function_call',
-                call_id: 'call_1',
-                name: 'lookup',
-                arguments: '{"q":1}',
-            },
-            { type: 'function_call_output', call_id: 'call_1', output: '7' },
+        await settle(socket());
+        expect(replayed().map((item) => [item.type, item.call_id])).toEqual([
+            ['function_call', 'a'],
+            ['function_call', 'b'],
+            ['function_call_output', 'b'],
+            ['function_call_output', 'a'],
         ]);
     });
 
-    it('falls back to the normal reconnect when the server closes first', async () => {
+    it('keeps the current session while a restarting server refuses the replacement', async () => {
         const c = await connected();
         fakeTime();
         const log = track(c);
         const first = socket();
-        first.deliver({ type: 'response.created', response: { id: 'r1' } });
         first.deliver(notice);
-        first.deliver(notice);
-        await vi.advanceTimersByTimeAsync(10_000);
-        first.close(1012, 'server restarting');
         await vi.advanceTimersByTimeAsync(0);
-        expect(log.types().filter((t) => t === 'reconnecting')).toHaveLength(1);
-        expect(log.events.find((e) => e.type === 'reconnecting')).toMatchObject(
-            {
-                code: 1012,
-                reason: 'server restarting',
-            },
-        );
+        const refuse = () => {
+            socket().deliver({
+                type: 'error',
+                error: { code: 'server_restarting', message: 'Restarting' },
+            });
+            socket().close(1012, 'server_restarting');
+        };
+        refuse();
+        // Retried with backoff from 1 second.
+        await vi.advanceTimersByTimeAsync(999);
+        expect(FakeWebSocket.instances).toHaveLength(2);
+        await vi.advanceTimersByTimeAsync(2);
+        expect(FakeWebSocket.instances).toHaveLength(3);
+        refuse();
+        await vi.advanceTimersByTimeAsync(2_001);
+        expect(FakeWebSocket.instances).toHaveLength(4);
+        refuse();
+        expect(c.state).toBe('connected');
+        expect(first.readyState).toBe(1);
+        expect(log.types()).not.toContain('reconnecting');
+        expect(log.errors()).toEqual([]);
+
+        // The server's own close starts the usual reconnect.
+        first.close(1012, 'server restarting');
         await answerReconnect();
         expect(c.state).toBe('connected');
-        // The notice belonged to the old session.
-        await vi.advanceTimersByTimeAsync(1_000);
-        expect(c.state).toBe('connected');
         expect(log.types().filter((t) => t === 'reconnecting')).toHaveLength(1);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(FakeWebSocket.instances).toHaveLength(5);
+    });
+
+    it('switches to the held replacement right away when the server closes first', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver({ type: 'response.created', response: { id: 'r1' } });
+        first.deliver(notice);
+        const replacement = await openReplacement();
+        first.close(1012, 'server restarting');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(socket()).toBe(replacement);
+        expect(replacement.sent[0].type).toBe('session.update');
+        await settle(replacement);
+        expect(c.state).toBe('connected');
+        expect(FakeWebSocket.instances).toHaveLength(2);
+    });
+
+    it('opens another replacement when the held one closes', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver({ type: 'response.created', response: { id: 'r1' } });
+        first.deliver(notice);
+        const replacement = await openReplacement();
+        replacement.close(1006);
+        await vi.advanceTimersByTimeAsync(1_001);
+        expect(socket()).not.toBe(replacement);
+        const next = await openReplacement();
+        first.deliver({ type: 'response.done', response: { id: 'r1' } });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+        expect(next.sent[0].type).toBe('session.update');
     });
 
     it('carries out a notice that arrives while connecting once ready', async () => {
@@ -1075,35 +1229,61 @@ describe('restart notice', () => {
         await vi.advanceTimersByTimeAsync(0);
         socket().deliver(notice);
         await vi.advanceTimersByTimeAsync(0);
-        expect(c.state).toBe('connecting');
+        expect(FakeWebSocket.instances).toHaveLength(1);
         socket().deliver({ type: 'session.updated', session: {} });
         await ready;
-        expect(c.state).toBe('connected');
-        await vi.advanceTimersByTimeAsync(0);
+        const replacement = await openReplacement();
         expect(c.state).toBe('connecting');
-        await answerReconnect();
+        await settle(replacement);
         expect(c.state).toBe('connected');
     });
 
-    it('close() while a notice waits or during the handover leaves nothing running', async () => {
+    it('drops a notice from a reconnect attempt that failed', async () => {
         const c = await connected();
         fakeTime();
-        socket().deliver({ type: 'response.created', response: { id: 'r1' } });
+        socket().close(1006);
+        await vi.advanceTimersByTimeAsync(500);
+        socket().deliver(notice);
+        socket().close(1011);
+        await answerReconnect(1_000);
+        expect(c.state).toBe('connected');
+        const sockets = FakeWebSocket.instances.length;
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(FakeWebSocket.instances).toHaveLength(sockets);
+    });
+
+    it('close() at any point of a handover leaves nothing running', async () => {
+        // While the replacement opens.
+        const c = await connected();
+        fakeTime();
         socket().deliver(notice);
         await vi.advanceTimersByTimeAsync(0);
+        const opening = socket();
         c.close();
+        expect(opening.readyState).toBe(3);
         expect(vi.getTimerCount()).toBe(0);
 
+        // While a replacement is held.
         const d = await connected();
+        socket().deliver({ type: 'response.created', response: { id: 'r1' } });
+        socket().deliver(notice);
+        const held = await openReplacement();
+        d.close();
+        expect(held.readyState).toBe(3);
+        expect(vi.getTimerCount()).toBe(0);
+
+        // While a refused replacement waits to retry.
+        const e = await connected();
         socket().deliver(notice);
         await vi.advanceTimersByTimeAsync(0);
-        expect(d.state).toBe('connecting');
-        const sockets = FakeWebSocket.instances.length;
-        d.close();
+        socket().close(1012);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(vi.getTimerCount()).toBeGreaterThan(0);
+        e.close();
         expect(vi.getTimerCount()).toBe(0);
+        const sockets = FakeWebSocket.instances.length;
         await vi.advanceTimersByTimeAsync(60_000);
         expect(FakeWebSocket.instances).toHaveLength(sockets);
-        expect(d.state).toBe('closed');
     });
 });
 
@@ -1327,7 +1507,7 @@ describe('context replay after a reconnect', () => {
         ]);
     });
 
-    it('cuts audio still playing when the connection drops', async () => {
+    it('cuts audio still playing or queued when the connection drops', async () => {
         const c = await connected();
         fakeTime();
         const first = socket();
@@ -1337,14 +1517,19 @@ describe('context replay after a reconnect', () => {
             text: 'one two three four',
             audioMs: 1_000,
         });
-        vi.spyOn(c.speaker, 'playbackPosition').mockReturnValue({
-            itemId: 'a1',
-            contentIndex: 0,
-            playedMs: 250,
+        reply(first, {
+            responseId: 'r2',
+            itemId: 'a2',
+            text: 'queued behind it',
+            audioMs: 500,
         });
+        vi.spyOn(c.speaker, 'unheard').mockReturnValue([
+            { itemId: 'a1', contentIndex: 0, playedMs: 250 },
+            { itemId: 'a2', contentIndex: 0, playedMs: 0 },
+        ]);
         first.close(1006);
         await answerReconnect();
-        expect(replayed()[0].content[0].text).toBe('one');
+        expect(replayed().map((item) => item.content[0].text)).toEqual(['one']);
     });
 
     it('cuts a cancelled text reply to what the app was shown', async () => {
@@ -1480,6 +1665,23 @@ describe('context replay after a reconnect', () => {
         current.close(1006);
         await answerReconnect(500);
         expect(replayed().map((item) => item.content[0].text)).toEqual(['new']);
+    });
+
+    it("keeps the new session's copies of restored items from listeners", async () => {
+        const c = await connected();
+        fakeTime();
+        const log = track(c);
+        socket().deliver(userText('u1', 'hello'));
+        socket().close(1006);
+        await answerReconnect();
+        const seen = log.events.length;
+        const copy = userText('n1', 'hello');
+        socket().deliver(copy);
+        socket().deliver({ ...copy, type: 'conversation.item.done' });
+        expect(log.events).toHaveLength(seen);
+        // Items after them are the conversation's own.
+        socket().deliver(userText('n2', 'hello'));
+        expect(log.events.slice(seen).map((e) => e.item?.id)).toEqual(['n2']);
     });
 
     it('keeps items whose restored copy never arrived for the next reconnect', async () => {

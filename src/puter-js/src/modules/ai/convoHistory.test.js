@@ -40,14 +40,13 @@ describe('ConvoHistory', () => {
     it('keeps a known transcript when a later copy of the item lacks it', () => {
         const history = new ConvoHistory(() => false);
         history.observe(user('u', [{ type: 'input_audio', transcript: null }]));
-        expect(history.awaitingTranscript).toBe(true);
+        expect(texts(history)).toEqual([]);
         history.observe({
             type: 'conversation.item.input_audio_transcription.completed',
             item_id: 'u',
             content_index: 0,
             transcript: 'hello',
         });
-        expect(history.awaitingTranscript).toBe(false);
         history.observe({
             ...user('u', [{ type: 'input_audio', transcript: null }]),
             type: 'conversation.item.done',
@@ -73,5 +72,63 @@ describe('ConvoHistory', () => {
         );
         history.observe(user('u3', [{ type: 'input_text', text: 'new' }]));
         expect(texts(history)).toEqual(['new']);
+    });
+
+    it('waits on every unanswered call since the last user message', () => {
+        const history = new ConvoHistory(() => false);
+        const call = (id, status = 'completed') =>
+            history.observe({
+                type: 'response.output_item.done',
+                item: {
+                    id: `fc_${id}`,
+                    type: 'function_call',
+                    call_id: id,
+                    name: 'f',
+                    arguments: '{}',
+                    status,
+                },
+            });
+        const output = (id) =>
+            history.observe({
+                type: 'conversation.item.added',
+                item: {
+                    id: `out_${id}`,
+                    type: 'function_call_output',
+                    call_id: id,
+                    output: '1',
+                    status: 'completed',
+                },
+            });
+        call('a');
+        call('b');
+        call('cut', 'incomplete');
+        output('b');
+        expect(history.awaitingToolOutput).toBe(true);
+        output('a');
+        expect(history.awaitingToolOutput).toBe(false);
+        call('c');
+        history.observe(user('u', [{ type: 'input_text', text: 'moved on' }]));
+        expect(history.awaitingToolOutput).toBe(false);
+    });
+
+    it('reports the new session copies of replayed items until they are done', () => {
+        const history = new ConvoHistory(() => false);
+        history.observe(user('old', [{ type: 'input_text', text: 'hi' }]));
+        history.replayed(history.replay(40, 48 * 1024));
+        const copy = user('new', [{ type: 'input_text', text: 'hi' }]);
+        expect(history.observe(copy)).toBe(true);
+        expect(
+            history.observe({ ...copy, type: 'conversation.item.done' }),
+        ).toBe(true);
+        // A later item with the same text is the user's, not a copy.
+        expect(
+            history.observe(
+                user('again', [{ type: 'input_text', text: 'hi' }]),
+            ),
+        ).toBe(false);
+        expect(texts(history)).toEqual(['hi', 'hi']);
+        // The copy took the original's place under its new ID.
+        history.observe({ type: 'conversation.item.deleted', item_id: 'new' });
+        expect(texts(history)).toEqual(['hi']);
     });
 });

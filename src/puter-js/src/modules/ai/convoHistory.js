@@ -111,6 +111,9 @@ export class ConvoHistory {
     // Replayed entries whose copy on the new session hasn't arrived yet.
     /** @type {ReplayEntry[]} */
     #echoes = [];
+    // IDs of those copies, until their `conversation.item.done`.
+    /** @type {Set<string>} */
+    #echoIds = new Set();
 
     /**
      * @param {(responseId: string) => boolean} isCancelled Whether the SDK
@@ -122,18 +125,17 @@ export class ConvoHistory {
 
     /**
      * @param {RealtimeServerEvent} event
-     * @returns {void}
+     * @returns {boolean} Whether the event announces the new session's copy of
+     *   a replayed item.
      */
     observe(event) {
-        if (ITEM_EVENTS.has(event.type)) {
-            this.#upsert(
+        if (ITEM_EVENTS.has(event.type))
+            return this.#upsert(
                 event.item,
                 event.previous_item_id,
                 event.response_id,
                 DONE_EVENTS.has(event.type),
             );
-            return;
-        }
         const record =
             typeof event.item_id === 'string'
                 ? this.#byId.get(event.item_id)
@@ -175,6 +177,7 @@ export class ConvoHistory {
                         record.shown += event.delta;
                 }
         }
+        return false;
     }
 
     /**
@@ -205,8 +208,8 @@ export class ConvoHistory {
     }
 
     /**
-     * Whether the newest function call since the last user message has no
-     * output yet.
+     * Whether a finished function call since the last user message has no
+     * output yet. Calls cut off by a cancellation don't count.
      *
      * @returns {boolean}
      */
@@ -214,24 +217,16 @@ export class ConvoHistory {
         const answered = new Set();
         for (let i = this.#records.length - 1; i >= 0; i--) {
             const record = this.#records[i];
+            if (record.role === 'user') return false;
             if (record.type === 'function_call_output')
                 answered.add(record.callId);
-            else if (record.type === 'function_call')
-                return record.final && !answered.has(record.callId);
-            else if (record.role === 'user') return false;
-        }
-        return false;
-    }
-
-    /**
-     * Whether the newest user message is audio still waiting on its transcript.
-     *
-     * @returns {boolean}
-     */
-    get awaitingTranscript() {
-        for (let i = this.#records.length - 1; i >= 0; i--) {
-            const record = this.#records[i];
-            if (record.role === 'user') return record.parts.includes(null);
+            else if (
+                record.type === 'function_call' &&
+                record.final &&
+                record.status !== 'incomplete' &&
+                !answered.has(record.callId)
+            )
+                return true;
         }
         return false;
     }
@@ -284,6 +279,7 @@ export class ConvoHistory {
      */
     replayed(entries) {
         this.#echoes = [...entries];
+        this.#echoIds.clear();
     }
 
     /**
@@ -312,34 +308,43 @@ export class ConvoHistory {
      * @param {unknown} previousItemId
      * @param {unknown} responseId
      * @param {boolean} done
-     * @returns {void}
+     * @returns {boolean} Whether `item` is the new session's copy of a replayed
+     *   item.
      */
     #upsert(item, previousItemId, responseId, done) {
         if (!isPlainObject(item) || typeof item.id !== 'string' || !item.id)
-            return;
-        if (this.#deleted.has(item.id)) return;
+            return false;
+        if (this.#echoIds.has(item.id)) {
+            if (done) this.#echoIds.delete(item.id);
+            return true;
+        }
+        if (this.#deleted.has(item.id)) return false;
         let record = this.#byId.get(item.id);
         if (!record) {
             const fresh = this.#create(item);
-            if (!fresh) return;
+            if (!fresh) return false;
             record = fresh;
             const echo = this.#takeEcho(item);
             if (echo) {
-                // The replayed copy replaces the original in place.
+                // The copy takes the original's place under its new ID.
                 this.#records[this.#records.indexOf(echo.record)] = record;
                 this.#byId.delete(echo.record.id);
-            } else {
-                const after =
-                    typeof previousItemId === 'string'
-                        ? this.#byId.get(previousItemId)
-                        : undefined;
-                const index = after ? this.#records.indexOf(after) + 1 : -1;
-                if (index > 0) this.#records.splice(index, 0, record);
-                else this.#records.push(record);
-                if (this.#records.length > MAX_RECORDS) {
-                    const [oldest] = this.#records.splice(0, 1);
-                    this.#byId.delete(oldest.id);
-                }
+                this.#byId.set(record.id, record);
+                this.#update(record, item);
+                record.final = true;
+                if (!done) this.#echoIds.add(record.id);
+                return true;
+            }
+            const after =
+                typeof previousItemId === 'string'
+                    ? this.#byId.get(previousItemId)
+                    : undefined;
+            const index = after ? this.#records.indexOf(after) + 1 : -1;
+            if (index > 0) this.#records.splice(index, 0, record);
+            else this.#records.push(record);
+            if (this.#records.length > MAX_RECORDS) {
+                const [oldest] = this.#records.splice(0, 1);
+                this.#byId.delete(oldest.id);
             }
             this.#byId.set(record.id, record);
         }
@@ -350,6 +355,7 @@ export class ConvoHistory {
             record.final = true;
         if (record.final && record.role === 'assistant')
             record.cancelled = this.#isCancelled(record.responseId);
+        return false;
     }
 
     /**

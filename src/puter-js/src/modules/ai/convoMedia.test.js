@@ -350,7 +350,6 @@ it('reports playing until the last scheduled chunk ends', async () => {
     context.nodes[1].onended();
     expect(speaker.playing).toBe(false);
     expect(c.playbackEnded).toHaveBeenCalledOnce();
-    // Clearing playback is an interruption, not an end.
     speaker.enqueue(new Int16Array(480), {
         type: 'response.output_audio.delta',
         item_id: 'item',
@@ -358,7 +357,36 @@ it('reports playing until the last scheduled chunk ends', async () => {
     });
     speaker.clearPlayback();
     expect(speaker.playing).toBe(false);
-    expect(c.playbackEnded).toHaveBeenCalledOnce();
+    expect(c.playbackEnded).toHaveBeenCalledTimes(2);
+    // Nothing was playing, so nothing ended.
+    speaker.clearPlayback();
+    expect(c.playbackEnded).toHaveBeenCalledTimes(2);
+});
+
+it('lists every item not fully heard, in play order', async () => {
+    const speaker = new ConvoSpeaker(makeConvo());
+    helpers.push(speaker);
+    await speaker.start();
+    const context = FakeContext.instances[0];
+    const delta = (item_id) => ({
+        type: 'response.output_audio.delta',
+        item_id,
+        response_id: 'r',
+        content_index: 0,
+    });
+    // One second of a1 in two chunks, then half a second of a2.
+    speaker.enqueue(new Int16Array(12000), delta('a1'));
+    speaker.enqueue(new Int16Array(12000), delta('a1'));
+    speaker.enqueue(new Int16Array(12000), delta('a2'));
+    context.currentTime = 0.75;
+    expect(speaker.unheard()).toEqual([
+        { itemId: 'a1', contentIndex: 0, playedMs: 750 },
+        { itemId: 'a2', contentIndex: 0, playedMs: 0 },
+    ]);
+    context.currentTime = 1.25;
+    expect(speaker.unheard()).toEqual([
+        { itemId: 'a2', contentIndex: 0, playedMs: 250 },
+    ]);
 });
 
 it('a late canceled permission request does not stop a newer capture', async () => {

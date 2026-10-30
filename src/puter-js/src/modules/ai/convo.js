@@ -11,6 +11,21 @@ import { ConvoHistory } from './convoHistory.js';
 /** @typedef {import('./types.js').RealtimeServerEvent} RealtimeServerEvent */
 /** @typedef {import('./types.js').RealtimeClientEvent} RealtimeClientEvent */
 /** @typedef {{ code: string; message: string }} ConvoError */
+/**
+ * A pending reconnect notice. A replacement session opens right away and takes
+ * over once the conversation is idle.
+ *
+ * @typedef {{
+ *     reason: string;
+ *     timer: ReturnType<typeof setTimeout> | null;
+ *     retry: ReturnType<typeof setTimeout> | null;
+ *     failures: number;
+ *     probe: RealtimeSession | null;
+ *     created: RealtimeServerEvent | null;
+ *     stopProbe: (() => void) | null;
+ * }} ConvoHandover
+ * @internal
+ */
 
 const MODELS = new Set([
     'gpt-realtime-2.1-mini',
@@ -54,7 +69,22 @@ const RECONNECT_NOTICE = 'puter.reconnect';
 // 64 KiB upload burst, so the replay never trips its rate limit.
 const MAX_REPLAY_ITEMS = 40;
 const MAX_REPLAY_BYTES = 48 * 1024;
+// Bounds for the idle check's bookkeeping.
+const MAX_PENDING_ITEMS = 32;
+const MAX_TRACKED_INPUTS = 16;
 const encoder = new TextEncoder();
+
+/**
+ * Adds `value` to `set`, evicting the oldest entry past `MAX_TRACKED_INPUTS`.
+ *
+ * @param {Set<string>} set
+ * @param {string} value
+ * @returns {void}
+ */
+function bounded(set, value) {
+    set.add(value);
+    if (set.size > MAX_TRACKED_INPUTS) set.delete(set.values().next().value);
+}
 
 /**
  * @param {string} code
@@ -282,20 +312,26 @@ export class Conversation extends RealtimeEvents {
     #interruption = null;
     #cancelled = new Set();
     #history = new ConvoHistory((id) => this.#cancelled.has(id));
-    // A pending reconnect notice, carried out once the conversation is idle.
-    /**
-     * @type {{
-     *     reason: string;
-     *     timer: ReturnType<typeof setTimeout> | null;
-     * } | null}
-     */
+    /** @type {ConvoHandover | null} */
     #handover = null;
-    // The user has started a turn the provider hasn't answered or dropped.
-    #userTurn = false;
+    // Speech started and its audio isn't committed or cleared yet.
+    #speaking = false;
+    // A committed turn that server turn detection will answer on its own.
+    #awaitingReply = false;
     // Audio appended in manual turn mode and not yet committed or cleared.
     #bufferedAudio = false;
     #autoResponse = true;
     #transcribes = false;
+    // Committed input items whose transcription hasn't finished.
+    /** @type {Set<string>} */
+    #pendingTranscripts = new Set();
+    // Items added by committing audio, which no `conversation.item.create`
+    // event is waiting for.
+    /** @type {Set<string>} */
+    #committedItems = new Set();
+    // App `conversation.item.create` event IDs whose item isn't added yet.
+    /** @type {Map<string, ReturnType<typeof setTimeout>>} */
+    #pendingItems = new Map();
     // Replayed `conversation.item.create` event IDs on the current session.
     /** @type {Map<string, import('./convoHistory.js').ReplayEntry>} */
     #replayEvents = new Map();
@@ -382,29 +418,42 @@ export class Conversation extends RealtimeEvents {
      *
      * @param {boolean} [reapply] Reapply every acknowledged setting instead of
      *   the SDK options alone, and restore earlier conversation items.
+     * @param {{
+     *     session: RealtimeSession;
+     *     created: RealtimeServerEvent;
+     * } | null} [prepared]
+     *   A session already past `session.created`.
      * @returns {Promise<void>}
      */
-    async #open(reapply = false) {
-        let socket;
-        try {
-            socket = createRealtimeSocket(this.#puter, this.model);
-        } catch {
-            throw failure(
-                'unsupported_environment',
-                'Realtime conversations require WebSocket support',
+    async #open(reapply = false, prepared = null) {
+        if (prepared) {
+            this.#session = prepared.session;
+            this.#unsubscribe = this.#session.on('*', (event) =>
+                this.#receive(event),
+            );
+            this.#receive(prepared.created);
+        } else {
+            let socket;
+            try {
+                socket = createRealtimeSocket(this.#puter, this.model);
+            } catch {
+                throw failure(
+                    'unsupported_environment',
+                    'Realtime conversations require WebSocket support',
+                );
+            }
+            this.#session = new RealtimeSession(socket);
+            this.#unsubscribe = this.#session.on('*', (event) =>
+                this.#receive(event),
+            );
+            await this.#wait(
+                'session.created',
+                undefined,
+                undefined,
+                true,
+                SESSION_TIMEOUT_MS,
             );
         }
-        this.#session = new RealtimeSession(socket);
-        this.#unsubscribe = this.#session.on('*', (event) =>
-            this.#receive(event),
-        );
-        await this.#wait(
-            'session.created',
-            undefined,
-            undefined,
-            true,
-            SESSION_TIMEOUT_MS,
-        );
         if (reapply && Object.keys(this.#sessionState).length)
             await this.#reapplySession();
         else await this.#configure(this.#options, true);
@@ -457,6 +506,7 @@ export class Conversation extends RealtimeEvents {
     #replayHistory() {
         this.#replayEvents.clear();
         this.#replayReported = false;
+        this.#history.replayed([]);
         const entries = this.#history.replay(
             MAX_REPLAY_ITEMS,
             MAX_REPLAY_BYTES,
@@ -500,15 +550,20 @@ export class Conversation extends RealtimeEvents {
      * leave, keeping settings, listeners, media and recent conversation items.
      *
      * @param {{ code: number; reason: string }} event
+     * @param {{
+     *     session: RealtimeSession;
+     *     created: RealtimeServerEvent;
+     * } | null} [prepared]
+     *   A replacement session already open, used for the first attempt.
      * @returns {Promise<void>}
      */
-    async #reconnect(event) {
+    async #reconnect(event, prepared = null) {
         this.#state = 'connecting';
         this.#reconnecting = true;
         this.#endHandover();
         // Playback stops here, so only what was heard is restored.
-        const heard = this.speaker.playbackPosition(this.#activeResponse);
-        if (heard) this.#history.truncate(heard.itemId, heard.playedMs);
+        for (const { itemId, playedMs } of this.speaker.unheard())
+            this.#history.truncate(itemId, playedMs);
         this.#detach();
         this.#resetTurnState();
         this.#rejectPending(
@@ -521,17 +576,20 @@ export class Conversation extends RealtimeEvents {
         });
         const offlineUntil = Date.now() + OFFLINE_WAIT_MS;
         for (let attempt = 0; attempt < RECONNECT_ATTEMPTS; attempt++) {
-            const delay = Math.min(
-                RECONNECT_DELAY_MS * 2 ** attempt,
-                RECONNECT_MAX_DELAY_MS,
-            );
-            // Jittered so clients dropped together don't return together.
-            await this.#pause(delay * (0.5 + Math.random()));
-            if (this.#state === 'closed') return;
-            await this.#whileOffline(offlineUntil);
-            if (this.#state === 'closed') return;
+            const ready = attempt === 0 ? prepared : null;
+            if (!ready) {
+                const delay = Math.min(
+                    RECONNECT_DELAY_MS * 2 ** attempt,
+                    RECONNECT_MAX_DELAY_MS,
+                );
+                // Jittered so clients dropped together don't return together.
+                await this.#pause(delay * (0.5 + Math.random()));
+                if (this.#state === 'closed') return;
+                await this.#whileOffline(offlineUntil);
+                if (this.#state === 'closed') return;
+            }
             try {
-                await this.#open(true);
+                await this.#open(true, ready);
                 this.#state = 'connected';
                 this.#reconnecting = false;
                 for (const waiter of this.#reconnectWaiters.splice(0))
@@ -546,6 +604,8 @@ export class Conversation extends RealtimeEvents {
                 return;
             } catch (error) {
                 if (this.#state === 'closed') return;
+                // A notice from a session that failed setup isn't for the next.
+                this.#endHandover();
                 this.#detach();
                 this.#rejectPending(
                     failure('connection_lost', 'Connection lost; reconnecting'),
@@ -612,8 +672,8 @@ export class Conversation extends RealtimeEvents {
     /**
      * Whether the conversation can move to a new session without cutting
      * anything off: no reply requested, generating or playing, no user turn or
-     * transcript in progress, no tool output awaited and no acknowledgment
-     * pending.
+     * transcript in progress, no tool output awaited and nothing waiting on the
+     * provider.
      *
      * @returns {boolean}
      */
@@ -625,19 +685,23 @@ export class Conversation extends RealtimeEvents {
             !this.#pending.size &&
             !this.#interruption &&
             !this.#configuring &&
-            !this.#userTurn &&
+            !this.#sessionUpdates.length &&
+            !this.#pendingItems.size &&
+            !this.#speaking &&
+            !this.#awaitingReply &&
             !this.#bufferedAudio &&
+            !this.#pendingTranscripts.size &&
             !this.speaker.playing &&
-            !(this.#transcribes && this.#history.awaitingTranscript) &&
             !this.#history.awaitingToolOutput
         );
     }
 
     /**
-     * Checks for a pending reconnect notice whether the conversation is idle,
-     * after promise callbacks already queued have run, and reconnects if so.
-     * Until then the session keeps working; if the server closes it first, the
-     * usual reconnect takes over.
+     * Moves a pending reconnect notice along, after promise callbacks already
+     * queued have run: opens a replacement session if none is open or being
+     * retried, and switches to it once the conversation is idle. Until then the
+     * current session keeps working; if the server closes it first, the usual
+     * reconnect takes over and uses the replacement if it's open.
      *
      * @returns {void}
      */
@@ -646,18 +710,128 @@ export class Conversation extends RealtimeEvents {
         if (!handover || handover.timer || this.#state !== 'connected') return;
         handover.timer = setTimeout(() => {
             handover.timer = null;
-            if (this.#handover !== handover || !this.#idle()) return;
-            void this.#reconnect({
-                code: CLOSE_RESTART,
-                reason: handover.reason,
-            });
+            if (this.#handover !== handover || this.#state !== 'connected')
+                return;
+            if (!handover.probe && !handover.retry) {
+                void this.#openReplacement(handover);
+                return;
+            }
+            if (!handover.created || !this.#idle()) return;
+            const replacement = this.#takeReplacement();
+            if (replacement)
+                void this.#reconnect(
+                    { code: CLOSE_RESTART, reason: handover.reason },
+                    replacement,
+                );
+            else this.#replacementFailed(handover);
         }, 0);
+    }
+
+    /**
+     * Opens a replacement session and holds it once the provider creates it. A
+     * refusal, such as from a server that is itself restarting, is retried with
+     * backoff while the current session keeps working.
+     *
+     * @param {ConvoHandover} handover
+     * @returns {Promise<void>}
+     */
+    async #openReplacement(handover) {
+        let session;
+        try {
+            session = new RealtimeSession(
+                createRealtimeSocket(this.#puter, this.model),
+            );
+        } catch {
+            return;
+        }
+        handover.probe = session;
+        /** @type {RealtimeServerEvent | null} */
+        const created = await new Promise((resolve) => {
+            const done = (/** @type {RealtimeServerEvent | null} */ event) => {
+                clearTimeout(timer);
+                off();
+                handover.stopProbe = null;
+                resolve(event);
+            };
+            const timer = setTimeout(() => done(null), SESSION_TIMEOUT_MS);
+            const off = session.on('*', (event) => {
+                if (event.type === 'session.created') done(event);
+                else if (event.type === 'error' || event.type === 'close')
+                    done(null);
+            });
+            handover.stopProbe = () => done(null);
+        });
+        if (this.#handover !== handover) {
+            if (session.socket.readyState < 2) session.close();
+            return;
+        }
+        if (created) {
+            handover.created = created;
+            // A held replacement that closes is replaced.
+            handover.stopProbe = session.on('close', () => {
+                if (handover.probe !== session) return;
+                handover.stopProbe?.();
+                this.#replacementFailed(handover);
+            });
+            this.#scheduleHandover();
+            return;
+        }
+        this.#replacementFailed(handover);
+    }
+
+    /**
+     * @param {ConvoHandover} handover
+     * @returns {void}
+     */
+    #replacementFailed(handover) {
+        const session = handover.probe;
+        handover.probe = null;
+        handover.created = null;
+        handover.stopProbe = null;
+        if (session && session.socket.readyState < 2) session.close();
+        const delay = Math.min(
+            RECONNECT_DELAY_MS * 2 ** ++handover.failures,
+            RECONNECT_MAX_DELAY_MS,
+        );
+        handover.retry = setTimeout(
+            () => {
+                handover.retry = null;
+                this.#scheduleHandover();
+            },
+            delay * (0.5 + Math.random()),
+        );
+    }
+
+    /**
+     * The held replacement session, if it's open, detached from the notice.
+     *
+     * @returns {{
+     *     session: RealtimeSession;
+     *     created: RealtimeServerEvent;
+     * } | null}
+     */
+    #takeReplacement() {
+        const handover = this.#handover;
+        const session = handover?.probe;
+        if (!handover?.created || !session || session.socket.readyState !== 1)
+            return null;
+        handover.stopProbe?.();
+        handover.stopProbe = null;
+        handover.probe = null;
+        return { session, created: handover.created };
     }
 
     /** @returns {void} */
     #endHandover() {
-        if (this.#handover?.timer) clearTimeout(this.#handover.timer);
+        const handover = this.#handover;
+        if (!handover) return;
         this.#handover = null;
+        if (handover.timer) clearTimeout(handover.timer);
+        if (handover.retry) clearTimeout(handover.retry);
+        handover.stopProbe?.();
+        const session = handover.probe;
+        handover.probe = null;
+        if (session && session.socket.readyState < 2) session.close();
     }
 
     /**
@@ -685,8 +859,12 @@ export class Conversation extends RealtimeEvents {
         this.#requestedResponses.clear();
         this.#interruption = null;
         this.#cancelled.clear();
-        this.#userTurn = false;
+        this.#speaking = false;
+        this.#awaitingReply = false;
         this.#bufferedAudio = false;
+        this.#pendingTranscripts.clear();
+        this.#committedItems.clear();
+        this.#clearPendingItems();
         this.speaker.clearPlayback();
     }
 
@@ -1004,6 +1182,7 @@ export class Conversation extends RealtimeEvents {
         this.#reconnectWait?.();
         this.#endHandover();
         this.#replayEvents.clear();
+        this.#clearPendingItems();
         this.microphone.stop();
         void this.speaker.stop().catch(() => {});
         this.#rejectPending(
@@ -1079,7 +1258,7 @@ export class Conversation extends RealtimeEvents {
                     ),
                 );
             } else if (RECONNECT_CODES.has(event.code)) {
-                void this.#reconnect(event);
+                void this.#reconnect(event, this.#takeReplacement());
             } else {
                 this.#finish(event);
             }
@@ -1101,9 +1280,15 @@ export class Conversation extends RealtimeEvents {
                         ? event.reason
                         : 'server_restarting',
                 timer: null,
+                retry: null,
+                failures: 0,
+                probe: null,
+                created: null,
+                stopProbe: null,
             };
-        this.#history.observe(event);
-        this.#trackTurn(event);
+        // The new session's copies of restored items stay internal.
+        const restored = this.#history.observe(event);
+        this.#trackTurn(event, restored);
         if (event.type === 'response.created') {
             this.#activeResponse = event.response?.id ?? '';
             const [requested] = this.#requestedResponses;
@@ -1138,6 +1323,8 @@ export class Conversation extends RealtimeEvents {
                 const index = this.#sessionUpdates.indexOf(failed);
                 if (index >= 0) this.#sessionUpdates.splice(index, 1);
                 this.#sentSessions.delete(failed);
+                clearTimeout(this.#pendingItems.get(failed));
+                this.#pendingItems.delete(failed);
             }
             this.#promptUpgrade(event.error);
         }
@@ -1270,33 +1457,70 @@ export class Conversation extends RealtimeEvents {
                 usage: event.response?.usage,
                 status: event.response?.status,
             });
-        this.emitRealtime(event);
+        if (!restored) this.emitRealtime(event);
         this.#scheduleHandover();
     }
 
     /**
+     * Follows the state the idle check needs: user turns, transcriptions and
+     * the provider adding items the app created.
+     *
      * @param {RealtimeServerEvent} event
+     * @param {boolean} restored The event is about a restored item.
      * @returns {void}
      */
-    #trackTurn(event) {
+    #trackTurn(event, restored) {
+        const itemId = typeof event.item_id === 'string' ? event.item_id : '';
         switch (event.type) {
             case 'input_audio_buffer.speech_started':
-                this.#userTurn = true;
+                this.#speaking = true;
                 break;
             case 'input_audio_buffer.committed':
+                this.#speaking = false;
                 this.#bufferedAudio = false;
                 // Server turn detection answers a committed turn on its own.
-                if (!this.#turnDetection || !this.#autoResponse)
-                    this.#userTurn = false;
+                this.#awaitingReply = this.#turnDetection && this.#autoResponse;
+                if (!itemId) break;
+                if (this.#transcribes)
+                    bounded(this.#pendingTranscripts, itemId);
+                bounded(this.#committedItems, itemId);
                 break;
             case 'input_audio_buffer.cleared':
+                this.#speaking = false;
                 this.#bufferedAudio = false;
-                this.#userTurn = false;
+                this.#awaitingReply = false;
                 break;
             case 'response.created':
-                this.#userTurn = false;
+                this.#awaitingReply = false;
                 break;
+            case 'conversation.item.input_audio_transcription.completed':
+            case 'conversation.item.input_audio_transcription.failed':
+            case 'conversation.item.deleted':
+                this.#pendingTranscripts.delete(itemId);
+                break;
+            case 'conversation.item.added': {
+                // Items the model generates arrive in progress; the provider
+                // adds client items in the order they were sent.
+                const item = event.item;
+                if (
+                    restored ||
+                    item?.status === 'in_progress' ||
+                    this.#committedItems.delete(item?.id)
+                )
+                    break;
+                const [oldest] = this.#pendingItems;
+                if (!oldest) break;
+                clearTimeout(oldest[1]);
+                this.#pendingItems.delete(oldest[0]);
+                break;
+            }
         }
+    }
+
+    /** @returns {void} */
+    #clearPendingItems() {
+        for (const timer of this.#pendingItems.values()) clearTimeout(timer);
+        this.#pendingItems.clear();
     }
 
     /** @returns {string} */
@@ -1341,9 +1565,35 @@ export class Conversation extends RealtimeEvents {
                 !this.#turnDetection
             )
                 this.#bufferedAudio = true;
+            // Restored items are written while connecting and aren't tracked.
+            if (
+                event.type === 'conversation.item.create' &&
+                this.#state === 'connected'
+            )
+                this.#trackItem(event.event_id);
             socket.send(json);
         }
     }
+    /**
+     * Holds off a handover until the provider adds the item, reports an error
+     * for it, or doesn't answer within the acknowledgment timeout.
+     *
+     * @param {string} eventId
+     * @returns {void}
+     */
+    #trackItem(eventId) {
+        const timer = setTimeout(() => {
+            this.#pendingItems.delete(eventId);
+            this.#scheduleHandover();
+        }, OPERATION_TIMEOUT_MS);
+        this.#pendingItems.set(eventId, timer);
+        if (this.#pendingItems.size > MAX_PENDING_ITEMS) {
+            const [oldest] = this.#pendingItems;
+            clearTimeout(oldest[1]);
+            this.#pendingItems.delete(oldest[0]);
+        }
+    }
+
     /**
      * @param {string} type
      * @param {(event: RealtimeServerEvent) => boolean} [matches]
