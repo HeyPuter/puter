@@ -15,12 +15,10 @@ class FakeWebSocket extends EventTarget {
     send(json) {
         this.sent.push(JSON.parse(json));
     }
-    close(code = 1000) {
+    close(code = 1000, reason = '') {
         if (this.readyState === 3) return;
         this.readyState = 3;
-        this.dispatchEvent(
-            Object.assign(new Event('close'), { code, reason: '' }),
-        );
+        this.dispatchEvent(Object.assign(new Event('close'), { code, reason }));
     }
     deliver(event) {
         this.readyState = 1;
@@ -228,8 +226,10 @@ describe('Conversation lifecycle', () => {
         const dClosed = vi.fn();
         d.on('close', dClosed);
         socket().close(1011);
-        for (let i = 0; i < 5; i++) {
-            await vi.advanceTimersByTimeAsync(500 * 2 ** i);
+        // Ten attempts, backing off to 10 seconds: about a minute in all.
+        for (let i = 0; i < 10; i++) {
+            await vi.advanceTimersByTimeAsync(Math.min(500 * 2 ** i, 10_000));
+            expect(d.state).toBe('connecting');
             socket().close(1006);
         }
         await vi.advanceTimersByTimeAsync(0);
@@ -748,4 +748,109 @@ it('preflights both events of a text turn before sending either', async () => {
         expect.objectContaining({ code: 'queue_full' }),
     );
     expect(socket().sent).toHaveLength(before);
+});
+
+// -- Reconnect retries --
+
+const answerReconnect = async (delay = 500) => {
+    const before = socket();
+    await vi.advanceTimersByTimeAsync(delay);
+    expect(socket()).not.toBe(before);
+    socket().deliver({ type: 'session.created', session: {} });
+    await vi.advanceTimersByTimeAsync(0);
+    socket().deliver({ type: 'session.updated', session: {} });
+    await vi.advanceTimersByTimeAsync(0);
+};
+const fakeTime = () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+};
+describe('reconnect retries', () => {
+    it('retries a reconnect refused by a draining server', async () => {
+        const c = await connected();
+        fakeTime();
+        socket().close(1006);
+        await vi.advanceTimersByTimeAsync(500);
+        socket().deliver({
+            type: 'error',
+            error: {
+                code: 'server_restarting',
+                message: 'Server is restarting; reconnect',
+            },
+        });
+        socket().close(1012, 'server_restarting');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+        await answerReconnect(1_000);
+        expect(c.state).toBe('connected');
+    });
+
+    describe('while the browser is offline', () => {
+        let target;
+        beforeEach(() => {
+            target = new EventTarget();
+            vi.stubGlobal('navigator', { onLine: false });
+            vi.stubGlobal(
+                'addEventListener',
+                vi.fn((...args) => target.addEventListener(...args)),
+            );
+            vi.stubGlobal(
+                'removeEventListener',
+                vi.fn((...args) => target.removeEventListener(...args)),
+            );
+        });
+
+        it('waits for the online event instead of spending attempts', async () => {
+            const c = await connected();
+            fakeTime();
+            socket().close(1006);
+            const sockets = FakeWebSocket.instances.length;
+            await vi.advanceTimersByTimeAsync(90_000);
+            expect(FakeWebSocket.instances).toHaveLength(sockets);
+            expect(c.state).toBe('connecting');
+            navigator.onLine = true;
+            target.dispatchEvent(new Event('online'));
+            await vi.advanceTimersByTimeAsync(0);
+            expect(FakeWebSocket.instances).toHaveLength(sockets + 1);
+            socket().deliver({ type: 'session.created', session: {} });
+            await vi.advanceTimersByTimeAsync(0);
+            socket().deliver({ type: 'session.updated', session: {} });
+            await vi.advanceTimersByTimeAsync(0);
+            expect(c.state).toBe('connected');
+            expect(removeEventListener).toHaveBeenCalledWith(
+                'online',
+                expect.any(Function),
+            );
+        });
+
+        it('gives up waiting after two minutes and tries anyway', async () => {
+            const c = await connected();
+            fakeTime();
+            socket().close(1006);
+            const sockets = FakeWebSocket.instances.length;
+            // Two minutes from the drop, backoff included.
+            await vi.advanceTimersByTimeAsync(119_999);
+            expect(FakeWebSocket.instances).toHaveLength(sockets);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(FakeWebSocket.instances).toHaveLength(sockets + 1);
+            expect(c.state).toBe('connecting');
+        });
+
+        it('close() stops the wait and removes its listener', async () => {
+            const c = await connected();
+            fakeTime();
+            socket().close(1006);
+            await vi.advanceTimersByTimeAsync(1_000);
+            c.close();
+            expect(vi.getTimerCount()).toBe(0);
+            expect(removeEventListener).toHaveBeenCalledWith(
+                'online',
+                expect.any(Function),
+            );
+            const sockets = FakeWebSocket.instances.length;
+            target.dispatchEvent(new Event('online'));
+            await vi.advanceTimersByTimeAsync(10_000);
+            expect(FakeWebSocket.instances).toHaveLength(sockets);
+        });
+    });
 });

@@ -39,8 +39,12 @@ const RETRYABLE_ERRORS = new Set([
     'rate_limit_exceeded',
     'internal_error',
 ]);
-const RECONNECT_ATTEMPTS = 5;
+// Ten attempts over about a minute, long enough for a server restart.
+const RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAY_MS = 500;
+const RECONNECT_MAX_DELAY_MS = 10_000;
+// Per reconnect, the longest wait for a browser that reports being offline.
+const OFFLINE_WAIT_MS = 120_000;
 const encoder = new TextEncoder();
 
 /**
@@ -244,13 +248,9 @@ export class Conversation extends RealtimeEvents {
     #sessionState = {};
     /** @type {string | undefined} */
     #acknowledgedUpdate;
-    /**
-     * @type {{
-     *     timer: ReturnType<typeof setTimeout>;
-     *     resolve: (value?: unknown) => void;
-     * } | null}
-     */
-    #reconnectDelay = null;
+    // Ends the reconnect loop's current wait early.
+    /** @type {(() => void) | null} */
+    #reconnectWait = null;
     #reconnecting = false;
     /**
      * @type {{
@@ -437,16 +437,16 @@ export class Conversation extends RealtimeEvents {
             code: event.code,
             reason: event.reason,
         });
+        const offlineUntil = Date.now() + OFFLINE_WAIT_MS;
         for (let attempt = 0; attempt < RECONNECT_ATTEMPTS; attempt++) {
+            const delay = Math.min(
+                RECONNECT_DELAY_MS * 2 ** attempt,
+                RECONNECT_MAX_DELAY_MS,
+            );
             // Jittered so clients dropped together don't return together.
-            const delay = RECONNECT_DELAY_MS * 2 ** attempt;
-            await new Promise((resolve) => {
-                this.#reconnectDelay = {
-                    timer: setTimeout(resolve, delay * (0.5 + Math.random())),
-                    resolve,
-                };
-            });
-            this.#reconnectDelay = null;
+            await this.#pause(delay * (0.5 + Math.random()));
+            if (this.#state === 'closed') return;
+            await this.#whileOffline(offlineUntil);
             if (this.#state === 'closed') return;
             try {
                 await this.#open(true);
@@ -478,6 +478,52 @@ export class Conversation extends RealtimeEvents {
             }
         }
         this.#finish({ type: 'close', code: event.code, reason: event.reason });
+    }
+
+    /**
+     * @param {number} ms
+     * @returns {Promise<void>}
+     */
+    #pause(ms) {
+        return new Promise((resolve) => {
+            const done = () => {
+                clearTimeout(timer);
+                this.#reconnectWait = null;
+                resolve();
+            };
+            const timer = setTimeout(done, ms);
+            this.#reconnectWait = done;
+        });
+    }
+
+    /**
+     * Waits, until `deadline` at most, while the browser reports being offline,
+     * so attempts aren't spent on a connection that can't open.
+     *
+     * @param {number} deadline
+     * @returns {Promise<void>}
+     */
+    #whileOffline(deadline) {
+        const scope = /** @type {any} */ (globalThis);
+        const remaining = deadline - Date.now();
+        if (
+            typeof navigator === 'undefined' ||
+            navigator.onLine !== false ||
+            typeof scope.addEventListener !== 'function' ||
+            remaining <= 0
+        )
+            return Promise.resolve();
+        return new Promise((resolve) => {
+            const done = () => {
+                clearTimeout(timer);
+                scope.removeEventListener('online', done);
+                this.#reconnectWait = null;
+                resolve();
+            };
+            const timer = setTimeout(done, remaining);
+            scope.addEventListener('online', done);
+            this.#reconnectWait = done;
+        });
     }
 
     /** @returns {void} */
@@ -811,10 +857,7 @@ export class Conversation extends RealtimeEvents {
         if (this.#state === 'closed') return;
         this.#state = 'closed';
         this.#reconnecting = false;
-        if (this.#reconnectDelay) {
-            clearTimeout(this.#reconnectDelay.timer);
-            this.#reconnectDelay.resolve();
-        }
+        this.#reconnectWait?.();
         this.microphone.stop();
         void this.speaker.stop().catch(() => {});
         this.#rejectPending(
