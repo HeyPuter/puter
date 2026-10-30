@@ -17,7 +17,7 @@ On a website, pushes arrive on your own domain through a small service worker, a
 Put this file at the root of your site, as `/puter-sw.js`:
 
 ```js
-importScripts('https://js.puter.com/v2/push-sw.js');
+importScripts('https://js.puter.com/push-sw.js');
 ```
 
 If your site already has a service worker, add that line to it and pass its path as `serviceWorker` to [`onPush()`](/Notifications/onPush/) and [`enable()`](/Notifications/enable/).

@@ -14,7 +14,7 @@ This recipe sets that up for a website on its own domain. An app inside the Pute
 Pushes arrive on your own domain through a service worker. Put this file at the root of your site, as `/puter-sw.js`:
 
 ```js
-importScripts('https://js.puter.com/v2/push-sw.js');
+importScripts('https://js.puter.com/push-sw.js');
 ```
 
 If your site already has a service worker, add that line to it and pass its path as `serviceWorker` in the calls below.
@@ -81,7 +81,7 @@ Push services can read `data`, so put IDs in it and fetch the rest. For a notifi
 The worker, at `/puter-sw.js`:
 
 ```js
-importScripts('https://js.puter.com/v2/push-sw.js');
+importScripts('https://js.puter.com/push-sw.js');
 ```
 
 The page:
