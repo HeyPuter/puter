@@ -128,17 +128,7 @@
  *   live listener stops, or keeping the browser's subscription current fails.
  */
 
-/** @typedef {'webpush' | 'ios' | 'android'} PushPlatform */
-
-/**
- * What `registerDevice()` takes.
- *
- * @typedef {Object} PushDeviceRegistration
- * @property {'ios' | 'android'} platform
- * @property {string} token The push token the platform issued.
- * @property {string} [label] A name the user will recognize, up to 64
- *   characters.
- */
+/** @typedef {'webpush' | 'web'} PushPlatform `web` gets no pushes. */
 
 /**
  * A device registered for push notifications.

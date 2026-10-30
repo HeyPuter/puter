@@ -243,7 +243,6 @@ export type {
     OnNotificationOptions,
     OnPushOptions,
     PushDevice,
-    PushDeviceRegistration,
     PushHandler,
     PushPlatform,
     PushShown,

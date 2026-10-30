@@ -26,7 +26,6 @@ import { listDevices } from './listDevices.js';
 import { notify } from './notify.js';
 import { onNotification } from './onNotification.js';
 import { onPush, shownFrom } from './onPush.js';
-import { registerDevice } from './registerDevice.js';
 import { removeDevice } from './removeDevice.js';
 import { hasPermission, requestPermission } from './requestPermission.js';
 
@@ -154,7 +153,6 @@ export class NotificationsModule extends EventListener {
     requestPermission = requestPermission;
     hasPermission = hasPermission;
     enablePush = enablePush;
-    registerDevice = registerDevice;
     listDevices = listDevices;
     removeDevice = removeDevice;
 
@@ -202,7 +200,6 @@ export class NotificationsModule extends EventListener {
             'requestPermission',
             'hasPermission',
             'enablePush',
-            'registerDevice',
             'listDevices',
             'removeDevice',
         ]) {

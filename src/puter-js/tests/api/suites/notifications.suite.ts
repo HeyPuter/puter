@@ -77,7 +77,6 @@ export default suite('notifications', {
             'off',
             'requestPermission',
             'hasPermission',
-            'registerDevice',
             'listDevices',
             'removeDevice',
         ] as const) {
