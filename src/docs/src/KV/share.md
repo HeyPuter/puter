@@ -91,6 +91,8 @@ Leave out `label` to keep the current label, pass a new one to replace it, or pa
 
 A call where every recipient already has the share, at the same access level and with the same label, changes nothing. It counts toward the limit on named recipients but not toward the mint or new-recipient limits, so your app can share again each time it opens to get the `handle` back. A call with any recipient who doesn't have the share yet counts toward all three. See [Rate Limits and Quotas](/rate-limits-and-quotas/#call-budgets) for the numbers.
 
+Concurrent calls that share the same prefix with the same user usually make one share, and every call resolves to it with the `access` and `label` of the call that made it. This isn't guaranteed for calls that reach different Puter regions at the same moment, which can each make a share. [`puter.kv.listSharedByMe()`](/KV/listSharedByMe/) lists both, and you can stop the extra one with [`puter.kv.unshare()`](/KV/unshare/).
+
 ## What the holder sees
 
 The holder is never told who shared or what the prefix is. The keys they read and write are relative to the prefix. The label is the only thing about the share you choose to tell them.

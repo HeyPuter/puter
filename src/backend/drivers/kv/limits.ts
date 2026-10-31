@@ -34,15 +34,20 @@ export const KV_MAX_LIST_LIMIT = 1000;
 
 /**
  * Storage capacity calls through share handles may spend in one owner's
- * namespace per window, every holder together. A namespace's keys share one
- * partition key, so this keeps holders to about a fifth of what that key can
- * serve and leaves the rest to the owner's own app.
+ * namespace per window: `limit` for every holder together, and `perHolder` for
+ * any one of them, so no holder can starve the others. The owner's own calls
+ * through a handle spend none. Sized to leave about half of what one namespace
+ * can serve to the owner's own app.
  */
-export const KV_HANDLE_NAMESPACE_BUDGET = { limit: 6_000, window: 10_000 };
+export const KV_HANDLE_NAMESPACE_BUDGET = {
+    limit: 15_000,
+    perHolder: 3_750,
+    window: 10_000,
+};
 
 /**
- * What a call spends from that budget: its read units, plus this many per write
- * unit, since a partition serves about that many reads per write. Every call
- * spends at least one.
+ * What a call spends from those budgets: its read units, plus this many per
+ * write unit, since a write costs the store about three times what a read does.
+ * Every call spends at least one.
  */
 export const KV_HANDLE_WRITE_UNIT_WEIGHT = 3;

@@ -206,6 +206,7 @@ let handles: Map<string, KvShareHandle>;
 
 const kvShareHandleStore = {
     getByHandle: async (handle: string) => handles.get(handle) ?? null,
+    predatesItsApp: async () => false,
     getLive: async (handle: string) => {
         const row = handles.get(handle);
         if (!row || row.revokedAt !== null) return null;

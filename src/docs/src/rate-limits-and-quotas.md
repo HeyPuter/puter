@@ -252,7 +252,7 @@ Before the provider runs, the balance must cover every page the call can be bill
 | Concurrent calls                | 30   | 15   | 8         |
 | Concurrent `list`               | 5    | 3    | 2         |
 
-Calls through [share handles](/KV/share/) into one user's data for one app also share one budget across every holder of those shares. The budget is 6,000 units per 10 seconds on every plan. The budget counts storage use, so large entries and big listings use more of it. Reading counts about 1 unit for every 8 KB read, with each entry rounded up to 4 KB. Writing counts 3 units for every 1 KB of each entry written. Every call counts at least 1 unit. So a `get()` of a small entry counts 1 unit, a `set()` of a value up to 1 KB counts 3, and a `list()` page that reads 1 MB counts 128. Over the budget, calls through those shares fail with `too_many_requests` until older calls leave the 10-second window. Calls the owner makes without a handle don't count toward it.
+Calls through [share handles](/KV/share/) into one user's data for one app also share a budget across every holder of those shares. All the holders together can spend 15,000 units per 10 seconds, and one holder can spend at most 3,750 of them, so one busy holder can't use up the budget for the others. These numbers are the same on every plan. The budget counts storage use, so large entries and big listings use more of it. Reading counts about 1 unit for every 8 KB read, with each entry rounded up to 4 KB. Writing counts 3 units for every 1 KB of each entry written. Every call counts at least 1 unit. So a `get()` of a small entry counts 1 unit, a `set()` of a value up to 1 KB counts 3, and a `list()` page that reads 1 MB counts 128. Over the holder's share or the total, calls through those shares fail with `too_many_requests` until older calls leave the 10-second window. The owner's own calls don't count, with or without a handle.
 
 Sizes are the same for every account:
 
@@ -521,10 +521,10 @@ See [Events](/Events/) for an overview, [`onLocal()`](/Events/subjects/#gaps) fo
 | KV share handles                     | Per user, per app  | 10,000 | 2,000 | 0       |
 | KV share handles with one other user | Per owner and holder | 256  | 256  | 0         |
 | Session subscriptions                | Per connection     | 50   | 50   | 50        |
-| Session subscriptions through one KV share handle | Per holder, all connections | 100 | 100 | 100 |
+| Session subscriptions through one KV share handle | Per holder, all connections | 1,000 | 1,000 | 1,000 |
 
 - Over a subscription limit: `events_subscription_limit`. Over a share-handle limit: `events_kv_handle_limit_reached`.
-- The limit through one share handle counts the holder's session subscriptions in one region. The owner's own subscriptions through the handle don't count. Unsubscribing or closing the connection frees a slot.
+- Session subscriptions through a share handle also count toward the limit per connection. The limit through one handle counts the holder's subscriptions in one region, including ones on connections that dropped and haven't been cleaned up yet. The owner's own subscriptions through the handle don't count.
 - Anonymous accounts get `events_durable_requires_account` for persistent subscriptions and `events_kv_handle_requires_account` for share handles.
 - Unsubscribing or revoking frees a slot immediately. Revoked handles don't count. They stay in [`puter.kv.listSharedByMe()`](/KV/listSharedByMe/) for 30 days after they stop, and are then deleted.
 - A persistent subscription [suspended](/Events/onPersistent/#suspended-subscriptions) with `permission_revoked` doesn't count toward the persistent subscription limits, since it never resumes. One suspended for any other reason still counts.

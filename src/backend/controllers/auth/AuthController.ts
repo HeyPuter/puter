@@ -3836,9 +3836,10 @@ export class AuthController extends PuterController {
             // An origin's uid is a deterministic uuidv5, so a deleted app
             // reappears here under the identical uid. Withdraw any cross-app
             // data grants left pointing at it before this new row can inherit
-            // consent the user gave its predecessor. Only *this* path can reuse
-            // a uid: `AppStore.create` mints a random uuid4, which no deleted
-            // app can ever hold again.
+            // consent the user gave its predecessor. Only `createFromOrigin`
+            // reuses a uid, here or wherever else an origin app is bootstrapped:
+            // `AppStore.create` mints a random uuid4, which no deleted app can
+            // ever hold again.
             //
             // Called directly rather than through `app.changed`: the token is
             // issued below, so this has to be able to stop that, and
@@ -3849,6 +3850,9 @@ export class AuthController extends PuterController {
                 app_uid,
                 'uid reused by a new app',
             );
+            // Key-value shares the predecessor left read as gone already,
+            // being older than this row; this only cleans them up.
+            this.services.kvShare.retireSharesOlderThanApp(app);
         }
         if (!app) {
             throw new HttpError(404, `App ${app_uid} does not exist`, {

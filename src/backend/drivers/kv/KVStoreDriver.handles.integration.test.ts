@@ -45,7 +45,7 @@ import {
     kvSharePermission,
     type KvShareAccess,
 } from '../../services/kvShare/kvShares.js';
-import { claimRateLimit } from '../../core/http/middleware/rateLimit.js';
+import { claimCountedRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { kvNamespace } from '../../stores/systemKv/SystemKVStore.js';
 import {
     createTestUser,
@@ -246,9 +246,35 @@ afterAll(async () => {
     await env?.shutdown();
 });
 
-/** The redis key of the budget every handle call into a namespace spends. */
-const budgetKey = (user: TestUser, appUid = GLOBAL) =>
-    `rate:kv:handles:${kvNamespace(user.uuid, appUid)}`;
+/**
+ * The handle budget calls into `owner`'s namespace spend from: every holder's,
+ * or with `holder`, that holder's own.
+ */
+const budgetKey = (owner: TestUser, holder?: TestUser, appUid = GLOBAL) => {
+    const namespace = `kv:handles:${kvNamespace(owner.uuid, appUid)}`;
+    return holder ? `${namespace}:holder:${holder.id}` : namespace;
+};
+
+/** A budget's counters for this window and the one before. */
+const budgetCounters = (key: string) => {
+    const index = Math.floor(Date.now() / KV_HANDLE_NAMESPACE_BUDGET.window);
+    return [index - 1, index].map((at) => `ratec:{${key}}:${at}`);
+};
+
+/** Units spent from a budget since it was last cleared. */
+const spent = async (key: string) => {
+    let total = 0;
+    for (const counter of budgetCounters(key))
+        total += Number(await env.server.clients.redis.get(counter));
+    return total;
+};
+
+const clearBudget = (key: string) =>
+    env.server.clients.redis.del(...budgetCounters(key));
+
+/** Spend all of a budget, as though other calls had. */
+const exhaust = (key: string, limit: number) =>
+    claimCountedRateLimit(key, limit, KV_HANDLE_NAMESPACE_BUDGET.window, limit);
 
 // Every mint spends the 60/min budget, and this file makes more than that.
 beforeEach(async () => {
@@ -257,8 +283,9 @@ beforeEach(async () => {
             `rate:${EVENTS_KV_HANDLE_LIMIT.scope}:${user.id}`,
         );
         await env.server.clients.redis.del(`rate:events:subscribe:${user.id}`);
-        await env.server.clients.redis.del(budgetKey(user));
+        await clearBudget(budgetKey(owner, user));
     }
+    await clearBudget(budgetKey(owner));
 });
 
 describe('a call through a handle', () => {
@@ -1420,9 +1447,8 @@ describe('what a call costs', () => {
     });
 });
 
-describe('the budget every holder of a namespace shares', () => {
-    const spent = async () =>
-        Number(await env.server.clients.redis.zcard(budgetKey(owner)));
+describe('the handle budget of a namespace', () => {
+    const { limit, perHolder } = KV_HANDLE_NAMESPACE_BUDGET;
 
     it('is spent by every holder together, and refuses them all once it is gone', async () => {
         const prefix = region('budget');
@@ -1434,15 +1460,10 @@ describe('the budget every holder of a namespace shares', () => {
         expect(await guestGet(forStranger.handle, 'k', stranger.actor)).toBe(
             'v',
         );
-        expect(await spent()).toBe(2);
+        expect(await spent(budgetKey(owner))).toBe(2);
+        expect(await spent(budgetKey(owner, guest))).toBe(1);
 
-        const { limit, window } = KV_HANDLE_NAMESPACE_BUDGET;
-        await claimRateLimit(
-            budgetKey(owner).slice('rate:'.length),
-            limit,
-            window,
-            limit,
-        );
+        await exhaust(budgetKey(owner), limit);
         for (const call of [
             () => guestGet(forGuest.handle, 'k'),
             () => guestGet(forStranger.handle, 'k', stranger.actor),
@@ -1451,9 +1472,10 @@ describe('the budget every holder of a namespace shares', () => {
                 statusCode: 429,
                 legacyCode: 'too_many_requests',
             });
-        // The owner's own calls spend none of it.
+        // The owner's own calls spend none of it, with a handle or without.
         expect(await ownerGet(`${prefix}k`)).toBe('v');
-        // Nor does another owner's namespace.
+        expect(await guestGet(forGuest.handle, 'k', owner.actor)).toBe('v');
+        // Another owner's namespace has its own.
         const { handle: elsewhere } = await shares().mintKvHandle(
             guest.actor,
             {
@@ -1465,8 +1487,84 @@ describe('the budget every holder of a namespace shares', () => {
         );
         expect(await guestGet(elsewhere, 'k', owner.actor)).toBeNull();
 
-        await env.server.clients.redis.del(budgetKey(owner));
+        await clearBudget(budgetKey(owner));
         expect(await guestGet(forGuest.handle, 'k')).toBe('v');
+    });
+
+    it('keeps one holder to its share, while the others get through', async () => {
+        const prefix = region('fair');
+        await ownerSet(`${prefix}k`, 'v');
+        const forGuest = await share(prefix, 'read');
+        const forStranger = await share(prefix, 'read', { holder: stranger });
+        expect(perHolder).toBeLessThan(limit);
+
+        await exhaust(budgetKey(owner, guest), perHolder);
+        await expect(guestGet(forGuest.handle, 'k')).rejects.toMatchObject({
+            statusCode: 429,
+            legacyCode: 'too_many_requests',
+        });
+        expect(await guestGet(forStranger.handle, 'k', stranger.actor)).toBe(
+            'v',
+        );
+        // The throttled holder's refusals spent nothing of the namespace's.
+        expect(await spent(budgetKey(owner))).toBe(1);
+    });
+
+    it('spends nothing when the owner calls through a handle', async () => {
+        const prefix = region('own');
+        await ownerSet(`${prefix}k`, 'v');
+        const { handle } = await share(prefix, 'read');
+        await exhaust(budgetKey(owner, owner), perHolder);
+
+        for (let i = 0; i < 3; i++)
+            expect(await guestGet(handle, 'k', owner.actor)).toBe('v');
+        expect(await spent(budgetKey(owner))).toBe(0);
+        await exhaust(budgetKey(owner), limit);
+        expect(await guestGet(handle, 'k', owner.actor)).toBe('v');
+    });
+
+    it('refuses a throttled holder before looking at its grant', async () => {
+        const { handle } = await share(region('early'), 'read');
+        await exhaust(budgetKey(owner, guest), perHolder);
+        const checks = vi.spyOn(env.server.services.permission, 'check');
+        try {
+            await expect(guestGet(handle, 'k')).rejects.toMatchObject({
+                statusCode: 429,
+            });
+            expect(checks).not.toHaveBeenCalled();
+        } finally {
+            checks.mockRestore();
+        }
+    });
+
+    it('is only heard by a caller the grant admits', async () => {
+        const { handle } = await share(region('heard'), 'watch');
+        await exhaust(budgetKey(owner), limit);
+        // Below the level: refused for that, not for the budget.
+        await expect(guestGet(handle, 'k')).rejects.toMatchObject({
+            legacyCode: 'kv_handle_access_denied',
+        });
+    });
+
+    it('tells another app of the holder the handle is not there, however spent', async () => {
+        const app = await makeApp();
+        const otherApp = await makeApp();
+        await authorizeApp(guest, app);
+        await authorizeApp(guest, otherApp);
+        const { handle } = await share(region('apps'), 'read', {
+            appUid: app.uid,
+        });
+        const holderBudget = budgetKey(owner, guest, app.uid);
+        await clearBudget(holderBudget);
+        await exhaust(holderBudget, perHolder);
+
+        await expect(
+            guestGet(handle, 'k', appActorFor(guest, otherApp)),
+        ).rejects.toMatchObject({ legacyCode: 'kv_handle_not_found' });
+        await expect(
+            guestGet(handle, 'k', appActorFor(guest, app)),
+        ).rejects.toMatchObject({ statusCode: 429 });
+        await clearBudget(holderBudget);
     });
 
     it('charges a call by the storage it reads and writes', async () => {
@@ -1475,12 +1573,16 @@ describe('the budget every holder of a namespace shares', () => {
         const big = 'x'.repeat(100 * 1024);
         for (const key of ['a', 'b', 'c', 'd'])
             await ownerSet(`${prefix}big:${key}`, big);
-        expect(await spent()).toBe(0);
+        const both = async () => [
+            await spent(budgetKey(owner)),
+            await spent(budgetKey(owner, guest)),
+        ];
+        expect(await both()).toEqual([0, 0]);
 
         await guestSet(handle, 'small', 'x');
-        await vi.waitFor(async () => expect(await spent()).toBe(3));
+        await vi.waitFor(async () => expect(await both()).toEqual([3, 3]));
         expect(await guestGet(handle, 'small')).toBe('x');
-        await vi.waitFor(async () => expect(await spent()).toBe(4));
+        await vi.waitFor(async () => expect(await both()).toEqual([4, 4]));
 
         const page = (await as(guest.actor, (d) =>
             d.list({ as: 'entries', pattern: 'big:*', ...via(handle) }),
@@ -1488,8 +1590,10 @@ describe('the budget every holder of a namespace shares', () => {
         expect(page).toHaveLength(4);
         // About 400 KB read, at a unit per 8 KB.
         await vi.waitFor(async () => {
-            expect(await spent()).toBeGreaterThanOrEqual(4 + 50);
-            expect(await spent()).toBeLessThan(4 + 60);
+            for (const units of await both()) {
+                expect(units).toBeGreaterThanOrEqual(4 + 50);
+                expect(units).toBeLessThan(4 + 60);
+            }
         });
     });
 });

@@ -275,6 +275,16 @@ describe('AbstractDatabaseClient — SQL generation', () => {
         expect(postgres().timestampFromUnixSql()).toBe('to_timestamp(?)');
     });
 
+    it('reads a timestamp column back as unix seconds in each engine', () => {
+        expect(sqlite().unixSecondsSql('`t`')).toBe(
+            "CAST(strftime('%s', `t`) AS INTEGER)",
+        );
+        expect(mysql().unixSecondsSql('`t`')).toBe('UNIX_TIMESTAMP(`t`)');
+        expect(postgres().unixSecondsSql('`t`')).toBe(
+            'EXTRACT(EPOCH FROM `t`)::bigint',
+        );
+    });
+
     it('describes a stored timestamp the way each driver reads it back', () => {
         const seconds = Date.UTC(2026, 9, 11, 8, 5, 9) / 1000;
         expect(sqlite().timestampValue(seconds)).toBe('2026-10-11 08:05:09');

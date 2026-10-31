@@ -897,6 +897,107 @@ describe('SystemKVStore', () => {
                 ).rejects.toThrow();
             }
         });
+
+        it('asks stillWanted before deleting a page, and stops on a no', async () => {
+            await seed(3);
+            let asked = 0;
+            expect(
+                await target.purgeNamespace(namespaceOf(), {
+                    maxItems: 10,
+                    stillWanted: async () => {
+                        asked++;
+                        return false;
+                    },
+                }),
+            ).toEqual({ deleted: 0, done: false, stopped: true });
+            expect(asked).toBe(1);
+            expect(
+                (await target.list({ as: 'keys' }, appOpts())).res,
+            ).toHaveLength(3);
+
+            expect(
+                await target.purgeNamespace(namespaceOf(), {
+                    maxItems: 10,
+                    stillWanted: async () => true,
+                }),
+            ).toEqual({ deleted: 3, done: true });
+        });
+    });
+
+    describe('reserved items', () => {
+        const prefix = () =>
+            `test-reserved#${Math.random().toString(36).slice(2)}#`;
+
+        it('deletes one only while its condition holds', async () => {
+            const key = `${prefix()}item`;
+            const ifVersion = (version: number) =>
+                target.deleteReservedItemIf(
+                    key,
+                    '#v = :v',
+                    { ':v': version },
+                    { '#v': 'version' },
+                );
+            await target.putReservedItem(key, { version: 1 });
+
+            expect(await ifVersion(2)).toBe(false);
+            expect(await target.getReservedItem(key)).toMatchObject({
+                version: 1,
+            });
+            expect(await ifVersion(1)).toBe(true);
+            expect(await target.getReservedItem(key)).toBeNull();
+            expect(await ifVersion(1)).toBe(false);
+        });
+
+        it('pages through them in key order from where the last page ended', async () => {
+            const shared = prefix();
+            for (const name of ['a', 'b', 'c'])
+                await target.putReservedItem(`${shared}${name}`, { n: 1 });
+
+            const first = await target.pageReservedItems(shared, { limit: 2 });
+            expect(first.items.map((item) => item.key)).toEqual([
+                `${shared}a`,
+                `${shared}b`,
+            ]);
+            expect(first.nextKey).toBe(`${shared}b`);
+            const rest = await target.pageReservedItems(shared, {
+                limit: 2,
+                afterKey: first.nextKey,
+            });
+            expect(rest.items.map((item) => item.key)).toEqual([`${shared}c`]);
+            expect(await target.queryReservedItems(shared)).toHaveLength(3);
+        });
+
+        it('updates one only while its condition holds, and returns it', async () => {
+            const key = `${prefix()}item`;
+            const claim = (owner: string) =>
+                target.updateReservedItemIf(
+                    key,
+                    { set: { owner }, setIfAbsent: { since: 1 } },
+                    'attribute_not_exists(#o)',
+                    {},
+                    { '#o': 'owner' },
+                );
+
+            expect(await claim('first')).toMatchObject({
+                owner: 'first',
+                since: 1,
+            });
+            expect(await claim('second')).toBeNull();
+            expect(
+                await target.updateReservedItemIf(
+                    key,
+                    { set: { since: 2 }, remove: ['owner'] },
+                    '#o = :o',
+                    { ':o': 'first' },
+                    { '#o': 'owner' },
+                ),
+            ).toEqual(
+                expect.not.objectContaining({ owner: expect.anything() }),
+            );
+            expect(await target.getReservedItem(key)).toMatchObject({
+                since: 2,
+            });
+        });
     });
 
     describe('expireAt / expire', () => {

@@ -82,12 +82,13 @@ export default suite('perms', {
         });
         t.assert.ok(!revoked.error, `revoke failed: ${JSON.stringify(revoked)}`);
 
-        // The data is deleted in the background after the call returns.
+        // The data is deleted in the background after the call returns. Read
+        // as the account: opening the app again would stop the deletion.
         let value: unknown = 'x';
         for (let i = 0; i < 50 && value !== null; i++) {
-            value = await asApp(t, app.uid, () =>
-                t.puter.kv.get('perms-suite-key'),
-            );
+            value = await t.puter.kv.get('perms-suite-key', {
+                appUuid: app.uid,
+            });
             if (value !== null) await new Promise((r) => setTimeout(r, 100));
         }
         t.assert.equal(value, null);
