@@ -415,6 +415,18 @@ An app's `name` and `title` may be up to 100 characters and its `description` up
 
 Another user's profile is readable only while that user is on a paid plan. Owners can always read and write their own.
 
+### Sign-in links
+
+These limits apply when [`puter.auth.signIn()`](/Auth/signIn/) sends a sign-in link by email.
+
+| Limit                         | Value                         | Scope       |
+| ----------------------------- | ----------------------------- | ----------- |
+| Link requests                 | 10 per 15 minutes             | Per network |
+| Link requests for one address | 3 per 15 minutes, 10 per day  |             |
+| Sign-ins with a link          | 30 per 15 minutes             | Per network |
+
+Each link works once and expires after 15 minutes. Over a request limit, the popup asks the user to wait and try again.
+
 ### Email
 
 [`puter.email.sendTransactional()`](/Email/sendTransactional/) requires a paid plan.

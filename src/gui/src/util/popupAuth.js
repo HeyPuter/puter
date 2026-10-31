@@ -209,3 +209,14 @@ export const runsUserAppTokenExchange = (action) =>
  */
 export const offersFederatedSignInInPopup = (action) =>
     !NON_AUTH_POPUP_ACTIONS.has(action);
+
+/**
+ * Whether this page may show OIDC buttons. A cross-origin-isolated opener can
+ * only get its token through the session relay, which the provider's return
+ * doesn't keep.
+ *
+ * @param {{ embeddedInPopup: boolean, action: string|null|undefined, crossOriginIsolated: boolean }} page
+ * @returns {boolean}
+ */
+export const offersFederatedSignIn = ({ embeddedInPopup, action, crossOriginIsolated }) =>
+    !embeddedInPopup || (offersFederatedSignInInPopup(action) && !crossOriginIsolated);

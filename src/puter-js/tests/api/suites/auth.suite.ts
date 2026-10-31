@@ -185,6 +185,21 @@ export default suite('auth', {
         t.assert.equal(whoami.uuid, user.uuid);
     },
 
+    'signIn rejects an invalid email before opening anything': async (t) => {
+        const signIn = t.puter.auth.signIn as (
+            options?: Record<string, unknown>,
+        ) => Promise<unknown>;
+        for (const email of ['not-an-email', 'a b@c.example', 'x"y@a.example', 42]) {
+            let error: string | undefined;
+            try {
+                await signIn({ email });
+            } catch (e) {
+                error = (e as { error?: string }).error;
+            }
+            t.assert.equal(error, 'invalid_email');
+        }
+    },
+
     'isSignedIn reports true with a valid token': async (t) => {
         t.assert.equal(t.puter.auth.isSignedIn(), true);
     },

@@ -284,6 +284,26 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
         expect(decoded).toMatchObject({ provider: 'custom' });
     });
 
+    it('passes an email login_hint through to the provider and drops anything else', async () => {
+        const startWith = async (login_hint: string) => {
+            const { res, captured } = makeRes();
+            await callRoute(
+                'get',
+                '/auth/oidc/:provider/start',
+                makeReq({
+                    params: { provider: 'custom' },
+                    query: { login_hint },
+                }),
+                res,
+            );
+            return new URL(captured.redirectUrl ?? '').searchParams;
+        };
+        expect((await startWith('a.user@example.com')).get('login_hint')).toBe(
+            'a.user@example.com',
+        );
+        expect((await startWith('not an email')).has('login_hint')).toBe(false);
+    });
+
     it('returns 400 for the revalidate flow without user_uuid', async () => {
         const { res } = makeRes();
         await expect(

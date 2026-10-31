@@ -157,7 +157,6 @@ export const puterServices = {
     // Independent — only needs the event client and redis.
     cacheReplication: CacheReplicationService,
     oidc: OIDCService,
-    // Needs only `token` and the email/redis clients.
     magicLink: MagicLinkService,
     appIcon: AppIconService,
     defaultUser: DefaultUserService,

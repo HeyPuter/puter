@@ -18,72 +18,98 @@
  */
 
 import UIWindow from './UIWindow.js';
+import UIWindowLogin from './UIWindowLogin.js';
+import { authLogoHeader, wireAuthLogoHeader } from '../helpers/authLogoHeader.js';
+import { isAttestedOrigin } from '../helpers/attestedOrigin.js';
+import { get_auth_redirect_url, oidcStartUrl } from '../helpers/authRedirect.js';
 import {
-    appHostOf,
-    buildRequestBody,
+    MAGIC_LINK_CHANNEL,
     looksLikeEmail,
+    oidcProviderForEmail,
+    watchMagicLinkSignIn,
 } from '../helpers/magicLinkSignIn.js';
+import { OIDC_PROVIDER_ICONS } from '../util/openid.js';
+import { offersFederatedSignIn } from '../util/popupAuth.js';
 
 /**
- * Passwordless sign-in. Sends a sign-in link to the email and then only says
- * to check the inbox: the sign-in finishes on the tab the link opens, and
- * this window is left behind.
+ * The session the link's tab opened in this browser, if it is `userUuid`'s.
+ * The cookie is shared, so this window only needs a GUI token for it.
+ */
+const adoptBrowserSession = async (userUuid) => {
+    const tokenResp = await fetch(`${window.gui_origin}/get-gui-token`, { credentials: 'include' });
+    if ( ! tokenResp.ok ) return null;
+    const { token } = await tokenResp.json();
+    const whoamiResp = await fetch(`${window.api_origin}/whoami?icon_size=64`, {
+        headers: { Authorization: `Bearer ${token}` },
+    });
+    if ( ! whoamiResp.ok ) return null;
+    const user = await whoamiResp.json();
+    return user?.uuid === userUuid ? { token, user } : null;
+};
+
+/**
+ * Email sign-in. An address its provider verifies (Gmail, Outlook) gets that
+ * provider's button; any other gets a sign-in link by email. The link signs in
+ * the tab it opens, and when that tab is in this browser this window signs in
+ * with it, so a popup can still hand its opener a token.
  *
- * With `opener_origin`, this is a third-party site's popup: the window shows
- * which site is asking and the link signs the user in to that site, landing
- * on `return_url`. Without it, the link signs the user in to Puter itself.
- *
- * Resolves with `{ next: 'login' }` when the user asks for the password
- * window instead, or `false` if the window is closed.
+ * Resolves `true` once signed in, the password window's result when the user
+ * switches to it, or `false` when closed.
  */
 async function UIWindowMagicLinkSignIn (options) {
     options = options ?? {};
-    const puter_mode = ! options.opener_origin;
-    const host = puter_mode ? '' : appHostOf(options.opener_origin);
+    if ( options.redirect_url === undefined ) {
+        options.redirect_url = get_auth_redirect_url();
+    }
+    const opener_origin = window.embedded_in_popup && isAttestedOrigin(window.openerOrigin)
+        ? window.openerOrigin
+        : '';
 
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
         let settled = false;
-
+        let stop_watching = () => {};
         const settle = (value) => {
             if ( settled ) return;
             settled = true;
+            stop_watching();
             resolve(value);
         };
 
         let h = '';
         h += '<div style="max-width:100%; width:100%; height:100%; min-height:0; box-sizing:border-box; display:flex; flex-direction:column; justify-content:center; align-items:stretch; padding:0; overflow:auto; color:var(--color-text);">';
         h += '<div class="logo-wrapper" style="display:flex; justify-content:center; padding:20px 20px 0 20px; margin-bottom: 0;">';
-        h += `<img src="${window.icons['logo-white.svg']}" class="auth-logo" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 15px; background-color: blue; border-radius: 5px;">`;
+        h += authLogoHeader({
+            logoSrc: window.icons['logo-white.svg'],
+            openerOrigin: opener_origin,
+            openerFallbackSrc: window.icons['website.svg'],
+        });
         h += '</div>';
         h += '<div style="padding:10px 20px; text-align:center; margin-bottom:0;">';
         h += `<h1 class="login-form-title">${i18n('magic_link_title')}</h1>`;
-        // A third-party site's popup says which site brought the user here.
-        if ( ! puter_mode ) {
-            h += `<p class="auth-opener-notice">${i18n('magic_link_app_uses_puter', [host])}</p>`;
+        if ( opener_origin ) {
+            h += `<p class="auth-opener-notice">${i18n('popup_opener_uses_puter', [new URL(opener_origin).hostname])}</p>`;
         }
         h += '</div>';
         h += '<div style="padding:20px; overflow-y:auto; overflow-x:hidden;">';
-
         h += '<form class="magic-link-form" style="width:100%; max-width: 400px; margin: 0 auto;">';
+        h += '<div class="magic-link-error-msg" style="color:#e74c3c; display:none; margin-bottom:10px; line-height:15px; font-size:13px;"></div>';
         h += '<div style="position: relative; margin-bottom: 20px;">';
         h += `<label for="magic-link-email-${internal_id}" style="display:block; margin-bottom:5px;">${i18n('email')}</label>`;
         h += `<input id="magic-link-email-${internal_id}" class="magic-link-email" type="email" value="${html_encode(options.email ?? '')}" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off"/>`;
         h += '</div>';
-        h += `<button type="submit" class="magic-link-send-btn button button-primary button-block button-normal">${i18n('magic_link_continue')}</button>`;
+        h += `<button type="submit" class="magic-link-send-btn button button-primary button-block button-normal">${i18n('magic_link_send')}</button>`;
+        h += '<button type="button" class="magic-link-provider-btn oidc-btn button button-block button-normal" style="display:none; align-items:center; justify-content:center; gap:8px;"></button>';
         h += `<p class="signup-terms">${i18n('magic_link_tos_fineprint', [], false)}</p>`;
-        h += '<div class="magic-link-error-msg" style="display:none; color:#e74c3c; line-height:18px; font-size:13px; text-align:center;"></div>';
         h += '</form>';
-        // Sent state: the rest happens from the inbox.
         h += '<div class="magic-link-sent" style="display:none; width:100%; max-width:400px; margin:0 auto; line-height:20px; font-size:14px; text-align:center;"></div>';
-
         h += '</div>';
-        // password sign-in link
-        h += '<div class="c2a-wrapper" style="padding:15px;">';
-        h += `<button class="login-c2a-clickable magic-link-login-c2a">${i18n('magic_link_log_in_c2a')}</button>`;
+        h += '<div class="c2a-wrapper" style="padding:20px;">';
+        h += `<button class="login-c2a-clickable magic-link-login-c2a">${i18n('magic_link_password_c2a')}</button>`;
         h += '</div>';
         h += '</div>';
 
+        let switching_window = false;
         const el_window = await UIWindow({
             title: null,
             app: 'magic-link-sign-in',
@@ -106,79 +132,166 @@ async function UIWindowMagicLinkSignIn (options) {
             ...options.window_options,
             width: 350,
             dominant: true,
-            center: true,
             on_close: () => {
-                settle(false);
+                if ( ! switching_window ) settle(false);
             },
             onAppend: function (this_window) {
                 const $email = $(this_window).find('.magic-link-email');
                 if ( ! $email.val() ) $email.get(0)?.focus({ preventScroll: true });
             },
+            window_class: 'window-login',
+            window_css: {
+                height: 'initial',
+            },
+            body_css: {
+                width: 'initial',
+                padding: '0',
+                'background-color': 'rgb(255 255 255)',
+                'backdrop-filter': 'blur(3px)',
+                'display': 'flex',
+                'flex-direction': 'column',
+                'justify-content': 'center',
+                'align-items': 'center',
+            },
         });
+
+        wireAuthLogoHeader(el_window);
 
         const $form = $(el_window).find('.magic-link-form');
+        const $email = $(el_window).find('.magic-link-email');
         const $error = $(el_window).find('.magic-link-error-msg');
-        const $sendBtn = $(el_window).find('.magic-link-send-btn');
+        const $send_btn = $(el_window).find('.magic-link-send-btn');
+        const $provider_btn = $(el_window).find('.magic-link-provider-btn');
 
-        const showError = (message) => {
-            $error.html(html_encode(message)).show();
-        };
-        const showSent = (email) => {
-            $form.hide();
-            $(el_window).find('.magic-link-sent')
-                .html(html_encode(i18n('magic_link_sent_message', { email }, false)))
-                .show();
+        const typed_email = () => String($email.val() ?? '').trim();
+        const show_error = (html) => {
+            $error.html(html).fadeIn();
         };
 
-        const sendLink = async () => {
-            const email = String($(el_window).find('.magic-link-email').val() ?? '').trim();
-            $error.hide();
-            if ( ! looksLikeEmail(email) ) {
-                showError(i18n('magic_link_invalid_email', [], false));
-                return;
+        // -- Routing: provider button or sign-in link --
+        let providers = [];
+        let routed_provider = null;
+        const route = () => {
+            routed_provider = oidcProviderForEmail(typed_email(), providers);
+            if ( routed_provider ) {
+                $provider_btn
+                    .html(`${OIDC_PROVIDER_ICONS[routed_provider] ?? ''}${i18n(`sign_in_with_${routed_provider}`)}`)
+                    .css('display', 'flex');
+                $send_btn.hide();
+            } else {
+                $provider_btn.hide();
+                $send_btn.show();
             }
-            const body = buildRequestBody({
-                email,
-                returnUrl: options.return_url,
-                openerOrigin: options.opener_origin,
-            });
-            if ( ! body ) {
-                showError(i18n('magic_link_request_failed', [], false));
-                return;
-            }
-
-            $sendBtn.prop('disabled', true);
+        };
+        $email.on('input', route);
+        if ( offersFederatedSignIn({
+            embeddedInPopup: !!window.embedded_in_popup,
+            action: window.gui_action,
+            crossOriginIsolated: window.url_query_params?.get('cross_origin_isolated') === 'true',
+        }) ) {
             try {
-                const resp = await fetch(`${window.api_origin}/auth/magic-link/request`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body),
-                });
-                if ( resp.status === 429 ) {
-                    showError(i18n('magic_link_too_many_requests', [], false));
-                    return;
-                }
-                if ( ! resp.ok ) {
-                    showError(i18n('magic_link_request_failed', [], false));
-                    return;
-                }
-                showSent(email);
-            } catch {
-                showError(i18n('magic_link_request_failed', [], false));
-            } finally {
-                $sendBtn.prop('disabled', false);
+                const resp = await fetch(`${window.api_origin}/auth/oidc/providers`);
+                if ( resp.ok ) providers = (await resp.json()).providers ?? [];
+            } catch ( _ ) {
+                // No providers: every address gets a link.
             }
-        };
-
-        $form.on('submit', (e) => {
-            e.preventDefault();
-            sendLink();
+            route();
+        }
+        $provider_btn.on('click', () => {
+            if ( ! routed_provider ) return;
+            window.location.href = oidcStartUrl({
+                provider: routed_provider,
+                flow: 'login',
+                referrer: options.referrer ?? window.referrerStr ?? window.openerOrigin,
+                loginHint: typed_email(),
+            });
         });
 
-        $(el_window).find('.magic-link-login-c2a').on('click', () => {
-            // Settle before closing: on_close would otherwise settle with false.
-            settle({ next: 'login' });
+        // -- Sign-in link --
+        const on_signed_in = async (user_uuid) => {
+            const session = await adoptBrowserSession(user_uuid);
+            if ( ! session ) return;
+            await window.update_auth_data(session.token, session.user);
+            if ( options.reload_on_success ) {
+                window.onbeforeunload = null;
+                window.location.replace(options.redirect_url || window.location.origin + window.location.pathname);
+                return;
+            }
+            settle(true);
             $(el_window).close();
+        };
+
+        $form.on('submit', async (e) => {
+            e.preventDefault();
+            $error.hide();
+            if ( routed_provider ) {
+                $provider_btn.trigger('click');
+                return;
+            }
+            const email = typed_email();
+            if ( ! looksLikeEmail(email) ) {
+                show_error(i18n('magic_link_invalid_email'));
+                return;
+            }
+            $send_btn.prop('disabled', true);
+            try {
+                const resp = await fetch(`${window.gui_origin}/auth/magic-link/request`, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email,
+                        ...(opener_origin ? { app_origin: opener_origin } : {}),
+                    }),
+                });
+                if ( resp.status === 429 ) {
+                    show_error(i18n('magic_link_too_many_requests'));
+                    return;
+                }
+                let body = null;
+                try {
+                    body = await resp.json();
+                } catch ( _ ) {
+                    // An empty or non-JSON answer falls through to the generic error.
+                }
+                if ( ! resp.ok || ! body?.request_id ) {
+                    // A refused address comes back with text saying why.
+                    show_error(resp.status === 400 && body?.message
+                        ? html_encode(body.message)
+                        : i18n('magic_link_request_failed'));
+                    return;
+                }
+                stop_watching();
+                stop_watching = watchMagicLinkSignIn({
+                    requestId: body.request_id,
+                    openChannel: () => new BroadcastChannel(MAGIC_LINK_CHANNEL),
+                    onSignedIn: on_signed_in,
+                });
+                $form.hide();
+                $(el_window).find('.magic-link-sent')
+                    .html(`<p>${i18n('magic_link_sent_message', [email])}</p><p>${i18n('magic_link_sent_keep_open')}</p>`)
+                    .show();
+            } catch ( _ ) {
+                show_error(i18n('magic_link_request_failed'));
+            } finally {
+                $send_btn.prop('disabled', false);
+            }
+        });
+
+        $(el_window).find('.magic-link-login-c2a').on('click', async () => {
+            const email = typed_email();
+            stop_watching();
+            switching_window = true;
+            $(el_window).close();
+            settle(await UIWindowLogin({
+                referrer: options.referrer,
+                reload_on_success: options.reload_on_success,
+                redirect_url: options.redirect_url,
+                window_options: options.window_options,
+                show_close_button: options.show_close_button,
+                send_confirmation_code: options.send_confirmation_code,
+                ...(email ? { email_or_username: email } : {}),
+            }));
         });
     });
 }

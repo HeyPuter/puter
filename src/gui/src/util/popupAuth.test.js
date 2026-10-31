@@ -23,6 +23,7 @@ import {
     defersTokenToOpener,
     deliversTokenAtBoot,
     deliversTokenToOpener,
+    offersFederatedSignIn,
     offersFederatedSignInInPopup,
     relationshipIsConsent,
     relaysTokenAtBoot,
@@ -100,6 +101,21 @@ describe('deliversTokenToOpener', () => {
         ] ) {
             expect(deliversTokenToOpener(action)).toBe(true);
         }
+    });
+});
+
+describe('offersFederatedSignIn', () => {
+    it('always offers it outside a popup', () => {
+        expect(offersFederatedSignIn({ embeddedInPopup: false, action: 'request-permission', crossOriginIsolated: true })).toBe(true);
+    });
+
+    it('follows the popup action rule inside a popup', () => {
+        expect(offersFederatedSignIn({ embeddedInPopup: true, action: 'sign-in', crossOriginIsolated: false })).toBe(true);
+        expect(offersFederatedSignIn({ embeddedInPopup: true, action: 'request-permission', crossOriginIsolated: false })).toBe(false);
+    });
+
+    it('withholds it from a cross-origin-isolated opener', () => {
+        expect(offersFederatedSignIn({ embeddedInPopup: true, action: 'sign-in', crossOriginIsolated: true })).toBe(false);
     });
 });
 
