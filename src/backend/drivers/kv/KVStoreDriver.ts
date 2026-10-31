@@ -35,6 +35,7 @@ import {
 import {
     KV_GLOBAL_APP_KEY,
     KV_MAX_KEY_BYTES,
+    KvPrivateEntryError,
     kvNamespace,
     type KVOpts,
     type KVUsage,
@@ -331,7 +332,8 @@ export class KVStoreDriver extends PuterDriver {
 
     /**
      * Run one store call. Through a handle, an error naming a stored key names
-     * the caller's relative key instead.
+     * the caller's relative key instead, and a write refused for a private
+     * entry gets the refusal any call the handle doesn't allow gets.
      */
     async #inRegion<T>(
         opts: DriverKvOpts,
@@ -342,6 +344,7 @@ export class KVStoreDriver extends PuterDriver {
         try {
             return await call();
         } catch (err) {
+            if (err instanceof KvPrivateEntryError) throw handleAccessDenied();
             throw relativizeError(err, opts.handlePrefix, keys);
         }
     }

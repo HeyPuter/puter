@@ -878,11 +878,12 @@ describe('listing through a handle', () => {
 });
 
 describe('a private entry in the region', () => {
-    it('is absent to the holder, uncounted, and refuses every write', async () => {
+    it('is absent to the holder, uncounted, and gives nothing away to a write', async () => {
         const prefix = region('priv');
         await ownerSet(`${prefix}open`, 1);
         await ownerSet(`${prefix}secret`, 's', { disableSharing: true });
         const { handle } = await share(prefix, 'write');
+        const { handle: readOnly } = await share(region('privro'), 'read');
 
         expect(await guestGet(handle, 'secret')).toBeNull();
         expect(await guestGet(handle, ['open', 'secret'])).toEqual([1, null]);
@@ -897,10 +898,44 @@ describe('a private entry in the region', () => {
             ),
         ).toEqual({ items: ['open'], total: 1 });
 
+        // Deleting it answers as deleting a key that isn't there.
+        expect(
+            await as(guest.actor, (d) =>
+                d.del({ key: 'secret', ...via(handle) }),
+            ),
+        ).toBe(true);
+        expect(
+            await as(guest.actor, (d) =>
+                d.del({ key: 'never-written', ...via(handle) }),
+            ),
+        ).toBe(true);
+        expect(
+            await as(guest.actor, (d) =>
+                d.remove({ key: 'secret', paths: [''], ...via(handle) }),
+            ),
+        ).toBeNull();
+
+        // Anything else is refused as a call the handle doesn't allow.
+        let levelRefusal: unknown;
+        try {
+            await guestSet(readOnly, 'k', 1);
+        } catch (err) {
+            levelRefusal = err;
+        }
+        const { statusCode, legacyCode, message } = levelRefusal as Record<
+            string,
+            unknown
+        >;
+        expect(legacyCode).toBe('kv_handle_access_denied');
         for (const call of [
             (d: KVStoreDriver) =>
                 d.set({ key: 'secret', value: 'x', ...via(handle) }),
-            (d: KVStoreDriver) => d.del({ key: 'secret', ...via(handle) }),
+            (d: KVStoreDriver) =>
+                d.set({
+                    key: 'secret',
+                    value: 'x',
+                    ...via(handle, { onlyIfAbsent: true }),
+                }),
             (d: KVStoreDriver) =>
                 d.update({
                     key: 'secret',
@@ -908,7 +943,33 @@ describe('a private entry in the region', () => {
                     ...via(handle),
                 }),
             (d: KVStoreDriver) =>
+                d.add({
+                    key: 'secret',
+                    pathAndValueMap: { list: 1 },
+                    ...via(handle),
+                }),
+            (d: KVStoreDriver) =>
+                d.remove({ key: 'secret', paths: ['a'], ...via(handle) }),
+            (d: KVStoreDriver) =>
+                d.incr({
+                    key: 'secret',
+                    pathAndAmountMap: { n: 1 },
+                    ...via(handle),
+                }),
+            (d: KVStoreDriver) =>
+                d.decr({
+                    key: 'secret',
+                    pathAndAmountMap: { n: 1 },
+                    ...via(handle),
+                }),
+            (d: KVStoreDriver) =>
                 d.expire({ key: 'secret', ttl: 60, ...via(handle) }),
+            (d: KVStoreDriver) =>
+                d.expireAt({
+                    key: 'secret',
+                    timestamp: later(),
+                    ...via(handle),
+                }),
             (d: KVStoreDriver) =>
                 d.batchPut({
                     items: [
@@ -919,18 +980,23 @@ describe('a private entry in the region', () => {
                 }),
         ])
             await expect(as(guest.actor, call)).rejects.toMatchObject({
-                statusCode: 403,
+                statusCode,
+                legacyCode,
+                message,
             });
+
+        // A live key that isn't private still refuses `onlyIfAbsent` quietly.
         expect(
             await as(guest.actor, (d) =>
                 d.set({
-                    key: 'secret',
+                    key: 'open',
                     value: 'x',
                     ...via(handle, { onlyIfAbsent: true }),
                 }),
             ),
         ).toBe(false);
         expect(await ownerGet(`${prefix}secret`)).toBe('s');
+        expect(await ownerGet(`${prefix}open`)).toBe(1);
     });
 });
 
@@ -1184,6 +1250,44 @@ describe('what a write publishes', () => {
             self: true,
             viaWorker: false,
         });
+    });
+
+    it('publishes a holder`s delete of a missing key, and nothing for a private one', async () => {
+        const prefix = region('pdel');
+        await ownerSet(`${prefix}secret`, 's', { disableSharing: true });
+        const { handle } = await share(prefix, 'write');
+        const ownerSub = (
+            await events().subscribe(owner.actor, SOCKET, {
+                subject: `kv:${GLOBAL}:${prefix}*`,
+            })
+        ).sub;
+        const guestSub = (
+            await events().subscribe(guest.actor, SOCKET, {
+                subject: `kv:${handle}:*`,
+            })
+        ).sub;
+        delivered.length = 0;
+
+        await as(guest.actor, (d) => d.del({ key: 'secret', ...via(handle) }));
+        await as(guest.actor, (d) => d.del({ key: 'missing', ...via(handle) }));
+
+        expect(await deliveryFor(guestSub.subId)).toMatchObject({
+            key: 'missing',
+        });
+        expect(await deliveryFor(ownerSub.subId)).toMatchObject({
+            key: `${prefix}missing`,
+        });
+        await new Promise((resolve) =>
+            setTimeout(resolve, EVENTS_COALESCE_WINDOW_MS * 2),
+        );
+        const keys = delivered
+            .filter((one) =>
+                [ownerSub.subId, guestSub.subId].includes(one.subId),
+            )
+            .map((one) => (one.event as { key?: string }).key);
+        expect(keys).not.toContain('secret');
+        expect(keys).not.toContain(`${prefix}secret`);
+        expect(await ownerGet(`${prefix}secret`)).toBe('s');
     });
 
     it('marks the owner`s own writes as theirs, and a worker`s or handler`s as via a worker', async () => {

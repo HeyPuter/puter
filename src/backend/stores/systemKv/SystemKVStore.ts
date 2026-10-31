@@ -271,10 +271,17 @@ const notPrivateCondition = (now: number) => {
     };
 };
 
-const privateEntryError = (): HttpError =>
-    new HttpError(403, 'kv: this entry is private to the app that wrote it', {
-        legacyCode: 'forbidden',
-    });
+/**
+ * A write into a foreign namespace refused for landing on a private entry. A
+ * class of its own so a share's caller can be told something else.
+ */
+export class KvPrivateEntryError extends HttpError {
+    constructor() {
+        super(403, 'kv: this entry is private to the app that wrote it', {
+            legacyCode: 'forbidden',
+        });
+    }
+}
 
 /**
  * A timestamp at or before now is stored as `floor(now)` rather than as-is, so
@@ -1806,7 +1813,7 @@ export class SystemKVStore extends PuterStore {
             response.Item?.[KV_PRIVATE_ATTR] &&
             !isExpiredTtl(response.Item.ttl, Date.now() / 1000)
         ) {
-            throw privateEntryError();
+            throw new KvPrivateEntryError();
         }
         // Returned rather than swallowed: the probe is a real read, and a caller
         // that did not pay for it is under-billed for the operation.
@@ -1860,7 +1867,7 @@ export class SystemKVStore extends PuterStore {
         const isPrivate = confirmedEntries.some(
             (entry) => entry?.noShare && !isExpiredTtl(entry.ttl, now),
         );
-        if (isPrivate) throw privateEntryError();
+        if (isPrivate) throw new KvPrivateEntryError();
         return addUsage(usage, recheckUsage);
     }
 
@@ -2180,8 +2187,13 @@ export class SystemKVStore extends PuterStore {
             throw e;
         }
         if (response === null) {
-            if (onlyIfAbsent) return { res: false, usage: settleUsage };
-            throw privateEntryError();
+            if (!onlyIfAbsent) throw new KvPrivateEntryError();
+            // A share holder reads a private entry as absent, so `false` would
+            // confirm it; the holder gets the refusal a plain write gets.
+            const probeUsage = opts?.namespaceUser
+                ? await this.#assertNotPrivate(namespace, key, opts)
+                : emptyUsage();
+            return { res: false, usage: addUsage(settleUsage, probeUsage) };
         }
         await this.#committed(
             opts,
@@ -2317,7 +2329,12 @@ export class SystemKVStore extends PuterStore {
         const { response, usage: settleUsage } = condition
             ? await this.#writeUnlessRefused(namespace, key, del)
             : { response: await del(), usage: emptyUsage() };
-        if (response === null) throw privateEntryError();
+        if (response === null) {
+            // A share holder reads a private entry as absent, so deleting it
+            // answers as deleting a missing key does, and leaves it in place.
+            if (opts?.namespaceUser) return { res: true, usage: settleUsage };
+            throw new KvPrivateEntryError();
+        }
         await this.#committed(
             opts,
             namespace,
