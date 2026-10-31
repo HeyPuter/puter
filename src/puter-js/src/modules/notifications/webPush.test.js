@@ -833,6 +833,7 @@ describe('onPush', () => {
         const away = () => page({ visibilityState: 'hidden', focused: false });
 
         beforeEach(() => {
+            store.set(OPT_IN, true);
             nav = makeNav({ active: null });
             nav.registration.showNotification = vi.fn(async () => {});
             withBrowser(nav);
@@ -1037,6 +1038,26 @@ describe('onPush', () => {
             expect(nav.registration.showNotification).toHaveBeenCalledTimes(1);
         });
 
+        it('shows nothing while push is off here for the user', async () => {
+            store.delete(OPT_IN);
+            away();
+            const { module, feed } = makeModule();
+            await module.onPush('chat', () => {});
+            await flush();
+            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
+            expect(nav.registration.showNotification).not.toHaveBeenCalled();
+        });
+
+        it('shows nothing after disable()', async () => {
+            away();
+            const { module, feed } = makeModule();
+            await module.onPush('chat', () => {});
+            await flush();
+            await module.disable();
+            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
+            expect(nav.registration.showNotification).not.toHaveBeenCalled();
+        });
+
         it('shows nothing while the page has focus', async () => {
             page();
             const { module, feed } = makeModule();
@@ -1063,6 +1084,7 @@ describe('onPush', () => {
         };
 
         it('says the page shows its own notification while its push feed runs', async () => {
+            store.set(OPT_IN, true);
             withBrowser(makeNav());
             const { module } = makeModule();
             expect(answer(module).showsOwn).toBe(false);
@@ -1073,7 +1095,45 @@ describe('onPush', () => {
             expect(answer(module).showsOwn).toBe(false);
         });
 
+        it('says it does not while push is off here, so pushes reach other devices', async () => {
+            withBrowser(makeNav({ existing: makeSubscription() }));
+            mockRequest.mockResolvedValue({ removed: true });
+            const { module } = makeModule();
+            await module.onPush('chat', () => {});
+            await flush();
+            expect(answer(module).showsOwn).toBe(false);
+
+            store.set(OPT_IN, true);
+            const { module: optedIn } = makeModule();
+            await optedIn.onPush('chat', () => {});
+            await flush();
+            expect(answer(optedIn).showsOwn).toBe(true);
+            await optedIn.disable();
+            expect(answer(optedIn).showsOwn).toBe(false);
+        });
+
+        it('hears another tab turn push off or on', async () => {
+            store.set(OPT_IN, true);
+            withBrowser(makeNav({ existing: makeSubscription() }));
+            server((route) =>
+                route === '/push/web/subscriptions'
+                    ? { status: 'active', device: { uid: 'd1' } }
+                    : { removed: true },
+            );
+            const { module: hidden } = makeModule();
+            await hidden.onPush('chat', () => {});
+            await vi.waitFor(() => expect(answer(hidden).showsOwn).toBe(true));
+
+            const { module: other } = makeModule();
+            await other.disable();
+            await vi.waitFor(() => expect(answer(hidden).showsOwn).toBe(false));
+
+            await other.enable();
+            await vi.waitFor(() => expect(answer(hidden).showsOwn).toBe(true));
+        });
+
         it('says it does not without a registered worker or permission', async () => {
+            store.set(OPT_IN, true);
             const nav = makeNav();
             nav.serviceWorker.getRegistration.mockResolvedValue(undefined);
             withBrowser(nav);

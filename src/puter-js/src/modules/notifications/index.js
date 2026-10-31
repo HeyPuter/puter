@@ -42,6 +42,9 @@ export const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
 /** Query parameter `push-sw.js` adds to a page it opens for a tap. */
 export const CLICK_PARAM = 'puter.notification';
 
+/** Where a site's tabs tell each other that a user's opt-in changed. */
+const OPT_IN_CHANNEL = 'puter-push-opt-in';
+
 /** As long as `push-sw.js` gives a handler. */
 const HANDLER_TIMEOUT_MS = 5_000;
 /** How long an older `push-sw.js`, which never answers, is waited for. */
@@ -179,6 +182,15 @@ export class NotificationsModule extends EventListener {
      */
     #sourceWrites = new Map();
     #receipts = new ReceiptLog(() => this.#showsOwn());
+    /**
+     * Whether the signed-in user turned push on here, as last read or set. A
+     * page shows notifications itself only while it is.
+     */
+    #optedIn = false;
+    /** Bumped on every change, so a read that started before one is dropped. */
+    #optInVersion = 0;
+    /** @type {BroadcastChannel | null} */
+    #optInChannel = null;
     /**
      * Aborted by `disable()` and sign-out, so a confirmation still on its way
      * doesn't register this browser after them.
@@ -432,6 +444,7 @@ export class NotificationsModule extends EventListener {
     #showsOwn() {
         return (
             this.puter.env === 'web' &&
+            this.#optedIn &&
             this.#pushFeed !== null &&
             this.#pushHandlers.size > 0 &&
             this.#workerRegistered &&
@@ -449,31 +462,70 @@ export class NotificationsModule extends EventListener {
 
     async #recordOptIn(on) {
         if (this.puter.env !== 'web') return;
+        this.#setOptedIn(on);
         try {
             const uuid = await this.#userUuid();
             if (uuid) await setOptIn(uuid, on);
         } catch (error) {
             warnStorage(error);
         }
+        this.#optInChanged();
     }
 
     async #forgetOptIns() {
+        this.#setOptedIn(false);
         try {
             await forgetPushState();
         } catch (error) {
             warnStorage(error);
         }
+        this.#optInChanged();
     }
 
-    async #syncIfOptedIn(worker) {
-        let optedIn = false;
+    #setOptedIn(on) {
+        this.#optedIn = on;
+        this.#optInVersion++;
+    }
+
+    /** The signed-in user's opt-in, read from IndexedDB into `#optedIn`. */
+    async #readOptIn() {
+        this.#listenForOptInChanges();
+        const version = this.#optInVersion;
+        let on = false;
         try {
-            const uuid = await this.#userUuid();
-            optedIn = !!uuid && (await hasOptIn(uuid));
+            const uuid = needsSignIn(this.puter)
+                ? null
+                : await this.#userUuid();
+            on = !!uuid && (await hasOptIn(uuid));
         } catch (error) {
             warnStorage(error);
         }
-        if (!optedIn) return;
+        if (version === this.#optInVersion) this.#optedIn = on;
+        return on;
+    }
+
+    /** Other tabs of the site re-read the opt-in this one just wrote. */
+    #optInChanged() {
+        this.#listenForOptInChanges();
+        try {
+            this.#optInChannel?.postMessage('changed');
+        } catch {
+            // A closed channel; the other tabs read it on their next sync.
+        }
+    }
+
+    #listenForOptInChanges() {
+        if (
+            this.#optInChannel ||
+            typeof globalThis.BroadcastChannel !== 'function'
+        )
+            return;
+        this.#optInChannel = new BroadcastChannel(OPT_IN_CHANNEL);
+        this.#optInChannel.onmessage = () => void this.#readOptIn();
+    }
+
+    async #syncIfOptedIn(worker) {
+        if (!(await this.#readOptIn())) return;
         await this.#finishSync(
             syncWebPush(this.puter, {
                 worker,
@@ -531,6 +583,7 @@ export class NotificationsModule extends EventListener {
             this.#restartOnAuthChange();
             return;
         }
+        if (this.puter.env === 'web') void this.#readOptIn();
         /** @type {Promise<{ off: () => Promise<void> } | null>} */
         const feed = (async () => {
             try {
@@ -619,7 +672,7 @@ export class NotificationsModule extends EventListener {
      * holds it back. Inside the Puter desktop, the desktop's banner shows it.
      */
     async #showIfAway(notification, result) {
-        if (this.puter.env !== 'web' || !pageAway()) return;
+        if (this.puter.env !== 'web' || !this.#optedIn || !pageAway()) return;
         if (globalThis.Notification?.permission !== 'granted') return;
         try {
             const worker = this.#worker ?? workerFor('web');

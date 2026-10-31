@@ -18,6 +18,7 @@ A page of your site shows the notification itself when all of these are true:
 
 - The page is hidden, or its window isn't focused.
 - It has an [`onPush()`](/Notifications/onPush/) handler.
+- The user turned pushes on in this browser with [`enable()`](/Notifications/enable/), and hasn't turned them off with [`disable()`](/Notifications/disable/).
 - The user allowed notifications for your site in this browser.
 - No other tab of your site is focused.
 
