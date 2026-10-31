@@ -820,23 +820,56 @@ describe('OpenAIRealtimeRelayService relay', () => {
         expect((await c.closed).code).toBe(1008);
     });
 
-    it('bounds pending metering work while another session remains responsive', async () => {
-        const flooding = open(`${relayUrl}?auth_token=${user.token}`);
-        const quiet = open(`${relayUrl}?auth_token=${user.token}`);
+    it('asks a session to retry with 1013 when metering falls behind, then bills what it queued', async () => {
+        const holder = await createTestUser(server, {
+            username: 'realtime-backlog',
+            password: 'realtime-backlog-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        const metering = server.services.metering;
+        const record = metering.batchIncrementUsages.bind(metering);
+        let open_: () => void = () => {};
+        const gate = new Promise<void>((resolve) => (open_ = resolve));
+        const recorded = vi
+            .spyOn(metering, 'batchIncrementUsages')
+            .mockImplementation(async (...args) => {
+                await gate;
+                return record(...args);
+            });
+        const url = `${relayUrl}?model=gpt-realtime-mini&auth_token=${holder.token}`;
+        const flooding = open(url);
+        const quiet = open(url);
         await Promise.all([
             flooding.waitFor('session.created'),
             quiet.waitFor('session.created'),
         ]);
-        flooding.ws.send(JSON.stringify({ type: 'test.burst', count: 40 }));
-        quiet.ws.send('{"type":"test.quiet"}');
+        // Each reply's usage queues behind metering with its credit hold.
+        for (let i = 0; i < 40; i++) {
+            flooding.ws.send('{"type":"response.create"}');
+        }
         expect(await flooding.waitFor('error')).toMatchObject({
             error: { code: 'rate_limit_exceeded' },
         });
-        expect((await flooding.closed).code).toBe(1008);
+        expect((await flooding.closed).code).toBe(1013);
+        quiet.ws.send('{"type":"test.quiet"}');
         expect(await quiet.waitFor('echo')).toMatchObject({
             event: { type: 'test.quiet' },
         });
         quiet.ws.close();
+
+        expect(await metering.getOutstandingHolds(actor)).toBeGreaterThan(0);
+
+        // Everything queued is still recorded once metering catches up, and
+        // each hold is released after its usage.
+        open_();
+        await vi.waitFor(
+            async () => {
+                expect(recorded.mock.calls.length).toBeGreaterThan(32);
+                expect(await metering.getOutstandingHolds(actor)).toBe(0);
+            },
+            { timeout: 10_000 },
+        );
     });
 
     it('reports a refused upstream handshake', async () => {
@@ -1143,6 +1176,57 @@ describe('OpenAIRealtimeRelayService relay', () => {
         expect(events.some((e) => e.type === 'error')).toBe(false);
         auth.mockRestore();
         ws.close();
+    });
+
+    it('reports a failed credential lookup as internal_error and 1011, and caches nothing', async () => {
+        const auth = vi
+            .spyOn(server.services.auth, 'authenticate')
+            .mockRejectedValueOnce(new Error('db down'));
+        const before = upstreamRequests.length;
+        kv.del(realtimeAuthKey(user.token));
+        const failed = open(`${relayUrl}?auth_token=${user.token}`);
+        expect(await failed.waitFor('error')).toMatchObject({
+            error: {
+                code: 'internal_error',
+                message: 'Could not verify credentials',
+            },
+        });
+        expect((await failed.closed).code).toBe(1011);
+        expect(upstreamRequests.length).toBe(before);
+        expect(kv.get(realtimeAuthKey(user.token))).toBeUndefined();
+
+        // The lookup recovers, and so does the next attempt.
+        const retry = open(`${relayUrl}?auth_token=${user.token}`);
+        await retry.waitFor('session.created');
+        expect(auth).toHaveBeenCalledTimes(2);
+        expect(kv.get(realtimeAuthKey(user.token))).toBeDefined();
+        retry.ws.close();
+    });
+
+    it('reports an unexpected setup failure as internal_error and 1011', async () => {
+        vi.spyOn(
+            server.services.metering,
+            'hasEnoughCredits',
+        ).mockRejectedValueOnce(new Error('metering down'));
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'internal_error', message: 'Realtime setup failed' },
+        });
+        expect((await c.closed).code).toBe(1011);
+    });
+
+    it('refuses an invalid or revoked credential with invalid_api_key and 1008', async () => {
+        for (const result of [{ invalid: true }, { blocked: true }]) {
+            vi.spyOn(
+                server.services.auth,
+                'authenticate',
+            ).mockResolvedValueOnce(result as never);
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'invalid_api_key' },
+            });
+            expect((await c.closed).code).toBe(1008);
+        }
     });
 
     it('refuses a seat whose team requires 2FA the account lacks', async () => {
