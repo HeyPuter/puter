@@ -431,6 +431,52 @@ describe('notifications with the fold-in on', () => {
         await state.server.services.events.reapSocket(user.id, 'socket-app');
     });
 
+    it("delivers an app message's replacement under its uid, with the new content", async () => {
+        const user = await makeUser(state.server);
+        const appUid = await makeApp(state.server, user.id);
+        const appActor = {
+            user: { id: user.id, uuid: user.uuid, username: user.username },
+            app: { uid: appUid },
+            effectiveApp: { uid: appUid },
+        };
+        await state.server.services.events.subscribe(
+            appActor as never,
+            'socket-app',
+            { subject: 'notif:app-user' },
+        );
+
+        const notifications = state.server.services.notification;
+        const uid = await notifications.notify(
+            [user.id],
+            { title: 'one message' },
+            { type: 'app.message', appUid, group: 'chat-1' },
+        );
+        await waitFor(() => state.delivered.length === 1);
+        await notifications.notifyUpdate(
+            uid!,
+            user.id,
+            { title: 'two messages' },
+            { type: 'app.message', replace: true },
+        );
+        await waitFor(() => state.delivered.length === 2);
+        await settle();
+
+        expect(state.delivered.map((d) => d.event)).toEqual([
+            expect.objectContaining({
+                id: uid,
+                notification: { title: 'one message', type: 'app.message' },
+            }),
+            expect.objectContaining({
+                id: uid,
+                notification: { title: 'two messages', type: 'app.message' },
+            }),
+        ]);
+        // An app's message never reaches the desktop wire.
+        expect(notifSends(state.sent)).toEqual([]);
+
+        await state.server.services.events.reapSocket(user.id, 'socket-app');
+    });
+
     it('delivers a developer row naming an app to its owner\'s own generic subscription', async () => {
         const user = await makeUser(state.server);
         const appUid = await makeApp(state.server, user.id);

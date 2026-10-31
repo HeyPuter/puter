@@ -4,7 +4,7 @@ description: Receive your app's notifications while it's open, including the one
 platforms: [websites, apps]
 ---
 
-Calls `handler` for each of your app's notifications while the app is open. It first hands over the notifications your app already has, oldest first, then each new one as it's sent. If the connection drops, the ones sent meanwhile are read back when it returns. Each notification reaches a listener once, however it arrived.
+Calls `handler` for each of your app's notifications while the app is open. It first hands over the notifications your app already has, oldest first, then each new one as it's sent. If the connection drops, the ones sent meanwhile are read back when it returns. Each notification reaches a listener once, however it arrived. A notification [replaced through its `group`](/Notifications/notify/#groups) keeps its `uid`, so a listener isn't called again for the replacement.
 
 It only receives notifications your app sent, never the user's other notifications. It needs to run as an app (an app on Puter, or a website using Puter.js); with an account session and no app, such as the Puter desktop itself or Node.js with an account token, it rejects with `app_required`.
 

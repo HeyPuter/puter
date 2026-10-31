@@ -135,6 +135,47 @@ export default suite('notifications', {
         });
     },
 
+    'a notification replaces the unread one in its group': async (t) => {
+        const appUid = await makeApp(t);
+        await asApp(t, appUid, async () => {
+            const group = unique('chat');
+            const first = await t.puter.notifications.notify({
+                title: unique('one'),
+                group,
+            });
+            const second = await t.puter.notifications.notify({
+                title: 'Two',
+                text: 'Latest',
+                group,
+            });
+            t.assert.equal(second, first, 'the replacement keeps the uid');
+
+            const otherGroup = await t.puter.notifications.notify({
+                title: unique('other'),
+                group: unique('chat'),
+            });
+            const noGroup = await t.puter.notifications.notify({
+                title: unique('plain'),
+            });
+            t.assert.ok(otherGroup !== first, 'another group is new');
+            t.assert.ok(noGroup !== first, 'no group is new');
+
+            const seen: Received[] = [];
+            const listener = await t.puter.notifications.onNotification((n) => {
+                seen.push(n);
+            });
+            await listener.off();
+            const replaced = seen.filter((n) => n.uid === first);
+            t.assert.equal(
+                replaced.length,
+                1,
+                'one notification for the group',
+            );
+            t.assert.equal(replaced[0]?.title, 'Two');
+            t.assert.equal(replaced[0]?.text, 'Latest');
+        });
+    },
+
     "an app reads only its own app's notifications": async (t) => {
         const other = await makeApp(t);
         const otherUid = await asApp(t, other, () =>

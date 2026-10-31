@@ -115,12 +115,13 @@ export const NOTIFICATION_TYPES = [
         groupable: false,
         subject: subjectFor('developer'),
     },
-    // The only type apps create; its kind goes in the value's `channel`.
+    // The only type apps create; its kind goes in the value's `channel`. A
+    // newer one replaces the unseen one with the same `group`.
     {
         type: 'app.message',
         audience: 'app-user',
         appScoped: true,
-        groupable: false,
+        groupable: true,
         accountMailbox: false,
         subject: subjectFor('app-user'),
     },

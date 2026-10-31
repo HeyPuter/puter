@@ -37,6 +37,7 @@ import {
     APP_MESSAGE_TYPE,
     appMessageSender,
     parseAppMessage,
+    type AppMessage,
 } from '../../services/notification/appMessage.js';
 import {
     APP_READABLE_AUDIENCES,
@@ -58,6 +59,8 @@ import { CRUD_CONCURRENT } from '../util/crudLimits.js';
 const MAX_SELECT_LIMIT = 200;
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
+
+type AppMessageWindow = 'minute' | 'day';
 
 /** The mailbox slice a call named, in the terms the query takes it. */
 interface MailboxScope {
@@ -83,6 +86,11 @@ const typeNotAllowed = (message: string): HttpError =>
     new HttpError(403, message, {
         legacyCode: 'forbidden',
         code: 'notification_type_not_allowed',
+    });
+
+const tooManyAppMessages = (): HttpError =>
+    new HttpError(429, 'Too many notifications from this app.', {
+        legacyCode: 'too_many_requests',
     });
 
 /** Whether a row belongs to the slice, as the same SQL scope selected it. */
@@ -202,7 +210,7 @@ export class NotificationDriver extends PuterDriver {
         // Silent: a driver `create` has never pushed to the live socket, only
         // ever written the row — moving through the registry does not change
         // that.
-        return this.#write(actor, value, {
+        return this.#write(actor.user.id, value, {
             type: registeredType,
             appUid,
             silent: true,
@@ -326,69 +334,116 @@ export class NotificationDriver extends PuterDriver {
         }
         const message = parseAppMessage(fields);
         assertValueFits(value);
+        return this.#sendAppMessage(actor.user.id, appUid, message);
+    }
 
-        if (!(await this.#withinAppMessageLimits(actor.user.id, appUid))) {
-            throw new HttpError(429, 'Too many notifications from this app.', {
-                legacyCode: 'too_many_requests',
-            });
-        }
+    /**
+     * A message with a `group` replaces the recipient's unseen one in that
+     * group, which spends a minute slot but no day slot. Limits are keyed on
+     * the recipient, who need not be the actor.
+     */
+    async #sendAppMessage(
+        recipientId: number,
+        appUid: string,
+        message: AppMessage,
+    ): Promise<Record<string, unknown> | null> {
+        // Primary: a lagging replica would turn a replacement into a new
+        // notification, which spends a day slot.
+        const open = message.group
+            ? await this.stores.notification.getUnseenByGroup(
+                  recipientId,
+                  appUid,
+                  message.group,
+                  { primary: true },
+              )
+            : null;
+        await this.#spendAppMessageLimits(
+            recipientId,
+            appUid,
+            open ? ['minute'] : ['minute', 'day'],
+        );
 
         message.app = appMessageSender(
             appUid,
             await this.stores.app.getByUid(appUid),
         );
 
-        return this.#write(actor, message, {
+        if (open) {
+            const uid = String(open.uid);
+            if (
+                await this.services.notification.notifyUpdate(
+                    uid,
+                    recipientId,
+                    message,
+                    { type: APP_MESSAGE_TYPE, replace: true },
+                )
+            ) {
+                return this.#readBack(uid, recipientId);
+            }
+            // Shown or dismissed since the lookup, so this one is new after all.
+            await this.#spendAppMessageLimits(recipientId, appUid, ['day']);
+        }
+
+        return this.#write(recipientId, message, {
             type: APP_MESSAGE_TYPE,
             appUid,
             silent: false,
+            group: message.group ?? null,
         });
     }
 
     /**
-     * Both windows are read before either is spent, so a refusal costs none.
+     * Every window named is read before any is spent, so a refusal costs none.
      * The minute window is spent first: it is the one most likely to run out
      * between the read and the spend, and a refusal there leaves the day
      * alone.
      */
-    async #withinAppMessageLimits(
+    async #spendAppMessageLimits(
         userId: number,
         appUid: string,
-    ): Promise<boolean> {
+        spend: readonly AppMessageWindow[],
+    ): Promise<void> {
         const configured = this.config.notificationAppMessageLimits ?? {};
-        const all: Array<[string, number, number]> = [
-            [
+        const all: Record<AppMessageWindow, [string, number, number]> = {
+            minute: [
                 `notif:app-message:minute:${userId}:${appUid}`,
                 configured.perMinute ?? APP_MESSAGE_RATE_LIMITS.perMinute,
                 MINUTE_MS,
             ],
-            [
+            day: [
                 `notif:app-message:day:${userId}:${appUid}`,
                 configured.perDay ?? APP_MESSAGE_RATE_LIMITS.perDay,
                 DAY_MS,
             ],
-        ];
-        const windows = all.filter(([, limit]) => limit > 0);
+        };
+        const windows = spend
+            .map((name) => all[name])
+            .filter(([, limit]) => limit > 0);
         for (const [key, limit, windowMs] of windows) {
-            if (!(await peekRateLimit(key, limit, windowMs))) return false;
+            if (!(await peekRateLimit(key, limit, windowMs))) {
+                throw tooManyAppMessages();
+            }
         }
         for (const [key, limit, windowMs] of windows) {
-            if (!(await checkRateLimit(key, limit, windowMs))) return false;
+            if (!(await checkRateLimit(key, limit, windowMs))) {
+                throw tooManyAppMessages();
+            }
         }
-        return true;
     }
 
+    /** Writes for `userId`, who need not be the actor. */
     async #write(
-        actor: UserActor,
+        userId: number,
         value: Record<string, unknown>,
         opts: {
             type: NotificationTypeName;
             appUid: string | null;
             silent: boolean;
+            group?: string | null;
         },
-    ): Promise<unknown> {
+    ): Promise<Record<string, unknown> | null> {
         const uid = await this.services.notification.notify(
-            [actor.user.id],
+            [userId],
             value,
             opts,
         );
@@ -397,10 +452,17 @@ export class NotificationDriver extends PuterDriver {
                 legacyCode: 'internal_error',
             });
         }
-        // `notify` hands back only the uid; the primary has the rest.
+        return this.#readBack(uid, userId);
+    }
+
+    /** The service hands back only the uid; the primary has the rest. */
+    async #readBack(
+        uid: string,
+        userId: number,
+    ): Promise<Record<string, unknown> | null> {
         return this.#toClient(
             await this.stores.notification.getByUid(uid, {
-                userId: actor.user.id,
+                userId,
                 primary: true,
             }),
         );

@@ -55,6 +55,11 @@ somewhere else. Everything it needs comes from `event`, `user`, and `ctx`, the
 values each subscription is created with. The `me` check skips the member's own
 messages, since their subscription sees those too.
 
+The `group` makes a new message replace the member's unread notification for
+the same room instead of adding another, so a busy room doesn't use up the
+daily notification limit. [`notify()`](/Notifications/notify/#groups) has the
+details.
+
 ## Say What a Push Shows
 
 On every page load, register a handler for the `chat` channel with

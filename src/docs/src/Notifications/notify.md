@@ -6,7 +6,7 @@ platforms: [websites, apps]
 
 Sends the user your app runs for a notification. It goes to your app, not the Puter desktop's notifications panel, and reaches every open page of your app, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). Puter asks those pages whether they received it. When no page answers within 5 seconds that it's visible and focused, or that it shows the notification itself, it also goes out as a push to the browsers where the user [turned pushes on](/Notifications/enable/) for your app. [Push notifications for your app](/Notifications/push/#when-a-notification-is-pushed) has the details.
 
-Only an app can send notifications, meaning an app running on Puter or a website using Puter.js. Every notification carries your app's name. A user gets at most 30 notifications a minute and 1,000 a day from each app.
+Only an app can send notifications, meaning an app running on Puter or a website using Puter.js. Every notification carries your app's name. A user gets at most 30 notifications a minute and 1,000 a day from each app. A notification that replaces an earlier one in its [group](#groups) counts against the 30 a minute only.
 
 Pushes have their own caps. A user gets at most 12 pushes a minute and 1,000 a day from each app, or 6 a minute and 200 a day from an app younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower caps. Over a push cap, the notification still reaches your app live and the call still resolves. See [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
 
@@ -34,7 +34,7 @@ puter.notifications.notify(notification)
 
 ## Return value
 
-A `Promise` that resolves to the new notification's `uid` (String).
+A `Promise` that resolves to the notification's `uid` (String). When it replaced an earlier notification in its [group](#groups), that's the earlier notification's `uid`.
 
 It rejects with an error carrying `message` and `code`:
 
@@ -45,6 +45,14 @@ It rejects with an error carrying `message` and `code`:
 | `forbidden` | The call wasn't made by an app, for example from Node.js with an account token. |
 | `too_many_requests` | Your app sent this user too many notifications. See [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications). |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
+
+## Groups
+
+A notification with a `group` replaces your app's earlier notification to the same user with the same `group`, as long as that one is still unread. Unread means it wasn't marked read or dismissed. The replacement keeps the earlier notification's `uid` and gets the new content and time. Without a `group`, or when the earlier one was read or dismissed, the call creates a new notification.
+
+A listener added with [`onNotification()`](/Notifications/onNotification/) gets each `uid` once, so it isn't called again for the replacement of a notification it already got. Reading with [`puter.events.fetch()`](/Events/fetch/) returns the replacement's content.
+
+The notification limits count notifications written. A replacement counts against the 30 a minute but not the 1,000 a day. The push limits count only pushes sent, so a notification that isn't pushed doesn't count against them. A replacement that goes out as a push counts like any other push.
 
 ## Examples
 

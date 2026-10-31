@@ -132,7 +132,8 @@ export class NotificationService extends PuterService {
      * @param userIds Target user ids
      * @param notification Payload — { title, text?, icon?, fields? }
      * @param opts `{ type }` from the registry, `{ appUid }` for a row about an
-     *   app, `{ silent }` to skip the socket push.
+     *   app, `{ silent }` to skip the socket push, `{ group }` to make the row
+     *   findable by its group later.
      * @returns The uid of the first recipient's row, or `null` when nothing was
      *   written — there is no uid to hand back that would name anything.
      */
@@ -143,6 +144,7 @@ export class NotificationService extends PuterService {
             type: NotificationTypeName;
             appUid?: string | null;
             silent?: boolean;
+            group?: string | null;
         },
     ): Promise<string | null> {
         const appUid = opts.appUid ?? null;
@@ -161,6 +163,7 @@ export class NotificationService extends PuterService {
                         type: registered.type,
                         audience: registered.audience,
                         appUid,
+                        group: opts.group ?? null,
                     });
                 } catch (err) {
                     // One recipient's row failing is not the others' problem,
@@ -206,6 +209,9 @@ export class NotificationService extends PuterService {
      * notification would just be noise. Only a `groupable` type may be folded
      * this way; the scope columns are the original row's and don't move.
      *
+     * `replace` is a newer notification standing in for the old one: it takes
+     * only a row that was never shown, and dates it to now.
+     *
      * False when there was nothing to rewrite (dismissed in between), which is
      * the caller's signal to send a fresh one.
      */
@@ -213,7 +219,11 @@ export class NotificationService extends PuterService {
         uid: string,
         userId: number,
         notification: Record<string, unknown>,
-        opts: { type: NotificationTypeName; silent?: boolean },
+        opts: {
+            type: NotificationTypeName;
+            silent?: boolean;
+            replace?: boolean;
+        },
     ): Promise<boolean> {
         const registered = findNotificationType(opts.type);
         if (!registered?.groupable) {
@@ -224,10 +234,13 @@ export class NotificationService extends PuterService {
             uid,
             userId,
             payload,
+            opts.replace ? { onlyUnseen: true, refreshCreatedAt: true } : {},
         );
         if (!updated) return false;
+        if (opts.silent) return true;
 
-        if (!opts.silent) {
+        const desktop = inAccountMailbox(registered.type);
+        if (desktop) {
             // Same uid as the original: the client replaces what it is already
             // showing rather than stacking another copy. It goes straight to
             // the wire rather than through dispatch — the row was already
@@ -235,26 +248,33 @@ export class NotificationService extends PuterService {
             // to anything deduplicating on `event.id`.
             this.#socket().message(userId, uid, payload);
             this.#markDelivered(uid, userId);
-            const row = await this.stores.notification.getByUid(uid, {
+        }
+        const row = await this.stores.notification.getByUid(uid, { userId });
+        const app = notification.app as { uid?: unknown } | undefined;
+        const appUid =
+            row?.app_uid ?? (typeof app?.uid === 'string' ? app.uid : null);
+        this.clients.event.emit(
+            'notif.written',
+            {
                 userId,
+                uid,
+                type: registered.type,
+                audience: registered.audience,
+                appUid,
+                value: structuredClone(payload),
+                updated: true,
+                sendId: uuidv4(),
+            },
+            {},
+        );
+        // A type kept off the desktop has dispatch as its only live path, so
+        // the rewrite goes out there again, under the same uid.
+        if (!desktop) {
+            await this.#push(userId, uid, payload, {
+                type: registered.type,
+                audience: registered.audience,
+                appUid,
             });
-            const app = notification.app as { uid?: unknown } | undefined;
-            this.clients.event.emit(
-                'notif.written',
-                {
-                    userId,
-                    uid,
-                    type: registered.type,
-                    audience: registered.audience,
-                    appUid:
-                        row?.app_uid ??
-                        (typeof app?.uid === 'string' ? app.uid : null),
-                    value: structuredClone(payload),
-                    updated: true,
-                    sendId: uuidv4(),
-                },
-                {},
-            );
         }
         return true;
     }
