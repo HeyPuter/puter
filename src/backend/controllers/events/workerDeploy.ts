@@ -41,7 +41,10 @@ import {
     eventsWorkerScope,
     eventsWorkerScript,
 } from '../../services/events/workerRuntime.js';
-import { generateEventsWorkerSource } from '../../services/events/workerSource.js';
+import {
+    generateEventsWorkerSource,
+    handlerSetHash,
+} from '../../services/events/workerSource.js';
 import type { puterStores } from '../../stores/index.js';
 import type { IConfig, LayerInstances } from '../../types.js';
 import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
@@ -117,20 +120,24 @@ export class EventsWorkerDeployer {
         script: string,
     ): Promise<EventsDeployOutcome> {
         const { stores, drivers } = this.#layers;
+        const scope = eventsWorkerScope(this.#layers.config);
 
-        const handlers = await stores.eventHandler.allForApp(appUid);
-        if (handlers.length === 0) return 'no-handlers';
-
-        const generated = generateEventsWorkerSource(handlers);
+        // Names and hashes are enough to tell a stale request, so the set's
+        // sources are read and built only once the throttle has let it through.
+        const set = await stores.eventHandler.setForApp(appUid);
+        if (set.length === 0) return 'no-handlers';
         // Two apps that published byte-identical sets share one script, which
         // is sound: the source is the same, and everything per-app arrives with
         // the invocation. Whoever deploys first owns it.
-        if (
-            eventsWorkerScript(
-                generated.setHash,
-                eventsWorkerScope(this.#layers.config),
-            ) !== script
-        )
+        if (eventsWorkerScript(handlerSetHash(set), scope) !== script)
+            return 'stale';
+
+        if (await this.#tooManyDeploysThisHour(appUid)) return 'throttled';
+
+        const handlers = await stores.eventHandler.allForApp(appUid);
+        const generated = generateEventsWorkerSource(handlers);
+        // The set can move between the two reads.
+        if (eventsWorkerScript(generated.setHash, scope) !== script)
             return 'stale';
         if (generated.tooLarge) {
             console.error(
@@ -143,8 +150,6 @@ export class EventsWorkerDeployer {
                 `[events] ${appUid}: handlers not runnable as published:`,
                 generated.broken.join(', '),
             );
-
-        if (await this.#tooManyDeploysThisHour(appUid)) return 'throttled';
 
         const owner = await this.#owner(appUid);
         if (!owner) return 'no-owner';
