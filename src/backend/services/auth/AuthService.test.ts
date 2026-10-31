@@ -2041,6 +2041,45 @@ describe('AuthService (integration)', () => {
             );
             expect((await authService.authenticate(token)).actor).toBeTruthy();
         });
+
+        it('records no activity for an events handler`s calls', async () => {
+            const user = await makeUser();
+            const app = await server.stores.app.create(
+                {
+                    name: `ev-app-${uuidv4()}`,
+                    title: 'Events app',
+                    index_url: `https://${uuidv4()}.example.com/`,
+                },
+                { ownerUserId: user.id },
+            );
+            const handler = await authService.createWorkerAppToken(
+                makeActor({ user }),
+                app.uid,
+                EVENTS_WORKER_SESSION_NAME,
+                { handlerDepth: 1, expiresInSeconds: 900 },
+            );
+            const interactive = await authService.getUserAppToken(
+                makeActor({ user }),
+                app.uid,
+            );
+
+            const touch = vi.spyOn(server.stores.session, 'touch');
+            try {
+                const ctx = { ip: '9.9.9.9', userAgent: 'worker-runtime' };
+                expect(
+                    (await authService.authenticate(handler, ctx)).actor,
+                ).toBeTruthy();
+                expect(touch).not.toHaveBeenCalled();
+
+                // The same app in a tab is the user being active.
+                expect(
+                    (await authService.authenticate(interactive, ctx)).actor,
+                ).toBeTruthy();
+                expect(touch).toHaveBeenCalledTimes(1);
+            } finally {
+                touch.mockRestore();
+            }
+        });
     });
 
     describe('deleting worker sessions', () => {

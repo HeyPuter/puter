@@ -2696,7 +2696,10 @@ export class AuthService extends PuterService {
         }
         if (!(await deployed)) return { invalid: true };
 
-        void this.#touchSession(session.uuid, user.id, ctx);
+        // An events handler's calls are background work, not the user being
+        // active, and its session never expires, so they record no activity.
+        if (decoded.worker_name !== EVENTS_WORKER_SESSION_NAME)
+            void this.#touchSession(session.uuid, user.id, ctx);
 
         const actor = this.#buildAppUnderUserActor(user, app, session);
         this.#applyHandlerDepth(actor, decoded);
