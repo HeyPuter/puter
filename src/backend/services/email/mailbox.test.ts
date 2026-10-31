@@ -1,9 +1,17 @@
 import { Readable } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
+import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
+import type { Actor } from '../../core/actor.js';
+import { runWithContext } from '../../core/context.js';
 import type { PuterServer } from '../../server.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
-import { createTestUser, setupTestServer } from '../../testUtil.js';
+import {
+    createTestUser,
+    setupTestServer,
+    type TestUserCredentials,
+} from '../../testUtil.js';
+import type { DeliveryEnvelope } from '../events/EventsService.js';
 import {
     MAIL_CONTENT_TYPE,
     copyIntoInbox,
@@ -28,6 +36,7 @@ const UUID_V7 =
 // which methods were called.
 let server: PuterServer;
 let dan: UserRow;
+let danCredentials: TestUserCredentials;
 
 // `frankfurt` is wired to the same bucket the test server already has, so a
 // message filed for a Frankfurt account lands somewhere real and the region it
@@ -42,8 +51,15 @@ beforeAll(async () => {
                 bucketRegion: FRANKFURT_REGION,
             },
         },
+        events: { enabled: true },
+        // Seeded accounts have no email, which plans read as a temporary
+        // account that holds no persistent subscriptions.
+        unlimitedMetering: true,
     } as never);
-    await createTestUser(server, { username: 'dan', password: 'secret123!' });
+    danCredentials = await createTestUser(server, {
+        username: 'dan',
+        password: 'secret123!',
+    });
     dan = (await server.stores.user.getByUsername('dan')) as UserRow;
 });
 
@@ -226,5 +242,85 @@ describe('copyIntoInbox', () => {
             ),
         ).toBeTruthy();
         expect(copied.size).toBe(source.size);
+    });
+});
+
+describe('the filesystem events filing raises', () => {
+    let actor: Actor;
+    let subId: string;
+    const delivered: DeliveryEnvelope[] = [];
+
+    beforeAll(async () => {
+        actor = (await server.services.auth.authenticate(danCredentials.token))
+            .actor!;
+        ({
+            sub: { subId },
+        } = await server.services.events.subscribeDurable(actor, {
+            subject: `fs:${mailboxPath('dan')}`,
+        }));
+        server.services.events.onDelivered = (envelope) =>
+            delivered.push(envelope);
+    });
+
+    const deliveredAt = (path: string) =>
+        vi.waitFor(
+            () => {
+                const found = delivered.find(
+                    (envelope) =>
+                        envelope.subId === subId &&
+                        (envelope.event as { path?: string }).path === path,
+                );
+                expect(found).toBeDefined();
+                return found!.event as { op: string; self: boolean };
+            },
+            { timeout: EVENTS_COALESCE_WINDOW_MS * 12, interval: 25 },
+        );
+
+    test("is not the owner's own change, even inside the owner's request", async () => {
+        const entry = await runWithContext({ actor }, () =>
+            storeInboxMessage(server.services.fs, dan, {
+                subject: 'to myself',
+                content: Buffer.from('raw'),
+                size: 3,
+            }),
+        );
+
+        expect(await deliveredAt(entry.path)).toMatchObject({
+            op: 'add',
+            self: false,
+        });
+    });
+
+    test('nor is a message copied in', async () => {
+        const source = await storeInboxMessage(server.services.fs, dan, {
+            content: Buffer.from('original'),
+            size: 8,
+            day: '2021-01-01',
+            name: `source-${uuidv4()}`,
+        });
+
+        const copied = await runWithContext({ actor }, () =>
+            copyIntoInbox(server.services.fs, dan, {
+                source,
+                name: `copied-${uuidv4()}`,
+                day: '2021-01-02',
+            }),
+        );
+
+        expect((await deliveredAt(copied.path)).self).toBe(false);
+    });
+
+    test("while the owner's own write in the same request still is", async () => {
+        const { fsEntry } = await runWithContext({ actor }, () =>
+            server.services.fs.write(dan.id, {
+                fileMetadata: {
+                    path: `${mailboxPath('dan')}/note-${uuidv4()}.txt`,
+                    size: 1,
+                },
+                fileContent: Buffer.from('x'),
+            }),
+        );
+
+        expect((await deliveredAt(fsEntry.path)).self).toBe(true);
     });
 });

@@ -161,7 +161,7 @@ The handler is called with `{ event }`. A filesystem change carries:
 | `uid` | String | The uid of the node that changed. |
 | `path` | String | The path of the node that changed. |
 | `from` | String | On a `move`, the path the node left. Only present when the subscription was watching that location. |
-| `self` | Boolean | `true` when the account holding the subscription made the change. |
+| `self` | Boolean | `true` when the account holding the subscription made the change. Mail filed into the account's `~/.mail` folder is always `false`, including mail the account sent to itself. |
 | `viaWorker` | Boolean | `true` when the change came from server-side code running as an account, such as a worker using `me.puter` or an [events handler](/Events/handlers/) running in the events worker. A worker using `user.puter` acts as the user who called it, so its changes are that user's own, with `viaWorker` set to `false`. A handler running in a client writes as that client, also with `viaWorker` set to `false`. Skip your own changes with `self && !viaWorker`, which still lets through the ones a worker made as your account. |
 | `ts` | Number | When it happened, in milliseconds since the epoch. |
 | `seq` | Number | Position within one dispatch, when a change goes to several subscriptions. |
