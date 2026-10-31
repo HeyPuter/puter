@@ -848,7 +848,9 @@ export class EventSubscriptionStore extends PuterStore {
      * A row made through a share handle is kept only if `stillHeld` says the
      * handle still stands; the rest come back as `lapsed`, untouched, for the
      * caller to end. Without that, a live socket would hold a retired handle's
-     * rows in the owner's keyspace for as long as it stays connected.
+     * rows in the owner's keyspace for as long as it stays connected. Rows
+     * through one handle share its grant, so it's asked once per handle, holder
+     * and app.
      *
      * Returns every (owner, token) pair the socket still holds, and the value
      * variant of each one a row asks KV values on, so the caller can
@@ -873,6 +875,17 @@ export class EventSubscriptionStore extends PuterStore {
 
         const reasserted: RefreshResult['reasserted'] = [];
         const lapsed: SessionSubscription[] = [];
+        const asked = new Map<string, Promise<boolean>>();
+        const stillHeld = (row: SessionSubscription, handle: string) => {
+            if (!options.stillHeld) return true;
+            const key = `${handle}|${row.holderUserId}|${row.appUid ?? ''}`;
+            let answer = asked.get(key);
+            if (!answer) {
+                answer = options.stillHeld(row);
+                asked.set(key, answer);
+            }
+            return answer;
+        };
         for (const [ownerUserId, owned] of byOwner(refs)) {
             const read = this.clients.redis.pipeline();
             for (const ref of owned)
@@ -888,11 +901,12 @@ export class EventSubscriptionStore extends PuterStore {
                 row ? kvHandleFromSubject(row.subject) : null,
             );
             const held = await Promise.all(
-                rows.map((row, i) =>
-                    row && handles[i] !== null && options.stillHeld
-                        ? options.stillHeld(row)
-                        : true,
-                ),
+                rows.map((row, i) => {
+                    const handle = handles[i];
+                    return row && handle !== null
+                        ? stillHeld(row, handle)
+                        : true;
+                }),
             );
             rows.forEach((row, i) => {
                 if (row && !held[i]) lapsed.push(row);
