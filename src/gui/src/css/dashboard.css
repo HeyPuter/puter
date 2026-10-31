@@ -2124,6 +2124,16 @@ input.myapps-group-name:focus {
     border-top: 1px solid var(--afb-border);
     vertical-align: top;
 }
+.custom-domain-redirect strong {
+    color: var(--afb-fg);
+    word-break: break-all;
+}
+.custom-domain-use-www {
+    display: block;
+    width: 100%;
+    margin-top: 10px;
+    font-size: 13px;
+}
 .custom-domain-copy {
     display: block;
     word-break: break-all;
