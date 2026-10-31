@@ -324,6 +324,18 @@ describe('parseAnthropicRequest', () => {
         expect(args.provider).toBe('claude');
         expect(args.normalize).toBe(false);
         expect(args.streamToolInput).toBe(true);
+        expect(args.fallback).toBeUndefined();
+    });
+
+    it('forwards fallback: false and nothing else for fallback', () => {
+        expect(
+            parseAnthropicRequest({ messages: [], fallback: false }, headers)
+                .fallback,
+        ).toBe(false);
+        expect(
+            parseAnthropicRequest({ messages: [], fallback: 'no' }, headers)
+                .fallback,
+        ).toBeUndefined();
     });
 
     it('maps thinking, tool_choice, stop_sequences, top_p/top_k', () => {

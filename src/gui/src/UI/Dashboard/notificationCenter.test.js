@@ -22,6 +22,7 @@ import {
     badgeLabel,
     glyphKey,
     httpsIconFor,
+    isAppOnlyNotification,
     isShareNotification,
     isUnread,
     listedEntries,
@@ -122,6 +123,16 @@ describe('toEntry', () => {
     it('tolerates a missing or malformed payload', () => {
         expect(toEntry({ uid: 'a' }, NOW).notification).toEqual({});
         expect(toEntry({ uid: 'a', value: 'text' }, NOW).notification).toEqual({});
+    });
+
+    it("leaves out an app's own message, live or listed, and keeps shares", () => {
+        const message = { type: 'app.message', title: 'Hi', app: { uid: 'app-1' } };
+        expect(isAppOnlyNotification(message)).toBe(true);
+        expect(toEntry({ uid: 'a', value: message, app_uid: 'app-1' }, NOW)).toBeNull();
+        expect(toEntry({ uid: 'a', notification: message }, NOW)).toBeNull();
+        expect(unreadCount(listedEntries([{ uid: 'a', value: message }], NOW, 10))).toBe(0);
+        expect(isAppOnlyNotification({ type: 'share.received' })).toBe(false);
+        expect(toEntry({ uid: 'b', value: { type: 'share.received' } }, NOW)).not.toBeNull();
     });
 
     it('rejects anything without a uid', () => {

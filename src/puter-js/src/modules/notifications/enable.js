@@ -1,9 +1,11 @@
+import { PuterJSError } from '../../lib/PuterJSError.js';
 import { needsSignIn, signInVisitor } from '../events/lib/signIn.js';
-import { syncWebPush, webPushSupported, workerFor } from './lib/webPush.js';
+import { webPushSupported, workerFor } from './lib/webPush.js';
 
 /**
  * Turns on push notifications for this app in this browser. Call it from a
- * click: the browser's prompt is asked before anything else.
+ * click: the browser's prompt is asked before anything else, and without the
+ * click it rejects with `user_gesture_required` instead of prompting.
  *
  * Inside the Puter desktop this is `enablePush()`. On a website it asks for
  * notification permission on the site's own origin, then subscribes through the
@@ -21,6 +23,15 @@ export async function enable(options = {}) {
     if (puter.env === 'app') return this.enablePush();
     if (!webPushSupported()) return false;
 
+    if (
+        Notification.permission === 'default' &&
+        globalThis.navigator?.userActivation?.isActive === false
+    ) {
+        throw new PuterJSError(
+            'enable() opens the browser`s notification prompt, so it must be called from a click',
+            'user_gesture_required',
+        );
+    }
     // Before any await, so the click's activation covers the prompt.
     const asking =
         Notification.permission === 'default'
@@ -29,7 +40,6 @@ export async function enable(options = {}) {
     if ((await asking) !== 'granted') return false;
 
     if (needsSignIn(puter)) await signInVisitor(puter);
-    const worker = workerFor(puter.env, options.serviceWorker);
-    await syncWebPush(puter, { worker });
+    await this._enableWebPush(workerFor(puter.env, options.serviceWorker));
     return true;
 }

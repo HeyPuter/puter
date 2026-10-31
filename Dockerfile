@@ -73,6 +73,12 @@ COPY --from=build --chown=node:node /opt/puter .
 RUN mkdir -p /etc/puter /var/puter && \
     chown -R node:node /etc/puter /var/puter
 
+# Fix outdated HOME_URL in /etc/os-release (see issue #4329)
+# The base image may contain a reference to the old phoenix repository.
+RUN if [ -f /etc/os-release ]; then \
+      sed -i 's|HOME_URL="https://github.com/HeyPuter/phoenix"|HOME_URL="https://github.com/HeyPuter/puter"|' /etc/os-release; \
+    fi
+
 # Self-hosters mount their override at this exact path. The v2 loader
 # deep-merges it over config.default.json (see backend/index.ts).
 ENV PUTER_CONFIG_PATH=/etc/puter/config.json

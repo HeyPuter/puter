@@ -32,6 +32,7 @@ export const toNotification = (event) => {
         data: value.data ?? null,
         group: stringOrNull(value.group),
         channel: stringOrNull(value.channel),
+        sensitive: value.sensitive === true,
         createdAt: typeof event.ts === 'number' ? event.ts : 0,
         app: senderOf(value.app),
     };

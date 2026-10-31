@@ -1,10 +1,10 @@
 ---
 title: puter.notifications.removeDevice()
-description: Stop push notifications to one of the user's devices. For Puter's own web and mobile apps.
+description: Stop push notifications to one of the user's devices. For Puter's own apps.
 platforms: [websites, apps]
 ---
 
-<div class="info">This is for Puter's own web and mobile apps. It needs a signed-in Puter session; an app's token is refused with <code>forbidden</code>.</div>
+<div class="info">This is for Puter's own apps. It needs a signed-in Puter session; an app's token is refused with <code>forbidden</code>.</div>
 
 Removes one of the user's devices, so it gets no more push notifications. Signing out of a session also removes the devices registered from it.
 

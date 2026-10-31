@@ -2722,6 +2722,48 @@ describe('AuthService (integration)', () => {
                 authService.subdomainOwnerIdFromOrigin('not-a-url'),
             ).resolves.toBeNull();
         });
+
+        it('resolves a custom domain to its site owner', async () => {
+            const user = await makeUser();
+            const subdomain = `own-${Math.random().toString(36).slice(2, 10)}`;
+            await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain,
+            });
+            const host = `cd-${uuidv4().slice(0, 8)}.example.com`;
+            const resolveHost = (
+                _key: unknown,
+                data: { host: string; result: { subdomain: string | null } },
+            ) => {
+                if (data.host === host) data.result.subdomain = subdomain;
+            };
+            const config = (
+                authService as unknown as { config: Record<string, unknown> }
+            ).config;
+            config.custom_domains_enabled = true;
+            server.clients.event.on('site.resolveHost', resolveHost);
+            try {
+                await expect(
+                    authService.subdomainOwnerIdFromOrigin(`https://${host}`),
+                ).resolves.toBe(user.id);
+                // A private app can't take another user's custom domain.
+                await expect(
+                    authService.originHeldByOtherUser(
+                        `https://${host}/`,
+                        user.id + 1,
+                    ),
+                ).resolves.toBe(true);
+                await expect(
+                    authService.originHeldByOtherUser(
+                        `https://${host}/`,
+                        user.id,
+                    ),
+                ).resolves.toBe(false);
+            } finally {
+                server.clients.event.off('site.resolveHost', resolveHost);
+                delete config.custom_domains_enabled;
+            }
+        });
     });
 
     describe('app origin blocklist enforcement', () => {

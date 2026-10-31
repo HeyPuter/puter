@@ -46,6 +46,7 @@ import {
     buildSocketReauthError,
     decideSocketAuth,
     ackRoom,
+    COUNT_OTHERS_EVENT,
     handshakeAcks,
     socketRoomsFor,
     steadyServerCount,
@@ -633,7 +634,9 @@ describe('SocketService (live socket.io)', () => {
             });
 
             expect(
-                socketService.has({ room: ackRoom(String(userId), 'demo.ack') }),
+                socketService.has({
+                    room: ackRoom(String(userId), 'demo.ack'),
+                }),
             ).toBe(true);
             for (const room of [accountSocketRoom(userId), socket.id!]) {
                 expect(
@@ -1366,6 +1369,8 @@ describe('SocketService.askWithAck through the cluster adapter', () => {
     let adapter: {
         serverCount: () => Promise<number>;
         doPublish: (message: unknown) => Promise<string>;
+        onResponse: (response: unknown) => void;
+        nsp: { _onServerSideEmit: (args: unknown[]) => void };
     };
     const openSockets: ClientSocket[] = [];
 
@@ -1480,33 +1485,35 @@ describe('SocketService.askWithAck through the cluster adapter', () => {
         });
     });
 
-    it('says a socket that never acks is there once its ask times out', async () => {
+    it('says a socket that never acks is there without asking it', async () => {
         const tab = await connect(['demo.ack']);
         tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
             ack('seen'),
         );
         const old = await connect();
-        const oldGot = new Promise<unknown[]>((resolve) =>
-            old.once('demo.ack', (...args: unknown[]) => resolve(args)),
-        );
+        const oldGot = vi.fn();
+        old.on('demo.ack', oldGot);
 
+        const started = Date.now();
         const asked = await socketService.askWithAck(
             { room: userId },
             'demo.ack',
             { n: 3 },
-            { timeoutMs: 300 },
+            { timeoutMs: 5_000 },
         );
+        await new Promise((resolve) => setTimeout(resolve, 50));
 
+        expect(Date.now() - started).toBeLessThan(2_000);
         expect(asked).toEqual({
             responses: ['seen'],
             timedOut: false,
             others: true,
             complete: true,
         });
-        expect(await oldGot).toEqual([{ n: 3 }, expect.any(Function)]);
+        expect(oldGot).not.toHaveBeenCalled();
     });
 
-    it('asks the ack room and the rest of the room apart', async () => {
+    it('emits only to the ack room', async () => {
         await connect(['demo.split']);
         const published = vi.mocked(adapter.doPublish);
         published.mockClear();
@@ -1520,7 +1527,6 @@ describe('SocketService.askWithAck through the cluster adapter', () => {
 
         type Published = {
             data?: {
-                requestId?: string;
                 packet?: { data?: unknown[] };
                 opts?: { rooms?: string[]; except?: string[] };
             };
@@ -1528,16 +1534,126 @@ describe('SocketService.askWithAck through the cluster adapter', () => {
         const ours = published.mock.calls
             .map(([message]) => message as Published)
             .filter((m) => m.data?.packet?.data?.[0] === 'demo.split');
-        const room = ackRoom(String(userId), 'demo.split');
-        expect(ours.map((m) => m.data?.opts)).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({ rooms: [room] }),
-                expect.objectContaining({
-                    rooms: [String(userId)],
-                    except: [room],
-                }),
-            ]),
+        expect(ours.map((m) => m.data?.opts?.rooms)).toEqual([
+            [ackRoom(String(userId), 'demo.split')],
+        ]);
+    });
+
+    describe('with another node in the cluster', () => {
+        type Published = {
+            type: number;
+            data: { requestId?: string; packet?: unknown[] };
+        };
+        // socket.io-adapter's cluster message types.
+        const BROADCAST = 3;
+        const SERVER_SIDE_EMIT = 9;
+        const SERVER_SIDE_EMIT_RESPONSE = 10;
+        const BROADCAST_CLIENT_COUNT = 11;
+
+        /**
+         * The other node: no acking socket, and `others` sockets outside the
+         * ack room, or silent.
+         */
+        const peer = (others: number | null) => {
+            countSpy.mockResolvedValue(2);
+            vi.mocked(adapter.doPublish).mockImplementation(async (raw) => {
+                const message = raw as Published;
+                const { requestId } = message.data ?? {};
+                if (!requestId) return '';
+                setTimeout(() => {
+                    if (message.type === BROADCAST) {
+                        adapter.onResponse({
+                            type: BROADCAST_CLIENT_COUNT,
+                            data: { requestId, clientCount: 0 },
+                        });
+                    } else if (
+                        message.type === SERVER_SIDE_EMIT &&
+                        message.data.packet?.[0] === COUNT_OTHERS_EVENT &&
+                        others !== null
+                    ) {
+                        adapter.onResponse({
+                            type: SERVER_SIDE_EMIT_RESPONSE,
+                            data: { requestId, packet: others },
+                        });
+                    }
+                }, 0);
+                return '';
+            });
+        };
+
+        afterEach(() => {
+            countSpy.mockResolvedValue(1);
+            vi.mocked(adapter.doPublish).mockReset();
+            vi.mocked(adapter.doPublish).mockResolvedValue('');
+        });
+
+        it.each([
+            [1, true],
+            [0, false],
+        ])(
+            'counts its sockets that never ack (%i) instead of asking them',
+            async (count, others) => {
+                const tab = await connect(['demo.ack']);
+                tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+                    ack('seen'),
+                );
+                peer(count);
+
+                const asked = await socketService.askWithAck(
+                    { room: userId },
+                    'demo.ack',
+                    {},
+                    { timeoutMs: 2_000 },
+                );
+
+                expect(asked).toEqual({
+                    responses: ['seen'],
+                    timedOut: false,
+                    others,
+                    complete: true,
+                });
+            },
         );
+
+        it('reads a node that does not answer the count as holding one', async () => {
+            const tab = await connect(['demo.ack']);
+            tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+                ack('seen'),
+            );
+            peer(null);
+
+            const asked = await socketService.askWithAck(
+                { room: userId },
+                'demo.ack',
+                {},
+                { timeoutMs: 300 },
+            );
+
+            expect(asked).toMatchObject({ responses: ['seen'], others: true });
+        });
+    });
+
+    it('answers another node`s count with its own sockets outside the ack room', async () => {
+        await connect(['demo.ack']);
+        await connect();
+        await connect();
+        const room = String(userId);
+        const reply = vi.fn();
+
+        adapter.nsp._onServerSideEmit([
+            COUNT_OTHERS_EVENT,
+            [room],
+            [ackRoom(room, 'demo.ack')],
+            reply,
+        ]);
+        adapter.nsp._onServerSideEmit([
+            COUNT_OTHERS_EVENT,
+            'not rooms',
+            null,
+            reply,
+        ]);
+
+        expect(reply.mock.calls).toEqual([[2], [0]]);
     });
 
     it('marks counts taken while a server count failed as incomplete, and warns', async () => {

@@ -15,10 +15,11 @@
  * A DNS record the user sets at their DNS provider for a custom domain.
  *
  * @typedef {Object} CustomDomainRecord
- * @property {'CNAME' | 'TXT'} type Record type.
+ * @property {'CNAME' | 'TXT' | 'A'} type Record type.
  * @property {string} name Record name (host).
  * @property {string} value Record value.
- * @property {'routing' | 'ownership' | 'certificate'} purpose What the record is for.
+ * @property {'routing' | 'ownership' | 'certificate' | 'redirect'} purpose What the record is
+ * for. `redirect` is the A record that forwards a root domain to its `www.` hostname.
  * @property {boolean} required `true` for records the user has to set (routing and
  * ownership); certificate records only speed issuance up.
  */
@@ -38,6 +39,10 @@
  * @property {CustomDomainRecord[]} records DNS records to set.
  * @property {number} createdAt When the domain was added, in milliseconds since the epoch.
  * @property {number | null} activatedAt When the domain went active, if it has.
+ * @property {'route53' | 'godaddy' | 'other'} [dnsProvider] Who hosts the DNS of a root
+ * domain, when Puter looked it up while adding it.
+ * @property {string} [redirectFrom] The root domain forwarded to this `www.` hostname, when
+ * the root domain couldn't be served directly.
  */
 
 export {};

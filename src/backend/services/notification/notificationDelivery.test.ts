@@ -314,6 +314,70 @@ describe('live notification delivery receipts', () => {
         expect(state.settled).toEqual([expected]);
     });
 
+    it('passes a tab`s focus and own display through, typed strictly', async () => {
+        const answers = [
+            {
+                received: true,
+                visibilityState: 'hidden',
+                focused: false,
+                showsOwn: true,
+            },
+            {
+                received: true,
+                visibilityState: 'nope',
+                focused: 1,
+                showsOwn: 'yes',
+            },
+        ];
+        for (const answer of answers) {
+            const tab = await connect({ acks: [NOTIF_RECEIPT_EVENT] });
+            tab.on(NOTIF_RECEIPT_EVENT, (_data: unknown, ack: Ack) =>
+                ack(answer),
+            );
+        }
+
+        const { settled } = await ask();
+
+        expect(settled.outcome).toBe('received');
+        expect(settled.responders).toEqual(
+            expect.arrayContaining([
+                { visibilityState: 'hidden', focused: false, showsOwn: true },
+                { visibilityState: 'unknown' },
+            ]),
+        );
+        expect(settled.responders).toHaveLength(2);
+    });
+
+    it('settles as unreceived when every tab answers that it never got it', async () => {
+        const tab = await connect({ acks: [NOTIF_RECEIPT_EVENT] });
+        tab.on(NOTIF_RECEIPT_EVENT, (_data: unknown, ack: Ack) =>
+            ack({ received: false }),
+        );
+
+        const { settled } = await ask();
+
+        expect(settled).toMatchObject({
+            outcome: 'unreceived',
+            ackCapable: true,
+            everySocketAcks: true,
+            complete: true,
+            responders: [],
+        });
+    });
+
+    it('counts only the tabs that got it as responders', async () => {
+        desktopTab(await connect({ acks: [NOTIF_RECEIPT_EVENT] }), 'visible');
+        const missed = await connect({ acks: [NOTIF_RECEIPT_EVENT] });
+        missed.on(NOTIF_RECEIPT_EVENT, (_data: unknown, ack: Ack) =>
+            ack({ received: false }),
+        );
+
+        expect((await ask()).settled).toMatchObject({
+            outcome: 'received',
+            responders: [{ visibilityState: 'visible' }],
+        });
+    });
+
     it('settles as unreceived when no tab acknowledges within the window', async () => {
         desktopTab(await connect({ acks: [NOTIF_RECEIPT_EVENT] }), null);
 
@@ -566,6 +630,26 @@ describe('live receipts from an app’s own sockets', () => {
 
         expect((await ask()).settled).toMatchObject({ outcome: 'no-socket' });
         expect(asked).toEqual([]);
+    });
+
+    it('keeps an app message off a visible desktop tab, which leaves its receipt to the app', async () => {
+        const got = desktopTab(
+            await connect({ acks: [NOTIF_RECEIPT_EVENT] }),
+            'visible',
+        );
+
+        expect((await ask()).settled).toMatchObject({ outcome: 'no-socket' });
+        const share = await notify('share.received');
+
+        await vi.waitFor(() => expect(got).toHaveLength(1));
+        expect(got).toEqual([
+            [
+                {
+                    uid: share,
+                    notification: { title: 'hello', type: 'share.received' },
+                },
+            ],
+        ]);
     });
 
     it('settles as remote-only when only a peer region holds the app', async () => {

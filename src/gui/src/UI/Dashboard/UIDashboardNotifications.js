@@ -20,7 +20,7 @@
 import UINotification from '../UINotification.js';
 import { reveal_dashboard } from '../UIWindow.js';
 import { deleteNotification, getNotification, listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
-import { applyToastMark, createNotificationFeed } from '../../helpers/notificationFeed.js';
+import { applyToastMark, createNotificationFeed, createReplayLog, missedAfterReconnect } from '../../helpers/notificationFeed.js';
 import { formatAbsoluteTime, formatRelativeTime } from '../../i18n/formatTime.js';
 import {
     handleNotificationTap,
@@ -208,6 +208,10 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     /** Deletions a listing in flight can't know about; same shape as `acked`. */
     const removed = new Map();
     let listingRequestedAt = 0;
+    /** Uids of the first listing, which a reconnect's catch-up never raises. */
+    let knownAtLoad = null;
+    /** When a reconnect asked for a catch-up a later listing still owes. */
+    let catchUpFrom = null;
 
     const sheetMedia = window.matchMedia(SHEET_BREAKPOINT);
     const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -406,8 +410,16 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         loadFailed = false;
         if ( ! loaded ) render();
         listingRequestedAt = Date.now();
+        const requestedAt = listingRequestedAt;
         loading = listNotifications({ predicate: 'all', limit: LISTING_LIMIT })
             .then((rows) => {
+                let missed = [];
+                if ( knownAtLoad === null ) {
+                    knownAtLoad = new Set(rows.map((row) => row.uid));
+                } else if ( catchUpFrom !== null && requestedAt >= catchUpFrom ) {
+                    catchUpFrom = null;
+                    missed = missedAfterReconnect(rows, { known: knownAtLoad, log: replayLog });
+                }
                 const now = Date.now();
                 // Acked or removed since this listing was requested: its
                 // snapshot still has them unread, or at all.
@@ -417,6 +429,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
                     .filter((entry) => ! removedSince.has(entry.uid));
                 entries = reconcileWithServer(entries, server, now, undefined, readSince);
                 loaded = true;
+                if ( missed.length ) receive(missed, { replay: true });
             })
             .catch((err) => {
                 console.warn('Could not load notifications:', err);
@@ -802,18 +815,19 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
      * stand down only while it is up, so a lapse is a fallback rather than
      * silence.
      */
+    const replayLog = createReplayLog();
     const feed = createNotificationFeed({
-        deliver: (items, { replay }) => receive(items, { replay }),
+        deliver: (items, { replay }) => receive(replayLog.admit(items, { replay }), { replay }),
     });
     void feed.start();
 
     socket.on('notif.message', ({ uid, notification }) => {
         if ( feed.isActive() ) return;
-        receive([{ uid, notification }]);
+        receive(replayLog.admit([{ uid, notification }]));
     });
+    // Not gated: one arrives per reconnect, and its rows are marked shown.
     socket.on('notif.unreads', ({ unreads }) => {
-        if ( feed.isActive() ) return;
-        receive(Array.isArray(unreads) ? unreads : [], { replay: true });
+        receive(replayLog.admit(Array.isArray(unreads) ? unreads : [], { replay: true }), { replay: true });
     });
     // Not gated: an ack marks an entry read rather than adding one, so it
     // can't duplicate anything — and the events surface carries only
@@ -821,6 +835,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     // between open tabs.
     socket.on('notif.ack', ({ uid }) => {
         if ( ! uid ) return;
+        replayLog.dismissed(uid);
         $(`.notification[data-uid="${html_encode(uid)}"]`).closest('.notification-wrapper').remove();
         // Read in another tab: a listing already in flight predates it too,
         // even one bringing an entry this tab hasn't seen yet.
@@ -841,6 +856,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     // Every (re)connection: anything read elsewhere while this tab was
     // offline is marked so in the server's list, and anything new is in it.
     socket.on('connect', () => void refresh());
+    // After a reconnect, the next listing raises what this page missed.
+    socket.io?.on('reconnect', () => {
+        catchUpFrom = Date.now();
+        void Promise.resolve(loading).finally(() => refresh());
+    });
     // Coming back to the tab: same reasoning, cheaper than waiting to be told.
     document.addEventListener('visibilitychange', () => {
         if ( document.visibilityState === 'visible' && loaded ) void refresh();

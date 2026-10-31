@@ -62,6 +62,14 @@ const LEGACY_HIDDEN_SOURCES = new Set(['worker']);
 const HIDDEN_TYPES = new Set(['app.worker.deployed', 'app.worker.deployFailed']);
 
 /**
+ * Whether a notification belongs to the app that sent it, not the desktop.
+ *
+ * @param {NotificationPayload} notification
+ * @returns {boolean}
+ */
+export const isAppOnlyNotification = (notification) => notification?.type === 'app.message';
+
+/**
  * Whether a notification announces a share, by either the server's `type` or
  * the markers that preceded it.
  *
@@ -123,7 +131,7 @@ export const toEntry = (raw, now) => {
     if ( typeof uid !== 'string' || uid === '' ) return null;
     const payload = raw.notification ?? raw.value;
     const notification = payload && typeof payload === 'object' ? payload : {};
-    if ( HIDDEN_TYPES.has(notification.type) ) return null;
+    if ( HIDDEN_TYPES.has(notification.type) || isAppOnlyNotification(notification) ) return null;
     if ( LEGACY_HIDDEN_SOURCES.has(notification.source) ) return null;
     const createdAt = parseCreatedAt(raw.created_at);
     const appUid = raw.app_uid ?? raw.appUid;

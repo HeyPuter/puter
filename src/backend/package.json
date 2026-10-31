@@ -53,7 +53,7 @@
     "mime-types": "^2.1.35",
     "murmurhash": "^2.0.1",
     "mysql2": "^3.24.6",
-    "nodemailer": "^9.1.1",
+    "nodemailer": "^10.1.4",
     "openai": "^6.34.0",
     "otpauth": "^9.5.2",
     "pg": "^8.21.0",
@@ -67,7 +67,8 @@
     "ua-parser-js": "^1.0.41",
     "undici": "^7.30.1",
     "uuid": "^14.0.3",
-    "validator": "^13.15.35"
+    "validator": "^13.15.35",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
@@ -81,6 +82,7 @@
     "@types/pg": "^8.6.1",
     "@types/smtp-server": "^3.5.13",
     "@types/validator": "^13.15.10",
+    "@types/ws": "^8.18.2",
     "pgmock": "^1.0.3",
     "typescript": "^5.9.3",
     "vite": "^8.1.6",

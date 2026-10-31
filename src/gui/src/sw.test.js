@@ -127,14 +127,46 @@ describe('service worker helpers', () => {
                 body: 'see you',
                 icon: DEFAULT_ICON,
                 tag: 'room-7',
-                renotify: false,
+                renotify: true,
                 data: { uid: 'n1', target: { app: 'app-1', path: '/rooms/7' }, data: { room: 7 } },
             },
         });
+        expect(context.normalizeMessage({ uid: 'n3', title: 'x', group: 'n3' }, ORIGIN).options.renotify).toBe(false);
         const bare = context.normalizeMessage(null, ORIGIN);
         expect(bare.title).toBe('New notification');
         expect(bare.options).not.toHaveProperty('tag');
         expect(context.normalizeMessage({ uid: 'n2', title: ' ' }, ORIGIN).options.tag).toBe('n2');
+    });
+
+    it('names the app on an app`s message and shows Puter`s copy of its icon, never the app`s own', () => {
+        const app = { uid: 'app-1', name: 'Chat', icon: 'https://puter-app-icons.test/app-1.png' };
+        expect(JSON.parse(JSON.stringify(context.normalizeMessage({
+            uid: 'n1',
+            title: 'Alice',
+            body: 'see you',
+            icon: 'https://evil.example/fake-bank.png',
+            group: 'app-1:room-7',
+            ts: 1_700_000_000_123,
+            app,
+        }, ORIGIN)))).toMatchObject({
+            title: 'Chat',
+            options: {
+                body: 'Alice — see you',
+                icon: 'https://puter-app-icons.test/app-1.png',
+                tag: 'app-1:room-7',
+                renotify: true,
+                timestamp: 1_700_000_000_123,
+            },
+        });
+        expect(context.normalizeMessage({ uid: 'n2', title: 'Alice', icon: 'https://evil.example/i.png', app: { uid: 'app-1' } }, ORIGIN))
+            .toMatchObject({ title: 'New notification', options: { body: 'Alice', icon: DEFAULT_ICON } });
+        expect(context.normalizeMessage({
+            uid: 'n3',
+            title: 'Chat',
+            body: 'New notification from Chat',
+            sensitive: true,
+            app,
+        }, ORIGIN)).toMatchObject({ title: 'Chat', options: { body: 'New notification from Chat' } });
     });
 
     it('opens only this origin, carrying just the notification uid', () => {

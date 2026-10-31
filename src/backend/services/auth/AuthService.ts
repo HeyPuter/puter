@@ -39,6 +39,7 @@ import type { UserRow } from '../../stores/user/UserStore';
 import type { LayerInstances } from '../../types';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { isGodmodeApp } from '../../util/godmodeApps.js';
+import { resolveCustomHostSubdomain } from '../../util/hostedAppBacking.js';
 import { Span } from '../../util/span.js';
 import type { puterServices } from '../index';
 import { EVENTS_WORKER_SESSION_NAME } from '../events/workerRuntime.js';
@@ -1360,13 +1361,13 @@ export class AuthService extends PuterService {
      * Resolve the user who owns the hosted subdomain `origin` points at.
      * Returns the `subdomains` row's `user_id` when the origin's host sits
      * under a configured hosting domain (`static_hosting_domain(_alt)` /
-     * `private_app_hosting_domain(_alt)`) and the subdomain is registered; null
-     * for external origins, apex hosting-domain hosts, and unknown subdomains.
-     * Used to stamp the site owner as the creator of origin-bootstrap app
-     * rows.
+     * `private_app_hosting_domain(_alt)`), or is a custom domain serving a
+     * site, and the subdomain is registered; null for external origins, apex
+     * hosting-domain hosts, and unknown subdomains. Used to stamp the site
+     * owner as the creator of origin-bootstrap app rows.
      */
     async subdomainOwnerIdFromOrigin(origin: string): Promise<number | null> {
-        const subdomain = this.#hostedSubdomainForOrigin(origin);
+        const subdomain = await this.#siteSubdomainForOrigin(origin);
         if (!subdomain) return null;
         const row = await this.stores.subdomain.getBySubdomain(subdomain);
         return positiveUserId(row?.user_id);
@@ -1385,7 +1386,9 @@ export class AuthService extends PuterService {
     ): Promise<boolean> {
         const origin = await this.#appOriginFor(indexUrl);
         if (!origin) return false;
-        const siteOwnerId = await this.#siteOwnerIdForOrigin(origin);
+        const siteOwnerId = await this.#siteOwnerIdForSubdomain(
+            await this.#siteSubdomainForOrigin(origin),
+        );
         if (siteOwnerId !== null) return siteOwnerId !== ownerUserId;
 
         const path = new URL(indexUrl).pathname.toLowerCase();
@@ -1398,12 +1401,20 @@ export class AuthService extends PuterService {
         return holderId !== null && holderId !== ownerUserId;
     }
 
-    /**
-     * {@link subdomainOwnerIdFromOrigin}, confirmed against the primary on a
-     * miss so a site registered a moment ago isn't read as unregistered.
-     */
+    /** Owner of the hosted site `origin` is on; custom domains aren't asked. */
     async #siteOwnerIdForOrigin(origin: string): Promise<number | null> {
-        const subdomain = this.#hostedSubdomainForOrigin(origin);
+        return this.#siteOwnerIdForSubdomain(
+            this.#hostedSubdomainForOrigin(origin),
+        );
+    }
+
+    /**
+     * The site's owner, confirmed against the primary on a miss so a site
+     * registered a moment ago isn't read as unregistered.
+     */
+    async #siteOwnerIdForSubdomain(
+        subdomain: string | null,
+    ): Promise<number | null> {
         if (!subdomain) return null;
         const row =
             (await this.stores.subdomain.getBySubdomain(subdomain)) ??
@@ -1411,6 +1422,25 @@ export class AuthService extends PuterService {
                 primary: true,
             }));
         return positiveUserId(row?.user_id);
+    }
+
+    /**
+     * Site `origin` serves: a hosted subdomain, or a custom domain's site.
+     * Custom domains cost a listener round trip, so identity resolution
+     * (`appUidFromOrigin` and its batch) stays on hosted names only.
+     */
+    async #siteSubdomainForOrigin(origin: string): Promise<string | null> {
+        const hosted = this.#hostedSubdomainForOrigin(origin);
+        if (hosted) return hosted;
+        const parsed = URL.parse(origin);
+        if (parsed?.protocol !== 'https:' && parsed?.protocol !== 'http:') {
+            return null;
+        }
+        return resolveCustomHostSubdomain(
+            parsed.hostname,
+            this.config,
+            this.clients.event,
+        );
     }
 
     #hostedSubdomainForOrigin(origin: string): string | null {
@@ -1836,7 +1866,7 @@ export class AuthService extends PuterService {
                 appUid: app.uid,
                 expiresAt: nowSeconds() + GODMODE_TOKEN_WINDOW_SECONDS,
                 maxAgeSeconds: GODMODE_TOKEN_MAX_AGE_SECONDS,
-                label: app.title || app.name || null,
+                label: app.title || app.name!,
                 auth_id: authId,
             },
         );
@@ -1846,7 +1876,7 @@ export class AuthService extends PuterService {
                 legacyCode: 'internal_error',
             });
         }
-        if (minted.replaced) await this.#retireGodmodeToken(minted.replaced);
+        if (minted?.replaced) await this.#retireGodmodeToken(minted.replaced);
 
         const token = this.services.token.sign('auth', {
             type: 'access-token',

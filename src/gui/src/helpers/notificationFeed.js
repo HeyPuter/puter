@@ -29,6 +29,7 @@
  * straight back to them rather than leaving the GUI deaf.
  */
 
+import { isAppOnlyNotification } from '../UI/Dashboard/notificationCenter.js';
 import {
     listNotifications,
     markNotificationAcknowledged,
@@ -51,9 +52,44 @@ export const answerNotificationReceipts = (socket, sdk = globalThis.puter) => {
     const log = receiptLog(sdk);
     if ( ! log ) return;
     socket.on('notif.message', (message) => {
-        if ( typeof message?.uid === 'string' ) log._noteReceived(message.uid);
+        if ( typeof message?.uid !== 'string' ) return;
+        if ( ! isAppOnlyNotification(message.notification) ) log._noteReceived(message.uid);
     });
     socket.on('notif.receipt', (data, ack) => log._answerReceipt(data, ack));
+};
+
+/** Uids one page's replay log keeps; far more than one listing returns. */
+const REPLAY_LOG_LIMIT = 1000;
+
+/**
+ * What one page has already raised or seen dismissed, so every unread replay
+ * it gets — one per reconnect — raises only what the page missed, once.
+ *
+ * @returns {{
+ *   admit: (items: Array<{ uid?: string, notification?: Object }>, meta?: { replay?: boolean }) => Array<Object>,
+ *   dismissed: (uid: string) => void,
+ * }}
+ */
+export const createReplayLog = ({ limit = REPLAY_LOG_LIMIT } = {}) => {
+    const settled = new Set();
+    // Oldest first, so the one past the limit is the first one out.
+    const remember = (uid) => {
+        settled.delete(uid);
+        settled.add(uid);
+        if ( settled.size > limit ) settled.delete(settled.values().next().value);
+    };
+    const admit = (items, { replay = false } = {}) => (items ?? []).filter((item) => {
+        const uid = item?.uid;
+        if ( typeof uid !== 'string' || uid === '' ) return false;
+        if ( isAppOnlyNotification(item.notification) ) return false;
+        if ( replay && settled.has(uid) ) return false;
+        remember(uid);
+        return true;
+    });
+    const dismissed = (uid) => {
+        if ( typeof uid === 'string' && uid !== '' ) remember(uid);
+    };
+    return { admit, dismissed };
 };
 
 /** A session's own mailbox slices; each covers its audience's rows for every app. */
@@ -189,14 +225,33 @@ export const applyToastMark = async (phase, uid, { eventsPath = false, api = {} 
     }
 };
 
+/**
+ * Undismissed rows of a listing taken after a reconnect that the page neither
+ * knew at load (`known`) nor raised since. A frozen tab's socket stays
+ * registered, so no replay carries what it missed.
+ *
+ * @param {Object[]} rows - Driver rows, newest first
+ * @param {{ known: Set<string>, log: ReturnType<typeof createReplayLog> }} opts
+ * @returns {FeedNotification[]} Oldest first
+ */
+export const missedAfterReconnect = (rows, { known, log }) => log.admit(
+    (rows ?? [])
+        .filter((row) => row && row.acknowledged == null && ! known.has(row.uid))
+        .map((row) => ({ uid: row.uid, notification: row.value ?? {}, created_at: row.created_at }))
+        .reverse(),
+    { replay: true },
+);
+
+/** Everything the user has not dismissed, newest first. */
+export const listUndismissed = () => listNotifications({
+    predicate: 'unacknowledged',
+    limit: UNACKNOWLEDGED_LIMIT,
+});
+
 /** The uids of everything the user has not dismissed. */
-const undismissedUids = async () => {
-    const rows = await listNotifications({
-        predicate: 'unacknowledged',
-        limit: UNACKNOWLEDGED_LIMIT,
-    });
-    return new Set(rows.map((row) => row.uid).filter(Boolean));
-};
+const undismissedUids = async () => (
+    new Set((await listUndismissed()).map((row) => row.uid).filter(Boolean))
+);
 
 /**
  * The notification feed for one page.

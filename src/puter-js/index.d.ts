@@ -44,6 +44,19 @@ export type {
     ListTTSEnginesOptions,
     ListTTSVoicesOptions,
     OcrAnnotationFormat,
+    ConvoOptions,
+    ConvoTextEvent,
+    ConvoAudioEvent,
+    ConvoTranscriptEvent,
+    ConvoInterruptedEvent,
+    ConvoTurnDoneEvent,
+    ConvoErrorEvent,
+    ConvoEventMap,
+    ConvoSessionOptions,
+    ConvoPlaybackPosition,
+    ConvoSpeakerOptions,
+    RealtimeServerEvent,
+    RealtimeClientEvent,
     Speech2SpeechOptions,
     Speech2TxtOptions,
     Speech2TxtResult,
@@ -230,7 +243,6 @@ export type {
     OnNotificationOptions,
     OnPushOptions,
     PushDevice,
-    PushDeviceRegistration,
     PushHandler,
     PushPlatform,
     PushShown,
@@ -359,3 +371,6 @@ export type Perms = InstanceType<import('./types/modules/perms/index.js').PermsC
 export type Teams = InstanceType<import('./types/modules/teams/index.js').TeamsConstructor>;
 export type UI = InstanceType<import('./types/modules/UI.js').UIConstructor>;
 export type WorkersHandler = InstanceType<import('./types/modules/Workers.js').WorkersConstructor>;
+
+export type { Conversation, ConvoError } from './types/modules/ai/convo.js';
+export type { ConvoMicrophone, ConvoSpeaker } from './types/modules/ai/convoMedia.js';

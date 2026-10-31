@@ -148,6 +148,19 @@ let sidebar = [
                 path: '/AI/speech2txt',
             },
             {
+                title: '<code>convo()</code>',
+                page_title: '<code>puter.ai.convo()</code>',
+                title_tag: 'puter.ai.convo()',
+                icon: '/assets/img/function.svg',
+                source: '/AI/convo.md',
+                path: '/AI/convo',
+            },
+            {
+                title: 'Realtime WebSocket API (Beta)',
+                source: '/AI/realtime.md',
+                path: '/AI/realtime',
+            },
+            {
                 title: '<code>speech2speech()</code>',
                 page_title: '<code>puter.ai.speech2speech()</code>',
                 title_tag: 'puter.ai.speech2speech()',
@@ -613,14 +626,6 @@ let sidebar = [
                 icon: '/assets/img/function.svg',
                 source: '/Notifications/enablePush.md',
                 path: '/Notifications/enablePush',
-            },
-            {
-                title: '<code>registerDevice()</code>',
-                page_title: '<code>puter.notifications.registerDevice()</code>',
-                title_tag: 'puter.notifications.registerDevice()',
-                icon: '/assets/img/function.svg',
-                source: '/Notifications/registerDevice.md',
-                path: '/Notifications/registerDevice',
             },
             {
                 title: '<code>listDevices()</code>',

@@ -338,6 +338,7 @@ describe('onNotification', () => {
                 data: { id: 1 },
                 group: 'g',
                 channel: 'messages',
+                sensitive: false,
                 createdAt: 1234,
                 app: { uid: 'app-1', name: 'Chat' },
             },
@@ -811,6 +812,14 @@ describe('onNotification', () => {
 });
 
 describe('receipts', () => {
+    const received = (over = {}) => ({
+        received: true,
+        visibilityState: 'unknown',
+        focused: false,
+        showsOwn: false,
+        ...over,
+    });
+
     it('acknowledges a notification a feed already received', async () => {
         const events = makeEvents();
         const notifications = makeModule({ events });
@@ -820,7 +829,7 @@ describe('receipts', () => {
         const ack = vi.fn();
         notifications._answerReceipt({ uid: 'n-1' }, ack);
 
-        expect(ack).toHaveBeenCalledWith({ visibilityState: 'unknown' });
+        expect(ack).toHaveBeenCalledWith(received());
     });
 
     it('acknowledges a notification the desktop noted on its own socket', () => {
@@ -830,7 +839,7 @@ describe('receipts', () => {
         const ack = vi.fn();
         notifications._answerReceipt({ uid: 'n-1' }, ack);
 
-        expect(ack).toHaveBeenCalledWith({ visibilityState: 'unknown' });
+        expect(ack).toHaveBeenCalledWith(received());
     });
 
     it('acknowledges when the notification arrives after the ask, before handlers run', async () => {
@@ -851,12 +860,30 @@ describe('receipts', () => {
         errors.mockRestore();
     });
 
-    it('sends the page visibility with the acknowledgement', async () => {
+    it('answers every socket that asks about the same notification', async () => {
+        const events = makeEvents();
+        const notifications = makeModule({ events });
+        await notifications.onNotification(() => {});
+        const first = vi.fn();
+        const second = vi.fn();
+
+        notifications._answerReceipt({ uid: 'n-1' }, first);
+        notifications._answerReceipt({ uid: 'n-1' }, second);
+        events.state.push(event('n-1'));
+
+        expect(first).toHaveBeenCalledWith(received());
+        expect(second).toHaveBeenCalledWith(received());
+    });
+
+    it('sends the page visibility and focus with the acknowledgement', async () => {
         const events = makeEvents();
         const notifications = makeModule({ events });
         await notifications.onNotification(() => {});
         events.state.push(event('n-1'));
-        vi.stubGlobal('document', { visibilityState: 'hidden' });
+        vi.stubGlobal('document', {
+            visibilityState: 'hidden',
+            hasFocus: () => true,
+        });
 
         const ack = vi.fn();
         try {
@@ -865,10 +892,30 @@ describe('receipts', () => {
             vi.unstubAllGlobals();
         }
 
-        expect(ack).toHaveBeenCalledWith({ visibilityState: 'hidden' });
+        expect(ack).toHaveBeenCalledWith(
+            received({ visibilityState: 'hidden', focused: true }),
+        );
     });
 
-    it('never acknowledges without a feed that received it', async () => {
+    it('says the desktop never shows its own browser notification', () => {
+        const notifications = makeModule({ env: 'gui' });
+        vi.stubGlobal('document', {
+            visibilityState: 'visible',
+            hasFocus: () => false,
+        });
+        const ack = vi.fn();
+        try {
+            notifications._noteReceived('n-1');
+            notifications._answerReceipt({ uid: 'n-1' }, ack);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+        expect(ack).toHaveBeenCalledWith(
+            received({ visibilityState: 'visible', focused: false }),
+        );
+    });
+
+    it('answers received: false once a notification it never got stops being waited for', async () => {
         vi.useFakeTimers();
         try {
             const events = makeEvents();
@@ -880,13 +927,31 @@ describe('receipts', () => {
             events.state.push(event('n-2'));
             events.state.push(event('n-3', {}, { type: 'kv.share.received' }));
             notifications._answerReceipt({ uid: 'n-3' }, ack);
-            vi.advanceTimersByTime(60_000);
+            expect(ack).not.toHaveBeenCalled();
+            vi.advanceTimersByTime(10_000);
             events.state.push(event('n-1'));
 
-            expect(ack).not.toHaveBeenCalled();
+            expect(ack.mock.calls).toEqual([
+                [{ received: false }],
+                [{ received: false }],
+            ]);
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it('answers received: false at once past the asks it holds', () => {
+        const notifications = makeModule();
+        const held = vi.fn();
+        for (let i = 0; i < 100; i++)
+            notifications._answerReceipt({ uid: `n-${i}` }, held);
+        const over = vi.fn();
+        notifications._answerReceipt({ uid: 'n-100' }, over);
+
+        expect(held).not.toHaveBeenCalled();
+        expect(over).toHaveBeenCalledWith({ received: false });
+        notifications._noteReceived('n-0');
+        expect(held).toHaveBeenCalledWith(received());
     });
 
     it('acknowledges nothing a stopped feed would have received', async () => {
@@ -902,7 +967,7 @@ describe('receipts', () => {
         expect(ack).not.toHaveBeenCalled();
     });
 
-    it('ignores an ask without a callback or a uid', async () => {
+    it('answers an ask without a uid with received: false', () => {
         const notifications = makeModule();
         expect(() =>
             notifications._answerReceipt({ uid: 'n-1' }),
@@ -910,7 +975,10 @@ describe('receipts', () => {
         const ack = vi.fn();
         notifications._answerReceipt({}, ack);
         notifications._answerReceipt(null, ack);
-        expect(ack).not.toHaveBeenCalled();
+        expect(ack.mock.calls).toEqual([
+            [{ received: false }],
+            [{ received: false }],
+        ]);
     });
 });
 
@@ -963,7 +1031,7 @@ describe('enablePush', () => {
 describe('devices', () => {
     const device = {
         uid: 'd-1',
-        platform: 'web',
+        platform: 'webpush',
         label: 'Laptop',
         user_agent: 'UA',
         created_at: 10,
@@ -972,32 +1040,13 @@ describe('devices', () => {
     };
     const mapped = {
         uid: 'd-1',
-        platform: 'web',
+        platform: 'webpush',
         label: 'Laptop',
         userAgent: 'UA',
         createdAt: 10,
         lastSeenAt: 20,
         current: true,
     };
-
-    it('registers with POST /push/devices', async () => {
-        mockFetchUrl.mockResolvedValue(jsonResponse({ device }));
-        const result = await makeModule().registerDevice({
-            platform: 'web',
-            token: 'tok',
-            label: 'Laptop',
-        });
-
-        expect(result).toEqual(mapped);
-        const [url, init] = mockFetchUrl.mock.calls[0];
-        expect(url).toBe('https://api.test/push/devices');
-        expect(init).toMatchObject({ method: 'POST', includePuterAuth: true });
-        expect(JSON.parse(init.body)).toEqual({
-            platform: 'web',
-            token: 'tok',
-            label: 'Laptop',
-        });
-    });
 
     it('lists with GET /push/devices', async () => {
         mockFetchUrl.mockResolvedValue(jsonResponse({ devices: [device] }));
@@ -1042,28 +1091,6 @@ describe('devices', () => {
         );
     });
 
-    it('passes a token conflict through as push_device_conflict', async () => {
-        mockFetchUrl.mockResolvedValue(
-            jsonResponse(
-                {
-                    error: 'This device is registered to another user',
-                    message: 'This device is registered to another user',
-                    code: 'push_device_conflict',
-                },
-                409,
-            ),
-        );
-
-        const error = await rejects(() =>
-            makeModule().registerDevice({
-                platform: 'ios',
-                token: 'tok',
-            }),
-        );
-        expect(error).toBeInstanceOf(PuterJSError);
-        expect(error.code).toBe('push_device_conflict');
-    });
-
     it('names the status when the error has no body', async () => {
         mockFetchUrl.mockResolvedValue({
             status: 502,
@@ -1081,10 +1108,6 @@ describe('devices', () => {
         );
 
     it.each([
-        [
-            'registerDevice',
-            (m) => m.registerDevice({ platform: 'web', token: 't' }),
-        ],
         ['listDevices', (m) => m.listDevices()],
         ['removeDevice', (m) => m.removeDevice('d-1')],
     ])(

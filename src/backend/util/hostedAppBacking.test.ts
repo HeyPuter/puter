@@ -29,6 +29,7 @@ import {
     getPuterHostedDomains,
     hostedIndexUrlBackingIsUnavailable,
     hostedIndexUrlBackingsAreUnavailable,
+    resolveCustomHostSubdomain,
 } from './hostedAppBacking.js';
 
 // Pure-unit companion to the integration coverage in
@@ -672,5 +673,75 @@ describe('hostedIndexUrlBackingsAreUnavailable (batched, against a real store)',
                 config: HOSTING_CONFIG,
             }),
         ).toEqual([true, false]);
+    });
+});
+
+describe('resolveCustomHostSubdomain', () => {
+    const ON = { custom_domains_enabled: true };
+    const events = (
+        listener?: (data: {
+            host: string;
+            result: { subdomain: string | null };
+        }) => void,
+    ) => {
+        const emitAndWait = vi.fn(
+            async (
+                _key: string,
+                data: { host: string; result: { subdomain: string | null } },
+                meta: { listener_failed?: boolean },
+            ) => {
+                try {
+                    listener?.(data);
+                } catch {
+                    meta.listener_failed = true;
+                }
+            },
+        );
+        return {
+            emitAndWait,
+            hasListeners: () => !!listener,
+        } as unknown as Parameters<typeof resolveCustomHostSubdomain>[2] & {
+            emitAndWait: typeof emitAndWait;
+        };
+    };
+
+    it('returns the claimed site for a normalized host', async () => {
+        const ev = events((data) => {
+            if (data.host === 'app.example.com') data.result.subdomain = 'foo';
+        });
+        await expect(
+            resolveCustomHostSubdomain('App.Example.com.', ON, ev),
+        ).resolves.toBe('foo');
+    });
+
+    it('never emits without a listener, with the flag off, or for non-domains', async () => {
+        const none = events();
+        await expect(
+            resolveCustomHostSubdomain('app.example.com', ON, none),
+        ).resolves.toBeNull();
+        expect(none.emitAndWait).not.toHaveBeenCalled();
+
+        const ev = events(() => {});
+        for (const host of ['localhost', '10.0.0.1', '', null]) {
+            await expect(
+                resolveCustomHostSubdomain(host, ON, ev),
+            ).resolves.toBeNull();
+        }
+        await expect(
+            resolveCustomHostSubdomain('app.example.com', {}, ev),
+        ).resolves.toBeNull();
+        await expect(
+            resolveCustomHostSubdomain('app.example.com', ON, null),
+        ).resolves.toBeNull();
+        expect(ev.emitAndWait).not.toHaveBeenCalled();
+    });
+
+    it('throws when a listener failed', async () => {
+        const ev = events(() => {
+            throw new Error('down');
+        });
+        await expect(
+            resolveCustomHostSubdomain('app.example.com', ON, ev),
+        ).rejects.toMatchObject({ statusCode: 503 });
     });
 });

@@ -39,9 +39,49 @@ describe('estimateTextTokens', () => {
         const long = estimateTextTokens('hello world '.repeat(100));
         expect(long).toBeGreaterThan(short);
     });
+
+    it('counts words the way splitting on \\s+ does', () => {
+        const splitEstimate = (text: string) =>
+            Math.floor(
+                (text.length / 4 + text.split(/\s+/).length * (4 / 3)) / 2,
+            );
+        for (const text of [
+            'a',
+            ' a',
+            'a ',
+            '  a  b\t\nc  ',
+            'x y z w     　﻿v',
+            'é ü 日本語 テキスト',
+            '\r\n\v\f',
+        ]) {
+            expect(estimateTextTokens(text), JSON.stringify(text)).toBe(
+                splitEstimate(text),
+            );
+        }
+    });
+
+    it('gives text past the scan budget the word density scanned so far', () => {
+        const text = 'ab cd '.repeat(1000);
+        const budget = { chars: 12, scannedChars: 0, scannedRuns: 0 };
+        // Uniform text extrapolates to the full count.
+        expect(estimateTextTokens(text, budget)).toBe(estimateTextTokens(text));
+        expect(budget.chars).toBe(0);
+        // A later part with no budget left takes the same density.
+        expect(estimateTextTokens(text, budget)).toBe(estimateTextTokens(text));
+    });
 });
 
 describe('estimatePromptTokens', () => {
+    it('scans a bounded amount of text per prompt', () => {
+        // Many parts, each under the budget alone, past it together; the
+        // unscanned ones are extrapolated, which is exact for uniform text.
+        const part = 'lorem ipsum dolor '.repeat(30_000);
+        const parts = Array.from({ length: 8 }, () => ({ text: part }));
+        expect(estimatePromptTokens([{ role: 'user', content: parts }])).toBe(
+            8 * estimateTextTokens(part),
+        );
+    });
+
     it('counts plain string content', () => {
         const tokens = estimatePromptTokens([
             { role: 'user', content: 'a fairly ordinary sentence to price' },

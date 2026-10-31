@@ -709,6 +709,20 @@ export class ChatCompletionDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
+        // A pinned provider without a route for the model normally resolves
+        // to another vendor; with `fallback: false` that is the one thing the
+        // caller asked us not to do.
+        if (
+            args.fallback === false &&
+            intendedProvider &&
+            model.provider !== intendedProvider
+        ) {
+            throw new HttpError(
+                400,
+                `Model ${args.model} is not served by provider ${intendedProvider}`,
+                { legacyCode: 'bad_request' },
+            );
+        }
 
         args.messages = normalizeMediaParts(normalize_messages(args.messages));
         if (args.tools) {
@@ -946,8 +960,15 @@ export class ChatCompletionDriver extends PuterDriver {
             const bucketKey = model.id;
             const tried = new Set([routeId(model.provider!, model.id)]);
             let lastError: Error | null = e as Error;
+            // With `fallback: false` the caller wants this route's answer or
+            // its error, not a bill for another provider's attempt.
+            const fallbackAllowed = args.fallback !== false;
 
-            while (lastError && attempts.length < MAX_ATTEMPTS) {
+            while (
+                fallbackAllowed &&
+                lastError &&
+                attempts.length < MAX_ATTEMPTS
+            ) {
                 const fallback = this.#findFallback(bucketKey, tried);
                 if (!fallback) break;
 

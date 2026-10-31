@@ -66,6 +66,19 @@ interface MailboxScope {
     appUid: string | null | undefined;
 }
 
+const assertValueFits = (value: Record<string, unknown>): void => {
+    if (
+        Buffer.byteLength(JSON.stringify(value), 'utf8') >
+        NOTIFICATION_VALUE_MAX_BYTES
+    ) {
+        throw new HttpError(
+            400,
+            `\`value\` may not exceed ${NOTIFICATION_VALUE_MAX_BYTES} bytes`,
+            { legacyCode: 'notification_value_too_large' },
+        );
+    }
+};
+
 const typeNotAllowed = (message: string): HttpError =>
     new HttpError(403, message, {
         legacyCode: 'forbidden',
@@ -155,17 +168,7 @@ export class NotificationDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
-        if (
-            Buffer.byteLength(JSON.stringify(value), 'utf8') >
-            NOTIFICATION_VALUE_MAX_BYTES
-        ) {
-            throw new HttpError(
-                400,
-                `\`value\` may not exceed ${NOTIFICATION_VALUE_MAX_BYTES} bytes`,
-                { legacyCode: 'notification_value_too_large' },
-            );
-        }
-
+        // Its own field checks come first, so an app hears which field is wrong.
         if (actor.effectiveApp) {
             return this.#createAppMessage(
                 actor,
@@ -174,6 +177,7 @@ export class NotificationDriver extends PuterDriver {
                 value,
             );
         }
+        assertValueFits(value);
         if (type === APP_MESSAGE_TYPE) {
             throw typeNotAllowed(`Only apps can create ${APP_MESSAGE_TYPE}`);
         }
@@ -321,6 +325,7 @@ export class NotificationDriver extends PuterDriver {
             }
         }
         const message = parseAppMessage(fields);
+        assertValueFits(value);
 
         if (!(await this.#withinAppMessageLimits(actor.user.id, appUid))) {
             throw new HttpError(429, 'Too many notifications from this app.', {

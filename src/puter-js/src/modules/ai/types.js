@@ -67,6 +67,8 @@
  * @property {boolean} [vision]
  * @property {string} [driver]
  * @property {string} [provider] The provider to route the request through.
+ * @property {boolean} [fallback] Set to `false` to fail the request when the first provider tried
+ * fails, instead of retrying it on another provider that serves the same model.
  * @property {Tool[]} [tools] Function/tool definitions the model can call. See Function Calling.
  * @property {boolean} [normalize] Response-format control for non-streaming results. `true` returns the
  * OpenAI-style shape regardless of provider or release date (`message.content` as a string,
@@ -559,6 +561,21 @@
  * @property {boolean} [enableLogging] camelCase alias of `enable_logging`.
  */
 
+/**
+ * A client event for OpenAI's Realtime API, such as `session.update` or `response.create`, sent
+ * unchanged.
+ *
+ * @typedef {{ type: string } & Record<string, unknown>} RealtimeClientEvent
+ */
+
+/**
+ * A server event from OpenAI's Realtime API, passed through unchanged. `type` names the event
+ * (`session.created`, `response.output_text.delta`, `error`, ...); the synthetic `close` event
+ * carries `code` and `reason`.
+ *
+ * @typedef {{ type: string } & Record<string, unknown>} RealtimeServerEvent
+ */
+
 export {};
 
 
@@ -571,3 +588,50 @@ export {};
  *     cancel: () => Promise<IteratorResult<ChatResponseChunk, void>>;
  * }} ChatResponseStream
  */
+
+/**
+ * Session settings for a live conversation.
+ *
+ * @typedef {Object} ConvoSessionOptions
+ * @property {string} [instructions] Instructions, up to 8192 characters.
+ * @property {('text' | 'audio')[]} [output] Defaults to audio. Audio includes transcript events.
+ * @property {string} [voice] OpenAI voice identifier, up to 128 characters.
+ * @property {boolean} [turnDetection] Automatic voice activity detection. Defaults to true.
+ */
+/**
+ * Options for preparing a conversation.
+ *
+ * @typedef {ConvoSessionOptions & { model?: string }} ConvoOptions
+ */
+/**
+ * How much of an assistant audio item a custom player has played.
+ *
+ * @typedef {Object} ConvoPlaybackPosition
+ * @property {string} itemId Assistant message item ID.
+ * @property {number} contentIndex Audio content index.
+ * @property {number} playedMs Played duration in milliseconds.
+ */
+/**
+ * Built-in speaker options.
+ *
+ * @typedef {Object} ConvoSpeakerOptions
+ * @property {boolean} [bargeIn] Stop replies when user speech is detected. Defaults to true.
+ */
+
+/**
+ * @typedef {{ type: 'text'; delta: string; responseId: string }} ConvoTextEvent */
+/**
+ * @typedef {{ type: 'audio'; pcm: Int16Array; sampleRate: number; responseId: string; itemId: string; contentIndex: number }} ConvoAudioEvent */
+/**
+ * @typedef {{ type: 'transcript'; role: 'user' | 'assistant'; text: string; final: boolean }} ConvoTranscriptEvent */
+/**
+ * @typedef {{ type: 'interrupted'; source: 'manual' | 'speech'; responseId: string }} ConvoInterruptedEvent */
+/**
+ * A finished reply. `usage` and `status` are OpenAI's, unchanged.
+ * @typedef {{ type: 'turn.done'; responseId: string | undefined; usage: unknown; status: unknown }} ConvoTurnDoneEvent */
+/**
+ * An OpenAI `error` event, or an SDK media failure, which also carries `code` and `message` at the
+ * top level.
+ * @typedef {{ type: 'error'; error: { code?: string; message?: string } & Record<string, unknown>; code?: string; message?: string }} ConvoErrorEvent */
+/** Native provider events retain their provider-owned fields.
+ * @typedef {Record<string, RealtimeServerEvent> & { text: ConvoTextEvent; audio: ConvoAudioEvent; transcript: ConvoTranscriptEvent; interrupted: ConvoInterruptedEvent; 'turn.done': ConvoTurnDoneEvent; error: ConvoErrorEvent; ready: { type: 'ready'; model: string; provider: 'openai'; reconnected?: boolean }; reconnecting: { type: 'reconnecting'; code: number; reason: string }; close: { type: 'close'; code: number; reason: string } }} ConvoEventMap */

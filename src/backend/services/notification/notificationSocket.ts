@@ -61,8 +61,9 @@ export const NOTIF_DELIVERY_EVENT = 'outer.notif.delivery';
 export const DEFAULT_NOTIFICATION_ACK_TIMEOUT_MS = 5_000;
 
 /**
- * Asked of the desktop's or an app's sockets with `{ uid }`. A client
- * acknowledges once its page has received that notification live.
+ * Asked of the desktop's or an app's sockets with `{ uid }`. A client answers
+ * once its page has received that notification live, or with `{ received: false
+ * }` when it never does.
  */
 export const NOTIF_RECEIPT_EVENT = 'notif.receipt';
 
@@ -93,20 +94,37 @@ export const notificationAckTimeoutMs = (config: IConfig): number => {
 /** An incomplete count never reads as nobody being here. */
 const deliveryOutcome = (
     asked: AckedAsk,
+    responders: NotifDeliveryResponder[],
     peerRegions: boolean,
 ): NotifDeliveryOutcome => {
-    if (asked.responses.length > 0) return 'received';
-    // An ack-capable socket either answered or let the ask time out.
-    if (asked.timedOut || asked.others || !asked.complete) return 'unreceived';
+    if (responders.length > 0) return 'received';
+    // An ack-capable socket answered without it or let the ask time out.
+    if (
+        asked.responses.length > 0 ||
+        asked.timedOut ||
+        asked.others ||
+        !asked.complete
+    )
+        return 'unreceived';
     return peerRegions ? 'remote-only' : 'no-socket';
 };
 
-const responderOf = (response: unknown): NotifDeliveryResponder => {
-    const state = (response as { visibilityState?: unknown } | null)
-        ?.visibilityState;
+/** Null for a page that answered without the notification. */
+const responderOf = (response: unknown): NotifDeliveryResponder | null => {
+    const answer = (
+        response && typeof response === 'object' ? response : {}
+    ) as Record<string, unknown>;
+    if (answer.received === false) return null;
+    const state = answer.visibilityState;
     return {
         visibilityState:
             state === 'visible' || state === 'hidden' ? state : 'unknown',
+        ...(typeof answer.focused === 'boolean'
+            ? { focused: answer.focused }
+            : {}),
+        ...(typeof answer.showsOwn === 'boolean'
+            ? { showsOwn: answer.showsOwn }
+            : {}),
     };
 };
 
@@ -219,18 +237,22 @@ export class NotificationSocketAdapter {
                 ),
                 this.#deps.heldInPeerRegion(userId, appUid),
             ]);
+            const responders = asked.responses.flatMap((response) => {
+                const responder = responderOf(response);
+                return responder ? [responder] : [];
+            });
             const settled: SettledDelivery = {
                 ...(sendId ? { sendId } : {}),
                 uid,
                 userId,
                 type,
                 ...(appUid ? { appUid } : {}),
-                outcome: deliveryOutcome(asked, peerRegions),
+                outcome: deliveryOutcome(asked, responders, peerRegions),
                 ackCapable: asked.responses.length > 0 || asked.timedOut,
                 everySocketAcks: !asked.others,
                 complete: asked.complete,
                 peerRegions,
-                responders: asked.responses.map(responderOf),
+                responders,
             };
             this.#deps.event.emit(
                 'notif.delivery.settled',

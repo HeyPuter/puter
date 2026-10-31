@@ -171,16 +171,15 @@ describe('app.message with live delivery over the socket wire', () => {
         const app = await makeApp(state.server, holder.user.id!);
 
         let created: Record<string, unknown> | null = null;
-        const pushed = await captureBus(
-            state.server,
-            'outer.gui.notif.message',
-            async () => {
+        let desktop: Array<Record<string, unknown>> = [];
+        const written = await captureBus(state.server, 'notif.written', () =>
+            captureBus(state.server, 'outer.gui.notif.message', async () => {
                 created = (await withActor(asApp(holder, app), () =>
                     state.driver.create(
                         message({ text: 'Body', channel: 'replies' }),
                     ),
                 )) as Record<string, unknown>;
-            },
+            }).then((seen) => (desktop = seen)),
         );
 
         const uid = created!.uid as string;
@@ -202,13 +201,16 @@ describe('app.message with live delivery over the socket wire', () => {
             audience: 'app-user',
             type: 'app.message',
         });
-        // Not silent: it went out on the wire the desktop listens to.
-        expect(pushed).toEqual([
-            {
-                user_id_list: [holder.user.id],
-                response: { uid, notification: created!.value },
-            },
+        // Not silent, but sent for the app alone: the desktop wire stays quiet.
+        expect(written).toEqual([
+            expect.objectContaining({
+                userId: holder.user.id,
+                uid,
+                type: 'app.message',
+                appUid: app.uid,
+            }),
         ]);
+        expect(desktop).toEqual([]);
     });
 
     it("lets the app's worker and the tokens it issued notify their user", async () => {
@@ -298,6 +300,42 @@ describe('app.message with live delivery over the socket wire', () => {
                 {},
             ),
         ).toEqual([]);
+    });
+
+    it('names the field over its own limit before the total size', async () => {
+        const holder = await makeUser(state.server);
+        const app = await makeApp(state.server, holder.user.id!);
+        for (const [fields, field] of [
+            [{ data: { blob: 'x'.repeat(20_000) } }, 'data'],
+            [{ text: 'x'.repeat(20_000) }, 'text'],
+            [{ extra: 'x'.repeat(20_000) }, 'extra'],
+        ] as const) {
+            await expect(
+                withActor(asApp(holder, app), () =>
+                    state.driver.create(message(fields)),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+                fields: { field },
+            });
+        }
+    });
+
+    it('still caps the whole value when every field passes', async () => {
+        const holder = await makeUser(state.server);
+        const app = await makeApp(state.server, holder.user.id!);
+        // Invisible marks are dropped from the title, so only the total is over.
+        await expect(
+            withActor(asApp(holder, app), () =>
+                state.driver.create(
+                    message({ title: `${'\u200b'.repeat(20_000)}Hi` }),
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'notification_value_too_large',
+        });
     });
 
     it('keeps the holder creating other types silently', async () => {
