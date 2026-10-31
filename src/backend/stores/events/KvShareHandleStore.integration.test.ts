@@ -22,6 +22,7 @@
  * counts and retention.
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
@@ -251,9 +252,63 @@ describe('the holder listing', () => {
                 appUid: 'app-holder-listing',
                 access: 'read',
                 label: 'Shown',
+                notify: false,
                 createdAt: row.createdAt,
             },
         ]);
+    });
+});
+
+describe('the notify flag', () => {
+    it('is off unless minted on, and reads back from every surface', async () => {
+        const appUid = `app-notify-${uuidv4().slice(0, 8)}`;
+        const plain = await store().mint(
+            input({ appUid, keyPrefix: 'plain:' }),
+        );
+        const notifying = await store().mint(
+            input({ appUid, keyPrefix: 'notifying:', notify: true }),
+        );
+        expect(plain.notify).toBe(false);
+        expect(notifying.notify).toBe(true);
+
+        expect((await store().getByHandle(notifying.handle))?.notify).toBe(
+            true,
+        );
+        expect((await store().getLive(notifying.handle))?.row.notify).toBe(
+            true,
+        );
+        expect((await store().getLive(plain.handle))?.row.notify).toBe(false);
+        const held = await store().listLiveForGrantee(granteeUserId, {
+            appUid,
+        });
+        expect(
+            Object.fromEntries(
+                held.items.map((item) => [item.handle, item.notify]),
+            ),
+        ).toEqual({ [plain.handle]: false, [notifying.handle]: true });
+        const owned = await store().listForOwner(ownerUserId, { appUid });
+        expect(owned.items.map((item) => item.notify).sort()).toEqual([
+            false,
+            true,
+        ]);
+    });
+
+    it('changes in place and leaves the cached row behind', async () => {
+        const row = await store().mint(
+            input({ keyPrefix: `notify-change-${uuidv4().slice(0, 8)}:` }),
+        );
+        await store().getLive(row.handle);
+
+        const on = await store().update(row.handle, ownerUserId, {
+            notify: true,
+        });
+        expect(on).toMatchObject({ notify: true, label: null });
+        expect((await store().getLive(row.handle))?.row.notify).toBe(true);
+
+        const off = await store().update(row.handle, ownerUserId, {
+            notify: false,
+        });
+        expect(off?.notify).toBe(false);
     });
 });
 

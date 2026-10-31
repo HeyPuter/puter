@@ -3102,6 +3102,7 @@ describe('cross-user kv handles', () => {
             keyPrefix: PREFIX,
             permission,
             label: null,
+            notify: false,
             createdAt: 0,
             revokedAt: null,
             revokedBy: null,
