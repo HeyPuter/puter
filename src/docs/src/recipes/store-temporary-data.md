@@ -5,8 +5,9 @@ tags: [kv, performance]
 order: 9
 ---
 
-In some cases, you might want to store data only for a while. With `puter.kv`,
-you can set a TTL (time to live) or an expiry time on a key. When the time is up, the key is removed automatically.
+Some data only matters for a while, such as a dismissed banner, a cached
+response or a draft. With [`puter.kv`](/KV/), you can give a key a TTL (time to
+live) or an expiry time, and the key is removed when the time is up.
 
 ## Expire a Value
 
@@ -20,11 +21,9 @@ await puter.kv.expire('promoDismissed', 60 * 60 * 24);   // 24 hours
 ```
 
 The seconds are counted on the server, so a wrong clock on the user's device
-doesn't change when the key expires.
-
-Write the value first. On a key that doesn't exist yet,
-[`puter.kv.expire()`](/KV/expire/) creates an empty marker instead, as in
-[Set a Lock or Cooldown](#set-a-lock-or-cooldown).
+doesn't change when the key expires. A TTL belongs to one key. To have items of
+a list expire one by one, give each item [its own
+key](/recipes/store-large-collection/).
 
 ## Check Whether It Expired
 
@@ -39,9 +38,8 @@ if ( ! dismissed ) {
 }
 ```
 
-The key is gone the moment the TTL runs out. From then on,
-[`puter.kv.list()`](/KV/list/) leaves it out too, so you never have to filter
-out stale entries yourself.
+From then on, [`puter.kv.list()`](/KV/list/) leaves the key out too, so you
+never filter out stale entries yourself.
 
 ## Expire at a Set Time
 
@@ -60,49 +58,14 @@ JavaScript dates count in milliseconds, so divide by 1000. A millisecond value
 reads as a date tens of thousands of years away, and the key never expires.
 
 The timestamp comes from the user's device, so midnight here is midnight in the
-user's time zone. For a plain duration, use [`puter.kv.expire()`](/KV/expire/).
-
-A timestamp that has already passed, including `0`, expires the key right
-away.
-
-## Set a Lock or Cooldown
-
-Calling [`puter.kv.expire()`](/KV/expire/) on a key that doesn't exist creates
-an empty marker that removes itself when the TTL runs out. You can use the
-marker as a basic lock or cooldown, such as waiting 10 minutes before sending
-another reminder, or running one sync at a time.
-
-The [`puter.kv.get()`](/KV/get/) method reads a marker as `null`, the same as a
-missing key. To check whether the marker exists, use
-[`puter.kv.list()`](/KV/list/) instead:
-
-```js
-async function isLocked (key) {
-    const { items } = await puter.kv.list({ pattern: key, limit: 1 });
-    return items[0] === key;
-}
-
-if ( ! await isLocked('lock:sync') ) {
-    await puter.kv.expire('lock:sync', 30);   // held for 30 seconds
-    await sync();
-}
-```
-
-The list is sorted, and a key comes first among the keys that start with it, so
-the first item is the marker when it exists. An expired marker is left out of
-the list.
-
-When the tab closes in the middle of a sync, the marker still removes itself
-when the TTL runs out. To release the lock early, delete the key with the
-[`puter.kv.del()`](/KV/del/) method. Two tabs that check at the same moment can
-both see the lock as free, so use it where running twice is harmless.
+user's time zone.
 
 ## Cache a Response
 
 To cache something you fetch, pass the expiry as the third argument of
 [`puter.kv.set()`](/KV/set/). It takes the same timestamp in seconds as
-[`puter.kv.expireAt()`](/KV/expireAt/), and sets the value and the TTL in one
-write:
+[`puter.kv.expireAt()`](/KV/expireAt/), and sets the value and the expiry in
+one write:
 
 ```js
 async function getForecast (city) {
@@ -118,9 +81,9 @@ async function getForecast (city) {
 }
 ```
 
-Every call to [`puter.kv.set()`](/KV/set/) replaces the whole entry, TTL
+Every call to [`puter.kv.set()`](/KV/set/) replaces the whole entry, expiry
 included. A value you write again and again, such as a draft saved on every
-edit, needs the expiry on every write. Each save then moves the expiry later:
+edit, needs the expiry on every write, and each save moves it later:
 
 ```js
 const inOneWeek = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7;
@@ -128,28 +91,58 @@ const inOneWeek = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7;
 await puter.kv.set('draft', text, inOneWeek);
 ```
 
+## Set a Lock or Cooldown
+
+To run something at most once in a period, such as one reminder every 10
+minutes, write a key with an expiry and `onlyIfAbsent: true` in the options of
+[`puter.kv.set()`](/KV/set/). The key is written only when it isn't already
+there, and the call returns `false` when it is:
+
+```js
+async function claim (key, seconds) {
+    const expireAt = Math.floor(Date.now() / 1000) + seconds;
+    return await puter.kv.set(key, true, expireAt, { onlyIfAbsent: true });
+}
+
+if ( await claim('cooldown:reminder', 10 * 60) ) {
+    await sendReminder();
+}
+```
+
+Once the key expires, the next `claim()` call writes it again and returns
+`true`.
+
+To run one sync at a time, use the key as a lock and delete it with
+[`puter.kv.del()`](/KV/del/) when the work is done. If the tab closes in the
+middle, the expiry releases the lock:
+
+```js
+if ( await claim('lock:sync', 30) ) {
+    try {
+        await sync();
+    } finally {
+        await puter.kv.del('lock:sync');
+    }
+}
+```
+
+The check and the write are a single call. Two calls at nearly the same moment
+from different places can still both get `true`, so use this where running
+twice is harmless.
+
 ## Remove a TTL
 
 To keep a key for good, write the value again with
-[`puter.kv.set()`](/KV/set/) and no expiry. The key then stays until you delete
-it:
+[`puter.kv.set()`](/KV/set/) and no expiry:
 
 ```js
 await puter.kv.set('draft', text);
 ```
 
-To change part of the value and remove the TTL in the same write, pass `null`
-as the TTL of [`puter.kv.update()`](/KV/update/).
+To change part of a value and remove its TTL in the same write, pass `null` as
+the TTL of [`puter.kv.update()`](/KV/update/).
 
 Calls that change part of a value keep the TTL the key already has. That
 includes [`puter.kv.incr()`](/KV/incr/), [`puter.kv.decr()`](/KV/decr/),
 [`puter.kv.add()`](/KV/add/), [`puter.kv.remove()`](/KV/remove/), and
 [`puter.kv.update()`](/KV/update/) without a TTL argument.
-
-## Notes
-
-- A TTL belongs to one key. If each item in a list should expire on its own,
-  give each item its own key, as in [store a large
-  collection](/recipes/store-large-collection/).
-- To count per calendar day or week, put the period in the key.
-  [Add counters](/recipes/add-counters/) shows how.

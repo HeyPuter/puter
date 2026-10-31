@@ -182,7 +182,7 @@ describe('SystemKVStore', () => {
             const huge = 'a'.repeat(400 * 1024);
             await expect(
                 target.set({ key: 'big', value: huge }, opts),
-            ).rejects.toMatchObject({ statusCode: 400 });
+            ).rejects.toMatchObject({ statusCode: 400, code: 'value_too_large' });
         });
 
         it('clamps a number too large to store, rather than failing the write', async () => {
@@ -1579,6 +1579,18 @@ describe('SystemKVStore', () => {
             );
 
             expect(result.res).toEqual({ a: { owner: 1, other: 3 } });
+        });
+
+        it('rejects a single value over the size limit', async () => {
+            await expect(
+                target.update(
+                    {
+                        key: 'big-path',
+                        pathAndValueMap: { a: 'a'.repeat(400 * 1024) },
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400, code: 'value_too_large' });
         });
 
         it('sets a top-level path on a fresh key', async () => {

@@ -1,6 +1,6 @@
 ---
 title: Store a Set of Unique Values
-description: "Learn how to store a set of unique values, like liked posts or tags, in one Puter.js key-value entry so nothing gets added twice."
+description: "Learn how to store a set of unique values with Puter.js, so nothing gets added twice, even when the user adds it from two tabs at once."
 tags: [kv, data-modeling]
 order: 25
 ---
@@ -10,8 +10,8 @@ liked or the tags on a note. In JavaScript you'd use a
 [`Set`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Set)
 for this.
 
-[`puter.kv`](/KV/) doesn't have a set type, but an object works just as well.
-Store each value as a field name, with `true` as its value:
+[`puter.kv`](/KV/) has no set type, but an object works just as well. Store each
+value as a field name, with `true` as its value:
 
 ```js
 {
@@ -21,29 +21,24 @@ Store each value as a field name, with `true` as its value:
 ```
 
 An object can't have the same field twice, so there are never duplicates. An
-array doesn't work here, because [`puter.kv.add()`](/KV/add/) appends a value
-even if it's already in the list.
+array can, since [`puter.kv.add()`](/KV/add/) appends a value even when it's
+already in the list.
 
 ## Add a Value
 
 To add a value, use the [`puter.kv.update()`](/KV/update/) method with the value
-as the field name:
-
-```js
-await puter.kv.update('likedPosts', { [postId]: true });
-```
-
-If the key doesn't exist yet, it's created. Adding a value that's already there
-changes nothing, so a double click or the same call from two tabs is harmless.
-
-The method returns the whole set after the change:
+as the field name. It returns the whole set after the change:
 
 ```js
 const liked = await puter.kv.update('likedPosts', { [postId]: true });
 // { 'post-81': true, 'post-102': true }
 ```
 
-To add several values at once, put them all in the same object:
+The first call creates the key. Adding a value that's already there changes
+nothing, so a double click or the same call from two tabs is harmless.
+
+To add several values at once, put them all in the same object. One call fits
+about 140 short values, so split bigger changes into several calls:
 
 ```js
 await puter.kv.update('likedPosts', { 'post-7': true, 'post-9': true });
@@ -66,7 +61,11 @@ await puter.kv.update('bookmarks', { [member('https://example.com/a.html')]: tru
 Use `member()` for anything a user typed or that comes from outside your app.
 IDs from
 [`crypto.randomUUID()`](https://developer.mozilla.org/en-US/docs/Web/API/Crypto/randomUUID)
-don't contain dots, so they're fine without it.
+don't contain dots, so they work without it.
+
+An empty string, `__proto__`, `constructor` and `prototype` can't be field names,
+even inside `member()`, and the call rejects with `bad_request`. If users can
+type anything, add a prefix, like `member('tag:' + value)`.
 
 ## Remove a Value
 
@@ -78,7 +77,7 @@ await puter.kv.remove('bookmarks', member(url));
 
 Removing a value that isn't in the set does nothing. To remove several at once,
 pass each one as a separate argument. Passing the same value twice in one call
-is rejected with `bad_request`, so remove duplicates first:
+rejects with `bad_request`, so remove duplicates first:
 
 ```js
 await puter.kv.remove('tags', ...[ ...new Set(tagsToRemove) ].map(member));
@@ -101,7 +100,8 @@ const count = urls.length;
 ## Build a Like Button
 
 For a like button, save the state the user picked instead of flipping whatever
-is stored:
+is stored. Two tabs that each flip the stored value at the same time cancel each
+other out:
 
 ```js
 async function setLiked (postId, liked) {
@@ -118,14 +118,10 @@ likeButton.addEventListener('click', async () => {
 });
 ```
 
-If you read the stored value and write the opposite, two tabs clicking at the
-same time can cancel each other out. Saving the state directly avoids that.
-
 ## Keep the Order Values Were Added
 
-Objects don't keep their field order when they're stored. If you need newest
-first, like for recent searches, store a timestamp instead of `true` and sort
-when you read:
+Stored objects don't keep their field order. To show the newest first, like for
+recent searches, store a timestamp instead of `true` and sort when you read:
 
 ```js
 await puter.kv.update('recentSearches', { [member(query)]: Date.now() });
@@ -149,9 +145,9 @@ if ( old.length > 0 ) {
 
 ## When to Switch
 
-One entry holds up to [400 KB](/KV/MAX_VALUE_SIZE/), which is a few thousand
-short values. If the set can get bigger than that, like every post a user has
-ever liked, give each value its own key instead:
+One key has a [size limit](/KV/MAX_VALUE_SIZE/) that fits a few thousand short
+values. If the set can get bigger than that, like every post a user has ever
+liked, give each value its own key instead:
 
 ```js
 await puter.kv.set(`liked:${ postId }`, true);                      // add
@@ -159,13 +155,5 @@ await puter.kv.del(`liked:${ postId }`);                            // remove
 const isLiked = await puter.kv.get(`liked:${ postId }`) !== null;   // check
 ```
 
-To list them, read every key that starts with `liked:`, as shown in [Store a
-Large Collection](/recipes/store-large-collection/).
-
-## Notes
-
-- Empty strings, `__proto__`, `constructor` and `prototype` can't be used as
-  field names and are rejected with `bad_request`. If users can type anything,
-  add a prefix, like `member('tag:' + value)`.
-- One `update()` or `remove()` call can handle about 140 short values. Split
-  bigger changes into several calls.
+To list them, read the keys that start with `liked:` a page at a time, as in
+[Store a Large Collection](/recipes/store-large-collection/).

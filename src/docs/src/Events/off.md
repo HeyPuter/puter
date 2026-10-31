@@ -21,7 +21,7 @@ subscription.off()
 None.
 
 ## Return value
-A `Promise` that resolves when the subscription is gone. It never rejects: calling `off()` twice, or after the connection dropped, does nothing.
+A `Promise` that resolves when the subscription is gone. It never rejects. Calling `off()` twice, or after the connection dropped, does nothing.
 
 ## Examples
 

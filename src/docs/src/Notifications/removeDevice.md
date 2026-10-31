@@ -4,7 +4,7 @@ description: Stop push notifications to one of the user's devices. For Puter's o
 platforms: [websites, apps]
 ---
 
-<div class="info">This is for Puter's own apps. It needs a signed-in Puter session; an app's token is refused with <code>forbidden</code>.</div>
+<div class="info">This is for Puter's own apps. It needs a signed-in Puter session, and it rejects an app's token with <code>forbidden</code>.</div>
 
 Removes one of the user's devices, so it gets no more push notifications. Signing out of a session also removes the devices registered from it.
 

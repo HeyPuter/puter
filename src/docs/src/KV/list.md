@@ -4,9 +4,9 @@ description: Retrieve all keys from the user's own key-value store for your app.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Returns an array of all keys in the user's key-value store for the current app. If the user has no keys, the array will be empty.
+Returns the keys in the user's key-value store for the current app, or an empty array if there are none.
 
-Results are sorted lexicographically (string order) by key, ascending by default. Pass `reverse: true` to list keys in descending order.
+Keys are sorted lexicographically (string order), ascending by default. Pass `reverse: true` to list them in descending order.
 
 ## Syntax
 
@@ -25,13 +25,13 @@ puter.kv.list(options)
 
 #### `pattern` (String) (optional)
 
-If set, only keys that match the given pattern will be returned. The pattern is prefix-based and can include a `*` wildcard only at the end. For example, `abc` and `abc*` both match keys that start with `abc` (such as `abc`, `abc123`, `abc123xyz`). If you need to match a literal `*` in the prefix, use `*` at the end (for example, `key**` matches keys that start with `key*`, or `k*y*` will match `k*y` prefixes). Default is `*`, which matches all keys.
+Returns only the keys that start with this prefix. A `*` is a wildcard only at the end, so `abc` and `abc*` both match keys that start with `abc` (such as `abc`, `abc123`, and `abc123xyz`). To match a literal `*`, add one more at the end. For example, `key**` matches keys that start with `key*`, and `k*y*` matches keys that start with `k*y`. Defaults to `*`, which matches every key.
 
-> Patterns here are **always** prefix matches, with or without a trailing `*`. [Events](/Events/) subjects are the other way round: `kv:cart` watches that one key, and you add `*` to widen it to a prefix.
+> Patterns here are **always** prefix matches, with or without a trailing `*`. [Events](/Events/) subjects are the other way round. The subject `kv:cart` watches that one key, and you add `*` to widen it to a prefix.
 
 #### `returnValues` (Boolean) (optional)
 
-If set to `true`, the returned array will contain objects with both `key` and `value` properties. If set to `false`, the returned array will contain only the keys. Default is `false`.
+When `true`, the result holds [`KVPair`](/Objects/kvpair) objects with `key` and `value`. When `false`, it holds only the keys. Defaults to `false`.
 
 #### `optConfig` (Object) (optional)
 
@@ -39,41 +39,35 @@ If set to `true`, the returned array will contain objects with both `key` and `v
 
 The last argument of the positional forms. It takes these properties:
 
-- `handle` (String): List data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). Listing only keys works with any access level. Listing values needs `read` or `write` access. The `pattern` is relative to the shared prefix and can be at most 768 bytes, and the returned keys are relative to the prefix too. The results and `total` leave out private entries. Every page of a full listing or a stream is fetched through the handle. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): List another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+- `handle` (String): Lists data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). Listing keys works at any access level, and listing values needs `read` or `write` access. The `pattern` is relative to the shared prefix and can be at most 768 bytes, and the returned keys are relative to the prefix too. The results and `total` leave out entries the owner's app keeps private. See [Sharing with other users](/KV/#sharing-with-other-users).
+- `appUuid` (String): Lists another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
 
 #### `options` (Object) (optional)
 
-An object with the following optional properties:
+An object with these optional properties:
 
 - `pattern` (String): Same as the `pattern` parameter.
 - `returnValues` (Boolean): Same as the `returnValues` parameter.
-- `reverse` (Boolean): Lists keys in descending order when `true`. Defaults to `false`. Works with full listings, pagination, and streams; by itself, it keeps the plain-array return shape.
-- `limit` (Number): Maximum number of items to return in a single call, at most `1000`. A larger value is lowered to `1000`; follow the `cursor` for the rest.
-- `cursor` (String): A pagination cursor from a previous call. Pass the `cursor` value returned by the previous page to fetch the next one. The cursor preserves the listing direction; omit `reverse` to keep it, or pass the same value. A conflicting direction is rejected.
-- `offset` (Number): Skips the given number of items before the page starts. Not recommended — requests get slower and more expensive the larger the offset; prefer `cursor`. Maximum `5000`, and cannot be combined with `cursor`.
-- `includeTotal` (Boolean): If `true`, the result includes a `total` count of every item matching the query (across all pages). The count is metered and its cost grows with the size of your store — request it once (on the first page) and avoid it in hot paths. If you only need to know whether more pages exist, check for `cursor` instead of counting.
-- `fetchUntilFull` (Boolean): A page can come back with fewer than `limit` items even when more exist (for example when expired keys are excluded). If `true`, the page is filled up to `limit` items when possible. Requires `limit`.
+- `reverse` (Boolean): Lists keys in descending order when `true`. Defaults to `false`. It works with full listings, pages, and streams. On its own, it keeps the plain array return shape.
+- `limit` (Number): The most items to return in one call, at most `1000`. A larger value is lowered to `1000`, and the `cursor` picks up from there.
+- `cursor` (String): The `cursor` from the previous page, to fetch the next one. The cursor keeps the listing's direction, so leave out `reverse` or pass the same value. A different `reverse` is rejected.
+- `offset` (Number): Skips this many items before the page starts, at most `5000`. It can't be combined with `cursor`. Requests get slower and more expensive the larger the offset, so prefer `cursor`.
+- `includeTotal` (Boolean): When `true`, the result includes `total`, the number of items that match across all pages. The count is metered, and its cost grows with the size of your store. Request it once, on the first page, and keep it out of hot paths. To find out whether more pages exist, check for `cursor` instead.
+- `fetchUntilFull` (Boolean): A page can come back with fewer than `limit` items even when more exist, such as when expired keys are left out. When `true`, the page is filled up to `limit` items when possible. Requires `limit`.
 - `optConfig` (Object): Same as the `optConfig` parameter, as in `list({ pattern, optConfig: { handle } })`.
-- `stream` (Boolean): If `true`, the method returns an async iterator of [`KVListPage`](/Objects/kvlistpage) objects instead of a promise, for use with `for await ... of`. Combine with `limit` to control the page size, or `cursor` to resume from a previous page. Cannot be combined with `offset`. With `includeTotal`, only the first page carries `total`.
+- `stream` (Boolean): When `true`, the method returns an async iterator of [`KVListPage`](/Objects/kvlistpage) objects instead of a promise, for use with `for await ... of`. Combine it with `limit` to set the page size, or with `cursor` to resume from a page. It can't be combined with `offset`. With `includeTotal`, only the first page has `total`.
 
 ## Return value
 
-A `Promise` that will resolve to either:
+A `Promise` that resolves to one of these:
 
-- An array of all keys the user has for the current app, or
-- An array of [`KVPair`](/Objects/kvpair) objects containing the user's key-value pairs for the current app, or
-- A [`KVListPage`](/Objects/kvlistpage) object when using any of `limit`, `cursor`, `offset`, `includeTotal`, or `fetchUntilFull` in `options`
+- An array of keys.
+- An array of [`KVPair`](/Objects/kvpair) objects, when `returnValues` is `true`.
+- A [`KVListPage`](/Objects/kvlistpage) object, when `options` has `limit`, `cursor`, `offset`, `includeTotal`, or `fetchUntilFull`.
 
-If the user has no keys, the array will be empty.
+When paging, keep going until a page has no `cursor`. A page can hold fewer than `limit` items while more pages exist.
 
-When paginating, iterate until the result has no `cursor` — a page may hold fewer than `limit` items while more pages still exist.
-
-Invalid options, such as a non-boolean `reverse` or `offset` combined with `stream`, reject the returned promise with an `invalid_request` error; `list()` never throws synchronously. With `stream: true`, the iterator's first `next()` rejects instead.
-
-Without pagination params, the full listing is returned as a plain array. It reads the entire store and is metered per page, so on large stores a bare `list()` gets slow and costly. The SDK logs a one-time console warning when a full listing spans multiple pages. Use `stream: true` or `limit` and `cursor` pages instead, and narrow the scan with a `pattern`.
-
-With `handle`, the promise can also reject with `kv_handle_not_found` (the handle doesn't exist, the share stopped, or it isn't shared with you), `kv_handle_access_denied` (the listing asks for values and the share is `watch` only), `kv_handle_option_invalid` (`handle` combined with `appUuid`), `kv_handle_key_invalid` (`pattern` is over 768 bytes), or `kv_handles_disabled` (shares can't be used this way on this deployment).
+Without paging options, the whole listing comes back as one array. It reads the entire store and is metered per page, so on a large store a bare `list()` gets slow and costly. The SDK logs a one-time console warning when a full listing spans more than one page. Use `stream: true`, or `limit` and `cursor`, and narrow the scan with a `pattern`.
 
 With `stream: true`, the method returns an async iterator of [`KVListPage`](/Objects/kvlistpage) objects instead:
 
@@ -84,6 +78,19 @@ for await (const page of puter.kv.list({ pattern: 'log:*', stream: true })) {
     }
 }
 ```
+
+## Errors
+
+The promise rejects with `{ message, code }`. With `stream: true`, the iterator's first `next()` rejects instead. The method never throws synchronously.
+
+| Code | Meaning |
+| -- | -- |
+| `invalid_request` | An option is invalid, such as a `reverse` that isn't a boolean or `offset` combined with `stream`. |
+| `kv_handle_not_found` | `handle` doesn't exist, the share stopped, it isn't shared with you, or the call comes from an app other than the one whose data it shares. |
+| `kv_handle_access_denied` | The listing asks for values, and the share is `watch` only. |
+| `kv_handle_option_invalid` | `handle` was combined with `appUuid`. |
+| `kv_handle_key_invalid` | With `handle`, the `pattern` is longer than 768 bytes. |
+| `kv_handles_disabled` | Calls through a share are turned off on this deployment. |
 
 ## Examples
 
@@ -138,6 +145,7 @@ for await (const page of puter.kv.list({ pattern: 'log:*', stream: true })) {
         })();
     </script>
 </body>
+</html>
 ```
 
 <strong class="example-title">Paginate results with a cursor</strong>
@@ -221,29 +229,20 @@ for await (const page of puter.kv.list({ pattern: 'log:*', stream: true })) {
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            // Wrong — will sort as 1, 10, 100, 2, 20
-            await puter.kv.set('item:1', '...');
-            await puter.kv.set('item:10', '...');
-            await puter.kv.set('item:2', '...');
-
-            // Correct — zero-pad to a fixed width
-            await puter.kv.set('item:001', '...');
-            await puter.kv.set('item:002', '...');
-            await puter.kv.set('item:010', '...');
-            await puter.kv.set('item:100', '...');
+            // Pad numbers to a fixed width, so string order matches number order
+            const keys = ['item:010', 'item:002', 'item:100', 'item:001'];
+            for (const key of keys) {
+                await puter.kv.set(key, '...');
+            }
 
             const items = await puter.kv.list('item:*');
             puter.print('Items with zero-padding: <br/>');
             puter.print(items.join('<br/>'));
 
             // Cleanup
-            await puter.kv.del('item:1');
-            await puter.kv.del('item:10');
-            await puter.kv.del('item:2');
-            await puter.kv.del('item:001');
-            await puter.kv.del('item:002');
-            await puter.kv.del('item:010');
-            await puter.kv.del('item:100');
+            for (const key of keys) {
+                await puter.kv.del(key);
+            }
         })();
     </script>
 </body>
