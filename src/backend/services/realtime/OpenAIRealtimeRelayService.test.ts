@@ -1074,6 +1074,72 @@ describe('OpenAIRealtimeRelayService relay', () => {
         expect((await c.closed).code).toBe(1008);
     });
 
+    describe('when the plan lookup fails', () => {
+        type Resolvers = { subscriptionResolvers: unknown[] };
+        // A resolver that throws makes the plan a provisional fallback.
+        const failing = () => {
+            throw new Error('billing unavailable');
+        };
+        const failLookups = (uuid: string) => {
+            const metering = server.services.metering;
+            (metering as unknown as Resolvers).subscriptionResolvers.unshift(
+                failing,
+            );
+            metering.invalidateActorSubscription(uuid);
+        };
+        afterEach(async () => {
+            const metering = server.services.metering;
+            const resolvers = (metering as unknown as Resolvers)
+                .subscriptionResolvers;
+            resolvers.splice(resolvers.indexOf(failing), 1);
+            // The fallback stays cached for its window otherwise.
+            const u = await server.stores.user.getByUsername(user.username);
+            metering.invalidateActorSubscription(u!.uuid);
+        });
+
+        it('asks the client to retry instead of reporting no subscription', async () => {
+            const u = await server.stores.user.getByUsername(user.username);
+            vi.mocked(
+                server.services.metering.getActorSubscription,
+            ).mockRestore();
+            failLookups(u!.uuid);
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'internal_error' },
+            });
+            expect((await c.closed).code).toBe(1011);
+            expect(
+                c.events.some(
+                    (e) =>
+                        (e.error as { code?: string } | undefined)?.code ===
+                        'subscription_required',
+                ),
+            ).toBe(false);
+        });
+
+        it('asks a session to retry instead of reporting no funds', async () => {
+            const u = await server.stores.user.getByUsername(user.username);
+            const c = open(
+                `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+            );
+            await c.waitFor('session.created');
+            failLookups(u!.uuid);
+            vi.spyOn(
+                server.services.metering,
+                'getAllowedUsage',
+            ).mockResolvedValue({
+                remaining: 0,
+                monthUsageAllowance: 0,
+                addons: {},
+            });
+            c.ws.send(JSON.stringify({ type: 'hold.response' }));
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'internal_error' },
+            });
+            expect((await c.closed).code).toBe(1011);
+        });
+    });
+
     it('forwards a normal stream without waiting for metering', async () => {
         const c = open(`${relayUrl}?auth_token=${user.token}`);
         await c.waitFor('session.created');
