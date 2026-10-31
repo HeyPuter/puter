@@ -403,9 +403,39 @@ redis.call('PEXPIRE', KEYS[4], ARGV[1])
 return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]) }
 `;
 
-/** KEYS: delta, base. Reads both without marking the counter for flushing. */
+/**
+ * KEYS: delta, base, claimed. ARGV: counter, pending key prefix.
+ *
+ * Reads both without marking the counter for flushing, plus the counter's
+ * outstanding claim: amounts a flush has taken but not yet written onward are
+ * in neither the delta nor the base. The claim's key is built here, which is
+ * safe for the reason given at `RECONCILE_SCRIPT`.
+ */
 const READ_SCRIPT = `
-return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]) }
+local claim = {}
+local nonce = redis.call('HGET', KEYS[3], ARGV[1])
+if nonce then claim = redis.call('HGETALL', ARGV[2] .. nonce) end
+return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]), claim }
+`;
+
+/**
+ * KEYS: pending, base. ARGV: path/amount pairs just written onward.
+ *
+ * Takes written paths off a claim and, when a base is cached, adds them to it
+ * in the same step, so a read counts them all the way to the settle that
+ * replaces the base with the store's own view. Without a base, reads go to the
+ * store, which already has them.
+ */
+const APPLY_SCRIPT = `
+redis.call('HDEL', KEYS[1], '${INTENT_FIELD}')
+local based = redis.call('EXISTS', KEYS[2]) == 1
+for i = 1, #ARGV, 2 do
+    redis.call('HDEL', KEYS[1], ARGV[i])
+    if based then
+        redis.call('HINCRBYFLOAT', KEYS[2], ARGV[i], ARGV[i + 1])
+    end
+end
+return 1
 `;
 
 /**
@@ -653,7 +683,8 @@ return redis.call('HGETALL', KEYS[1])
 
 type ScriptRunner = {
     meterIncr(...args: string[]): Promise<[string[], string[]]>;
-    meterRead(...args: string[]): Promise<[string[], string[]]>;
+    meterRead(...args: string[]): Promise<[string[], string[], string[]]>;
+    meterApply(...args: string[]): Promise<number>;
     meterDrain(...args: string[]): Promise<[string[], number]>;
     meterClaim(...args: string[]): Promise<string[] | null>;
     /** `[1, amounts]` when re-claimed, `[0, hadIndexEntry]` when not. */
@@ -1119,8 +1150,12 @@ export class MeteringBufferStore extends PuterStore {
             lua: INCR_SCRIPT,
         });
         client.defineCommand('meterRead', {
-            numberOfKeys: 2,
+            numberOfKeys: 3,
             lua: READ_SCRIPT,
+        });
+        client.defineCommand('meterApply', {
+            numberOfKeys: 2,
+            lua: APPLY_SCRIPT,
         });
         client.defineCommand('meterDrain', {
             numberOfKeys: 2,
@@ -1216,11 +1251,18 @@ export class MeteringBufferStore extends PuterStore {
         key: string,
     ): Promise<{ delta: FlatAmounts; base: FlatAmounts }> {
         const tag = bucketTag(key);
-        const [delta, base] = await this.#redis.meterRead(
+        const [delta, base, claim] = await this.#redis.meterRead(
             deltaKey(tag, key),
             baseKey(tag, key),
+            claimedKey(tag),
+            key,
+            pendingKey(tag, ''),
         );
-        return { delta: pairsToAmounts(delta), base: pairsToAmounts(base) };
+        // Claimed amounts count like buffered ones until their settle.
+        return {
+            delta: addAmounts(pairsToAmounts(delta), parseClaim(claim).amounts),
+            base: pairsToAmounts(base),
+        };
     }
 
     async #readThrough(key: string): Promise<unknown | null> {
@@ -1618,7 +1660,11 @@ export class MeteringBufferStore extends PuterStore {
             // before anything else can fail: a re-drive then picks up only what
             // is still outstanding. The alarm below is the "anything else" — it
             // comes after.
-            await this.#dropFromClaim(tag, nonce, paths);
+            await this.#redis.meterApply(
+                pendingKey(tag, nonce),
+                baseKey(tag, key),
+                ...toScriptArgs(batch),
+            );
 
             if (usage.write >= LARGE_SETTLE_WRITE_UNITS) {
                 this.#recordLargeSettle(key, usage.write);

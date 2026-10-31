@@ -420,6 +420,75 @@ describe('MeteringBufferStore', () => {
             expect(await storedTotal(key)).toBe(0);
         });
 
+        /** Holds `method` on `target` until the returned release is called. */
+        const holdCalls = <T extends object>(on: T, method: keyof T) => {
+            let release: () => void = () => {};
+            const gate = new Promise<void>((r) => (release = r));
+            const real = (on[method] as (...a: unknown[]) => unknown).bind(on);
+            const spy = vi
+                .spyOn(on, method as never)
+                .mockImplementation((async (...args: unknown[]) => {
+                    await gate;
+                    return real(...args);
+                }) as never);
+            return { spy, release };
+        };
+        const readTotal = async () =>
+            ((await target.get({ key })).res as { total?: number } | null)
+                ?.total ?? 0;
+
+        it('counts usage a flush has claimed but not yet written onward', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            try {
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                expect(await readTotal()).toBe(10);
+                write.release();
+                await flushing;
+            } finally {
+                write.spy.mockRestore();
+            }
+            expect(await readTotal()).toBe(10);
+            expect(await storedTotal(key)).toBe(10);
+        });
+
+        it('counts usage written onward until its settle lands', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            await target.flushCycle();
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+            const redis = server.clients.redis as unknown as {
+                meterSettle: (...args: string[]) => Promise<number>;
+            };
+            const settle = holdCalls(redis, 'meterSettle');
+            try {
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(settle.spy).toHaveBeenCalled());
+                expect(await storedTotal(key)).toBe(15);
+                expect(await readTotal()).toBe(15);
+                settle.release();
+                await flushing;
+            } finally {
+                settle.spy.mockRestore();
+            }
+            expect(await readTotal()).toBe(15);
+        });
+
+        it('counts a claim in array reads too', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 4 } });
+            const write = holdCalls(kv, 'incr');
+            try {
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                const { res } = await target.get({ key: [key] });
+                expect((res as [{ total: number }])[0].total).toBe(4);
+                write.release();
+                await flushing;
+            } finally {
+                write.spy.mockRestore();
+            }
+        });
+
         it('reads an unknown counter as absent', async () => {
             const { res } = await target.get({ key });
             expect(res).toBeNull();
@@ -906,12 +975,16 @@ describe('MeteringBufferStore', () => {
                 '1000000000',
             );
 
+            // Another deployment's write, which only a replacing settle would
+            // bring into the base.
+            await kv.incr({ key, pathAndAmountMap: { total: 1000 } });
             await target.incr({ key, pathAndAmountMap: { total: 5 } });
             await target.flushCycle();
 
-            expect(await storedTotal(key)).toBe(105);
+            expect(await storedTotal(key)).toBe(1105);
+            // The newer base keeps its view, plus what this flush wrote.
             expect(Number(await server.clients.redis.hget(base, 'total'))).toBe(
-                100,
+                105,
             );
         });
 
@@ -1742,6 +1815,17 @@ describe('MeteringBufferStore', () => {
                     order.push('dropFromClaim');
                     return realHdel(...args);
                 });
+            // A written batch leaves the claim through this script.
+            const redis = server.clients.redis as unknown as {
+                meterApply: (...args: string[]) => Promise<number>;
+            };
+            const realApply = redis.meterApply.bind(redis);
+            const applySpy = vi
+                .spyOn(redis, 'meterApply')
+                .mockImplementation((...args: string[]) => {
+                    order.push('dropFromClaim');
+                    return realApply(...args);
+                });
             const alarmSpy = vi
                 .spyOn(server.clients.alarm, 'create')
                 .mockImplementation(() => {
@@ -1751,6 +1835,7 @@ describe('MeteringBufferStore', () => {
             await target.flushCycle();
             incrSpy.mockRestore();
             hdelSpy.mockRestore();
+            applySpy.mockRestore();
             alarmSpy.mockRestore();
 
             expect(order).toEqual(['dropFromClaim', 'alarm']);
