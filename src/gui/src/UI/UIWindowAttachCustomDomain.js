@@ -385,9 +385,10 @@ async function UIWindowAttachCustomDomain (options) {
             if ( viaCloudFront ) {
                 const target = routing?.value ?? '';
                 $route53.find('.custom-domain-steps').html([
+                    // In the order CloudFront's create wizard asks for them.
+                    i18n('custom_domain_route53_step_domain', [domain.hostname]),
+                    i18n('custom_domain_route53_step_origin', [target, domain.hostname]),
                     i18n('custom_domain_route53_step_cert', [domain.hostname]),
-                    i18n('custom_domain_route53_step_distribution', [target, domain.hostname]),
-                    i18n('custom_domain_route53_step_policies', [domain.hostname]),
                     i18n('custom_domain_route53_step_alias', [domain.hostname]),
                 ].map((step) => `<li>${step}</li>`).join(''));
             }
