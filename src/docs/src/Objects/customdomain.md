@@ -55,8 +55,8 @@ When the domain became active, in milliseconds since the Unix epoch, or `null` i
 
 #### `dnsProvider` (String, optional)
 
-Who hosts the DNS of a root domain: `route53`, `godaddy` or `other`. Puter looks this up when a root domain is added, and only includes it in that response, because the setup steps differ. Route 53 can only point a root domain at AWS services, and GoDaddy can't point a root domain at another host name at all.
+Who hosts the DNS of a root domain: `route53`, `godaddy` or `other`. Puter looks this up when a root domain is added, and only includes it in that response. Route 53 and GoDaddy can't point a root domain at another host name, so a root domain on either is added as its `www.` hostname (see `redirectFrom`).
 
 #### `redirectFrom` (String, optional)
 
-The root domain that forwards to this `www.` hostname. A root domain hosted on GoDaddy is added as its `www.` hostname, and the user can switch any other root domain to `www.` in the dialog. The `records` then include an `A` record that forwards the root domain.
+The root domain that forwards to this `www.` hostname. A root domain hosted on Route 53 or GoDaddy is added as its `www.` hostname, and the user can switch any other root domain to `www.` in the dialog. The `records` then include an `A` record that forwards the root domain.

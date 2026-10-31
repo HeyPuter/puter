@@ -136,10 +136,6 @@ async function UIWindowAttachCustomDomain (options) {
                                 <thead><tr><th>${i18n('custom_domain_record_type')}</th><th>${i18n('name')}</th><th>${i18n('custom_domain_record_value')}</th></tr></thead>
                                 <tbody></tbody>
                             </table>
-                            <div class="custom-domain-route53" style="display:none;">
-                                <p class="app-feedback-note">${i18n('custom_domain_route53_intro')}</p>
-                                <ol class="custom-domain-steps"></ol>
-                            </div>
                             <p class="app-feedback-note custom-domain-redirect" style="display:none;"></p>
                             <p class="app-feedback-note custom-domain-apex" style="display:none;">${i18n('custom_domain_apex_hint')}</p>
                             <button type="button" class="app-feedback-btn custom-domain-use-www" style="display:none;">${i18n('custom_domain_no_root_alias')}</button>
@@ -377,32 +373,15 @@ async function UIWindowAttachCustomDomain (options) {
             if ( domain.statusDetail && domain.status !== 'active' ) {
                 $status.append($('<span class="custom-domain-status-detail"></span>').text(domain.statusDetail));
             }
-            // Route 53 can't alias a root domain to us at all, so its routing
-            // goes through CloudFront instead of a record.
-            const viaCloudFront = domain.isApex && domain.dnsProvider === 'route53';
-            const routing = (domain.records ?? []).find((r) => r.purpose === 'routing');
-            const $route53 = $overlay.find('.custom-domain-route53').toggle(viaCloudFront);
-            if ( viaCloudFront ) {
-                const target = routing?.value ?? '';
-                $route53.find('.custom-domain-steps').html([
-                    // In the order CloudFront's create wizard asks for them.
-                    i18n('custom_domain_route53_step_domain', [domain.hostname]),
-                    i18n('custom_domain_route53_step_origin', [target, domain.hostname]),
-                    i18n('custom_domain_route53_step_cert', [domain.hostname]),
-                    i18n('custom_domain_route53_step_alias', [domain.hostname]),
-                ].map((step) => `<li>${step}</li>`).join(''));
-            }
             const $redirect = $overlay.find('.custom-domain-redirect').toggle(!!domain.redirectFrom);
             if ( domain.redirectFrom ) {
                 $redirect.html(i18n('custom_domain_redirect_note', [domain.redirectFrom, domain.hostname]));
             }
-            const root_alias = domain.isApex && ! viaCloudFront;
-            $overlay.find('.custom-domain-apex').toggle(root_alias);
-            $overlay.find('.custom-domain-use-www').toggle(root_alias && domain.status !== 'active');
+            $overlay.find('.custom-domain-apex').toggle(domain.isApex === true);
+            $overlay.find('.custom-domain-use-www').toggle(domain.isApex === true && domain.status !== 'active');
 
             const $tbody = $overlay.find('.custom-domain-records tbody').empty();
             for ( const record of domain.records ?? [] ) {
-                if ( viaCloudFront && record.purpose === 'routing' ) continue;
                 const $tr = $(`
                     <tr>
                         <td class="custom-domain-record-type"></td>

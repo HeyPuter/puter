@@ -2124,17 +2124,6 @@ input.myapps-group-name:focus {
     border-top: 1px solid var(--afb-border);
     vertical-align: top;
 }
-.custom-domain-steps {
-    margin: 0 0 4px;
-    padding-left: 20px;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--afb-muted);
-}
-.custom-domain-steps li + li {
-    margin-top: 4px;
-}
-.custom-domain-steps strong,
 .custom-domain-redirect strong {
     color: var(--afb-fg);
     word-break: break-all;
