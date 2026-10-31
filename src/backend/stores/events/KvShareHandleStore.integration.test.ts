@@ -33,7 +33,11 @@ import {
     vi,
 } from 'vitest';
 import { isHttpError } from '../../core/http/HttpError.js';
-import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
+import {
+    createTestUser,
+    setupPuterTestEnv,
+    type PuterTestEnv,
+} from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { KV_SHARE_HANDLE_WIDTHS } from './columnWidths.js';
 import type { MintKvShareHandleInput } from './KvShareHandleStore.js';
@@ -304,6 +308,66 @@ describe('live handles by owner and app', () => {
     });
 });
 
+describe('a cutoff on the retire listings', () => {
+    it('leaves out handles made after it', async () => {
+        const appUid = 'app-cutoff';
+        const old = await store().mint(input({ appUid, keyPrefix: 'old:' }));
+        const fresh = await store().mint(
+            input({ appUid, keyPrefix: 'fresh:' }),
+        );
+        await env.server.clients.db.write(
+            'UPDATE `kv_share_handles` SET `created_at` = ? WHERE `handle` = ?',
+            [old.createdAt - 10, old.handle],
+        );
+        const cutoff = old.createdAt - 5;
+
+        expect(
+            (await store().listLiveForApps([appUid], 10, cutoff)).map(
+                (row) => row.handle,
+            ),
+        ).toEqual([old.handle]);
+        expect(
+            (
+                await store().listLiveForOwnerApp(
+                    ownerUserId,
+                    appUid,
+                    10,
+                    cutoff,
+                )
+            ).map((row) => row.handle),
+        ).toEqual([old.handle]);
+        expect(await store().listLiveForApps([appUid], 10)).toHaveLength(2);
+        await store().retireMany([old.handle, fresh.handle], 'owner');
+    });
+});
+
+describe('live handles one user holds', () => {
+    it('come a batch at a time after an id, live ones only', async () => {
+        const holderName = `kv-held-${Math.random().toString(36).slice(2, 10)}`;
+        await createTestUser(env.server, {
+            username: holderName,
+            password: 'pw-test-1234',
+        });
+        const holderId = (await env.server.stores.user.getByUsername(
+            holderName,
+        ))!.id;
+        const held = [];
+        for (const keyPrefix of ['held-a:', 'held-b:', 'held-c:'])
+            held.push(
+                await store().mint(
+                    input({ granteeUserId: holderId, keyPrefix }),
+                ),
+            );
+        await store().retireMany([held[1].handle], 'owner');
+
+        const first = await store().listLiveHeldBy(holderId, 0, 1);
+        expect(first.map((row) => row.handle)).toEqual([held[0].handle]);
+        const rest = await store().listLiveHeldBy(holderId, first[0].id);
+        expect(rest.map((row) => row.handle)).toEqual([held[2].handle]);
+        expect(rest[0].ownerUserId).toBe(ownerUserId);
+    });
+});
+
 describe('the live cache across nodes', () => {
     const handleReads = (spy: ReturnType<typeof vi.spyOn>) =>
         spy.mock.calls.filter(([sql]) =>
@@ -361,6 +425,26 @@ describe('the live cache across nodes', () => {
         await vi.waitFor(async () =>
             expect(await store().getLive(row.handle)).toBeNull(),
         );
+    });
+
+    it('doesn`t cache a row a retire overtook during the app lookup', async () => {
+        const row = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-race:' }),
+        );
+        const apps = env.server.stores.app;
+        const getByUid = apps.getByUid.bind(apps);
+        const lookup = vi
+            .spyOn(apps, 'getByUid')
+            .mockImplementationOnce(async (...args) => {
+                await store().retireMany([row.handle], 'owner');
+                return getByUid(...args);
+            });
+        try {
+            await store().getLive(row.handle);
+        } finally {
+            lookup.mockRestore();
+        }
+        expect(await store().getLive(row.handle)).toBeNull();
     });
 
     it('drops an owner\'s cached rows when the owner is suspended, here and on other nodes', async () => {

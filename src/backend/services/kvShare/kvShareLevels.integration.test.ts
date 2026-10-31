@@ -1123,7 +1123,16 @@ describe('an app deletion that fails partway', () => {
         }
         expect((await handles().getByHandle(handle))?.revokedAt).toBeNull();
 
-        await deleted();
+        // The next check after its backoff retries it.
+        const now = Date.now.bind(Date);
+        const clock = vi
+            .spyOn(Date, 'now')
+            .mockImplementation(() => now() + 2 * 60_000);
+        try {
+            await shares().resumeKvShareJobs();
+        } finally {
+            clock.mockRestore();
+        }
         expect(await grantRows(guest, prefix, app.uid)).toEqual([]);
         expect(await handles().getByHandle(handle)).toMatchObject({
             revokedBy: 'system',

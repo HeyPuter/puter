@@ -389,6 +389,19 @@ export class AbstractDatabaseClient extends PuterClient {
     }
 
     /**
+     * A timestamp column as unix seconds, computed by the database: the mysql
+     * driver reads a stored UTC timestamp as local time, so parsing it in JS
+     * can be off by the server's UTC offset.
+     */
+    unixSecondsSql(column: string): string {
+        return this.case({
+            postgres: `EXTRACT(EPOCH FROM ${column})::bigint`,
+            mysql: `UNIX_TIMESTAMP(${column})`,
+            otherwise: `CAST(strftime('%s', ${column}) AS INTEGER)`,
+        });
+    }
+
+    /**
      * What a read of a timestamp column holding `seconds` returns: sqlite gives
      * back the UTC text it stored, mysql2 and pg a `Date` read in node's time
      * zone (so this matches when node and the database session share one).
