@@ -7,6 +7,12 @@ const encoder = new TextEncoder();
 // The relay's cap on provider messages, which can carry whole items. What the
 // SDK sends is capped separately, and much lower.
 const MAX_SERVER_MESSAGE_BYTES = 4 * 1024 * 1024;
+/**
+ * Close code for a server event over the limit; browsers only accept 1000 and
+ * 3000-4999 from the client.
+ * @internal
+ */
+export const CLOSE_MESSAGE_TOO_LARGE = 4009;
 
 /**
  * Whether `data` encodes to more than `limit` UTF-8 bytes. A UTF-16 code unit
@@ -39,8 +45,7 @@ export class RealtimeSession extends RealtimeEvents {
                 const data =
                     typeof msg.data === 'string' ? msg.data : String(msg.data);
                 if (exceedsBytes(data, MAX_SERVER_MESSAGE_BYTES)) {
-                    // Browsers only accept 1000 and 3000-4999 here.
-                    socket.close(4009, 'message too large');
+                    socket.close(CLOSE_MESSAGE_TOO_LARGE, 'message too large');
                     return;
                 }
                 event = JSON.parse(data);

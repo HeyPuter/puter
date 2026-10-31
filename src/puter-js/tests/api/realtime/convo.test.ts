@@ -139,22 +139,21 @@ describe('convo built SDK and browser media', () => {
                         type: 'conversation.item.added',
                         item: { ...item, status: 'in_progress', content: [] },
                     });
-                    send({
-                        type: 'conversation.item.done',
-                        item: {
-                            ...item,
-                            status: 'completed',
-                            content: [
-                                {
-                                    type: 'output_audio',
-                                    audio: Buffer.alloc(1536 * 1024).toString(
-                                        'base64',
-                                    ),
-                                    transcript: 'Hello there',
-                                },
-                            ],
-                        },
-                    });
+                    const done = {
+                        ...item,
+                        status: 'completed',
+                        content: [
+                            {
+                                type: 'output_audio',
+                                audio: Buffer.alloc(1536 * 1024).toString(
+                                    'base64',
+                                ),
+                                transcript: 'Hello there',
+                            },
+                        ],
+                    };
+                    send({ type: 'conversation.item.done', item: done });
+                    send({ type: 'conversation.item.retrieved', item: done });
                 }
                 if (event.type === 'conversation.item.truncate')
                     socket.send(
@@ -500,7 +499,10 @@ describe('convo built SDK and browser media', () => {
         try {
             await conversation.connect();
             conversation.send({ type: 'test.large' });
-            await log.until(() => log.count('conversation.item.done') === 1);
+            await log.until(
+                () => log.count('conversation.item.retrieved') === 1,
+            );
+            expect(log.count('conversation.item.done')).toBe(1);
             const update = log.events.find(
                 (event) =>
                     event.type === 'session.updated' &&
