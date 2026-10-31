@@ -145,6 +145,17 @@ const LARGE_JSON_LIMIT_BYTES = 128 * 1024 * 1024;
 /** Two max-size bodies per process. */
 const LARGE_JSON_BUDGET_BYTES = 2 * LARGE_JSON_LIMIT_BYTES;
 
+/**
+ * Through `/drivers/call`, only chat takes a large body; other drivers keep the
+ * default limit. Keyed on the body rather than the path, which routing matches
+ * loosely (case, trailing slash). Wire API bodies carry no `interface`.
+ */
+const acceptsLargeJson = (req: Request): boolean => {
+    const iface = (req.body as { interface?: unknown } | null | undefined)
+        ?.interface;
+    return iface === undefined || iface === 'puter-chat-completion';
+};
+
 /** Route options a claimed subdomain's routes may use. */
 const CLAIMED_ROUTE_OPTIONS = new Set([
     'subdomain',
@@ -559,6 +570,8 @@ export class PuterServer {
                     authProbe,
                     limitBytes: LARGE_JSON_LIMIT_BYTES,
                     budgetBytes: LARGE_JSON_BUDGET_BYTES,
+                    perUserBytes: LARGE_JSON_LIMIT_BYTES,
+                    accepts: acceptsLargeJson,
                 }),
             );
         }

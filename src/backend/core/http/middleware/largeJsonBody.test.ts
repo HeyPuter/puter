@@ -29,14 +29,19 @@ import {
 const MiB = 1024 * 1024;
 
 // A complete request with no socket reads as already consumed to body-parser,
-// so the parsers call straight through; these tests are about admission.
-const makeReq = (bytes: number | undefined, signedIn = true) =>
+// so the parsers call straight through, leaving any preset `body` in place.
+const makeReq = (
+    bytes: number | undefined,
+    user: string | null = 'u1',
+    body?: unknown,
+) =>
     ({
         complete: true,
+        body,
         headers: {
             'content-type': 'application/json',
             ...(bytes === undefined ? {} : { 'content-length': String(bytes) }),
-            ...(signedIn ? { authorization: 'Bearer t' } : {}),
+            ...(user ? { authorization: user } : {}),
         },
     }) as unknown as Request;
 
@@ -50,7 +55,9 @@ const makeRes = () => {
 
 const authProbe = vi.fn<RequestHandler>((req, _res, next) => {
     if (req.headers.authorization) {
-        (req as { actor?: unknown }).actor = { user: { uuid: 'u' } };
+        (req as { actor?: unknown }).actor = {
+            user: { uuid: req.headers.authorization },
+        };
     }
     next();
 });
@@ -66,12 +73,24 @@ const run = (mw: RequestHandler, req: Request, res = makeRes()) =>
         },
     );
 
+const statusOf = (err: unknown) => (isHttpError(err) ? err.statusCode : err);
+
 describe('createLargeJsonBodyParser', () => {
-    const create = (budgetBytes = 200 * MiB) =>
+    const create = ({
+        budgetBytes = 200 * MiB,
+        perUserBytes = 128 * MiB,
+        accepts,
+    }: {
+        budgetBytes?: number;
+        perUserBytes?: number;
+        accepts?: (req: Request) => boolean;
+    } = {}) =>
         createLargeJsonBodyParser({
             authProbe,
             limitBytes: 128 * MiB,
             budgetBytes,
+            perUserBytes,
+            accepts,
         });
 
     it.each([
@@ -86,30 +105,59 @@ describe('createLargeJsonBodyParser', () => {
     });
 
     it('leaves an unauthenticated large body to the global parser', async () => {
-        const mw = create(60 * MiB);
-        const { err } = await run(mw, makeReq(60 * MiB, false));
+        const mw = create({ budgetBytes: 60 * MiB });
+        const { err } = await run(mw, makeReq(60 * MiB, null));
         expect(err).toBeUndefined();
         // Nothing was charged, so a signed-in caller still fits.
         expect((await run(mw, makeReq(60 * MiB))).err).toBeUndefined();
     });
 
     it('charges nothing for a client that left during the probe', async () => {
-        const mw = create(60 * MiB);
+        const mw = create({ budgetBytes: 60 * MiB });
         const gone = Object.assign(makeRes(), { closed: true });
         expect((await run(mw, makeReq(60 * MiB), gone)).err).toBeUndefined();
         expect((await run(mw, makeReq(60 * MiB))).err).toBeUndefined();
     });
 
     it('refuses with 503 past the budget until a response closes', async () => {
-        const mw = create(130 * MiB);
-        const first = await run(mw, makeReq(60 * MiB));
-        await run(mw, makeReq(60 * MiB));
+        const mw = create({ budgetBytes: 130 * MiB });
+        const first = await run(mw, makeReq(60 * MiB, 'u1'));
+        await run(mw, makeReq(60 * MiB, 'u2'));
 
-        const refused = await run(mw, makeReq(60 * MiB));
-        expect(isHttpError(refused.err) && refused.err.statusCode).toBe(503);
+        const refused = await run(mw, makeReq(60 * MiB, 'u3'));
+        expect(statusOf(refused.err)).toBe(503);
+        // Load shedding is recorded, not paged.
+        expect(isHttpError(refused.err) && refused.err.alarmSeverity).toBe(
+            'info',
+        );
         expect(refused.res.setHeader).toHaveBeenCalledWith('Retry-After', '5');
 
         first.res.emit('close');
-        expect((await run(mw, makeReq(60 * MiB))).err).toBeUndefined();
+        expect((await run(mw, makeReq(60 * MiB, 'u3'))).err).toBeUndefined();
+    });
+
+    it("refuses one user's bodies with 429 past their share", async () => {
+        const mw = create({ perUserBytes: 100 * MiB });
+        const first = await run(mw, makeReq(60 * MiB, 'u1'));
+
+        const refused = await run(mw, makeReq(60 * MiB, 'u1'));
+        expect(statusOf(refused.err)).toBe(429);
+        expect(refused.res.setHeader).toHaveBeenCalledWith('Retry-After', '5');
+        // Another user isn't held back by it.
+        expect((await run(mw, makeReq(60 * MiB, 'u2'))).err).toBeUndefined();
+
+        first.res.emit('close');
+        expect((await run(mw, makeReq(60 * MiB, 'u1'))).err).toBeUndefined();
+    });
+
+    it('refuses with 413 a parsed body `accepts` turns down', async () => {
+        const mw = create({
+            accepts: (req) => (req.body as { ok?: boolean }).ok === true,
+        });
+        const refused = await run(mw, makeReq(60 * MiB, 'u1', { ok: false }));
+        expect(statusOf(refused.err)).toBe(413);
+        expect(
+            (await run(mw, makeReq(60 * MiB, 'u2', { ok: true }))).err,
+        ).toBeUndefined();
     });
 });
