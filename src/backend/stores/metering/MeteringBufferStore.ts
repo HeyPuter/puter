@@ -152,6 +152,12 @@ const UNWRITABLE_PATH_MEMO_LIMIT = 1000;
  */
 const EXACT_READ_MEMO_LIMIT = 10_000;
 
+/**
+ * Store reads an exact read makes while a claim keeps changing under it. The
+ * last one stands even so; it can only count an amount twice, never miss one.
+ */
+const EXACT_READ_ATTEMPTS = 3;
+
 /** Write units past which settling a counter raises the large-item alarm. */
 const LARGE_SETTLE_WRITE_UNITS = 100;
 
@@ -337,6 +343,15 @@ const toScriptArgs = (amounts: Record<string, number>): string[] => {
         args.push(path, String(amount));
     }
     return args;
+};
+
+/** Whether two sets of amounts hold the same paths and values. */
+const sameAmounts = (a: FlatAmounts, b: FlatAmounts): boolean => {
+    const paths = Object.keys(a);
+    return (
+        paths.length === Object.keys(b).length &&
+        paths.every((path) => a[path] === b[path])
+    );
 };
 
 /** The subset of `amounts` at `paths`. */
@@ -935,14 +950,26 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] exact read could not flush ${key}: ${(e as Error).message}`,
             );
         }
-        const [stored, claim] = await Promise.all([
-            this.stores.kv.get({ key, consistentRead: true }),
-            this.#outstandingClaim(key),
-        ]);
         // Another deployment's claim (or ours, if the flush failed) isn't in
-        // the store yet.
-        if (Object.keys(claim).length === 0) return stored;
-        return { res: mergedOrNull(flattenAmounts(stored.res), claim) };
+        // the store yet. The claim is read before the store: an amount gone
+        // from it by then was written before the store read, so the read has
+        // it. One that leaves during the store read is counted twice, so the
+        // read is retried when the claim changes under it.
+        for (let attempt = 1; ; attempt++) {
+            const claim = await this.#outstandingClaim(key);
+            const stored = await this.stores.kv.get({
+                key,
+                consistentRead: true,
+            });
+            if (
+                attempt < EXACT_READ_ATTEMPTS &&
+                !sameAmounts(claim, await this.#outstandingClaim(key))
+            ) {
+                continue;
+            }
+            if (Object.keys(claim).length === 0) return stored;
+            return { res: mergedOrNull(flattenAmounts(stored.res), claim) };
+        }
     }
 
     /** Amounts a flush has claimed for `key` and not yet written onward. */
