@@ -60,6 +60,11 @@ import { UserRow } from '../../stores/user/UserStore';
 
 export interface ScanOptions {
     noCache?: boolean;
+    /**
+     * Read user-to-app grants from the primary database, past their cache, and
+     * skip the scan cache: for a "no" that must not trail a grant.
+     */
+    primary?: boolean;
 }
 
 export interface ScanState {
@@ -435,7 +440,7 @@ export class PermissionService extends PuterService {
             options,
             generation,
         );
-        if (!scanOptions.noCache && !pathScoped) {
+        if (!scanOptions.noCache && !scanOptions.primary && !pathScoped) {
             const cached = await this.stores.permission.getScanCache(cacheKey);
             if (cached) return cached as ReadingNode[];
         }
@@ -555,7 +560,7 @@ export class PermissionService extends PuterService {
                 this.#scanUserUser(actor, options, reading, workingState),
                 this.#scanUserGroup(actor, options, reading, workingState),
                 this.#scanUserAppImplied(actor, options, reading),
-                this.#scanUserApp(actor, options, reading),
+                this.#scanUserApp(actor, options, reading, scanOptions),
                 this.#scanDevApp(actor, options, reading),
             ]);
         }
@@ -781,6 +786,7 @@ export class PermissionService extends PuterService {
         actor: Actor,
         options: string[],
         reading: ReadingNode[],
+        scanOptions: ScanOptions,
     ): Promise<void> {
         // Direct app only — see `#scanUserAppImplied`.
         if (!actor.app?.id || !actor.user?.id) return;
@@ -788,6 +794,7 @@ export class PermissionService extends PuterService {
             actor.user.id,
             actor.app.id,
             options,
+            { primary: scanOptions.primary === true },
         );
         const row = rows[0];
         if (!row) return;

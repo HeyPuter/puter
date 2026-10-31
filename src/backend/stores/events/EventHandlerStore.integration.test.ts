@@ -23,7 +23,15 @@
  * which one it is replacing, and the name is scoped to one app.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { EVENTS_HANDLER_SOURCE_MAX_BYTES } from '../../controllers/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
@@ -395,6 +403,104 @@ describe('deleteForApp', () => {
 
     it('answers 0 for an app with nothing published', async () => {
         await expect(handlers().deleteForApp(appUid)).resolves.toBe(0);
+    });
+});
+
+describe('the set a delivery addresses', () => {
+    // Its own app per test: the cache outlives the table wipe between tests.
+    let cachedApp: string;
+    beforeEach(() => {
+        cachedApp = `app-${uuidv4()}`;
+    });
+
+    const hashesOf = async () =>
+        (await handlers().cachedSetForApp(cachedApp)).map(
+            (handler) => `${handler.name}:${handler.sourceHash}`,
+        );
+
+    it('reads the table once, then answers from the cache', async () => {
+        await handlers().publish({
+            appUid: cachedApp,
+            name: 'a',
+            source: SOURCE,
+        });
+        const pread = vi.spyOn(env.server.clients.db, 'pread');
+        try {
+            const first = await handlers().cachedSetForApp(cachedApp);
+            const second = await handlers().cachedSetForApp(cachedApp);
+
+            expect(second).toEqual(first);
+            expect(pread).toHaveBeenCalledTimes(1);
+            expect(first).toEqual(await handlers().setForApp(cachedApp));
+        } finally {
+            pread.mockRestore();
+        }
+    });
+
+    it('follows every publish and removal', async () => {
+        await handlers().publish({
+            appUid: cachedApp,
+            name: 'a',
+            source: SOURCE,
+        });
+        expect(await hashesOf()).toEqual([`a:${hashContent(SOURCE)}`]);
+
+        await handlers().publish({
+            appUid: cachedApp,
+            name: 'b',
+            source: SOURCE,
+        });
+        expect(await hashesOf()).toEqual([
+            `a:${hashContent(SOURCE)}`,
+            `b:${hashContent(SOURCE)}`,
+        ]);
+
+        await handlers().publish({
+            appUid: cachedApp,
+            name: 'a',
+            source: OTHER_SOURCE,
+            replace: true,
+        });
+        expect(await hashesOf()).toEqual([
+            `a:${hashContent(OTHER_SOURCE)}`,
+            `b:${hashContent(SOURCE)}`,
+        ]);
+
+        await handlers().remove(cachedApp, 'b');
+        expect(await hashesOf()).toEqual([`a:${hashContent(OTHER_SOURCE)}`]);
+
+        await handlers().deleteForApp(cachedApp);
+        expect(await hashesOf()).toEqual([]);
+    });
+
+    it('never caches an empty set', async () => {
+        expect(await hashesOf()).toEqual([]);
+
+        // Behind the store's back, so nothing drops a cached entry.
+        await env.server.clients.db.write(
+            'INSERT INTO `event_handlers` (`app_uid`, `name`, `source`, `source_hash`, `created_at`, `updated_at`) VALUES (?, ?, ?, ?, ?, ?)',
+            [cachedApp, 'a', SOURCE, hashContent(SOURCE), 1, 1],
+        );
+        expect(await hashesOf()).toEqual([`a:${hashContent(SOURCE)}`]);
+    });
+
+    it('tells every peer to drop its copy on a write', async () => {
+        const emit = vi.spyOn(env.server.clients.event, 'emit');
+        try {
+            await handlers().publish({
+                appUid: cachedApp,
+                name: 'a',
+                source: SOURCE,
+            });
+
+            expect(emit).toHaveBeenCalledWith(
+                'outer.cacheUpdate',
+                { cacheKey: [`eventHandlers:set:${cachedApp}`] },
+                {},
+            );
+        } finally {
+            emit.mockRestore();
+        }
     });
 });
 

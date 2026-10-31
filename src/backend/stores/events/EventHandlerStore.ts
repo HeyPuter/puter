@@ -63,6 +63,16 @@ export const HANDLER_NAME_MAX_LENGTH = 128;
 /** Names are addressable identifiers, not free text. */
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/;
 
+/**
+ * Longest a delivery may address an app's handler set from cache. Every write
+ * here drops the entry on every node, so this only bounds a read that raced a
+ * publish or removal and cached the set from before it.
+ */
+export const HANDLER_SET_CACHE_TTL_SECONDS = 30;
+
+const handlerSetCacheKey = (appUid: string): string =>
+    `eventHandlers:set:${appUid}`;
+
 // -- Shapes -----------------------------------------------------------
 
 /** A row in `event_handlers`, as the rest of the system sees it. */
@@ -256,6 +266,7 @@ export class EventHandlerStore extends PuterStore {
             `DELETE FROM \`${TABLE}\` WHERE \`app_uid\` = ? AND \`name\` = ?`,
             [appUid, name],
         );
+        await this.#forgetSet(appUid);
         return existing;
     }
 
@@ -268,6 +279,7 @@ export class EventHandlerStore extends PuterStore {
             `DELETE FROM \`${TABLE}\` WHERE \`app_uid\` = ?`,
             [appUid],
         );
+        await this.#forgetSet(appUid);
         return result.affectedRows;
     }
 
@@ -318,9 +330,10 @@ export class EventHandlerStore extends PuterStore {
 
     /**
      * Name and source hash for every handler an app has published: the identity
-     * of its set, without reading a byte of source. What a delivery resolves
-     * the app's script name from. Primary, so a delivery never addresses a set
-     * a replica has not caught up to.
+     * of its set, without reading a byte of source. What a deploy checks the
+     * script it was asked for against, and what the delivery path's cache is
+     * filled from. Primary, so neither reads a set a replica has not caught up
+     * to.
      */
     async setForApp(
         appUid: string,
@@ -335,6 +348,42 @@ export class EventHandlerStore extends PuterStore {
             name: String(row.name),
             sourceHash: String(row.source_hash),
         }));
+    }
+
+    /**
+     * `setForApp` for the delivery path, which asks once per invocation. Cached
+     * for up to {@link HANDLER_SET_CACHE_TTL_SECONDS}, and dropped everywhere by
+     * every write here. An empty set is not cached: it fails the delivery, and
+     * must not outlast the publish that fills it.
+     */
+    async cachedSetForApp(
+        appUid: string,
+    ): Promise<Pick<EventHandler, 'name' | 'sourceHash'>[]> {
+        const key = handlerSetCacheKey(appUid);
+        try {
+            const cached = JSON.parse(
+                (await this.clients.redis.get(key)) ?? 'null',
+            ) as unknown;
+            if (Array.isArray(cached) && cached.length > 0)
+                return cached as Pick<EventHandler, 'name' | 'sourceHash'>[];
+        } catch {
+            // Read the table instead.
+        }
+
+        const set = await this.setForApp(appUid);
+        if (set.length > 0) {
+            try {
+                await this.clients.redis.set(
+                    key,
+                    JSON.stringify(set),
+                    'EX',
+                    HANDLER_SET_CACHE_TTL_SECONDS,
+                );
+            } catch {
+                // The next delivery reads the table again.
+            }
+        }
+        return set;
     }
 
     /**
@@ -524,6 +573,7 @@ export class EventHandlerStore extends PuterStore {
             if (isUniqueViolation(err)) throw publishConflict(name);
             throw err;
         }
+        await this.#forgetSet(appUid);
         return {
             appUid,
             name,
@@ -559,7 +609,16 @@ export class EventHandlerStore extends PuterStore {
         if (updated?.anyRowsAffected === false)
             throw publishConflict(existing.name);
 
+        await this.#forgetSet(existing.appUid);
         return { ...existing, source, sourceHash, updatedAt: at };
+    }
+
+    /** Drop the delivery path's cached set here and on every peer. */
+    async #forgetSet(appUid: string): Promise<void> {
+        await this.publishCacheKeys({
+            keys: [handlerSetCacheKey(appUid)],
+            broadcast: true,
+        });
     }
 
     #assertName(name: unknown): string {

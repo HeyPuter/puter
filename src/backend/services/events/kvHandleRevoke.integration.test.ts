@@ -572,17 +572,24 @@ describe('a queued row whose share can`t be checked right now', () => {
     const handles = () => env.server.stores.kvShareHandle;
     const pending = () => env.server.stores.pendingDelivery;
 
-    /** A durable `single` on a fresh handle, with a backlog waiting. */
+    /**
+     * A durable `single` on a fresh handle, with a backlog waiting and the
+     * lease its first hand-over took lapsed, so a sweep reads it again.
+     */
     const queued = async () => {
         await clearRows();
         const { handle } = await mint();
         const sub = await subscribeDurable(handle);
         await ownerWrites(`${PREFIX}messages:1`, { body: 'queued' });
+        const lease = `ev:ql:{${sub.subId}}`;
         await vi.waitFor(
-            async () =>
-                expect(await pending().depth(sub.subId)).toBeGreaterThan(0),
+            async () => {
+                expect(await pending().depth(sub.subId)).toBeGreaterThan(0);
+                expect(await env.server.clients.redis.zcard(lease)).toBe(1);
+            },
             { timeout: 5_000, interval: 25 },
         );
+        await env.server.clients.redis.del(lease);
         return { handle, sub, depth: await pending().depth(sub.subId) };
     };
 

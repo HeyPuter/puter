@@ -1361,7 +1361,8 @@ describe('a delivery owed to exactly one consumer', () => {
         await dispatch(west);
         await arrived(west);
 
-        expect(west.posts).toEqual([]);
+        // Deliveries only: its own connect announces presence to peers.
+        expect(deliveriesIn(west)).toEqual([]);
         expect(west.sent[0]).toMatchObject({ ackRequired: true });
     });
 

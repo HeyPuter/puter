@@ -52,6 +52,7 @@ import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
+import { ConsentSettles } from './consentSettles.js';
 import {
     EVENTS_HANDLER_TOKEN_TTL_SECONDS,
     EVENTS_WORKER_SESSION_NAME,
@@ -552,7 +553,7 @@ describe('the call an owed delivery makes', () => {
         ).resolves.toBe(true);
     });
 
-    it('mints nothing once the background consent is gone', async () => {
+    it('mints nothing once the background consent is gone, and finishes the settle', async () => {
         const subId = await subscribe();
         const { actor } = await env.server.services.auth.authenticate(
             env.users.user.token,
@@ -582,16 +583,170 @@ describe('the call an owed delivery makes', () => {
             await durable().warmRegion(userId);
 
             await touch('revoked.txt');
-            await waitUntil(async () =>
-                expect(await pending().depth(subId)).toBe(1),
-            );
-            await events().sweepPending();
 
-            // Deferred rather than run: nothing was invoked, and the delivery
-            // is still owed rather than dropped.
+            // Nothing was invoked, and the delivery ended the row the way the
+            // revocation settle would have, backlog included.
+            await waitUntil(async () =>
+                expect(
+                    (await durable().getBySubId(subId))?.suspendedReason,
+                ).toBe('permission_revoked'),
+            );
+            await waitUntil(async () =>
+                expect(await pending().depth(subId)).toBe(0),
+            );
             expect(calls).toEqual([]);
-            expect(await pending().depth(subId)).toBe(1);
         } finally {
+            await env.server.services.permission.grantUserAppPermission(
+                actor!,
+                appUid,
+                EVENTS_BACKGROUND_PERMISSION,
+            );
+        }
+    });
+
+    it('keeps the row when the consent check fails rather than answers', async () => {
+        const subId = await subscribe();
+        const permission = env.server.services.permission;
+        const check = permission.check.bind(permission);
+        const failing = vi
+            .spyOn(permission, 'check')
+            .mockImplementation(async (actor, asked) => {
+                if (asked === EVENTS_BACKGROUND_PERMISSION)
+                    throw new Error('permission lookup unavailable');
+                return check(actor, asked);
+            });
+        try {
+            await touch('unchecked.txt');
+            // The delivery reached the check that failed.
+            await waitUntil(() =>
+                expect(
+                    failing.mock.calls.some(
+                        ([, asked]) => asked === EVENTS_BACKGROUND_PERMISSION,
+                    ),
+                ).toBe(true),
+            );
+            // Long enough for a settle to have run, had one started.
+            await new Promise((resolve) => setTimeout(resolve, 200));
+        } finally {
+            failing.mockRestore();
+        }
+
+        expect(calls).toEqual([]);
+        expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+        expect(await pending().depth(subId)).toBe(1);
+    });
+
+    it('keeps the row when only a stale cached answer says the consent is gone', async () => {
+        const subId = await subscribe();
+        const redis = env.server.clients.redis;
+        const app = await env.server.stores.app.getByUid(appUid);
+        // What a node that cached this app's grants before the consent was
+        // given still holds: every grant but that one.
+        const grants = `perms:u2a:${userId}:${app!.id}`;
+        const beforeConsent = (
+            await env.server.stores.permission.listUserAppPermsFromPrimary(
+                userId,
+                app!.id,
+            )
+        ).filter((row) => row.permission !== EVENTS_BACKGROUND_PERMISSION);
+        const forgetScans = async () => {
+            for (const key of await redis.keys('permission-scan:*'))
+                await redis.del(key);
+        };
+        const permission = env.server.services.permission;
+        const check = vi.spyOn(permission, 'check');
+        const primaryRead = vi.spyOn(
+            env.server.stores.permission,
+            'listUserAppPermsFromPrimary',
+        );
+        try {
+            await redis.del(`${grants}:deleted`);
+            await redis.set(grants, JSON.stringify(beforeConsent), 'EX', 300);
+            await forgetScans();
+
+            await touch('stale-consent.txt');
+            // The delivery asked for the consent and was told no.
+            await waitUntil(async () => {
+                const asked = check.mock.calls.findIndex(
+                    ([, perm]) => perm === EVENTS_BACKGROUND_PERMISSION,
+                );
+                expect(asked).toBeGreaterThanOrEqual(0);
+                expect(await check.mock.results[asked].value).toBe(false);
+            });
+            // Long enough for a settle to have run, had one started.
+            await new Promise((resolve) => setTimeout(resolve, 300));
+
+            expect(calls).toEqual([]);
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+            expect(await pending().depth(subId)).toBe(1);
+            // Kept because the no was asked again past the caches.
+            expect(primaryRead).toHaveBeenCalled();
+        } finally {
+            check.mockRestore();
+            primaryRead.mockRestore();
+            await redis.del(grants);
+            await forgetScans();
+        }
+    });
+
+    it('defers instead of ending the row once the settle budget is spent', async () => {
+        const subId = await subscribe();
+        const { actor } = await env.server.services.auth.authenticate(
+            env.users.user.token,
+        );
+        const spent = vi
+            .spyOn(ConsentSettles.prototype, 'begin')
+            .mockReturnValue('spent');
+        const alarm = vi.spyOn(env.server.clients.alarm, 'create');
+        const primaryRead = vi.spyOn(
+            env.server.stores.permission,
+            'listUserAppPermsFromPrimary',
+        );
+
+        try {
+            await env.server.services.permission.revokeUserAppPermission(
+                actor!,
+                appUid,
+                EVENTS_BACKGROUND_PERMISSION,
+            );
+            // As in the test above: undo the listener's settle so the
+            // delivery path is what meets the withdrawn consent.
+            await waitUntil(async () =>
+                expect(
+                    (await durable().getBySubId(subId))?.suspendedAt,
+                ).not.toBeNull(),
+            );
+            await env.server.clients.db.write(
+                'UPDATE `event_subscriptions` SET `suspended_at` = NULL, ' +
+                    '`suspended_reason` = NULL WHERE `sub_id` = ?',
+                [subId],
+            );
+            events().invalidateUser(userId);
+            await env.server.stores.eventSubscription.markRegionCold(userId);
+            await durable().warmRegion(userId);
+            primaryRead.mockClear();
+
+            await touch('over-budget.txt');
+
+            await waitUntil(() =>
+                expect(
+                    alarm.mock.calls.some(
+                        ([id]) => id === 'events_consent_settle_budget',
+                    ),
+                ).toBe(true),
+            );
+            // Long enough for a settle to have run, had one started.
+            await new Promise((resolve) => setTimeout(resolve, 300));
+
+            expect(calls).toEqual([]);
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+            expect(await pending().depth(subId)).toBe(1);
+            // Spent: not even the fresh read.
+            expect(primaryRead).not.toHaveBeenCalled();
+        } finally {
+            spent.mockRestore();
+            alarm.mockRestore();
+            primaryRead.mockRestore();
             await env.server.services.permission.grantUserAppPermission(
                 actor!,
                 appUid,
@@ -1238,8 +1393,7 @@ describe('handlers whose writes run handlers', () => {
         );
         const maxDepth = limitFor(EVENTS_HANDLER_DEPTH, plan.id);
         const entry = (await env.server.stores.fsEntry.getEntryByPath(path))!;
-        // Awaited end to end, queue and drain included, unlike a write's own
-        // fire-and-forget dispatch.
+        // Awaited until the event is queued; the drain runs on its own.
         const dispatchAt = (handlerDepth: number) =>
             events().dispatchFs('fs.write.file', entry, {
                 handlerDepth,
@@ -1253,8 +1407,10 @@ describe('handlers whose writes run handlers', () => {
         await dispatchAt(maxDepth);
         // Dropped, not held for a retry that could never run, and not counted
         // as the handler failing.
+        await waitUntil(async () =>
+            expect(await pending().depth(subId)).toBe(0),
+        );
         expect(callsFor(worker.appUid)).toHaveLength(1);
-        expect(await pending().depth(subId)).toBe(0);
         await expect(
             env.server.clients.redis.get(`ev:qf:{${subId}}`),
         ).resolves.toBeNull();

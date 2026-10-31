@@ -23,7 +23,7 @@
  */
 
 import type { fetch as undiciFetch } from 'undici';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { IConfig } from '../../types.js';
 import {
     DispatcherInvokeTransport,
@@ -33,6 +33,7 @@ import {
     EVENTS_ERROR_HEADER,
     EVENTS_HANDLED_HEADER,
     EventsWorkerInvokerClient,
+    INVOKE_CONNECTIONS,
     outcomeForStatus,
     type WorkerInvokeRequest,
 } from './EventsWorkerInvokerClient.js';
@@ -208,6 +209,97 @@ describe('DispatcherInvokeTransport', () => {
         );
         await transport.send(CALL);
         expect(calls).toEqual([`http://dispatcher/prefix${EVENTS_DISPATCH_PATH}`]);
+    });
+});
+
+describe('DispatcherInvokeTransport with every connection busy', () => {
+    /** A fetch that answers 200 to one call at a time, when told to. */
+    const heldFetch = () => {
+        const held: Array<{ answer: () => void; signal: AbortSignal }> = [];
+        const fetchImpl = ((_url: string, init: RequestInit) =>
+            new Promise((resolve, reject) => {
+                const signal = init.signal!;
+                signal.addEventListener('abort', () => reject(signal.reason));
+                held.push({
+                    signal,
+                    answer: () =>
+                        resolve(
+                            new Response(null, {
+                                status: 200,
+                                headers: { [EVENTS_HANDLED_HEADER]: '1' },
+                            }),
+                        ),
+                });
+            })) as unknown as FetchImpl;
+        return { fetchImpl, held };
+    };
+
+    /** Every connection taken by a call nobody has answered yet. */
+    const saturated = async () => {
+        const { fetchImpl, held } = heldFetch();
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            { fetchImpl },
+        );
+        const busy = Array.from({ length: INVOKE_CONNECTIONS }, () =>
+            transport.send(CALL),
+        );
+        await vi.waitFor(() => expect(held).toHaveLength(INVOKE_CONNECTIONS));
+        const answerAll = async () => {
+            for (const call of held) call.answer();
+            await Promise.all(busy);
+        };
+        return { transport, held, answerAll };
+    };
+
+    it('waits for a free connection, then gives the run its whole timeout', async () => {
+        const { transport, held, answerAll } = await saturated();
+
+        const waiting = transport.send({ ...CALL, timeoutMs: 400 });
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(held).toHaveLength(INVOKE_CONNECTIONS);
+
+        held[0].answer();
+        await vi.waitFor(() =>
+            expect(held).toHaveLength(INVOKE_CONNECTIONS + 1),
+        );
+        // Past 400 ms from when the call was made, not from when it got its
+        // connection.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(held[INVOKE_CONNECTIONS].signal.aborted).toBe(false);
+
+        await answerAll();
+        await expect(waiting).resolves.toMatchObject({ status: 200 });
+    });
+
+    it('fails a call that never got a connection as Puter`s, not the handler`s', async () => {
+        const { transport, held, answerAll } = await saturated();
+
+        await expect(
+            transport.send({ ...CALL, timeoutMs: 40 }),
+        ).resolves.toEqual({
+            status: null,
+            error: 'no free connection to the events dispatcher',
+        });
+
+        const client = new EventsWorkerInvokerClient({
+            events: { invokeTimeoutMs: 40 },
+        } as unknown as IConfig);
+        client.setTransport(transport);
+        await expect(client.invoke(REQUEST)).resolves.toMatchObject({
+            outcome: 'unavailable',
+        });
+        expect(held).toHaveLength(INVOKE_CONNECTIONS);
+
+        // The slots come back once the calls holding them are answered.
+        await answerAll();
+        const after = transport.send(CALL);
+        await vi.waitFor(() =>
+            expect(held).toHaveLength(INVOKE_CONNECTIONS + 1),
+        );
+        held[INVOKE_CONNECTIONS].answer();
+        await expect(after).resolves.toMatchObject({ status: 200 });
     });
 });
 

@@ -156,6 +156,11 @@ import {
     EVENTS_COST_UNITS,
     type EventsUsageType,
 } from './costs.js';
+import {
+    CONSENT_SETTLE_WINDOW_MS,
+    CONSENT_SETTLES_PER_WINDOW,
+    ConsentSettles,
+} from './consentSettles.js';
 import { DeliveryAuthCache } from './deliveryAuthCache.js';
 import { EndedSubscriptions } from './endedSubscriptions.js';
 import {
@@ -716,6 +721,12 @@ const PENDING_SWEEP_INTERVAL_MS = 10_000;
 
 /** Subscriptions one sweep pass looks at, taken from the oldest end. */
 const PENDING_SWEEP_SUBSCRIPTIONS = 100;
+
+/**
+ * Subscriptions one sweep pass works on at once, so one slow handler run holds
+ * up one lane rather than everything behind it.
+ */
+const PENDING_SWEEP_CONCURRENCY = 10;
 
 /**
  * Deliveries one subscription may be handed in a row. A consumer that settles
@@ -1363,6 +1374,8 @@ export class EventsService extends PuterService {
     readonly #ended = new EndedSubscriptions();
     /** Flushes per subscription that have left the coalescer but not yet sent. */
     readonly #flushing = new Map<string, number>();
+    /** Paces settles started by deliveries that found consent withdrawn. */
+    readonly #consentSettles = new ConsentSettles();
     #expirySweep: ReturnType<typeof setInterval> | null = null;
     #expiryKick: ReturnType<typeof setTimeout> | null = null;
     #pendingSweep: ReturnType<typeof setInterval> | null = null;
@@ -1862,7 +1875,7 @@ export class EventsService extends PuterService {
         // present is refused before anything about it is resolved or stored.
         if (
             runsInWorker({ appUid, handlerName }) &&
-            !(await this.#hasBackgroundConsent(actor))
+            (await this.#hasBackgroundConsent(actor)) !== true
         )
             throw backgroundConsentRequired();
 
@@ -2797,50 +2810,64 @@ export class EventsService extends PuterService {
         // A partial write can move a pending set without its share of the
         // region counter going with it, in either direction. This is what
         // keeps that drift from being permanent.
-        await this.stores.pendingDelivery
-            .reconcileRegionDepth()
-            .catch((err) => {
-                console.warn('[events] pending counter reconcile failed', err);
-            });
-
-        let attempted = 0;
-        for (const { subId } of await this.stores.pendingDelivery.head(
-            PENDING_SWEEP_SUBSCRIPTIONS,
-        )) {
-            try {
-                const row =
-                    await this.stores.durableSubscription.getBySubId(subId);
-                // Nothing left to deliver to, so nothing left to hold.
-                if (!row || this.#isOver(row)) {
-                    await this.stores.pendingDelivery.purge(subId);
-                    continue;
-                }
-                // A suspended row is not delivered to, but the backlog its
-                // suspension put a deadline on is this pass's to enforce: past
-                // it the events go and a gap marker says so, which is the half
-                // that keeps a suspension from being a free memory hold.
-                if (row.suspendedAt !== null) {
-                    // Except a revoked row's, which names paths its holder may
-                    // no longer see: anything a dispatch in flight queued after
-                    // the settle's own purge goes now, not at a deadline.
-                    if (row.suspendedReason === 'permission_revoked')
-                        await this.stores.pendingDelivery.purge(subId);
-                    // A hold not past its deadline yet must not pin the head
-                    // against every other backlog in the region.
-                    else if (
-                        (await this.stores.pendingDelivery.expireHold(
-                            subId,
-                        )) === 0
-                    )
-                        await this.stores.pendingDelivery.defer(subId);
-                    continue;
-                }
-                attempted += await this.#drain(row, { deferWhenBusy: true });
-            } catch (err) {
-                console.warn('[events] pending sweep failed', subId, err);
-            }
+        try {
+            await this.stores.pendingDelivery.reconcileRegionDepth();
+        } catch (err) {
+            console.warn('[events] pending counter reconcile failed', err);
         }
+
+        const heads = await this.stores.pendingDelivery.head(
+            PENDING_SWEEP_SUBSCRIPTIONS,
+        );
+        // Settled: `#sweepOne` reports its own failures.
+        const handed = await runWithConcurrencyLimitSettled(
+            heads,
+            PENDING_SWEEP_CONCURRENCY,
+            ({ subId }) => this.#sweepOne(subId),
+        );
+        let attempted = 0;
+        for (const outcome of handed)
+            if (outcome.status === 'fulfilled') attempted += outcome.value;
         return attempted;
+    }
+
+    /** One subscription's turn in the pending sweep; what it was handed. */
+    async #sweepOne(subId: string): Promise<number> {
+        try {
+            // Leased means nothing can be claimed yet, so the row isn't read.
+            if (await this.stores.pendingDelivery.inFlight(subId)) {
+                await this.stores.pendingDelivery.defer(subId);
+                return 0;
+            }
+            const row = await this.stores.durableSubscription.getBySubId(subId);
+            // Nothing left to deliver to, so nothing left to hold.
+            if (!row || this.#isOver(row)) {
+                await this.stores.pendingDelivery.purge(subId);
+                return 0;
+            }
+            // A suspended row is not delivered to, but the backlog its
+            // suspension put a deadline on is this pass's to enforce: past it
+            // the events go and a gap marker says so, which is the half that
+            // keeps a suspension from being a free memory hold.
+            if (row.suspendedAt !== null) {
+                // Except a revoked row's, which names paths its holder may no
+                // longer see: anything a dispatch in flight queued after the
+                // settle's own purge goes now, not at a deadline.
+                if (row.suspendedReason === 'permission_revoked')
+                    await this.stores.pendingDelivery.purge(subId);
+                // A hold not past its deadline yet must not pin the head
+                // against every other backlog in the region.
+                else if (
+                    (await this.stores.pendingDelivery.expireHold(subId)) === 0
+                )
+                    await this.stores.pendingDelivery.defer(subId);
+                return 0;
+            }
+            return await this.#drain(row, { deferWhenBusy: true });
+        } catch (err) {
+            console.warn('[events] pending sweep failed', subId, err);
+            return 0;
+        }
     }
 
     /** Past its expiry, so the daily reaper is only a matter of time. */
@@ -3150,8 +3177,10 @@ export class EventsService extends PuterService {
      * Asked of the actor rather than of the app, so an access token an app
      * issued has to carry the consent itself — a delivery that runs code with
      * nobody present is not something a narrower credential inherits.
+     *
+     * `null` when the check itself failed, which is not an answer either way.
      */
-    async #hasBackgroundConsent(actor: Actor): Promise<boolean> {
+    async #hasBackgroundConsent(actor: Actor): Promise<boolean | null> {
         try {
             return await this.services.permission.check(
                 actor,
@@ -3159,7 +3188,7 @@ export class EventsService extends PuterService {
             );
         } catch (err) {
             console.warn('[events] background consent check failed', err);
-            return false;
+            return null;
         }
     }
 
@@ -4715,7 +4744,10 @@ export class EventsService extends PuterService {
         const consent = new Map<string, Promise<boolean>>();
         const consented = async (row: DurableSubscription) => {
             const actor = await resolveGrantActor(row, deps);
-            return actor !== null && (await this.#hasBackgroundConsent(actor));
+            return (
+                actor !== null &&
+                (await this.#hasBackgroundConsent(actor)) === true
+            );
         };
         const settling: DurableSubscription[] = [];
         for (const row of background) {
@@ -5192,6 +5224,10 @@ export class EventsService extends PuterService {
      * Queue a `single` and try to hand it straight over. The queue comes first:
      * an attempt that fails after it is recorded is a retry, where one that
      * fails before it is a lost event.
+     *
+     * Resolves once the event is queued. The hand-over runs detached: it can
+     * take a whole handler run, and the dispatch queueing the next row's event
+     * must not wait on it.
      */
     async #owe(
         row: DispatchSubscription,
@@ -5205,10 +5241,22 @@ export class EventsService extends PuterService {
                 handlerDepth,
             );
             this.#reportShed(shed);
-            await this.#drain(row, { justAuthorized: true });
         } catch (err) {
             this.#enqueueFailed(row, err);
+            return;
         }
+        void (async () => {
+            try {
+                await this.#drain(row, { justAuthorized: true });
+            } catch (err) {
+                // Queued, so the sweeper retries it.
+                console.warn(
+                    '[events] could not hand over a queued delivery',
+                    row.subId,
+                    err,
+                );
+            }
+        })();
     }
 
     /**
@@ -5612,7 +5660,13 @@ export class EventsService extends PuterService {
         // settle that ends a revoked row is best-effort, and what is minted is
         // the app's whole standing for this holder. The permission cache
         // answers it, so only a grant change costs a lookup.
-        if (!(await this.#hasBackgroundConsent(actor))) return null;
+        const consent = await this.#hasBackgroundConsent(actor);
+        if (consent !== true) {
+            // A no may be a withdrawal whose settle never ran or failed.
+            // Without one the row stays in service, deferred forever.
+            if (consent === false) this.#settleLostConsent(actor, appUid);
+            return null;
+        }
 
         try {
             return await this.services.auth.createWorkerAppToken(
@@ -5632,6 +5686,66 @@ export class EventsService extends PuterService {
             );
             return null;
         }
+    }
+
+    /**
+     * Run the revocation settle for consent a delivery found withdrawn. One at
+     * a time per holder and app, however many deliveries find it at once.
+     *
+     * The delivery's answer came through caches that can trail a grant, so the
+     * no is asked again past them first. Only a fresh no settles; anything else
+     * leaves the delivery deferred, as a cached no always did. Settles are
+     * budgeted per window, so a check that wrongly answers no defers rows
+     * instead of ending them all.
+     */
+    #settleLostConsent(actor: Actor, appUid: string): void {
+        const holderUserId = actor.user!.id;
+        const key = `${holderUserId}|${appUid}`;
+        const start = this.#consentSettles.begin(key);
+        if (start === 'spent') this.#consentSettlesSpent();
+        if (start !== 'start') return;
+        void (async () => {
+            try {
+                const consented = await this.services.permission.check(
+                    actor,
+                    EVENTS_BACKGROUND_PERMISSION,
+                    { primary: true },
+                );
+                if (consented) {
+                    this.#consentSettles.confirm(key);
+                    return;
+                }
+                if (!this.#consentSettles.take()) {
+                    this.#consentSettlesSpent();
+                    return;
+                }
+                console.warn(
+                    `[events] a delivery found background consent withdrawn for user ${holderUserId}, app ${appUid}; settling`,
+                );
+                await this.settleRevokedGrant({
+                    holderUserId,
+                    appUid,
+                    permission: EVENTS_BACKGROUND_PERMISSION,
+                });
+            } catch (err) {
+                console.warn('[events] withdrawn consent settle failed', err);
+            } finally {
+                this.#consentSettles.end(key);
+            }
+        })();
+    }
+
+    #consentSettlesSpent(): void {
+        this.clients.alarm.create(
+            'events_consent_settle_budget',
+            'Deliveries found background consent withdrawn more often than expected; the rest are deferred, not ended',
+            {
+                settlesPerWindow: CONSENT_SETTLES_PER_WINDOW,
+                windowMs: CONSENT_SETTLE_WINDOW_MS,
+            },
+            'warning',
+            { dedup: true },
+        );
     }
 
     /**
@@ -5655,10 +5769,11 @@ export class EventsService extends PuterService {
      * Where an app's handlers currently live: the script its published set
      * hashes to, and the key an invocation of it carries.
      *
-     * Resolved per invocation rather than cached, from the set's names and
-     * hashes alone — a cache here would go on addressing a superseded script,
-     * which is still deployed and still running the handlers it was baked with,
-     * until the entry expired.
+     * Resolved from the set's names and hashes alone, through the store's
+     * cache. A publish or removal drops that entry, so a superseded script —
+     * still deployed, still running the handlers it was baked with — is
+     * addressed only by a read that raced the write, and only until the entry
+     * expires.
      */
     async #addressEventsWorker(
         appUid: string,
@@ -5666,7 +5781,7 @@ export class EventsService extends PuterService {
         if (!workerRuntimeReady(this.config)) return null;
         const secret = this.config.events!.internalSecret!;
 
-        const set = await this.stores.eventHandler.setForApp(appUid);
+        const set = await this.stores.eventHandler.cachedSetForApp(appUid);
         if (set.length === 0) return null;
 
         // A gone or suspended owner is nobody to deploy or bill this as, so
