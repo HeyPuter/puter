@@ -152,6 +152,12 @@ const UNWRITABLE_PATH_MEMO_LIMIT = 1000;
  */
 const EXACT_READ_MEMO_LIMIT = 10_000;
 
+/**
+ * Store reads a consistent read makes while the buffer keeps shrinking under
+ * it; see `#readStoreAndBuffer`.
+ */
+const EXACT_READ_ATTEMPTS = 3;
+
 /** Write units past which settling a counter raises the large-item alarm. */
 const LARGE_SETTLE_WRITE_UNITS = 100;
 
@@ -339,6 +345,15 @@ const toScriptArgs = (amounts: Record<string, number>): string[] => {
     return args;
 };
 
+/** Whether two sets of amounts hold the same paths and values. */
+const sameAmounts = (a: FlatAmounts, b: FlatAmounts): boolean => {
+    const paths = Object.keys(a);
+    return (
+        paths.length === Object.keys(b).length &&
+        paths.every((path) => a[path] === b[path])
+    );
+};
+
 /** The subset of `amounts` at `paths`. */
 const pickAmounts = (amounts: FlatAmounts, paths: string[]): FlatAmounts =>
     Object.fromEntries(paths.map((path) => [path, amounts[path]!]));
@@ -380,11 +395,12 @@ export const isBilledCounter = (key: string): boolean =>
 // -- Scripts ----------------------------------------------------------
 
 /**
- * KEYS: delta, base, dirty set, tracked set. ARGV: ttl, member, then
- * path/amount pairs.
+ * KEYS: delta, base, dirty set, tracked set, claimed. ARGV: ttl, member,
+ * pending key prefix, then path/amount pairs.
  *
- * Returns the delta and the base together so a running total can be served
- * without a second round trip. Amounts are floats — costs are fractional.
+ * Returns the delta, the base and any outstanding claim together, so a running
+ * total can be served without a second round trip (see `READ_SCRIPT` for the
+ * claim). Amounts are floats — costs are fractional.
  *
  * The counter joins both sets here. The dirty set is the working list a flush
  * takes from and hands back; the tracked set is only ever added to here and
@@ -392,7 +408,7 @@ export const isBilledCounter = (key: string): boolean =>
  * working list does not.
  */
 const INCR_SCRIPT = `
-for i = 3, #ARGV, 2 do
+for i = 4, #ARGV, 2 do
     redis.call('HINCRBYFLOAT', KEYS[1], ARGV[i], ARGV[i + 1])
 end
 redis.call('PEXPIRE', KEYS[1], ARGV[1])
@@ -400,12 +416,45 @@ redis.call('SADD', KEYS[3], ARGV[2])
 redis.call('PEXPIRE', KEYS[3], ARGV[1])
 redis.call('SADD', KEYS[4], ARGV[2])
 redis.call('PEXPIRE', KEYS[4], ARGV[1])
-return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]) }
+local claim = {}
+local nonce = redis.call('HGET', KEYS[5], ARGV[2])
+if nonce then claim = redis.call('HGETALL', ARGV[3] .. nonce) end
+return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]), claim }
 `;
 
-/** KEYS: delta, base. Reads both without marking the counter for flushing. */
+/**
+ * KEYS: delta, base, claimed. ARGV: counter, pending key prefix.
+ *
+ * Reads both without marking the counter for flushing, plus the counter's
+ * outstanding claim: amounts a flush has taken but not yet written onward are
+ * in neither the delta nor the base. The claim's key is built here, which is
+ * safe for the reason given at `RECONCILE_SCRIPT`.
+ */
 const READ_SCRIPT = `
-return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]) }
+local claim = {}
+local nonce = redis.call('HGET', KEYS[3], ARGV[1])
+if nonce then claim = redis.call('HGETALL', ARGV[2] .. nonce) end
+return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]), claim }
+`;
+
+/**
+ * KEYS: pending, base. ARGV: path/amount pairs just written onward.
+ *
+ * Takes written paths off a claim and, when a base is cached, adds them to it
+ * in the same step, so a read counts them all the way to the settle that
+ * replaces the base with the store's own view. Without a base, reads go to the
+ * store, which already has them.
+ */
+const APPLY_SCRIPT = `
+redis.call('HDEL', KEYS[1], '${INTENT_FIELD}')
+local based = redis.call('EXISTS', KEYS[2]) == 1
+for i = 1, #ARGV, 2 do
+    redis.call('HDEL', KEYS[1], ARGV[i])
+    if based then
+        redis.call('HINCRBYFLOAT', KEYS[2], ARGV[i], ARGV[i + 1])
+    end
+end
+return 1
 `;
 
 /**
@@ -651,9 +700,27 @@ end
 return redis.call('HGETALL', KEYS[1])
 `;
 
+/**
+ * KEYS: pending, base, base sequence. ARGV: paths found already applied.
+ *
+ * Takes paths an earlier copy of the write already applied off a claim, and
+ * drops the cached base in the same step: the base may or may not have them,
+ * and the store does, so the next read seeds a fresh one from the store.
+ */
+const FENCED_SCRIPT = `
+redis.call('HDEL', KEYS[1], '${INTENT_FIELD}')
+for i = 1, #ARGV do
+    redis.call('HDEL', KEYS[1], ARGV[i])
+end
+redis.call('DEL', KEYS[2], KEYS[3])
+return 1
+`;
+
 type ScriptRunner = {
-    meterIncr(...args: string[]): Promise<[string[], string[]]>;
-    meterRead(...args: string[]): Promise<[string[], string[]]>;
+    meterIncr(...args: string[]): Promise<[string[], string[], string[]]>;
+    meterRead(...args: string[]): Promise<[string[], string[], string[]]>;
+    meterApply(...args: string[]): Promise<number>;
+    meterFenced(...args: string[]): Promise<number>;
     meterDrain(...args: string[]): Promise<[string[], number]>;
     meterClaim(...args: string[]): Promise<string[] | null>;
     /** `[1, amounts]` when re-claimed, `[0, hadIndexEntry]` when not. */
@@ -770,6 +837,8 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] buffered incr failed, writing through: ${(e as Error).message}`,
             );
             const { res } = await this.#writeThrough(input);
+            // The cached base doesn't have this write; the next read reseeds it.
+            await this.forgetBase(input.key);
             return { res, exact: true };
         }
     }
@@ -849,12 +918,32 @@ export class MeteringBufferStore extends PuterStore {
             // is incomplete rather than silently read a buffered-only view.
             const { res: fetched } = await this.stores.kv.get({
                 key: misses.map((i) => keys[i]!),
+                consistentRead: true,
             });
             const fetchedValues = fetched as (unknown | null)[];
-            misses.forEach((i, idx) => {
-                const persisted = flattenAmounts(fetchedValues[idx]);
-                results[i] = mergedOrNull(persisted, deltas[i]!);
-            });
+            await Promise.all(
+                misses.map(async (i, idx): Promise<void> => {
+                    const k = keys[i]!;
+                    // As in `#readStoreAndBuffer`: a buffer that shrank during
+                    // the store read may be counted in both, so read again.
+                    const now = await this.#readBuffered(k).catch(
+                        (): null => null,
+                    );
+                    if (now && !sameAmounts(deltas[i]!, now.delta)) {
+                        const { stored, buffered } =
+                            await this.#readStoreAndBuffer(k);
+                        results[i] = mergedOrNull(
+                            flattenAmounts(stored),
+                            buffered,
+                        );
+                        return;
+                    }
+                    results[i] = mergedOrNull(
+                        flattenAmounts(fetchedValues[idx]),
+                        deltas[i]!,
+                    );
+                }),
+            );
         }
 
         return { res: results };
@@ -897,7 +986,11 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] exact read could not flush ${key}: ${(e as Error).message}`,
             );
         }
-        return this.stores.kv.get({ key, consistentRead: true });
+        // Whatever is still buffered, a claim another deployment holds and
+        // usage that arrived behind it included, isn't in the store yet.
+        const { stored, buffered } = await this.#readStoreAndBuffer(key);
+        if (Object.keys(buffered).length === 0) return { res: stored };
+        return { res: mergedOrNull(flattenAmounts(stored), buffered) };
     }
 
     #rememberExactRead(key: string, now: number): void {
@@ -1115,12 +1208,20 @@ export class MeteringBufferStore extends PuterStore {
         this.#definedScripts = true;
         const client = this.clients.redis;
         client.defineCommand('meterIncr', {
-            numberOfKeys: 4,
+            numberOfKeys: 5,
             lua: INCR_SCRIPT,
         });
         client.defineCommand('meterRead', {
-            numberOfKeys: 2,
+            numberOfKeys: 3,
             lua: READ_SCRIPT,
+        });
+        client.defineCommand('meterApply', {
+            numberOfKeys: 2,
+            lua: APPLY_SCRIPT,
+        });
+        client.defineCommand('meterFenced', {
+            numberOfKeys: 3,
+            lua: FENCED_SCRIPT,
         });
         client.defineCommand('meterDrain', {
             numberOfKeys: 2,
@@ -1172,18 +1273,23 @@ export class MeteringBufferStore extends PuterStore {
         pathAndAmountMap,
     }: IncrInput): Promise<{ delta: FlatAmounts; base: FlatAmounts }> {
         const tag = bucketTag(key);
-        const [delta, base] = await this.#redis.meterIncr(
+        const [delta, base, claim] = await this.#redis.meterIncr(
             deltaKey(tag, key),
             baseKey(tag, key),
             dirtyKey(tag),
             trackedKey(tag),
+            claimedKey(tag),
             String(BUFFER_TTL_MS),
             key,
+            pendingKey(tag, ''),
             ...toScriptArgs(pathAndAmountMap),
         );
         this.#absorbedCount++;
         absorbedCounter.add(1);
-        return { delta: pairsToAmounts(delta), base: pairsToAmounts(base) };
+        return {
+            delta: addAmounts(pairsToAmounts(delta), parseClaim(claim).amounts),
+            base: pairsToAmounts(base),
+        };
     }
 
     /**
@@ -1196,7 +1302,9 @@ export class MeteringBufferStore extends PuterStore {
      * is over within seconds.
      */
     async #seedBase(key: string): Promise<FlatAmounts> {
-        const { res } = await this.stores.kv.get({ key });
+        // Consistent, or a write that just landed could be missing from the
+        // base until the next settle replaces it.
+        const { res } = await this.stores.kv.get({ key, consistentRead: true });
         const persisted = flattenAmounts(res);
         const seeded = await this.#redis.meterSeed(
             baseKey(bucketTag(key), key),
@@ -1216,21 +1324,53 @@ export class MeteringBufferStore extends PuterStore {
         key: string,
     ): Promise<{ delta: FlatAmounts; base: FlatAmounts }> {
         const tag = bucketTag(key);
-        const [delta, base] = await this.#redis.meterRead(
+        const [delta, base, claim] = await this.#redis.meterRead(
             deltaKey(tag, key),
             baseKey(tag, key),
+            claimedKey(tag),
+            key,
+            pendingKey(tag, ''),
         );
-        return { delta: pairsToAmounts(delta), base: pairsToAmounts(base) };
+        // Claimed amounts count like buffered ones until their settle.
+        return {
+            delta: addAmounts(pairsToAmounts(delta), parseClaim(claim).amounts),
+            base: pairsToAmounts(base),
+        };
     }
 
     async #readThrough(key: string): Promise<unknown | null> {
         const { delta, base } = await this.#readBuffered(key);
-        const resolved =
-            Object.keys(base).length > 0
-                ? base
-                : flattenAmounts((await this.stores.kv.get({ key })).res);
+        if (Object.keys(base).length > 0) return mergedOrNull(base, delta);
+        const { stored, buffered } = await this.#readStoreAndBuffer(key);
+        return mergedOrNull(flattenAmounts(stored), buffered);
+    }
 
-        return mergedOrNull(resolved, delta);
+    /**
+     * The store's view of `key`, read consistently, and what is buffered for it
+     * (delta and outstanding claim) that the store doesn't have yet.
+     *
+     * The buffer is read first: an amount gone from it by then was written
+     * before the store read, so the store read has it. One that leaves during
+     * the store read would be counted twice, so the read is retried when the
+     * buffer shrinks under it. The last attempt stands even so; it can only
+     * count an amount twice, never miss one.
+     */
+    async #readStoreAndBuffer(
+        key: string,
+    ): Promise<{ stored: unknown; buffered: FlatAmounts }> {
+        for (let attempt = 1; ; attempt++) {
+            const { delta: buffered } = await this.#readBuffered(key);
+            const { res: stored } = await this.stores.kv.get({
+                key,
+                consistentRead: true,
+            });
+            if (
+                attempt >= EXACT_READ_ATTEMPTS ||
+                sameAmounts(buffered, (await this.#readBuffered(key)).delta)
+            ) {
+                return { stored, buffered };
+            }
+        }
     }
 
     // -- Internals: flush ---------------------------------------------
@@ -1590,7 +1730,12 @@ export class MeteringBufferStore extends PuterStore {
                 if (err instanceof KvFencedWriteError) {
                     // Applied already, by an earlier copy of this write.
                     fencedCounter.add(1);
-                    await this.#dropFromClaim(tag, nonce, paths);
+                    await this.#redis.meterFenced(
+                        pendingKey(tag, nonce),
+                        baseKey(tag, key),
+                        baseSeqKey(tag, key),
+                        ...paths,
+                    );
                     continue;
                 }
                 if (!isPermanentSettleError(err)) throw e;
@@ -1618,7 +1763,11 @@ export class MeteringBufferStore extends PuterStore {
             // before anything else can fail: a re-drive then picks up only what
             // is still outstanding. The alarm below is the "anything else" — it
             // comes after.
-            await this.#dropFromClaim(tag, nonce, paths);
+            await this.#redis.meterApply(
+                pendingKey(tag, nonce),
+                baseKey(tag, key),
+                ...toScriptArgs(batch),
+            );
 
             if (usage.write >= LARGE_SETTLE_WRITE_UNITS) {
                 this.#recordLargeSettle(key, usage.write);
