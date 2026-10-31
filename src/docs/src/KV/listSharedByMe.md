@@ -40,7 +40,7 @@ A `Promise` that resolves to:
     - `label` (String | null): The label the holder is shown.
     - `createdAt` (Number): When the share was made, in Unix seconds.
     - `revokedAt` (Number | null): When the share stopped, in Unix seconds, or `null` while it's live.
-    - `revokedBy` (String | null): Who stopped it. It's `'owner'` when you revoked it, `'holder'` when the holder removed their own access, and `'system'` when the app whose data it was got deleted. It's `null` while the share is live, and on some shares that stopped before Puter recorded who stopped them.
+    - `revokedBy` (String | null): Who stopped it. It's `'owner'` when you revoked it, `'holder'` when the holder removed their own access, and `'system'` when the app whose data it was got deleted or you removed that app along with its data. It's `null` while the share is live, and on some shares that stopped before Puter recorded who stopped them.
 - `cursor` (String): Pass it as `cursor` to get the next page. It's included only if there are more pages to load.
 - `total` (Number): The number of shares across every page that match `appUid` and `state`. Only included when `includeTotal` is `true`.
 

@@ -1659,19 +1659,38 @@ export class SystemKVStore extends PuterStore {
     async queryReservedItems<T extends Record<string, unknown>>(
         prefix: string,
     ): Promise<T[]> {
+        return (await this.pageReservedItems<T>(prefix, { limit: 0 })).items;
+    }
+
+    /**
+     * Up to `limit` reserved items whose key starts with `prefix`, in key order
+     * after `afterKey` (a `limit` of 0 reads one unbounded page). `nextKey` is
+     * where the next page starts, while more may remain. Expired rows are left
+     * out, as in {@link queryReservedItems}.
+     */
+    async pageReservedItems<T extends Record<string, unknown>>(
+        prefix: string,
+        { limit, afterKey }: { limit: number; afterKey?: string },
+    ): Promise<{ items: T[]; nextKey?: string }> {
         const now = Date.now() / 1000;
         const response = await this.clients.dynamo.query(
             this.tableName,
             { namespace: SYSTEM_NAMESPACE },
-            0,
-            undefined,
+            limit,
+            afterKey === undefined
+                ? undefined
+                : { namespace: SYSTEM_NAMESPACE, key: afterKey },
             '',
             false,
             { beginsWith: { key: 'key', value: prefix } },
         );
-        return ((response.Items ?? []) as T[]).filter(
-            (item) => !item.ttl || (item.ttl as number) > now,
-        );
+        const last = response.LastEvaluatedKey?.key;
+        return {
+            items: ((response.Items ?? []) as T[]).filter(
+                (item) => !item.ttl || (item.ttl as number) > now,
+            ),
+            ...(last === undefined ? {} : { nextKey: String(last) }),
+        };
     }
 
     /**
@@ -1761,6 +1780,104 @@ export class SystemKVStore extends PuterStore {
                 { ...conditionValues, ':expired': 1 },
                 { ...conditionNames, '#ttl': 'ttl' },
                 { condition },
+            );
+            return true;
+        } catch (err) {
+            if (isConditionRefused(err)) return false;
+            throw err;
+        }
+    }
+
+    /**
+     * Update one reserved item, creating it when missing, if `condition` holds.
+     * `set` attributes are written outright, `setIfAbsent` ones only where the
+     * item doesn't carry them, and `remove` ones are dropped. Returns the item
+     * as it now stands, or `null` when the condition refused it. Condition
+     * tokens must not start with `#u` or `:u`.
+     */
+    async updateReservedItemIf<T extends Record<string, unknown>>(
+        key: string,
+        change: {
+            set?: Record<string, unknown>;
+            setIfAbsent?: Record<string, unknown>;
+            remove?: string[];
+        },
+        condition: string,
+        conditionValues: Record<string, unknown> = {},
+        conditionNames: Record<string, string> = {},
+    ): Promise<T | null> {
+        assertKey(key);
+        const names: Record<string, string> = { ...conditionNames };
+        const values: Record<string, unknown> = { ...conditionValues };
+        const setParts: string[] = [];
+        const removeParts: string[] = [];
+        let idx = 0;
+        const token = (attr: string) => {
+            const name = `#u${idx}`;
+            names[name] = attr;
+            return { name, value: `:u${idx++}` };
+        };
+        for (const [attr, value] of Object.entries(change.set ?? {})) {
+            const t = token(attr);
+            values[t.value] = value;
+            setParts.push(`${t.name} = ${t.value}`);
+        }
+        for (const [attr, value] of Object.entries(change.setIfAbsent ?? {})) {
+            const t = token(attr);
+            values[t.value] = value;
+            setParts.push(`${t.name} = if_not_exists(${t.name}, ${t.value})`);
+        }
+        for (const attr of change.remove ?? [])
+            removeParts.push(token(attr).name);
+        const expression = [
+            setParts.length > 0 ? `SET ${setParts.join(', ')}` : '',
+            removeParts.length > 0 ? `REMOVE ${removeParts.join(', ')}` : '',
+        ]
+            .filter(Boolean)
+            .join(' ');
+        if (!expression)
+            throw new Error('kv: a reserved update needs a change');
+
+        try {
+            const response = await this.clients.dynamo.update(
+                this.tableName,
+                { namespace: SYSTEM_NAMESPACE, key },
+                expression,
+                values,
+                names,
+                { condition },
+            );
+            return (response.Attributes as T | undefined) ?? null;
+        } catch (err) {
+            if (isConditionRefused(err)) return null;
+            throw err;
+        }
+    }
+
+    /**
+     * Delete one reserved item, conditional on an attribute the caller read
+     * still holding. False means the item changed or is already gone.
+     */
+    async deleteReservedItemIf(
+        key: string,
+        condition: string,
+        conditionValues: Record<string, unknown>,
+        conditionNames: Record<string, string> = {},
+    ): Promise<boolean> {
+        assertKey(key);
+        try {
+            await this.clients.dynamo.del(
+                this.tableName,
+                { namespace: SYSTEM_NAMESPACE, key },
+                {
+                    condition: {
+                        expression: condition,
+                        ...(Object.keys(conditionValues).length > 0
+                            ? { values: conditionValues }
+                            : {}),
+                        names: conditionNames,
+                    },
+                },
             );
             return true;
         } catch (err) {
@@ -2765,12 +2882,17 @@ export class SystemKVStore extends PuterStore {
     /**
      * Delete up to `maxItems` items of one user's app namespace, as the
      * platform: no mutation events and no usage. Idempotent; `done` once the
-     * namespace is empty.
+     * namespace is empty. `stillWanted` is asked before each page is deleted,
+     * after its keys are read, and a no ends the call with `stopped`: what's
+     * written once it would say no is kept.
      */
     async purgeNamespace(
         namespace: string,
-        { maxItems }: { maxItems: number },
-    ): Promise<{ deleted: number; done: boolean }> {
+        {
+            maxItems,
+            stillWanted,
+        }: { maxItems: number; stillWanted?: () => Promise<boolean> },
+    ): Promise<{ deleted: number; done: boolean; stopped?: boolean }> {
         const parsed = parseKvNamespace(namespace);
         if (
             !parsed ||
@@ -2787,7 +2909,9 @@ export class SystemKVStore extends PuterStore {
             const page = await this.#deletePage(namespace, pageKey, {
                 limit: Math.min(maxItems - deleted, PURGE_PAGE_ITEMS),
                 consistent: true,
+                beforeDelete: stillWanted,
             });
+            if (page.stopped) return { deleted, done: false, stopped: true };
             deleted += page.deleted;
             pageKey = page.pageKey;
             if (!pageKey) return { deleted, done: true };
@@ -2804,11 +2928,20 @@ export class SystemKVStore extends PuterStore {
     async #deletePage(
         namespace: string,
         pageKey: Record<string, unknown> | undefined,
-        { limit = 0, consistent }: { limit?: number; consistent: boolean },
+        {
+            limit = 0,
+            consistent,
+            beforeDelete,
+        }: {
+            limit?: number;
+            consistent: boolean;
+            beforeDelete?: () => Promise<boolean>;
+        },
     ): Promise<{
         deleted: number;
         usage: KVUsage;
         pageKey?: Record<string, unknown>;
+        stopped?: boolean;
     }> {
         const response = await this.clients.dynamo.query(
             this.tableName,
@@ -2823,6 +2956,8 @@ export class SystemKVStore extends PuterStore {
             response.ConsumedCapacity?.CapacityUnits as number | undefined,
         );
         const keys = (response.Items ?? []).map((entry) => String(entry.key));
+        if (keys.length > 0 && beforeDelete && !(await beforeDelete()))
+            return { deleted: 0, usage, stopped: true };
         if (keys.length > 0) {
             try {
                 const deleted = await this.clients.dynamo.batchDel(

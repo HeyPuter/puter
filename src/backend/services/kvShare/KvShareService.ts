@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { randomUUID } from 'node:crypto';
 import {
     EVENTS_KV_HANDLE_LIMIT,
     EVENTS_KV_HANDLES_PER_APP,
@@ -56,6 +57,8 @@ import type { UserRow } from '../../stores/user/UserStore.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import type { PageResult } from '../../util/pagination.js';
 import { withRedisLock } from '../../util/redisLock.js';
+import { appGenerationStart, predatesApp } from '../../util/appGeneration.js';
+import { PermissionUtil } from '../permission/permissionUtil.js';
 import {
     kvShareHandleDisabled,
     unknownKvShareHandle,
@@ -125,6 +128,15 @@ export interface KvShareMintOptions {
 }
 
 type Grantee = UserRow & { id: number; username: string };
+
+/** What a share that doesn't exist yet is made of. */
+interface NewShare {
+    ownerUserId: number;
+    appUid: string;
+    keyPrefix: string;
+    permission: string;
+    label: string | null;
+}
 
 interface KvShareMintResult {
     share?: KvShareView;
@@ -321,15 +333,134 @@ const PURGE_BATCH = 500;
 const PURGE_PAUSE_MS = 50;
 const PURGE_MAX_BATCHES = 2_000;
 
-/** Passes one app deletion takes, so a huge namespace cannot pin a node. */
-const APP_RETIRE_MAX_PASSES = 200;
-
-/** Items one app-data purge step deletes, and the steps one purge takes. */
+/** Items one app-data purge call deletes. */
 const APP_DATA_PURGE_STEP = 5_000;
-const APP_DATA_PURGE_MAX_STEPS = 2_000;
 
-/** Deleted apps whose handles one query looks up. */
-const APP_RETIRE_UID_CHUNK = 200;
+// -- Cleanup jobs -------------------------------------------------------
+//
+// Retiring a deleted app's shares, and taking back an uninstalled app's shares
+// and data, are recorded as reserved items before they run, so a failure or a
+// restart resumes them. The record carries the job's lease, retry schedule and
+// attempts, and a node claims it by compare-and-set. A job stays with the
+// deployment that recorded or last ran it; another one takes it over only once
+// it has gone unclaimed for a while past due.
+
+const JOB_KEY_PREFIX = 'kvShareJob#';
+/** How long one run works before handing its job back, and the lease on it. */
+const JOB_RUN_MS = 60_000;
+const JOB_LEASE_MS = 5 * 60_000;
+/**
+ * How often each node looks through the records, how many per look, and how
+ * long it keeps starting runs.
+ */
+const JOB_CHECK_MS = 60_000;
+const JOB_CHECK_INITIAL_DELAY_MS = 60_000;
+const JOB_CHECK_PAGE = 100;
+const JOB_CHECK_BUDGET_MS = 2 * 60_000;
+/** How long a due job waits for its own deployment before another takes it. */
+const JOB_ADOPT_AFTER_MS = 30 * 60_000;
+/** Wait after a failed run: doubling from a minute, at most six hours. */
+const JOB_RETRY_BASE_MS = 60_000;
+const JOB_RETRY_MAX_MS = 6 * 60 * 60_000;
+/** Failed runs before a job stops retrying, and how long its record stays. */
+const JOB_MAX_ATTEMPTS = 10;
+const JOB_FAILED_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+/** Deleted apps whose retire one call runs at once. */
+const JOB_START_CONCURRENCY = 4;
+
+/**
+ * Work recorded before it runs. `cutoff` (unix seconds) bounds it to handles
+ * made by then: a later one belongs to an app registered again under the same
+ * uid, or to a share made after the app was authorized again.
+ */
+type KvShareJob =
+    | { kind: 'app'; appUid: string; cutoff: number }
+    | {
+          kind: 'uninstall';
+          userId: number;
+          userUuid: string;
+          appUid: string;
+          cutoff: number;
+      };
+
+/** A job's record: the job, and the state every node claims it by. */
+interface KvShareJobRecord {
+    job: KvShareJob;
+    failed: boolean;
+    attempts: number;
+    /** Unix ms before which it isn't due. */
+    runAfter: number;
+    /** The deployment that recorded or last claimed it. */
+    home: string | null;
+    /** Unix ms it was last recorded or claimed. */
+    touched: number;
+    /** Unix ms its current lease runs out; 0 when nobody holds it. */
+    leaseUntil: number;
+}
+
+interface KvShareJobRun {
+    done: boolean;
+    retired: number;
+}
+
+const JOB_NOT_RUN: KvShareJobRun = { done: false, retired: 0 };
+
+const jobKey = (job: KvShareJob): string =>
+    job.kind === 'app'
+        ? `${JOB_KEY_PREFIX}app#${job.appUid}`
+        : `${JOB_KEY_PREFIX}uninstall#${job.userId}#${job.appUid}`;
+
+const finiteOr0 = (value: unknown): number => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+};
+
+/** A recorded job, or `null` for an item that isn't one. */
+const parseJobRecord = (
+    item: Record<string, unknown>,
+): KvShareJobRecord | null => {
+    const appUid = item.appUid;
+    const cutoff = Number(item.cutoff);
+    if (typeof appUid !== 'string' || !Number.isFinite(cutoff)) return null;
+    let job: KvShareJob;
+    if (item.kind === 'app') job = { kind: 'app', appUid, cutoff };
+    else if (item.kind === 'uninstall') {
+        const userId = Number(item.userId);
+        if (!Number.isInteger(userId) || typeof item.userUuid !== 'string')
+            return null;
+        job = {
+            kind: 'uninstall',
+            userId,
+            userUuid: item.userUuid,
+            appUid,
+            cutoff,
+        };
+    } else return null;
+    if (item.key !== jobKey(job)) return null;
+    return {
+        job,
+        failed: item.state === 'failed',
+        attempts: finiteOr0(item.attempts),
+        runAfter: finiteOr0(item.runAfter),
+        home: typeof item.home === 'string' ? item.home : null,
+        touched: finiteOr0(item.touched),
+        leaseUntil: finiteOr0(item.leaseUntil),
+    };
+};
+
+/**
+ * What a claim requires of the record: not given up on, unleased, due, and this
+ * deployment's or left unclaimed past due for long enough to adopt.
+ */
+const JOB_CLAIM_CONDITION = [
+    'attribute_exists(#c)',
+    '#st <> :failed',
+    '#lu < :now',
+    '#ra <= :now',
+    '(#home = :home OR (#tc < :adopt AND #ra < :adopt))',
+].join(' AND ');
+
+const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 
 const ownerView = (
     row: KvShareHandle,
@@ -347,11 +478,15 @@ const ownerView = (
 });
 
 export class KvShareService extends PuterService {
-    #purgeTimers: ReturnType<typeof setTimeout>[] = [];
+    #timers: ReturnType<typeof setTimeout>[] = [];
     #stopping = false;
+    #resuming = false;
+    /** Where this node's next look through the job records starts. */
+    #jobCursor: string | undefined;
 
     override onServerStart(): void {
         this.#armPurge();
+        this.#armJobs();
 
         // A check at one level is answered by a grant at any level above it.
         this.services.permission.registerExploder(kvShareLevelsExploder());
@@ -365,15 +500,15 @@ export class KvShareService extends PuterService {
         // under the app-under-user generation, which removing the app bumps.
         this.services.permission.registerImplicator(
             kvShareAppDelegateImplicator({
-                userHolds: (actor, permission) =>
-                    this.services.permission.check(actor, permission),
+                userHolds: async (actor, permission) =>
+                    (await this.services.permission.check(actor, permission)) &&
+                    (await this.#grantForCurrentApp(actor, permission)),
                 appAuthorized: (actor) => this.#appAuthorized(actor),
             }),
         );
 
-        // An origin-derived app uid comes back verbatim when the app is
-        // registered again, so a handle must not outlive its app and reattach
-        // to whoever controls the origin next.
+        // A handle must not outlive its app: an origin-derived uid comes back
+        // verbatim when the app is registered again.
         this.clients.event.on('app.changed', async (_key, data) => {
             const { app_uid: appUid, action } = (data ?? {}) as {
                 app_uid?: string;
@@ -382,22 +517,23 @@ export class KvShareService extends PuterService {
             if (action !== 'deleted' || !appUid) return;
             try {
                 await this.retireForDeletedApps([appUid]);
-            } catch (err) {
-                console.warn('[kvShare] deleted-app retire failed', err);
+            } catch {
+                // Alarmed, and retried from its record.
             }
         });
 
         // Removing an app with its data takes back what the user shared out of
-        // it first, so no holder reads the namespace while it empties.
+        // it, then empties the namespace, in that order so no holder reads it
+        // while it empties. Both run in the background, off the request.
         this.clients.event.on('app.uninstalled', async (_key, data) => {
             if (!data?.deleteData || data.appUid === KV_GLOBAL_APP_KEY) return;
-            try {
-                await this.#retireOwnedInApp(data.userId, data.appUid);
-            } catch (err) {
-                console.warn('[kvShare] uninstall retire failed', err);
-                return;
-            }
-            void this.#purgeAppData(data.userId, data.userUuid, data.appUid);
+            await this.#startJob({
+                kind: 'uninstall',
+                userId: data.userId,
+                userUuid: data.userUuid,
+                appUid: data.appUid,
+                cutoff: nowSeconds(),
+            });
         });
 
         // A developer's apps go with their account, without `app.changed`.
@@ -405,16 +541,16 @@ export class KvShareService extends PuterService {
             if (!data?.appUids?.length) return;
             try {
                 await this.retireForDeletedApps(data.appUids);
-            } catch (err) {
-                console.warn('[kvShare] deleted-account retire failed', err);
+            } catch {
+                // Alarmed, and retried from its record.
             }
         });
     }
 
     override onServerPrepareShutdown(): void {
         this.#stopping = true;
-        for (const timer of this.#purgeTimers) clearTimeout(timer);
-        this.#purgeTimers = [];
+        for (const timer of this.#timers) clearTimeout(timer);
+        this.#timers = [];
     }
 
     // -- Retention purge ---------------------------------------------
@@ -468,44 +604,358 @@ export class KvShareService extends PuterService {
     }
 
     /**
-     * Empty one app's namespace for a user in bounded steps, pausing between
-     * them, until it is empty or the server stops. Stops if the user authorizes
-     * the app again, so data written after that is kept. A failure is logged,
-     * not retried.
+     * Empty an uninstalled app's namespace in steps until it's empty, the user
+     * authorizes the app again, or the deadline passes. The authorization is
+     * checked before each page is deleted, so what the app writes once it's
+     * authorized again is kept. Returns whether the purge is finished.
      */
     async #purgeAppData(
-        userId: number,
-        userUuid: string,
-        appUid: string,
-    ): Promise<void> {
-        const namespace = kvNamespace(userUuid, appUid);
-        try {
-            const appId = (await this.stores.app.getByUid(appUid))?.id;
-            for (let step = 0; step < APP_DATA_PURGE_MAX_STEPS; step++) {
-                if (this.#stopping) return;
-                if (
-                    typeof appId === 'number' &&
-                    (
-                        await this.stores.permission.listUserAppPermsFromPrimary(
-                            userId,
-                            appId,
-                        )
-                    ).length > 0
+        job: Extract<KvShareJob, { kind: 'uninstall' }>,
+        deadline: number,
+    ): Promise<boolean> {
+        const appId = (await this.stores.app.getByUid(job.appUid))?.id;
+        const stillWanted = async () =>
+            typeof appId !== 'number' ||
+            (
+                await this.stores.permission.listUserAppPermsFromPrimary(
+                    job.userId,
+                    appId,
                 )
-                    return;
-                const { done } = await this.stores.kv.purgeNamespace(
-                    namespace,
-                    { maxItems: APP_DATA_PURGE_STEP },
+            ).length === 0;
+        if (!(await stillWanted())) return true;
+
+        const namespace = kvNamespace(job.userUuid, job.appUid);
+        while (!this.#stopping && Date.now() < deadline) {
+            const { done, stopped } = await this.stores.kv.purgeNamespace(
+                namespace,
+                { maxItems: APP_DATA_PURGE_STEP, stillWanted },
+            );
+            if (done || stopped) return true;
+            await new Promise((resolve) => setTimeout(resolve, PURGE_PAUSE_MS));
+        }
+        return false;
+    }
+
+    // -- Cleanup jobs -------------------------------------------------
+
+    /** What this deployment calls itself, which is what a job's home names. */
+    get #home(): string {
+        return this.services.broadcast.regionId;
+    }
+
+    /**
+     * Look through the next page of recorded jobs and run the ones this node
+     * may claim. Each look starts where the last one stopped, so records that
+     * can't run yet never hide the ones after them. Every node calls this on a
+     * timer, which is how a failed, interrupted or unfinished job resumes.
+     * Returns how many finished.
+     */
+    async resumeKvShareJobs(): Promise<number> {
+        if (this.#resuming) return 0;
+        this.#resuming = true;
+        try {
+            const started = Date.now();
+            const after = this.#jobCursor;
+            const page = await this.stores.kv.pageReservedItems(
+                JOB_KEY_PREFIX,
+                { limit: JOB_CHECK_PAGE, afterKey: after },
+            );
+            this.#jobCursor = page.nextKey;
+            let finished = 0;
+            for (const [index, item] of page.items.entries()) {
+                if (
+                    this.#stopping ||
+                    Date.now() - started > JOB_CHECK_BUDGET_MS
+                ) {
+                    // The rest of this page is first in line next time.
+                    this.#jobCursor =
+                        index > 0 ? String(page.items[index - 1].key) : after;
+                    break;
+                }
+                const record = parseJobRecord(item);
+                if (!record || !this.#claimable(record, Date.now())) continue;
+                try {
+                    if ((await this.#runJob(jobKey(record.job))).done)
+                        finished++;
+                } catch {
+                    // Alarmed, and backed off in its record.
+                }
+            }
+            return finished;
+        } finally {
+            this.#resuming = false;
+        }
+    }
+
+    /** The claim condition, read off a record already in hand. */
+    #claimable(record: KvShareJobRecord, now: number): boolean {
+        if (record.failed || record.leaseUntil >= now || record.runAfter > now)
+            return false;
+        const adopt = now - JOB_ADOPT_AFTER_MS;
+        return (
+            record.home === this.#home ||
+            (record.touched < adopt && record.runAfter < adopt)
+        );
+    }
+
+    /** Record a job, then run it in the background. */
+    async #startJob(job: KvShareJob): Promise<void> {
+        await this.#recordJob(job);
+        void (async () => {
+            try {
+                await this.#runJob(jobKey(job));
+            } catch {
+                // Alarmed, and retried from its record.
+            }
+        })();
+    }
+
+    /**
+     * Record a job as due now, here. The cutoff only grows, so recording a job
+     * again never narrows it; a lease someone holds is left alone. A failed
+     * write is alarmed: without its record the job can't be claimed or run.
+     */
+    async #recordJob(job: KvShareJob): Promise<void> {
+        const key = jobKey(job);
+        const due = {
+            state: 'pending',
+            attempts: 0,
+            runAfter: 0,
+            home: this.#home,
+            touched: Date.now(),
+        };
+        const change = {
+            setIfAbsent: { leaseUntil: 0 },
+            remove: ['ttl'],
+        };
+        try {
+            const recorded = await this.stores.kv.updateReservedItemIf(
+                key,
+                { ...change, set: { ...job, ...due } },
+                'attribute_not_exists(#c) OR #c <= :c',
+                { ':c': job.cutoff },
+                { '#c': 'cutoff' },
+            );
+            if (!recorded)
+                await this.stores.kv.updateReservedItemIf(
+                    key,
+                    { ...change, set: due },
+                    'attribute_exists(#c)',
+                    {},
+                    { '#c': 'cutoff' },
                 );
-                if (done) return;
-                await new Promise((resolve) =>
-                    setTimeout(resolve, PURGE_PAUSE_MS),
+        } catch (err) {
+            this.clients.alarm.create(
+                `kv_share_job_record_failed:${key}`,
+                'Failed to record a key-value share cleanup',
+                { job, error: err as Error },
+                'warning',
+                { dedup: true },
+            );
+        }
+    }
+
+    /**
+     * One run of a recorded job: claimed off its record, then worked for at
+     * most `JOB_RUN_MS`. Finished, the record is deleted unless the job was
+     * recorded again meanwhile; unfinished, it's handed back due now. A failure
+     * is alarmed, backs the record off and rethrows. A job that isn't
+     * claimable, or that another node claimed first, reads as not done.
+     */
+    async #runJob(key: string): Promise<KvShareJobRun> {
+        const lease = randomUUID();
+        const now = Date.now();
+        let claimed: Record<string, unknown> | null;
+        try {
+            claimed = await this.stores.kv.updateReservedItemIf(
+                key,
+                {
+                    set: {
+                        leaseOwner: lease,
+                        leaseUntil: now + JOB_LEASE_MS,
+                        home: this.#home,
+                        touched: now,
+                    },
+                },
+                JOB_CLAIM_CONDITION,
+                {
+                    ':failed': 'failed',
+                    ':now': now,
+                    ':home': this.#home,
+                    ':adopt': now - JOB_ADOPT_AFTER_MS,
+                },
+                {
+                    '#c': 'cutoff',
+                    '#st': 'state',
+                    '#lu': 'leaseUntil',
+                    '#ra': 'runAfter',
+                    '#home': 'home',
+                    '#tc': 'touched',
+                },
+            );
+        } catch (err) {
+            // The record stays, and the next check claims it.
+            console.warn('[kvShare] could not claim a cleanup job', err);
+            return JOB_NOT_RUN;
+        }
+        const record = claimed && parseJobRecord(claimed);
+        if (!record) return JOB_NOT_RUN;
+
+        let run: KvShareJobRun;
+        try {
+            run = await this.#jobStep(record.job, now + JOB_RUN_MS);
+        } catch (err) {
+            await this.#jobFailed(key, lease, record, err);
+            throw err;
+        }
+        if (run.done) await this.#jobFinished(key, lease, record.job);
+        else {
+            console.log(
+                `[kvShare] cleanup ${key} continues after retiring ${run.retired}`,
+            );
+            try {
+                await this.#releaseJob(key, lease, { runAfter: 0 });
+            } catch (err) {
+                // The lease runs out and the next claim carries on.
+                console.warn(
+                    '[kvShare] could not hand back a cleanup job',
+                    err,
                 );
             }
-            console.warn('[kvShare] app data purge hit its step cap');
-        } catch (err) {
-            console.warn('[kvShare] app data purge failed', err);
         }
+        return run;
+    }
+
+    async #jobStep(job: KvShareJob, deadline: number): Promise<KvShareJobRun> {
+        if (job.kind === 'app')
+            return this.#retireAsSystem(
+                () =>
+                    this.stores.kvShareHandle.listLiveForApps(
+                        [job.appUid],
+                        KV_HANDLE_RETIRE_BATCH,
+                        job.cutoff,
+                    ),
+                'kv share app deleted',
+                deadline,
+            );
+        // Handles the user holds in this app are left alone.
+        const retire = await this.#retireAsSystem(
+            () =>
+                this.stores.kvShareHandle.listLiveForOwnerApp(
+                    job.userId,
+                    job.appUid,
+                    KV_HANDLE_RETIRE_BATCH,
+                    job.cutoff,
+                ),
+            'kv share app data deleted',
+            deadline,
+        );
+        if (!retire.done) return retire;
+        return {
+            done: await this.#purgeAppData(job, deadline),
+            retired: retire.retired,
+        };
+    }
+
+    /** Delete a finished job's record, or hand it back if it was recorded again. */
+    async #jobFinished(
+        key: string,
+        lease: string,
+        job: KvShareJob,
+    ): Promise<void> {
+        try {
+            const deleted = await this.stores.kv.deleteReservedItemIf(
+                key,
+                '#lo = :lease AND #c = :c',
+                { ':lease': lease, ':c': job.cutoff },
+                { '#lo': 'leaseOwner', '#c': 'cutoff' },
+            );
+            if (!deleted) await this.#releaseJob(key, lease, {});
+        } catch (err) {
+            // The record runs again and finds nothing left to do.
+            console.warn('[kvShare] could not clear a finished job', err);
+        }
+    }
+
+    /**
+     * Count a failed run in the record and back it off, or, past
+     * `JOB_MAX_ATTEMPTS`, mark it failed for good and let it expire.
+     */
+    async #jobFailed(
+        key: string,
+        lease: string,
+        record: KvShareJobRecord,
+        err: unknown,
+    ): Promise<void> {
+        const attempts = record.attempts + 1;
+        const gaveUp = attempts >= JOB_MAX_ATTEMPTS;
+        try {
+            await this.#releaseJob(
+                key,
+                lease,
+                gaveUp
+                    ? {
+                          attempts,
+                          state: 'failed',
+                          ttl: nowSeconds() + JOB_FAILED_RETENTION_SECONDS,
+                      }
+                    : {
+                          attempts,
+                          runAfter:
+                              Date.now() +
+                              Math.min(
+                                  JOB_RETRY_BASE_MS * 2 ** (attempts - 1),
+                                  JOB_RETRY_MAX_MS,
+                              ),
+                      },
+            );
+        } catch {
+            // The lease runs out and the next claim retries it.
+        }
+        this.clients.alarm.create(
+            gaveUp
+                ? `kv_share_job_gave_up:${key}`
+                : `kv_share_job_failed:${key}`,
+            gaveUp
+                ? 'A key-value share cleanup kept failing and stopped retrying'
+                : 'A key-value share cleanup failed and will be retried',
+            { job: record.job, attempts, error: err as Error },
+            'warning',
+            { dedup: true },
+        );
+    }
+
+    /** Give up this node's lease on a job, writing `set` with it. */
+    async #releaseJob(
+        key: string,
+        lease: string,
+        set: Record<string, unknown>,
+    ): Promise<void> {
+        await this.stores.kv.updateReservedItemIf(
+            key,
+            { set: { ...set, leaseUntil: 0, touched: Date.now() } },
+            '#lo = :lease',
+            { ':lease': lease },
+            { '#lo': 'leaseOwner' },
+        );
+    }
+
+    #armJobs(): void {
+        const run = async () => {
+            try {
+                await this.resumeKvShareJobs();
+            } catch (err) {
+                console.warn('[kvShare] job check failed', err);
+            }
+        };
+        const kick = setTimeout(
+            () => void run(),
+            JOB_CHECK_INITIAL_DELAY_MS * (0.5 + Math.random()),
+        );
+        kick.unref?.();
+        const timer = setInterval(() => void run(), JOB_CHECK_MS);
+        timer.unref?.();
+        this.#timers.push(kick, timer);
     }
 
     #armPurge(): void {
@@ -526,7 +976,7 @@ export class KvShareService extends PuterService {
         kick.unref?.();
         const timer = setInterval(() => void run(), PURGE_CHECK_MS);
         timer.unref?.();
-        this.#purgeTimers = [kick, timer];
+        this.#timers.push(kick, timer);
     }
 
     /** Whether the level a mint asks for is available on this server. */
@@ -799,18 +1249,60 @@ export class KvShareService extends PuterService {
             throw handleQuotaReached(EVENTS_KV_HANDLES_PER_HOLDER, 'holder');
     }
 
-    /** One new share: the grant, then its handle, then the holder's notice. */
+    /**
+     * One new share: the grant, then its handle, then the holder's notice. One
+     * mint per region at a time, so racing mints of it make one handle: the
+     * ones that wait their turn get it back as it stands.
+     */
     async #grantAndMint(
         actor: Actor,
         grantee: Grantee,
-        share: {
-            ownerUserId: number;
-            appUid: string;
-            keyPrefix: string;
-            permission: string;
-            label: string | null;
-        },
+        share: NewShare,
     ): Promise<KvShareHandle> {
+        const region = {
+            ownerUserId: share.ownerUserId,
+            granteeUserId: grantee.id,
+            appUid: share.appUid,
+            keyPrefix: share.keyPrefix,
+        };
+        const mintUnlessLive = async () => {
+            const existing = await this.stores.kvShareHandle.findLive(region);
+            if (existing) return { row: existing, minted: false };
+            return {
+                row: await this.#grantAndInsert(actor, grantee, share),
+                minted: true,
+            };
+        };
+        // A mint that waits out the lock looks again and goes ahead: the
+        // holder is far likelier slow than doing anything but this same mint.
+        const { row, minted } = await withRedisLock(
+            this.clients.redis,
+            `kvShare:mint:${region.ownerUserId}:${region.granteeUserId}:` +
+                `${region.appUid}:${region.keyPrefix}`,
+            mintUnlessLive,
+            {
+                ttlMs: SHARE_CHANGE_LOCK_MS,
+                attempts: SHARE_CHANGE_LOCK_ATTEMPTS,
+                retryMs: SHARE_CHANGE_LOCK_RETRY_MS,
+                onUnavailable: 'run',
+                onBusy: () => mintUnlessLive(),
+            },
+        );
+        if (minted) await this.#notifyReceived(row);
+        return row;
+    }
+
+    /** {@link #grantAndMint} under its lock, with no live handle on the region. */
+    async #grantAndInsert(
+        actor: Actor,
+        grantee: Grantee,
+        share: NewShare,
+    ): Promise<KvShareHandle> {
+        await this.#retireOlderThanApp(
+            share.ownerUserId,
+            grantee.id,
+            share.appUid,
+        );
         // The user behind the app, so the authority checked is theirs. Which
         // app acted goes on the audit row, not in the grant's authority.
         const authority = userRelatedActor(actor);
@@ -844,7 +1336,7 @@ export class KvShareService extends PuterService {
             meta,
         );
 
-        const row = await this.stores.kvShareHandle.mint({
+        return this.stores.kvShareHandle.mint({
             ownerUserId: share.ownerUserId,
             granteeUserId: grantee.id,
             appUid: share.appUid,
@@ -852,8 +1344,6 @@ export class KvShareService extends PuterService {
             permission: share.permission,
             label: share.label,
         });
-        await this.#notifyReceived(row);
-        return row;
     }
 
     /**
@@ -1123,6 +1613,85 @@ export class KvShareService extends PuterService {
         throw unknownKvShareHandle(named);
     }
 
+    /**
+     * `appUid`'s app when its uid was held by a deleted app before, so handles
+     * in its namespace can be older than it; `null` otherwise, which spares the
+     * caller looking at handles at all.
+     */
+    async #reusedUidApp(
+        appUid: string,
+    ): Promise<{ created_epoch?: unknown } | null> {
+        if (appUid === KV_GLOBAL_APP_KEY) return null;
+        const app = await this.stores.app.getByUid(appUid);
+        if (appGenerationStart(app) === null) return null;
+        const deleted = await this.stores.app.getDeletedOwnersByUids([appUid]);
+        return deleted.has(appUid) ? app : null;
+    }
+
+    /**
+     * Whether a share grant the user holds was made for the app its namespace
+     * names now, not an earlier app under the same uid: a live handle of theirs
+     * no older than the app covers the region at the level asked.
+     */
+    async #grantForCurrentApp(
+        user: Actor,
+        permission: string,
+    ): Promise<boolean> {
+        const [, ownerUuid, appUid] = PermissionUtil.split(permission);
+        if (!ownerUuid || !appUid) return true;
+        const app = await this.#reusedUidApp(appUid);
+        if (!app) return true;
+
+        const owner = await this.stores.user.getByUuid(ownerUuid);
+        const holderId = user.user?.id;
+        if (owner?.id === undefined || typeof holderId !== 'number')
+            return false;
+        const held = await this.stores.kvShareHandle.listLiveForOwnerAndGrantee(
+            owner.id,
+            holderId,
+        );
+        return held.some(
+            (row) =>
+                row.appUid === appUid &&
+                !predatesApp(row.createdAt, app) &&
+                kvShareGrantCovers(row.permission, permission) &&
+                levelRank(row.permission) >= levelRank(permission),
+        );
+    }
+
+    /**
+     * Retire, grants and all, the live handles this owner gave this holder in
+     * `appUid`'s namespace for an earlier app under the uid. Done before a new
+     * share between them lands, so no withdrawal of the old ones can take the
+     * new grant with it, and no old grant outlives them inside its region.
+     */
+    async #retireOlderThanApp(
+        ownerUserId: number,
+        granteeUserId: number,
+        appUid: string,
+    ): Promise<void> {
+        const app = await this.#reusedUidApp(appUid);
+        if (!app) return;
+        let older: KvShareHandle[] = (
+            await this.stores.kvShareHandle.listLiveForOwnerAndGrantee(
+                ownerUserId,
+                granteeUserId,
+            )
+        ).filter(
+            (row) => row.appUid === appUid && predatesApp(row.createdAt, app),
+        );
+        if (older.length === 0) return;
+        await this.#retireAsSystem(
+            async () => {
+                const batch = older;
+                older = [];
+                return batch;
+            },
+            'kv share app uid reused',
+            Infinity,
+        );
+    }
+
     /** Whether the actor's user still has its app authorized. */
     async #appAuthorized(actor: Actor): Promise<boolean> {
         const userId = actor.user?.id;
@@ -1294,53 +1863,102 @@ export class KvShareService extends PuterService {
     }
 
     /**
-     * Retire every live handle in deleted apps' namespaces as the platform's,
-     * in bounded passes.
+     * Retire every live handle in deleted apps' namespaces as the platform's.
+     * Each app's retire is recorded before it runs, and what one run doesn't
+     * finish carries on in the background. Resolves with the handles retired
+     * here; rejects, after alarming, when a run failed.
      */
     async retireForDeletedApps(appUids: readonly string[]): Promise<number> {
+        const cutoff = nowSeconds();
         const uids = [...new Set(appUids)].filter(
             (uid) => uid !== KV_GLOBAL_APP_KEY,
         );
         let retired = 0;
-        for (let at = 0; at < uids.length; at += APP_RETIRE_UID_CHUNK) {
-            const chunk = uids.slice(at, at + APP_RETIRE_UID_CHUNK);
-            retired += await this.#retireAsSystem(
-                () => this.stores.kvShareHandle.listLiveForApps(chunk),
-                'kv share app deleted',
-            );
-        }
+        let failure: unknown;
+        await runWithConcurrencyLimit(
+            uids,
+            JOB_START_CONCURRENCY,
+            async (appUid) => {
+                try {
+                    retired += (await this.#retireApp(appUid, cutoff)).retired;
+                } catch (err) {
+                    failure ??= err;
+                }
+            },
+        );
+        if (failure !== undefined) throw failure;
         return retired;
     }
 
     /**
-     * Retire the live handles one user holds out in one app's namespace, as the
-     * platform's. Handles shared with the user are left alone.
+     * Retire, in the background, the live handles an earlier app under `app`'s
+     * uid left in its namespace. They already read as gone, being older than
+     * the app; this withdraws their grants and ends what was made through them.
+     * Never throws.
      */
-    async #retireOwnedInApp(
-        ownerUserId: number,
-        appUid: string,
-    ): Promise<number> {
-        return this.#retireAsSystem(
-            () =>
-                this.stores.kvShareHandle.listLiveForOwnerApp(
-                    ownerUserId,
-                    appUid,
-                ),
-            'kv share app data deleted',
+    retireSharesOlderThanApp(app: { uid: string; created_epoch?: unknown }) {
+        const start = appGenerationStart(app);
+        if (start === null || app.uid === KV_GLOBAL_APP_KEY) return;
+        void (async () => {
+            try {
+                await this.#retireApp(app.uid, start - 1);
+            } catch {
+                // Alarmed, and retried from its record.
+            }
+        })();
+    }
+
+    /** One app's retire: nothing to record when it has no live handles. */
+    async #retireApp(appUid: string, cutoff: number): Promise<KvShareJobRun> {
+        const job: KvShareJob = { kind: 'app', appUid, cutoff };
+        const live = await this.stores.kvShareHandle.listLiveForApps(
+            [appUid],
+            1,
+            cutoff,
         );
+        if (live.length === 0) return { done: true, retired: 0 };
+        await this.#recordJob(job);
+        return this.#runJob(jobKey(job));
     }
 
     /**
-     * Retire what `nextBatch` lists until a batch comes back short. Grants go
-     * before handles, so a retry after a failure still finds them, and a later
-     * share of the same region can't inherit them.
+     * Retire every live handle a user holds, before their account's rows
+     * cascade away, and tell each owner: what they subscribed to through it
+     * ends. The grants go with the account.
+     */
+    async retireForDeletedHolder(userId: number): Promise<number> {
+        let retired = 0;
+        let afterId = 0;
+        for (;;) {
+            const batch = await this.stores.kvShareHandle.listLiveHeldBy(
+                userId,
+                afterId,
+            );
+            if (batch.length === 0) return retired;
+            await this.stores.kvShareHandle.retireMany(
+                batch.map((row) => row.handle),
+                'system',
+            );
+            await this.#announceRetired(batch, userId);
+            retired += batch.length;
+            if (batch.length < KV_HANDLE_RETIRE_BATCH) return retired;
+            afterId = batch[batch.length - 1].id;
+        }
+    }
+
+    /**
+     * Retire what `nextBatch` lists until a batch comes back short or the
+     * deadline passes. Grants go before handles, so a retry after a failure
+     * still finds them, and a later share of the same region can't inherit
+     * them.
      */
     async #retireAsSystem(
         nextBatch: () => Promise<KvShareHandle[]>,
         reason: string,
-    ): Promise<number> {
+        deadline: number,
+    ): Promise<KvShareJobRun> {
         let retired = 0;
-        for (let pass = 0; pass < APP_RETIRE_MAX_PASSES; pass++) {
+        for (;;) {
             const batch = await nextBatch();
             await this.#withdrawRetiredGrants(batch, reason);
             await this.stores.kvShareHandle.retireMany(
@@ -1349,9 +1967,11 @@ export class KvShareService extends PuterService {
             );
             await this.#announceRetired(batch);
             retired += batch.length;
-            if (batch.length < KV_HANDLE_RETIRE_BATCH) break;
+            if (batch.length < KV_HANDLE_RETIRE_BATCH)
+                return { done: true, retired };
+            if (this.#stopping || Date.now() >= deadline)
+                return { done: false, retired };
         }
-        return retired;
     }
 
     /**
@@ -1396,16 +2016,22 @@ export class KvShareService extends PuterService {
     /**
      * Tell listeners which handles stopped being addresses, one event per user
      * who could have subscribed through them (owner and holder alike), and wait
-     * for them: what was made through a handle ends with it.
+     * for them: what was made through a handle ends with it. `except` is a user
+     * whose account is going, and its subscriptions with it.
      */
-    async #announceRetired(rows: readonly KvShareHandle[]): Promise<void> {
+    async #announceRetired(
+        rows: readonly KvShareHandle[],
+        except?: number,
+    ): Promise<void> {
         const byUser = new Map<number, Set<string>>();
         for (const row of rows)
-            for (const userId of [row.granteeUserId, row.ownerUserId])
+            for (const userId of [row.granteeUserId, row.ownerUserId]) {
+                if (userId === except) continue;
                 byUser.set(
                     userId,
                     (byUser.get(userId) ?? new Set()).add(row.handle),
                 );
+            }
         await runWithConcurrencyLimit(
             [...byUser],
             RETIRE_SETTLE_CONCURRENCY,

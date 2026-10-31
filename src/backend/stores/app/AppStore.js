@@ -1335,18 +1335,9 @@ export class AppStore extends PuterStore {
         return this.#normalizeRow(rows[0]);
     }
 
-    /**
-     * The row's creation time as unix seconds, computed by the database: the
-     * mysql driver reads a stored UTC timestamp as local time, so parsing
-     * `timestamp` in JS can be off by the server's UTC offset.
-     */
+    /** The row's creation time as unix seconds. */
     #createdEpochColumn(alias = '') {
-        const column = `${alias}\`timestamp\``;
-        const epoch = this.clients.db.case({
-            postgres: `EXTRACT(EPOCH FROM ${column})::bigint`,
-            mysql: `UNIX_TIMESTAMP(${column})`,
-            otherwise: `CAST(strftime('%s', ${column}) AS INTEGER)`,
-        });
+        const epoch = this.clients.db.unixSecondsSql(`${alias}\`timestamp\``);
         return `${epoch} AS \`created_epoch\``;
     }
 

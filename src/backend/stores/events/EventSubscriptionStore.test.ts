@@ -19,10 +19,7 @@
 
 import MockRedis from 'ioredis-mock';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-    EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE,
-    EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
-} from '../../controllers/events/limits.js';
+import { EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET } from '../../controllers/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types.js';
 import {
@@ -263,7 +260,6 @@ describe('the per-socket cap', () => {
 describe('rows made through a share handle', () => {
     const HANDLE = 'kvh-handle-a';
     const OTHER_HANDLE = 'kvh-handle-b';
-    const CAP = EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE;
 
     /** A row in `USER`'s keyspace, made through a handle by `holderUserId`. */
     const through = (
@@ -285,78 +281,43 @@ describe('rows made through a share handle', () => {
             ...over,
         });
 
-    const isLimit = (err: unknown) =>
-        isHttpError(err) &&
-        err.statusCode === 429 &&
-        err.legacyCode === 'events_subscription_limit';
-
-    it('holds another user to the cap through one handle, across their connections', async () => {
+    it('doesn`t let connections that dropped without being reaped refuse a new one', async () => {
         const holder = USER + 7000;
-        for (let i = 0; i < CAP; i++) await store.add(through(holder, i));
+        const full = EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET;
+        // Two connections at their cap through one handle, gone but not
+        // reaped: a crashed node, or a blip the server hasn't noticed yet.
+        for (const socketId of ['socket-old-1', 'socket-old-2'])
+            for (let i = 0; i < full; i++)
+                await store.add(
+                    through(holder, i, {
+                        subId: `${socketId}-${i}`,
+                        socketId,
+                    }),
+                );
 
-        const overflow = through(holder, CAP);
-        await expect(store.add(overflow)).rejects.toSatisfy(isLimit);
-        // Rolled back: nothing of the refused row is left to reap or count.
-        expect(
-            await redis.smembers(`ev:s:{${holder}}:${overflow.socketId}`),
-        ).not.toContain(`${USER}|${overflow.token}|${overflow.subId}`);
-        expect(await redis.scard(`ev:kh:{${USER}}:${HANDLE}`)).toBe(CAP);
-
-        // Another handle has its own room.
-        await expect(
-            store.add(
-                through(holder, CAP + 1, { subject: `kv:${OTHER_HANDLE}:*` }),
-            ),
-        ).resolves.toMatchObject({ userId: USER });
+        for (let i = 0; i < full; i++)
+            await expect(
+                store.add(
+                    through(holder, i, {
+                        subId: `socket-new-${i}`,
+                        socketId: 'socket-new',
+                    }),
+                ),
+            ).resolves.toMatchObject({ userId: USER });
     });
 
-    it('frees a slot once a row is unsubscribed or its connection goes', async () => {
+    it('takes a row out of its handle`s index when it goes', async () => {
         const holder = USER + 7000;
-        const rows = Array.from({ length: CAP }, (_, i) => through(holder, i));
-        for (const row of rows) await store.add(row);
+        const unsubscribed = through(holder, 0, { socketId: 'socket-a' });
+        const reaped = through(holder, 1, { socketId: 'socket-b' });
+        await store.add(unsubscribed);
+        await store.add(reaped);
+        expect(await redis.scard(`ev:kh:{${USER}}:${HANDLE}`)).toBe(2);
 
-        await store.remove(rows[0]);
-        await expect(store.add(through(holder, CAP))).resolves.toMatchObject({
-            userId: USER,
-        });
-        await expect(store.add(through(holder, CAP + 1))).rejects.toSatisfy(
-            isLimit,
-        );
+        await store.remove(unsubscribed);
+        await store.reapSocket(holder, 'socket-b');
 
-        // A whole connection's worth.
-        await store.reapSocket(holder, rows[CAP - 1].socketId);
-        for (let i = 0; i < 10; i++)
-            await store.add(through(holder, CAP + 10 + i));
-        await expect(store.add(through(holder, CAP + 20))).rejects.toSatisfy(
-            isLimit,
-        );
-    });
-
-    it('never counts the owner`s own rows through the handle', async () => {
-        for (let i = 0; i < CAP + 20; i++) await store.add(through(USER, i));
-        const holder = USER + 7000;
-        for (let i = 0; i < CAP; i++) await store.add(through(holder, i));
-
-        await expect(store.add(through(holder, CAP))).rejects.toSatisfy(
-            isLimit,
-        );
-        await expect(store.add(through(USER, CAP + 20))).resolves.toMatchObject(
-            { userId: USER },
-        );
-    });
-
-    it('never lets concurrent adds through one handle exceed the cap', async () => {
-        const holder = USER + 7000;
-        const results = await Promise.allSettled(
-            Array.from({ length: CAP + 10 }, (_, i) =>
-                store.add(through(holder, i)),
-            ),
-        );
-
-        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(
-            CAP,
-        );
-        expect(await redis.scard(`ev:kh:{${USER}}:${HANDLE}`)).toBe(CAP);
+        expect(await redis.scard(`ev:kh:{${USER}}:${HANDLE}`)).toBe(0);
     });
 
     it('lists the rows made through the given handles, and no others', async () => {
@@ -422,6 +383,37 @@ describe('rows made through a share handle', () => {
         expect(await redis.ttl(`ev:kh:{${USER}}:${HANDLE}`)).toBeGreaterThan(
             SESSION_SUBSCRIPTION_TTL_SECONDS - 10,
         );
+    });
+
+    it('asks about each handle once per holder and app on refresh', async () => {
+        const holder = USER + 7000;
+        const rows = [
+            through(holder, 0, { socketId: 'socket-a' }),
+            through(holder, 1, {
+                socketId: 'socket-a',
+                token: 'k#owner#app#ws:a:',
+            }),
+            through(holder, 2, {
+                socketId: 'socket-a',
+                token: 'k#owner#app#ws:b:',
+            }),
+            through(holder, 3, { socketId: 'socket-a', appUid: 'app-x' }),
+            through(holder, 4, {
+                socketId: 'socket-a',
+                subject: `kv:${OTHER_HANDLE}:*`,
+            }),
+        ];
+        for (const row of rows) await store.add(row);
+
+        const stillHeld = vi.fn(async (row: SessionSubscription) =>
+            row.subject.includes(HANDLE),
+        );
+        const { lapsed } = await store.refresh(holder, 'socket-a', {
+            stillHeld,
+        });
+
+        expect(stillHeld).toHaveBeenCalledTimes(3);
+        expect(lapsed).toEqual([rows[4]]);
     });
 });
 
