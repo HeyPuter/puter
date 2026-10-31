@@ -22,7 +22,16 @@
  * counts and retention.
  */
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
@@ -438,6 +447,165 @@ describe('the live cache across nodes', () => {
                 suspended: false,
             });
         }
+    });
+
+    describe('behind a lagging replica', () => {
+        type Rows = Record<string, unknown>[];
+        const db = () => env.server.clients.db;
+        const isHandleRead = (sql: unknown) =>
+            String(sql).includes('kv_share_handles');
+
+        /** The row a read of one handle returns, as it stands now. */
+        const rowsNow = async (handle: string): Promise<Rows> => {
+            const read = vi.spyOn(db(), 'read');
+            try {
+                await store().getLive(handle);
+                const at = read.mock.calls.findIndex(([sql]) =>
+                    isHandleRead(sql),
+                );
+                return (await read.mock.results[at]?.value) as Rows;
+            } finally {
+                read.mockRestore();
+            }
+        };
+
+        /**
+         * Replica reads of a handle answer `answer()` from here on; primary
+         * reads still reach the database (the test engine runs them through
+         * `read` too).
+         */
+        const replicaAnswers = (answer: () => Promise<Rows>) => {
+            const originalRead = db().read.bind(db());
+            const originalPread = db().pread.bind(db());
+            let primary = 0;
+            const pread = vi
+                .spyOn(db(), 'pread')
+                .mockImplementation(async (sql, params) => {
+                    primary++;
+                    try {
+                        return await originalPread(sql, params);
+                    } finally {
+                        primary--;
+                    }
+                });
+            const read = vi
+                .spyOn(db(), 'read')
+                .mockImplementation(async (sql, params) =>
+                    isHandleRead(sql) && primary === 0
+                        ? answer()
+                        : originalRead(sql, params),
+                );
+            return () => {
+                read.mockRestore();
+                pread.mockRestore();
+            };
+        };
+
+        const forgetFromAnotherNode = (handle: string) =>
+            env.server.clients.event.emit(
+                'outer.pubsub.kv.share.forget',
+                { handles: [handle] },
+                { from_outside: true },
+            );
+
+        const revoke = (handle: string) =>
+            db().write(
+                'UPDATE `kv_share_handles` SET `revoked_at` = 1 WHERE `handle` = ?',
+                [handle],
+            );
+
+        /** A handle cached live, with the window its mint opened behind it. */
+        const cachedLive = async (keyPrefix: string) => {
+            const row = await store().mint(
+                input({ appUid: 'app-lag', keyPrefix }),
+            );
+            const stale = await rowsNow(row.handle);
+            expect(stale).toHaveLength(1);
+            vi.setSystemTime(Date.now() + 61_000);
+            expect(await store().getLive(row.handle)).not.toBeNull();
+            return { handle: row.handle, stale };
+        };
+
+        beforeEach(() => {
+            vi.useFakeTimers({ toFake: ['Date'] });
+        });
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        it('reads a handle from the primary after a forget, so a stale replica can`t cache it live again', async () => {
+            const { handle, stale } = await cachedLive('lag-a:');
+            await revoke(handle);
+            const restore = replicaAnswers(async () => stale);
+            try {
+                forgetFromAnotherNode(handle);
+                await vi.waitFor(async () =>
+                    expect(await store().getLive(handle)).toBeNull(),
+                );
+                // Nothing stale was cached either.
+                expect(await store().getLive(handle)).toBeNull();
+            } finally {
+                restore();
+            }
+        });
+
+        it('doesn`t cache what a replica returned while a forget landed', async () => {
+            const { handle, stale } = await cachedLive('lag-b:');
+            // Past the cached row's lifetime too, so the next call reads.
+            vi.setSystemTime(Date.now() + 61_000);
+            await revoke(handle);
+
+            let release!: () => void;
+            const gate = new Promise<void>((resolve) => (release = resolve));
+            let started!: () => void;
+            const reading = new Promise<void>((resolve) => (started = resolve));
+            const restore = replicaAnswers(async () => {
+                started();
+                await gate;
+                return stale;
+            });
+            try {
+                const inFlight = store().getLive(handle);
+                await reading;
+                forgetFromAnotherNode(handle);
+                release();
+                expect(await inFlight).toBeNull();
+                expect(await store().getLive(handle)).toBeNull();
+            } finally {
+                restore();
+            }
+        });
+
+        it('reads an owner`s handles from the primary after a suspension', async () => {
+            const { handle, stale } = await cachedLive('lag-owner:');
+            expect(Number(stale[0]?.owner_suspended ?? 0)).toBe(0);
+
+            const setSuspended = (value: number) =>
+                db().write('UPDATE `user` SET `suspended` = ? WHERE `id` = ?', [
+                    value,
+                    ownerUserId,
+                ]);
+            const restore = replicaAnswers(async () => stale);
+            try {
+                await setSuspended(1);
+                env.server.clients.event.emit(
+                    'user.suspended',
+                    { userId: ownerUserId },
+                    {},
+                );
+                expect((await store().getLive(handle))?.ownerSuspended).toBe(
+                    true,
+                );
+            } finally {
+                restore();
+                await setSuspended(0);
+                env.server.clients.event.emit(
+                    'user.unsuspended',
+                    { userId: ownerUserId },
+                    {},
+                );
+            }
+        });
     });
 
     it('reads nothing for an id whose mac does not verify', async () => {

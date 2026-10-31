@@ -52,14 +52,14 @@ The promise rejects with `{ message, code }`:
 | `invalid_handler` | `handler` isn't a function. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `invalid_subject_op` | The `:op` suffix isn't one of the five operations. |
-| `invalid_subject_pattern` | The pattern is over its limits: 256 characters, 16 segments, one `*` per segment, one `**` in total. |
+| `invalid_subject_pattern` | The pattern is over its limits: 256 characters, 16 segments, one `*` per segment, one `**` in total. Through a share handle, the 256 characters are counted after the handle. |
 | `invalid_kv_pattern` | A `kv:` subject has a `*` before the end, or a `?`. |
 | `invalid_kv_handle_key` | A `kv:<handle>:…` subject names no key, or a key that tries to leave the shared region. |
 | `invalid_include_value` | `includeValue` isn't a boolean, or the subject isn't `kv:`. |
 | `events_cross_app_disabled` | The subject names another app's key-value data, and that's turned off on this server. |
 | `forbidden` | The other app doesn't share its data, or your app hasn't been granted read access to its key-value data (see [`puter.perms.request('appData')`](/Perms/appData/)). |
 | `subject_does_not_exist` | The subject doesn't exist, or this account can't read it. |
-| `events_subscription_limit` | This connection already has 50 subscriptions. |
+| `events_subscription_limit` | This connection already has 50 subscriptions, or you already have 100 through this share handle across all your connections. |
 | `too_many_requests` | Over the subscribe rate limit. |
 | `events_disabled` | Events aren't enabled on this server. |
 | `reauth_required` | The session behind this connection is no longer valid. |
@@ -87,6 +87,7 @@ The server can end a session subscription on its own, without a disconnect. `onE
 | `code` | `reason` | When |
 | --- | --- | --- |
 | `subscription_ended` | `anchor_deleted` | The node it was attached to was deleted, and it couldn't move up to a parent folder (see [Watching a path before it exists](/Events/subjects/#watching-a-path-before-it-exists)). |
+| `subscription_ended` | `permission_revoked` | It was made through a share handle, and the share stopped (see [Sharing key-value data with another user](/Events/subjects/#sharing-key-value-data-with-another-user)). |
 
 If the connection is down when this happens, or drops before `onError` is called, the SDK isn't told. It subscribes again with the original subject when it reconnects: a path then anchors on its nearest existing folder and keeps watching, like a path that doesn't exist yet, while a uid fails and `onError` is called with `subject_does_not_exist` instead.
 

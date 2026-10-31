@@ -193,6 +193,7 @@ import {
     relativeToKvShareRoot,
 } from '../kvShare/kvShares.js';
 import {
+    KV_MATCH_MAX_LENGTH,
     KV_MATCH_SEPARATOR,
     NOTIF_MATCH_SEPARATOR,
     fsAnchorToken,
@@ -200,6 +201,7 @@ import {
     isKvToken,
     isNotifToken,
     kvHandleFromSubject,
+    kvHandleMatchFromSubject,
     notifMatchSpansEveryApp,
     parseSubject,
     type FsOp,
@@ -673,6 +675,8 @@ const UNSUBSCRIBE_READS = 3;
  */
 /** A deleted account's apps settled at once. */
 const DELETED_ACCOUNT_SETTLE_CONCURRENCY = 4;
+/** Session rows ended at once when their handle stops standing. */
+const SESSION_END_CONCURRENCY = 4;
 const WORKER_SESSION_SWEEP_BATCH = 500;
 const WORKER_SESSION_SWEEP_MAX_PAGES = 2;
 
@@ -854,9 +858,9 @@ const errorAck = (err: unknown): VerbAck<never> => {
 /**
  * A share-handle row's real anchor is the owner's namespace and the absolute
  * granted prefix — neither of which its holder was ever told. The handle is the
- * only anchor its holder may see, mirroring `#asRowAddressesIt`, and the stored
- * `match` is re-based on it for the same reason: it is composed onto the
- * granted prefix, so returning it verbatim hands back the owner's key layout.
+ * only anchor its holder may see, mirroring `#asRowAddressesIt`, and `match` is
+ * read off the subject they wrote: the stored one is composed onto the granted
+ * prefix, so even whether it is `null` depends on the prefix's length.
  *
  * A row on someone else's node is addressed by uid alone. The anchor's real
  * path names every directory above it, which is exactly what the FS surfaces
@@ -872,12 +876,8 @@ const toView = (sub: DispatchSubscription): SubscriptionView => {
             handle !== null
                 ? { uid: handle, path: '' }
                 : { uid: sub.anchorUid, path: foreign ? '' : sub.anchorPath },
-        // `null` where the pattern does not sit under the grant: no filter is
-        // the wrong answer to show, but it is not the owner's prefix.
         match:
-            handle !== null && sub.match !== null
-                ? relativeToKvShareRoot(sub.permission, sub.match)
-                : sub.match,
+            handle !== null ? kvHandleMatchFromSubject(sub.subject) : sub.match,
         op: sub.op,
         includeValue: sub.includeValue === true,
     };
@@ -3112,7 +3112,7 @@ export class EventsService extends PuterService {
             return this.#resolveKvHandleSubscribe(
                 actor,
                 parsed,
-                parsed.anchorRef.handle,
+                parsed.anchorRef,
             );
 
         const anchor = resolveKvAnchor(parsed, {
@@ -3164,9 +3164,13 @@ export class EventsService extends PuterService {
     async #resolveKvHandleSubscribe(
         actor: Actor,
         parsed: ParsedSubject,
-        handle: string,
+        { handle, key }: { handle: string; key: string },
     ): Promise<ResolvedAnchor> {
         if (!this.kvHandlesEnabled) throw kvShareHandleDisabled();
+
+        // Checked as the holder wrote it. The stored pattern is composed onto
+        // the shared prefix, so a limit or error on that would describe it.
+        compileMatch(key, { separator: KV_MATCH_SEPARATOR });
 
         const share = await this.stores.kvShareHandle.getByHandle(handle);
         if (!share || share.revokedAt !== null)
@@ -3204,7 +3208,10 @@ export class EventsService extends PuterService {
         });
 
         if (anchor.match)
-            compileMatch(anchor.match, { separator: KV_MATCH_SEPARATOR });
+            compileMatch(anchor.match, {
+                separator: KV_MATCH_SEPARATOR,
+                maxLength: KV_MATCH_MAX_LENGTH,
+            });
 
         return {
             token: anchor.token,
@@ -4226,6 +4233,9 @@ export class EventsService extends PuterService {
                 separator,
                 // A wildcard-free FS filter is a path that didn't exist yet.
                 literalCoversSubtree: isFsToken(row.token),
+                maxLength: isKvToken(row.token)
+                    ? KV_MATCH_MAX_LENGTH
+                    : undefined,
             }),
         );
     }
@@ -4323,14 +4333,22 @@ export class EventsService extends PuterService {
      * Take out of service every durable subscription one user, the share's
      * owner or its holder, made through these share handles, with their
      * backlogs. One holder-index read, bounded by the user's subscription cap.
-     * Session rows are left to the delivery re-check, which reads the handle's
-     * liveness.
+     *
+     * Session rows made through them in this region end too, found on the
+     * handle index in the owner's keyspace, so only the owner's call finds any.
+     * Other regions' rows stop at the delivery re-check and end on their
+     * socket's next refresh.
      */
     async settleRetiredKvHandles(retired: {
         handles: readonly string[];
         userId: number;
     }): Promise<number> {
         if (!this.enabled || retired.handles.length === 0) return 0;
+        const sessions = await this.#endKvHandleSessions(
+            retired.userId,
+            retired.handles,
+        );
+
         const held = await this.stores.durableSubscription.listActiveForHolder(
             retired.userId,
             null,
@@ -4341,13 +4359,63 @@ export class EventsService extends PuterService {
             const handle = kvHandleFromSubject(row.subject);
             return handle !== null && handles.has(handle);
         });
-        if (settling.length === 0) return 0;
+        if (settling.length === 0) return sessions;
 
         const suspended = await this.#suspend(settling, 'permission_revoked', {
             override: RESUMABLE_REASONS,
         });
         await this.#notifyEnded(suspended, 'permission_revoked');
-        return suspended.length;
+        return sessions + suspended.length;
+    }
+
+    /** End this region's session rows made through these handles. */
+    async #endKvHandleSessions(
+        ownerUserId: number,
+        handles: readonly string[],
+    ): Promise<number> {
+        const rows = await this.stores.eventSubscription.listForKvHandles(
+            ownerUserId,
+            handles,
+        );
+        const ended = await runWithConcurrencyLimitSettled(
+            rows,
+            SESSION_END_CONCURRENCY,
+            (row) => this.#endSubscription(row, 'permission_revoked'),
+        );
+        for (const outcome of ended)
+            if (outcome.status === 'rejected')
+                console.warn(
+                    '[events] could not end a retired handle`s subscription',
+                    outcome.reason,
+                );
+        return rows.length;
+    }
+
+    /**
+     * Whether a session row made through a share handle still stands: the
+     * handle is live and theirs, and the grant is still held. Only a definite
+     * answer ends a row, so a failed read keeps it, and the delivery re-check
+     * still guards it. A suspended owner's handle stands, since that can be
+     * undone.
+     */
+    async #kvHandleRowStands(row: SessionSubscription): Promise<boolean> {
+        const handle = kvHandleFromSubject(row.subject);
+        if (handle === null) return true;
+        try {
+            const live = await this.stores.kvShareHandle.getLive(handle);
+            if (
+                !live ||
+                (live.row.granteeUserId !== row.holderUserId &&
+                    live.row.ownerUserId !== row.holderUserId)
+            )
+                return false;
+            if (!this.kvHandlesEnabled) return false;
+            const actor = await resolveGrantActor(row, this.#aclDeps());
+            if (!actor) return false;
+            return await this.services.permission.check(actor, row.permission);
+        } catch {
+            return true;
+        }
     }
 
     /**
@@ -5992,27 +6060,48 @@ export class EventsService extends PuterService {
         if (this.#refreshTimers.has(key)) return;
         const timer = setInterval(
             () => {
-                void this.stores.eventSubscription
-                    .refresh(holderUserId, socketId)
-                    .then((reasserted) => {
-                        // The whole of the refresh story for a peer's
-                        // remote-watch entry: re-assert whatever this socket
-                        // still holds, so a lost `ev:rw` field — or its TTL
-                        // simply lapsing — heals within one window rather
-                        // than waiting on the next transition.
-                        for (const { ownerUserId, token } of reasserted)
-                            this.services.eventForward.announceWatch(
-                                ownerUserId,
-                                token,
-                                'add',
-                            );
-                    })
-                    .catch(() => {});
+                void this.#refreshSocket(holderUserId, socketId);
             },
             Math.floor((SESSION_SUBSCRIPTION_TTL_SECONDS * 1000) / 3),
         );
         timer.unref?.();
         this.#refreshTimers.set(key, timer);
+    }
+
+    /**
+     * One refresh of a live socket's keys. Rows made through a share handle
+     * that no longer stands end here, which is how a retire in another region
+     * reaches this one's rows.
+     */
+    async #refreshSocket(
+        holderUserId: number,
+        socketId: string,
+    ): Promise<void> {
+        try {
+            const { reasserted, lapsed } =
+                await this.stores.eventSubscription.refresh(
+                    holderUserId,
+                    socketId,
+                    { stillHeld: (row) => this.#kvHandleRowStands(row) },
+                );
+            await runWithConcurrencyLimitSettled(
+                lapsed,
+                SESSION_END_CONCURRENCY,
+                (row) => this.#endSubscription(row, 'permission_revoked'),
+            );
+            // The whole of the refresh story for a peer's remote-watch entry:
+            // re-assert whatever this socket still holds, so a lost `ev:rw`
+            // field — or its TTL simply lapsing — heals within one window
+            // rather than waiting on the next transition.
+            for (const { ownerUserId, token } of reasserted)
+                this.services.eventForward.announceWatch(
+                    ownerUserId,
+                    token,
+                    'add',
+                );
+        } catch {
+            // The TTL backstop covers a refresh that fails.
+        }
     }
 
     #armExpirySweep(): void {

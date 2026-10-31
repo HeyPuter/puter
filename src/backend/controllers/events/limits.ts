@@ -94,6 +94,17 @@ export interface TieredQuota {
 export const EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET = 50;
 
 /**
+ * Live subscriptions one user may hold through a share handle someone else
+ * minted for them, across all of their connections.
+ *
+ * Those rows sit in the owner's keyspace, where each one costs a filter
+ * evaluation on the owner's writes, so opening more connections must not let
+ * the holder add them without bound. The owner's own rows through the handle
+ * don't count.
+ */
+export const EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE = 100;
+
+/**
  * Durable subscriptions one account may hold, across every app.
  *
  * These are table rows that keep costing after the client that made them is
