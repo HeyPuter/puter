@@ -94,58 +94,71 @@
 
     /**
      * The fetch a client's puter.js calls go through, counting Puter API
-     * answers that were Puter's failure. Counted per client: concurrent runs
-     * on one token share it.
+     * answers that were Puter's failure against the run holding the client when
+     * the call was made.
      */
     const observedFetch = (entry) => async (input, init) => {
-        const toApi = isApiRequest(input);
+        const failures = entry.failures;
+        const toApi = failures !== null && isApiRequest(input);
         let response;
         try {
             response = await nativeFetch(input, init);
         } catch (err) {
             if (toApi && err?.name !== 'AbortError') {
-                entry.platformFailures++;
-                entry.retryAfterMs = 0;
+                failures.count++;
+                failures.retryAfterMs = 0;
             }
             throw err;
         }
         if (toApi && isFailureStatus(response.status)) {
-            entry.platformFailures++;
-            entry.retryAfterMs = retryAfterMs(
+            failures.count++;
+            failures.retryAfterMs = retryAfterMs(
                 response.headers.get('retry-after'),
             );
         }
         return response;
     };
 
-    // Deliveries arriving on the same token reuse one client rather than
+    // Deliveries arriving on the same token reuse its clients rather than
     // rebuilding puter.js each time. Keyed on the token itself so a client is
     // only ever handed back to the identity it was built for — the JWT carries
     // an `iat`, so this hits within a burst rather than across a quiet gap.
-    // Bounded and insertion-ordered: a hit is re-inserted to mark it
-    // most-recently-used, and the oldest entry is dropped once it is full.
-    const MAX_CLIENTS = 32;
-    const clientsByToken = new Map();
+    // A client serves one run at a time, so the failures it sees are that
+    // run's: a run overlapping another on the same token gets its own client.
+    // Idle clients are bounded and kept in release order, oldest dropped first.
+    const MAX_IDLE_CLIENTS = 32;
+    const idleByToken = new Map();
+    let idleCount = 0;
 
-    const clientForToken = (token) => {
-        const cached = clientsByToken.get(token);
-        if (cached) {
-            clientsByToken.delete(token);
-            clientsByToken.set(token, cached);
-            return cached;
+    const takeClient = (token) => {
+        const idle = idleByToken.get(token);
+        if (idle) {
+            idleCount--;
+            if (idle.length === 1) idleByToken.delete(token);
+            return idle.pop();
         }
-        const entry = { client: null, platformFailures: 0, retryAfterMs: 0 };
+        const entry = { client: null, failures: null };
         entry.client = init_puter_portable(token, apiOrigin, 'userPuter', {
             // No delivery room, no presence, no per-invocation socket: this
             // client only ever makes plain API calls on the handler's behalf.
             socket: false,
             fetch: observedFetch(entry),
         });
-        clientsByToken.set(token, entry);
-        if (clientsByToken.size > MAX_CLIENTS) {
-            clientsByToken.delete(clientsByToken.keys().next().value);
-        }
         return entry;
+    };
+
+    const releaseClient = (token, entry) => {
+        entry.failures = null;
+        const idle = idleByToken.get(token) ?? [];
+        idleByToken.delete(token);
+        idle.push(entry);
+        idleByToken.set(token, idle);
+        if (++idleCount > MAX_IDLE_CLIENTS) {
+            const [oldestToken, oldest] = idleByToken.entries().next().value;
+            oldest.shift();
+            idleCount--;
+            if (oldest.length === 0) idleByToken.delete(oldestToken);
+        }
     };
 
     /**
@@ -238,8 +251,9 @@
             body.ctx === null || body.ctx === undefined ? {} : body.ctx,
         );
 
-        const user = clientForToken(token);
-        const failuresBefore = user.platformFailures;
+        const user = takeClient(token);
+        const failures = { count: 0, retryAfterMs: 0 };
+        user.failures = failures;
         try {
             await run({
                 event: body.event,
@@ -253,12 +267,12 @@
             if (acked) return answer(200, { ok: true });
             const message =
                 err && err.message ? String(err.message) : String(err);
-            if (user.platformFailures > failuresBefore && !isTerminal(err))
+            if (failures.count > 0 && !isTerminal(err))
                 return answer(
                     500,
                     { error: message },
                     'platform-error',
-                    user.retryAfterMs,
+                    failures.retryAfterMs,
                 );
             const retry = isRetryable(err);
             return answer(
@@ -266,6 +280,8 @@
                 { error: message },
                 retry ? 'handler-threw' : 'handler-terminal',
             );
+        } finally {
+            releaseClient(token, user);
         }
     };
 
