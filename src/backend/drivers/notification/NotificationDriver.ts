@@ -51,6 +51,7 @@ import {
     resolveNotificationWrite,
     type NotificationTypeName,
 } from '../../services/notification/notificationTypes.js';
+import { withRedisLock } from '../../util/redisLock.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
 import type { DriverRateLimitConfig } from '../meta.js';
@@ -59,6 +60,10 @@ import { CRUD_CONCURRENT } from '../util/crudLimits.js';
 const MAX_SELECT_LIMIT = 200;
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
+// A group's sends queue for up to ~1 s; a stalled holder blocks them for the TTL.
+const GROUP_LOCK_MS = 5_000;
+const GROUP_LOCK_ATTEMPTS = 40;
+const GROUP_LOCK_RETRY_MS = 25;
 
 type AppMessageWindow = 'minute' | 'day';
 
@@ -401,6 +406,31 @@ export class NotificationDriver extends PuterDriver {
      * Limits are keyed on the recipient, who need not be the actor.
      */
     async #sendAppMessage(
+        recipientId: number,
+        appUid: string,
+        message: AppMessage,
+    ): Promise<string> {
+        const send = () =>
+            this.#replaceOrWriteAppMessage(recipientId, appUid, message);
+        if (!message.group) return send();
+        // One send per group at a time, so a burst into an empty group writes
+        // one row that the rest replace. A lock that is busy past the wait or
+        // unreachable still sends: the race costs a second row and its day slot.
+        return withRedisLock(
+            this.clients.redis,
+            `notif:app-message:group:${recipientId}:${appUid}:${message.group}`,
+            send,
+            {
+                ttlMs: GROUP_LOCK_MS,
+                attempts: GROUP_LOCK_ATTEMPTS,
+                retryMs: GROUP_LOCK_RETRY_MS,
+                onUnavailable: 'run',
+                onBusy: send,
+            },
+        );
+    }
+
+    async #replaceOrWriteAppMessage(
         recipientId: number,
         appUid: string,
         message: AppMessage,

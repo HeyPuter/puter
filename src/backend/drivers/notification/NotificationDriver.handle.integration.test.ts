@@ -316,6 +316,21 @@ describe('app.message to the other party of a share', () => {
         await expectSpent(dayKey(guest, app.uid), DAY_MS, 1);
     });
 
+    it('folds concurrent messages to one group into one, through the share or not', async () => {
+        const app = await makeApp();
+        const { handle } = await share(app);
+
+        await Promise.all([
+            send(inApp(owner, app), { group: 'room-1', to: { handle } }),
+            send(inApp(owner, app), { group: 'room-1', to: { handle } }),
+            send(inApp(guest, app), { group: 'room-1' }),
+            send(inApp(guest, app), { group: 'room-1' }),
+        ]);
+
+        expect(await appMessagesOf(guest, app)).toHaveLength(1);
+        await expectSpent(dayKey(guest, app.uid), DAY_MS, 1);
+    });
+
     it.each([
         ['a string', 'kvh-1'],
         ['an array', [{ handle: 'kvh-1' }]],

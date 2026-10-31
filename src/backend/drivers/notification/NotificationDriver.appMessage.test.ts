@@ -653,6 +653,36 @@ describe('app.message groups', () => {
         expect(await rows()).toHaveLength(2);
         await expectSpent(dayKey, DAY_MS, 2);
     });
+
+    it('folds concurrent messages to an empty group into one, spending one day slot', async () => {
+        const { send, rows, minuteKey, dayKey } = await setup();
+        const sent = await Promise.all(
+            Array.from({ length: 4 }, (_, i) =>
+                send({ title: `Message ${i}`, group: 'chat-1' }),
+            ),
+        );
+
+        expect(new Set(sent.map((s) => s.uid)).size).toBe(1);
+        expect(await rows()).toHaveLength(1);
+        await expectSpent(minuteKey, 60_000, 4);
+        await expectSpent(dayKey, DAY_MS, 1);
+    });
+
+    it('still sends when the group stays locked past the wait', async () => {
+        const { holder, app, send, rows, dayKey } = await setup();
+        await state.server.clients.redis.set(
+            `notif:app-message:group:${holder.user.id}:${app.uid}:chat-1`,
+            'stalled-sender',
+            'PX',
+            60_000,
+        );
+
+        const sent = await send({ group: 'chat-1' });
+        expect(await rows()).toEqual([
+            expect.objectContaining({ uid: sent.uid }),
+        ]);
+        await expectSpent(dayKey, DAY_MS, 1);
+    });
 });
 
 describe('app.message with the events fold-in on', () => {
