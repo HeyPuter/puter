@@ -1369,6 +1369,8 @@ export class EventsService extends PuterService {
     readonly #ended = new EndedSubscriptions();
     /** Flushes per subscription that have left the coalescer but not yet sent. */
     readonly #flushing = new Map<string, number>();
+    /** Holder and app pairs whose withdrawn consent is being settled. */
+    readonly #consentSettles = new Set<string>();
     #expirySweep: ReturnType<typeof setInterval> | null = null;
     #expiryKick: ReturnType<typeof setTimeout> | null = null;
     #pendingSweep: ReturnType<typeof setInterval> | null = null;
@@ -1868,7 +1870,7 @@ export class EventsService extends PuterService {
         // present is refused before anything about it is resolved or stored.
         if (
             runsInWorker({ appUid, handlerName }) &&
-            !(await this.#hasBackgroundConsent(actor))
+            (await this.#hasBackgroundConsent(actor)) !== true
         )
             throw backgroundConsentRequired();
 
@@ -3170,8 +3172,10 @@ export class EventsService extends PuterService {
      * Asked of the actor rather than of the app, so an access token an app
      * issued has to carry the consent itself — a delivery that runs code with
      * nobody present is not something a narrower credential inherits.
+     *
+     * `null` when the check itself failed, which is not an answer either way.
      */
-    async #hasBackgroundConsent(actor: Actor): Promise<boolean> {
+    async #hasBackgroundConsent(actor: Actor): Promise<boolean | null> {
         try {
             return await this.services.permission.check(
                 actor,
@@ -3179,7 +3183,7 @@ export class EventsService extends PuterService {
             );
         } catch (err) {
             console.warn('[events] background consent check failed', err);
-            return false;
+            return null;
         }
     }
 
@@ -4735,7 +4739,10 @@ export class EventsService extends PuterService {
         const consent = new Map<string, Promise<boolean>>();
         const consented = async (row: DurableSubscription) => {
             const actor = await resolveGrantActor(row, deps);
-            return actor !== null && (await this.#hasBackgroundConsent(actor));
+            return (
+                actor !== null &&
+                (await this.#hasBackgroundConsent(actor)) === true
+            );
         };
         const settling: DurableSubscription[] = [];
         for (const row of background) {
@@ -5648,7 +5655,14 @@ export class EventsService extends PuterService {
         // settle that ends a revoked row is best-effort, and what is minted is
         // the app's whole standing for this holder. The permission cache
         // answers it, so only a grant change costs a lookup.
-        if (!(await this.#hasBackgroundConsent(actor))) return null;
+        const consent = await this.#hasBackgroundConsent(actor);
+        if (consent !== true) {
+            // A definite no is a withdrawal whose settle never ran or failed.
+            // Without one the row stays in service, deferred forever.
+            if (consent === false)
+                this.#settleLostConsent(invocation.holderUserId, appUid);
+            return null;
+        }
 
         try {
             return await this.services.auth.createWorkerAppToken(
@@ -5668,6 +5682,29 @@ export class EventsService extends PuterService {
             );
             return null;
         }
+    }
+
+    /**
+     * Run the revocation settle for consent a delivery found withdrawn. One at
+     * a time per holder and app, however many deliveries find it at once.
+     */
+    #settleLostConsent(holderUserId: number, appUid: string): void {
+        const key = `${holderUserId}|${appUid}`;
+        if (this.#consentSettles.has(key)) return;
+        this.#consentSettles.add(key);
+        void (async () => {
+            try {
+                await this.settleRevokedGrant({
+                    holderUserId,
+                    appUid,
+                    permission: EVENTS_BACKGROUND_PERMISSION,
+                });
+            } catch (err) {
+                console.warn('[events] withdrawn consent settle failed', err);
+            } finally {
+                this.#consentSettles.delete(key);
+            }
+        })();
     }
 
     /**

@@ -552,7 +552,7 @@ describe('the call an owed delivery makes', () => {
         ).resolves.toBe(true);
     });
 
-    it('mints nothing once the background consent is gone', async () => {
+    it('mints nothing once the background consent is gone, and finishes the settle', async () => {
         const subId = await subscribe();
         const { actor } = await env.server.services.auth.authenticate(
             env.users.user.token,
@@ -582,15 +582,18 @@ describe('the call an owed delivery makes', () => {
             await durable().warmRegion(userId);
 
             await touch('revoked.txt');
-            await waitUntil(async () =>
-                expect(await pending().depth(subId)).toBe(1),
-            );
-            await events().sweepPending();
 
-            // Deferred rather than run: nothing was invoked, and the delivery
-            // is still owed rather than dropped.
+            // Nothing was invoked, and the delivery ended the row the way the
+            // revocation settle would have, backlog included.
+            await waitUntil(async () =>
+                expect(
+                    (await durable().getBySubId(subId))?.suspendedReason,
+                ).toBe('permission_revoked'),
+            );
+            await waitUntil(async () =>
+                expect(await pending().depth(subId)).toBe(0),
+            );
             expect(calls).toEqual([]);
-            expect(await pending().depth(subId)).toBe(1);
         } finally {
             await env.server.services.permission.grantUserAppPermission(
                 actor!,
@@ -598,6 +601,38 @@ describe('the call an owed delivery makes', () => {
                 EVENTS_BACKGROUND_PERMISSION,
             );
         }
+    });
+
+    it('keeps the row when the consent check fails rather than answers', async () => {
+        const subId = await subscribe();
+        const permission = env.server.services.permission;
+        const check = permission.check.bind(permission);
+        const failing = vi
+            .spyOn(permission, 'check')
+            .mockImplementation(async (actor, asked) => {
+                if (asked === EVENTS_BACKGROUND_PERMISSION)
+                    throw new Error('permission lookup unavailable');
+                return check(actor, asked);
+            });
+        try {
+            await touch('unchecked.txt');
+            // The delivery reached the check that failed.
+            await waitUntil(() =>
+                expect(
+                    failing.mock.calls.some(
+                        ([, asked]) => asked === EVENTS_BACKGROUND_PERMISSION,
+                    ),
+                ).toBe(true),
+            );
+            // Long enough for a settle to have run, had one started.
+            await new Promise((resolve) => setTimeout(resolve, 200));
+        } finally {
+            failing.mockRestore();
+        }
+
+        expect(calls).toEqual([]);
+        expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+        expect(await pending().depth(subId)).toBe(1);
     });
 
     it('settles the delivery when the handler takes it', async () => {
