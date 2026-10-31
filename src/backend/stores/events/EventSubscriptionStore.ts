@@ -17,10 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import {
-    EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE,
-    EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
-} from '../../controllers/events/limits.js';
+import { EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET } from '../../controllers/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { kvHandleFromSubject } from '../../services/events/subjects.js';
 import { bumpGeneration } from '../../util/redisGeneration.js';
@@ -294,13 +291,6 @@ const subscriptionLimitReached = (): HttpError =>
         { legacyCode: 'events_subscription_limit' },
     );
 
-const kvHandleLimitReached = (): HttpError =>
-    new HttpError(
-        429,
-        `You may hold ${EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE} live subscriptions through one share handle`,
-        { legacyCode: 'events_subscription_limit' },
-    );
-
 /** What a refresh kept alive, and the rows it let go. */
 export interface RefreshResult {
     /** Every (owner, token) the socket still holds, value variants included. */
@@ -363,8 +353,7 @@ export class EventSubscriptionStore extends PuterStore {
      *
      * The cap is decided on the cardinality after `sadd`, rolling the member
      * back when over — `scard` then `sadd` would let two concurrent adds both
-     * pass. A row made through a share handle is also indexed under it, and
-     * held to the per-handle cap when its holder isn't the owner.
+     * pass.
      */
     async add(sub: SessionSubscription): Promise<GenerationBump> {
         const { holderUserId, ownerUserId, socketId, token, subId } = sub;
@@ -392,21 +381,6 @@ export class EventSubscriptionStore extends PuterStore {
             throw counted?.[0] ?? subscriptionLimitReached();
         }
 
-        const handle = kvHandleFromSubject(sub.subject);
-        if (handle !== null) {
-            let indexed = false;
-            try {
-                indexed = await this.#indexKvHandleRow(sub, handle);
-            } finally {
-                if (!indexed)
-                    await this.clients.redis.srem(
-                        socketKey(holderUserId, socketId),
-                        ref,
-                    );
-            }
-            if (!indexed) throw kvHandleLimitReached();
-        }
-
         const counts = await this.#writeRow(sub);
         await this.#keepDurableWindow(ownerUserId, [token]);
 
@@ -422,87 +396,10 @@ export class EventSubscriptionStore extends PuterStore {
     }
 
     /**
-     * Add a row to its handle's index. `false`, with the member taken back out,
-     * when the row's holder isn't the owner and already holds the cap through
-     * this handle. Members whose connection is gone are only cleared once the
-     * count is over, so the common add is one round trip.
-     */
-    async #indexKvHandleRow(
-        sub: SessionSubscription,
-        handle: string,
-    ): Promise<boolean> {
-        const key = kvHandleKey(sub.ownerUserId, handle);
-        const member = kvHandleMember(sub);
-        const index = this.clients.redis.pipeline();
-        index.sadd(key, member);
-        index.expire(key, SESSION_SUBSCRIPTION_TTL_SECONDS);
-        index.scard(key);
-        const counted = ((await index.exec()) ?? [])[2];
-        if (sub.holderUserId === sub.ownerUserId) return true;
-        if (
-            !counted?.[0] &&
-            Number(counted?.[1]) <= EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE
-        )
-            return true;
-
-        const live = await this.#liveKvHandleRefs(sub.ownerUserId, key);
-        const held = live.filter(
-            (ref) => ref.holderUserId === sub.holderUserId,
-        ).length;
-        if (held <= EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE) return true;
-        await this.clients.redis.srem(key, member);
-        return false;
-    }
-
-    /**
-     * A handle index's members whose socket still holds them. The rest are
-     * removed: an unsubscribe, a reap or a socket that died without one.
-     */
-    async #liveKvHandleRefs(
-        ownerUserId: number,
-        key: string,
-    ): Promise<KvHandleRef[]> {
-        const stale: string[] = [];
-        const byHolder = new Map<number, Array<[string, KvHandleRef]>>();
-        for (const member of await this.clients.redis.smembers(key)) {
-            const ref = parseKvHandleMember(member);
-            if (!ref) {
-                stale.push(member);
-                continue;
-            }
-            byHolder.set(ref.holderUserId, [
-                ...(byHolder.get(ref.holderUserId) ?? []),
-                [member, ref],
-            ]);
-        }
-
-        const live: KvHandleRef[] = [];
-        // One pipeline per holder: their socket sets share a slot.
-        for (const [holderUserId, held] of byHolder) {
-            const check = this.clients.redis.pipeline();
-            for (const [, ref] of held)
-                check.sismember(
-                    socketKey(holderUserId, ref.socketId),
-                    socketRef({
-                        ownerUserId,
-                        token: ref.token,
-                        subId: ref.subId,
-                    }),
-                );
-            const results = (await check.exec()) ?? [];
-            held.forEach(([member, ref], i) => {
-                if (Number(results[i]?.[1]) === 1) live.push(ref);
-                else stale.push(member);
-            });
-        }
-        if (stale.length > 0) await this.clients.redis.srem(key, ...stale);
-        return live;
-    }
-
-    /**
      * The session rows made through these share handles in one owner's
      * keyspace, for ending them when the handles retire. A handle never used
-     * from this region costs one read.
+     * from this region costs one read. Index members whose row is gone are
+     * cleared on the way.
      */
     async listForKvHandles(
         ownerUserId: number,
@@ -512,33 +409,46 @@ export class EventSubscriptionStore extends PuterStore {
         const read = this.clients.redis.pipeline();
         for (const handle of handles)
             read.smembers(kvHandleKey(ownerUserId, handle));
-        const indexed = ((await read.exec()) ?? []).flatMap(([err, raw]) =>
-            err ? [] : ((raw as string[] | null) ?? []),
+        const indexed = ((await read.exec()) ?? []).flatMap(([err, raw], i) =>
+            err
+                ? []
+                : ((raw as string[] | null) ?? []).map((member) => ({
+                      key: kvHandleKey(ownerUserId, handles[i]),
+                      member,
+                      ref: parseKvHandleMember(member),
+                  })),
         );
-        const refs = indexed
-            .map(parseKvHandleMember)
-            .filter((ref): ref is KvHandleRef => ref !== null);
-        if (refs.length === 0) return [];
+        if (indexed.length === 0) return [];
 
         const rows = this.clients.redis.pipeline();
-        for (const ref of refs)
-            rows.hget(tokenKey(ownerUserId, ref.token), ref.subId);
+        for (const { ref } of indexed)
+            if (ref) rows.hget(tokenKey(ownerUserId, ref.token), ref.subId);
         const results = (await rows.exec()) ?? [];
-        return refs.flatMap((ref, i) => {
-            const raw = results[i]?.[1];
+
+        const found: SessionSubscription[] = [];
+        const gone = this.clients.redis.pipeline();
+        let at = 0;
+        for (const { key, member, ref } of indexed) {
+            const raw = ref ? results[at++]?.[1] : null;
             const row = typeof raw === 'string' ? parseRow(raw) : null;
-            return row?.socketId === ref.socketId &&
+            if (
+                ref &&
+                row?.socketId === ref.socketId &&
                 row.holderUserId === ref.holderUserId
-                ? [row as SessionSubscription]
-                : [];
-        });
+            )
+                found.push(row as SessionSubscription);
+            else gone.srem(key, member);
+        }
+        if (found.length < indexed.length) await gone.exec();
+        return found;
     }
 
     /**
-     * Write one row's hash entry, watched-set membership and session counts.
-     * Returns the resulting counts for that token — `values` only for a row
-     * asking for KV values. Shared by `add` and `reanchorSession`, which both
-     * need the row in place before any ref names it.
+     * Write one row's hash entry, watched-set membership and session counts,
+     * and index it under its share handle if it was made through one. Returns
+     * the resulting counts for that token — `values` only for a row asking for
+     * KV values. Shared by `add` and `reanchorSession`, which both need the row
+     * in place before any ref names it.
      */
     async #writeRow(
         sub: SessionSubscription,
@@ -563,6 +473,14 @@ export class EventSubscriptionStore extends PuterStore {
             sessionCountKey(ownerUserId),
             SESSION_SUBSCRIPTION_TTL_SECONDS,
         );
+        const handle = kvHandleFromSubject(sub.subject);
+        if (handle !== null) {
+            rows.sadd(kvHandleKey(ownerUserId, handle), kvHandleMember(sub));
+            rows.expire(
+                kvHandleKey(ownerUserId, handle),
+                SESSION_SUBSCRIPTION_TTL_SECONDS,
+            );
+        }
         const results = (await rows.exec()) ?? [];
         return {
             rows: Number(results[4]?.[1]),
@@ -869,18 +787,30 @@ export class EventSubscriptionStore extends PuterStore {
             drop.hdel(tokenKey(ownerUserId, token), subId);
         }
         const dropResults = (await drop.exec()) ?? [];
-        const valued = rows.flatMap(({ token }, i) => {
+        const dropped = rows.map((_ref, i) => {
             const raw = dropResults[2 * i]?.[1];
-            if (Number(dropResults[2 * i + 1]?.[1]) !== 1) return [];
+            if (Number(dropResults[2 * i + 1]?.[1]) !== 1) return null;
             const row = typeof raw === 'string' ? parseRow(raw) : null;
-            return row?.socketId !== undefined && row.includeValue === true
-                ? [valueWatchToken(token)]
-                : [];
+            return row?.socketId !== undefined
+                ? (row as SessionSubscription)
+                : null;
         });
+        const valued = rows.flatMap(({ token }, i) =>
+            dropped[i]?.includeValue === true ? [valueWatchToken(token)] : [],
+        );
 
         const tokens = [...new Set(rows.map((row) => row.token))];
         const counts = this.clients.redis.pipeline();
         for (const token of tokens) counts.hlen(tokenKey(ownerUserId, token));
+        // After the counts, so the result indexes above still line up.
+        for (const row of dropped) {
+            const handle = row ? kvHandleFromSubject(row.subject) : null;
+            if (row && handle !== null)
+                counts.srem(
+                    kvHandleKey(ownerUserId, handle),
+                    kvHandleMember(row),
+                );
+        }
         const results = (await counts.exec()) ?? [];
 
         const orphaned = tokens.filter(
@@ -988,8 +918,8 @@ export class EventSubscriptionStore extends PuterStore {
                     tokenKey(ownerUserId, token),
                     SESSION_SUBSCRIPTION_TTL_SECONDS,
                 );
-            // Re-added as well as renewed, so an index that lapsed counts the
-            // rows it still has.
+            // Re-added as well as renewed, so an index that lapsed still finds
+            // the rows a retire has to end.
             for (const { row, handle } of kept) {
                 if (!row || handle === null) continue;
                 const key = kvHandleKey(ownerUserId, handle);
