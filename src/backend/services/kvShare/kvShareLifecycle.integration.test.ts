@@ -126,6 +126,15 @@ const guestGet = (handle: string, key: string, actor = guest.actor) =>
         env.server.drivers.kvStore.get({ key, optConfig: { handle } }),
     );
 
+const ownerWrites = (key: string, value: unknown, appUid: string) =>
+    runWithContext({ actor: owner.actor }, () =>
+        env.server.drivers.kvStore.set({
+            key,
+            value,
+            optConfig: { appUuid: appUid },
+        }),
+    );
+
 /** Make a handle look minted `seconds` ago, past the clock-skew allowance. */
 const age = (handle: string, seconds = 2 * 60 * 60) =>
     env.server.clients.db.write(
@@ -256,6 +265,68 @@ describe('an origin app registered again under a deleted app`s uid', () => {
                 kvSharePermission(owner.uuid, appUid, fresh.prefix, 'read'),
             ),
         ).toBe(true);
+    });
+
+    it('makes a new share when the owner shares an old region again', async () => {
+        const { origin, appUid, prefix, handle } = await deletedWithShare();
+        const app = await env.server.stores.app.createFromOrigin(
+            appUid,
+            origin,
+        );
+
+        const again = await share(prefix, 'read', { appUid });
+
+        expect(again.handle).not.toBe(handle);
+        expect(await handles().getByHandle(handle)).toMatchObject({
+            revokedBy: 'system',
+        });
+        await ownerWrites(`${prefix}k`, 'v', appUid);
+        expect(await guestGet(again.handle, 'k')).toBe('v');
+
+        // The cleanup a launch starts leaves the new share's grant alone.
+        shares().retireSharesOlderThanApp(app);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        expect(await guestGet(again.handle, 'k')).toBe('v');
+    });
+
+    it('leaves the old shares out of both sides` listings', async () => {
+        const { origin, appUid, handle } = await deletedWithShare();
+        const app = await env.server.stores.app.createFromOrigin(
+            appUid,
+            origin,
+        );
+        const guestInApp = makeActor({
+            user: guest.actor.user as never,
+            app: { uid: appUid, id: app.id },
+        });
+
+        for (const actor of [guest.actor, guestInApp]) {
+            const held = await shares().listKvSharesWithMe(actor, {
+                appUid,
+                includeTotal: true,
+            });
+            expect(held.items).toEqual([]);
+            expect(held.total).toBe(0);
+        }
+        for (const state of ['all', 'live'] as const) {
+            const mine = await shares().listKvHandles(owner.actor, {
+                appUid,
+                state,
+                includeTotal: true,
+            });
+            expect(mine.items).toEqual([]);
+            expect(mine.total).toBe(0);
+        }
+
+        // Once the cleanup retires it, the owner sees when it stopped.
+        shares().retireSharesOlderThanApp(app);
+        await vi.waitFor(async () =>
+            expect(
+                (await shares().listKvHandles(owner.actor, { appUid })).items,
+            ).toEqual([
+                expect.objectContaining({ handle, revokedBy: 'system' }),
+            ]),
+        );
     });
 
     it('launches without waiting on the retire, which cleans up in the background', async () => {

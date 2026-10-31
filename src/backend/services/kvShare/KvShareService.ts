@@ -1298,6 +1298,11 @@ export class KvShareService extends PuterService {
         grantee: Grantee,
         share: NewShare,
     ): Promise<KvShareHandle> {
+        await this.#retireOlderThanApp(
+            share.ownerUserId,
+            grantee.id,
+            share.appUid,
+        );
         // The user behind the app, so the authority checked is theirs. Which
         // app acted goes on the audit row, not in the grant's authority.
         const authority = userRelatedActor(actor);
@@ -1609,25 +1614,36 @@ export class KvShareService extends PuterService {
     }
 
     /**
+     * `appUid`'s app when its uid was held by a deleted app before, so handles
+     * in its namespace can be older than it; `null` otherwise, which spares the
+     * caller looking at handles at all.
+     */
+    async #reusedUidApp(
+        appUid: string,
+    ): Promise<{ created_epoch?: unknown } | null> {
+        if (appUid === KV_GLOBAL_APP_KEY) return null;
+        const app = await this.stores.app.getByUid(appUid);
+        if (appGenerationStart(app) === null) return null;
+        const deleted = await this.stores.app.getDeletedOwnersByUids([appUid]);
+        return deleted.has(appUid) ? app : null;
+    }
+
+    /**
      * Whether a share grant the user holds was made for the app its namespace
      * names now, not an earlier app under the same uid: a live handle of theirs
-     * no older than the app covers the region at the level asked. Only a uid a
-     * deleted app held can be registered again, so others skip the handle
-     * lookup.
+     * no older than the app covers the region at the level asked.
      */
     async #grantForCurrentApp(
         user: Actor,
         permission: string,
     ): Promise<boolean> {
         const [, ownerUuid, appUid] = PermissionUtil.split(permission);
-        const holderId = user.user?.id;
-        if (!ownerUuid || !appUid || appUid === KV_GLOBAL_APP_KEY) return true;
-        const app = await this.stores.app.getByUid(appUid);
-        if (appGenerationStart(app) === null) return true;
-        const deleted = await this.stores.app.getDeletedOwnersByUids([appUid]);
-        if (!deleted.has(appUid)) return true;
+        if (!ownerUuid || !appUid) return true;
+        const app = await this.#reusedUidApp(appUid);
+        if (!app) return true;
 
         const owner = await this.stores.user.getByUuid(ownerUuid);
+        const holderId = user.user?.id;
         if (owner?.id === undefined || typeof holderId !== 'number')
             return false;
         const held = await this.stores.kvShareHandle.listLiveForOwnerAndGrantee(
@@ -1640,6 +1656,39 @@ export class KvShareService extends PuterService {
                 !predatesApp(row.createdAt, app) &&
                 kvShareGrantCovers(row.permission, permission) &&
                 levelRank(row.permission) >= levelRank(permission),
+        );
+    }
+
+    /**
+     * Retire, grants and all, the live handles this owner gave this holder in
+     * `appUid`'s namespace for an earlier app under the uid. Done before a new
+     * share between them lands, so no withdrawal of the old ones can take the
+     * new grant with it, and no old grant outlives them inside its region.
+     */
+    async #retireOlderThanApp(
+        ownerUserId: number,
+        granteeUserId: number,
+        appUid: string,
+    ): Promise<void> {
+        const app = await this.#reusedUidApp(appUid);
+        if (!app) return;
+        let older: KvShareHandle[] = (
+            await this.stores.kvShareHandle.listLiveForOwnerAndGrantee(
+                ownerUserId,
+                granteeUserId,
+            )
+        ).filter(
+            (row) => row.appUid === appUid && predatesApp(row.createdAt, app),
+        );
+        if (older.length === 0) return;
+        await this.#retireAsSystem(
+            async () => {
+                const batch = older;
+                older = [];
+                return batch;
+            },
+            'kv share app uid reused',
+            Infinity,
         );
     }
 

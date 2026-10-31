@@ -24,7 +24,10 @@ import {
     mintKvHandleId,
     type KvShareAccess,
 } from '../../services/kvShare/kvShares.js';
-import { predatesApp } from '../../util/appGeneration.js';
+import {
+    APP_CLOCK_SKEW_SECONDS,
+    predatesApp,
+} from '../../util/appGeneration.js';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import {
     keysetPage,
@@ -411,6 +414,19 @@ export class KvShareHandleStore extends PuterStore {
         );
     }
 
+    /**
+     * SQL that holds for a handle older than its app, the same rule as
+     * {@link predatesItsApp}. Binds one parameter, the clock-skew allowance.
+     */
+    #predatesAppSql(): string {
+        const created = this.clients.db.unixSecondsSql('`apps`.`timestamp`');
+        return (
+            'EXISTS (SELECT 1 FROM `apps` WHERE ' +
+            `\`apps\`.\`uid\` = \`${TABLE}\`.\`app_uid\` AND ` +
+            `${created} - ? > \`${TABLE}\`.\`created_at\`)`
+        );
+    }
+
     #forget(handle: string): void {
         this.#forgotten.set(handle, ++this.#forgets);
         this.#live.delete(handle);
@@ -497,7 +513,8 @@ export class KvShareHandleStore extends PuterStore {
      * The live handle already minted over this exact region, if one exists —
      * what makes minting the same `(grantee, appUid, keyPrefix)` twice hand
      * back the one capability rather than a second row over the same
-     * permission.
+     * permission. One older than its app doesn't count, so sharing the region
+     * again makes a new one.
      */
     async findLive(
         input: FindLiveKvShareHandleInput,
@@ -513,12 +530,13 @@ export class KvShareHandleStore extends PuterStore {
             `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` WHERE ` +
                 '`owner_user_id` = ? AND `grantee_user_id` = ? AND ' +
                 `\`app_uid\` = ? AND ${exactPrefix} AND \`revoked_at\` IS NULL ` +
-                'LIMIT 1',
+                `AND NOT ${this.#predatesAppSql()} LIMIT 1`,
             [
                 input.ownerUserId,
                 input.granteeUserId,
                 input.appUid,
                 input.keyPrefix,
+                APP_CLOCK_SKEW_SECONDS,
             ],
         );
         return rows.length > 0 ? toRow(rows[0]) : null;
@@ -756,7 +774,8 @@ export class KvShareHandleStore extends PuterStore {
     /**
      * Live handles held by one user, newest grants last, keyset-paginated on
      * the grantee index. Selected without the owner, prefix or grant string:
-     * this is the holder's listing, and none of those are theirs to see.
+     * this is the holder's listing, and none of those are theirs to see. One
+     * older than its app is left out.
      */
     async listLiveForGrantee(
         granteeUserId: number,
@@ -771,6 +790,8 @@ export class KvShareHandleStore extends PuterStore {
             filter.push('`app_uid` = ?');
             filterParams.push(options.appUid);
         }
+        filter.push(`NOT ${this.#predatesAppSql()}`);
+        filterParams.push(APP_CLOCK_SKEW_SECONDS);
         const where = [...filter];
         const params = [...filterParams];
         if (after !== null) {
@@ -830,6 +851,12 @@ export class KvShareHandleStore extends PuterStore {
         if (options.state === 'live') filter.push('`revoked_at` IS NULL');
         if (options.state === 'revoked')
             filter.push('`revoked_at` IS NOT NULL');
+        // A live one older than its app is left out until its retire lands
+        // and it lists as retired.
+        filter.push(
+            `(\`revoked_at\` IS NOT NULL OR NOT ${this.#predatesAppSql()})`,
+        );
+        filterParams.push(APP_CLOCK_SKEW_SECONDS);
 
         const where = [...filter];
         const params = [...filterParams];
