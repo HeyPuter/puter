@@ -54,10 +54,9 @@
  * @property {unknown} [value] What the key holds after the change — the
  *   written value on a `set`, `null` on a `del`. Present only on a
  *   subscription made with `includeValue`. Left out when the value is over
- *   16 KB serialized, when more than 128 subscriptions match the change, when
- *   there were more subscription filters to check than one change may check,
- *   or through a share handle whose share is at `watch`. Read the key when
- *   it's absent. An `expire` never carries one.
+ *   16 KB serialized, when the change already went out with its value to 128
+ *   subscriptions, or through a share handle whose share is at `watch`. Read
+ *   the key when it's absent. An `expire` never carries one.
  * @property {boolean} self `true` when the change was made by the account
  *   holding the subscription.
  * @property {boolean} viaWorker As on {@link PuterEvent}.

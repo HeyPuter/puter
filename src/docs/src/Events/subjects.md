@@ -90,7 +90,7 @@ await puter.events.onLocal('kv:cart', ({ event }) => render(event.value), { incl
 The value is left out, and you read the key yourself, when:
 
 - it's over **16 KB** serialized, or
-- more than **128** subscriptions match the change in that region (including ones that didn't ask for values), or the filter-check limit stops the count early, or
+- the change already went out with its value to **128** subscriptions in that region. The data owner's subscriptions are served first, then other users' in turns, as [Rate Limits and Quotas](/rate-limits-and-quotas/#how-many-subscriptions-one-event-reaches) describes, or
 - the subscription is on a [share handle](#sharing-key-value-data-with-another-user) whose share is at `watch`.
 
 ### Data from other apps

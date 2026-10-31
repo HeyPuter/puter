@@ -541,9 +541,10 @@ Counted per event, per region:
 
 - KV limits follow the plan of the **key's owner**, not the writer's or the subscribers'. If the owner's plan can't be looked up, the free numbers apply. A server with no metering uses the paid numbers.
 - They count subscriptions, not people. A user with three tabs open counts three times.
+- Subscriptions are counted with those of the owner of the key or file first, then the other users' subscriptions taking turns, one per user per round. Each change starts the turns at a different user. So one user with many subscriptions can't use up the limits for everyone else.
 - Past the limit, the next subscriptions get a [gap marker](/Events/subjects/#gaps) instead of the event (up to the same number again), and any after that get nothing. With 1,100 subscriptions on a paid owner's key: 512 get the event, 512 get a gap, 76 get nothing.
 - The region that handles the write delivers to every persistent subscription plus its own connected clients. Other regions deliver only to their own connected clients. So persistent subscriptions share one budget per event, while session subscriptions spread across regions can reach more in total.
-- `includeValue` values are left out of every delivery for a change when more than **128** subscriptions match it (whatever the owner's plan), when the filter-check limit stops the count early, or when the value is over **16 KB**.
+- `includeValue` values go out on the first **128** deliveries of a change that asked for them, in the order above and whatever the owner's plan. Later deliveries carry the key without the value, and so does every delivery when the value is over **16 KB**.
 
 #### Call budgets
 

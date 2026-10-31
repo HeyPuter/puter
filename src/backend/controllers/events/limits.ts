@@ -326,8 +326,11 @@ export const EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT = tiered(512, 128, 128);
  */
 export const EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT = tiered(2048, 512, 512);
 
-/** Omit all inline KV values when the matched audience exceeds this count. */
-export const EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS = 128;
+/**
+ * Deliveries of one key-value change that carry its value inline, in the order
+ * the fan-out serves them. Later ones carry the key alone.
+ */
+export const EVENTS_KV_VALUE_DELIVERIES_PER_EVENT = 128;
 
 /**
  * Largest inline KV value in serialized bytes. Larger values are omitted;

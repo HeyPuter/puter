@@ -34,7 +34,7 @@ import {
     EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
     EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_KV_VALUE_MAX_BYTES,
-    EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
+    EVENTS_KV_VALUE_DELIVERIES_PER_EVENT,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_SUBSCRIBE_LIMIT,
@@ -620,7 +620,8 @@ export interface KvDispatchInput {
 interface RouteLimits {
     matchedSubscriptions: number;
     filterEvaluations: number;
-    omitKvValueAbove?: number;
+    /** Deliveries that may carry a KV value; unset where there is none. */
+    kvValueDeliveries?: number;
 }
 
 // -- Socket wire names ------------------------------------------------
@@ -1105,19 +1106,6 @@ const inlineKvValue = (value: unknown): { value: unknown } | undefined => {
 };
 
 /**
- * The value rides only where the row asked for it. A share-handle row's ask is
- * dropped at the delivery re-check while its share is at `watch`.
- */
-const valueAsRowAskedFor = (
-    row: DispatchSubscription,
-    event: ProjectedKvEvent,
-): ProjectedKvEvent => {
-    if (event.value === undefined || row.includeValue === true) return event;
-    const { value: _value, ...withoutValue } = event;
-    return withoutValue;
-};
-
-/**
  * Where a share-handle row stands for one delivery: the level its holder
  * reaches through it, `revoked` once it reaches nothing, or `unknown` while
  * that can't be checked (a failed lookup, a suspended owner).
@@ -1147,9 +1135,39 @@ const withoutKvValue = <C extends EventContextBase>(context: C): C => {
     return withoutValue as C;
 };
 
+/**
+ * Rows in the order a fan-out serves them: the keyspace owner's own first, then
+ * the other holders taking turns, one row each per round. The first holder is
+ * picked at random per event, so none is always the one past a cap.
+ */
+const holdersTakeTurns = (
+    rows: DispatchSubscription[],
+): DispatchSubscription[] => {
+    const ordered: DispatchSubscription[] = [];
+    const byHolder = new Map<number, DispatchSubscription[]>();
+    for (const row of rows) {
+        if (row.holderUserId === row.ownerUserId) {
+            ordered.push(row);
+            continue;
+        }
+        const held = byHolder.get(row.holderUserId);
+        if (held) held.push(row);
+        else byHolder.set(row.holderUserId, [row]);
+    }
+    if (byHolder.size === 0) return ordered;
+
+    const holders = [...byHolder.values()];
+    const start = Math.floor(Math.random() * holders.length);
+    let turns = [...holders.slice(start), ...holders.slice(0, start)];
+    for (let round = 0; turns.length > 0; round++) {
+        for (const held of turns) ordered.push(held[round]);
+        turns = turns.filter((held) => held.length > round + 1);
+    }
+    return ordered;
+};
+
 /** Candidate counts at or below this can't reach any KV fan-out cap. */
 const KV_ROUTE_LIMITS_NEVER_BIND = Math.min(
-    EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
     EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
     ...Object.values(EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.bySubscription),
     EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.limit,
@@ -3620,7 +3638,7 @@ export class EventsService extends PuterService {
                 EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
                 plan,
             ),
-            omitKvValueAbove: EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
+            kvValueDeliveries: EVENTS_KV_VALUE_DELIVERIES_PER_EVENT,
         };
     }
 
@@ -3840,7 +3858,9 @@ export class EventsService extends PuterService {
             filterEvaluations: FILTER_EVALUATIONS_PER_EVENT,
         },
     ): Promise<void> {
-        const rows = candidates.filter(unexpired);
+        // Every cap below counts in this order, so one holder's rows can't
+        // crowd out the owner's or another holder's.
+        const rows = holdersTakeTurns(candidates.filter(unexpired));
         if (rows.length === 0) return;
 
         // One throwaway projection reads the op off the registry entry rather
@@ -3859,23 +3879,25 @@ export class EventsService extends PuterService {
             limits.filterEvaluations,
         );
 
-        const deliveryContext =
-            limits.omitKvValueAbove !== undefined &&
-            (evaluated.stoppedEarly ||
-                evaluated.matched.length > limits.omitKvValueAbove)
-                ? withoutKvValue(context)
-                : context;
-
         const matched = await authorize(
             evaluated.matched.slice(0, limits.matchedSubscriptions),
         );
 
+        // The value rides on the first deliveries that asked for it, in serving
+        // order. A share-handle row at `watch` lost its ask at `authorize`.
+        let valuesLeft = limits.kvValueDeliveries ?? 0;
+        const bare =
+            limits.kvValueDeliveries === undefined
+                ? context
+                : withoutKvValue(context);
+
         let seq = 0;
         for (const row of matched) {
+            const carries = valuesLeft > 0 && row.includeValue === true;
             const event = this.#asRowAddressesIt(
                 row,
                 subject.project({
-                    ...deliveryContext,
+                    ...(carries ? context : bare),
                     // A row watching only where the node landed was never
                     // shown where it came from, so it is not handed that path.
                     ...(sawItLeave(row, context)
@@ -3893,6 +3915,7 @@ export class EventsService extends PuterService {
             // its grant, so nothing is delivered rather than the owner's
             // namespace and absolute key going out in its place.
             if (event === null) continue;
+            if (carries) valuesLeft--;
 
             // A `single` is owed rather than sent: it is queued, and never
             // coalesced or broadcast — collapsing two of them would drop one
@@ -3964,7 +3987,7 @@ export class EventsService extends PuterService {
             if (!isFsToken(row.token)) return event;
             return this.#asRecipientAddressesIt(row, event);
         }
-        const kv = valueAsRowAskedFor(row, event as ProjectedKvEvent);
+        const kv = event as ProjectedKvEvent;
         const handle = kvHandleFromSubject(row.subject);
         if (handle === null) return kv as P;
 
