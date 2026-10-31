@@ -688,7 +688,8 @@ describe('convo built SDK and browser media', () => {
             );
 
             // The socket reads as closing while the conversation still reads
-            // connected, for long enough that several chunks arrive.
+            // connected, until the connection drops below. Chunks that arrive
+            // meanwhile are refused by the transport.
             const gap = await page.evaluate(async () => {
                 const t = (globalThis as unknown as { test: any }).test;
                 const socket = t.sockets.at(-1) as WebSocket;
@@ -696,9 +697,19 @@ describe('convo built SDK and browser media', () => {
                     configurable: true,
                     get: () => 2,
                 });
+                let refused = 0;
+                const appendAudio = t.c.appendAudio.bind(t.c);
+                t.c.appendAudio = (pcm: Int16Array) => {
+                    try {
+                        appendAudio(pcm);
+                    } catch (error) {
+                        refused++;
+                        throw error;
+                    }
+                };
                 await new Promise((resolve) => setTimeout(resolve, 300));
-                delete (socket as { readyState?: number }).readyState;
                 return {
+                    refused,
                     state: t.c.state,
                     live: t.tracks.every(
                         (track: MediaStreamTrack) =>
@@ -707,6 +718,7 @@ describe('convo built SDK and browser media', () => {
                     events: t.events,
                 };
             });
+            expect(gap.refused).toBeGreaterThan(0);
             expect(gap.state).toBe('connected');
             expect(gap.live).toBe(true);
             expect(gap.events).not.toContain('error');
