@@ -44,6 +44,18 @@ COPY tools/extensionSetup.mjs tools/extensionSetup.mjs
 RUN --mount=type=cache,target=/root/.npm \
     npm ci
 
+# sharp is declared only in src/backend/package.json. With the `src/*` workspace
+# layout and wrangler already pulling a different sharp, npm keeps backend's copy
+# (plus its @img/* prebuilt binaries) nested under src/backend/node_modules. Node
+# resolves *upwards* from the compiled output in dist/src/backend, so that nested
+# copy is never on the lookup path - and dist/ is what the container runs, which
+# is why the published image failed with "Cannot find module 'sharp'".
+#
+# A symlink puts it where dist/ will find it without touching the dependency
+# graph. sharp resolves its own @img/* deps through the real path, so linking just
+# the package is enough.
+RUN ln -s ../src/backend/node_modules/sharp node_modules/sharp
+
 # ---- Source layer -------------------------------------------------------
 COPY . .
 
