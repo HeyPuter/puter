@@ -14,7 +14,7 @@ If the user turned your app off in Puter's settings, the call rejects with `push
 
 Pushes on a website need HTTPS, or `localhost` while you develop. On iOS and iPadOS they need version 16.4 or later and a site the user added to their Home Screen, with a web app manifest that sets `"display": "standalone"`. In a browser that can't receive pushes, the call resolves `false`.
 
-Inside the Puter desktop it does what [`enablePush()`](/Notifications/enablePush/) does.
+Inside the Puter desktop it does what [`enablePush()`](/Notifications/enablePush/) does. When your app doesn't hold the [`notifications:push`](/Notifications/requestPermission/) permission yet, that's Puter's permission dialog, and allowing it also turns push on in this browser.
 
 ## Syntax
 ```js

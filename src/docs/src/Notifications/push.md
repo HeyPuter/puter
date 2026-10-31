@@ -221,13 +221,13 @@ A real push goes out only when no page of your site is open. To see one, turn pu
 
 ## An app inside the Puter desktop
 
-An app inside the Puter desktop needs no worker and no [`enable()`](/Notifications/enable/). Pushes go through Puter itself, and Puter shows your app's name and icon on them. Ask once, from a click:
+An app inside the Puter desktop needs no worker. Pushes go through Puter itself, and Puter shows your app's name and icon on them. Ask once, from a click:
 
 ```js
-const allowed = await puter.notifications.requestPermission();
+const on = await puter.notifications.enable();
 ```
 
-Puter's permission dialog opens. When the user allows it, Puter also turns pushes on in the browser they answered in, and your notifications go out as pushes from then on. For a user who already allowed your app, in a browser where pushes aren't on yet, [`enablePush()`](/Notifications/enablePush/) shows a one-button dialog that turns them on. [`hasPermission()`](/Notifications/hasPermission/) says whether the user allowed your app, without asking, so you can decide whether to show a button at all.
+When your app doesn't hold the permission yet, Puter's permission dialog opens. When the user allows it, Puter also turns pushes on in the browser they answered in, and your notifications go out as pushes from then on. For a user who already allowed your app, in a browser where pushes aren't on yet, it shows a one-button dialog that turns them on. [`requestPermission()`](/Notifications/requestPermission/) asks for the permission alone, and [`enablePush()`](/Notifications/enablePush/) is the same call as [`enable()`](/Notifications/enable/) inside the desktop. [`hasPermission()`](/Notifications/hasPermission/) says whether the user allowed your app, without asking, so you can decide whether to show a button at all.
 
 While the app is open, [`onPush()`](/Notifications/onPush/) and [`onNotification()`](/Notifications/onNotification/) receive its notifications live, the same as on a website. Inside the desktop, the result of an [`onPush()`](/Notifications/onPush/) handler is never shown as a browser notification. Puter shows the notification itself.
 
