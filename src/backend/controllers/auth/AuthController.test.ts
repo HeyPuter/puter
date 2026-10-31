@@ -7687,6 +7687,46 @@ describe('AuthController permission revokes', () => {
         );
         expect(res.body).toEqual({});
     });
+
+    it('revoke-user-user: refuses a key-value share grant and leaves it standing', async () => {
+        const { actor: ownerActor, user: owner } = await makeUserAndActor();
+        const { user: holder } = await makeUserAndActor();
+        const permissions = ['kv-share', 'kv-share-read', 'kv-share-write'].map(
+            (root) => `${root}:${owner.uuid}:os-global:notes:${uuidv4()}`,
+        );
+        for (const permission of permissions)
+            await server.stores.permission.upsertUserUserPerm(
+                holder.id,
+                owner.id,
+                permission,
+                {},
+            );
+
+        for (const permission of permissions)
+            await expect(
+                inCtx(ownerActor, () =>
+                    controller.handleRevokeUserUser(
+                        makeReq(
+                            { target_username: holder.username, permission },
+                            { actor: ownerActor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: expect.stringContaining('puter.kv.unshare()'),
+            });
+        expect(
+            (
+                await server.stores.permission.findUserUserPermsByIssuer(
+                    holder.id,
+                    owner.id,
+                    permissions,
+                )
+            ).sort(),
+        ).toEqual([...permissions].sort());
+    });
 });
 
 // ── Permission checks + listing ────────────────────────────────────

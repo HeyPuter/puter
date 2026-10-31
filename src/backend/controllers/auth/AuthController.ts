@@ -3304,6 +3304,14 @@ export class AuthController extends PuterController {
                 { legacyCode: 'bad_request' },
             );
         }
+        // Only unsharing retires the handle along with its grant; withdrawing
+        // the grant alone would leave the share listed and dead.
+        if (typeof permission === 'string' && isKvSharePermission(permission))
+            throw new HttpError(
+                400,
+                'Stop a key-value share with `puter.kv.unshare()` (`DELETE /kv/shares/:handle`)',
+                { legacyCode: 'bad_request' },
+            );
         await this.services.permission.revokeUserUserPermission(
             req.actor!,
             target_username,
