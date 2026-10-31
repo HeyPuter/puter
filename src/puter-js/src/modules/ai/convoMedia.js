@@ -7,6 +7,12 @@ const SAMPLE_RATE = 24000;
 const MEDIA_TIMEOUT_MS = 10_000;
 // Replies arrive faster than they play; this bounds what may be scheduled.
 const MAX_SCHEDULED_SECONDS = 300;
+// Transport refusals that cost one microphone chunk, not the capture.
+const DROPPED_CHUNK_ERRORS = new Set([
+    'queue_full',
+    'session_closed',
+    'session_not_ready',
+]);
 
 /**
  * @template T
@@ -232,8 +238,10 @@ export class ConvoMicrophone {
             try {
                 this.#convo.appendAudio(data.pcm);
             } catch (error) {
-                // A congested socket drops audio instead of ending capture.
-                if (error?.code === 'queue_full') return;
+                // A congested socket, or one closing before the conversation
+                // knows it, drops the chunk instead of ending capture: a
+                // reconnect resumes it and a final close stops it.
+                if (DROPPED_CHUNK_ERRORS.has(error?.code)) return;
                 this.stop();
                 this.#convo.reportMediaError(error);
             }
