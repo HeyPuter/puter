@@ -53,7 +53,8 @@ export function kvSharePrefixSegments (prefix) {
  * @returns {string}
  */
 export function kvShareRequestPermission (puter, whoami, details) {
-    const access = details.access ?? 'watch';
+    // `puter.kv.share()` defaults to `read`, so the defaults work together.
+    const access = details.access ?? 'read';
     if ( typeof access !== 'string' || ! Object.hasOwn(KV_SHARE_ROOTS, access) ) {
         throw invalidArgument(
             `access must be one of: ${Object.keys(KV_SHARE_ROOTS).join(', ')}`,
