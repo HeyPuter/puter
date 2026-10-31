@@ -114,6 +114,33 @@ const send = (actor: Actor, fields: Record<string, unknown> = {}) =>
 const rowsOf = (user: TestUser) =>
     env.server.stores.notification.listByUserId(user.id, {});
 
+/** The user's `app.message` rows from `app`, newest first. */
+const appMessagesOf = async (user: TestUser, app: { uid: string }) =>
+    (await rowsOf(user)).filter(
+        (row: Record<string, unknown>) =>
+            row.app_uid === app.uid && row.type === 'app.message',
+    );
+
+/** What a refusal shows the sender. */
+const refusalOf = async (sending: Promise<unknown>) => {
+    try {
+        await sending;
+    } catch (err) {
+        const { statusCode, legacyCode, message, fields } = err as Record<
+            string,
+            unknown
+        >;
+        return { statusCode, legacyCode, message, fields };
+    }
+    throw new Error('expected a refusal');
+};
+
+const tooMany = {
+    statusCode: 429,
+    legacyCode: 'too_many_requests',
+    message: 'Too many notifications.',
+};
+
 const minuteKey = (user: TestUser, appUid: string) =>
     `notif:app-message:minute:${user.id}:${appUid}`;
 const dayKey = (user: TestUser, appUid: string) =>
@@ -172,11 +199,11 @@ beforeEach(async () => {
 });
 
 describe('app.message to the other party of a share', () => {
-    it('writes the owner’s message to the holder, and answers with the uid alone', async () => {
+    it('writes the owner’s message to the holder, and answers with nothing', async () => {
         const app = await makeApp();
         const { handle } = await share(app);
 
-        let sent: Record<string, unknown> = {};
+        let sent: Record<string, unknown> | null = null;
         const written = await captureBus('notif.written', async () => {
             sent = await send(inApp(owner, app), {
                 title: 'New message',
@@ -184,10 +211,8 @@ describe('app.message to the other party of a share', () => {
             });
         });
 
-        expect(Object.keys(sent)).toEqual(['uid']);
-        const row = await env.server.stores.notification.getByUid(
-            sent.uid as string,
-        );
+        expect(sent).toEqual({});
+        const [row] = await appMessagesOf(guest, app);
         expect(row).toMatchObject({
             user_id: guest.id,
             app_uid: app.uid,
@@ -205,7 +230,7 @@ describe('app.message to the other party of a share', () => {
         expect(written).toEqual([
             expect.objectContaining({
                 userId: guest.id,
-                uid: sent.uid,
+                uid: row.uid,
                 appUid: app.uid,
             }),
         ]);
@@ -216,12 +241,15 @@ describe('app.message to the other party of a share', () => {
         const { handle } = await share(app);
         const before = (await rowsOf(guest)).length;
 
-        const sent = await send(inApp(guest, app), { to: { handle } });
+        const sent = await send(inApp(guest, app), {
+            title: 'From the holder',
+            to: { handle },
+        });
 
-        expect(Object.keys(sent)).toEqual(['uid']);
-        expect(
-            await env.server.stores.notification.getByUid(sent.uid as string),
-        ).toMatchObject({ user_id: owner.id, app_uid: app.uid });
+        expect(sent).toEqual({});
+        const [row] = await appMessagesOf(owner, app);
+        expect(row).toMatchObject({ user_id: owner.id });
+        expect(row.value).toMatchObject({ title: 'From the holder' });
         expect(await rowsOf(guest)).toHaveLength(before);
     });
 
@@ -235,23 +263,42 @@ describe('app.message to the other party of a share', () => {
         await expectSpent(dayKey(guest, app.uid), DAY_MS, 1);
         await expectSpent(minuteKey(owner, app.uid), 60_000, 0);
         await expectSpent(dayKey(owner, app.uid), DAY_MS, 0);
+    });
 
-        // The recipient's own day window is the one that runs out.
-        for (let i = 0; i < 3; i++)
+    it('answers the pair limit and the recipient’s limit the same way', async () => {
+        const app = await makeApp();
+        const { handle } = await share(app);
+
+        // The recipient's own day window runs out.
+        for (let i = 0; i < 4; i++)
             await send(inApp(guest, app), { title: `own ${i}` });
-        await expect(
+        const byRecipient = await refusalOf(
             send(inApp(owner, app), { to: { handle } }),
-        ).rejects.toMatchObject({
-            statusCode: 429,
-            legacyCode: 'too_many_requests',
-        });
+        );
+
+        const other = await makeApp();
+        const { handle: otherHandle } = await share(other);
+        const [minute] = KV_SHARE_NOTIFY_LIMITS;
+        await claimRateLimit(
+            `${minute.scope}:${owner.id}:${guest.id}:${other.uid}`,
+            minute.limit,
+            minute.window,
+            minute.limit,
+        );
+        const byPair = await refusalOf(
+            send(inApp(owner, other), { to: { handle: otherHandle } }),
+        );
+
+        expect(byRecipient).toEqual({ ...tooMany, fields: undefined });
+        expect(byPair).toEqual(byRecipient);
+        await expectSpent(dayKey(guest, other.uid), DAY_MS, 0);
     });
 
     it("replaces the recipient's newest message in the same group", async () => {
         const app = await makeApp();
         const { handle } = await share(app);
 
-        const first = await send(inApp(owner, app), {
+        await send(inApp(owner, app), {
             title: 'One',
             group: 'room-1',
             to: { handle },
@@ -262,11 +309,8 @@ describe('app.message to the other party of a share', () => {
             to: { handle },
         });
 
-        expect(second).toEqual({ uid: first.uid });
-        const rows = (await rowsOf(guest)).filter(
-            (row: Record<string, unknown>) =>
-                row.app_uid === app.uid && row.type === 'app.message',
-        );
+        expect(second).toEqual({});
+        const rows = await appMessagesOf(guest, app);
         expect(rows).toHaveLength(1);
         expect(rows[0].value).toMatchObject({ title: 'Two' });
         await expectSpent(dayKey(guest, app.uid), DAY_MS, 1);
@@ -355,25 +399,6 @@ describe('app.message to the other party of a share', () => {
                     owner.id,
                 );
             }
-        });
-
-        it('the pair limit', async () => {
-            const app = await makeApp();
-            const { handle } = await share(app);
-            const [minute] = KV_SHARE_NOTIFY_LIMITS;
-            await claimRateLimit(
-                `${minute.scope}:${owner.id}:${guest.id}:${app.uid}`,
-                minute.limit,
-                minute.window,
-                minute.limit,
-            );
-            await expect(
-                send(inApp(owner, app), { to: { handle } }),
-            ).rejects.toMatchObject({
-                statusCode: 429,
-                legacyCode: 'too_many_requests',
-            });
-            await expectSpent(dayKey(guest, app.uid), DAY_MS, 0);
         });
 
         it('a share that cannot be checked', async () => {

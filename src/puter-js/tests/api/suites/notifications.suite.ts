@@ -200,7 +200,7 @@ export default suite('notifications', {
                 appUuid: appUid,
                 notify: true,
             });
-            const ownUids = async (who: 'user' | 'other') =>
+            const ownTitles = async (who: 'user' | 'other') =>
                 asApp(
                     t,
                     appUid,
@@ -211,39 +211,41 @@ export default suite('notifications', {
                         });
                         return page.items
                             .filter((event) => event.type === 'app.message')
-                            .map((event) => event.uid);
+                            .map((event) => event.notification.title);
                     },
                     who,
                 );
             try {
-                const toHolder = await asApp(t, appUid, () =>
+                const toHolder = unique('to-holder');
+                const sent = await asApp(t, appUid, () =>
                     t.puter.notifications.notify({
-                        title: unique('to-holder'),
+                        title: toHolder,
                         to: { handle: share.handle },
                     }),
                 );
-                t.assert.equal(typeof toHolder, 'string');
+                t.assert.equal(sent, undefined, 'it resolves with nothing');
                 t.assert.ok(
-                    (await ownUids('other')).includes(toHolder),
+                    (await ownTitles('other')).includes(toHolder),
                     'the holder has it',
                 );
                 t.assert.ok(
-                    !(await ownUids('user')).includes(toHolder),
+                    !(await ownTitles('user')).includes(toHolder),
                     'the owner does not',
                 );
 
-                const toOwner = await asApp(
+                const toOwner = unique('to-owner');
+                await asApp(
                     t,
                     appUid,
                     () =>
                         t.puter.notifications.notify({
-                            title: unique('to-owner'),
+                            title: toOwner,
                             to: { handle: share.handle },
                         }),
                     'other',
                 );
                 t.assert.ok(
-                    (await ownUids('user')).includes(toOwner),
+                    (await ownTitles('user')).includes(toOwner),
                     'the owner has it',
                 );
 

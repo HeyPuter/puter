@@ -10,13 +10,25 @@ const toError = (error) => {
 };
 
 /**
+ * @overload
+ * @param {import('./types.js').NotificationInput & { to?: undefined }} notification
+ * @returns {Promise<string>} The notification's uid; on a replacement, the uid
+ *   of the notification it replaced.
+ */
+/**
+ * @overload
+ * @param {import('./types.js').ShareNotificationInput} notification
+ * @returns {Promise<void>} Nothing, so the call says nothing about the
+ *   recipient's notifications.
+ */
+/**
  * Sends the user this app runs for a notification, or with `to` the other party
  * of a KV share. Only an app can send one.
  *
  * @this {import('./index.js').NotificationsModule}
- * @param {import('./types.js').NotificationInput} notification
- * @returns {Promise<string>} The notification's uid; on a replacement, the uid
- *   of the notification it replaced.
+ * @param {import('./types.js').NotificationInput
+ *     | import('./types.js').ShareNotificationInput} notification
+ * @returns {Promise<string | void>}
  */
 export async function notify(notification) {
     if (
@@ -58,6 +70,8 @@ export async function notify(notification) {
         throw toError(error);
     }
 
+    // A notification to someone else answers with nothing about it.
+    if (value.to !== undefined) return;
     if (typeof created?.uid !== 'string') {
         throw new PuterJSError(
             'The server did not return the notification',

@@ -35,7 +35,9 @@ puter.notifications.notify(notification)
 
 ## Return value
 
-A `Promise` that resolves to the notification's `uid` (String). When it replaced an earlier notification in its [group](#groups), that's the earlier notification's `uid`. With `to`, the `uid` is all the call returns about the recipient's notification.
+A `Promise` that resolves to the notification's `uid` (String). When it replaced an earlier notification in its [group](#groups), that's the earlier notification's `uid`.
+
+With `to`, the `Promise` resolves with no value, so the call tells you nothing about the recipient's notifications.
 
 It rejects with an error carrying `message` and `code`:
 
@@ -44,7 +46,7 @@ It rejects with an error carrying `message` and `code`:
 | `invalid_argument` | `notification` isn't an object, or has no `title`. |
 | `bad_request` | A field is over its limit, has the wrong type, or isn't one of the fields above. The message names the field. With `to`, it must be an object with only a string `handle`. |
 | `forbidden` | The call wasn't made by an app, for example from Node.js with an account token. |
-| `too_many_requests` | Your app sent this user too many notifications. With `to`, you may also have sent the other side too many through your shares in this app. See [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications). |
+| `too_many_requests` | Your app sent this user too many notifications. With `to`, either the recipient got too many from your app or you sent them too many through your shares in this app, and the error is the same for both. See [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications). |
 | `subject_does_not_exist` | With `to`, the handle doesn't name a live share of this app's data that you're on either side of. |
 | `kv_share_notify_not_enabled` | With `to`, the share wasn't made with `notify: true`. |
 | `recipient_not_accepting_shares` | With `to`, the other side blocked you, or doesn't accept shares. |

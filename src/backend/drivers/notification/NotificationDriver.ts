@@ -93,6 +93,12 @@ const tooManyAppMessages = (): HttpError =>
         legacyCode: 'too_many_requests',
     });
 
+/** One refusal for either limit a notification through a share can hit. */
+const tooManySharedNotifications = (): HttpError =>
+    new HttpError(429, 'Too many notifications.', {
+        legacyCode: 'too_many_requests',
+    });
+
 /** The handle in `to`, which must be `{ handle }` and nothing else. */
 const parseNotifyTarget = (to: unknown): string => {
     const target = to as Record<string, unknown> | null;
@@ -368,17 +374,25 @@ export class NotificationDriver extends PuterDriver {
             );
             return this.#readBack(uid, actor.user.id);
         }
-        const recipient = await this.services.kvShare.resolveNotifyRecipient(
-            actor,
-            handle,
-        );
-        const uid = await this.#sendAppMessage(
-            recipient.recipientUserId,
-            recipient.appUid,
-            message,
-        );
-        // The row is the recipient's, so the sender gets its uid alone.
-        return { uid };
+        try {
+            const recipient =
+                await this.services.kvShare.resolveNotifyRecipient(
+                    actor,
+                    handle,
+                );
+            await this.#sendAppMessage(
+                recipient.recipientUserId,
+                recipient.appUid,
+                message,
+            );
+        } catch (err) {
+            // Which limit refused would say how much the recipient is sent.
+            if (err instanceof HttpError && err.statusCode === 429)
+                throw tooManySharedNotifications();
+            throw err;
+        }
+        // Even a uid would say whether the recipient's last one was replaced.
+        return {};
     }
 
     /**

@@ -154,6 +154,18 @@ describe('notify', () => {
         expect(call.puter).toBe(notifications.puter);
     });
 
+    it('resolves with nothing for a notification sent through a share', async () => {
+        mockDriverCall.mockResolvedValue({});
+        const result = await makeModule().notify({
+            title: 'Hi',
+            to: { handle: 'kvh-1' },
+        });
+        expect(result).toBeUndefined();
+        expect(mockDriverCall.mock.calls[0][0].args.object.value.to).toEqual({
+            handle: 'kvh-1',
+        });
+    });
+
     it('sends app.message whatever type the caller passes', async () => {
         mockDriverCall.mockResolvedValue({ uid: 'n-2' });
         await makeModule().notify({ title: 'Hi', type: 'share.received' });
