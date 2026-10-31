@@ -735,6 +735,50 @@ describe('reanchor', () => {
     });
 });
 
+describe('a key with `|` in it', () => {
+    // The socket ref is `owner|token|subId`, and a KV token carries the key.
+    const piped = (over: Partial<SessionSubscription> = {}) =>
+        makeSub({
+            subject: 'kv:app:a|b:*',
+            token: 'k#owner#app#a|b:',
+            anchorUid: 'app',
+            anchorPath: 'a|b:',
+            ...over,
+        });
+
+    it('can be unsubscribed', async () => {
+        const sub = piped();
+        await store.add(sub);
+
+        const held = await store.getForSocket(USER, 'socket-a', sub.subId);
+        expect(held).toEqual(sub);
+        await expect(store.remove(held!)).resolves.toMatchObject({
+            userId: USER,
+        });
+        await expect(store.getForTokens(USER, [sub.token])).resolves.toEqual(
+            [],
+        );
+        await expect(store.watchedTokens(USER, [sub.token])).resolves.toEqual(
+            [],
+        );
+    });
+
+    it('is reaped with its connection', async () => {
+        const sub = piped();
+        await store.add(sub);
+        await expect(store.listForSocket(USER, 'socket-a')).resolves.toEqual([
+            sub,
+        ]);
+
+        await store.reapSocket(USER, 'socket-a');
+
+        await expect(store.getForTokens(USER, [sub.token])).resolves.toEqual(
+            [],
+        );
+        await expect(store.userHasAny(USER)).resolves.toBe(false);
+    });
+});
+
 describe('disconnect', () => {
     it('leaves no key behind for the socket that went', async () => {
         await store.add(makeSub({ subId: 'a', token: 'f#one' }));

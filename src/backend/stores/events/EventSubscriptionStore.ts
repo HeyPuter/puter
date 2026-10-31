@@ -201,9 +201,11 @@ const parseKvHandleMember = (member: string): KvHandleRef | null => {
     }
 };
 
+// By the last `|`: a KV token carries its key, which can contain one, and a
+// subId never does.
 const parseSocketRef = (ref: string): SocketRef => {
     const owner = ref.indexOf('|');
-    const token = ref.indexOf('|', owner + 1);
+    const token = ref.lastIndexOf('|');
     return {
         ownerUserId: Number(ref.slice(0, owner)),
         token: ref.slice(owner + 1, token),
