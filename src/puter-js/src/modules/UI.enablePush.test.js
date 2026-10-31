@@ -94,6 +94,17 @@ describe('ui.enablePush inside the desktop', () => {
         await expect(second).resolves.toBe(false);
     });
 
+    it('keeps the features it was launched with after the app rewrites its URL', async () => {
+        const ui = makeUI();
+        window.history.replaceState({}, '', '/chats/42');
+        const result = ui.enablePush();
+        await vi.waitFor(() =>
+            expect(enableCalls(postMessage)).toHaveLength(1),
+        );
+        reply(postMessage, 'on');
+        await expect(result).resolves.toBe(true);
+    });
+
     it.each([
         ['a desktop that does not list it', 'feedback-dialog'],
         ['a desktop that lists nothing', null],
