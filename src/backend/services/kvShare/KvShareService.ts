@@ -23,7 +23,9 @@ import {
     EVENTS_KV_HANDLES_PER_HOLDER,
     EVENTS_KV_HANDLES_PER_USER,
     KV_SHARE_GRANT_LIMITS,
+    KV_SHARE_LOOKUP_LIMIT,
     KV_SHARE_NOTICE_LIMIT,
+    KV_SHARE_NOTIFY_LIMITS,
     limitFor,
     type TieredQuota,
 } from '../../controllers/events/limits.js';
@@ -38,6 +40,7 @@ import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import {
     checkRateLimit,
     claimRateLimit,
+    peekRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
 import {
     KV_HANDLE_RETIRE_BATCH,
@@ -45,6 +48,7 @@ import {
     type HeldKvShareHandle,
     type KvShareHandle,
     type KvShareHandleListOptions,
+    type LiveKvShareHandle,
     type KvShareOwnerListOptions,
     type KvShareRevokedBy,
 } from '../../stores/events/KvShareHandleStore.js';
@@ -87,7 +91,9 @@ import {
     kvSharePrefixCaseConflict,
     parseKvShareAccess,
     parseKvShareLabel,
+    parseKvShareNotify,
     parseKvShareRecipient,
+    withKvShareAccess,
     type KvShareAccess,
     type KvShareRecipient,
 } from './kvShares.js';
@@ -108,6 +114,8 @@ export interface KvShareRequest {
     appUid?: unknown;
     /** `undefined` keeps the stored label, `null` clears it. */
     label?: unknown;
+    /** `undefined` keeps the stored flag. */
+    notify?: unknown;
 }
 
 /** A share request's fields other than who it is for. */
@@ -148,6 +156,7 @@ export interface KvShareView {
     appUid: string;
     holderUsername: string;
     label: string | null;
+    notify: boolean;
     createdAt: number;
 }
 
@@ -167,6 +176,15 @@ export interface RetiredKvShare {
     revokedAt: number;
 }
 
+/** Where a notification one party sends through a share handle goes. */
+export interface KvShareNotifyTarget {
+    /** The other party. Never returned to the sender. */
+    recipientUserId: number;
+    /** The app whose data is shared, which the notification belongs to. */
+    appUid: string;
+    handle: string;
+}
+
 // -- Errors -----------------------------------------------------------
 
 const disabled = (): HttpError =>
@@ -181,6 +199,30 @@ const tooManyCalls = (): HttpError =>
 
 const badRequest = (message: string, code: string): HttpError =>
     new HttpError(400, message, { legacyCode: code });
+
+const notifyNotEnabled = (): HttpError =>
+    new HttpError(403, 'This share does not allow notifications', {
+        legacyCode: 'kv_share_notify_not_enabled',
+    });
+
+/** Notifications are an app's, so the account itself sends none. */
+const notifyNeedsApp = (): HttpError =>
+    new HttpError(
+        403,
+        'Notifications through a share come from the app whose data it is',
+        { legacyCode: 'forbidden' },
+    );
+
+const tooManyNotifications = (): HttpError =>
+    new HttpError(429, 'Too many notifications through this share', {
+        legacyCode: 'too_many_requests',
+    });
+
+/** A lookup failed, so whether the share still holds is unknown. */
+const shareCheckUnavailable = (): HttpError =>
+    new HttpError(503, 'The share could not be checked right now', {
+        legacyCode: 'service_unavailable',
+    });
 
 /**
  * Listing and revoking are the owner's, and an app's only where the handle is
@@ -296,13 +338,18 @@ const RETIRE_SETTLE_CONCURRENCY = 8;
 const levelRank = (permission: string): number =>
     KV_SHARE_ACCESS_LEVELS.indexOf(kvShareAccessOf(permission) ?? 'watch');
 
-/** Whether a mint finding this live row changes its level or label. */
-const shareChanges = (
-    row: KvShareHandle,
-    wanted: { permission: string; label: string | null | undefined },
-): boolean =>
+/** What a mint asks of a share; `undefined` leaves that field as it is. */
+interface WantedShare {
+    permission: string;
+    label: string | null | undefined;
+    notify: boolean | undefined;
+}
+
+/** Whether a mint finding this live row changes its level, label or flag. */
+const shareChanges = (row: KvShareHandle, wanted: WantedShare): boolean =>
     row.permission !== wanted.permission ||
-    (wanted.label !== undefined && wanted.label !== row.label);
+    (wanted.label !== undefined && wanted.label !== row.label) ||
+    (wanted.notify !== undefined && wanted.notify !== row.notify);
 
 /** A share change's lock: its lifetime, and how long another change waits. */
 const SHARE_CHANGE_LOCK_MS = 10_000;
@@ -341,6 +388,7 @@ const ownerView = (
     appUid: row.appUid,
     holderUsername,
     label: row.label,
+    notify: row.notify,
     createdAt: row.createdAt,
     revokedAt: row.revokedAt,
     revokedBy: row.revokedBy,
@@ -621,11 +669,12 @@ export class KvShareService extends PuterService {
         if (app === null && !isAccountContext(actor)) throw handleOwnerOnly();
 
         const ownerUserId = owner.id;
-        // The budget is the user's, so an app spends its user's slots.
-        await this.#spendHandleBudget(ownerUserId);
+        // The budgets are the user's, so an app spends its user's slots.
+        await this.#spendLookupBudget(ownerUserId, recipients.length);
 
         const keyPrefix = assertShareablePrefix(request.prefix);
         const label = parseKvShareLabel(request.label);
+        const notify = parseKvShareNotify(request.notify);
         const appUid = await this.#mintNamespace(app, request);
         const permission = assertPrefixFitsAccess(
             owner.uuid,
@@ -637,11 +686,6 @@ export class KvShareService extends PuterService {
         // neither whether a username exists nor a handle it may no longer
         // hand out.
         if (app) await this.#assertKvShareDelegated(actor, permission);
-
-        // One unit per named recipient, before any lookup, so a batch is no
-        // cheaper way to probe usernames than single calls.
-        const named = recipients.filter((r) => !isHttpError(r)).length;
-        await this.#spendGrantBudget(ownerUserId, named);
 
         const results: KvShareMintResult[] = recipients.map((r) =>
             isHttpError(r) ? { error: r } : {},
@@ -702,6 +746,35 @@ export class KvShareService extends PuterService {
                 );
             },
         );
+
+        const keepLevel =
+            options.keepLevelUnlessNamed &&
+            (request.access === undefined || request.access === null);
+        const wantedFor = (existing: KvShareHandle): WantedShare => ({
+            permission: keepLevel ? existing.permission : permission,
+            label,
+            notify,
+        });
+        // A call that only finds shares it leaves as they are spends neither
+        // budget. Every other named recipient costs a grant unit, unknown ones
+        // included, so naming a stranger costs what sharing with them would.
+        const standing = new Set(
+            plans.filter((plan) => plan.existing).map((plan) => plan.index),
+        );
+        const charged =
+            recipients.filter((r) => !isHttpError(r)).length -
+            standing.size -
+            duplicates.filter(([, first]) => standing.has(first)).length;
+        const changes = plans.some(
+            ({ existing }) =>
+                existing !== null &&
+                shareChanges(existing, wantedFor(existing)),
+        );
+        if (charged > 0 || changes) {
+            await this.#spendHandleBudget(ownerUserId);
+            await this.#spendGrantBudget(ownerUserId, charged);
+        }
+
         // New shares only, so ones made before these rules can still be
         // narrowed or taken back.
         const added = plans.filter((plan) => !plan.existing);
@@ -733,9 +806,6 @@ export class KvShareService extends PuterService {
             fresh.length,
         );
 
-        const keepLevel =
-            options.keepLevelUnlessNamed &&
-            (request.access === undefined || request.access === null);
         // No lock spans the batch: each recipient is its own region, a level
         // change takes its handle's own lock, and the caps above were checked
         // for the whole batch.
@@ -745,18 +815,19 @@ export class KvShareService extends PuterService {
             async ({ index, grantee, existing }) => {
                 try {
                     const row = existing
-                        ? await this.#changeShare(actor, existing, grantee, {
-                              permission: keepLevel
-                                  ? existing.permission
-                                  : permission,
-                              label,
-                          })
+                        ? await this.#changeShare(
+                              actor,
+                              existing,
+                              grantee,
+                              wantedFor(existing),
+                          )
                         : await this.#grantAndMint(actor, grantee, {
                               ownerUserId,
                               appUid,
                               keyPrefix,
                               permission,
                               label: label ?? null,
+                              notify: notify === true,
                           });
                     results[index].share = this.#view(row, grantee.username);
                 } catch (err) {
@@ -809,6 +880,7 @@ export class KvShareService extends PuterService {
             keyPrefix: string;
             permission: string;
             label: string | null;
+            notify: boolean;
         },
     ): Promise<KvShareHandle> {
         // The user behind the app, so the authority checked is theirs. Which
@@ -851,15 +923,17 @@ export class KvShareService extends PuterService {
             keyPrefix: share.keyPrefix,
             permission: share.permission,
             label: share.label,
+            notify: share.notify,
         });
-        await this.#notifyReceived(row);
+        if (row.notify) await this.#notifyReceived(row);
         return row;
     }
 
     /**
-     * Tell the holder, in the app whose data it is, that a share arrived, never
-     * naming the owner. Best-effort and bounded per owner and holder: the share
-     * stands either way.
+     * Tell the holder, in the app whose data it is, that a share now allows
+     * notifications, never naming the owner. Sent when one is made with
+     * `notify` or turned on. Best-effort and bounded per owner and holder: the
+     * share stands either way.
      */
     async #notifyReceived(row: KvShareHandle): Promise<void> {
         if (row.appUid === KV_GLOBAL_APP_KEY) return;
@@ -894,7 +968,7 @@ export class KvShareService extends PuterService {
         actor: Actor,
         existing: KvShareHandle,
         holder: UserRow & { id: number; username: string },
-        wanted: { permission: string; label: string | null | undefined },
+        wanted: WantedShare,
     ): Promise<KvShareHandle> {
         if (!shareChanges(existing, wanted)) return existing;
         return withRedisLock(
@@ -929,26 +1003,29 @@ export class KvShareService extends PuterService {
         actor: Actor,
         existing: KvShareHandle,
         holder: UserRow & { id: number; username: string },
-        wanted: { permission: string; label: string | null | undefined },
+        wanted: WantedShare,
     ): Promise<KvShareHandle> {
         const levelChanges = existing.permission !== wanted.permission;
         const labelChanges =
             wanted.label !== undefined && wanted.label !== existing.label;
-        if (!levelChanges && !labelChanges) return existing;
+        const notifyChanges =
+            wanted.notify !== undefined && wanted.notify !== existing.notify;
+        if (!levelChanges && !labelChanges && !notifyChanges) return existing;
 
         // An app also needs the consent the share stands on, as it would to
         // revoke it.
         if (actor.effectiveApp)
             await this.#assertKvShareDelegated(actor, existing.permission);
 
-        // A holder who now refuses this owner's shares can still be narrowed
-        // or have the label cleared, and nothing more.
+        // A holder who now refuses this owner's shares can still be narrowed,
+        // have the label cleared or notifications turned off, and nothing more.
         const raises =
             levelChanges &&
             levelRank(wanted.permission) > levelRank(existing.permission);
         const relabels = labelChanges && wanted.label !== null;
+        const startsNotifying = notifyChanges && wanted.notify === true;
         if (
-            (raises || relabels) &&
+            (raises || relabels || startsNotifying) &&
             (await refusesSharesFrom(
                 this.stores.userBlock,
                 holder,
@@ -983,9 +1060,13 @@ export class KvShareService extends PuterService {
             {
                 ...(levelChanges ? { permission: wanted.permission } : {}),
                 ...(labelChanges ? { label: wanted.label } : {}),
+                ...(notifyChanges ? { notify: wanted.notify } : {}),
             },
         );
-        if (updated && updated.revokedAt === null) return updated;
+        if (updated && updated.revokedAt === null) {
+            if (startsNotifying) await this.#notifyReceived(updated);
+            return updated;
+        }
         // Retired meanwhile: the retire withdrew the region before the grant
         // above landed, so that grant is withdrawn here.
         if (levelChanges)
@@ -1006,6 +1087,7 @@ export class KvShareService extends PuterService {
             appUid: row.appUid,
             holderUsername,
             label: row.label,
+            notify: row.notify,
             createdAt: row.createdAt,
         };
     }
@@ -1121,6 +1203,116 @@ export class KvShareService extends PuterService {
         )
             return this.#unshareAsHolder(actor, share);
         throw unknownKvShareHandle(named);
+    }
+
+    /**
+     * The other party of a share, for a notification one party sends through
+     * its handle from the app whose data it is. Every check runs before the
+     * pair budget is spent. A handle that is unknown, retired, not the
+     * caller's, or seen from another app reads as absent.
+     */
+    async resolveNotifyRecipient(
+        actor: Actor,
+        handle: unknown,
+    ): Promise<KvShareNotifyTarget> {
+        const named = typeof handle === 'string' ? handle : '';
+        const senderId = actor.user?.id;
+        if (senderId === undefined) throw unknownKvShareHandle(named);
+
+        let live: LiveKvShareHandle | null;
+        try {
+            live = await this.stores.kvShareHandle.getLive(named);
+        } catch {
+            throw shareCheckUnavailable();
+        }
+        if (!live || live.ownerSuspended) throw unknownKvShareHandle(named);
+        const share = live.row;
+        const fromOwner = share.ownerUserId === senderId;
+        if (!fromOwner && share.granteeUserId !== senderId)
+            throw unknownKvShareHandle(named);
+
+        const app = actor.effectiveApp;
+        if (app === null) throw notifyNeedsApp();
+        if (!app || app.uid !== share.appUid) throw unknownKvShareHandle(named);
+        if (!share.notify) throw notifyNotEnabled();
+
+        const recipientId = fromOwner ? share.granteeUserId : share.ownerUserId;
+        let checked: { holds: boolean; refuses: boolean } | null;
+        try {
+            checked = await this.#notifyChecks(actor, share, recipientId);
+        } catch {
+            throw shareCheckUnavailable();
+        }
+        if (!checked?.holds) throw unknownKvShareHandle(named);
+        if (checked.refuses) throw recipientNotAcceptingShares();
+
+        await this.#spendNotifyBudget(senderId, recipientId, share.appUid);
+        return {
+            recipientUserId: recipientId,
+            appUid: share.appUid,
+            handle: share.handle,
+        };
+    }
+
+    /**
+     * Whether the holder's grant still stands, and whether the recipient
+     * refuses the sender. `null` when the recipient is gone. Throws when a
+     * lookup fails.
+     */
+    async #notifyChecks(
+        sender: Actor,
+        share: LiveKvShareHandle['row'],
+        recipientId: number,
+    ): Promise<{ holds: boolean; refuses: boolean } | null> {
+        const senderId = sender.user?.id;
+        const recipient = await this.stores.user.getById(recipientId);
+        if (senderId === undefined || recipient?.id === undefined) return null;
+        // The grant is the holder's, whichever side sends.
+        const holder =
+            share.ownerUserId === senderId
+                ? makeActor({ user: recipient })
+                : userRelatedActor(sender);
+        const holds = await this.services.permission.check(
+            holder,
+            withKvShareAccess(share.permission, 'watch'),
+        );
+        if (!holds) return { holds, refuses: false };
+        return {
+            holds,
+            refuses: await refusesSharesFrom(
+                this.stores.userBlock,
+                recipient,
+                senderId,
+            ),
+        };
+    }
+
+    /** One unit from each pair window, or none when either is full. */
+    async #spendNotifyBudget(
+        senderId: number,
+        recipientId: number,
+        appUid: string,
+    ): Promise<void> {
+        const keyOf = (scope: string) =>
+            `${scope}:${senderId}:${recipientId}:${appUid}`;
+        for (const window of KV_SHARE_NOTIFY_LIMITS)
+            if (
+                !(await peekRateLimit(
+                    keyOf(window.scope),
+                    window.limit,
+                    window.window,
+                ))
+            )
+                throw tooManyNotifications();
+        for (const window of KV_SHARE_NOTIFY_LIMITS)
+            if (
+                !(await checkRateLimit(
+                    keyOf(window.scope),
+                    window.limit,
+                    window.window,
+                ))
+            )
+                throw tooManyNotifications();
     }
 
     /** Whether the actor's user still has its app authorized. */
@@ -1566,6 +1758,17 @@ export class KvShareService extends PuterService {
             );
             if (admitted < units) throw tooManyCalls();
         }
+    }
+
+    /** One unit per named recipient, spent before anything is looked up. */
+    async #spendLookupBudget(userId: number, units: number): Promise<void> {
+        const admitted = await claimRateLimit(
+            `${KV_SHARE_LOOKUP_LIMIT.scope}:${userId}`,
+            KV_SHARE_LOOKUP_LIMIT.limit,
+            KV_SHARE_LOOKUP_LIMIT.window,
+            units,
+        );
+        if (admitted < units) throw tooManyCalls();
     }
 
     async #spendHandleBudget(userId: number): Promise<void> {

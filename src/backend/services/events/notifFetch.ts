@@ -103,6 +103,11 @@ export const projectNotifRow = (
 ): ProjectedNotifEvent => {
     const appUid = (row.app_uid as string | null) ?? null;
     const audience = (row.audience as NotificationAudience) ?? 'account';
+    // Drivers hand a bigint back as a number or a string.
+    const replacedAt =
+        row.replaced_at === null || row.replaced_at === undefined
+            ? null
+            : Number(row.replaced_at);
     return {
         id: String(row.uid),
         subject: `notif:${appUid ?? userUuid}:${audience}`,
@@ -112,9 +117,10 @@ export const projectNotifRow = (
         audience,
         appUid,
         notification: (row.value ?? {}) as Record<string, unknown>,
+        ...(replacedAt !== null ? { replaced: true as const } : {}),
         // A fetched row is always the caller's own mailbox.
         self: true,
-        ts: epochMs(row.created_at),
+        ts: replacedAt ?? epochMs(row.created_at),
         seq,
     };
 };

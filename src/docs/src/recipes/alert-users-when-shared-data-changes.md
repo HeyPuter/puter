@@ -19,6 +19,12 @@ whether a change is worth an alert, and calls
 shared data with changes worth an alert, such as an order's status, a price, or
 a task assigned to someone.
 
+A handler fits here because each fan picks which changes are worth an alert,
+and the scorekeeper's page never has to reach the fans. When the person making
+a change decides who to alert, a share made with `notify: true` lets their page
+notify the other side directly with `to: { handle }`, with no handler. See
+[Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/).
+
 This recipe uses the `prefix`, `handle` and `label` from
 [Send Live Updates to Other Users](/recipes/send-live-updates-to-other-users/).
 Your site also needs to serve `/puter-sw.js`, as in

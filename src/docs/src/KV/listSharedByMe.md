@@ -38,6 +38,7 @@ A `Promise` that resolves to:
     - `appUid` (String | null): The app whose data is shared, or `null` for the store that belongs to no app.
     - `holder` (String | null): The holder's username. When the holder deletes their account, their shares are deleted with it and leave this listing.
     - `label` (String | null): The label the holder is shown.
+    - `notify` (Boolean): Whether you and the holder can send each other notifications through the share with [`puter.notifications.notify()`](/Notifications/notify/).
     - `createdAt` (Number): When the share was made, in Unix seconds.
     - `revokedAt` (Number | null): When the share stopped, in Unix seconds, or `null` while it's live.
     - `revokedBy` (String | null): Who stopped it. It's `'owner'` when you revoked it, `'holder'` when the holder removed their own access, and `'system'` when the app whose data it was got deleted. It's `null` while the share is live, and on some shares that stopped before Puter recorded who stopped them.

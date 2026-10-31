@@ -112,7 +112,7 @@ const bootEnv = (config: Record<string, unknown>) => {
     const share = (
         prefix: string,
         access: KvShareAccess,
-        opts: { appUid?: string; label?: unknown } = {},
+        opts: { appUid?: string; label?: unknown; notify?: boolean } = {},
     ) =>
         state.env.server.services.kvShare.mintKvHandle(
             state.owner.actor,
@@ -122,6 +122,7 @@ const bootEnv = (config: Record<string, unknown>) => {
                 access,
                 ...(opts.appUid ? { appUid: opts.appUid } : {}),
                 ...(opts.label !== undefined ? { label: opts.label } : {}),
+                ...(opts.notify !== undefined ? { notify: opts.notify } : {}),
             },
             { defaultAccess: 'read' },
         );
@@ -159,6 +160,7 @@ describe('the share notification', () => {
         const shared = await share(prefix, 'write', {
             appUid: app.uid,
             label: 'Groceries',
+            notify: true,
         });
 
         const rows = await notificationsFor(shared.handle);
@@ -183,11 +185,70 @@ describe('the share notification', () => {
     it('is not sent again for a re-share, a level change or a label change', async () => {
         const app = await makeApp();
         const prefix = region('again');
-        const { handle } = await share(prefix, 'read', { appUid: app.uid });
+        const { handle } = await share(prefix, 'read', {
+            appUid: app.uid,
+            notify: true,
+        });
         await share(prefix, 'read', { appUid: app.uid });
-        await share(prefix, 'write', { appUid: app.uid });
+        await share(prefix, 'write', { appUid: app.uid, notify: true });
         await share(prefix, 'write', { appUid: app.uid, label: 'Renamed' });
         expect(await notificationsFor(handle)).toHaveLength(1);
+    });
+
+    it('is not sent for a share without notify', async () => {
+        const app = await makeApp();
+        const shared = await share(region('quiet'), 'write', {
+            appUid: app.uid,
+        });
+        expect(shared.notify).toBe(false);
+        expect(await notificationsFor(shared.handle)).toEqual([]);
+    });
+
+    it('is sent when a share starts allowing notifications, and kept by a re-share that leaves notify out', async () => {
+        const app = await makeApp();
+        const prefix = region('flip');
+        const { handle } = await share(prefix, 'read', { appUid: app.uid });
+
+        const on = await share(prefix, 'read', {
+            appUid: app.uid,
+            notify: true,
+        });
+        expect(on).toMatchObject({ handle, notify: true });
+        expect(await notificationsFor(handle)).toHaveLength(1);
+
+        // Left out, the flag stays as it is.
+        await expect(
+            share(prefix, 'write', { appUid: app.uid }),
+        ).resolves.toMatchObject({ handle, notify: true });
+
+        await expect(
+            share(prefix, 'write', { appUid: app.uid, notify: false }),
+        ).resolves.toMatchObject({ handle, notify: false });
+        expect(
+            (await state.env.server.stores.kvShareHandle.getByHandle(handle))
+                ?.notify,
+        ).toBe(false);
+        expect(await notificationsFor(handle)).toHaveLength(1);
+
+        await share(prefix, 'write', { appUid: app.uid, notify: true });
+        expect(await notificationsFor(handle)).toHaveLength(2);
+    });
+
+    it('refuses a notify that is not a boolean', async () => {
+        await expect(
+            state.env.server.services.kvShare.mintKvHandle(
+                state.owner.actor,
+                {
+                    prefix: region('bad-notify'),
+                    recipient: { username: state.guest.username },
+                    notify: 'yes',
+                },
+                { defaultAccess: 'read' },
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'kv_share_notify_invalid',
+        });
     });
 
     it('is sent at most five times an hour per owner and holder, and the share is made anyway', async () => {
@@ -195,7 +256,10 @@ describe('the share notification', () => {
         const prefix = region('churn');
         const handles: string[] = [];
         for (let i = 0; i < KV_SHARE_NOTICE_LIMIT.limit + 2; i++) {
-            const { handle } = await share(prefix, 'read', { appUid: app.uid });
+            const { handle } = await share(prefix, 'read', {
+                appUid: app.uid,
+                notify: true,
+            });
             handles.push(handle);
             await state.env.server.services.kvShare.removeKvShare(
                 state.owner.actor,
@@ -225,6 +289,7 @@ describe('the share notification', () => {
         try {
             const { handle } = await share(region('wire'), 'read', {
                 appUid: app.uid,
+                notify: true,
             });
             const [row] = await notificationsFor(handle);
             const pushed = emit.mock.calls.filter(
@@ -242,7 +307,10 @@ describe('the share notification', () => {
             .mockRejectedValueOnce(new Error('mailbox down'));
         try {
             await expect(
-                share(region('failing'), 'read', { appUid: app.uid }),
+                share(region('failing'), 'read', {
+                    appUid: app.uid,
+                    notify: true,
+                }),
             ).resolves.toMatchObject({ access: 'read' });
         } finally {
             notify.mockRestore();
@@ -253,6 +321,7 @@ describe('the share notification', () => {
         const app = await makeApp();
         const { handle } = await share(region('select'), 'read', {
             appUid: app.uid,
+            notify: true,
         });
         const [row] = await notificationsFor(handle);
         const select = (actor: Actor, args: Record<string, unknown> = {}) =>
@@ -286,6 +355,7 @@ describe('the share notification', () => {
         const app = await makeApp();
         const { handle } = await share(region('replay'), 'read', {
             appUid: app.uid,
+            notify: true,
         });
         const [row] = await notificationsFor(handle);
         const emit = vi.spyOn(state.env.server.clients.event, 'emit');
@@ -336,6 +406,7 @@ describe('the share notification with notification dispatch on', () => {
         try {
             const { handle } = await share(region('folded'), 'read', {
                 appUid: app.uid,
+                notify: true,
             });
             const [row] = await notificationsFor(handle);
 
@@ -399,6 +470,7 @@ describe('the share notification with notification dispatch on', () => {
         try {
             const { handle } = await share(region('desktop'), 'read', {
                 appUid: app.uid,
+                notify: true,
             });
             const [row] = await notificationsFor(handle);
             await waitFor(() => deliveredTo(appSub.subId, row.uid));
@@ -482,6 +554,7 @@ describe('recipient share blocks', () => {
         const { handle } = await share(prefix, 'write', {
             appUid: app.uid,
             label: 'Before',
+            notify: true,
         });
         await state.env.server.stores.userBlock.create(
             state.guest.id,
@@ -489,11 +562,16 @@ describe('recipient share blocks', () => {
         );
         try {
             await expect(
-                share(prefix, 'read', { appUid: app.uid, label: null }),
+                share(prefix, 'read', {
+                    appUid: app.uid,
+                    label: null,
+                    notify: false,
+                }),
             ).resolves.toMatchObject({
                 handle,
                 access: 'read',
                 label: null,
+                notify: false,
             });
             await expect(
                 state.env.server.services.kvShare.removeKvShare(
@@ -518,6 +596,7 @@ describe('recipient share blocks', () => {
             'a lower level with a new label',
             { access: 'watch' as const, label: 'Later' },
         ],
+        ['notifications turned on', { notify: true }],
     ])('refuse %s on a share made before the block', async (_name, change) => {
         const app = await makeApp();
         const prefix = region('raise');
@@ -531,13 +610,18 @@ describe('recipient share blocks', () => {
                 share(prefix, 'access' in change ? change.access : 'read', {
                     appUid: app.uid,
                     ...('label' in change ? { label: change.label } : {}),
+                    ...('notify' in change ? { notify: change.notify } : {}),
                 }),
             ).rejects.toMatchObject({
                 legacyCode: 'recipient_not_accepting_shares',
             });
             const row =
                 await state.env.server.stores.kvShareHandle.getByHandle(handle);
-            expect(row).toMatchObject({ revokedAt: null, label: null });
+            expect(row).toMatchObject({
+                revokedAt: null,
+                label: null,
+                notify: false,
+            });
             expect(row?.permission.startsWith('kv-share-read:')).toBe(true);
         } finally {
             await state.env.server.stores.userBlock.deleteByPair(

@@ -240,6 +240,7 @@ export type {
     NotificationHandler,
     NotificationInput,
     NotificationListener,
+    NotificationRecipient,
     NotificationSender,
     OnNotificationOptions,
     OnPushOptions,
@@ -248,6 +249,7 @@ export type {
     PushPlatform,
     PushShown,
     PushStatus,
+    ShareNotificationInput,
 } from './types/modules/notifications/types.js';
 
 // -- puter.os --

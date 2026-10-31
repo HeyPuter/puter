@@ -35,7 +35,7 @@ export const APP_MESSAGE_TTL_DEFAULT_SECONDS = 60 * 60;
 /** Creates one app may make for one user, per window. */
 export const APP_MESSAGE_RATE_LIMITS = {
     perMinute: 30,
-    perDay: 300,
+    perDay: 1000,
 } as const;
 
 export type AppMessagePriority = 'normal';

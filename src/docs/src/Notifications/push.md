@@ -134,7 +134,7 @@ await puter.notifications.notify({
 });
 ```
 
-A notification goes to one user, the one the call runs for. You can send it from three places:
+A notification goes to the user the call runs for, or with `to: { handle }` to the other side of a [key-value share](/KV/share/) made with `notify: true`. You can send it from three places:
 
 - **The page**, with [`puter.notifications.notify()`](/Notifications/notify/) as above.
 - **A [Puter Worker](/Workers/)**, with `user.puter.notifications.notify()` in a route your page calls through [`puter.workers.exec()`](/Workers/exec/). It notifies the user who called the worker, from the app that called it.
@@ -149,7 +149,7 @@ const [background, pushes] = await puter.perms.request([
 ]);
 ```
 
-To notify another user, have a handler that runs for them call it, as in [Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/).
+To notify another user, share data with them with `notify: true` and send through the share's handle, as [`notify()`](/Notifications/notify/#notify-the-other-side-of-a-share) describes and [Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/) shows. The push is billed to the user who receives it.
 
 In a worker, `me.puter` is you, the worker's owner. A `me.puter.notifications.notify()` call notifies you, not the user who called the worker, and it rejects with `forbidden` when the worker doesn't run as an app.
 
@@ -166,7 +166,7 @@ Inside the Puter desktop, a tap on a push opens your app and hands the `target` 
 
 ## Groups and sensitive notifications
 
-A newer notification with the same `group` replaces the one showing, and the device alerts the user again. A group is up to 128 letters, digits and `. _ : @ -`, so it can name a chat, a thread or a person, such as `dm:ana@example.com`.
+A newer notification with the same `group` replaces the one showing, and the device alerts the user again. The newer one also replaces the earlier notification in place and keeps its `uid`, unless the earlier one was dismissed, for example by a tap on its push inside the Puter desktop. [`notify()`](/Notifications/notify/#groups) has the rule. A replacement counts against the notification limit per minute only. The push limits count only pushes sent, and a replacement that goes out as a push counts like any other. A group is up to 128 letters, digits and `. _ : @ -`, so it can name a chat, a thread or a person, such as `dm:ana@example.com`.
 
 With `sensitive: true`, pushes and the notification a page shows itself show a generic line instead of the title and text. A sensitive push carries no `channel`, `target` or `data`. So no [`onPush()`](/Notifications/onPush/) handler runs for it, a tap opens `/`, and [`on('click')`](/Notifications/on/) gets `null` for `target` and `data`. [`onNotification()`](/Notifications/onNotification/) still gets the whole notification.
 

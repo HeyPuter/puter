@@ -140,6 +140,24 @@ describe('projectNotifRow', () => {
         expect(asEpochSeconds.ts).toBe(Date.UTC(2026, 7, 30, 1, 2, 3));
     });
 
+    it('versions a replaced row by its replacement time', () => {
+        // Postgres hands a bigint back as a string.
+        for (const replacedAt of [1_790_000_000_123, '1790000000123']) {
+            const projected = projectNotifRow(
+                { ...row, replaced_at: replacedAt },
+                USER,
+                0,
+            );
+            expect(projected).toMatchObject({
+                replaced: true,
+                ts: 1_790_000_000_123,
+            });
+        }
+        expect(
+            projectNotifRow({ ...row, replaced_at: null }, USER, 0),
+        ).not.toHaveProperty('replaced');
+    });
+
     it('names the app when the row is about one', () => {
         const projected = projectNotifRow(
             { ...row, audience: 'app-user', app_uid: APP },

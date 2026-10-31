@@ -396,6 +396,106 @@ describe('NotificationStore', () => {
         expect(row.acknowledged).toBeNull();
     });
 
+    // -- groups --------------------------------------------------------
+
+    it('finds the newest row an app wrote under a group while it is unseen', async () => {
+        const u = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const write = (group, extra = {}) =>
+            store.create({
+                userId: u.id,
+                value: { title: group ?? 'none' },
+                type: 'app.message',
+                audience: 'app-user',
+                appUid,
+                group,
+                ...extra,
+            });
+
+        const older = await write('chat-1');
+        const newer = await write('chat-1');
+        await write('Chat-1');
+        await write(null);
+        await write('chat-2');
+        await write('chat-1', { appUid: `app-${uuidv4()}` });
+        await write('chat-1', { userId: other.id });
+
+        const found = await store.getUnseenByGroup(u.id, appUid, 'chat-1');
+        expect(found.uid).toBe(newer.uid);
+        expect(found.group_key).toMatch(/^[0-9a-f]{64}$/u);
+
+        // The older unseen row is not picked up once the newest was shown.
+        await store.markShown(newer.uid, u.id);
+        expect(await store.getUnseenByGroup(u.id, appUid, 'chat-1')).toBeNull();
+        expect((await store.getByUid(older.uid)).shown).toBeNull();
+
+        const newest = await write('chat-1');
+        expect((await store.getUnseenByGroup(u.id, appUid, 'chat-1')).uid).toBe(
+            newest.uid,
+        );
+        await store.markAcknowledged(newest.uid, u.id);
+        expect(await store.getUnseenByGroup(u.id, appUid, 'chat-1')).toBeNull();
+        expect(await store.getUnseenByGroup(u.id, appUid, 'none')).toBeNull();
+    });
+
+    it('returns a grouped row as the table holds it', async () => {
+        const created = await store.create({
+            userId: user.id,
+            value: { title: 'grouped' },
+            type: 'app.message',
+            audience: 'app-user',
+            appUid: `app-${uuidv4()}`,
+            group: 'g',
+        });
+        expect(created).toEqual(
+            await store.getByUid(created.uid, { primary: true }),
+        );
+    });
+
+    it('rewrites only an unseen row when asked to, and dates a replacement', async () => {
+        const u = await makeUser();
+        const n = await store.create({ userId: u.id, value: { v: 1 } });
+        const old = '2020-01-01 00:00:00';
+        await server.clients.db.write(
+            'UPDATE `notification` SET `created_at` = ? WHERE `uid` = ?',
+            [old, n.uid],
+        );
+        const createdAt = async () =>
+            new Date(
+                (await store.getByUid(n.uid, { userId: u.id })).created_at,
+            ).getTime();
+        const before = await createdAt();
+
+        expect(await store.updateValue(n.uid, u.id, { v: 2 })).toBe(true);
+        expect(await createdAt()).toBe(before);
+
+        const replacedAt = Date.now();
+        expect(
+            await store.updateValue(
+                n.uid,
+                u.id,
+                { v: 3 },
+                { onlyUnseen: true, replacedAt },
+            ),
+        ).toBe(true);
+        const row = await store.getByUid(n.uid, { userId: u.id });
+        expect(row.value).toEqual({ v: 3 });
+        expect(Number(row.replaced_at)).toBe(replacedAt);
+        expect(await createdAt()).toBeGreaterThan(before);
+
+        await store.markShown(n.uid, u.id);
+        expect(
+            await store.updateValue(
+                n.uid,
+                u.id,
+                { v: 4 },
+                { onlyUnseen: true },
+            ),
+        ).toBe(false);
+        // Without the flag a shown row is still open, as a share's fold needs.
+        expect(await store.updateValue(n.uid, u.id, { v: 5 })).toBe(true);
+    });
+
     // -- retention -----------------------------------------------------
 
     /**

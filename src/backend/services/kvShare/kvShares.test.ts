@@ -342,6 +342,17 @@ describe('handle ids', () => {
         expect(kvHandleFromSubject(`kv:${APP}:messages:*`)).toBeNull();
         expect(kvHandleFromSubject(`fs:${handle}:write`)).toBeNull();
     });
+
+    it('turn away a row on the holder`s own namespace without splitting its subject', () => {
+        const split = vi.spyOn(PermissionUtil, 'split');
+        try {
+            expect(kvHandleFromSubject(`kv:${APP}:messages:*`)).toBeNull();
+            expect(kvHandleFromSubject('fs:node-uid')).toBeNull();
+            expect(split).not.toHaveBeenCalled();
+        } finally {
+            split.mockRestore();
+        }
+    });
 });
 
 describe('the owner implicator', () => {

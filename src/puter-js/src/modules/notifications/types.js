@@ -25,6 +25,22 @@
  */
 
 /**
+ * What an app sends with `notify()` to the other party of a KV share instead of
+ * the user it runs for.
+ *
+ * @typedef {NotificationInput & { to: NotificationRecipient }} ShareNotificationInput
+ */
+
+/**
+ * Who a notification goes to, when it isn't the user the app runs for.
+ *
+ * @typedef {Object} NotificationRecipient
+ * @property {string} handle A KV share handle made with `notify: true`. The
+ *   notification goes to the share's other party: the holder when its owner
+ *   sends, the owner when its holder sends.
+ */
+
+/**
  * The app that sent a notification, as the server records it.
  *
  * @typedef {Object} NotificationSender
@@ -49,7 +65,10 @@
  * @property {string | null} channel
  * @property {boolean} sensitive Sent with `sensitive: true`; its push and the
  *   notification the page shows for it name only the app.
- * @property {number} createdAt Milliseconds since the epoch.
+ * @property {number} createdAt Milliseconds since the epoch. For a replacement,
+ *   when it was replaced.
+ * @property {boolean} replaced It replaced an earlier notification in its
+ *   `group` and kept that one's uid.
  * @property {NotificationSender | null} app
  */
 
