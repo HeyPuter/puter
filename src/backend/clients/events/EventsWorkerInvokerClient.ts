@@ -123,11 +123,18 @@ export const EVENTS_INVOKE_TIMEOUT_MS = 30_000;
 
 /**
  * Connections held open to the dispatcher, so a busy fleet is not
- * re-handshaking. The 30s invoke abort starts when a request is queued, not
- * when it gets a connection, so a saturated pool shows up as timeouts.
+ * re-handshaking. Also how many calls one transport makes at once: a call past
+ * that waits for a free one before its invoke timeout starts.
  */
-const INVOKE_CONNECTIONS = 256;
+export const INVOKE_CONNECTIONS = 256;
 const INVOKE_KEEP_ALIVE_MS = 30_000;
+
+/**
+ * A call waits at most this share of its invoke timeout for a connection, so
+ * the wait and the run together stay inside the worker lease (twice the
+ * timeout). Past it the call fails as Puter's, not the handler's.
+ */
+const CONNECTION_WAIT_SHARE = 0.5;
 
 /** One invocation, as the events service hands it over. */
 export interface WorkerInvokeRequest {
@@ -327,6 +334,10 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
     readonly #secret: string;
     readonly #fetchImpl: typeof undiciFetch;
     #agent: Agent | null = null;
+    /** Calls holding a connection slot. */
+    #active = 0;
+    /** Calls waiting for one, longest-waiting first. */
+    readonly #waiting = new Set<() => void>();
 
     constructor(
         dispatcherUrl: string,
@@ -344,6 +355,13 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
     }
 
     async send(call: EventsInvokeCall): Promise<EventsInvokeAnswer> {
+        // No `timedOut`: the handler never got this call, so the wait is not
+        // its failure.
+        if (!(await this.#acquire(call.timeoutMs * CONNECTION_WAIT_SHARE)))
+            return {
+                status: null,
+                error: 'no free connection to the events dispatcher',
+            };
         try {
             // `new URL(path, base)` resolves an absolute path against the
             // base's origin, dropping any path prefix `base` already carries.
@@ -381,7 +399,40 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
             return answerFrom(response);
         } catch (err) {
             return failedAnswer(err);
+        } finally {
+            this.#release();
         }
+    }
+
+    /** A connection slot, or false once `waitMs` passes without one. */
+    #acquire(waitMs: number): Promise<boolean> {
+        if (this.#active < INVOKE_CONNECTIONS) {
+            this.#active++;
+            return Promise.resolve(true);
+        }
+        return new Promise((resolve) => {
+            const granted = () => {
+                clearTimeout(timer);
+                resolve(true);
+            };
+            const timer = setTimeout(() => {
+                this.#waiting.delete(granted);
+                resolve(false);
+            }, waitMs);
+            timer.unref?.();
+            this.#waiting.add(granted);
+        });
+    }
+
+    /** Hand the slot to the longest waiter, or give it back. */
+    #release(): void {
+        const next = this.#waiting.values().next().value;
+        if (next) {
+            this.#waiting.delete(next);
+            next();
+            return;
+        }
+        this.#active--;
     }
 
     /** One pool per process, built on first use and closed with the server. */
