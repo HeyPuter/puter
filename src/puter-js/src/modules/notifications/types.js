@@ -48,7 +48,10 @@
  * @property {string | null} channel
  * @property {boolean} sensitive Sent with `sensitive: true`; its push and the
  *   notification the page shows for it name only the app.
- * @property {number} createdAt Milliseconds since the epoch.
+ * @property {number} createdAt Milliseconds since the epoch. For a replacement,
+ *   when it was replaced.
+ * @property {boolean} replaced It replaced an earlier notification in its
+ *   `group` and kept that one's uid.
  * @property {NotificationSender | null} app
  */
 

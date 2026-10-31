@@ -41,7 +41,7 @@ Each item is a notification event:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `id` | String | The notification's uid. Live deliveries carry the same id, so you can drop duplicates. |
+| `id` | String | The notification's uid. Live deliveries carry the same id, so you can drop duplicates. A replacement keeps the id, so tell it apart by `replaced` and `ts`. |
 | `subject` | String | `notif:<appId or userId>:<audience>`: the part of the mailbox it belongs to. |
 | `op` | String | Always `post`. |
 | `uid` | String | The notification's uid. |
@@ -49,8 +49,9 @@ Each item is a notification event:
 | `audience` | String | `account`, `developer`, or `app-user`. |
 | `appUid` | String \| null | The app it's about, or `null` for platform notifications. |
 | `notification` | Object | The stored payload. It always has `type`, and every type except `kv.share.received` has a `title`. Other fields depend on `type` (below). |
+| `replaced` | Boolean | Present and `true` when the notification replaced an earlier one with the same `uid`, as an app's notification with a [`group`](/Notifications/notify/#groups) does. |
 | `self` | Boolean | Always `true`: a mailbox is your own. |
-| `ts` | Number | When it was created, in milliseconds since the epoch. |
+| `ts` | Number | When it was created, in milliseconds since the epoch. On a replacement, when it was replaced, and the same on its live and fetched copies. |
 | `seq` | Number | Position within the page. |
 
 Besides `type` and `title`, `notification` carries:

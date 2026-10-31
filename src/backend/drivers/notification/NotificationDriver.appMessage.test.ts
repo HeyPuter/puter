@@ -711,8 +711,14 @@ describe('app.message with the events fold-in on', () => {
                 appUid: app.uid,
                 audience: 'app-user',
                 value: expect.objectContaining({ title: 'Again' }),
+                replaced: true,
             }),
         ]);
+        const row = await state.server.stores.notification.getByUid(
+            first.uid as string,
+            { userId: holder.user.id, primary: true },
+        );
+        expect(Number(row.replaced_at)).toBe(created[0].createdAt);
     });
 
     it('limits each app per user per day, without spending the minute', async () => {

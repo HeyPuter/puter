@@ -50,7 +50,7 @@ It rejects with an error carrying `message` and `code`:
 
 A notification with a `group` replaces your app's earlier notification to the same user with the same `group`, as long as that one is still unread. Unread means it wasn't marked read or dismissed. The replacement keeps the earlier notification's `uid` and gets the new content and time. Without a `group`, or when the earlier one was read or dismissed, the call creates a new notification.
 
-A listener added with [`onNotification()`](/Notifications/onNotification/) gets each `uid` once, so it isn't called again for the replacement of a notification it already got. Reading with [`puter.events.fetch()`](/Events/fetch/) returns the replacement's content.
+A listener added with [`onNotification()`](/Notifications/onNotification/) gets the replacement too, with the same `uid` and `replaced: true`.
 
 The notification limits count notifications written. A replacement counts against the 30 a minute but not the 1,000 a day. The push limits count only pushes sent, so a notification that isn't pushed doesn't count against them. A replacement that goes out as a push counts like any other push.
 

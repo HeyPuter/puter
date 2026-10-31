@@ -266,6 +266,7 @@ export class NotificationStore extends PuterStore {
             audience,
             type,
             group_key: key,
+            replaced_at: null,
         });
     }
 
@@ -284,29 +285,32 @@ export class NotificationStore extends PuterStore {
      * with it, so changed wording goes out again on their next connect —
      * `#sendUnreads` only carries what was never shown.
      *
-     * `onlyUnseen` also skips a row already shown, and `refreshCreatedAt` dates
-     * the row to now.
+     * `onlyUnseen` also skips a row already shown. `replacedAt`, in epoch ms,
+     * records the rewrite as a replacement and dates the row to it.
      *
      * False when no such row exists, so callers can fall back to a fresh
      * notification instead of dropping what they were reporting.
      *
      * @param {string} uid @param {number} userId @param {unknown} value
-     * @param {{ onlyUnseen?: boolean; refreshCreatedAt?: boolean }} [opts]
+     * @param {{ onlyUnseen?: boolean; replacedAt?: number }} [opts]
      */
     async updateValue(
         uid,
         userId,
         value,
-        { onlyUnseen = false, refreshCreatedAt = false } = {},
+        { onlyUnseen = false, replacedAt = undefined } = {},
     ) {
         const db = this.clients.db;
         const serialized =
             typeof value === 'string' ? value : JSON.stringify(value ?? {});
         const set = ['`value` = ?', '`shown` = NULL'];
         const params = [serialized];
-        if (refreshCreatedAt) {
-            set.push(`\`created_at\` = ${db.timestampFromUnixSql()}`);
-            params.push(Math.floor(Date.now() / 1000));
+        if (replacedAt !== undefined) {
+            set.push(
+                `\`created_at\` = ${db.timestampFromUnixSql()}`,
+                '`replaced_at` = ?',
+            );
+            params.push(Math.floor(replacedAt / 1000), replacedAt);
         }
         const where = ['`uid` = ?', '`user_id` = ?', '`acknowledged` IS NULL'];
         if (onlyUnseen) where.push('`shown` IS NULL');

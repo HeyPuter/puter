@@ -164,15 +164,25 @@ export default suite('notifications', {
             const listener = await t.puter.notifications.onNotification((n) => {
                 seen.push(n);
             });
-            await listener.off();
-            const replaced = seen.filter((n) => n.uid === first);
-            t.assert.equal(
-                replaced.length,
-                1,
-                'one notification for the group',
-            );
-            t.assert.equal(replaced[0]?.title, 'Two');
-            t.assert.equal(replaced[0]?.text, 'Latest');
+            try {
+                const caught = seen.filter((n) => n.uid === first);
+                t.assert.equal(caught.length, 1, 'caught up once');
+                t.assert.equal(caught[0]?.title, 'Two');
+                t.assert.equal(caught[0]?.text, 'Latest');
+                t.assert.equal(caught[0]?.replaced, true);
+
+                await t.puter.notifications.notify({ title: 'Three', group });
+                const arrived = await waitFor(
+                    () => seen.some((n) => n.title === 'Three'),
+                    DELIVERY_TIMEOUT_MS,
+                );
+                t.assert.ok(arrived, 'a live replacement is handed over');
+                const live = seen.filter((n) => n.uid === first);
+                t.assert.equal(live.length, 2, 'once per replacement');
+                t.assert.equal(live[1]?.replaced, true);
+            } finally {
+                await listener.off();
+            }
         });
     },
 

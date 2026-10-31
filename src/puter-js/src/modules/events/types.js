@@ -72,7 +72,8 @@
  * the copy it already has.
  *
  * @typedef {Object} PuterNotifEvent
- * @property {string} id The notification's uid, and the dedup key.
+ * @property {string} id The notification's uid, and the dedup key together with
+ *   `ts` when `replaced` is set.
  * @property {string} subject `notif:<appId|userId>:<audience>`, naming the
  *   slice of the mailbox it belongs to.
  * @property {'post'} op Always `'post'` — the mailbox verbs (marking one read
@@ -87,8 +88,12 @@
  * @property {Record<string, unknown>} notification The stored payload: always
  *   `type`, a `title` on everything Puter sends, and fields that depend on
  *   `type`.
+ * @property {true} [replaced] Present when it replaced an earlier notification
+ *   under the same uid.
  * @property {boolean} self Always `true`: a mailbox is your own.
  * @property {number} ts When it was created, in milliseconds since the epoch.
+ *   On a replacement, when it was replaced, and the same on its live and
+ *   fetched copies.
  * @property {number} seq Position within one dispatch.
  */
 

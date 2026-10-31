@@ -461,18 +461,33 @@ describe('notifications with the fold-in on', () => {
         await waitFor(() => state.delivered.length === 2);
         await settle();
 
-        expect(state.delivered.map((d) => d.event)).toEqual([
+        const [first, second] = state.delivered.map((d) => d.event);
+        expect(first).toMatchObject({
+            id: uid,
+            notification: { title: 'one message', type: 'app.message' },
+        });
+        expect(first).not.toHaveProperty('replaced');
+        expect(second).toMatchObject({
+            id: uid,
+            notification: { title: 'two messages', type: 'app.message' },
+            replaced: true,
+        });
+        // An app's message never reaches the desktop wire.
+        expect(notifSends(state.sent)).toEqual([]);
+
+        // The fetched copy carries the same version as the live one.
+        const page = await state.server.services.events.fetchMissed(
+            appActor as never,
+            { subject: 'notif:app-user', limit: 50 },
+        );
+        expect(page.items).toEqual([
             expect.objectContaining({
                 id: uid,
-                notification: { title: 'one message', type: 'app.message' },
-            }),
-            expect.objectContaining({
-                id: uid,
+                replaced: true,
+                ts: (second as { ts: number }).ts,
                 notification: { title: 'two messages', type: 'app.message' },
             }),
         ]);
-        // An app's message never reaches the desktop wire.
-        expect(notifSends(state.sent)).toEqual([]);
 
         await state.server.services.events.reapSocket(user.id, 'socket-app');
     });

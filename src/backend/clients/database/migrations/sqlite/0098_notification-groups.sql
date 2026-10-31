@@ -15,12 +15,19 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- `notification`.`group_key`: a sha256 hex digest of an app message's
--- `group`, so the unseen notification a newer one replaces is found by index.
--- Null on every other row, and on rows written before this, which therefore
--- never match.
+-- What app message groups need from `notification`:
+--
+--   - `group_key`   : a sha256 hex digest of an app message's `group`, so the
+--                     notification a newer one replaces is found by index.
+--                     Null on every other row, and on rows written before
+--                     this, which therefore never match.
+--   - `replaced_at` : epoch milliseconds of the last replacement, null for a
+--                     row never replaced. Live and fetched copies carry it as
+--                     their version, so a client can tell a replacement from a
+--                     copy it already has.
 
 ALTER TABLE `notification` ADD COLUMN `group_key` TEXT DEFAULT NULL;
+ALTER TABLE `notification` ADD COLUMN `replaced_at` INTEGER DEFAULT NULL;
 
 CREATE INDEX IF NOT EXISTS `idx_notification_group`
     ON `notification` (`user_id`, `app_uid`, `group_key`);

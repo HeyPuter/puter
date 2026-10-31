@@ -558,6 +558,8 @@ export type EventMap = {
         appUid: string | null;
         value: Record<string, unknown>;
         createdAt: number;
+        /** An earlier notification replaced in place; `createdAt` is when. */
+        replaced?: true;
         /** Events handler runs behind whatever created it. */
         handlerDepth?: number;
     };

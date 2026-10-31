@@ -15,10 +15,12 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- notification.group_key. See sqlite/0098_notification-group-key.sql for the
--- rationale. Idempotent via IF NOT EXISTS.
+-- notification.group_key and replaced_at. See
+-- sqlite/0098_notification-groups.sql for the rationale. Idempotent via IF NOT
+-- EXISTS.
 
 ALTER TABLE notification ADD COLUMN IF NOT EXISTS group_key varchar(64) DEFAULT NULL;
+ALTER TABLE notification ADD COLUMN IF NOT EXISTS replaced_at bigint DEFAULT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_notification_group
     ON notification (user_id, app_uid, group_key);

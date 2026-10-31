@@ -210,7 +210,8 @@ export class NotificationService extends PuterService {
      * this way; the scope columns are the original row's and don't move.
      *
      * `replace` is a newer notification standing in for the old one: it takes
-     * only a row that was never shown, and dates it to now.
+     * only a row that was never shown, and records the replacement time, which
+     * live and fetched copies carry as their version.
      *
      * False when there was nothing to rewrite (dismissed in between), which is
      * the caller's signal to send a fresh one.
@@ -230,11 +231,12 @@ export class NotificationService extends PuterService {
             throw new Error(`notification type is not groupable: ${opts.type}`);
         }
         const payload = { ...notification, type: registered.type };
+        const replacedAt = opts.replace ? Date.now() : undefined;
         const updated = await this.stores.notification.updateValue(
             uid,
             userId,
             payload,
-            opts.replace ? { onlyUnseen: true, refreshCreatedAt: true } : {},
+            replacedAt === undefined ? {} : { onlyUnseen: true, replacedAt },
         );
         if (!updated) return false;
         if (opts.silent) return true;
@@ -270,11 +272,17 @@ export class NotificationService extends PuterService {
         // A type kept off the desktop has dispatch as its only live path, so
         // the rewrite goes out there again, under the same uid.
         if (!desktop) {
-            await this.#push(userId, uid, payload, {
-                type: registered.type,
-                audience: registered.audience,
-                appUid,
-            });
+            await this.#push(
+                userId,
+                uid,
+                payload,
+                {
+                    type: registered.type,
+                    audience: registered.audience,
+                    appUid,
+                },
+                replacedAt,
+            );
         }
         return true;
     }
@@ -394,13 +402,15 @@ export class NotificationService extends PuterService {
     /**
      * Publish one persisted notification. With the fold-in on, the events layer
      * owns the delivery and feeds the socket adapter; without it, the adapter
-     * pushes straight to the wire.
+     * pushes straight to the wire. `replacedAt` marks a replacement and is its
+     * time.
      */
     async #push(
         userId: number,
         uid: string,
         payload: Record<string, unknown>,
         scope: { type: string; audience: string; appUid: string | null },
+        replacedAt?: number,
     ): Promise<void> {
         const desktop = inAccountMailbox(scope.type);
         if (!notificationsFoldInEnabled(this.config)) {
@@ -433,7 +443,10 @@ export class NotificationService extends PuterService {
                 audience: scope.audience,
                 appUid: scope.appUid,
                 value: payload,
-                createdAt: Date.now(),
+                createdAt: replacedAt ?? Date.now(),
+                ...(replacedAt !== undefined
+                    ? { replaced: true as const }
+                    : {}),
                 ...(handlerDepth > 0 ? { handlerDepth } : {}),
             },
             {},

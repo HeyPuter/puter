@@ -34,6 +34,7 @@ export const toNotification = (event) => {
         channel: stringOrNull(value.channel),
         sensitive: value.sensitive === true,
         createdAt: typeof event.ts === 'number' ? event.ts : 0,
+        replaced: event.replaced === true,
         app: senderOf(value.app),
     };
 };

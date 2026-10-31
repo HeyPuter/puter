@@ -10,10 +10,23 @@ const MAX_PAGES = 100_000;
 // A read restarts at the last cursor: only its last page and later can repeat.
 const REMEMBERED = 5000;
 
-const remember = (set, uid, keep) => {
-    set.add(uid);
-    if (set.size > keep) set.delete(set.values().next().value);
+/** Notes `uid` at `version`, dropping the oldest entry past `keep`. */
+const remember = (versions, uid, version, keep) => {
+    versions.delete(uid);
+    versions.set(uid, version);
+    if (versions.size > keep) versions.delete(versions.keys().next().value);
 };
+
+/** Whether `uid` was already noted at `version` or later. */
+const known = (versions, uid, version) =>
+    versions.has(uid) && versions.get(uid) >= version;
+
+/**
+ * A replacement keeps its uid; its time, the same on live and fetched copies,
+ * tells it from a copy already handed over.
+ */
+const versionOf = (notification) =>
+    notification.replaced ? notification.createdAt : 0;
 
 const toSeconds = (ms) => Math.floor(ms / 1000);
 
@@ -37,7 +50,10 @@ const report = (error) => {
     console.error('[puter.notifications] notification handler failed', error);
 };
 
-/** A live subscription plus reads of what it missed, each uid handed over once. */
+/**
+ * A live subscription plus reads of what it missed, each uid handed over once
+ * per version.
+ */
 export class NotificationFeed {
     /** @type {import('../../../index.js').Puter} */
     #puter;
@@ -51,9 +67,14 @@ export class NotificationFeed {
     /** @type {(uid: string) => void} */
     #onReceived;
 
-    #seen = new Set();
-    /** What was already there when a listener started without catch-up. */
-    #baseline = new Set();
+    /** @type {Map<string, number>} uid → version handed over */
+    #seen = new Map();
+    /**
+     * What was already there when a listener started without catch-up.
+     *
+     * @type {Map<string, number>}
+     */
+    #baseline = new Map();
     /** @type {string | undefined} */
     #cursor;
     /** @type {Promise<void> | null} */
@@ -215,13 +236,14 @@ export class NotificationFeed {
         const notification = toNotification(event);
         if (!notification) return;
         const { uid } = notification;
+        const version = versionOf(notification);
         if (source === 'baseline') {
-            remember(this.#baseline, uid, REMEMBERED);
+            remember(this.#baseline, uid, version, REMEMBERED);
             return;
         }
-        if (this.#seen.has(uid)) return;
+        if (known(this.#seen, uid, version)) return;
         if (source === 'fetched') {
-            if (this.#baseline.has(uid)) return;
+            if (known(this.#baseline, uid, version)) return;
             if (
                 this.#since !== undefined &&
                 toSeconds(notification.createdAt) < toSeconds(this.#since)
@@ -232,6 +254,7 @@ export class NotificationFeed {
         remember(
             this.#seen,
             uid,
+            version,
             Math.max(REMEMBERED, PAGE_SIZE + this.#liveSinceRead),
         );
         try {

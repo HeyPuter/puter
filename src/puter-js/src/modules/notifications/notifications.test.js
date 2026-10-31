@@ -340,6 +340,7 @@ describe('onNotification', () => {
                 channel: 'messages',
                 sensitive: false,
                 createdAt: 1234,
+                replaced: false,
                 app: { uid: 'app-1', name: 'Chat' },
             },
         ]);
@@ -407,6 +408,108 @@ describe('onNotification', () => {
         events.state.push(event('n-3'));
 
         expect(seen).toEqual(['n-1', 'n-2', 'n-3']);
+    });
+
+    it('hands a replacement over again, once per version', async () => {
+        const events = makeEvents({
+            pages: [
+                { items: [] },
+                {
+                    items: [
+                        event(
+                            'n-1',
+                            { title: 'two' },
+                            { replaced: true, ts: 2_000 },
+                        ),
+                    ],
+                },
+            ],
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+        await notifications.onNotification((n) =>
+            seen.push([n.uid, n.title, n.replaced, n.createdAt]),
+        );
+
+        const replacement = event(
+            'n-1',
+            { title: 'two' },
+            { replaced: true, ts: 2_000 },
+        );
+        events.state.push(event('n-1', { title: 'one' }));
+        events.state.push(replacement);
+        events.state.push(replacement);
+        events.state.push(event('n-1', { title: 'one' }));
+        events.state.push(
+            event('n-1', { title: 'stale' }, { replaced: true, ts: 1_500 }),
+        );
+        // The fetched copy of the same replacement, after a reconnect.
+        events.state.push({ op: 'gap', reason: 'reconnect' });
+        await flush();
+        events.state.push(
+            event('n-1', { title: 'three' }, { replaced: true, ts: 3_000 }),
+        );
+
+        expect(seen).toEqual([
+            ['n-1', 'one', false, 1_000],
+            ['n-1', 'two', true, 2_000],
+            ['n-1', 'three', true, 3_000],
+        ]);
+    });
+
+    it('hands a replacement over once when it arrives both ways', async () => {
+        let release;
+        const gate = new Promise((resolve) => {
+            release = resolve;
+        });
+        const replacement = event(
+            'n-1',
+            { title: 'two' },
+            { replaced: true, ts: 2_000 },
+        );
+        const events = makeEvents();
+        events.fetch = vi.fn(async () => {
+            await gate;
+            return { items: [replacement] };
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+
+        const started = notifications.onNotification((n) =>
+            seen.push([n.uid, n.replaced]),
+        );
+        await flush();
+        events.state.push(replacement);
+        release();
+        await started;
+
+        expect(seen).toEqual([['n-1', true]]);
+    });
+
+    it('with catchUp: false, hands over a replacement of what was there', async () => {
+        const events = makeEvents({
+            pages: [
+                { items: [event('n-1')] },
+                {
+                    items: [
+                        event(
+                            'n-1',
+                            { title: 'two' },
+                            { replaced: true, ts: 2_000 },
+                        ),
+                    ],
+                },
+            ],
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+        await notifications.onNotification((n) => seen.push([n.uid, n.title]), {
+            catchUp: false,
+        });
+        events.state.push({ op: 'gap', reason: 'reconnect' });
+        await flush();
+
+        expect(seen).toEqual([['n-1', 'two']]);
     });
 
     it('reads what it missed after a reconnect, from the last cursor', async () => {

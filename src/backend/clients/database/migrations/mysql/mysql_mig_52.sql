@@ -15,12 +15,13 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- `notification`.`group_key`. See sqlite/0098_notification-group-key.sql
--- for the rationale. A hex digest, so ascii and compared byte for byte. No
--- per-file applied-state tracking, so every step is guarded and a replay does
--- nothing.
+-- `notification`.`group_key` and `replaced_at`. See
+-- sqlite/0098_notification-groups.sql for the rationale. The key is a hex
+-- digest, so ascii and compared byte for byte. No per-file applied-state
+-- tracking, so every step is guarded and a replay does nothing.
 
 CALL _puter_add_col('notification', 'group_key', '`group_key` char(64) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL');
+CALL _puter_add_col('notification', 'replaced_at', '`replaced_at` bigint DEFAULT NULL');
 
 DROP PROCEDURE IF EXISTS _puter_add_notification_group_index;
 DELIMITER //

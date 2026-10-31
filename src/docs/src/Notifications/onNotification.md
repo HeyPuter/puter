@@ -4,7 +4,7 @@ description: Receive your app's notifications while it's open, including the one
 platforms: [websites, apps]
 ---
 
-Calls `handler` for each of your app's notifications while the app is open. It first hands over the notifications your app already has, oldest first, then each new one as it's sent. If the connection drops, the ones sent meanwhile are read back when it returns. Each notification reaches a listener once, however it arrived. A notification [replaced through its `group`](/Notifications/notify/#groups) keeps its `uid`, so a listener isn't called again for the replacement.
+Calls `handler` for each of your app's notifications while the app is open. It first hands over the notifications your app already has, oldest first, then each new one as it's sent. If the connection drops, the ones sent meanwhile are read back when it returns. Each notification reaches a listener once, however it arrived. A notification [replaced through its `group`](/Notifications/notify/#groups) keeps its `uid` and reaches the listener again, once, with the new content and `replaced: true`.
 
 It only receives notifications your app sent, never the user's other notifications. It needs to run as an app (an app on Puter, or a website using Puter.js); with an account session and no app, such as the Puter desktop itself or Node.js with an account token, it rejects with `app_required`.
 
@@ -21,7 +21,7 @@ puter.notifications.onNotification(handler, options)
 #### `handler` (Function) (required)
 Called with one notification:
 
-- `uid` (String): The notification's id. Use it to skip ones you already handled.
+- `uid` (String): The notification's id. A replacement has the same `uid` as the notification it replaced.
 - `title` (String)
 - `text` (String | null)
 - `icon` (String | null)
@@ -29,7 +29,8 @@ Called with one notification:
 - `data` (any): `null` when it was sent without one.
 - `group` (String | null)
 - `channel` (String | null)
-- `createdAt` (Number): When it was sent, in milliseconds since the epoch.
+- `createdAt` (Number): When it was sent, in milliseconds since the epoch. For a replacement, when it was replaced.
+- `replaced` (Boolean): `true` when it replaced an earlier notification with the same `uid` and `group`. Show it in place of the one you already have for that `uid`.
 - `app` (Object | null): The app that sent it, as `{ uid, name, icon }`.
 
 A handler that throws is logged to the console; the listener keeps going.

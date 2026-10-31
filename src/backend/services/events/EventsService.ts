@@ -592,6 +592,8 @@ export interface NotifDispatchInput {
     appUid: string | null;
     value: Record<string, unknown>;
     createdAt: number;
+    /** An earlier notification replaced in place; `createdAt` is when. */
+    replaced?: true;
     /** Handler runs behind whatever created it; see `Actor.handlerDepth`. */
     handlerDepth?: number;
 }
@@ -3738,6 +3740,7 @@ export class EventsService extends PuterService {
                 'account') as NotifEventContext['audience'],
             appUid: input.appUid ?? null,
             notification: input.value ?? {},
+            ...(input.replaced === true ? { replaced: true as const } : {}),
             id: input.uid,
             ts: input.createdAt || Date.now(),
             handlerDepth: input.handlerDepth,

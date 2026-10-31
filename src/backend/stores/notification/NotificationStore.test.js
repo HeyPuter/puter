@@ -447,7 +447,7 @@ describe('NotificationStore', () => {
         );
     });
 
-    it('rewrites only an unseen row when asked to, and dates it to now', async () => {
+    it('rewrites only an unseen row when asked to, and dates a replacement', async () => {
         const u = await makeUser();
         const n = await store.create({ userId: u.id, value: { v: 1 } });
         const old = '2020-01-01 00:00:00';
@@ -464,16 +464,18 @@ describe('NotificationStore', () => {
         expect(await store.updateValue(n.uid, u.id, { v: 2 })).toBe(true);
         expect(await createdAt()).toBe(before);
 
+        const replacedAt = Date.now();
         expect(
             await store.updateValue(
                 n.uid,
                 u.id,
                 { v: 3 },
-                { onlyUnseen: true, refreshCreatedAt: true },
+                { onlyUnseen: true, replacedAt },
             ),
         ).toBe(true);
         const row = await store.getByUid(n.uid, { userId: u.id });
         expect(row.value).toEqual({ v: 3 });
+        expect(Number(row.replaced_at)).toBe(replacedAt);
         expect(await createdAt()).toBeGreaterThan(before);
 
         await store.markShown(n.uid, u.id);
