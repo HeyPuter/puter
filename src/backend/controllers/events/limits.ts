@@ -98,11 +98,12 @@ export const EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET = 50;
  * minted for them, across all of their connections.
  *
  * Those rows sit in the owner's keyspace, where each one costs a filter
- * evaluation on the owner's writes, so opening more connections must not let
- * the holder add them without bound. The owner's own rows through the handle
- * don't count.
+ * evaluation on the owner's writes. The count also takes in connections that
+ * dropped and haven't been reaped yet, so the cap sits far above what
+ * reconnects leave behind. The owner's own rows through the handle don't
+ * count.
  */
-export const EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE = 100;
+export const EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE = 1000;
 
 /**
  * Durable subscriptions one account may hold, across every app.

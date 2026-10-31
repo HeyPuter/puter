@@ -4344,10 +4344,20 @@ export class EventsService extends PuterService {
         userId: number;
     }): Promise<number> {
         if (!this.enabled || retired.handles.length === 0) return 0;
-        const sessions = await this.#endKvHandleSessions(
-            retired.userId,
-            retired.handles,
-        );
+        // The durable settle below must run whatever happens here: those rows
+        // keep a backlog the retire has to purge.
+        let sessions = 0;
+        try {
+            sessions = await this.#endKvHandleSessions(
+                retired.userId,
+                retired.handles,
+            );
+        } catch (err) {
+            console.warn(
+                '[events] could not end a retired handle`s session subscriptions',
+                err,
+            );
+        }
 
         const held = await this.stores.durableSubscription.listActiveForHolder(
             retired.userId,
