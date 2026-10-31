@@ -222,7 +222,7 @@ describe('NotificationDriver.create', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('rejects an app-actor with 403', async () => {
+    it('rejects an app creating anything but an app message with 403', async () => {
         const { actor } = await makeUser();
         const appActor = makeActor({
             user: actor.user,
@@ -237,7 +237,7 @@ describe('NotificationDriver.create', () => {
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
-    it('rejects a token an app issued with 403', async () => {
+    it('rejects a token an app issued creating another type with 403', async () => {
         const { actor } = await makeUser();
         const issued = asIssuedToken(
             actor,
@@ -687,6 +687,16 @@ describe('NotificationDriver — read per token type', () => {
         for (const uid of Object.values(box.rows)) {
             expect(await readUid(box.holder.actor, uid)).toMatchObject({ uid });
         }
+    });
+
+    it('returns the app a row is about, and null for a row naming none', async () => {
+        const box = await mailbox();
+        expect(await readUid(box.holder.actor, box.rows.appUser)).toMatchObject(
+            { app_uid: box.ownApp.uid },
+        );
+        expect(await readUid(box.holder.actor, box.rows.account)).toMatchObject(
+            { app_uid: null },
+        );
     });
 
     it('an app reads only what it is the subject of', async () => {

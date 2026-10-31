@@ -9,6 +9,7 @@ vi.mock('./epoxy.js', () => ({
 
 const {
     clearEpoxyClientCache,
+    discardOnRelayFailure,
     generateWispV1URL,
     getEpoxyClient,
     getWispCredentials,
@@ -184,6 +185,7 @@ describe('getEpoxyClient', () => {
         expect(mockInitEpoxy).toHaveBeenCalledWith({
             wispToken: CREDENTIALS.token,
             wispServer: CREDENTIALS.server,
+            transport: expect.objectContaining({ down: false, closed: false }),
         });
     });
 
@@ -208,13 +210,6 @@ describe('getEpoxyClient', () => {
         await getEpoxyClient();
         globalThis.puter.APIOrigin = 'https://other.test';
         await getEpoxyClient();
-
-        expect(mockInitEpoxy).toHaveBeenCalledTimes(2);
-    });
-
-    it('rebuilds the client when a refresh is requested', async () => {
-        await getEpoxyClient();
-        await getEpoxyClient({ refresh: true });
 
         expect(mockInitEpoxy).toHaveBeenCalledTimes(2);
     });
@@ -283,21 +278,6 @@ describe('getEpoxyClient', () => {
         expect(retried).toEqual({ client: 'epoxy' });
     });
 
-    // A refresh exists to replace what is cached, so it must not be answered
-    // with the very attempt the caller is trying to supersede.
-    it('honours a refresh requested while an init is still in flight', async () => {
-        const gate = deferred();
-        mockInitEpoxy.mockImplementationOnce(() => gate.promise);
-
-        const stale = getEpoxyClient();
-        const fresh = getEpoxyClient({ refresh: true });
-        gate.resolve({ client: 'stale' });
-
-        expect(await stale).toEqual({ client: 'stale' });
-        expect(await fresh).toEqual({ client: 'epoxy' });
-        expect(mockInitEpoxy).toHaveBeenCalledTimes(2);
-    });
-
     it('starts a separate attempt when the token changes mid-init', async () => {
         const gate = deferred();
         mockInitEpoxy.mockImplementationOnce(() => gate.promise);
@@ -310,6 +290,101 @@ describe('getEpoxyClient', () => {
         expect(await first).toEqual({ client: 'first' });
         expect(await second).toEqual({ client: 'epoxy' });
         expect(mockInitEpoxy).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('discardOnRelayFailure', () => {
+    const transports = new Map();
+    const transportOf = (client) => transports.get(client);
+
+    beforeEach(() => {
+        transports.clear();
+        mockInitEpoxy.mockImplementation(async ({ transport }) => {
+            const client = { client: 'epoxy' };
+            transports.set(client, transport);
+            return client;
+        });
+    });
+
+    it.each([
+        'connection refused',
+        'IO: tls handshake eof',
+        'Invalid DNS name: down.invalid',
+        'Hyper: connection closed before message completed',
+        'TLS: invalid peer certificate: UnknownIssuer',
+    ])(
+        'keeps the shared client after a stream failure (%s)',
+        async (message) => {
+            const client = await getEpoxyClient();
+
+            expect(discardOnRelayFailure(client, new Error(message))).toBe(
+                false,
+            );
+            expect(await getEpoxyClient()).toBe(client);
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it.each([
+        'Wisp: Multiplexor task ended',
+        'IO: Failed to send multiplexor message',
+        'Wisp: Websocket implementation error: websocket closed',
+        'Wisp: Handshake timed out',
+        'Wisp: Password protocol extension: Invalid username/password',
+        'Wisp: Incompatible Wisp protocol version: found 1.0 but needed 2.0',
+    ])('drops the client on a relay failure (%s)', async (message) => {
+        const client = await getEpoxyClient();
+
+        expect(discardOnRelayFailure(client, new Error(message))).toBe(true);
+        expect(await getEpoxyClient()).not.toBe(client);
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('treats any failure as a relay failure once the relay websocket is down', async () => {
+        const client = await getEpoxyClient();
+        transportOf(client).down = true;
+
+        expect(
+            discardOnRelayFailure(client, new Error('connection reset')),
+        ).toBe(true);
+    });
+
+    it("closes the dropped client's websockets and stops it redialling", async () => {
+        const client = await getEpoxyClient();
+        const transport = transportOf(client);
+        const ws = { close: vi.fn() };
+        transport.sockets.add(ws);
+
+        discardOnRelayFailure(
+            client,
+            new Error('Wisp: Multiplexor task ended'),
+        );
+
+        expect(ws.close).toHaveBeenCalledTimes(1);
+        expect(transport.closed).toBe(true);
+        expect(transport.sockets.size).toBe(0);
+    });
+
+    it('leaves a newer cached client alone when a stale one fails', async () => {
+        const stale = await getEpoxyClient();
+        discardOnRelayFailure(stale, new Error('Wisp: Multiplexor task ended'));
+        const fresh = await getEpoxyClient();
+
+        expect(
+            discardOnRelayFailure(
+                stale,
+                new Error('Wisp: Multiplexor task ended'),
+            ),
+        ).toBe(true);
+        expect(await getEpoxyClient()).toBe(fresh);
+        expect(transportOf(fresh).closed).toBe(false);
+    });
+
+    it('ignores a missing or unknown client', () => {
+        const error = new Error('Wisp: Multiplexor task ended');
+
+        expect(discardOnRelayFailure(undefined, error)).toBe(false);
+        expect(discardOnRelayFailure({}, error)).toBe(false);
     });
 });
 
@@ -349,6 +424,51 @@ describe('failure reporting through a real socket', () => {
         expect(reason).toBeInstanceOf(Error);
         expect(reason.message).toBe('wasm unavailable');
         expect(events.close).toHaveBeenCalledWith(true);
+    });
+
+    it('reports a refused port without building a second client', async () => {
+        mockInitEpoxy.mockImplementation(async () => ({
+            connect: async () => {
+                throw new Error('connection refused');
+            },
+        }));
+
+        const first = listen();
+        await closed(first);
+        const second = listen();
+        await closed(second);
+
+        expect(first.error.mock.calls[0][0].message).toBe('connection refused');
+        expect(mockInitEpoxy).toHaveBeenCalledTimes(1);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('moves to a new client when the relay connection died', async () => {
+        const stream = {
+            read: new ReadableStream(),
+            write: new WritableStream(),
+        };
+        const dead = {
+            connect: vi.fn(async () => {
+                throw new Error('Wisp: Multiplexor task ended');
+            }),
+        };
+        const fresh = { connect: vi.fn(async () => stream) };
+        mockInitEpoxy.mockResolvedValueOnce(dead).mockResolvedValueOnce(fresh);
+
+        const socket = new netAPI.Socket('example.com', 80);
+        const open = vi.fn();
+        const error = vi.fn();
+        socket.on('open', open);
+        socket.on('error', error);
+        await vi.waitFor(() => expect(open).toHaveBeenCalled(), {
+            interval: 1,
+        });
+
+        expect(fresh.connect).toHaveBeenCalledWith('example.com', 80);
+        expect(error).not.toHaveBeenCalled();
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        socket.close();
     });
 
     it('reports why the relay refused to mint a token', async () => {

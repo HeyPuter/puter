@@ -3510,6 +3510,12 @@ label {
     height: 35px;
 }
 
+.notification-sender {
+    font-size: 11px;
+    opacity: 0.7;
+    margin-bottom: 2px;
+}
+
 .notification-title {
     font-size: 12px;
     font-weight: 600;
@@ -6545,6 +6551,13 @@ html.dark-mode .usage-table-fade-overlay {
     margin: 8px 0 0;
 }
 
+.perm-dialog-push-note {
+    text-align: center;
+    font-size: 13px;
+    color: #8a8a96;
+    margin: 10px 0 0;
+}
+
 .perm-dialog-actions {
     display: flex;
     flex-direction: column;
@@ -6679,7 +6692,8 @@ html.dark-mode .usage-table-fade-overlay {
     }
 
     .perm-dialog-entity-origin,
-    .perm-dialog-footnote {
+    .perm-dialog-footnote,
+    .perm-dialog-push-note {
         color: #9a9aa0;
     }
 

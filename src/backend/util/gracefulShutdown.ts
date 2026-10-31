@@ -21,7 +21,7 @@ import { shutdownTelemetry } from './telemetryShutdown.js';
 
 /** What a graceful shutdown drives; `PuterServer` satisfies it. */
 export interface ShutdownTarget {
-    prepareShutdown(): Promise<void>;
+    prepareShutdown(info?: { drainMs?: number }): Promise<void>;
     shutdown(): Promise<void>;
 }
 
@@ -80,7 +80,7 @@ export const createGracefulShutdown = (
         }, drain + hardLimitMs);
         let exitCode = 0;
         try {
-            await target.prepareShutdown();
+            await target.prepareShutdown({ drainMs: drain });
         } catch (err) {
             console.error('[shutdown] prepareShutdown failed', err);
         }

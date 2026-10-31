@@ -700,7 +700,6 @@ describe('binding a subscription to a handler', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
         });
 
         expect(created.status).toBe(200);
@@ -712,7 +711,6 @@ describe('binding a subscription to a handler', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
         });
 
         expect(refused.status).toBe(404);
@@ -728,7 +726,6 @@ describe('binding a subscription to a handler', () => {
             delivery: 'single',
             handlerName: 'ingestUpload',
             handlerHash: hash,
-            targets: ['worker'],
         });
 
         expect(created.status).toBe(200);
@@ -742,7 +739,6 @@ describe('binding a subscription to a handler', () => {
             delivery: 'single',
             handlerName: 'ingestUpload',
             handlerHash: hashContent(NEXT_SOURCE),
-            targets: ['worker'],
         });
 
         expect(refused.status).toBe(409);
@@ -754,7 +750,6 @@ describe('binding a subscription to a handler', () => {
         const refused = await subscribe(appToken, {
             subject: `fs:${anchor}`,
             delivery: 'single',
-            targets: ['worker'],
         });
 
         expect(refused.status).toBe(400);
@@ -769,7 +764,6 @@ describe('the handler lifecycle', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
         });
         expect(created.status).toBe(200);
         return String(created.body.subId);
@@ -1070,7 +1064,6 @@ describe('the context a subscription carries', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
             context: { url: 'https://ingest.example/secret-token', retries: 3 },
         });
         expect(created.status).toBe(200);
@@ -1087,7 +1080,6 @@ describe('the context a subscription carries', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
         });
 
         const [listed] = await listSubscriptions(appToken);
@@ -1101,7 +1093,6 @@ describe('the context a subscription carries', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
             context: { blob: 'x'.repeat(5000) },
         });
 
@@ -1116,14 +1107,12 @@ describe('the context a subscription carries', () => {
             subject: `fs:${anchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
             context: { url: 'https://mine.example' },
         });
         const theirs = await subscribe(otherAppToken, {
             subject: `fs:${otherAnchor}`,
             delivery: 'single',
             handlerName: 'ingestUpload',
-            targets: ['worker'],
             context: { url: 'https://theirs.example' },
         });
         expect(mine.status).toBe(200);

@@ -44,6 +44,19 @@ export type {
     ListTTSEnginesOptions,
     ListTTSVoicesOptions,
     OcrAnnotationFormat,
+    ConvoOptions,
+    ConvoTextEvent,
+    ConvoAudioEvent,
+    ConvoTranscriptEvent,
+    ConvoInterruptedEvent,
+    ConvoTurnDoneEvent,
+    ConvoErrorEvent,
+    ConvoEventMap,
+    ConvoSessionOptions,
+    ConvoPlaybackPosition,
+    ConvoSpeakerOptions,
+    RealtimeServerEvent,
+    RealtimeClientEvent,
     Speech2SpeechOptions,
     Speech2TxtOptions,
     Speech2TxtResult,
@@ -219,6 +232,22 @@ export type {
 export type { Networking, SocketEvent } from './types/modules/networking/types.js';
 export type { PSocket, PTLSSocket } from './types/modules/networking/PSocket.js';
 
+// -- puter.notifications --
+export type {
+    AppNotification,
+    NotificationClick,
+    NotificationHandler,
+    NotificationInput,
+    NotificationListener,
+    NotificationSender,
+    OnNotificationOptions,
+    OnPushOptions,
+    PushDevice,
+    PushHandler,
+    PushPlatform,
+    PushShown,
+} from './types/modules/notifications/types.js';
+
 // -- puter.os --
 
 // -- puter.peer --
@@ -335,9 +364,13 @@ export type Events = InstanceType<import('./types/modules/events/index.js').Even
 export type FS = InstanceType<import('./types/modules/FileSystem/index.js').FSConstructor>;
 export type Hosting = InstanceType<import('./types/modules/hosting/index.js').HostingConstructor>;
 export type KV = InstanceType<import('./types/modules/kv/index.js').KVConstructor>;
+export type Notifications = InstanceType<import('./types/modules/notifications/index.js').NotificationsConstructor>;
 export type OS = InstanceType<import('./types/modules/os/index.js').OSConstructor>;
 export type Peer = InstanceType<import('./types/modules/Peer/index.js').PeerConstructor>;
 export type Perms = InstanceType<import('./types/modules/perms/index.js').PermsConstructor>;
 export type Teams = InstanceType<import('./types/modules/teams/index.js').TeamsConstructor>;
 export type UI = InstanceType<import('./types/modules/UI.js').UIConstructor>;
 export type WorkersHandler = InstanceType<import('./types/modules/Workers.js').WorkersConstructor>;
+
+export type { Conversation, ConvoError } from './types/modules/ai/convo.js';
+export type { ConvoMicrophone, ConvoSpeaker } from './types/modules/ai/convoMedia.js';

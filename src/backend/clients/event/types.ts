@@ -75,6 +75,15 @@ export type EventMap = {
     serverStart: Record<string, never>;
     serverPrepareShutdown: Record<string, never>;
     serverShutdown: Record<string, never>;
+    /**
+     * Emitted by a host extension that knows this server will restart soon.
+     * Long-lived connections ask their clients to reconnect; nothing is refused
+     * or closed, so a false alarm is harmless.
+     */
+    serverRestartAnnounced: {
+        /** How long until the server stops, when known. */
+        closeInMs?: number;
+    };
 
     // ---- AI ----
     'ai.prompt.validate': {
@@ -553,6 +562,23 @@ export type EventMap = {
         handlerDepth?: number;
     };
     /**
+     * Every non-silent write or update, only on the node that wrote it. The
+     * value is the listener's own copy of what the socket carries.
+     */
+    'notif.written': {
+        userId: number;
+        uid: string;
+        type: string;
+        audience: string;
+        /** The row's app; null when it names none or an update could not tell. */
+        appUid: string | null;
+        value: Record<string, unknown>;
+        /** An earlier notification rewritten in place. */
+        updated?: true;
+        /** Names this one send, for a receipt asked about it. */
+        sendId: string;
+    };
+    /**
      * One notification, addressed at whatever sockets each region holds for the
      * recipient. `outer.*` reaches peer regions and never sibling nodes, so
      * every region applies it exactly once — which is what keeps a socket from
@@ -562,6 +588,28 @@ export type EventMap = {
         userId: number;
         wire: 'notif.message' | 'notif.unreads' | 'notif.ack';
         response: unknown;
+    };
+    /**
+     * How one live notification went, on the node that asked for its receipt:
+     * from the desktop's sockets, or with `appUid` the app's own.
+     */
+    'notif.delivery.settled': {
+        sendId?: string;
+        uid: string;
+        userId: number;
+        type: string;
+        /** The app whose own sockets were asked; absent for the desktop's. */
+        appUid?: string;
+        outcome: NotifDeliveryOutcome;
+        /** A socket in this region acknowledges the receipt. */
+        ackCapable: boolean;
+        /** No socket here is an older client that acknowledges nothing. */
+        everySocketAcks: boolean;
+        /** Every node here answered the ask, not just this one. */
+        complete: boolean;
+        /** A peer region holds a socket for the user. */
+        peerRegions: boolean;
+        responders: NotifDeliveryResponder[];
     };
 
     // ---- Metering ----
@@ -711,7 +759,7 @@ export type EventMap = {
     // ---- Subdomains ----
     // `uid` is the row uuid — for `delete` it is the only surviving handle a
     // listener can use to find state keyed to the row after it is gone.
-    'subdomain.delete': { subdomain: string; uid?: string };
+    'subdomain.delete': { subdomain: string; uid?: string; userId: number };
     'subdomain.update': { subdomain: string; uid?: string };
     'site.htmlServed': {
         subdomain: string;
@@ -981,6 +1029,22 @@ export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
 export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
     ? Extract<EventKey, `${Prefix}.${string}`>
     : P & EventKey;
+
+/** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
+export type NotifDeliveryOutcome =
+    'received' | 'unreceived' | 'no-socket' | 'remote-only';
+
+/** One socket's receipt for a live notification. */
+export interface NotifDeliveryResponder {
+    visibilityState: 'visible' | 'hidden' | 'unknown';
+    /** The page's window has focus. Absent from older clients. */
+    focused?: boolean;
+    /**
+     * The page shows its own browser notification while hidden or unfocused.
+     * Absent from older clients.
+     */
+    showsOwn?: boolean;
+}
 
 export type EventMetadata = {
     from_outside?: boolean;

@@ -591,6 +591,28 @@ describe('notifications with the fold-in off', () => {
         expect(dispatched).toEqual([]);
         expect(state.delivered).toEqual([]);
         state.server.clients.event.off?.(NOTIF_DELIVERY_EVENT, handler);
+
+        // The peer region still gets the GUI event and sends its own copy.
+        await waitFor(() =>
+            forwarded().some(
+                (event) =>
+                    event.key === 'outer.gui.notif.message' &&
+                    (event.data as { user_id_list?: number[] })
+                        .user_id_list?.[0] === user.id,
+            ),
+        );
+        const forward = forwarded().find(
+            (event) =>
+                event.key === 'outer.gui.notif.message' &&
+                (event.data as { user_id_list?: number[] })
+                    .user_id_list?.[0] === user.id,
+        )!;
+        await applyAsPeer(state.server, forward);
+        await settle();
+        expect(notifSends(state.sent)).toHaveLength(2);
+        expect(notifSends(state.sent)[1].data).toEqual(
+            notifSends(state.sent)[0].data,
+        );
     });
 });
 

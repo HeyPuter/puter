@@ -12,7 +12,17 @@ Generates secrets, writes `.env` + `puter/config/config.json`, downloads `docker
 
 ## Requirements
 
-- **Docker** with the `compose` plugin.
+- **Docker** with the `compose` plugin. This is the one thing you have to install
+  yourself — the installer checks for it and stops with an explanation rather
+  than installing it for you.
+  - **macOS / Windows:** [Docker Desktop](https://docs.docker.com/get-docker/).
+    Both ship the `compose` plugin.
+  - **Linux:** [Docker Engine](https://docs.docker.com/engine/install/) plus the
+    [`docker-compose-plugin`](https://docs.docker.com/compose/install/) package.
+  - Confirm before running anything else: `docker compose version` should print a
+    version, not `command not found`.
+  - If Docker is installed but the shell can't see it, make sure your user is in
+    the `docker` group (Linux) or that Docker Desktop is actually running.
 - A **domain** with DNS access — you need a wildcard record (`*.your-domain.com` → server IP). Puter routes by subdomain (`api.<domain>`, `site.<domain>`, `app.<domain>`).
 - Optional: **TLS certs** (or `certbot` to grab them — see Step 3).
 
@@ -656,6 +666,14 @@ rm -rf puter/data
 Migrations re-apply idempotently across pulls. Volumes are preserved.
 
 ## Troubleshooting
+
+**`missing required command: docker` — the installer stops immediately.**
+Docker isn't on your `PATH` yet. Puter self-hosting is a Docker Compose stack, so
+nothing can run without it. Install [Docker Desktop](https://docs.docker.com/get-docker/)
+on macOS/Windows or [Docker Engine](https://docs.docker.com/engine/install/) plus
+`docker-compose-plugin` on Linux, then confirm `docker compose version` works in
+the same shell and re-run the installer. On Linux, a fresh Docker install usually
+needs a new login session before your user picks up the `docker` group.
 
 **Site loads but I get a 502 / "Bad Gateway" from Caddy.**
 The puter container failed to come up. `docker compose logs puter` will tell you which dependency rejected it (most often DB password mismatch between `.env` and `config.json`).

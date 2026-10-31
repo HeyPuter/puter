@@ -115,6 +115,15 @@ export const NOTIFICATION_TYPES = [
         groupable: false,
         subject: subjectFor('developer'),
     },
+    // The only type apps create; its kind goes in the value's `channel`.
+    {
+        type: 'app.message',
+        audience: 'app-user',
+        appScoped: true,
+        groupable: false,
+        accountMailbox: false,
+        subject: subjectFor('app-user'),
+    },
     // A key-value share is news inside the app whose data it is, and nowhere
     // else: the desktop has nothing to open it with.
     {

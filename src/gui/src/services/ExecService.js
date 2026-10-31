@@ -20,6 +20,7 @@
 import { PROCESS_IPC_ATTACHED, Service } from '../definitions.js';
 import launch_app from '../helpers/launchApp.js';
 import { expand_home_path } from '../helpers/expandHomePath.js';
+import { withoutNotificationClick } from '../helpers/notificationTap.js';
 
 // The /apps endpoint serializes `godmode` as a boolean; older cached shapes used 0/1.
 const is_godmode = (app_info) =>
@@ -114,7 +115,7 @@ export class ExecService extends Service {
             name: target_app_info?.name ?? app_name,
             app_obj: target_app_info,
             pseudonym,
-            args: args ?? {},
+            args: withoutNotificationClick(args) ?? {},
             parent_instance_id: app?.appInstanceID,
             uuid: child_instance_id,
             params,

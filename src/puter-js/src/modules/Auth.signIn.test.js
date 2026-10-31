@@ -160,11 +160,34 @@ describe('signIn popup binding', () => {
         expect(puter.setAuthToken).toHaveBeenCalledWith('relay-token');
     });
 
-    it('rejects a blocked popup', async () => {
+    it('falls back to the consent dialog when the popup comes back null despite activation', async () => {
+        const open = window.open.getMockImplementation();
+        window.open.mockImplementationOnce(() => null);
+        const pending = auth.signIn();
+        const dialog = document.querySelector('puter-dialog');
+        expect(dialog).not.toBeNull();
+        expect(popups).toHaveLength(0);
+
+        window.open.mockImplementation(open);
+        dialog.shadowRoot.querySelector('#launch-auth-popup').click();
+        expect(popups).toHaveLength(1);
+        expect(popups[0].name).toMatch(/^Puter-sign-in-/);
+        respond(popups[0], 'token');
+        await expect(pending).resolves.toMatchObject({ token: 'token' });
+        expect(document.querySelector('puter-dialog')).toBeNull();
+    });
+
+    it('rejects when the consent dialog\'s popup is blocked too', async () => {
         window.open.mockReturnValue(null);
-        await expect(auth.signIn()).rejects.toMatchObject({
+        const pending = auth.signIn();
+        document
+            .querySelector('puter-dialog')
+            .shadowRoot.querySelector('#launch-auth-popup')
+            .click();
+        await expect(pending).rejects.toMatchObject({
             error: 'popup_blocked',
         });
+        expect(document.querySelector('puter-dialog')).toBeNull();
     });
 
     it('rejects a closed popup and stops listening for its response', async () => {

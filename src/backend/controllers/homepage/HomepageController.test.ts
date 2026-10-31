@@ -17,6 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import type { Request, RequestHandler, Response } from 'express';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
@@ -464,5 +467,65 @@ describe('HomepageController GET /show/*splat', () => {
         expect(html).toContain('launch_app');
         expect(html).toContain('explorer');
         expect(html).toContain('/alice/Documents');
+    });
+});
+
+// ── /sw.js ──────────────────────────────────────────────────────────
+
+describe('HomepageController GET /sw.js', () => {
+    const headersOf = (res: Response): Record<string, string> =>
+        Object.fromEntries(
+            (res.set as ReturnType<typeof vi.fn>).mock.calls.map(
+                ([key, value]) => [String(key).toLowerCase(), String(value)],
+            ),
+        );
+
+    it('serves the worker with root scope, as JavaScript, revalidated each time', async () => {
+        const root = await mkdtemp(path.join(tmpdir(), 'puter-sw-route-'));
+        await mkdir(path.join(root, 'dist'));
+        await writeFile(path.join(root, 'dist', 'sw.js'), '// worker\n');
+        const config = server.services.homepage.config as {
+            gui_assets_root?: string;
+            env?: string;
+        };
+        const prev = { root: config.gui_assets_root, env: config.env };
+        config.gui_assets_root = root;
+        config.env = 'prod';
+        const { res, captured } = makeRes();
+        try {
+            await callRoute('get', '/sw.js', makeReq({ path: '/sw.js' }), res);
+        } finally {
+            config.gui_assets_root = prev.root;
+            config.env = prev.env;
+        }
+        expect(captured.statusCode).toBe(200);
+        expect(captured.body).toBe('// worker\n');
+        expect(headersOf(res)).toMatchObject({
+            'content-type': 'text/javascript; charset=utf-8',
+            'cache-control': 'no-cache',
+            'service-worker-allowed': '/',
+        });
+    });
+
+    it('is a 404 when there is no worker to serve', async () => {
+        const config = server.services.homepage.config as {
+            gui_assets_root?: string;
+        };
+        const prev = config.gui_assets_root;
+        config.gui_assets_root = path.join(tmpdir(), 'no-such-gui-root');
+        const { res, captured } = makeRes();
+        try {
+            await callRoute('get', '/sw.js', makeReq({ path: '/sw.js' }), res);
+        } finally {
+            config.gui_assets_root = prev;
+        }
+        expect(captured.statusCode).toBe(404);
+    });
+
+    it('is registered for the root subdomain only', () => {
+        const route = router.routes.find(
+            (r) => r.method === 'get' && r.path === '/sw.js',
+        );
+        expect(route?.options.subdomain).toBe('');
     });
 });

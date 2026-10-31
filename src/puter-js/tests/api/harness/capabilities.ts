@@ -125,8 +125,9 @@ export const loadPuterJsTestOptions = (
         // the suite would only ever cover that one branch. Share handles are
         // on too: `watch` shares and `kv:<handle>` subjects need `kvHandles`,
         // and `read`/`write` shares and handle-addressed KV calls need
-        // `kv.shareHandles`.
-        events: { enabled: true, kvHandles: true },
+        // `kv.shareHandles`. The fold-in routes notifications through events,
+        // which `onNotification` reads.
+        events: { enabled: true, kvHandles: true, notificationsFoldIn: true },
         kv: { shareHandles: true },
     };
 

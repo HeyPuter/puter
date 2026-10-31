@@ -17,6 +17,7 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
      *   implicit-auth URL), skips the `puter.token` message handling and
      *   `puterAuthState` bookkeeping (the caller owns the auth result), and
      *   reports cancellation through `options.onCancel`.
+     * @param {string} [options.message] - What the dialog says above Continue, instead of the sign-in wording.
      * @param {string} [options.popupName] - Window name for the popup. Give
      *   each concurrent launcher a distinct name: `window.open()` reuses a
      *   window that already carries the requested name, so sharing one name
@@ -437,7 +438,7 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
                 <div class="puter-dialog-content">
                     <span class="close-btn">&#x2715</span>
                     <a href="https://puter.com?utm_source=sdk-splash" target="_blank" style="border:none; outline:none; display: block; width: 70px; height: 70px; margin: 0 auto; border-radius: 4px;"><img style="display: block; width: 40px; height: 40px; margin: 0 auto; border-radius: 8px; background-color: #2210d7; padding: 15px;" src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+Cjxzdmcgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnN2Zz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgogPGcgY2xhc3M9ImxheWVyIj4KICA8dGl0bGU+TGF5ZXIgMTwvdGl0bGU+CiAgPGcgaWQ9InN2Z18xIiBzdHJva2Utd2lkdGg9IjMiIHRyYW5zZm9ybT0icm90YXRlKDkwIDI0IDIzLjk5OTcpIj4KICAgPHBvbHlsaW5lIGZpbGw9Im5vbmUiIGlkPSJzdmdfMiIgcG9pbnRzPSIzOSAyNCAyNSAyNCAyNSAyOCIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2UtbGluZWNhcD0ic3F1YXJlIiBzdHJva2UtbWl0ZXJsaW1pdD0iMTAiIHN0cm9rZS13aWR0aD0iMyIvPgogICA8cG9seWxpbmUgZmlsbD0ibm9uZSIgaWQ9InN2Z18zIiBwb2ludHM9IjM1Ljg3OSAxMC4xMjEgMzIgMTQgMjUgMTQgMjUgMTgiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLWxpbmVjYXA9InNxdWFyZSIgc3Ryb2tlLW1pdGVybGltaXQ9IjEwIiBzdHJva2Utd2lkdGg9IjMiLz4KICAgPHBhdGggZD0ibTEzLDI2YTEwLjI5LDEwLjI5IDAgMCAxIC03LjIsLTMiIGZpbGw9Im5vbmUiIGlkPSJzdmdfNCIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2UtbGluZWNhcD0ic3F1YXJlIiBzdHJva2UtbWl0ZXJsaW1pdD0iMTAiIHN0cm9rZS13aWR0aD0iMyIvPgogICA8cGF0aCBkPSJtMTcsMzEuNmE1LjgzLDUuODMgMCAwIDEgLTQsLTUuNmE1LjczLDUuNzMgMCAwIDEgMiwtNC40IiBmaWxsPSJub25lIiBpZD0ic3ZnXzUiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLWxpbmVjYXA9InNxdWFyZSIgc3Ryb2tlLW1pdGVybGltaXQ9IjEwIiBzdHJva2Utd2lkdGg9IjMiLz4KICAgPHBhdGggZD0ibTM1Ljg4LDM3Ljg4bC0zLjg4LC0zLjg4bC03LDBsMCwyYTkuOSw5LjkgMCAwIDEgLTEwLDEwYTkuOSw5LjkgMCAwIDEgLTEwLC0xMGE5LjA2LDkuMDYgMCAwIDEgMC42LC0zLjJhNS42Myw1LjYzIDAgMCAxIC0yLjYsLTQuOGE1Ljg5LDUuODkgMCAwIDEgMi44LC01YTkuOTksOS45OSAwIDAgMSAtMi44LC03YTkuOSw5LjkgMCAwIDEgMTAsLTEwbDAuNCwwYTUuODMsNS44MyAwIDAgMSA1LjYsLTRhNS44OSw1Ljg5IDAgMCAxIDYsNiIgZmlsbD0ibm9uZSIgaWQ9InN2Z182IiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS1saW5lY2FwPSJzcXVhcmUiIHN0cm9rZS1taXRlcmxpbWl0PSIxMCIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgIDxjaXJjbGUgY3g9IjM4IiBjeT0iOCIgZGF0YS1jb2xvcj0iY29sb3ItMiIgZmlsbD0ibm9uZSIgaWQ9InN2Z183IiByPSIzIiBzdHJva2U9IiNmZmZmZmYiIHN0cm9rZS1saW5lY2FwPSJzcXVhcmUiIHN0cm9rZS1taXRlcmxpbWl0PSIxMCIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgIDxjaXJjbGUgY3g9IjQyIiBjeT0iMjQiIGRhdGEtY29sb3I9ImNvbG9yLTIiIGZpbGw9Im5vbmUiIGlkPSJzdmdfOCIgcj0iMyIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2UtbGluZWNhcD0ic3F1YXJlIiBzdHJva2UtbWl0ZXJsaW1pdD0iMTAiIHN0cm9rZS13aWR0aD0iMyIvPgogICA8Y2lyY2xlIGN4PSIzOCIgY3k9IjQwIiBkYXRhLWNvbG9yPSJjb2xvci0yIiBmaWxsPSJub25lIiBpZD0ic3ZnXzkiIHI9IjMiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLWxpbmVjYXA9InNxdWFyZSIgc3Ryb2tlLW1pdGVybGltaXQ9IjEwIiBzdHJva2Utd2lkdGg9IjMiLz4KICA8L2c+CiA8L2c+Cjwvc3ZnPg=="/></a>
-                    <p class="about">This website uses Puter to bring you safe, secure, and private AI and Cloud features.</p>
+                    <p class="about">${options.message ?? 'This website uses Puter to bring you safe, secure, and private AI and Cloud features.'}</p>
                     <div class="buttons">
                         <button class="button button-primary button-auth" id="launch-auth-popup">Continue</button>
                         <button class="button button-auth button-auth-cancel" id="launch-auth-popup-cancel">Cancel</button>
@@ -600,18 +601,35 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         }
     }
 
-    open () {
+    /**
+     * Opens `options.popupURL` now when the page has user activation.
+     * Otherwise, or when the browser returns no window anyway, shows a
+     * consent dialog whose Continue click opens it. `onLaunch` gets the popup
+     * either way.
+     *
+     * @param {Object} options - Launcher-mode options, as for the constructor.
+     * @returns {PuterDialog | null} The dialog shown, or null when the popup
+     *   opened directly.
+     */
+    static launch (options) {
         if ( hasUserActivation() ) {
-            const popup = this.#openPopup();
-            // Pinned as the expected event.source in messageListener.
-            this.authPopup = popup;
-            if ( this.options.popupURL && typeof this.options.onLaunch === 'function' ) {
-                this.options.onLaunch(popup);
+            const popup = openAuthPopup(options.popupURL, options.popupName);
+            // Safari can report activation after awaited work and still
+            // refuse the popup, and iOS home-screen apps return null here.
+            if ( popup ) {
+                options.onLaunch?.(popup);
+                return null;
             }
         }
-        else {
-            this.shadowRoot.querySelector('dialog').showModal();
+        const dialog = new PuterDialog(() => {}, () => {}, options);
+        document.body.appendChild(dialog);
+        try {
+            dialog.shadowRoot.querySelector('dialog').showModal();
+        } catch (e) {
+            dialog.remove();
+            throw e;
         }
+        return dialog;
     }
 
     close () {

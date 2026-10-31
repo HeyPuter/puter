@@ -30,7 +30,7 @@ import {
     APP_DATA_PERMISSION_PREFIX,
     type AppDataStore,
 } from './appDataScopes.js';
-import { MANAGE_PERM_PREFIX } from './consts.js';
+import { MANAGE_PERM_PREFIX, NOTIFICATIONS_PUSH_PERMISSION } from './consts.js';
 import { PermissionUtil } from './permissionUtil.js';
 
 const ACCESS_LEVELS = ['read', 'write'] as const;
@@ -63,6 +63,7 @@ export type AppGrantablePermission =
           segments: string[];
       }
     | { family: 'backgroundEvents' }
+    | { family: 'pushNotifications' }
     | { family: 'customDomains' };
 
 /** One component as it is written canonically: `\` as `\\`, `:` as `\C`. */
@@ -118,6 +119,10 @@ export const parseAppGrantablePermission = (
     if (permission === 'events:background') {
         return { family: 'backgroundEvents' };
     }
+    if (permission === NOTIFICATIONS_PUSH_PERMISSION) {
+        return { family: 'pushNotifications' };
+    }
+
     if (permission === 'custom-domains:manage') {
         return { family: 'customDomains' };
     }

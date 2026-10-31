@@ -141,7 +141,8 @@ const older = await room.latest('msg:*', { cursor: page.cursor });
 ## Get New Messages Live
 
 Subscribe to the room's messages with the helper's `watch()`, which uses
-[`puter.events.onLocal()`](/Events/onLocal/):
+[`puter.events.onLocal()`](/Events/onLocal/). New messages only need to reach
+people with the chat open, so a subscription that ends with the page is enough:
 
 ```js
 await room.watch('msg:*', (event) => {

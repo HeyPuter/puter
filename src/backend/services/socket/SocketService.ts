@@ -208,6 +208,84 @@ interface OuterGuiPayload {
     response: unknown;
 }
 
+/** What one {@link SocketService.askWithAck} heard back. */
+export interface AckedAsk {
+    /** One per socket that acknowledged, as that socket sent it. */
+    responses: unknown[];
+    /** A socket that acknowledges this event did not answer in time. */
+    timedOut: boolean;
+    /** A socket in the target does not acknowledge this event. */
+    others: boolean;
+    /** Every node answered; false when only this node's sockets were asked. */
+    complete: boolean;
+}
+
+const roomsOf = (specifiers: SocketSpecifier | SocketSpecifier[]): string[] =>
+    (Array.isArray(specifiers) ? specifiers : [specifiers]).flatMap((spec) =>
+        spec.room !== undefined
+            ? [String(spec.room)]
+            : spec.socket
+              ? [spec.socket]
+              : [],
+    );
+
+const COUNT_WARN_INTERVAL_MS = 60_000;
+
+/** The room a socket that acknowledges `event` joins beside `room`. */
+export const ackRoom = (room: string, event: string): string =>
+    `${room}:acks:${event}`;
+
+/**
+ * Each node answers it with how many of its sockets are in rooms, outside
+ * except.
+ */
+export const COUNT_OTHERS_EVENT = 'socket:count-others';
+
+const roomNames = (raw: unknown): string[] =>
+    Array.isArray(raw)
+        ? raw.filter((room): room is string => typeof room === 'string')
+        : [];
+const MAX_HANDSHAKE_ACKS = 16;
+const MAX_ACK_EVENT_LENGTH = 64;
+
+/** The events a client says it acknowledges, from `handshake.auth.acks`. */
+export const handshakeAcks = (raw: unknown): string[] =>
+    Array.isArray(raw)
+        ? raw
+              .filter(
+                  (key): key is string =>
+                      typeof key === 'string' &&
+                      key.length > 0 &&
+                      key.length <= MAX_ACK_EVENT_LENGTH,
+              )
+              .slice(0, MAX_HANDSHAKE_ACKS)
+        : [];
+
+interface CountingAdapter {
+    serverCount(): Promise<number>;
+}
+
+/** A failed count reports the last good one; socket.io never catches it. */
+export const steadyServerCount = (
+    adapter: CountingAdapter,
+    onCount: (err?: unknown) => void,
+): void => {
+    const proto = Object.getPrototypeOf(adapter) as CountingAdapter;
+    let lastGood: number | undefined;
+    adapter.serverCount = () =>
+        proto.serverCount.call(adapter).then(
+            (count: number) => {
+                lastGood = count;
+                onCount();
+                return count;
+            },
+            (err: unknown) => {
+                onCount(err ?? new Error('server count failed'));
+                return lastGood ?? 1;
+            },
+        );
+};
+
 interface UploadProgressPayload {
     upload_tracker: UploadProgressTrackerLike;
     meta?: Record<string, unknown>;
@@ -250,6 +328,11 @@ export class SocketService extends PuterService {
     #reauthTimer: ReturnType<typeof setInterval> | null = null;
     /** The sweep running now, so a slow one is joined instead of stacked. */
     #reauthSweep: Promise<void> | null = null;
+    #serverCountWorks = false;
+    #countProbing = false;
+    #lastCountProbe = -Infinity;
+    #lastCountWarn = -Infinity;
+    #countFailures = 0;
 
     // -- Lifecycle ---------------------------------------------------
 
@@ -288,6 +371,21 @@ export class SocketService extends PuterService {
             },
             adapter,
         });
+        steadyServerCount(this.#io.of('/').adapter, (err) =>
+            this.#noteServerCount(err),
+        );
+        this.#io
+            .of('/')
+            .on(
+                COUNT_OTHERS_EVENT,
+                (rooms: unknown, except: unknown, reply: unknown) => {
+                    if (typeof reply !== 'function') return;
+                    reply(
+                        this.#othersHere(roomNames(rooms), roomNames(except)),
+                    );
+                },
+            );
+        this.#probeServerCount();
 
         this.#installAuthMiddleware();
         this.#installConnectionHandler();
@@ -340,6 +438,178 @@ export class SocketService extends PuterService {
                 this.#io.to(spec.socket).emit(key, data);
             }
         }
+    }
+
+    /**
+     * Asks the sockets in `specifiers` that listed `key` in `auth.acks`,
+     * without listing sockets across the cluster. The others are only counted:
+     * a socket that never acknowledges would hold an acked emit's callback on
+     * its node until it disconnects.
+     */
+    async askWithAck(
+        specifiers: SocketSpecifier | SocketSpecifier[],
+        key: string,
+        data: unknown,
+        { timeoutMs }: { timeoutMs: number },
+    ): Promise<AckedAsk> {
+        const io = this.#io;
+        const targets = roomsOf(specifiers);
+        if (!io || targets.length === 0) {
+            return {
+                responses: [],
+                timedOut: false,
+                others: false,
+                complete: false,
+            };
+        }
+        const ackTargets = targets.map((target) => ackRoom(target, key));
+        if (!this.#serverCountWorks) {
+            this.#probeServerCount();
+            return this.#askHere(targets, ackTargets, key, data, timeoutMs);
+        }
+        const failuresBefore = this.#countFailures;
+        const heard = (
+            operator: ReturnType<typeof io.to>,
+        ): Promise<{ responses: unknown[]; timedOut: boolean }> =>
+            new Promise((resolve) => {
+                operator
+                    .timeout(timeoutMs)
+                    .emit(
+                        key,
+                        data,
+                        (err: Error | null, responses: unknown[]) => {
+                            resolve({
+                                responses: responses ?? [],
+                                timedOut: !!err,
+                            });
+                        },
+                    );
+            });
+        const [acks, others] = await Promise.all([
+            heard(io.to(ackTargets)),
+            this.#othersInCluster(targets, ackTargets, timeoutMs),
+        ]);
+        return {
+            ...acks,
+            others,
+            complete: this.#countFailures === failuresBefore,
+        };
+    }
+
+    /** Sockets on this node in any of `rooms` and in none of `except`. */
+    #othersHere(rooms: string[], except: string[]): number {
+        const skip = this.#localIds(except);
+        let count = 0;
+        for (const id of this.#localIds(rooms)) {
+            if (!skip.has(id)) count++;
+        }
+        return count;
+    }
+
+    /** A node that does not answer in time may hold one. */
+    async #othersInCluster(
+        rooms: string[],
+        except: string[],
+        timeoutMs: number,
+    ): Promise<boolean> {
+        if (this.#othersHere(rooms, except) > 0) return true;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+            const counts: unknown[] = await Promise.race([
+                this.#io!.of('/').serverSideEmitWithAck(
+                    COUNT_OTHERS_EVENT,
+                    rooms,
+                    except,
+                ),
+                new Promise<never>((_, reject) => {
+                    timer = setTimeout(
+                        () => reject(new Error('count timed out')),
+                        timeoutMs,
+                    );
+                }),
+            ]);
+            return counts.some(
+                (count) => typeof count === 'number' && count > 0,
+            );
+        } catch {
+            return true;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    /** How long after a failed server count the next one is tried. */
+    static COUNT_RETRY_MS = 30_000;
+
+    /** Until one count succeeds, acks are collected on this node only. */
+    #probeServerCount(): void {
+        const now = Date.now();
+        if (this.#serverCountWorks || this.#countProbing) return;
+        if (now - this.#lastCountProbe < SocketService.COUNT_RETRY_MS) return;
+        this.#lastCountProbe = now;
+        this.#countProbing = true;
+        void this.#io!.of('/')
+            .adapter.serverCount()
+            .finally(() => {
+                this.#countProbing = false;
+            });
+    }
+
+    #noteServerCount(err?: unknown): void {
+        if (err === undefined) {
+            this.#serverCountWorks = true;
+            return;
+        }
+        this.#countFailures++;
+        const now = Date.now();
+        // Never counted (an in-memory Redis): say so once, not every minute.
+        if (!this.#serverCountWorks && this.#lastCountWarn > -Infinity) return;
+        if (now - this.#lastCountWarn < COUNT_WARN_INTERVAL_MS) return;
+        this.#lastCountWarn = now;
+        console.warn('[socket] adapter server count failed', err);
+    }
+
+    /** Socket ids in any of `rooms` on this node. */
+    #localIds(rooms: string[]): Set<string> {
+        const ids = new Set<string>();
+        for (const room of rooms) {
+            this.#io!.sockets.adapter.rooms.get(room)?.forEach((id) => {
+                ids.add(id);
+            });
+        }
+        return ids;
+    }
+
+    async #askHere(
+        targets: string[],
+        ackTargets: string[],
+        key: string,
+        data: unknown,
+        timeoutMs: number,
+    ): Promise<AckedAsk> {
+        const io = this.#io!;
+        const acking = this.#localIds(ackTargets);
+        const others = this.#othersHere(targets, ackTargets) > 0;
+        const heard = await Promise.all(
+            [...acking].map(async (id) => {
+                const socket = io.sockets.sockets.get(id);
+                if (!socket) return { ok: false as const };
+                try {
+                    const response: unknown = await socket
+                        .timeout(timeoutMs)
+                        .emitWithAck(key, data);
+                    return { ok: true as const, response };
+                } catch {
+                    return { ok: false as const };
+                }
+            }),
+        );
+        return {
+            responses: heard.flatMap((h) => (h.ok ? [h.response] : [])),
+            timedOut: heard.some((h) => !h.ok),
+            others,
+            complete: false,
+        };
     }
 
     /**
@@ -419,8 +689,7 @@ export class SocketService extends PuterService {
             // `{ auth: { ... } }`, not the query string. puter-js uses
             // `io(url, { auth: { auth_token } })`.
             const handshakeAuth = socket.handshake.auth as
-                | Record<string, unknown>
-                | undefined;
+                Record<string, unknown> | undefined;
             const tokenRaw =
                 typeof handshakeAuth?.auth_token === 'string'
                     ? handshakeAuth.auth_token
@@ -473,7 +742,14 @@ export class SocketService extends PuterService {
                 socket.authToken = token;
                 // user.id is numeric in the DB; stringify for room name
                 // so adapter lookups key on a stable type.
-                socket.join(socketRoomsFor(decision.accept));
+                const rooms = socketRoomsFor(decision.accept);
+                // Asks go to the user's or the app's room, never the others.
+                socket.join([
+                    ...rooms,
+                    ...handshakeAcks(handshakeAuth?.acks).map((event) =>
+                        ackRoom(rooms[0], event),
+                    ),
+                ]);
                 next();
             } catch (err) {
                 console.warn('[socket] auth error', err);
@@ -743,13 +1019,12 @@ export class SocketService extends PuterService {
      *
      * Every connection for the account goes, not just the revoked session's —
      * which is what the account room is for, since an app socket is not in the
-     * user room. Narrowing would mean matching each socket to its session via
-     * `fetchSockets`, which the adapter implements on top of `serverCount()` —
-     * and that path is unavailable with our Redis client. Dropping the room is
-     * the safe direction — a client does not reconnect by itself after a
-     * server-side disconnect, so one that wants to stay connected opens a new
-     * connection, and that handshake re-authenticates: only the revoked session
-     * is refused.
+     * user room. Narrowing would mean matching each socket to its session via a
+     * cluster-wide `fetchSockets` round trip. Dropping the room is the safe
+     * direction — a client does not reconnect by itself after a server-side
+     * disconnect, so one that wants to stay connected opens a new connection,
+     * and that handshake re-authenticates: only the revoked session is
+     * refused.
      */
     async #evictUserSockets(userId: number): Promise<void> {
         const io = this.#io;
@@ -929,8 +1204,7 @@ export class SocketService extends PuterService {
                 // their next poll of /cache/last-change-timestamp.
                 const originalSocketId = (
                     data.response as
-                        | { original_client_socket_id?: string }
-                        | undefined
+                        { original_client_socket_id?: string } | undefined
                 )?.original_client_socket_id;
                 await this.send({ room: userId }, 'cache.updated', {
                     timestamp,
@@ -944,9 +1218,7 @@ export class SocketService extends PuterService {
     #handleUploadProgress(data: UploadProgressPayload): void {
         const meta = data.meta ?? {};
         const userId = (meta.user_id ?? meta.userId) as
-            | number
-            | string
-            | undefined;
+            number | string | undefined;
         if (!userId) {
             console.warn('[socket] upload-progress missing user_id', { meta });
             return;

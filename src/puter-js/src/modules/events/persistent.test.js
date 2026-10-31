@@ -76,11 +76,10 @@ describe('onPersistent', () => {
         expect(sub).toBe(view);
     });
 
-    it('carries delivery, targets, handlerName, expiry and includeValue when given', async () => {
+    it('carries queue, handlerName, expiry and includeValue when given', async () => {
         await makeModule().onPersistent({
             subject: SUBJECT,
-            delivery: 'single',
-            targets: ['worker'],
+            queue: true,
             handlerName: 'ingestUpload',
             expiresAt: 4102444800,
             includeValue: true,
@@ -88,11 +87,25 @@ describe('onPersistent', () => {
 
         expect(bodyOf()).toEqual({
             subject: SUBJECT,
-            delivery: 'single',
-            targets: ['worker'],
+            queue: true,
             handlerName: 'ingestUpload',
             expiresAt: 4102444800,
             includeValue: true,
+        });
+    });
+
+    it('still passes the older `delivery` option and drops `targets`', async () => {
+        await makeModule().onPersistent({
+            subject: SUBJECT,
+            delivery: 'single',
+            targets: ['worker'],
+            handlerName: 'ingestUpload',
+        });
+
+        expect(bodyOf()).toEqual({
+            subject: SUBJECT,
+            delivery: 'single',
+            handlerName: 'ingestUpload',
         });
     });
 
@@ -146,12 +159,13 @@ describe('onPersistent', () => {
         expect(bodyOf().handlerHash).toMatch(/^[0-9a-f]{64}$/);
     });
 
-    it('refuses a `single` delivery with no handlerName to match it against', async () => {
-        const error = await rejects(() =>
-            makeModule().onPersistent({ subject: SUBJECT, delivery: 'single' }),
-        );
-
-        expect(error.code).toBe('events_handler_required');
+    it('refuses a `queue` subscription with no handlerName to match it against', async () => {
+        for ( const options of [{ queue: true }, { delivery: 'single' }] ) {
+            const error = await rejects(() =>
+                makeModule().onPersistent({ subject: SUBJECT, ...options }),
+            );
+            expect(error.code).toBe('events_handler_required');
+        }
         expect(mockRequest).not.toHaveBeenCalled();
     });
 

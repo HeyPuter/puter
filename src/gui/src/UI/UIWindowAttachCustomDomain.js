@@ -136,7 +136,9 @@ async function UIWindowAttachCustomDomain (options) {
                                 <thead><tr><th>${i18n('custom_domain_record_type')}</th><th>${i18n('name')}</th><th>${i18n('custom_domain_record_value')}</th></tr></thead>
                                 <tbody></tbody>
                             </table>
+                            <p class="app-feedback-note custom-domain-redirect" style="display:none;"></p>
                             <p class="app-feedback-note custom-domain-apex" style="display:none;">${i18n('custom_domain_apex_hint')}</p>
+                            <button type="button" class="app-feedback-btn custom-domain-use-www" style="display:none;">${i18n('custom_domain_no_root_alias')}</button>
                             <p class="app-feedback-error" role="alert" style="display:none;"></p>
                             <div class="app-feedback-actions">
                                 <button type="button" class="app-feedback-btn custom-domain-check">${i18n('custom_domain_check_status')}</button>
@@ -371,7 +373,12 @@ async function UIWindowAttachCustomDomain (options) {
             if ( domain.statusDetail && domain.status !== 'active' ) {
                 $status.append($('<span class="custom-domain-status-detail"></span>').text(domain.statusDetail));
             }
+            const $redirect = $overlay.find('.custom-domain-redirect').toggle(!!domain.redirectFrom);
+            if ( domain.redirectFrom ) {
+                $redirect.html(i18n('custom_domain_redirect_note', [domain.redirectFrom, domain.hostname]));
+            }
             $overlay.find('.custom-domain-apex').toggle(domain.isApex === true);
+            $overlay.find('.custom-domain-use-www').toggle(domain.isApex === true && domain.status !== 'active');
 
             const $tbody = $overlay.find('.custom-domain-records tbody').empty();
             for ( const record of domain.records ?? [] ) {
@@ -382,9 +389,12 @@ async function UIWindowAttachCustomDomain (options) {
                         <td><code class="custom-domain-copy"></code></td>
                     </tr>
                 `);
+                const type = domain.isApex && record.purpose === 'routing'
+                    ? text('custom_domain_record_type_apex')
+                    : record.type;
                 $tr.find('.custom-domain-record-type').text(record.required
-                    ? record.type
-                    : `${record.type} ${i18n('custom_domain_optional', [], false)}`);
+                    ? type
+                    : `${type} ${text('custom_domain_optional')}`);
                 const [$name, $value] = $tr.find('code').toArray().map((el) => $(el));
                 $name.text(record.name);
                 $value.text(record.value);
@@ -405,11 +415,39 @@ async function UIWindowAttachCustomDomain (options) {
                     return;
                 }
                 // A domain that is no longer pending comes back with only its
-                // routing record; keep the full set shown when it was added.
-                chosen = { ...res.data, records: res.data.records?.length > 1 ? res.data.records : chosen.records };
+                // routing record, and a GET never repeats the provider or the
+                // redirect; keep what was shown when it was added.
+                const redirect = chosen.records.filter((r) => r.purpose === 'redirect');
+                const fresh = (res.data.records?.length > 1 ? res.data.records : chosen.records)
+                    .filter((r) => r.purpose !== 'redirect');
+                chosen = {
+                    ...res.data,
+                    dnsProvider: chosen.dnsProvider,
+                    redirectFrom: chosen.redirectFrom,
+                    records: [...fresh.slice(0, 1), ...redirect, ...fresh.slice(1)],
+                };
                 renderRecords(chosen);
             } catch ( e ) {
                 console.error('custom-domain: status check failed', e);
+                showError('records', text('custom_domain_error_generic'));
+            } finally {
+                setBusy(false);
+            }
+        });
+        // Same row, so the month already paid covers the www hostname.
+        $overlay.find('.custom-domain-use-www').on('click', async () => {
+            if ( busy || ! chosen ) return;
+            setBusy(true);
+            try {
+                const res = await api('POST', `/${encodeURIComponent(chosen.uuid)}/use-www`);
+                if ( ! res.ok ) {
+                    showError('records', errorFor(res));
+                    return;
+                }
+                chosen = res.data;
+                renderRecords(chosen);
+            } catch ( e ) {
+                console.error('custom-domain: switch to www failed', e);
                 showError('records', text('custom_domain_error_generic'));
             } finally {
                 setBusy(false);

@@ -971,6 +971,19 @@ interface IConfigOptional {
      */
     notificationRetentionDays?: number;
 
+    /** Ms a live notification waits for sockets to acknowledge it; 5000. */
+    notificationAckTimeoutMs?: number;
+
+    /**
+     * How many `app.message` notifications one app may create for one user.
+     * Omit a field for the built-in default (30 per minute, 300 per day); a
+     * non-positive value removes that bound.
+     */
+    notificationAppMessageLimits?: {
+        perMinute?: number;
+        perDay?: number;
+    };
+
     // -- Storage / S3 ------------------------------------------------
 
     /** S3 storage config (local fauxqs or remote). */
@@ -1047,6 +1060,16 @@ interface IConfigOptional {
     peers: IPeersConfig;
     /** WISP relay proxy. */
     wisp: IWispConfig;
+    /** OpenAI Realtime WebSocket relay. */
+    realtime: {
+        /** Concurrent realtime sessions per user. Default 20. */
+        maxConnectionsPerUser?: number;
+        /**
+         * Upstream WebSocket URL. Default OpenAI's; point at a mock to
+         * load-test.
+         */
+        upstreamUrl?: string;
+    };
     /** Cloudflare Workers driver config. */
     workers: IWorkersConfig;
     /** Optional CORS-stripping signed-Worker proxy used by `secureFetch`. */
@@ -1309,6 +1332,17 @@ export interface WithLifecycle extends Object {
     onServerStart?: () => Promise<void> | void;
     onServerShutdown?: () => Promise<void> | void;
     onServerPrepareShutdown?: () => Promise<void> | void;
+    /**
+     * When the drain starts, before `onServerPrepareShutdown`, which waits for
+     * every connection (upgraded sockets included) to close or the drain to
+     * end.
+     */
+    onServerDrainStart?: (info?: ServerDrainInfo) => Promise<void> | void;
+}
+
+export interface ServerDrainInfo {
+    /** The longest the drain runs before teardown, when known. */
+    drainMs?: number;
 }
 
 export interface WithCostsReporting extends WithLifecycle {

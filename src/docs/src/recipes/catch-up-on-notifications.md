@@ -11,8 +11,13 @@ Puter posts notifications to a user's account when something needs their
 attention, for example when a persistent subscription your app made for them
 ends, or, for the app's owner, when its worker finishes deploying. With the
 [Events API](/Events/) your app can show these as they arrive, and catch up on
-the ones that came in while it was closed. Puter creates notifications itself.
-An app can't post its own.
+the ones that came in while it was closed. These are notifications Puter creates.
+
+Your app can also send the user its own notifications with
+[`puter.notifications.notify()`](/Notifications/notify/). They arrive on
+`notif:app-user` with the type `app.message`. To read only those, use
+[`puter.notifications.onNotification()`](/Notifications/onNotification/),
+which catches up on its own.
 
 This recipe builds on [Watch for Changes](/recipes/watch-for-changes/), which
 covers what every subscription shares: sign-in, gaps, stopping and reconnects.
@@ -23,7 +28,8 @@ as a toast or a row in a panel.
 ## Show New Notifications
 
 To show notifications as they arrive, subscribe to `notif:app-user` with
-[`puter.events.onLocal()`](/Events/onLocal/):
+[`puter.events.onLocal()`](/Events/onLocal/). It only updates the open page, and
+the catch-up below covers anything missed while the page was closed:
 
 ```js
 const sub = await puter.events.onLocal('notif:app-user', ({ event }) => {
@@ -54,7 +60,9 @@ A `notif:` subject names one part of the user's notifications:
 
 - `notif:app-user` is about the user's use of your app, such as a
   [persistent subscription](/Events/onPersistent/) your app made for them
-  that has ended or stopped delivering (`app.events.ended`).
+  that has ended or stopped delivering (`app.events.ended`). The notifications
+  your app sends with [`notify()`](/Notifications/notify/) (`app.message`) are
+  here too.
 - `notif:developer` is about your app itself, for the account that owns it,
   such as your app's worker deploys (`app.worker.deployed`,
   `app.worker.deployFailed`) and suspended event handlers

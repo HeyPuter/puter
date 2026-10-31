@@ -26,6 +26,8 @@ import { append_signed_item_params } from './appendSignedItemParams.js';
 import { expand_home_path } from './expandHomePath.js';
 import { confirmUrlFileAccess } from './confirmUrlFileAccess.js';
 import { mintGodmodeToken, reusableGodmodeToken, trackGodmodeToken } from './godmodeTokens.js';
+import { withoutNotificationClick } from './notificationTap.js';
+import { syncBrowserPush } from './pushSync.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -211,6 +213,7 @@ const launch_app = async (options) => {
                 name: fallbackAppName,
                 args: fallbackArgs,
                 app_obj: undefined,
+                on_ready: undefined,
                 privateLaunchRequestedAppName: requestedAppName,
                 privateLaunchRedirectDepth: privateLaunchRedirectDepth + 1,
             });
@@ -595,10 +598,10 @@ const launch_app = async (options) => {
         // for: such a message is never replied to, and a reply timeout can't
         // stand in for the check because legitimate replies only arrive when
         // the user closes the dialog.
-        iframe_url.searchParams.append('puter.gui_features', 'feedback-dialog,custom-domains');
+        iframe_url.searchParams.append('puter.gui_features', 'feedback-dialog,enable-push,custom-domains');
 
         // Add options.args to URL
-        iframe_url.searchParams.append('puter.args', JSON.stringify(options.args ?? {}));
+        iframe_url.searchParams.append('puter.args', JSON.stringify(withoutNotificationClick(options.args) ?? {}));
 
         // ...and finally append utm_source=puter.com to the URL
         iframe_url.searchParams.append('utm_source', 'puter.com');
@@ -756,6 +759,10 @@ const launch_app = async (options) => {
             $(el_win).show();
         }
 
+        if ( ! window.embedded_in_popup ) {
+            void syncBrowserPush({ appUid: launch_app_uid });
+        }
+
         // send post request to /rao to record app open
         if ( options.name !== 'explorer' ) {
             // add the app to the beginning of the array
@@ -820,6 +827,7 @@ const launch_app = async (options) => {
 
             // Send any saved broadcasts to the new app
             globalThis.services.get('broadcast').sendSavedBroadcastsTo(uuid);
+            options.on_ready?.(process);
 
             // If `window-active` is set (meaning the window is focused), focus the window one more time
             // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)

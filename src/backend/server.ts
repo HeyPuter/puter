@@ -117,6 +117,7 @@ import type {
     IConfig,
     LayerInstances,
     PagerSeverity,
+    ServerDrainInfo,
     WithControllerRegistration,
     WithLifecycle,
 } from './types';
@@ -1693,7 +1694,12 @@ export class PuterServer {
      */
     async #runHook(
         order: 'bottomUp' | 'topDown',
-        hook: 'onServerStart' | 'onServerPrepareShutdown' | 'onServerShutdown',
+        hook:
+            | 'onServerStart'
+            | 'onServerDrainStart'
+            | 'onServerPrepareShutdown'
+            | 'onServerShutdown',
+        info?: ServerDrainInfo,
     ) {
         const layers = [
             this.clients,
@@ -1705,7 +1711,7 @@ export class PuterServer {
         if (order === 'topDown') layers.reverse();
         for (const layer of layers) {
             for (const instance of Object.values(layer) as WithLifecycle[]) {
-                await instance[hook]?.();
+                await instance[hook]?.(info);
             }
         }
     }
@@ -1722,8 +1728,13 @@ export class PuterServer {
         await this.#runHook('bottomUp', 'onServerPrepareShutdown');
     }
 
-    async prepareShutdown() {
+    async prepareShutdown(info: ServerDrainInfo = {}) {
         if (this.#server) {
+            try {
+                await this.#runHook('bottomUp', 'onServerDrainStart', info);
+            } catch (err) {
+                console.error('[server] onServerDrainStart failed', err);
+            }
             this.#server.close(async () => {
                 console.log(
                     'PuterServer has stopped accepting new connections',

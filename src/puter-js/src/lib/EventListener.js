@@ -64,6 +64,15 @@ export default class EventListener {
     }
 
     /**
+     * @internal Whether any handler is registered for `eventName`.
+     * @param {string} eventName
+     * @returns {boolean}
+     */
+    _hasListeners (eventName) {
+        return (this.#eventListeners.get(eventName)?.length ?? 0) > 0;
+    }
+
+    /**
      * Removes a handler previously registered with `on`.
      *
      * @template {keyof EventMap & string} K

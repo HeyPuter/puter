@@ -28,6 +28,10 @@ import UIWindowFeedback from '../UIWindowFeedback.js';
 import apply_item_added_to_containers from '../../helpers/applyItemAddedToContainers.js';
 import { clear_shared_param } from '../../helpers/parseSharedPath.js';
 import UIDashboardNotifications from './UIDashboardNotifications.js';
+import {
+    answerNotificationReceipts,
+    notificationSocketAcks,
+} from '../../helpers/notificationFeed.js';
 /**
  * Creates and displays the Dashboard window.
  *
@@ -52,10 +56,11 @@ import TabApps from './TabApps.js';
 import TabUsage from './TabUsage.js';
 import TabAccount from './TabAccount.js';
 import TabSecurity from './TabSecurity.js';
+import TabNotifications, { notificationsTabEnabled } from './TabNotifications.js';
 import teamBadgeHtml from './teamBadge.js';
 
 // Registry of built-in tabs
-const builtinTabs = [
+const builtinTabs = () => [
     TabHome,
     TabApps,
     TabFiles,
@@ -63,6 +68,7 @@ const builtinTabs = [
     TabUsage,
     TabAccount,
     TabSecurity,
+    ...(notificationsTabEnabled(window.gui_params) ? [TabNotifications] : []),
 ];
 
 async function UIDashboard (options) {
@@ -74,7 +80,7 @@ async function UIDashboard (options) {
     $('body').addClass('dashboard-mode');
 
     // Create mutable tabs array from built-in tabs
-    const tabs = [...builtinTabs];
+    const tabs = builtinTabs();
 
     // Dispatch 'dashboard-will-open' event to allow extensions to add tabs
     window.dispatchEvent(new CustomEvent('dashboard-will-open', { detail: { tabs } }));
@@ -274,10 +280,12 @@ async function UIDashboard (options) {
     window.socket = io(`${window.gui_origin}/`, {
         auth: {
             auth_token: window.auth_token,
+            acks: notificationSocketAcks(),
         },
         transports: ['websocket', 'polling'],
         withCredentials: true,
     });
+    answerNotificationReceipts(window.socket);
 
     window.socket.on('error', (error) => {
         console.error('Dashboard Socket Error:', error);

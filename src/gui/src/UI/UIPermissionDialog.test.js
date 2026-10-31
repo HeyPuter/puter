@@ -566,6 +566,20 @@ describe('UIPermissionDialog permission descriptions', () => {
     });
 });
 
+describe('UIPermissionDialog push notification description', () => {
+    it('describes the push permission under its own wording', async () => {
+        const d = await get_permission_description('notifications:push');
+        expect(d.html).toContain('perm_notifications_push');
+        expect(d.icon).toBe('bell');
+    });
+
+    it('refuses anything else under notifications', async () => {
+        for ( const permission of ['notifications', 'notifications:push:x', 'notifications:other'] ) {
+            expect(await get_permission_description(permission)).toBeNull();
+        }
+    });
+});
+
 describe('UIPermissionDialog input guard', () => {
     const MS = 350;
     let win;

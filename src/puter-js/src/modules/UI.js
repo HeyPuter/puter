@@ -1,5 +1,4 @@
 import EventListener from '../lib/EventListener.js';
-import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 import { PuterJSError } from '../lib/PuterJSError.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
@@ -511,6 +510,7 @@ export class AppConnection extends EventListener {
  *     localeChanged: { language: string },
  *     themeChanged: ThemeData,
  *     connection: ConnectionEvent,
+ *     notificationClick: unknown,
  * }>}
  */
 export class UIModule extends EventListener {
@@ -686,6 +686,8 @@ export class UIModule extends EventListener {
             'localeChanged',
             'themeChanged',
             'connection',
+            // Surfaced as `puter.notifications.on('click')`.
+            'notificationClick',
         ];
         super(eventNames);
         this.#eventNames = eventNames;
@@ -2179,28 +2181,17 @@ export class UIModule extends EventListener {
             // won't construct, no `document.body` yet because this was called
             // from a <head> script — has to deny rather than reject.
             try {
-                if ( hasUserActivation() ) {
-                    // A user gesture is active — open the popup immediately.
-                    // Unique window name per request: window.open() reuses a
-                    // window with the same name, which would hijack a popup an
-                    // earlier, still-pending request is waiting on.
-                    watchPopup(openAuthPopup(url, `puter-permission-${msg_id}`));
-                } else {
-                    // No user gesture: a popup opened now would be blocked by
-                    // the browser. Show a consent dialog first; the popup is
-                    // then opened from the user's click on that dialog, which
-                    // provides the gesture the browser requires.
-                    const dialog = new PuterDialog(() => {}, () => {}, {
-                        popupURL: url,
-                        // Same unique-name reasoning as the direct path above.
-                        popupName: `puter-permission-${msg_id}`,
-                        onLaunch: (popup) => watchPopup(popup),
-                        onCancel: () => settle(false),
-                    });
-                    consentDialog = dialog;
-                    document.body.appendChild(dialog);
-                    dialog.open();
-                }
+                // Opens the popup now under a user gesture, else from the
+                // dialog's Continue click. Unique window name per request:
+                // window.open() reuses a window with the same name, which
+                // would hijack a popup an earlier, still-pending request is
+                // waiting on.
+                consentDialog = PuterDialog.launch({
+                    popupURL: url,
+                    popupName: `puter-permission-${msg_id}`,
+                    onLaunch: (popup) => watchPopup(popup),
+                    onCancel: () => settle(false),
+                });
             } catch (e) {
                 // `settle` runs cleanup, so the message listener is dropped too.
                 settle(false);
@@ -2228,16 +2219,7 @@ export class UIModule extends EventListener {
      */
     async showFeedbackDialog () {
         if ( this.env === 'app' ) {
-            // The host GUI advertises the IPC dialogs it can answer via
-            // `puter.gui_features` on the app iframe's URL (see
-            // launchApp.js). A GUI that predates this feature has no
-            // handler for the message and would never reply, hanging this
-            // never-rejecting promise forever — and a reply timeout can't
-            // stand in for the check, because a legitimate reply only
-            // arrives when the user closes the dialog.
-            const features = new URLSearchParams(globalThis.location?.search ?? '')
-                .get('puter.gui_features')?.split(',') ?? [];
-            if ( ! features.includes('feedback-dialog') ) {
+            if ( ! this.#guiOffers('feedback-dialog') ) {
                 return false;
             }
             const result = await this.#postMessageAsync('showFeedbackDialog', {});
@@ -2371,25 +2353,14 @@ export class UIModule extends EventListener {
             // Every path out of here resolves, so anything that throws while
             // launching has to resolve null rather than reject.
             try {
-                if ( hasUserActivation() ) {
-                    // Unique window name per request: window.open() reuses a
-                    // window with the same name, which would hijack a popup an
-                    // earlier, still-pending request is waiting on.
-                    watchPopup(openAuthPopup(url, name));
-                } else {
-                    // No user gesture: a popup opened now would be blocked.
-                    // Show a consent dialog first; the popup is then opened
-                    // from the user's click on it.
-                    const dialog = new PuterDialog(() => {}, () => {}, {
-                        popupURL: url,
-                        popupName: name,
-                        onLaunch: (popup) => watchPopup(popup),
-                        onCancel: () => settle(null),
-                    });
-                    consentDialog = dialog;
-                    document.body.appendChild(dialog);
-                    dialog.open();
-                }
+                // Same launch as requestPermission: popup now, or from the
+                // dialog's Continue click, under a per-request window name.
+                consentDialog = PuterDialog.launch({
+                    popupURL: url,
+                    popupName: name,
+                    onLaunch: (popup) => watchPopup(popup),
+                    onCancel: () => settle(null),
+                });
             } catch (e) {
                 settle(null);
             }
@@ -2435,6 +2406,115 @@ export class UIModule extends EventListener {
         });
         return /** @type {import('./hosting/types.js').CustomDomain | null} */ (result?.domain ?? null);
     }
+
+    /** Whether the host GUI lists this IPC dialog in `puter.gui_features` on the app iframe's URL (see launchApp.js); a GUI without the handler never replies, and a real reply waits for the user, so no timeout can stand in for this. @param {string} feature @returns {boolean} */
+    #guiOffers (feature) {
+        const features = new URLSearchParams(globalThis.location?.search ?? '')
+            .get('puter.gui_features')?.split(',') ?? [];
+        return features.includes(feature);
+    }
+
+    /** Offers to turn push on in the user's browser, for `puter.notifications.enablePush()`: the desktop shows the offer in the `app` environment, a popup on the Puter origin does in `web` (call it from a click), and every other environment resolves `false`. @internal @returns {Promise<boolean>} `true` when this browser now receives pushes */
+    async enablePush () {
+        if ( this.env === 'app' ) {
+            if ( ! this.#guiOffers('enable-push') ) {
+                return false;
+            }
+            const result = await this.#postMessageAsync('enablePush', {});
+            return result?.state === 'on';
+        }
+
+        if ( this.env !== 'web' ) {
+            return false;
+        }
+        if ( ! globalThis.open || ! globalThis.document ) {
+            return false;
+        }
+
+        // See requestPermission: canonical-to-canonical origin comparison.
+        let gui_origin;
+        try {
+            gui_origin = new URL(puter.defaultGUIOrigin).origin;
+        } catch (e) {
+            return false;
+        }
+
+        // How long a result message may still arrive after the popup is observed closed.
+        const CLOSE_GRACE_MS = 1000;
+
+        return new Promise((resolve) => {
+            // Unique per request and per page load, as in requestPermission; the GUI knows the site by its attested opener origin.
+            const msg_id = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
+            const url = `${gui_origin}/action/enable-push?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}`;
+
+            let settled = false;
+            let checkClosed = null;
+            let popupWindow = null;
+            let consentDialog = null;
+
+            const cleanup = () => {
+                if ( checkClosed ) {
+                    clearInterval(checkClosed);
+                    checkClosed = null;
+                }
+                window.removeEventListener('message', messageHandler);
+                consentDialog?.remove();
+                consentDialog = null;
+            };
+
+            const settle = (enabled) => {
+                if ( settled ) return;
+                settled = true;
+                cleanup();
+                resolve(enabled === true);
+            };
+
+            const messageHandler = (e) => {
+                // The GUI origin, the popup opened here, and this request; msg_id comes back as a string, so `!=`.
+                if ( e.origin !== gui_origin ) return;
+                if ( popupWindow && e.source !== popupWindow ) return;
+                if ( e.data?.original_msg_id != msg_id ) return;
+                if ( e.data?.msg !== 'pushEnabled' ) return;
+                settle(e.data.state === 'on');
+            };
+            window.addEventListener('message', messageHandler);
+
+            const watchPopup = (popup) => {
+                if ( settled ) return;
+                if ( ! popup ) {
+                    settle(false);
+                    return;
+                }
+                popupWindow = popup;
+                // With the opener relationship severed (COOP) the popup cannot post back; it stays open and the outcome is not confirmed.
+                if ( window.crossOriginIsolated || popup.closed ) {
+                    settle(false);
+                    return;
+                }
+                checkClosed = setInterval(() => {
+                    if ( ! popup.closed ) return;
+                    clearInterval(checkClosed);
+                    checkClosed = null;
+                    // The result is posted before the close and may still be in flight.
+                    setTimeout(() => settle(false), CLOSE_GRACE_MS);
+                }, 100);
+            };
+
+            // Anything that throws while launching resolves false rather than rejecting.
+            try {
+                // Popup now under a user gesture, else from the dialog's Continue click.
+                consentDialog = PuterDialog.launch({
+                    popupURL: url,
+                    popupName: `puter-push-${msg_id}`,
+                    message: 'This website wants to send you push notifications through Puter.',
+                    onLaunch: (popup) => watchPopup(popup),
+                    onCancel: () => settle(false),
+                });
+            } catch (e) {
+                settle(false);
+            }
+        });
+    };
 
     /**
      * Greys out a menubar item so it cannot be clicked.

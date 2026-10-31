@@ -75,6 +75,11 @@ describe('NOTIFICATION_TYPES', () => {
             'notif:app-1:app-user',
         );
 
+        const message = findNotificationType('app.message')!;
+        expect(
+            message.subject({ userUuid: 'user-uuid', appUid: 'app-1' }),
+        ).toBe('notif:app-1:app-user');
+
         // A worker bound to no app has no app to name.
         const worker = findNotificationType('app.worker.deployed')!;
         expect(worker.subject({ userUuid: 'user-uuid', appUid: null })).toBe(
@@ -124,6 +129,15 @@ describe('resolveNotificationWrite', () => {
         ).toThrow('requires an app uid');
     });
 
+    it('requires an app uid for an app message', () => {
+        expect(resolveNotificationWrite('app.message', 'app-1')).toMatchObject(
+            { audience: 'app-user', appScoped: true, groupable: false },
+        );
+        expect(() => resolveNotificationWrite('app.message', null)).toThrow(
+            'requires an app uid',
+        );
+    });
+
     it('lets a subscription an account made end without naming an app', () => {
         expect(resolveNotificationWrite('app.events.ended', null).audience).toBe(
             'app-user',
@@ -133,14 +147,22 @@ describe('resolveNotificationWrite', () => {
 
 describe('types kept off the account mailbox', () => {
     it('are only the ones an app alone has a use for', () => {
-        expect(OUTSIDE_ACCOUNT_MAILBOX_TYPES).toEqual(['kv.share.received']);
+        const appOnly = ['app.message', 'kv.share.received'];
+        expect(OUTSIDE_ACCOUNT_MAILBOX_TYPES).toEqual(appOnly);
         for (const entry of NOTIFICATION_TYPES)
             expect(inAccountMailbox(entry.type)).toBe(
-                entry.type !== 'kv.share.received',
+                !appOnly.includes(entry.type),
             );
         // An unclassified legacy row still belongs on the desktop.
         expect(inAccountMailbox('')).toBe(true);
         expect(inAccountMailbox(undefined)).toBe(true);
+    });
+
+    it("include an app's own messages, and keep shares on the desktop", () => {
+        expect(inAccountMailbox('app.message')).toBe(false);
+        expect(inAccountMailbox('share.received')).toBe(true);
+        expect(inAccountMailbox('share.claimed')).toBe(true);
+        expect(inAccountMailbox('app.worker.deployFailed')).toBe(true);
     });
 
     it('include the key-value share notice, which always names its app', () => {

@@ -29,6 +29,7 @@ An object containing the following properties:
 
 - `model` (String) - The model you want to use for the completion. If not specified, defaults to `gpt-5.4-nano`. More than 500 models are available from vendors including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page.
 - `provider` (String) (Optional) - Pin the request to a specific vendor, for example `openrouter` or `infron`. Without it, Puter selects a vendor for the requested model. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the available values, and [`puter.ai.listModels(provider)`](/AI/listModels) for the models a given vendor serves.
+- `fallback` (Boolean) (Optional) - Set to `false` to fail the request when the first vendor tried fails, instead of retrying it on another vendor that serves the same model. Defaults to `true`. With `provider` set as well, the request is answered by that vendor or fails. If that vendor does not serve the model, the request fails with a `400` instead of going to another vendor. The error is the same one you would get if every vendor had failed, for example `400 upstream_provider_unavailable` or `429 upstream_rate_limited`.
 - `signal` (AbortSignal) (Optional) - Abort the request, including while waiting for the next streamed chunk. Cancellation rejects with the signal reason (normally an `AbortError`).
 - `stream` (Boolean) - A boolean indicating whether you want to stream the completion. Defaults to `false`.
 - `max_tokens` (Number) - The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used.
@@ -171,6 +172,17 @@ by a newline. Use the async iterator to receive every chunk as an object.
 ## Vendors
 
 We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, Meta, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.
+
+When the vendor serving a request fails, Puter retries the request on the next vendor that serves the same model (up to three attempts), and you are billed for the attempt that answers. Pass `fallback: false` to turn this off, so that a failure from the first vendor tried is returned to you instead:
+
+```js
+// Answered by Anthropic directly, or an error. Never sent to another vendor.
+const response = await puter.ai.chat('Hello', {
+    model: 'claude-sonnet-4-6',
+    provider: 'claude',
+    fallback: false,
+});
+```
 
 ## Response Normalization
 

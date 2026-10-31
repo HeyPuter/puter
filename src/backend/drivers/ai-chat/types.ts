@@ -175,6 +175,11 @@ export interface UsageDetails {
 export interface ICompleteArguments {
     messages: PuterMessage[];
     provider?: string;
+    /**
+     * `false` makes the first route's failure final instead of retrying the
+     * request on another provider that serves the same model.
+     */
+    fallback?: boolean;
     stream?: boolean;
     model: string;
     test_mode?: boolean;

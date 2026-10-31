@@ -487,6 +487,38 @@ describe('PermissionService (integration)', () => {
             expect(has).toBeTruthy();
         });
 
+        it('lets the user`s own grant clear a narrower `via`, and never the reverse', async () => {
+            const { user, actor } = await makeUserActor();
+            const app = await makeApp(user.id);
+            const permission = `zztest:via-${uuidv4()}:ii:read`;
+            const extraOf = async () =>
+                (
+                    await server.stores.permission.readUserAppPerms(
+                        user.id,
+                        app.id,
+                        [permission],
+                    )
+                )[0]?.extra;
+            const grant = (extra?: Record<string, unknown>) =>
+                runWithContext({ actor }, () =>
+                    permService.grantUserAppPermission(
+                        actor,
+                        app.uid,
+                        permission,
+                        extra,
+                    ),
+                );
+
+            await grant({ via: 'webpush', note: 'kept' });
+            expect(await extraOf()).toEqual({ via: 'webpush', note: 'kept' });
+
+            await grant({});
+            expect(await extraOf()).toEqual({ note: 'kept' });
+
+            await grant({ via: 'webpush' });
+            expect(await extraOf()).toEqual({ note: 'kept' });
+        });
+
         it('revokeUserAppPermission removes the row', async () => {
             const { user, actor } = await makeUserActor();
             const app = await makeApp(user.id);

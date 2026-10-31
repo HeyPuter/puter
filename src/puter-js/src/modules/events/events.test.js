@@ -126,7 +126,18 @@ describe('connection lifetime', () => {
         await subscribed(events, 'fs:~/Documents', () => {});
         expect(sockets).toHaveLength(1);
         expect(sockets[0].url).toBe('https://api.test');
-        expect(sockets[0].options.auth).toEqual({ auth_token: 'token-1' });
+        expect(sockets[0].options.auth).toEqual({ auth_token: 'token-1', acks: ['notif.receipt'] });
+    });
+
+    it('hands receipt asks to the page\'s notifications', async () => {
+        const answer = vi.fn();
+        const events = makeModule({ notifications: { _answerReceipt: answer } });
+        await subscribed(events, 'notif:app-user', () => {});
+        const ack = vi.fn();
+
+        sockets[0].fire('notif.receipt', { uid: 'n-1' }, ack);
+
+        expect(answer).toHaveBeenCalledWith({ uid: 'n-1' }, ack);
     });
 
     it('carries several subscriptions on one socket, and closes with the last', async () => {
@@ -450,7 +461,7 @@ describe('reconnect', () => {
 
         expect(sockets).toHaveLength(2);
         expect(sockets[0].disconnected).toBe(true);
-        expect(sockets[1].options.auth).toEqual({ auth_token: 'token-2' });
+        expect(sockets[1].options.auth).toEqual({ auth_token: 'token-2', acks: ['notif.receipt'] });
     });
 
     it('off() after the connection dropped resolves without asking the server', async () => {
@@ -942,7 +953,7 @@ describe('persistent delivery routing', () => {
         expect(sockets[0].sent.filter(s => s.verb === 'events.ack')).toEqual([]);
     });
 
-    it('runs nothing for a delivery the server marked as handled by the worker', async () => {
+    it('runs nothing for a delivery the server marked as past the handler-chain limit', async () => {
         const events = makeModule();
         const seen = [];
         events.channel.registerDurable('app-1#sub', ({ event }) => seen.push(event));
@@ -1019,7 +1030,7 @@ describe('persistent delivery routing', () => {
         ]);
     });
 
-    it('acknowledges nothing when the handler throws, so it is delivered again', async () => {
+    it('declines as failed and not retryable, and acknowledges nothing, when the handler throws', async () => {
         const events = makeModule();
         const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
         events.channel.registerDurable('app-1#sub', async () => {
@@ -1031,13 +1042,96 @@ describe('persistent delivery routing', () => {
             durable('app-1#sub', '/user/a/one.txt', {
                 ackRequired: true,
                 ackId: 'entry-3',
+                origin: 'west',
             }),
         );
         await Promise.resolve();
         await Promise.resolve();
 
         expect(sockets[0].sent.filter(s => s.verb === 'events.ack')).toEqual([]);
+        expect(sockets[0].sent.filter(s => s.verb === 'events.nack')).toMatchObject([
+            {
+                payload: {
+                    subId: 'app-1#sub',
+                    id: 'entry-3',
+                    reason: 'failed',
+                    retry: false,
+                    origin: 'west',
+                },
+            },
+        ]);
         expect(errors).toHaveBeenCalled();
+    });
+
+    it('declines a handler that throws synchronously, but not one that acked first', async () => {
+        const events = makeModule();
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        events.channel.registerDurable('app-1#sync', () => {
+            throw new Error('handler bug');
+        });
+        events.channel.registerDurable('app-1#late', async ({ ack }) => {
+            await ack();
+            throw new Error('after ack');
+        });
+
+        sockets[0].fire(
+            'events.delivery',
+            durable('app-1#sync', '/user/a/one.txt', { ackRequired: true, ackId: 'entry-s' }),
+        );
+        sockets[0].fire(
+            'events.delivery',
+            durable('app-1#late', '/user/a/two.txt', { ackRequired: true, ackId: 'entry-l' }),
+        );
+        for ( let i = 0; i < 5; i++ ) await Promise.resolve();
+
+        expect(sockets[0].sent.filter(s => s.verb === 'events.nack').map(s => s.payload.id))
+            .toEqual(['entry-s']);
+        expect(sockets[0].sent.filter(s => s.verb === 'events.ack').map(s => s.payload.id))
+            .toEqual(['entry-l']);
+    });
+
+    it('declines a retryable failure as one to try again', async () => {
+        const events = makeModule();
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        events.channel.registerDurable('app-1#net', async () => {
+            throw new TypeError('Failed to fetch');
+        });
+        events.channel.registerDurable('app-1#later', async () => {
+            throw Object.assign(new Error('try later'), { retry: true });
+        });
+
+        for ( const [subId, ackId] of [['app-1#net', 'entry-n'], ['app-1#later', 'entry-r']] ) {
+            sockets[0].fire(
+                'events.delivery',
+                durable(subId, '/user/a/one.txt', { ackRequired: true, ackId }),
+            );
+        }
+        for ( let i = 0; i < 5; i++ ) await Promise.resolve();
+
+        expect(sockets[0].sent.filter(s => s.verb === 'events.nack').map(s => s.payload))
+            .toMatchObject([
+                { id: 'entry-n', reason: 'failed', retry: true },
+                { id: 'entry-r', reason: 'failed', retry: true },
+            ]);
+    });
+
+    it('declines a queued delivery it has no handler for, at once', async () => {
+        const events = makeModule();
+        // Opens the connection without registering anything for `app-1#sub`.
+        events.channel.registerDurable('app-1#other', () => {});
+
+        sockets[0].fire(
+            'events.delivery',
+            durable('app-1#sub', '/user/a/one.txt', { ackRequired: true, ackId: 'entry-4' }),
+        );
+        // A copy everyone gets is not declined: nothing is waiting on it.
+        sockets[0].fire('events.delivery', durable('app-1#sub', '/user/a/two.txt'));
+        await Promise.resolve();
+
+        expect(sockets[0].sent.filter(s => s.verb === 'events.nack')).toMatchObject([
+            { payload: { subId: 'app-1#sub', id: 'entry-4', reason: 'no_handler', retry: false } },
+        ]);
+        expect(sockets[0].sent.filter(s => s.verb === 'events.ack')).toEqual([]);
     });
 
     it('keeps routing across a reconnect without subscribing again', async () => {
@@ -1108,7 +1202,7 @@ describe('signing in', () => {
         await vi.waitFor(() => expect(sockets.length).toBeGreaterThan(0));
 
         expect(events.puter.ui.authenticateWithPuter).toHaveBeenCalledTimes(1);
-        expect(sockets[0].options.auth).toEqual({ auth_token: 'token-2' });
+        expect(sockets[0].options.auth).toEqual({ auth_token: 'token-2', acks: ['notif.receipt'] });
 
         sockets[0].answer('events.subscribe', okSub('sub-1', 'fs:~/a'));
         await pending;
