@@ -39,6 +39,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_HANDLER_PUBLISH_BATCH,
+    EVENTS_HANDLER_PUBLISH_LIMIT,
     EVENTS_HANDLER_SOURCE_MAX_BYTES,
     EVENTS_SUSPENDED_PENDING_CAP,
     EVENTS_WORKER_SOURCE_MAX_BYTES,
@@ -341,6 +342,61 @@ describe('who may publish a handler', () => {
     });
 });
 
+describe('what a handler may refer to', () => {
+    // The file publishes close to the per-minute budget without these.
+    beforeEach(async () => {
+        await env.server.clients.redis.del(
+            `rate:${EVENTS_HANDLER_PUBLISH_LIMIT.scope}:${userId}`,
+        );
+    });
+
+    it('refuses a handler that names a variable it does not bind', async () => {
+        const refused = await publish(appToken, {
+            name: 'ingestUpload',
+            source: 'async ({ event }) => { await send(endpoint, event.path); }',
+        });
+
+        expect(refused.status).toBe(400);
+        expect(refused.body.code).toBe('events_handler_free_variable');
+        expect(refused.body.message).toContain('`send`');
+        const listed = await call('GET', '/events/handlers/list', appToken);
+        expect(listed.body.handlers).toEqual([]);
+    });
+
+    it('refuses the ambient SDK, which a handler never has', async () => {
+        const refused = await publish(appToken, {
+            name: 'ingestUpload',
+            source: 'async ({ event }) => { await puter.fs.stat(event.path); }',
+        });
+
+        expect(refused.status).toBe(400);
+        expect(refused.body.code).toBe('events_handler_free_variable');
+    });
+
+    it('stops a set at the item that does', async () => {
+        const refused = await call(
+            'POST',
+            '/events/handlers/publishAll',
+            appToken,
+            {
+                handlers: [
+                    { name: 'indexDocument', source: NEXT_SOURCE },
+                    { name: 'ingestUpload', source: 'async () => leak()' },
+                ],
+            },
+        );
+
+        expect(refused.status).toBe(400);
+        expect(refused.body.code).toBe('events_handler_free_variable');
+        const listed = await call('GET', '/events/handlers/list', appToken);
+        expect(
+            (listed.body.handlers as Array<{ name: string }>).map(
+                (h) => h.name,
+            ),
+        ).toEqual(['indexDocument']);
+    });
+});
+
 describe('publishing a set', () => {
     it('takes a build step`s handlers in one call', async () => {
         const published = await call(
@@ -624,8 +680,14 @@ describe('the total-source cap', () => {
         { timeout: 30_000 },
         async () => {
             // Every handler at the per-handler max: the fewest handlers that
-            // can reach the total cap.
-            const bigSource = 'x'.repeat(EVENTS_HANDLER_SOURCE_MAX_BYTES);
+            // can reach the total cap. Padded in a comment so it still passes
+            // the free-variable scan.
+            const prefix = 'async () => {} /*';
+            const padded = (fill: string) =>
+                `${prefix}${fill.repeat(
+                    EVENTS_HANDLER_SOURCE_MAX_BYTES - prefix.length - 2,
+                )}*/`;
+            const bigSource = padded('x');
             const names = Array.from(
                 {
                     length:
@@ -666,7 +728,7 @@ describe('the total-source cap', () => {
             // same size, different content, so it must not double-count.
             const replace = await publish(appToken, {
                 name: 'big0',
-                source: 'y'.repeat(EVENTS_HANDLER_SOURCE_MAX_BYTES),
+                source: padded('y'),
                 replace: true,
             });
             expect(replace.status).toBe(200);

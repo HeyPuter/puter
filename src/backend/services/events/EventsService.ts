@@ -31,6 +31,7 @@ import {
     EVENTS_HANDLER_DEPTH,
     EVENTS_HANDLER_PUBLISH_BATCH,
     EVENTS_HANDLER_PUBLISH_LIMIT,
+    EVENTS_HANDLER_SOURCE_MAX_BYTES,
     EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
     EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_KV_VALUE_MAX_BYTES,
@@ -224,6 +225,8 @@ import {
     eventsWorkerScript,
 } from './workerRuntime.js';
 import { handlerSetHash } from './workerSource.js';
+// The SDK's own scan, so a publish that skips the SDK is held to the same rule.
+import { scanHandlerSource } from '../../../puter-js/src/modules/events/lib/freeVariables.js';
 import {
     EventsWorkerInvoker,
     RecordingWorkerInvoker,
@@ -843,6 +846,24 @@ const handlerAppForbidden = (): HttpError =>
 
 const badRequest = (message: string, code: string): HttpError =>
     new HttpError(400, message, { legacyCode: code });
+
+/**
+ * A handler runs with nothing around it, so a name it neither binds nor gets
+ * from the runtime fails on its first delivery. Refused at publish instead.
+ */
+const assertNoFreeVariables = (source: string): void => {
+    // Over the cap the store refuses it anyway, so it isn't worth tokenizing.
+    if (Buffer.byteLength(source, 'utf8') > EVENTS_HANDLER_SOURCE_MAX_BYTES)
+        return;
+    try {
+        scanHandlerSource(source);
+    } catch (err) {
+        throw badRequest(
+            err instanceof Error ? err.message : String(err),
+            'events_handler_free_variable',
+        );
+    }
+};
 
 const errorAck = (err: unknown): VerbAck<never> => {
     if (err instanceof HttpError)
@@ -2809,6 +2830,7 @@ export class EventsService extends PuterService {
     ): Promise<PublishedHandlerView> {
         const name = String(item?.name ?? '');
         const source = typeof item?.source === 'string' ? item.source : '';
+        assertNoFreeVariables(source);
         const sizeChecked = awaitLater(
             this.#assertHandlerSetSize(appUid, name, source),
         );

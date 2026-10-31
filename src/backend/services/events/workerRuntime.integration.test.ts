@@ -133,11 +133,13 @@ const INGEST_SOURCE = `async ({ event, ctx, user, fetch, ack }) => {
             kv,
             outsideStat,
             token: user.authToken,
+            // Read off globalThis, where the router runtime and the deploy's
+            // bindings put them: a bare name is refused at publish.
             ambient: {
-                me: typeof me,
-                router: typeof router,
-                puterAuth: typeof puter_auth,
-                invokeKey: typeof events_invoke_key,
+                me: typeof globalThis.me,
+                router: typeof globalThis.router,
+                puterAuth: typeof globalThis.puter_auth,
+                invokeKey: typeof globalThis.events_invoke_key,
             },
         }),
     });
