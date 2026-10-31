@@ -62,7 +62,7 @@ Besides `type` and `title`, `notification` carries:
 - `app.events.ended`: `reason` (`anchor_deleted`, `permission_revoked`, or `no_credit`); `anchor_deleted` and `permission_revoked` also add `subject`, `subjects` (up to 20) and `count`.
 - `app.events.suspended`: `handler` and `subscriptions`.
 - `app.message`: a notification your app sent with [`notify()`](/Notifications/notify/). It carries `priority`, `ttl` and `app` (`{ uid, name, icon }`, the app that sent it), plus `text`, `icon`, `target`, `data`, `group`, `channel` and `sensitive` when they were set. It arrives on `notif:app-user` of the app that sent it, and the Puter desktop doesn't show it. Outside that app, `notif:app-user` leaves it out.
-- `kv.share.received`: `handle`, `access`, `label`, and `createdAt` (in Unix seconds) of a key-value share another user made with you (see [`puter.kv.listShared()`](/KV/listShared/)). It arrives on `notif:app-user` in the app whose data was shared, and the Puter desktop doesn't show it. Outside that app, `notif:app-user` leaves it out. `notif:<appId>:app-user` returns it to the account itself and to that app, and not to other apps.
+- `kv.share.received`: `handle`, `access`, `label`, and `createdAt` (in Unix seconds) of a key-value share another user made with you with `notify` on, or turned `notify` on for (see [`puter.kv.share()`](/KV/share/#what-the-holder-sees)). It arrives on `notif:app-user` in the app whose data was shared, and the Puter desktop doesn't show it. Outside that app, `notif:app-user` leaves it out. `notif:<appId>:app-user` returns it to the account itself and to that app, and not to other apps.
 
 Other notifications can carry other fields, so read them defensively.
 

@@ -43,11 +43,13 @@ doesn't say who made it or what its prefix is.
 
 ## Invite Members
 
-Share the room with each member at write access:
+Share the room with each member at write access. With `notify: true`, each
+member is told about the room right away, and the members and the creator can
+notify each other through the share:
 
 ```js
 for (const username of ['alice', 'bob']) {
-    await puter.kv.share({ prefix, recipient: username, access: 'write', label: 'Weekend trip' });
+    await puter.kv.share({ prefix, recipient: username, access: 'write', label: 'Weekend trip', notify: true });
 }
 ```
 
@@ -201,7 +203,7 @@ const part = `${prefix}u:${memberId}:`;
 
 await puter.kv.set(`${prefix}member:${memberId}`, { username: 'alice' });
 await puter.kv.set(`${part}meta`, { roomId });
-await puter.kv.share({ prefix, recipient: 'alice', access: 'read', label: 'Weekend trip' });
+await puter.kv.share({ prefix, recipient: 'alice', access: 'read', label: 'Weekend trip', notify: true });
 await puter.kv.share({ prefix: part, recipient: 'alice', access: 'write', label: 'Weekend trip' });
 ```
 

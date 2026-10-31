@@ -646,9 +646,10 @@ describe('a write in the shared region', () => {
                 ),
             { timeout: EVENTS_COALESCE_WINDOW_MS * 12, interval: 25 },
         );
-        expect(
-            delivered.find((one) => one.subId === sub.subId)?.event,
-        ).toMatchObject({ key: 'title', value: 'hello' });
+        // A `watch` share carries keys only, whatever the subscription asked.
+        const event = delivered.find((one) => one.subId === sub.subId)?.event;
+        expect(event).toMatchObject({ key: 'title' });
+        expect(event).not.toHaveProperty('value');
     });
 
     it('stays inside the region the handle was granted on', async () => {

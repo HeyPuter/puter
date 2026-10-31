@@ -419,6 +419,16 @@ export const parseKvShareLabel = (
     return label;
 };
 
+/** A share's `notify` flag; `undefined` leaves a stored one as it is. */
+export const parseKvShareNotify = (value: unknown): boolean | undefined => {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== 'boolean')
+        throw new HttpError(400, '`notify` must be a boolean', {
+            legacyCode: 'kv_share_notify_invalid',
+        });
+    return value;
+};
+
 export const invalidAppUid = (message: string): HttpError =>
     new HttpError(400, message, { legacyCode: 'bad_request' });
 

@@ -35,7 +35,7 @@ import { assertUsernameRecipient, sharesRequest } from './lib/shares.js';
 /**
  * Shares the keys under a prefix with another user, at `read` access unless
  * `access` says otherwise. Sharing the same prefix with the same user again
- * changes the level or label in place and keeps the handle. An array of
+ * changes the level, label or `notify` in place and keeps the handle. An array of
  * recipients shares with each of them and resolves to one item per recipient,
  * in order, each a share or an `error`.
  *
@@ -57,6 +57,7 @@ export async function share (prefixOrOptions, recipient, access) {
         prefix: options.prefix,
         ...(options.access !== undefined ? { access: options.access } : {}),
         ...(options.label !== undefined ? { label: options.label } : {}),
+        ...(options.notify !== undefined ? { notify: options.notify } : {}),
         ...(options.appUuid !== undefined ? { appUid: options.appUuid } : {}),
     };
     // Each recipient of a batch is checked by the server and reported on its

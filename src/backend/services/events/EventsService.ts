@@ -34,7 +34,7 @@ import {
     EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
     EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_KV_VALUE_MAX_BYTES,
-    EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
+    EVENTS_KV_VALUE_DELIVERIES_PER_EVENT,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_SUBSCRIBE_LIMIT,
@@ -188,9 +188,11 @@ import {
 } from './registry.js';
 import { SubscriptionCache } from './subscriptionCache.js';
 import {
+    kvShareAccessOf,
     kvShareGrantCovers,
     kvSharePermission,
     relativeToKvShareRoot,
+    type KvShareAccess,
 } from '../kvShare/kvShares.js';
 import {
     KV_MATCH_SEPARATOR,
@@ -620,7 +622,8 @@ export interface KvDispatchInput {
 interface RouteLimits {
     matchedSubscriptions: number;
     filterEvaluations: number;
-    omitKvValueAbove?: number;
+    /** Deliveries that may carry a KV value; unset where there is none. */
+    kvValueDeliveries?: number;
 }
 
 // -- Socket wire names ------------------------------------------------
@@ -1105,16 +1108,24 @@ const inlineKvValue = (value: unknown): { value: unknown } | undefined => {
 };
 
 /**
- * The value rides only where the row asked for it. A share-handle row is no
- * exception: the owner minted the handle over that region, and the delivery
- * re-check that stops a revoked handle stops its values with it.
+ * Where a share-handle row stands for one delivery: the level its holder
+ * reaches through it, `revoked` once it reaches nothing, or `unknown` while
+ * that can't be checked (a failed lookup, a suspended owner).
  */
-const valueAsRowAskedFor = (
+type KvShareStanding = KvShareAccess | 'revoked' | 'unknown';
+
+/**
+ * A share-handle row as one delivery serves it: not at all once its share is
+ * gone, and without values while the share is at `watch`. Decided per delivery,
+ * so a level change applies to subscriptions already made.
+ */
+const servedAtStanding = (
     row: DispatchSubscription,
-    event: ProjectedKvEvent,
-): ProjectedKvEvent => {
-    if (event.value === undefined || row.includeValue === true) return event;
-    const { value: _value, ...withoutValue } = event;
+    standing: KvShareStanding,
+): DispatchSubscription | null => {
+    if (standing === 'revoked' || standing === 'unknown') return null;
+    if (standing !== 'watch' || row.includeValue !== true) return row;
+    const { includeValue: _includeValue, ...withoutValue } = row;
     return withoutValue;
 };
 
@@ -1126,9 +1137,39 @@ const withoutKvValue = <C extends EventContextBase>(context: C): C => {
     return withoutValue as C;
 };
 
+/**
+ * Rows in the order a fan-out serves them: the keyspace owner's own first, then
+ * the other holders taking turns, one row each per round. The first holder is
+ * picked at random per event, so none is always the one past a cap.
+ */
+const holdersTakeTurns = (
+    rows: DispatchSubscription[],
+): DispatchSubscription[] => {
+    const ordered: DispatchSubscription[] = [];
+    const byHolder = new Map<number, DispatchSubscription[]>();
+    for (const row of rows) {
+        if (row.holderUserId === row.ownerUserId) {
+            ordered.push(row);
+            continue;
+        }
+        const held = byHolder.get(row.holderUserId);
+        if (held) held.push(row);
+        else byHolder.set(row.holderUserId, [row]);
+    }
+    if (byHolder.size === 0) return ordered;
+
+    const holders = [...byHolder.values()];
+    const start = Math.floor(Math.random() * holders.length);
+    let turns = [...holders.slice(start), ...holders.slice(0, start)];
+    for (let round = 0; turns.length > 0; round++) {
+        for (const held of turns) ordered.push(held[round]);
+        turns = turns.filter((held) => held.length > round + 1);
+    }
+    return ordered;
+};
+
 /** Candidate counts at or below this can't reach any KV fan-out cap. */
 const KV_ROUTE_LIMITS_NEVER_BIND = Math.min(
-    EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
     EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
     ...Object.values(EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.bySubscription),
     EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.limit,
@@ -3599,7 +3640,7 @@ export class EventsService extends PuterService {
                 EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
                 plan,
             ),
-            omitKvValueAbove: EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
+            kvValueDeliveries: EVENTS_KV_VALUE_DELIVERIES_PER_EVENT,
         };
     }
 
@@ -3820,7 +3861,9 @@ export class EventsService extends PuterService {
             filterEvaluations: FILTER_EVALUATIONS_PER_EVENT,
         },
     ): Promise<void> {
-        const rows = candidates.filter(unexpired);
+        // Every cap below counts in this order, so one holder's rows can't
+        // crowd out the owner's or another holder's.
+        const rows = holdersTakeTurns(candidates.filter(unexpired));
         if (rows.length === 0) return;
 
         // One throwaway projection reads the op off the registry entry rather
@@ -3839,23 +3882,25 @@ export class EventsService extends PuterService {
             limits.filterEvaluations,
         );
 
-        const deliveryContext =
-            limits.omitKvValueAbove !== undefined &&
-            (evaluated.stoppedEarly ||
-                evaluated.matched.length > limits.omitKvValueAbove)
-                ? withoutKvValue(context)
-                : context;
-
         const matched = await authorize(
             evaluated.matched.slice(0, limits.matchedSubscriptions),
         );
 
+        // The value rides on the first deliveries that asked for it, in serving
+        // order. A share-handle row at `watch` lost its ask at `authorize`.
+        let valuesLeft = limits.kvValueDeliveries ?? 0;
+        const bare =
+            limits.kvValueDeliveries === undefined
+                ? context
+                : withoutKvValue(context);
+
         let seq = 0;
         for (const row of matched) {
+            const carries = valuesLeft > 0 && row.includeValue === true;
             const event = this.#asRowAddressesIt(
                 row,
                 subject.project({
-                    ...deliveryContext,
+                    ...(carries ? context : bare),
                     // A row watching only where the node landed was never
                     // shown where it came from, so it is not handed that path.
                     ...(sawItLeave(row, context)
@@ -3873,6 +3918,7 @@ export class EventsService extends PuterService {
             // its grant, so nothing is delivered rather than the owner's
             // namespace and absolute key going out in its place.
             if (event === null) continue;
+            if (carries) valuesLeft--;
 
             // A `single` is owed rather than sent: it is queued, and never
             // coalesced or broadcast — collapsing two of them would drop one
@@ -3944,7 +3990,7 @@ export class EventsService extends PuterService {
             if (!isFsToken(row.token)) return event;
             return this.#asRecipientAddressesIt(row, event);
         }
-        const kv = valueAsRowAskedFor(row, event as ProjectedKvEvent);
+        const kv = event as ProjectedKvEvent;
         const handle = kvHandleFromSubject(row.subject);
         if (handle === null) return kv as P;
 
@@ -4106,73 +4152,86 @@ export class EventsService extends PuterService {
         if (rows.length === 0) return rows;
 
         const decisions = new Map<string, Promise<boolean>>();
-        const allowed = await Promise.all(
-            rows.map((row) => {
+        const served = await Promise.all(
+            rows.map(async (row): Promise<DispatchSubscription | null> => {
                 const shared = kvHandleFromSubject(row.subject) !== null;
                 if (
                     privateEntry &&
                     (shared || isCrossAppKvRow(row.appUid, targetAppUid))
                 )
-                    return Promise.resolve(false);
+                    return null;
                 // A row on a shared region is authorized by its grant, not by
                 // whose namespace it names — and that is one question per
                 // subscription, because the handle *is* the granted root.
-                if (shared) return this.#kvShareHolds(row);
-                if (!isCrossAppKvRow(row.appUid, targetAppUid))
-                    return Promise.resolve(true);
+                if (shared)
+                    return servedAtStanding(
+                        row,
+                        await this.#kvShareStanding(row),
+                    );
+                if (!isCrossAppKvRow(row.appUid, targetAppUid)) return row;
                 const key = `${row.holderUserId}|${row.appUid ?? ''}`;
                 let decision = decisions.get(key);
                 if (!decision) {
                     decision = this.#kvGrantHolds(row, targetAppUid);
                     decisions.set(key, decision);
                 }
-                return decision;
+                return (await decision) ? row : null;
             }),
         );
-        return rows.filter((_row, i) => allowed[i]);
+        return served.filter((row): row is DispatchSubscription => !!row);
     }
 
     /**
-     * Whether one row's holder may still watch the region it was made on. The
-     * handle must be live and theirs, so a retired one goes silent within the
-     * handle cache's lifetime even where a wider grant covers the region. The
-     * grant check doesn't vary by key, so it's cached under the row's anchor.
+     * Whether one row's holder may still watch the region it was made on, and
+     * at what level: the share's own, read off the live handle, or `write` for
+     * the owner's row. The handle must be live and theirs, so a retired one
+     * goes silent within the handle cache's lifetime even where a wider grant
+     * covers the region. The grant check doesn't vary by key, so it's cached
+     * under the row's anchor.
      */
-    async #kvShareHolds(row: DispatchSubscription): Promise<boolean> {
+    async #kvShareStanding(
+        row: DispatchSubscription,
+    ): Promise<KvShareStanding> {
         const handle = kvHandleFromSubject(row.subject);
-        if (handle === null) return false;
+        if (handle === null) return 'revoked';
         let live: LiveKvShareHandle | null;
+        let identity: GrantIdentity | null;
         try {
             live = await this.stores.kvShareHandle.getLive(handle);
+            if (
+                !live ||
+                (live.row.granteeUserId !== row.holderUserId &&
+                    live.row.ownerUserId !== row.holderUserId)
+            )
+                return 'revoked';
+            // Lifted by an unsuspend, so the row waits instead of ending.
+            if (live.ownerSuspended) return 'unknown';
+            identity = await this.#resolveGrantIdentity(row);
         } catch {
-            return false;
+            return 'unknown';
         }
-        if (
-            !live ||
-            live.ownerSuspended ||
-            (live.row.granteeUserId !== row.holderUserId &&
-                live.row.ownerUserId !== row.holderUserId)
-        )
-            return false;
+        if (!identity) return 'revoked';
 
-        const identity = await this.#grantIdentity(row);
-        if (!identity) return false;
-
+        const level =
+            live.row.ownerUserId === row.holderUserId
+                ? 'write'
+                : (kvShareAccessOf(live.row.permission) ?? 'watch');
         const key = {
             subId: row.subId,
             generation: identity.generation,
             nodeUid: row.anchorUid,
         };
         const cached = this.#deliveryAuth.read(key);
-        if (cached !== null) return cached;
+        if (cached !== null) return cached ? level : 'revoked';
 
         const allowed = await kvSharedRegionAuthorized(
             identity.actor,
             row.permission,
             this.#kvShareDeps(),
         );
+        if (allowed === null) return 'unknown';
         this.#deliveryAuth.write(key, allowed);
-        return allowed;
+        return allowed ? level : 'revoked';
     }
 
     /** Whether one row's holder may still be told about `targetAppUid`'s data. */
@@ -4195,21 +4254,31 @@ export class EventsService extends PuterService {
         }
     }
 
-    /** Who a row acts as, and the counter its answers are keyed by. */
+    /**
+     * Who a row acts as, and the counter its answers are keyed by. `null` for
+     * an identity that no longer resolves, and for a lookup that failed.
+     */
     async #grantIdentity(
         row: DispatchSubscription,
     ): Promise<GrantIdentity | null> {
         try {
-            const deps = this.#aclDeps();
-            const actor = await resolveGrantActor(row, deps);
-            if (!actor) return null;
-            return {
-                actor,
-                generation: await deliveryGenerationTag(actor, deps),
-            };
+            return await this.#resolveGrantIdentity(row);
         } catch {
             return null;
         }
+    }
+
+    /** {@link #grantIdentity}, throwing when the lookup fails. */
+    async #resolveGrantIdentity(
+        row: DispatchSubscription,
+    ): Promise<GrantIdentity | null> {
+        const deps = this.#aclDeps();
+        const actor = await resolveGrantActor(row, deps);
+        if (!actor) return null;
+        return {
+            actor,
+            generation: await deliveryGenerationTag(actor, deps),
+        };
     }
 
     /** The event's node as ACL wants it, reusing the walk dispatch already did. */
@@ -4486,7 +4555,9 @@ export class EventsService extends PuterService {
         const settling: DurableSubscription[] = [];
         for (const row of rows) {
             const covered = this.#coveredByRevocation(row, permission);
-            if (covered && !(await this.#anchorStillReachable(row)))
+            // One that can't be checked right now is left to the delivery
+            // re-check, which settles it once it can tell.
+            if (covered && (await this.#anchorStillReachable(row)) === false)
                 settling.push(row);
         }
         return settling;
@@ -4514,8 +4585,13 @@ export class EventsService extends PuterService {
             .includes(permission);
     }
 
-    /** Whether a row's holder can still reach its anchor, asked fresh. */
-    async #anchorStillReachable(row: DurableSubscription): Promise<boolean> {
+    /**
+     * Whether a row's holder can still reach its anchor, asked fresh. `null`
+     * for a share-handle row whose share can't be checked right now.
+     */
+    async #anchorStillReachable(
+        row: DurableSubscription,
+    ): Promise<boolean | null> {
         // On the token, like the families below it: the stored subject parses
         // only because a subscribe validated it, and a settle must not start
         // throwing on a row it cannot read.
@@ -4536,8 +4612,10 @@ export class EventsService extends PuterService {
                 ).length > 0
             );
         }
-        if (kvHandleFromSubject(row.subject) !== null)
-            return this.#kvShareHolds(row);
+        if (kvHandleFromSubject(row.subject) !== null) {
+            const standing = await this.#kvShareStanding(row);
+            return standing === 'unknown' ? null : standing !== 'revoked';
+        }
         if (isKvToken(row.token)) {
             if (!isCrossAppKvRow(row.appUid, row.anchorUid)) return true;
             return this.#kvGrantHolds(row, row.anchorUid);
@@ -4948,7 +5026,11 @@ export class EventsService extends PuterService {
         // order, so only it may rewrite a score without starving what is behind.
         opts?: { deferWhenBusy?: boolean; justAuthorized?: boolean },
     ): Promise<number> {
-        if (!opts?.justAuthorized && !(await this.#stillOwed(row))) return 0;
+        if (!opts?.justAuthorized && !(await this.#stillOwed(row))) {
+            if (opts?.deferWhenBusy)
+                await this.stores.pendingDelivery.defer(row.subId);
+            return 0;
+        }
 
         let handed = 0;
         for (let pass = 0; pass < PENDING_DRAIN_BATCH; pass++) {
@@ -4997,12 +5079,15 @@ export class EventsService extends PuterService {
      *
      * Asked once per drain rather than per delivery: the whole backlog stands
      * on the one grant. A row that has lost it is settled the way the revoke
-     * settle would have — permanently, and taking the backlog with it.
+     * settle would have — permanently, and taking the backlog with it. One
+     * whose share can't be checked right now hands out nothing and keeps its
+     * backlog for a later pass.
      */
     async #stillOwed(row: DispatchSubscription): Promise<boolean> {
         if (row.durable !== true) return true;
         const durable = row as DurableSubscription;
-        if (await this.#anchorStillReachable(durable)) return true;
+        const reachable = await this.#anchorStillReachable(durable);
+        if (reachable !== false) return reachable === true;
 
         const suspended = await this.#suspend([durable], 'permission_revoked');
         await this.#notifyEnded(suspended, 'permission_revoked');
