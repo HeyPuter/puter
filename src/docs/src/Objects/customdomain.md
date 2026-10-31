@@ -39,11 +39,11 @@ Why the domain isn't active yet, when that's known.
 
 The DNS records to set at the domain's DNS provider. Each record is an object with these attributes:
 
-- `type` (String): `CNAME` or `TXT`.
+- `type` (String): `CNAME`, `TXT` or `A`.
 - `name` (String): the record's name.
 - `value` (String): the record's value.
-- `purpose` (String): `routing` for the record that sends traffic to the website, `ownership` for the record that proves the user owns the domain, or `certificate` for a record that speeds up issuing the HTTPS certificate.
-- `required` (Boolean): `true` for the `routing` and `ownership` records, which the user has to set. A `certificate` record is optional.
+- `purpose` (String): `routing` for the record that sends traffic to the website, `ownership` for the record that proves the user owns the domain, `certificate` for a record that speeds up issuing the HTTPS certificate, or `redirect` for the `A` record that forwards a root domain to its `www.` hostname.
+- `required` (Boolean): `true` for the `routing`, `ownership` and `redirect` records, which the user has to set. A `certificate` record is optional.
 
 #### `createdAt` (Number)
 
@@ -52,3 +52,11 @@ When the domain was added, in milliseconds since the Unix epoch.
 #### `activatedAt` (Number | null)
 
 When the domain became active, in milliseconds since the Unix epoch, or `null` if it isn't active.
+
+#### `dnsProvider` (String, optional)
+
+Who hosts the DNS of a root domain: `route53`, `godaddy` or `other`. Puter looks this up when a root domain is added, and only includes it in that response, because the setup steps differ. Route 53 can only point a root domain at AWS services, and GoDaddy can't point a root domain at another host name at all.
+
+#### `redirectFrom` (String, optional)
+
+The root domain that forwards to this `www.` hostname. A root domain hosted on GoDaddy is added as its `www.` hostname, and the user can switch any other root domain to `www.` in the dialog. The `records` then include an `A` record that forwards the root domain.
