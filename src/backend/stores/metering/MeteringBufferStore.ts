@@ -380,11 +380,12 @@ export const isBilledCounter = (key: string): boolean =>
 // -- Scripts ----------------------------------------------------------
 
 /**
- * KEYS: delta, base, dirty set, tracked set. ARGV: ttl, member, then
- * path/amount pairs.
+ * KEYS: delta, base, dirty set, tracked set, claimed. ARGV: ttl, member,
+ * pending key prefix, then path/amount pairs.
  *
- * Returns the delta and the base together so a running total can be served
- * without a second round trip. Amounts are floats — costs are fractional.
+ * Returns the delta, the base and any outstanding claim together, so a running
+ * total can be served without a second round trip (see `READ_SCRIPT` for the
+ * claim). Amounts are floats — costs are fractional.
  *
  * The counter joins both sets here. The dirty set is the working list a flush
  * takes from and hands back; the tracked set is only ever added to here and
@@ -392,7 +393,7 @@ export const isBilledCounter = (key: string): boolean =>
  * working list does not.
  */
 const INCR_SCRIPT = `
-for i = 3, #ARGV, 2 do
+for i = 4, #ARGV, 2 do
     redis.call('HINCRBYFLOAT', KEYS[1], ARGV[i], ARGV[i + 1])
 end
 redis.call('PEXPIRE', KEYS[1], ARGV[1])
@@ -400,7 +401,10 @@ redis.call('SADD', KEYS[3], ARGV[2])
 redis.call('PEXPIRE', KEYS[3], ARGV[1])
 redis.call('SADD', KEYS[4], ARGV[2])
 redis.call('PEXPIRE', KEYS[4], ARGV[1])
-return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]) }
+local claim = {}
+local nonce = redis.call('HGET', KEYS[5], ARGV[2])
+if nonce then claim = redis.call('HGETALL', ARGV[3] .. nonce) end
+return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]), claim }
 `;
 
 /**
@@ -682,7 +686,7 @@ return redis.call('HGETALL', KEYS[1])
 `;
 
 type ScriptRunner = {
-    meterIncr(...args: string[]): Promise<[string[], string[]]>;
+    meterIncr(...args: string[]): Promise<[string[], string[], string[]]>;
     meterRead(...args: string[]): Promise<[string[], string[], string[]]>;
     meterApply(...args: string[]): Promise<number>;
     meterDrain(...args: string[]): Promise<[string[], number]>;
@@ -801,6 +805,8 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] buffered incr failed, writing through: ${(e as Error).message}`,
             );
             const { res } = await this.#writeThrough(input);
+            // The cached base doesn't have this write; the next read reseeds it.
+            await this.forgetBase(input.key);
             return { res, exact: true };
         }
     }
@@ -880,6 +886,7 @@ export class MeteringBufferStore extends PuterStore {
             // is incomplete rather than silently read a buffered-only view.
             const { res: fetched } = await this.stores.kv.get({
                 key: misses.map((i) => keys[i]!),
+                consistentRead: true,
             });
             const fetchedValues = fetched as (unknown | null)[];
             misses.forEach((i, idx) => {
@@ -928,7 +935,34 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] exact read could not flush ${key}: ${(e as Error).message}`,
             );
         }
-        return this.stores.kv.get({ key, consistentRead: true });
+        const [stored, claim] = await Promise.all([
+            this.stores.kv.get({ key, consistentRead: true }),
+            this.#outstandingClaim(key),
+        ]);
+        // Another deployment's claim (or ours, if the flush failed) isn't in
+        // the store yet.
+        if (Object.keys(claim).length === 0) return stored;
+        return { res: mergedOrNull(flattenAmounts(stored.res), claim) };
+    }
+
+    /** Amounts a flush has claimed for `key` and not yet written onward. */
+    async #outstandingClaim(key: string): Promise<FlatAmounts> {
+        try {
+            const tag = bucketTag(key);
+            const [, , claim] = await this.#redis.meterRead(
+                deltaKey(tag, key),
+                baseKey(tag, key),
+                claimedKey(tag),
+                key,
+                pendingKey(tag, ''),
+            );
+            return parseClaim(claim).amounts;
+        } catch (e) {
+            console.warn(
+                `[metering] claim unreadable for ${key}: ${(e as Error).message}`,
+            );
+            return {};
+        }
     }
 
     #rememberExactRead(key: string, now: number): void {
@@ -1146,7 +1180,7 @@ export class MeteringBufferStore extends PuterStore {
         this.#definedScripts = true;
         const client = this.clients.redis;
         client.defineCommand('meterIncr', {
-            numberOfKeys: 4,
+            numberOfKeys: 5,
             lua: INCR_SCRIPT,
         });
         client.defineCommand('meterRead', {
@@ -1207,18 +1241,23 @@ export class MeteringBufferStore extends PuterStore {
         pathAndAmountMap,
     }: IncrInput): Promise<{ delta: FlatAmounts; base: FlatAmounts }> {
         const tag = bucketTag(key);
-        const [delta, base] = await this.#redis.meterIncr(
+        const [delta, base, claim] = await this.#redis.meterIncr(
             deltaKey(tag, key),
             baseKey(tag, key),
             dirtyKey(tag),
             trackedKey(tag),
+            claimedKey(tag),
             String(BUFFER_TTL_MS),
             key,
+            pendingKey(tag, ''),
             ...toScriptArgs(pathAndAmountMap),
         );
         this.#absorbedCount++;
         absorbedCounter.add(1);
-        return { delta: pairsToAmounts(delta), base: pairsToAmounts(base) };
+        return {
+            delta: addAmounts(pairsToAmounts(delta), parseClaim(claim).amounts),
+            base: pairsToAmounts(base),
+        };
     }
 
     /**
@@ -1231,7 +1270,9 @@ export class MeteringBufferStore extends PuterStore {
      * is over within seconds.
      */
     async #seedBase(key: string): Promise<FlatAmounts> {
-        const { res } = await this.stores.kv.get({ key });
+        // Consistent, or a write that just landed could be missing from the
+        // base until the next settle replaces it.
+        const { res } = await this.stores.kv.get({ key, consistentRead: true });
         const persisted = flattenAmounts(res);
         const seeded = await this.#redis.meterSeed(
             baseKey(bucketTag(key), key),
@@ -1267,10 +1308,15 @@ export class MeteringBufferStore extends PuterStore {
 
     async #readThrough(key: string): Promise<unknown | null> {
         const { delta, base } = await this.#readBuffered(key);
+        // Without a cached base, a write a settle just made is in the store
+        // and nowhere else, so the read has to be consistent.
         const resolved =
             Object.keys(base).length > 0
                 ? base
-                : flattenAmounts((await this.stores.kv.get({ key })).res);
+                : flattenAmounts(
+                      (await this.stores.kv.get({ key, consistentRead: true }))
+                          .res,
+                  );
 
         return mergedOrNull(resolved, delta);
     }

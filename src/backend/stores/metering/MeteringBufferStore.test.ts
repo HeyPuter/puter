@@ -489,6 +489,73 @@ describe('MeteringBufferStore', () => {
             }
         });
 
+        it('counts a claim in the running total incr returns', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            try {
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                const { res } = await target.incr({
+                    key,
+                    pathAndAmountMap: { total: 5 },
+                });
+                expect((res as { total: number }).total).toBe(15);
+                write.release();
+                await flushing;
+            } finally {
+                write.spy.mockRestore();
+            }
+        });
+
+        it('counts another flush’s claim in an exact read', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            try {
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                const { res } = await target.readExact({ key });
+                expect((res as { total: number }).total).toBe(10);
+                write.release();
+                await flushing;
+            } finally {
+                write.spy.mockRestore();
+            }
+            const { res } = await target.readExact({ key });
+            expect((res as { total: number }).total).toBe(10);
+        });
+
+        it('reads a written-through increment once the cache is back', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            await target.flushCycle();
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+            };
+            const failing = vi
+                .spyOn(redis, 'meterIncr')
+                .mockRejectedValueOnce(new Error('cache down'));
+            const { res, exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 5 },
+            });
+            failing.mockRestore();
+            expect(exact).toBe(true);
+            expect((res as { total: number }).total).toBe(15);
+            expect(await readTotal()).toBe(15);
+        });
+
+        it('reads the store consistently when no base is cached', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 3 } });
+            const get = vi.spyOn(kv, 'get');
+            try {
+                expect(await readTotal()).toBe(3);
+                expect(get).toHaveBeenCalledWith(
+                    expect.objectContaining({ key, consistentRead: true }),
+                );
+            } finally {
+                get.mockRestore();
+            }
+        });
+
         it('reads an unknown counter as absent', async () => {
             const { res } = await target.get({ key });
             expect(res).toBeNull();
@@ -1868,7 +1935,13 @@ describe('MeteringBufferStore', () => {
             // right up until the TTL takes the amounts with it.
             const tag = bucketTag(key);
             await server.clients.redis.del(`meter:dirty:{${tag}}`);
+            // Every few cycles a flush reconciles on its own; keep this one
+            // from doing so, whatever the earlier tests left the count at.
+            const scheduled = vi
+                .spyOn(target, 'reconcile')
+                .mockResolvedValue(undefined);
             expect(await target.flushCycle()).toBe(0);
+            scheduled.mockRestore();
             expect(await storedTotal(key)).toBe(0);
 
             const logged = vi
