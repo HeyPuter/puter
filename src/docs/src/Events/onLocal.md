@@ -52,7 +52,7 @@ The promise rejects with `{ message, code }`:
 | `invalid_handler` | `handler` isn't a function. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `invalid_subject_op` | The `:op` suffix isn't one of the five operations. |
-| `invalid_subject_pattern` | The pattern is over its limits: 256 characters, 16 segments, one `*` per segment, one `**` in total. |
+| `invalid_subject_pattern` | The pattern is over its limits: 256 characters, 16 segments, one `*` per segment, one `**` in total. Through a share handle, the 256 characters are counted after the handle. |
 | `invalid_kv_pattern` | A `kv:` subject has a `*` before the end, or a `?`. |
 | `invalid_kv_handle_key` | A `kv:<handle>:…` subject names no key, or a key that tries to leave the shared region. |
 | `invalid_include_value` | `includeValue` isn't a boolean, or the subject isn't `kv:`. |

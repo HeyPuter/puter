@@ -193,6 +193,7 @@ import {
     relativeToKvShareRoot,
 } from '../kvShare/kvShares.js';
 import {
+    KV_MATCH_MAX_LENGTH,
     KV_MATCH_SEPARATOR,
     NOTIF_MATCH_SEPARATOR,
     fsAnchorToken,
@@ -200,6 +201,7 @@ import {
     isKvToken,
     isNotifToken,
     kvHandleFromSubject,
+    kvHandleMatchFromSubject,
     notifMatchSpansEveryApp,
     parseSubject,
     type FsOp,
@@ -854,9 +856,9 @@ const errorAck = (err: unknown): VerbAck<never> => {
 /**
  * A share-handle row's real anchor is the owner's namespace and the absolute
  * granted prefix — neither of which its holder was ever told. The handle is the
- * only anchor its holder may see, mirroring `#asRowAddressesIt`, and the stored
- * `match` is re-based on it for the same reason: it is composed onto the
- * granted prefix, so returning it verbatim hands back the owner's key layout.
+ * only anchor its holder may see, mirroring `#asRowAddressesIt`, and `match` is
+ * read off the subject they wrote: the stored one is composed onto the granted
+ * prefix, so even whether it is `null` depends on the prefix's length.
  *
  * A row on someone else's node is addressed by uid alone. The anchor's real
  * path names every directory above it, which is exactly what the FS surfaces
@@ -872,12 +874,8 @@ const toView = (sub: DispatchSubscription): SubscriptionView => {
             handle !== null
                 ? { uid: handle, path: '' }
                 : { uid: sub.anchorUid, path: foreign ? '' : sub.anchorPath },
-        // `null` where the pattern does not sit under the grant: no filter is
-        // the wrong answer to show, but it is not the owner's prefix.
         match:
-            handle !== null && sub.match !== null
-                ? relativeToKvShareRoot(sub.permission, sub.match)
-                : sub.match,
+            handle !== null ? kvHandleMatchFromSubject(sub.subject) : sub.match,
         op: sub.op,
         includeValue: sub.includeValue === true,
     };
@@ -3112,7 +3110,7 @@ export class EventsService extends PuterService {
             return this.#resolveKvHandleSubscribe(
                 actor,
                 parsed,
-                parsed.anchorRef.handle,
+                parsed.anchorRef,
             );
 
         const anchor = resolveKvAnchor(parsed, {
@@ -3164,9 +3162,13 @@ export class EventsService extends PuterService {
     async #resolveKvHandleSubscribe(
         actor: Actor,
         parsed: ParsedSubject,
-        handle: string,
+        { handle, key }: { handle: string; key: string },
     ): Promise<ResolvedAnchor> {
         if (!this.kvHandlesEnabled) throw kvShareHandleDisabled();
+
+        // Checked as the holder wrote it. The stored pattern is composed onto
+        // the shared prefix, so a limit or error on that would describe it.
+        compileMatch(key, { separator: KV_MATCH_SEPARATOR });
 
         const share = await this.stores.kvShareHandle.getByHandle(handle);
         if (!share || share.revokedAt !== null)
@@ -3204,7 +3206,10 @@ export class EventsService extends PuterService {
         });
 
         if (anchor.match)
-            compileMatch(anchor.match, { separator: KV_MATCH_SEPARATOR });
+            compileMatch(anchor.match, {
+                separator: KV_MATCH_SEPARATOR,
+                maxLength: KV_MATCH_MAX_LENGTH,
+            });
 
         return {
             token: anchor.token,
@@ -4226,6 +4231,9 @@ export class EventsService extends PuterService {
                 separator,
                 // A wildcard-free FS filter is a path that didn't exist yet.
                 literalCoversSubtree: isFsToken(row.token),
+                maxLength: isKvToken(row.token)
+                    ? KV_MATCH_MAX_LENGTH
+                    : undefined,
             }),
         );
     }

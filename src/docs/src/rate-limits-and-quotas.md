@@ -626,7 +626,7 @@ When a kept backlog expires, it's replaced by one gap marker (`suspended_backlog
 | Limit                                    | Value |
 | ---------------------------------------- | ----- |
 | Subject length                           | 4,096 characters |
-| Match pattern                            | 256 characters and 16 segments; one `*` per segment, one `**` in total |
+| Match pattern                            | 256 characters and 16 segments; one `*` per segment, one `**` in total. Through a KV share handle, the 256 characters are counted after the handle |
 | KV key indexed on                        | The first 6 `:`-segments or 160 bytes, whichever is shorter; the rest is matched as a pattern |
 | `context` on a persistent subscription   | 4 KB |
 
