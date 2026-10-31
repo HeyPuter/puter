@@ -658,25 +658,26 @@ export class SessionStore extends PuterStore {
      * comes back as `replaced` for the caller to revoke. Concurrent first
      * launches can each insert a row; both stay valid.
      *
-     * @param userId - User row id (numeric).
-     * @param opts.parentSessionUid - The web session minting it; revoking that
-     *   session cascades here.
-     * @param opts.appUid - The godmode app.
-     * @param opts.expiresAt - Unix seconds the row lives to unless renewed.
-     * @param opts.maxAgeSeconds - Oldest a row may be and still be renewed.
-     * @param opts.label - Shown in the sessions list.
-     * @param opts.auth_id - Stable per-user identity.
+     * @param {number} userId - User row id.
+     * @param {{
+     *     parentSessionUid: string;
+     *     appUid: string;
+     *     expiresAt: number;
+     *     maxAgeSeconds: number;
+     *     label?: string;
+     *     auth_id?: string;
+     * }} opts
+     *   - `parentSessionUid` is the web session minting it; revoking that session
+     *       cascades here. `appUid` is the godmode app. `expiresAt` is the unix
+     *       seconds the row lives to unless renewed. `maxAgeSeconds` is the
+     *       oldest a row may be and still be renewed. `label` is shown in the
+     *       sessions list. `auth_id` is the stable per-user identity.
+     *
+     * @returns
      */
     async getOrCreateGodmodeToken(
         userId,
-        {
-            parentSessionUid,
-            appUid,
-            expiresAt,
-            maxAgeSeconds,
-            label = null,
-            auth_id = null,
-        },
+        { parentSessionUid, appUid, expiresAt, maxAgeSeconds, label, auth_id },
     ) {
         if (!userId || !parentSessionUid || !appUid) return null;
 
