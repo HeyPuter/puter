@@ -142,8 +142,9 @@ const age = (handle: string, seconds = 2 * 60 * 60) =>
         [seconds, handle],
     );
 
-/** The job record for one deleted app, as every node reads it. */
-const appJobKey = (appUid: string) => `kvShareJob#app#${appUid}`;
+/** The job record for one deleted app, as every node of this domain reads it. */
+const appJobKey = (appUid: string, domain = new URL(env.origin).hostname) =>
+    `kvShareJob#${domain}#app#${appUid}`;
 
 const suspendedReason = async (subId: string) => {
     const [row] = await env.server.clients.db.pread(
@@ -424,6 +425,126 @@ describe('a deleted app`s retire', () => {
                 }),
             ),
         );
+    });
+
+    it('runs anyway, with an alarm, when its record can`t be written', async () => {
+        const app = await makeApp();
+        const { handle } = await share(region('unrecorded'), 'read', {
+            appUid: app.uid,
+        });
+        const alarm = vi.spyOn(env.server.clients.alarm, 'create');
+        const unwritable = vi
+            .spyOn(env.server.stores.kv, 'updateReservedItemIf')
+            .mockRejectedValueOnce(new Error('throttled'));
+        try {
+            await deleteApp(app);
+            expect(alarm).toHaveBeenCalledWith(
+                `kv_share_job_record_failed:${appJobKey(app.uid)}`,
+                expect.any(String),
+                expect.objectContaining({ error: expect.any(Error) }),
+                'warning',
+                { dedup: true },
+            );
+        } finally {
+            unwritable.mockRestore();
+            alarm.mockRestore();
+        }
+        expect(await handles().getByHandle(handle)).toMatchObject({
+            revokedBy: 'system',
+        });
+    });
+
+    it('keeps its backoff when it`s recorded again', async () => {
+        const app = await makeApp();
+        const { handle } = await share(region('backoff'), 'read', {
+            appUid: app.uid,
+        });
+        const failing = vi
+            .spyOn(
+                env.server.services.permission,
+                'revokeUserUserPermissionSubtree',
+            )
+            .mockRejectedValueOnce(new Error('database went away'));
+        try {
+            await deleteApp(app);
+        } finally {
+            failing.mockRestore();
+        }
+
+        // What a periodic sweep of deleted apps does.
+        await shares().retireForDeletedApps([app.uid]);
+        expect((await handles().getByHandle(handle))?.revokedAt).toBeNull();
+
+        await later(2 * 60_000, () =>
+            resumeUntil(async () =>
+                expect(await handles().getByHandle(handle)).toMatchObject({
+                    revokedBy: 'system',
+                }),
+            ),
+        );
+    });
+
+    it('never runs a record written for another domain', async () => {
+        const app = await makeApp();
+        const { handle } = await share(region('other-domain'), 'read', {
+            appUid: app.uid,
+        });
+        await env.server.stores.app.delete(app.id);
+        const key = appJobKey(app.uid, 'staging.example.test');
+        await env.server.stores.kv.putReservedItem(key, {
+            kind: 'app',
+            appUid: app.uid,
+            cutoff: Math.floor(Date.now() / 1000),
+            state: 'pending',
+            attempts: 0,
+            runAfter: 0,
+            home: env.server.services.broadcast.regionId,
+            touched: 0,
+            leaseUntil: 0,
+        });
+        try {
+            await later(60 * 60_000, async () => {
+                for (let look = 0; look < 3; look++)
+                    await shares().resumeKvShareJobs();
+            });
+            expect((await handles().getByHandle(handle))?.revokedAt).toBeNull();
+        } finally {
+            await env.server.stores.kv.deleteReservedItemIf(
+                key,
+                'attribute_exists(#c)',
+                {},
+                { '#c': 'cutoff' },
+            );
+        }
+    });
+
+    it('gives a share made meanwhile inside a retired region its grant back', async () => {
+        const app = await makeApp();
+        const outer = region('outer');
+        const before = await share(outer, 'read', { appUid: app.uid });
+        // Dated after the deletion, as one made while the retire runs would be.
+        const after = await share(`${outer}inner:`, 'read', {
+            appUid: app.uid,
+        });
+        await env.server.clients.db.write(
+            'UPDATE `kv_share_handles` SET `created_at` = `created_at` + 60 WHERE `handle` = ?',
+            [after.handle],
+        );
+
+        await deleteApp(app);
+
+        expect(await handles().getByHandle(before.handle)).toMatchObject({
+            revokedBy: 'system',
+        });
+        const kept = await handles().getByHandle(after.handle);
+        expect(kept?.revokedAt).toBeNull();
+        expect(
+            await env.server.services.permission.hasUserUserGrant(
+                guest.id,
+                owner.id,
+                [kept!.permission],
+            ),
+        ).toBe(true);
     });
 
     it('carries on from its record when one run runs out of time', async () => {

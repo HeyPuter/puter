@@ -343,9 +343,11 @@ const APP_DATA_PURGE_STEP = 5_000;
 // restart resumes them. The record carries the job's lease, retry schedule and
 // attempts, and a node claims it by compare-and-set. A job stays with the
 // deployment that recorded or last ran it; another one takes it over only once
-// it has gone unclaimed for a while past due.
+// it has gone unclaimed for a while past due. Records are kept apart per
+// domain, so deployments that share the table but not a database or
+// broadcast (staging beside production) never run each other's.
 
-const JOB_KEY_PREFIX = 'kvShareJob#';
+const jobKeyPrefix = (domain: string): string => `kvShareJob#${domain}#`;
 /** How long one run works before handing its job back, and the lease on it. */
 const JOB_RUN_MS = 60_000;
 const JOB_LEASE_MS = 5 * 60_000;
@@ -405,10 +407,10 @@ interface KvShareJobRun {
 
 const JOB_NOT_RUN: KvShareJobRun = { done: false, retired: 0 };
 
-const jobKey = (job: KvShareJob): string =>
+const jobKey = (prefix: string, job: KvShareJob): string =>
     job.kind === 'app'
-        ? `${JOB_KEY_PREFIX}app#${job.appUid}`
-        : `${JOB_KEY_PREFIX}uninstall#${job.userId}#${job.appUid}`;
+        ? `${prefix}app#${job.appUid}`
+        : `${prefix}uninstall#${job.userId}#${job.appUid}`;
 
 const finiteOr0 = (value: unknown): number => {
     const n = Number(value);
@@ -417,6 +419,7 @@ const finiteOr0 = (value: unknown): number => {
 
 /** A recorded job, or `null` for an item that isn't one. */
 const parseJobRecord = (
+    prefix: string,
     item: Record<string, unknown>,
 ): KvShareJobRecord | null => {
     const appUid = item.appUid;
@@ -436,7 +439,7 @@ const parseJobRecord = (
             cutoff,
         };
     } else return null;
-    if (item.key !== jobKey(job)) return null;
+    if (item.key !== jobKey(prefix, job)) return null;
     return {
         job,
         failed: item.state === 'failed',
@@ -517,8 +520,8 @@ export class KvShareService extends PuterService {
             if (action !== 'deleted' || !appUid) return;
             try {
                 await this.retireForDeletedApps([appUid]);
-            } catch {
-                // Alarmed, and retried from its record.
+            } catch (err) {
+                console.warn('[kvShare] retire for a deleted app failed', err);
             }
         });
 
@@ -541,8 +544,8 @@ export class KvShareService extends PuterService {
             if (!data?.appUids?.length) return;
             try {
                 await this.retireForDeletedApps(data.appUids);
-            } catch {
-                // Alarmed, and retried from its record.
+            } catch (err) {
+                console.warn('[kvShare] retire for deleted apps failed', err);
             }
         });
     }
@@ -643,6 +646,14 @@ export class KvShareService extends PuterService {
         return this.services.broadcast.regionId;
     }
 
+    get #jobPrefix(): string {
+        return jobKeyPrefix(this.config.domain ?? '');
+    }
+
+    #jobKey(job: KvShareJob): string {
+        return jobKey(this.#jobPrefix, job);
+    }
+
     /**
      * Look through the next page of recorded jobs and run the ones this node
      * may claim. Each look starts where the last one stopped, so records that
@@ -657,7 +668,7 @@ export class KvShareService extends PuterService {
             const started = Date.now();
             const after = this.#jobCursor;
             const page = await this.stores.kv.pageReservedItems(
-                JOB_KEY_PREFIX,
+                this.#jobPrefix,
                 { limit: JOB_CHECK_PAGE, afterKey: after },
             );
             this.#jobCursor = page.nextKey;
@@ -672,10 +683,10 @@ export class KvShareService extends PuterService {
                         index > 0 ? String(page.items[index - 1].key) : after;
                     break;
                 }
-                const record = parseJobRecord(item);
+                const record = parseJobRecord(this.#jobPrefix, item);
                 if (!record || !this.#claimable(record, Date.now())) continue;
                 try {
-                    if ((await this.#runJob(jobKey(record.job))).done)
+                    if ((await this.#runJob(this.#jobKey(record.job))).done)
                         finished++;
                 } catch {
                     // Alarmed, and backed off in its record.
@@ -700,38 +711,35 @@ export class KvShareService extends PuterService {
 
     /** Record a job, then run it in the background. */
     async #startJob(job: KvShareJob): Promise<void> {
-        await this.#recordJob(job);
+        const recorded = await this.#recordJob(job);
         void (async () => {
             try {
-                await this.#runJob(jobKey(job));
+                if (recorded) await this.#runJob(this.#jobKey(job));
+                else await this.#runUnrecorded(job);
             } catch {
-                // Alarmed, and retried from its record.
+                // Alarmed, and retried from its record if it has one.
             }
         })();
     }
 
     /**
-     * Record a job as due now, here. The cutoff only grows, so recording a job
-     * again never narrows it; a lease someone holds is left alone. A failed
-     * write is alarmed: without its record the job can't be claimed or run.
+     * Record a job here. The cutoff only grows, so recording a job again never
+     * narrows it. Attempts and backoff carry over, and a job that gave up gets
+     * one more attempt; a lease someone holds is left alone. Returns `false`,
+     * alarmed, when the write failed.
      */
-    async #recordJob(job: KvShareJob): Promise<void> {
-        const key = jobKey(job);
-        const due = {
-            state: 'pending',
-            attempts: 0,
-            runAfter: 0,
-            home: this.#home,
-            touched: Date.now(),
-        };
-        const change = {
-            setIfAbsent: { leaseUntil: 0 },
-            remove: ['ttl'],
-        };
+    async #recordJob(job: KvShareJob): Promise<boolean> {
+        const key = this.#jobKey(job);
+        const here = { home: this.#home, touched: Date.now() };
+        const setIfAbsent = { attempts: 0, runAfter: 0, leaseUntil: 0 };
         try {
             const recorded = await this.stores.kv.updateReservedItemIf(
                 key,
-                { ...change, set: { ...job, ...due } },
+                {
+                    set: { ...job, ...here, state: 'pending' },
+                    setIfAbsent,
+                    remove: ['ttl'],
+                },
                 'attribute_not_exists(#c) OR #c <= :c',
                 { ':c': job.cutoff },
                 { '#c': 'cutoff' },
@@ -739,19 +747,46 @@ export class KvShareService extends PuterService {
             if (!recorded)
                 await this.stores.kv.updateReservedItemIf(
                     key,
-                    { ...change, set: due },
+                    { set: here },
                     'attribute_exists(#c)',
                     {},
                     { '#c': 'cutoff' },
                 );
+            return true;
         } catch (err) {
             this.clients.alarm.create(
                 `kv_share_job_record_failed:${key}`,
-                'Failed to record a key-value share cleanup',
+                'Failed to record a key-value share cleanup; running it unrecorded',
                 { job, error: err as Error },
                 'warning',
                 { dedup: true },
             );
+            return false;
+        }
+    }
+
+    /**
+     * A job whose record couldn't be written, run here to the end. Nothing
+     * resumes it, so a failure is alarmed.
+     */
+    async #runUnrecorded(job: KvShareJob): Promise<KvShareJobRun> {
+        let retired = 0;
+        try {
+            for (;;) {
+                const run = await this.#jobStep(job, Date.now() + JOB_RUN_MS);
+                retired += run.retired;
+                if (run.done || this.#stopping)
+                    return { done: run.done, retired };
+            }
+        } catch (err) {
+            this.clients.alarm.create(
+                `kv_share_job_unrecorded_failed:${this.#jobKey(job)}`,
+                'An unrecorded key-value share cleanup failed and will not be retried',
+                { job, retired, error: err as Error },
+                'warning',
+                { dedup: true },
+            );
+            throw err;
         }
     }
 
@@ -798,7 +833,7 @@ export class KvShareService extends PuterService {
             console.warn('[kvShare] could not claim a cleanup job', err);
             return JOB_NOT_RUN;
         }
-        const record = claimed && parseJobRecord(claimed);
+        const record = claimed && parseJobRecord(this.#jobPrefix, claimed);
         if (!record) return JOB_NOT_RUN;
 
         let run: KvShareJobRun;
@@ -827,6 +862,8 @@ export class KvShareService extends PuterService {
     }
 
     async #jobStep(job: KvShareJob, deadline: number): Promise<KvShareJobRun> {
+        // A share made after the cutoff isn't this job's.
+        const owed = (row: KvShareHandle) => row.createdAt > job.cutoff;
         if (job.kind === 'app')
             return this.#retireAsSystem(
                 () =>
@@ -837,6 +874,7 @@ export class KvShareService extends PuterService {
                     ),
                 'kv share app deleted',
                 deadline,
+                owed,
             );
         // Handles the user holds in this app are left alone.
         const retire = await this.#retireAsSystem(
@@ -849,6 +887,7 @@ export class KvShareService extends PuterService {
                 ),
             'kv share app data deleted',
             deadline,
+            owed,
         );
         if (!retire.done) return retire;
         return {
@@ -897,6 +936,8 @@ export class KvShareService extends PuterService {
                     ? {
                           attempts,
                           state: 'failed',
+                          // Due at once if it's recorded again.
+                          runAfter: 0,
                           ttl: nowSeconds() + JOB_FAILED_RETENTION_SECONDS,
                       }
                     : {
@@ -1298,7 +1339,7 @@ export class KvShareService extends PuterService {
         grantee: Grantee,
         share: NewShare,
     ): Promise<KvShareHandle> {
-        await this.#retireOlderThanApp(
+        const reused = await this.#retireOlderThanApp(
             share.ownerUserId,
             grantee.id,
             share.appUid,
@@ -1328,15 +1369,17 @@ export class KvShareService extends PuterService {
                 stale,
                 meta,
             );
-        await this.services.permission.grantUserUserPermission(
-            authority,
-            grantee.username,
-            share.permission,
-            {},
-            meta,
-        );
+        const grant = () =>
+            this.services.permission.grantUserUserPermission(
+                authority,
+                grantee.username,
+                share.permission,
+                {},
+                meta,
+            );
+        await grant();
 
-        return this.stores.kvShareHandle.mint({
+        const row = await this.stores.kvShareHandle.mint({
             ownerUserId: share.ownerUserId,
             granteeUserId: grantee.id,
             appUid: share.appUid,
@@ -1344,6 +1387,10 @@ export class KvShareService extends PuterService {
             permission: share.permission,
             label: share.label,
         });
+        // An older handle retired elsewhere can withdraw this region before
+        // the row stands, where that retire can't see it to restore the grant.
+        if (reused) await grant();
+        return row;
     }
 
     /**
@@ -1664,14 +1711,15 @@ export class KvShareService extends PuterService {
      * `appUid`'s namespace for an earlier app under the uid. Done before a new
      * share between them lands, so no withdrawal of the old ones can take the
      * new grant with it, and no old grant outlives them inside its region.
+     * Returns whether the uid was reused.
      */
     async #retireOlderThanApp(
         ownerUserId: number,
         granteeUserId: number,
         appUid: string,
-    ): Promise<void> {
+    ): Promise<boolean> {
         const app = await this.#reusedUidApp(appUid);
-        if (!app) return;
+        if (!app) return false;
         let older: KvShareHandle[] = (
             await this.stores.kvShareHandle.listLiveForOwnerAndGrantee(
                 ownerUserId,
@@ -1680,7 +1728,7 @@ export class KvShareService extends PuterService {
         ).filter(
             (row) => row.appUid === appUid && predatesApp(row.createdAt, app),
         );
-        if (older.length === 0) return;
+        if (older.length === 0) return true;
         await this.#retireAsSystem(
             async () => {
                 const batch = older;
@@ -1689,7 +1737,9 @@ export class KvShareService extends PuterService {
             },
             'kv share app uid reused',
             Infinity,
+            (row) => !predatesApp(row.createdAt, app),
         );
+        return true;
     }
 
     /** Whether the actor's user still has its app authorized. */
@@ -1902,23 +1952,30 @@ export class KvShareService extends PuterService {
         void (async () => {
             try {
                 await this.#retireApp(app.uid, start - 1);
-            } catch {
-                // Alarmed, and retried from its record.
+            } catch (err) {
+                console.warn('[kvShare] retire of older shares failed', err);
             }
         })();
     }
 
-    /** One app's retire: nothing to record when it has no live handles. */
+    /**
+     * One app's retire: nothing to record when it has no live handles. A check
+     * that fails is recorded anyway, so the job retries.
+     */
     async #retireApp(appUid: string, cutoff: number): Promise<KvShareJobRun> {
         const job: KvShareJob = { kind: 'app', appUid, cutoff };
-        const live = await this.stores.kvShareHandle.listLiveForApps(
-            [appUid],
-            1,
-            cutoff,
-        );
-        if (live.length === 0) return { done: true, retired: 0 };
-        await this.#recordJob(job);
-        return this.#runJob(jobKey(job));
+        try {
+            const live = await this.stores.kvShareHandle.listLiveForApps(
+                [appUid],
+                1,
+                cutoff,
+            );
+            if (live.length === 0) return { done: true, retired: 0 };
+        } catch (err) {
+            console.warn('[kvShare] could not check for live shares', err);
+        }
+        if (!(await this.#recordJob(job))) return this.#runUnrecorded(job);
+        return this.#runJob(this.#jobKey(job));
     }
 
     /**
@@ -1950,17 +2007,18 @@ export class KvShareService extends PuterService {
      * Retire what `nextBatch` lists until a batch comes back short or the
      * deadline passes. Grants go before handles, so a retry after a failure
      * still finds them, and a later share of the same region can't inherit
-     * them.
+     * them. `owed` names the live handles this retire isn't for.
      */
     async #retireAsSystem(
         nextBatch: () => Promise<KvShareHandle[]>,
         reason: string,
         deadline: number,
+        owed: (row: KvShareHandle) => boolean,
     ): Promise<KvShareJobRun> {
         let retired = 0;
         for (;;) {
             const batch = await nextBatch();
-            await this.#withdrawRetiredGrants(batch, reason);
+            await this.#withdrawRetiredGrants(batch, reason, owed);
             await this.stores.kvShareHandle.retireMany(
                 batch.map((row) => row.handle),
                 'system',
@@ -1976,12 +2034,15 @@ export class KvShareService extends PuterService {
 
     /**
      * Each handle's region, at every level and beneath, withdrawn in one revoke
-     * per owner, holder and app.
+     * per owner, holder and app. A live handle `owed` its grant inside one of
+     * those regions, such as a share made meanwhile, gets it back.
      */
     async #withdrawRetiredGrants(
         rows: readonly KvShareHandle[],
         reason: string,
+        owed: (row: KvShareHandle) => boolean,
     ): Promise<void> {
+        const retiring = new Set(rows.map((row) => row.handle));
         const groups = new Map<string, KvShareHandle[]>();
         for (const row of rows) {
             const key = `${row.ownerUserId}:${row.granteeUserId}:${row.appUid}`;
@@ -2001,14 +2062,38 @@ export class KvShareService extends PuterService {
                 const holder = users.get(group[0].granteeUserId);
                 // A deleted account's grants went with it.
                 if (!owner?.uuid || !holder?.username) return;
+                const authority = makeActor({ user: owner });
                 await this.services.permission.revokeUserUserPermissionSubtree(
-                    makeActor({ user: owner }),
+                    authority,
                     holder.username,
                     group.flatMap((row) =>
                         kvShareGrantAtEveryLevel(row.permission),
                     ),
                     { reason, appUid: group[0].appUid },
                 );
+                const live =
+                    await this.stores.kvShareHandle.listLiveForOwnerAndGrantee(
+                        group[0].ownerUserId,
+                        group[0].granteeUserId,
+                    );
+                for (const row of live) {
+                    if (
+                        row.appUid !== group[0].appUid ||
+                        retiring.has(row.handle) ||
+                        !owed(row) ||
+                        !group.some((old) =>
+                            kvShareGrantCovers(old.permission, row.permission),
+                        )
+                    )
+                        continue;
+                    await this.services.permission.grantUserUserPermission(
+                        authority,
+                        holder.username,
+                        row.permission,
+                        {},
+                        { reason: 'kv share handle', appUid: row.appUid },
+                    );
+                }
             },
         );
     }
