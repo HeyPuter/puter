@@ -84,7 +84,7 @@ vi.mock('../../../../util/secureHttp.js', () => ({
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 let batchIncrementUsagesSpy: MockInstance<
     MeteringService['batchIncrementUsages']
@@ -115,7 +115,7 @@ beforeEach(() => {
     cancelMock.mockReset();
     replicateCtor.mockReset();
     secureFetchMock.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
@@ -177,7 +177,7 @@ describe('ReplicateImageGenerationProvider.generate test_mode', () => {
         expect(result).toBe(
             'https://puter-sample-data.puter.site/image_example.png',
         );
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(createPredictionMock).not.toHaveBeenCalled();
     });
 });
@@ -199,7 +199,7 @@ describe('ReplicateImageGenerationProvider.generate argument validation', () => 
 describe('ReplicateImageGenerationProvider.generate credit gate', () => {
     it('throws 402 BEFORE hitting Replicate when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         await expect(
             withTestActor(() => provider.generate({ prompt: 'hi' })),
         ).rejects.toMatchObject({ statusCode: 402 });
@@ -255,7 +255,10 @@ describe('ReplicateImageGenerationProvider.generate credit gate', () => {
     it('holds credits for longer than a prediction can run', async () => {
         const provider = makeProvider();
         const actor = holdUser('ttl');
-        const reserveSpy = vi.spyOn(server.services.metering, 'reserveCredits');
+        const reserveSpy = vi.spyOn(
+            server.services.metering,
+            'reserveCreditsIfAffordable',
+        );
         createPredictionMock.mockResolvedValueOnce({
             id: 'ttl',
             status: 'succeeded',
@@ -274,7 +277,9 @@ describe('ReplicateImageGenerationProvider.generate credit gate', () => {
         const provider = makeProvider();
         const actor = holdUser('surcharge');
         secureFetchMock.mockResolvedValueOnce(new Response('not-an-image'));
-        hasCreditsSpy.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+        admitSpy.mockImplementationOnce((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
+        ).mockResolvedValueOnce(false);
 
         await expect(
             withTestActor(
@@ -950,7 +955,7 @@ it('does not start a prediction for an already-aborted request', async () => {
         ),
     ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'client_aborted' });
     expect(createPredictionMock).not.toHaveBeenCalled();
-    expect(hasCreditsSpy).not.toHaveBeenCalled();
+    expect(admitSpy).not.toHaveBeenCalled();
 });
 
 it('stops polling and cancels at the prediction deadline', async () => {
@@ -1192,12 +1197,12 @@ it('rejects more than ten input images before fetching or pricing any', async ()
         ),
     ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
     expect(secureFetchMock).not.toHaveBeenCalled();
-    expect(hasCreditsSpy).not.toHaveBeenCalled();
+    expect(admitSpy).not.toHaveBeenCalled();
     expect(createPredictionMock).not.toHaveBeenCalled();
 });
 
 it('checks credits on the output-only estimate before fetching input images', async () => {
-    hasCreditsSpy.mockResolvedValueOnce(false);
+    admitSpy.mockResolvedValueOnce(null);
     await expect(
         withTestActor(() =>
             makeProvider().generate({

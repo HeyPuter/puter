@@ -48,6 +48,25 @@ const KEY_TTL_SLACK_MS = 60 * 1000;
 
 const holdsKey = (userId: string): string => `meter:holds:{${userId}}`;
 
+/**
+ * Counts changes to an actor's balance and holds, so a reservation can tell
+ * whether the balance it read is still current. Shares the hold key's slot.
+ */
+const versionKey = (userId: string): string =>
+    `meter:holds:{${userId}}:version`;
+
+/** Outlives any read-then-reserve window by orders of magnitude. */
+const VERSION_TTL_MS = 60 * 60 * 1000;
+
+/** What a conditional reservation came to. */
+export type CreditReservation =
+    | { outcome: 'accepted'; member: string }
+    | { outcome: 'insufficient' }
+    // The balance changed since `version` was read; read it again.
+    | { outcome: 'stale' }
+    // The cache couldn't answer; nothing was held.
+    | { outcome: 'unavailable' };
+
 // -- Scripts ----------------------------------------------------------
 
 /**
@@ -79,8 +98,8 @@ return 1
  * name (`<id>:<amount>`) so one sorted set carries both the deadline and the
  * number, and pruning and summing happen in the same pass.
  */
-const SUM_SCRIPT = `
-local dropped = redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+const pruneAndSum = (now: string) => `
+local dropped = redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ${now})
 local total = 0
 local members = redis.call('ZRANGE', KEYS[1], 0, -1)
 for i = 1, #members do
@@ -89,13 +108,58 @@ for i = 1, #members do
         total = total + (tonumber(string.sub(members[i], sep + 1)) or 0)
     end
 end
+`;
+
+const SUM_SCRIPT = `${pruneAndSum('ARGV[1]')}
 return { tostring(total), dropped }
+`;
+
+/**
+ * KEYS: the actor's hold set, its version. ARGV: member, deadline, key ttl,
+ * now, amount, budget, expected version ('' skips the check).
+ *
+ * Takes the hold only if it fits in `budget` beside the live holds, in one step
+ * so two reservations can't both fit in the same headroom. The version check
+ * refuses a budget read before a usage write or release that has since landed.
+ */
+const RESERVE_SCRIPT = `
+if ARGV[7] ~= '' and (redis.call('GET', KEYS[2]) or '0') ~= ARGV[7] then
+    return { 'stale', 0 }
+end
+${pruneAndSum('ARGV[4]')}
+if total + tonumber(ARGV[5]) > tonumber(ARGV[6]) then
+    return { 'insufficient', dropped }
+end
+local ttl = redis.call('PTTL', KEYS[1])
+redis.call('ZADD', KEYS[1], ARGV[2], ARGV[1])
+if tonumber(ARGV[3]) > ttl then
+    redis.call('PEXPIRE', KEYS[1], ARGV[3])
+end
+return { 'accepted', dropped }
+`;
+
+/** KEYS: the actor's hold set, its version. ARGV: member, version ttl. */
+const RELEASE_SCRIPT = `
+redis.call('ZREM', KEYS[1], ARGV[1])
+redis.call('INCR', KEYS[2])
+redis.call('PEXPIRE', KEYS[2], ARGV[2])
+return 1
+`;
+
+/** KEYS: the actor's hold version. ARGV: version ttl. */
+const BUMP_SCRIPT = `
+redis.call('INCR', KEYS[1])
+redis.call('PEXPIRE', KEYS[1], ARGV[1])
+return 1
 `;
 
 type ScriptRunner = {
     creditHoldTake(...args: string[]): Promise<number>;
     creditHoldSum(...args: string[]): Promise<[string, number]>;
-    zrem(key: string, member: string): Promise<number>;
+    creditHoldReserve(...args: string[]): Promise<[string, number]>;
+    creditHoldRelease(...args: string[]): Promise<number>;
+    creditHoldBump(...args: string[]): Promise<number>;
+    get(key: string): Promise<string | null>;
 };
 
 // -- CreditHoldStore --------------------------------------------------
@@ -134,6 +198,18 @@ export class CreditHoldStore extends PuterStore {
         client.defineCommand('creditHoldSum', {
             numberOfKeys: 1,
             lua: SUM_SCRIPT,
+        });
+        client.defineCommand('creditHoldReserve', {
+            numberOfKeys: 2,
+            lua: RESERVE_SCRIPT,
+        });
+        client.defineCommand('creditHoldRelease', {
+            numberOfKeys: 2,
+            lua: RELEASE_SCRIPT,
+        });
+        client.defineCommand('creditHoldBump', {
+            numberOfKeys: 1,
+            lua: BUMP_SCRIPT,
         });
     }
 
@@ -195,11 +271,94 @@ export class CreditHoldStore extends PuterStore {
         }
     }
 
-    /** Give a hold back. Safe to call twice; the second call is a no-op. */
+    /**
+     * The actor's balance version, to pass to `reserve` once the balance has
+     * been read. Null when the cache can't answer.
+     */
+    async version(userId: string): Promise<string | null> {
+        try {
+            return (await this.#redis.get(versionKey(userId))) ?? '0';
+        } catch (e) {
+            console.warn(
+                `[metering] credit hold version unreadable for ${userId}: ${(e as Error).message}`,
+            );
+            return null;
+        }
+    }
+
+    /**
+     * Commit `amount` only if it fits in `budget` beside the holds already
+     * live, as one step. `budget` is the gross balance read after `version`;
+     * pass `version: ''` to skip the staleness check.
+     */
+    async reserve(
+        userId: string,
+        amount: number,
+        budget: number,
+        version: string,
+        ttlMs: number = DEFAULT_HOLD_TTL_MS,
+    ): Promise<CreditReservation> {
+        const units = Math.ceil(amount);
+        const member = `${randomUUID()}:${units}`;
+        const now = Date.now();
+        try {
+            const [outcome, dropped] = await this.#redis.creditHoldReserve(
+                holdsKey(userId),
+                versionKey(userId),
+                member,
+                String(now + ttlMs),
+                String(ttlMs + KEY_TTL_SLACK_MS),
+                String(now),
+                String(units),
+                String(Math.floor(Math.min(budget, Number.MAX_SAFE_INTEGER))),
+                version,
+            );
+            if (dropped > 0) expiredHoldsCounter.add(dropped);
+            if (outcome === 'accepted') return { outcome, member };
+            if (outcome === 'insufficient' || outcome === 'stale') {
+                return { outcome };
+            }
+            throw new Error(`unexpected reservation outcome ${outcome}`);
+        } catch (e) {
+            console.warn(
+                `[metering] credit hold not reserved for ${userId}: ${(e as Error).message}`,
+            );
+            return { outcome: 'unavailable' };
+        }
+    }
+
+    /**
+     * Marks the actor's balance as changed, so a reservation that read it
+     * before the change reads it again. Call once a usage write has landed.
+     */
+    async bump(userId: string): Promise<void> {
+        if (!userId) return;
+        try {
+            await this.#redis.creditHoldBump(
+                versionKey(userId),
+                String(VERSION_TTL_MS),
+            );
+        } catch (e) {
+            console.warn(
+                `[metering] credit hold version not bumped for ${userId}: ${(e as Error).message}`,
+            );
+        }
+    }
+
+    /**
+     * Give a hold back, and mark the balance changed so a reservation that read
+     * it before the release's usage landed reads it again. Safe to call twice;
+     * the second call releases nothing.
+     */
     async release(userId: string, member: string | null): Promise<void> {
         if (!userId || !member) return;
         try {
-            await this.#redis.zrem(holdsKey(userId), member);
+            await this.#redis.creditHoldRelease(
+                holdsKey(userId),
+                versionKey(userId),
+                member,
+                String(VERSION_TTL_MS),
+            );
         } catch (e) {
             // The hold expires on its own, so the account gets its budget
             // back either way — just later than it should have.

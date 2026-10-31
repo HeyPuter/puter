@@ -70,7 +70,7 @@ const driver = {
     getReportedCosts: () => sttDriver.getReportedCosts(),
 };
 let fetchSpy: MockInstance<typeof fetch>;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -88,7 +88,7 @@ afterAll(async () => {
 
 beforeEach(() => {
     fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -193,7 +193,7 @@ describe('XAISpeechToTextProvider test_mode', () => {
         expect(Array.isArray(result.words)).toBe(true);
         // No file required, no actor required, no fetch / metering hit.
         expect(fetchSpy).not.toHaveBeenCalled();
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
@@ -258,7 +258,7 @@ describe('XAISpeechToTextProvider missing API key', () => {
 
 describe('XAISpeechToTextProvider credit gate', () => {
     it('throws 402 BEFORE hitting xAI when actor lacks credits', async () => {
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         const { actor } = await makeUser();
 
         await expect(
@@ -273,7 +273,7 @@ describe('XAISpeechToTextProvider credit gate', () => {
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
-    it('asks hasEnoughCredits for estimated seconds × per-second ucents', async () => {
+    it('reserves estimated seconds × per-second ucents', async () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(
             sttResponse({ text: 'ok', duration: 1 }),
@@ -285,7 +285,7 @@ describe('XAISpeechToTextProvider credit gate', () => {
             driver.transcribe({ file: dataUrl(audio, 'audio/mp3') }),
         );
 
-        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(UCENTS_PER_SECOND * 2);
+        expect(admitSpy.mock.calls[0]![1]).toBe(UCENTS_PER_SECOND * 2);
     });
 
     it('estimates 60 seconds for URL inputs (we cannot inspect size locally)', async () => {
@@ -298,7 +298,7 @@ describe('XAISpeechToTextProvider credit gate', () => {
             driver.transcribe({ file: 'https://example.com/clip.mp3' }),
         );
 
-        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(UCENTS_PER_SECOND * 60);
+        expect(admitSpy.mock.calls[0]![1]).toBe(UCENTS_PER_SECOND * 60);
     });
 });
 

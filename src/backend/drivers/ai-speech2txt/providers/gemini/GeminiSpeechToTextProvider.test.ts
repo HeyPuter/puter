@@ -72,7 +72,7 @@ const HOLD = COUNTED_TOKENS * AUDIO_RATE + 8192 * OUTPUT_RATE;
 let server: PuterServer;
 let sttDriver: SpeechToTextDriver;
 let fetchSpy: MockInstance<typeof fetch>;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let batchSpy: MockInstance<MeteringService['batchIncrementUsages']>;
 
 const driver = {
@@ -102,7 +102,7 @@ beforeEach(() => {
         .mockRejectedValue(new Error('unexpected fetch')) as MockInstance<
         typeof fetch
     >;
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     batchSpy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
 });
 
@@ -220,13 +220,16 @@ const metered = (): UsageInput[] =>
 /** Records each credit hold taken, its options, and its release. */
 const trackHolds = (order: string[] = []) => {
     const metering = server.services.metering;
-    const realReserve = metering.reserveCredits.bind(metering);
+    const realReserve = Object.getPrototypeOf(
+        metering,
+    ).reserveCreditsIfAffordable.bind(metering) as typeof metering.reserveCreditsIfAffordable;
     const held: { amount: number; ttlMs?: number }[] = [];
     const released = vi.fn();
-    vi.spyOn(metering, 'reserveCredits').mockImplementation(
+    vi.spyOn(metering, 'reserveCreditsIfAffordable').mockImplementation(
         async (actor, amount, opts) => {
             held.push({ amount, ttlMs: opts?.ttlMs });
             const hold = await realReserve(actor, amount, opts);
+            if (!hold) return null;
             return {
                 ...hold,
                 release: async () => {
@@ -425,7 +428,7 @@ describe('GeminiSpeechToTextProvider test_mode', () => {
             model: MODEL,
         });
         expect(fetchSpy).not.toHaveBeenCalled();
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(batchSpy).not.toHaveBeenCalled();
     });
 
@@ -1263,12 +1266,12 @@ describe('GeminiSpeechToTextProvider countTokens preflight', () => {
 describe('GeminiSpeechToTextProvider credit hold', () => {
     it('throws 402 after counting tokens, before transcribing', async () => {
         const { actor } = await makeUser();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         fetchSpy.mockResolvedValueOnce(Response.json({ totalTokens: 91 }));
         await expect(
             withActor(actor, () => driver.transcribe({ file: dataUrl() })),
         ).rejects.toMatchObject({ statusCode: 402 });
-        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(HOLD);
+        expect(admitSpy.mock.calls[0]![1]).toBe(HOLD);
         expect(fetchSpy).toHaveBeenCalledTimes(1);
         expect(batchSpy).not.toHaveBeenCalled();
     });

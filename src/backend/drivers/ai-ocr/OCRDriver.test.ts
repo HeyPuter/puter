@@ -167,7 +167,7 @@ const sentRegions = () =>
 
 let server: PuterServer;
 let driver: OCRDriver;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -199,7 +199,7 @@ beforeEach(() => {
     mistralCtor.mockReset();
     // Spy on metering — keep the real impl so its recording side runs,
     // but capture calls so per-test assertions can inspect them.
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -335,7 +335,7 @@ describe('OCRDriver.recognize (aws-textract)', () => {
     };
 
     it('throws 402 when the actor does not have enough credits', async () => {
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         const { actor } = await makeUser();
 
         await expect(
@@ -546,7 +546,7 @@ describe('OCRDriver.recognize (aws-textract)', () => {
     describe('regional pricing', () => {
         const onePage = { Blocks: [{ BlockType: 'PAGE' }] };
         const checkedCosts = () =>
-            hasCreditsSpy.mock.calls.map(([, cost]) => cost);
+            admitSpy.mock.calls.map(([, cost]) => cost);
         const textractCharges = () =>
             incrementUsageSpy.mock.calls
                 .filter(([, type]) => type === TEXTRACT_USAGE)
@@ -719,7 +719,7 @@ describe('OCRDriver.recognize (mistral)', () => {
     };
 
     it('throws 402 when the actor does not have enough credits', async () => {
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         const { actor } = await makeUser();
 
         await expect(
@@ -1033,7 +1033,7 @@ describe('OCRDriver.recognize (mistral)', () => {
         const pageType = 'mistral-ocr:mistral-ocr-4-1:page';
         const annotationType = 'mistral-ocr:mistral-ocr-4-1:annotations:page';
         // The pre-flight covers the page plus its annotation.
-        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(
+        expect(admitSpy.mock.calls[0]![1]).toBe(
             OCR_COSTS[pageType] + OCR_COSTS[annotationType],
         );
         const ocrCalls = incrementUsageSpy.mock.calls.filter(
@@ -1080,7 +1080,7 @@ describe('OCRDriver credit pre-flight', () => {
     const pageType = 'mistral-ocr:mistral-ocr-4-1:page';
     const perPage = OCR_COSTS[pageType];
     const pdfSource = (buffer: Buffer) => dataUrl(buffer, 'application/pdf');
-    const checkedCosts = () => hasCreditsSpy.mock.calls.map(([, cost]) => cost);
+    const checkedCosts = () => admitSpy.mock.calls.map(([, cost]) => cost);
     const outstandingHolds = (actor: Actor) =>
         server.stores.creditHold.outstanding(actor.user.uuid!);
 
@@ -1171,8 +1171,8 @@ describe('OCRDriver credit pre-flight', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 402 });
 
-        // The estimate/hold path (which calls hasEnoughCredits) never ran.
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        // The estimate/hold path never ran.
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(mistralOcrProcessMock).not.toHaveBeenCalled();
         noUsage.mockRestore();
     });

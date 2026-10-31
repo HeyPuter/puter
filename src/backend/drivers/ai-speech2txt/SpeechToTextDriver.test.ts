@@ -122,7 +122,7 @@ vi.mock('openai', () => {
 
 let server: PuterServer;
 let driver: SpeechToTextDriver;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -145,7 +145,7 @@ beforeEach(() => {
     toFileMock.mockClear();
     // Spy on metering — keep the real impl so its recording side runs,
     // but capture calls so per-test assertions can inspect them.
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -360,7 +360,7 @@ describe('SpeechToTextDriver argument validation', () => {
 
 describe('SpeechToTextDriver credit gate', () => {
     it('throws 402 BEFORE hitting OpenAI when actor lacks credits', async () => {
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         const { actor } = await makeUser();
 
         await expect(
@@ -686,7 +686,7 @@ describe('SpeechToTextDriver metering', () => {
         expect(cost).toBe(SPEECH_TO_TEXT_COSTS[usageType]);
     });
 
-    it('asks hasEnoughCredits for the same total it later meters', async () => {
+    it('reserves the same total it later meters', async () => {
         const { actor } = await makeUser();
         transcriptionsCreateMock.mockResolvedValueOnce({ text: 'x' });
 
@@ -700,7 +700,7 @@ describe('SpeechToTextDriver metering', () => {
 
         const usageType = 'openai:gpt-transcribe:second';
         const expected = SPEECH_TO_TEXT_COSTS[usageType] * 2;
-        const creditCall = hasCreditsSpy.mock.calls[0]!;
+        const creditCall = admitSpy.mock.calls[0]!;
         expect(creditCall[1]).toBe(expected);
     });
 
@@ -794,7 +794,7 @@ describe('SpeechToTextDriver metering', () => {
 
         const [base, factored] = metered();
         expect(factored).toBe(base! * 2);
-        const held = hasCreditsSpy.mock.calls.map(([, amount]) => amount);
+        const held = admitSpy.mock.calls.map(([, amount]) => amount);
         expect(held).toEqual([base, base! * 2]);
     });
 });
