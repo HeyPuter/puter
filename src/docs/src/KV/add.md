@@ -62,8 +62,8 @@ A rejection carries an `Error` with a stable `code`:
 | `arguments_required` | Called with no arguments at all. |
 | `value_not_a_list` | The value, or with a path map the field at a path, holds something other than a list. |
 | `invalid_path` | A path map addressed a field inside a stored number, boolean, null, string, or array, or went through a missing array element. A bare object is a path map, so adding one to a list lands here. Wrap it in an array to append it as one element. |
-| `value_too_large` | The append would take the stored value over 399 KB. |
-| `bad_request` | A malformed path (including an empty quoted name such as `[""]`), a path nested over 31 levels, two paths that overlap or conflict (one treats a shared step as a list index, the other as a field name), more or longer paths than one write can apply (see [Rate Limits and Quotas](/rate-limits-and-quotas/)), a value nested more than 32 levels deep counting its path and the list, or a single added value over 399 KB. |
+| `value_too_large` | An added value is over 399 KB, or the append would take the stored value over 399 KB. |
+| `bad_request` | A malformed path (including an empty quoted name such as `[""]`), a path nested over 31 levels, two paths that overlap or conflict (one treats a shared step as a list index, the other as a field name), more or longer paths than one write can apply (see [Rate Limits and Quotas](/rate-limits-and-quotas/)), or a value nested more than 32 levels deep counting its path and the list. |
 | `insufficient_funds` | No usage left on the account. |
 | `forbidden` | Called with `optConfig.appUuid` for another app's data without permission, or the entry is private to that app. |
 | `subject_does_not_exist` | `optConfig.appUuid` names an app that doesn't exist. |

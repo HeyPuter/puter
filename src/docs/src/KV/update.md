@@ -57,8 +57,8 @@ A rejection carries an `Error` with a stable `code`:
 | `path_map_invalid` | `pathAndValueMap` is missing, empty, or not an object. |
 | `ttl_invalid` | `ttl` isn't a finite number of seconds, a numeric string, `null`, an empty string, or `false`. |
 | `invalid_path` | A path map addressed a field inside a stored number, boolean, null, string, or array, or went through a missing array element. |
-| `value_too_large` | The write would take the stored value over 399 KB. |
-| `bad_request` | A malformed path (including an empty quoted name such as `[""]`), a path nested over 31 levels, two paths that overlap or conflict (one treats a shared step as a list index, the other as a field name), more or longer paths than one write can apply (see [Rate Limits and Quotas](/rate-limits-and-quotas/)), a value nested more than 32 levels deep counting its path, or a single value over 399 KB. |
+| `value_too_large` | A value is over 399 KB, or the write would take the stored value over 399 KB. |
+| `bad_request` | A malformed path (including an empty quoted name such as `[""]`), a path nested over 31 levels, two paths that overlap or conflict (one treats a shared step as a list index, the other as a field name), more or longer paths than one write can apply (see [Rate Limits and Quotas](/rate-limits-and-quotas/)), or a value nested more than 32 levels deep counting its path. |
 | `insufficient_funds` | No usage left on the account. |
 | `forbidden` | Called with `optConfig.appUuid` for another app's data without permission, or the entry is private to that app. |
 | `subject_does_not_exist` | `optConfig.appUuid` names an app that doesn't exist. |

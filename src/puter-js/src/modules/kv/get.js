@@ -26,13 +26,24 @@ const getDriverCall = (puter, args) =>
  * @returns {Promise<T | null>}
  */
 /**
+ * Reads up to 1,000 keys in one request. Values come back in the order of
+ * `keys`, with `null` for each one that does not exist or has expired.
+ *
+ * @template [T = unknown]
+ * @overload
+ * @param {string[]} keys
+ * @param {KVOptConfig} [optConfig]
+ * @returns {Promise<(T | null)[]>}
+ */
+/**
  * Returns the key's value, or `null` if the key does not exist or has expired.
+ * With an array of keys, returns their values in the same order.
  *
  * Also accepts the object form `get({ key, optConfig })` and legacy trailing
  * success/error callbacks.
  *
  * @this {import('./index.js').KVModule}
- * @param {string | { key: string, optConfig?: KVOptConfig }} keyOrObject
+ * @param {string | string[] | { key: string | string[], optConfig?: KVOptConfig }} keyOrObject
  * @param {...(KVOptConfig | Function | undefined)} rest
  * @returns {Promise<unknown>}
  */

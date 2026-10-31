@@ -42,7 +42,7 @@ export class KVModule extends PuterModule {
 
     /**
      * The maximum allowed value size, in UTF-8 bytes of the value's JSON
-     * encoding (`400 KB`).
+     * encoding (`399 KB`).
      *
      * @readonly
      */
