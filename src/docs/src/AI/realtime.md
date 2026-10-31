@@ -109,7 +109,7 @@ A new connection starts an empty conversation. To keep context, add earlier item
 
 ## Errors, billing, and limits
 
-API errors arrive as `{ "type": "error", "error": { "code": "...", "message": "..." } }`. Handle socket errors and close frames too. Invalid, missing, or revoked credentials use `invalid_api_key`. If Puter can't check a credential, the error is `internal_error` and the session closes with 1011, so try again after a short, randomized delay. Other relay codes include `model_not_found`, `insufficient_funds`, `subscription_required`, `rate_limit_exceeded`, `invalid_event`, `connection_timeout`, `provider_unavailable`, `upstream_error`, and `server_restarting`.
+API errors arrive as `{ "type": "error", "error": { "code": "...", "message": "..." } }`. Handle socket errors and close frames too. Invalid, missing, or revoked credentials use `invalid_api_key`. If Puter can't check a credential or the account's plan, the error is `internal_error` and the session closes with 1011, so try again after a short, randomized delay. Other relay codes include `model_not_found`, `insufficient_funds`, `subscription_required`, `rate_limit_exceeded`, `invalid_event`, `connection_timeout`, `provider_unavailable`, `upstream_error`, and `server_restarting`.
 
 Policy failures generally close with 1008, oversized client messages with 1009, upstream or setup failures with 1011, server restarts with 1012, and temporary server overload with 1013. Reconnect after 1011, 1012, or 1013. Authentication and model failures can arrive after the WebSocket handshake succeeds.
 
