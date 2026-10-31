@@ -96,7 +96,7 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 | Realtime transport limit | Value | Behavior at the limit |
 | --- | --- | --- |
 | Client JSON message size | 64 KiB, including reassembled fragments | Close 1009. |
-| Upstream JSON message size | 4 MiB, including reassembled fragments | Close 1011. |
+| Upstream JSON message size | 4 MiB, including reassembled fragments | Close 1011. A response that hasn't reported its usage is billed the credit held for it. |
 | Fragments per client message | 64 | Connection closes. |
 | Buffered receive chunks from the client | 128 | Connection closes. |
 | Event type length | 1–128 characters | Invalid client envelopes receive `invalid_event` and close with 1008. Invalid upstream envelopes close with 1011. |
@@ -112,10 +112,10 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 | Heartbeat interval | 30 seconds | A missing pong terminates the connection on the next heartbeat. |
 | Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. Overlapping sweeps are skipped. |
 | Session attempts per credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
-| Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. |
+| Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. A response whose usage never arrives because the provider connection closed first is billed the full hold. |
 | Restart notice (`puter.reconnect`) | At most once a minute per session | Repeated announcements within the minute aren't sent. |
 | In-flight response drain at shutdown | 5 seconds | Close 1012. |
-| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. |
+| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. A response that doesn't report its usage within the 5 seconds is billed the credit held for it. |
 
 Send audio as a stream of small chunks. The message cap applies to text, configuration, tool output, and audio alike.
 
