@@ -63,8 +63,9 @@ export class NotificationStore extends PuterStore {
     }
 
     /**
-     * The newest row `appUid` wrote for the user under `group` that is neither
-     * shown nor acknowledged. Rows written without a group never match.
+     * The newest row `appUid` wrote for the user under `group`, or null when it
+     * was shown or acknowledged: an older row is never picked up in its place.
+     * Rows written without a group never match.
      *
      * @param {number} userId
      * @param {string} appUid
@@ -74,13 +75,16 @@ export class NotificationStore extends PuterStore {
     async getUnseenByGroup(userId, appUid, group, { primary = false } = {}) {
         const sql =
             'SELECT * FROM `notification` WHERE `user_id` = ? AND `app_uid` = ? ' +
-            'AND `group_key` = ? AND `shown` IS NULL AND `acknowledged` IS NULL ' +
-            'ORDER BY `id` DESC LIMIT 1';
+            'AND `group_key` = ? ORDER BY `id` DESC LIMIT 1';
         const params = [userId, appUid, groupKey(group)];
         const rows = primary
             ? await this.clients.db.pread(sql, params)
             : await this.clients.db.read(sql, params);
-        return this.#normalizeRow(rows[0]) ?? null;
+        const row = rows[0];
+        if (!row || (row.shown ?? row.acknowledged ?? null) !== null) {
+            return null;
+        }
+        return this.#normalizeRow(row);
     }
 
     /**

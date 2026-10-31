@@ -398,7 +398,7 @@ describe('NotificationStore', () => {
 
     // -- groups --------------------------------------------------------
 
-    it('finds the newest unseen row an app wrote under a group', async () => {
+    it('finds the newest row an app wrote under a group while it is unseen', async () => {
         const u = await makeUser();
         const appUid = `app-${uuidv4()}`;
         const write = (group, extra = {}) =>
@@ -424,11 +424,16 @@ describe('NotificationStore', () => {
         expect(found.uid).toBe(newer.uid);
         expect(found.group_key).toMatch(/^[0-9a-f]{64}$/u);
 
+        // The older unseen row is not picked up once the newest was shown.
         await store.markShown(newer.uid, u.id);
+        expect(await store.getUnseenByGroup(u.id, appUid, 'chat-1')).toBeNull();
+        expect((await store.getByUid(older.uid)).shown).toBeNull();
+
+        const newest = await write('chat-1');
         expect((await store.getUnseenByGroup(u.id, appUid, 'chat-1')).uid).toBe(
-            older.uid,
+            newest.uid,
         );
-        await store.markAcknowledged(older.uid, u.id);
+        await store.markAcknowledged(newest.uid, u.id);
         expect(await store.getUnseenByGroup(u.id, appUid, 'chat-1')).toBeNull();
         expect(await store.getUnseenByGroup(u.id, appUid, 'none')).toBeNull();
     });

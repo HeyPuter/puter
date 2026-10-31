@@ -152,7 +152,7 @@ Inside the Puter desktop, a tap on a push opens your app and hands the `target` 
 
 ## Groups and sensitive notifications
 
-A newer notification with the same `group` replaces the one showing, and the device alerts the user again. While the earlier notification is unread, the newer one also replaces it in place and keeps its `uid`, as [`notify()`](/Notifications/notify/#groups) describes. A replacement counts against the notification limit per minute only. The push limits count only pushes sent, and a replacement that goes out as a push counts like any other.
+A newer notification with the same `group` replaces the one showing, and the device alerts the user again. The newer one also replaces the earlier notification in place and keeps its `uid`, unless the earlier one was dismissed, for example by a tap on its push inside the Puter desktop. [`notify()`](/Notifications/notify/#groups) has the rule. A replacement counts against the notification limit per minute only. The push limits count only pushes sent, and a replacement that goes out as a push counts like any other.
 
 With `sensitive: true`, pushes and the notification a page shows itself show a generic line instead of the title and text. A sensitive push carries no `channel`, `target` or `data`. So no [`onPush()`](/Notifications/onPush/) handler runs for it, a tap opens `/`, and [`on('click')`](/Notifications/on/) gets `null` for `target` and `data`. [`onNotification()`](/Notifications/onNotification/) still gets the whole notification.
 

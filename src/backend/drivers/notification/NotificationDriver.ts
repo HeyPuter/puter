@@ -338,9 +338,9 @@ export class NotificationDriver extends PuterDriver {
     }
 
     /**
-     * A message with a `group` replaces the recipient's unseen one in that
-     * group, which spends a minute slot but no day slot. Limits are keyed on
-     * the recipient, who need not be the actor.
+     * A message with a `group` replaces the newest one in that group unless it
+     * was shown or dismissed, which spends a minute slot but no day slot.
+     * Limits are keyed on the recipient, who need not be the actor.
      */
     async #sendAppMessage(
         recipientId: number,

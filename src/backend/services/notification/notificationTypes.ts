@@ -116,7 +116,8 @@ export const NOTIFICATION_TYPES = [
         subject: subjectFor('developer'),
     },
     // The only type apps create; its kind goes in the value's `channel`. A
-    // newer one replaces the unseen one with the same `group`.
+    // newer one replaces the newest with the same `group` unless that one was
+    // shown or dismissed.
     {
         type: 'app.message',
         audience: 'app-user',

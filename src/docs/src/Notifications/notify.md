@@ -48,7 +48,9 @@ It rejects with an error carrying `message` and `code`:
 
 ## Groups
 
-A notification with a `group` replaces your app's earlier notification to the same user with the same `group`, as long as that one is still unread. Unread means it wasn't marked read or dismissed. The replacement keeps the earlier notification's `uid` and gets the new content and time. Without a `group`, or when the earlier one was read or dismissed, the call creates a new notification.
+A notification with a `group` replaces the newest notification your app sent the same user with that `group`. The replacement keeps that notification's `uid` and gets the new content and time. When that notification was shown or dismissed, the call creates a new one instead, and so does a call without a `group`.
+
+Puter.js doesn't mark your app's notifications shown or dismissed. The one thing that does is the user tapping the notification's push inside the Puter desktop, which dismisses it. So a group usually stays one notification that each new one replaces.
 
 A listener added with [`onNotification()`](/Notifications/onNotification/) gets the replacement too, with the same `uid` and `replaced: true`.
 
