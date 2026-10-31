@@ -601,10 +601,10 @@ describe('PuterServer request parsing', () => {
         },
     );
 
-    it('parses JSON above 50 MiB on an AI route for a signed-in caller', async () => {
+    it('parses a chat call above 50 MiB for a signed-in caller', async () => {
         const payload = JSON.stringify({
-            interface: 'no-such-interface',
-            method: 'complete',
+            interface: 'puter-chat-completion',
+            method: 'no-such-method',
             pad: 'x'.repeat(51 * MiB),
         });
         for (const contentType of [
@@ -615,9 +615,24 @@ describe('PuterServer request parsing', () => {
                 'content-type': contentType,
                 authorization: `Bearer ${token}`,
             });
-            // The controller read `interface` out of the body.
+            // The controller read `method` out of the body.
             expect(res.status, contentType).toBe(404);
-            expect(res.body).toContain('no-such-interface');
+            expect(res.body).toContain('no-such-method');
+        }
+    });
+
+    it('keeps the default JSON limit for other drivers', async () => {
+        const payload = JSON.stringify({
+            interface: 'puter-kvstore',
+            method: 'get',
+            pad: 'x'.repeat(51 * MiB),
+        });
+        // Routing matches these spellings too.
+        for (const path of ['/drivers/call', '/Drivers/Call/']) {
+            const res = await postJson(path, payload, {
+                authorization: `Bearer ${token}`,
+            });
+            expect(res.status, path).toBe(413);
         }
     });
 
