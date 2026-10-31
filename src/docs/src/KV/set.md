@@ -40,7 +40,7 @@ A Unix timestamp in seconds at which the key should expire. Omit it, or pass `nu
 
 #### `disableSharing` (Boolean) (optional)
 
-Pass inside the trailing options object, as in `set(key, value, { disableSharing: true })`, to mark this entry private to your app. A private entry cannot be read, listed, changed, or deleted by any other app, even one the user has granted access to your app's data with [`puter.perms.request('appData', …)`](/Perms/appData/). It is also hidden from another user you share its prefix with through [`puter.kv.share()`](/KV/share/). They can't read, list, or watch it, and a write to it through the share is refused. Use it for anything another app should never see, such as a cached access token. A user approving a request can't see what your store holds. It can't be combined with `appUuid` or `handle`.
+Pass inside the trailing options object, as in `set(key, value, { disableSharing: true })`, to mark this entry private to your app. A private entry cannot be read, listed, changed, or deleted by any other app, even one the user has granted access to your app's data with [`puter.perms.request('appData', …)`](/Perms/appData/). It is also hidden from another user you share its prefix with through [`puter.kv.share()`](/KV/share/). They can't read, list, or watch it. Deleting it through the share resolves as deleting a missing key does and leaves it in place, and any other write to it through the share is refused with `kv_handle_access_denied`. Use it for anything another app should never see, such as a cached access token. A user approving a request can't see what your store holds. It can't be combined with `appUuid` or `handle`.
 
 The batch form takes it too — `set([...items], { disableSharing: true })` marks every entry in the batch.
 
@@ -79,7 +79,7 @@ These codes come from the options above:
 | `invalid_request` | `onlyIfAbsent` was passed to the batch form. |
 | `bad_request` | `onlyIfAbsent` isn't `true` or `false`. |
 | `kv_handle_not_found` | `handle` doesn't exist, the share stopped, or it isn't shared with you. |
-| `kv_handle_access_denied` | The share's access is below `write`. |
+| `kv_handle_access_denied` | The share's access is below `write`, or a key is private to the owner's app, with or without `onlyIfAbsent`. |
 | `kv_handle_option_invalid` | `handle` was combined with `appUuid` or `disableSharing`. |
 | `kv_handle_key_invalid` | With `handle`, a key is empty or longer than 768 bytes. |
 | `kv_handles_disabled` | Shares can't be used this way on this deployment. |

@@ -1800,6 +1800,61 @@ describe('PermissionStore', () => {
             ).toHaveLength(1);
         });
 
+        it('deletes only grants spelled exactly as named, in every delete', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const live = [
+                'kv-share-read:owner:app:notes:x',
+                'kv-share-read:owner:app:notes:y',
+                'kv-share-read:owner:app:notes:z',
+            ];
+            for (const permission of live)
+                await store.upsertUserUserPerm(
+                    holder.id,
+                    issuer.id,
+                    permission,
+                    {},
+                );
+
+            expect(
+                await store.deleteUserUserPermSubtreeForHolder(
+                    holder.id,
+                    issuer.id,
+                    'kv-share-read:owner:app:Notes',
+                ),
+            ).toEqual([]);
+            expect(
+                await store.deleteUserUserPermByHolder(
+                    holder.id,
+                    'kv-share-read:owner:app:Notes:x',
+                    issuer.id,
+                ),
+            ).toBe(false);
+            expect(
+                await store.deleteUserUserPermsByHolder(
+                    holder.id,
+                    ['kv-share-read:owner:app:NOTES:y'],
+                    issuer.id,
+                ),
+            ).toEqual([]);
+            expect(
+                await store.findUserUserPermsByIssuer(
+                    holder.id,
+                    issuer.id,
+                    live.map((permission) => permission.toUpperCase()),
+                ),
+            ).toEqual([]);
+            expect(
+                (
+                    await store.findUserUserPermsByIssuer(
+                        holder.id,
+                        issuer.id,
+                        live,
+                    )
+                ).sort(),
+            ).toEqual(live);
+        });
+
         it('reports whether the delete matched a row', async () => {
             const issuer = await makeUser();
             const holder = await makeUser();

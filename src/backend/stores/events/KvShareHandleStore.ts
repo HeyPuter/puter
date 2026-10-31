@@ -138,6 +138,22 @@ const MISS_CACHE_TTL_MS = 5_000;
 const LIVE_CACHE_MAX_ENTRIES = 50_000;
 const MISS_CACHE_MAX_ENTRIES = 10_000;
 
+/**
+ * How long a handle or owner is read from the primary after a forget. A replica
+ * that has not caught up with the change would otherwise put the old row
+ * straight back in the cache.
+ */
+const FORGOTTEN_TTL_MS = LIVE_CACHE_TTL_MS;
+const FORGOTTEN_MAX_ENTRIES = 50_000;
+
+const LIVE_QUERY =
+    'SELECT h.`handle`, h.`owner_user_id`, h.`grantee_user_id`, ' +
+    'h.`app_uid`, h.`key_prefix`, h.`permission`, h.`notify`, ' +
+    'h.`created_at`, h.`revoked_at`, h.`revoked_by`, ' +
+    'u.`uuid` AS `owner_uuid`, u.`suspended` AS `owner_suspended` ' +
+    `FROM \`${TABLE}\` h JOIN \`user\` u ON u.\`id\` = h.\`owner_user_id\` ` +
+    'WHERE h.`handle` = ?';
+
 /** Handles one cross-node forget carries. */
 const FORGET_BATCH = 500;
 
@@ -145,6 +161,10 @@ const FORGET_BATCH = 500;
 export const KV_HANDLE_RETIRE_BATCH = 500;
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000);
+
+/** Whether a forget stamped `at` came after the one numbered `before`. */
+const forgottenSince = (at: number | undefined, before: number): boolean =>
+    at !== undefined && at > before;
 
 const toRevokedBy = (value: unknown): KvShareRevokedBy | null =>
     REVOKED_BY.includes(value as KvShareRevokedBy)
@@ -202,6 +222,16 @@ export class KvShareHandleStore extends PuterStore {
         maxEntries: MISS_CACHE_MAX_ENTRIES,
         ttlMs: MISS_CACHE_TTL_MS,
     });
+    /** Handles and owners forgotten lately, each with the forget's sequence. */
+    readonly #forgotten = new BoundedTtlMap<string, number>({
+        maxEntries: FORGOTTEN_MAX_ENTRIES,
+        ttlMs: FORGOTTEN_TTL_MS,
+    });
+    readonly #forgottenOwners = new BoundedTtlMap<number, number>({
+        maxEntries: FORGOTTEN_MAX_ENTRIES,
+        ttlMs: FORGOTTEN_TTL_MS,
+    });
+    #forgets = 0;
 
     async mint(input: MintKvShareHandleInput): Promise<KvShareHandle> {
         const row: KvShareHandle = {
@@ -286,6 +316,7 @@ export class KvShareHandleStore extends PuterStore {
 
     /** Drop this node's cached live rows owned by one user. */
     #forgetOwner(ownerUserId: number): void {
+        this.#forgottenOwners.set(ownerUserId, ++this.#forgets);
         this.#live.deleteWhere(({ row }) => row.ownerUserId === ownerUserId);
     }
 
@@ -296,7 +327,8 @@ export class KvShareHandleStore extends PuterStore {
      *
      * A forged id is refused without a read. Only a signed id falls back to the
      * primary on a replica miss: that is for read-after-mint, and legacy ids
-     * are no longer minted.
+     * are no longer minted. A handle or owner forgotten in the last minute,
+     * before or during the read, is read from the primary too.
      */
     async getLive(handle: string): Promise<LiveKvShareHandle | null> {
         const kind = kvHandleIdKind(handle, this.config.jwt_secret_v2);
@@ -305,20 +337,32 @@ export class KvShareHandleStore extends PuterStore {
         if (cached) return cached;
         if (this.#missing.has(handle)) return null;
 
-        const query =
-            'SELECT h.`handle`, h.`owner_user_id`, h.`grantee_user_id`, ' +
-            'h.`app_uid`, h.`key_prefix`, h.`permission`, h.`notify`, ' +
-            'h.`created_at`, h.`revoked_at`, h.`revoked_by`, ' +
-            'u.`uuid` AS `owner_uuid`, u.`suspended` AS `owner_suspended` ' +
-            `FROM \`${TABLE}\` h JOIN \`user\` u ON u.\`id\` = h.\`owner_user_id\` ` +
-            'WHERE h.`handle` = ?';
-        let rows = await this.clients.db.read(query, [handle]);
-        if (rows.length === 0 && kind === 'signed')
-            rows = await this.clients.db.pread(query, [handle]);
+        let before = this.#forgets;
+        const primary = this.#forgotten.has(handle);
+        let rows = primary
+            ? await this.clients.db.pread(LIVE_QUERY, [handle])
+            : await this.clients.db.read(LIVE_QUERY, [handle]);
+        if (
+            !primary &&
+            ((rows.length === 0 && kind === 'signed') ||
+                this.#forgotten.has(handle) ||
+                this.#forgottenOwners.has(Number(rows[0]?.owner_user_id)))
+        ) {
+            before = this.#forgets;
+            rows = await this.clients.db.pread(LIVE_QUERY, [handle]);
+        }
+
+        // A forget that landed during the read may postdate what it returned.
+        const cacheable =
+            !forgottenSince(this.#forgotten.get(handle), before) &&
+            !forgottenSince(
+                this.#forgottenOwners.get(Number(rows[0]?.owner_user_id)),
+                before,
+            );
 
         const found = rows[0];
         if (!found || found.revoked_at !== null || !found.owner_uuid) {
-            this.#missing.set(handle, true);
+            if (cacheable) this.#missing.set(handle, true);
             return null;
         }
         const { label: _label, ...row } = toRow({ ...found, label: null });
@@ -327,11 +371,12 @@ export class KvShareHandleStore extends PuterStore {
             ownerUuid: String(found.owner_uuid),
             ownerSuspended: Boolean(Number(found.owner_suspended ?? 0)),
         };
-        this.#live.set(handle, live);
+        if (cacheable) this.#live.set(handle, live);
         return live;
     }
 
     #forget(handle: string): void {
+        this.#forgotten.set(handle, ++this.#forgets);
         this.#live.delete(handle);
         this.#missing.delete(handle);
     }

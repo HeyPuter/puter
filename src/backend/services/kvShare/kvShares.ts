@@ -629,6 +629,9 @@ export const kvShareOwnerImplicator = (): PermissionImplicator => ({
 /** Scan memo key for the grants a user check already refused. */
 const DELEGATE_REFUSED = 'kv-share-app-delegate:refused';
 
+/** Scan memo key for whether the actor's user still has its app authorized. */
+const DELEGATE_APP_AUTHORIZED = 'kv-share-app-delegate:appAuthorized';
+
 /**
  * Whether a check of `asked` also asks `option`: `option` is `asked` or an
  * ancestor of it, at the same level or above.
@@ -678,7 +681,14 @@ export const kvShareAppDelegateImplicator = (deps: {
         const refused = memo?.get(DELEGATE_REFUSED) as string[] | undefined;
         if (refused?.some((asked) => kvShareCheckReaches(asked, permission)))
             return undefined;
-        if (!(await deps.appAuthorized(actor))) return undefined;
+        // Asked once per scan, which offers every ancestor of a deep key.
+        let authorized = memo?.get(DELEGATE_APP_AUTHORIZED) as
+            boolean | undefined;
+        if (authorized === undefined) {
+            authorized = await deps.appAuthorized(actor);
+            memo?.set(DELEGATE_APP_AUTHORIZED, authorized);
+        }
+        if (!authorized) return undefined;
         if (await deps.userHolds(userRelatedActor(actor), permission))
             return {};
         memo?.set(DELEGATE_REFUSED, [...(refused ?? []), permission]);

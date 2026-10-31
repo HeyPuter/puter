@@ -228,14 +228,26 @@ describe('perms request(resource, details)', () => {
             whoami: { ...WHOAMI, app_name: SELF_UID },
         });
 
-        expect(await request.call(mod, 'kvShare', { prefix: 'workspace:abc:' })).toBe(true);
+        expect(await request.call(mod, 'kvShare', { prefix: 'workspace:abc:', access: 'write' })).toBe(true);
         expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
-            permission: `manage:kv-share:u-1:${SELF_UID}:workspace:abc`,
+            permission: `manage:kv-share-write:u-1:${SELF_UID}:workspace:abc`,
         });
 
         await request.call(mod, 'kvShare', { prefix: 'rooms', access: 'watch' });
         expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
             permission: `manage:kv-share:u-1:${SELF_UID}:rooms`,
+        });
+    });
+
+    it('asks for the level `puter.kv.share()` creates when no access is given', async () => {
+        const mod = makeModule({
+            requestPermission: () => true,
+            whoami: { ...WHOAMI, app_name: SELF_UID },
+        });
+
+        expect(await request.call(mod, 'kvShare', { prefix: 'rooms:abc:' })).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: `manage:kv-share-read:u-1:${SELF_UID}:rooms:abc`,
         });
     });
 
@@ -844,7 +856,7 @@ describe('perms check(resource, details)', () => {
             held: {
                 'fs:/alice/notes.txt:write': true,
                 'events:background': false,
-                [`manage:kv-share:u-1:${SELF_UID}:rooms`]: true,
+                [`manage:kv-share-read:u-1:${SELF_UID}:rooms`]: true,
             },
         });
         const mod = makeModule({ whoami: { ...WHOAMI, app_name: SELF_UID } });

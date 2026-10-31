@@ -449,6 +449,36 @@ describe('the app delegate implicator', () => {
         expect(userHolds).not.toHaveBeenCalled();
     });
 
+    it('asks whether the app is authorized once per scan', async () => {
+        const authorized = vi.fn().mockResolvedValue(false);
+        const implicator = kvShareAppDelegateImplicator({
+            userHolds: vi.fn(),
+            appAuthorized: authorized,
+        });
+        const actor = appActor(OWNER, APP);
+        const memo = new Map<string, unknown>();
+        const segments = Array.from({ length: 30 }, (_, i) => `s${i}`);
+        for (let depth = segments.length; depth > 0; depth--)
+            for (const access of ['read', 'write'] as const)
+                await expect(
+                    implicator.check({
+                        actor,
+                        permission: kvSharePermission(
+                            OWNER,
+                            APP,
+                            `${segments.slice(0, depth).join(':')}:`,
+                            access,
+                        ),
+                        memo,
+                    }),
+                ).resolves.toBeUndefined();
+        expect(authorized).toHaveBeenCalledTimes(1);
+
+        // A new scan asks again.
+        await implicator.check({ actor, permission });
+        expect(authorized).toHaveBeenCalledTimes(2);
+    });
+
     it('refuses when the user does not hold the grant', async () => {
         const implicator = kvShareAppDelegateImplicator({
             userHolds: vi.fn().mockResolvedValue(false),

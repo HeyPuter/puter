@@ -28,7 +28,16 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
@@ -38,6 +47,8 @@ import {
     type PuterTestEnv,
 } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
+import { SESSION_SUBSCRIPTION_TTL_SECONDS } from '../../stores/events/EventSubscriptionStore.js';
+import { kvShareGrantAtEveryLevel } from '../kvShare/kvShares.js';
 import type { DeliveryEnvelope } from './EventsService.js';
 import { kvAnchorToken } from './subjects.js';
 
@@ -219,6 +230,118 @@ describe('revoking a handle', () => {
         await ownerWrites(`${PREFIX}live:2`, 2);
         await quiet();
         expect(delivered).toEqual([]);
+    });
+
+    describe('ending session subscriptions made through it', () => {
+        let send: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => {
+            send = vi.spyOn(env.server.services.socket, 'send');
+        });
+        afterEach(() => {
+            send.mockRestore();
+        });
+
+        const endedOn = (socketId: string, subId: string) =>
+            vi.waitFor(
+                () =>
+                    expect(send).toHaveBeenCalledWith(
+                        { socket: socketId },
+                        'events.ended',
+                        expect.objectContaining({
+                            subId,
+                            code: 'subscription_ended',
+                            reason: 'permission_revoked',
+                        }),
+                    ),
+                { timeout: 5_000, interval: 25 },
+            );
+
+        const heldOn = async (userId: number, socketId: string) =>
+            (
+                await env.server.stores.eventSubscription.listForSocket(
+                    userId,
+                    socketId,
+                )
+            ).map((row) => row.subId);
+
+        it('ends them when the owner revokes it, and tells the connection', async () => {
+            await clearRows();
+            const { handle } = await mint();
+            const { sub } = await events().subscribe(guest.actor, SOCKET_ID, {
+                subject: `kv:${handle}:*`,
+            });
+
+            await shares().revokeKvHandle(owner.actor, handle);
+
+            await endedOn(SOCKET_ID, sub.subId);
+            expect(await heldOn(guest.id, SOCKET_ID)).toEqual([]);
+            expect(await ownerWatches()).toBe(false);
+        });
+
+        it('ends them when the holder gives it up', async () => {
+            await clearRows();
+            const { handle } = await mint();
+            const { sub } = await events().subscribe(guest.actor, SOCKET_ID, {
+                subject: `kv:${handle}:*`,
+            });
+
+            await shares().removeKvShare(guest.actor, handle);
+
+            await endedOn(SOCKET_ID, sub.subId);
+            expect(await heldOn(guest.id, SOCKET_ID)).toEqual([]);
+        });
+
+        it('ends them on the connection`s next refresh when the handle stopped standing out of sight', async () => {
+            await clearRows();
+            const socketId = 'kv-revoke-refresh';
+            const retired = await mint();
+            const withdrawn = await mint('workspace:withdrawn:');
+            const kept = await mint('workspace:kept:');
+
+            vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+            try {
+                const subs = [];
+                for (const { handle } of [retired, withdrawn, kept])
+                    subs.push(
+                        (
+                            await events().subscribe(guest.actor, socketId, {
+                                subject: `kv:${handle}:*`,
+                            })
+                        ).sub,
+                    );
+
+                // Neither goes through a retire this region hears about: a
+                // handle retired from another region, and a grant withdrawn
+                // with its handle left live.
+                await env.server.stores.kvShareHandle.retireMany(
+                    [retired.handle],
+                    'owner',
+                );
+                const grant = await env.server.stores.kvShareHandle.getByHandle(
+                    withdrawn.handle,
+                );
+                await env.server.services.permission.revokeUserUserPermissionSubtree(
+                    owner.actor,
+                    guest.username,
+                    kvShareGrantAtEveryLevel(grant!.permission),
+                    { reason: 'test' },
+                );
+                expect(await heldOn(guest.id, socketId)).toHaveLength(3);
+
+                await vi.advanceTimersByTimeAsync(
+                    (SESSION_SUBSCRIPTION_TTL_SECONDS * 1000) / 3,
+                );
+
+                await endedOn(socketId, subs[0].subId);
+                await endedOn(socketId, subs[1].subId);
+                expect(await heldOn(guest.id, socketId)).toEqual([
+                    subs[2].subId,
+                ]);
+            } finally {
+                await events().reapSocket(guest.id, socketId);
+                vi.useRealTimers();
+            }
+        });
     });
 
     it('finds its subscriptions on the holder index, not by scanning', async () => {

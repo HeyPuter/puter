@@ -49,12 +49,15 @@ import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import type { DeliveryEnvelope } from './EventsService.js';
 import { kvSharePermission } from '../kvShare/kvShares.js';
 import { seedKvShareHandles } from '../kvShare/kvShareTestUtil.js';
+import { MATCH_PATTERN_MAX_LENGTH } from './matcher.js';
 import { isKvHandleId, kvAnchorToken } from './subjects.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 const SOCKET_ID = 'kv-handle-socket';
 const TABLE = 'event_subscriptions';
 const PREFIX = 'workspace:abc:';
+/** Long enough that anything composed onto it passes the indexed-prefix cap. */
+const LONG_PREFIX = `workspace:${'a'.repeat(150)}:`;
 
 interface TestUser {
     actor: Actor;
@@ -542,6 +545,58 @@ describe('subscribing through a handle', () => {
         }
     });
 
+    it('holds a pattern to its limit as the holder wrote it, whatever the prefix', async () => {
+        await clearRows();
+        const handles = [
+            (await mint()).handle,
+            (await mint({ prefix: LONG_PREFIX })).handle,
+        ];
+        const longest = `${'x'.repeat(MATCH_PATTERN_MAX_LENGTH - 1)}*`;
+        const over = `${'x'.repeat(MATCH_PATTERN_MAX_LENGTH)}*`;
+
+        for (const handle of handles) {
+            await expect(
+                events().subscribe(guest.actor, SOCKET_ID, {
+                    subject: `kv:${handle}:${longest}`,
+                }),
+            ).resolves.toBeDefined();
+            // The same refusal for both, naming only what the holder wrote.
+            await expect(
+                events().subscribe(guest.actor, SOCKET_ID, {
+                    subject: `kv:${handle}:${over}`,
+                }),
+            ).rejects.toMatchObject({
+                legacyCode: 'invalid_subject_pattern',
+                message: `Match pattern exceeds ${MATCH_PATTERN_MAX_LENGTH} characters: ${over}`,
+            });
+        }
+    });
+
+    it('describes its filter the same way whatever the prefix', async () => {
+        const handles = [
+            (await mint()).handle,
+            (await mint({ prefix: LONG_PREFIX })).handle,
+        ];
+        for (const pattern of ['messages:*', 'messages*', 'a:b:c:d:e:f']) {
+            await clearRows();
+            const views = [];
+            for (const handle of handles) {
+                const { sub } = await events().subscribe(
+                    guest.actor,
+                    SOCKET_ID,
+                    { subject: `kv:${handle}:${pattern}` },
+                );
+                const [listed] = await events().listSubscriptions(
+                    guest.actor,
+                    SOCKET_ID,
+                );
+                views.push(sub.match, listed.match);
+                await events().reapSocket(guest.id, SOCKET_ID);
+            }
+            expect(new Set(views).size).toBe(1);
+        }
+    });
+
     it('refuses a user the handle was not granted to', async () => {
         await clearRows();
         const { handle } = await mint();
@@ -585,6 +640,24 @@ describe('a write in the shared region', () => {
         });
         expect(JSON.stringify(delivered[0])).not.toContain(PREFIX);
         expect(JSON.stringify(delivered[0])).not.toContain(owner.uuid);
+    });
+
+    it('reaches a pattern that runs past the limit once composed onto the prefix', async () => {
+        await clearRows();
+        const { handle } = await mint({ prefix: LONG_PREFIX });
+        const key = 'k'.repeat(200);
+        const { sub } = await events().subscribe(guest.actor, SOCKET_ID, {
+            subject: `kv:${handle}:${key}*`,
+        });
+        delivered.length = 0;
+
+        await ownerWrites(`${LONG_PREFIX}${key}:1`, 1);
+        await settled();
+
+        expect(delivered[0]).toMatchObject({
+            subId: sub.subId,
+            event: { key: `${key}:1` },
+        });
     });
 
     it('reaches a durable subscription, key after key', async () => {

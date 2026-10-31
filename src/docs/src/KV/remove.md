@@ -53,7 +53,7 @@ A rejection carries an `Error` with a stable `code`:
 | `subject_does_not_exist` | `optConfig.appUuid` names an app that doesn't exist. |
 | `too_many_requests` | The rate limit was exceeded. See [Rate Limits and Quotas](/rate-limits-and-quotas/). |
 | `kv_handle_not_found` | `handle` doesn't exist, the share stopped, or it isn't shared with you. |
-| `kv_handle_access_denied` | The share's access doesn't allow this method. |
+| `kv_handle_access_denied` | The share's access doesn't allow this method, or the key is private to the owner's app. |
 | `kv_handle_option_invalid` | `handle` was combined with `appUuid` or `disableSharing`. |
 | `kv_handle_key_invalid` | With `handle`, the key is empty or longer than 768 bytes. |
 | `kv_handles_disabled` | Shares can't be used this way on this deployment. |
