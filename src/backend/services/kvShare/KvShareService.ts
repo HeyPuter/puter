@@ -344,8 +344,7 @@ const APP_DATA_PURGE_STEP = 5_000;
 // attempts, and a node claims it by compare-and-set. A job stays with the
 // deployment that recorded or last ran it; another one takes it over only once
 // it has gone unclaimed for a while past due. Records are kept apart per
-// domain, so deployments that share the table but not a database or
-// broadcast (staging beside production) never run each other's.
+// domain, so separate installs that share one table never run each other's.
 
 const jobKeyPrefix = (domain: string): string => `kvShareJob#${domain}#`;
 /** How long one run works before handing its job back, and the lease on it. */
