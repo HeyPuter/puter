@@ -35,7 +35,18 @@ import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequi
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowLogin2FA from './UI/UIWindowLogin2FA.js';
-import { takeOidcLoginChallenge } from './helpers/authRedirect.js';
+import UIWindowMagicLinkConsume from './UI/UIWindowMagicLinkConsume.js';
+import UIWindowMagicLinkSignIn from './UI/UIWindowMagicLinkSignIn.js';
+import {
+    takeMagicLinkToken,
+    takeOidcLoginChallenge,
+} from './helpers/authRedirect.js';
+import {
+    MAGIC_LINK_CHANNEL,
+    announceMagicLinkSignIn,
+    appHostOf,
+    looksLikeEmail,
+} from './helpers/magicLinkSignIn.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
@@ -1399,6 +1410,7 @@ window.showTurnstileChallenge = function (options) {
 
 window.initgui = async function (options) {
     const oidcChallenge = takeOidcLoginChallenge();
+    const magicLinkToken = takeMagicLinkToken();
     const url = new URL(window.location).href;
     window.url = url;
     // Route segments with a leading `/desktop` dropped, so the route checks
@@ -1516,6 +1528,33 @@ window.initgui = async function (options) {
     // federated sign-in hop that would navigate the popup away and lose the
     // action. See util/popupAuth.js.
     window.gui_action = action;
+
+    if (action === 'magic-link') {
+        const signed_in =
+            magicLinkToken && (await UIWindowMagicLinkConsume(magicLinkToken));
+        if (signed_in) {
+            await window.update_auth_data(signed_in.token, signed_in.user);
+            // The window that asked for the link finishes the sign-in when
+            // it is still open in this browser; a popup hands its opener the
+            // token from there.
+            const handed_off = await announceMagicLinkSignIn({
+                requestId: signed_in.request_id,
+                userUuid: signed_in.user?.uuid,
+                openChannel: () => new BroadcastChannel(MAGIC_LINK_CHANNEL),
+            });
+            if (handed_off) {
+                await UIAlert({ message: i18n('magic_link_signed_in_close_tab') });
+            } else if (signed_in.app_origin) {
+                await UIAlert({
+                    message: i18n('magic_link_signed_in_return_to_app', [
+                        appHostOf(signed_in.app_origin),
+                    ]),
+                });
+            }
+        }
+        window.location.replace('/');
+        return;
+    }
 
     if (action === 'oidc-2fa') {
         const result = oidcChallenge?.token && await UIWindowLogin2FA(oidcChallenge.token);
@@ -1731,20 +1770,28 @@ window.initgui = async function (options) {
             !window.is_auth() &&
             !(window.attempt_temp_user_creation && window.first_visit_ever)
         ) {
-            // show signup window
+            const popup_auth_options = {
+                reload_on_success: false,
+                send_confirmation_code: true,
+                show_close_button: false,
+                window_options: {
+                    has_head: false,
+                    cover_page: true,
+                },
+            };
+            // A site that already knows the user's email starts on email
+            // sign-in; everyone else starts on signup.
+            const signin_email = window.url_query_params.get('email');
             if (
-                await UIWindowSignup({
-                    reload_on_success: false,
-                    send_confirmation_code: true,
-                    show_close_button: false,
-                    window_options: {
-                        has_head: false,
-                        cover_page: true,
-                    },
-                })
+                looksLikeEmail(signin_email)
+                    ? await UIWindowMagicLinkSignIn({
+                          ...popup_auth_options,
+                          email: signin_email.trim(),
+                      })
+                    : await UIWindowSignup(popup_auth_options)
             ) {
-                // Completing signup in a sign-in popup is the user asking to
-                // be signed in to the opener.
+                // Signing up or in from a sign-in popup is the user asking
+                // to be signed in to the opener.
                 window.popup_signin_consent = true;
                 await window.getUserAppToken(window.openerOrigin);
             }

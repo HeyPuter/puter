@@ -20,16 +20,14 @@
 import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
 import type { UserRow } from '../../stores/user/UserStore';
-import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import { PuterService } from '../types';
-import { signupClientIp } from '../user/SignupService.js';
-import { cleanEmail, isStorableEmail } from '../../util/email.js';
-import { generateUsername } from '../../util/username.js';
-import { provisionUser } from '../../util/userProvisioning.js';
+import {
+    signupClientIp,
+    type VerifiedEmailSignupOutcome,
+} from '../user/SignupService.js';
+import { isStorableEmail } from '../../util/email.js';
 import { Context } from '../../core';
-import { HttpError } from '../../core/http/HttpError.js';
 import crypto from 'node:crypto';
-import { v4 as uuidv4 } from 'uuid';
 import { verifyOidcIdToken, type JwksCacheEntry } from './oidcIdToken';
 
 const GOOGLE_DISCOVERY_URL =
@@ -239,6 +237,7 @@ export class OIDCService extends PuterService {
         providerId: string,
         state: string,
         flow: string,
+        { loginHint }: { loginHint?: string | null } = {},
     ): Promise<string | null> {
         const config = await this.getProviderConfig(providerId);
         if (!config) return null;
@@ -254,6 +253,10 @@ export class OIDCService extends PuterService {
         });
         if (config.response_mode) {
             params.set('response_mode', config.response_mode);
+        }
+        // Standard OIDC; Apple's authorize endpoint doesn't take it.
+        if (loginHint && providerId !== 'apple') {
+            params.set('login_hint', loginHint);
         }
         return `${config.authorization_endpoint}?${params.toString()}`;
     }
@@ -499,18 +502,7 @@ export class OIDCService extends PuterService {
         claims: OIDCUserInfo,
         referrer?: string | null,
         { bonusCode = null }: { bonusCode?: string | null } = {},
-    ): Promise<{
-        success: boolean;
-        user?: UserRow;
-        error?: string;
-        code?: string;
-        raced?: boolean;
-        /**
-         * Support-correlation id for a vetoed signup (the abuse trail id). Safe
-         * to show the user; the veto reason in `error` is not.
-         */
-        requestCode?: string;
-    }> {
+    ): Promise<VerifiedEmailSignupOutcome> {
         if (claims.email_verified === false) {
             return {
                 success: false,
@@ -536,124 +528,18 @@ export class OIDCService extends PuterService {
             };
         }
 
-        if (this.config.disable_user_signup) {
-            return {
-                success: false,
-                error: 'User registration is disabled.',
-            };
-        }
-
-        const username = await generateUsername(this.stores);
-        if (!username) {
-            return {
-                success: false,
-                error: 'Failed to generate unique username.',
-            };
-        }
-
         const req = Context.get('req')!;
-        const clientIp = signupClientIp(req);
-        const proxyIpChain = req.headers['x-forwarded-for'];
-
-        // Before the signup gate: the abuse harness reads the verdict the
-        // `email.validate` hook caches for this address.
-        try {
-            await this.services.signup.validateEmail(email);
-        } catch (e) {
-            if (!(e instanceof HttpError)) throw e;
-            return { success: false, error: e.message };
-        }
-
-        // OIDC users are never temp and the provider verified the address, so
-        // only the block and the phone/card requirements matter here.
-        const gate = await this.services.signup.runSignupGate({
+        // IdP already authenticated the user, so captcha listeners (e.g.
+        // Turnstile) skip `oidc`; abuse/IP/email checks still run.
+        const outcome = await this.services.signup.signupVerifiedEmail({
             req,
-            // IdP already authenticated the user, so captcha listeners
-            // (e.g. Turnstile) should skip — abuse/IP/email checks still run.
             source: 'oidc',
-            data: { username, email, ...(bonusCode ? { bonusCode } : {}) },
             email,
-            isTemp: false,
+            referrer,
             bonusCode,
         });
-        if (gate.verdict === 'bonus_code_invalid') {
-            return {
-                success: false,
-                error: 'This bonus code is invalid or no longer available.',
-                code: 'bonus_code_invalid',
-            };
-        }
-        if (gate.verdict !== 'allowed') {
-            return {
-                success: false,
-                error: gate.message ?? 'Signup blocked',
-                code: gate.code ?? 'signup_blocked',
-                requestCode: gate.requestCode,
-            };
-        }
-
-        // The caller checked this email was free before we got here, but the
-        // validate hook and the blocklist checks above sit in between — long
-        // enough for a second callback (another tab, a provider retry) to have
-        // created the account. Re-check against the primary, and let the unique
-        // index catch anything still in flight.
-        if (await this.stores.user.findEmailOwner(email, { force: true })) {
-            return { success: false, raced: true };
-        }
-
-        // Default user group: the IdP verified the address, so no temp group.
-        let user: UserRow;
-        try {
-            user = await provisionUser(
-                {
-                    db: this.clients.db,
-                    userStore: this.stores.user,
-                    groupStore: this.stores.group,
-                },
-                {
-                    username,
-                    uuid: uuidv4(),
-                    password: null,
-                    email,
-                    clean_email: cleanEmail(email),
-                    free_storage: this.config.storage_capacity ?? null,
-                    // Email is provider-verified, so the email step is always
-                    // skipped; the phone/card gates still apply when the harness
-                    // flagged them.
-                    requires_email_confirmation: false,
-                    // Confirmed in the INSERT rather than a follow-up update: an
-                    // unconfirmed, password-less row does not own its address, so
-                    // deferring this would let two concurrent callbacks both insert
-                    // and only collide when they confirm — too late to report as a
-                    // race.
-                    email_confirmed: true,
-                    requires_phone_verification: gate.requiresPhoneVerification,
-                    requires_card_verification: gate.requiresCardVerification,
-                    ...(gate.reputation != null
-                        ? { reputation: gate.reputation }
-                        : {}),
-                    audit_metadata: {
-                        ip: clientIp,
-                        ip_fwd: proxyIpChain,
-                        user_agent: req?.headers?.['user-agent'],
-                        origin: req?.headers?.origin,
-                    },
-                    signup_ip: clientIp,
-                    // The abuse harness and the admin IP lookup both key on this
-                    // column, so it holds the trusted client address; the raw
-                    // forwarded chain stays in `audit_metadata.ip_fwd`.
-                    signup_ip_forwarded: clientIp,
-                    signup_user_agent: req?.headers?.['user-agent'] ?? null,
-                    signup_origin: req?.headers?.origin,
-                    signup_server: this.config.serverId,
-                    referrer: referrer ?? null,
-                },
-                this.config.default_user_group,
-            );
-        } catch (e) {
-            if (!isOwnedEmailConflict(e)) throw e;
-            return { success: false, raced: true };
-        }
+        if (!outcome.success || !outcome.user) return outcome;
+        const user = outcome.user;
 
         // Link OIDC provider (after provisioning so a failed link doesn't
         // leave an orphaned user without a home folder).
@@ -682,7 +568,7 @@ export class OIDCService extends PuterService {
         // pending share invites, most importantly — has no other moment to
         // fire.
         this.services.signup.announceSignup(user, {
-            ip: clientIp,
+            ip: signupClientIp(req),
             bonusCode,
             emailConfirmed: true,
             saveAccount: true,

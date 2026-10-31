@@ -111,6 +111,33 @@ export const get_oidc_return_to = () => {
 };
 
 
+/**
+ * The start route a provider button sends the browser to, carrying what the
+ * flow needs to come back to this page (and, in a popup, to its opener).
+ *
+ * @param {{ provider: string, flow: 'login' | 'signup', referrer?: string | null, loginHint?: string | null }} opts
+ */
+export const oidcStartUrl = ({ provider, flow, referrer, loginHint }) => {
+    let url = `${window.gui_origin}/auth/oidc/${provider}/start?flow=${flow}`;
+    // return to the interface the flow started from (backend whitelists the path)
+    const return_to = get_oidc_return_to();
+    if ( return_to ) url += `&return_to=${encodeURIComponent(return_to)}`;
+    if ( referrer ) url += `&referrer=${encodeURIComponent(referrer)}`;
+    // A provider login can create the account, so a signup link's code rides along.
+    if ( window.signup_bonus_code ) {
+        url += `&bonusCode=${encodeURIComponent(window.signup_bonus_code)}`;
+    }
+    if ( loginHint ) url += `&login_hint=${encodeURIComponent(loginHint)}`;
+    const msg_id = window.url_query_params?.get('msg_id');
+    if ( window.embedded_in_popup && msg_id ) {
+        url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}`;
+        if ( window.openerOrigin ) {
+            url += `&opener_origin=${encodeURIComponent(window.openerOrigin)}`;
+        }
+    }
+    return url;
+};
+
 /** Capture a provider challenge before boot code can retain its URL. */
 export const takeOidcLoginChallenge = () => {
     const url = new URL(window.location.href);
@@ -130,4 +157,18 @@ export const takeOidcLoginChallenge = () => {
         )) retryUrl = retry.href;
     } catch { /* Missing or malformed retry context returns to ordinary login. */ }
     return { token: fragment.get('token'), retryUrl };
+};
+
+/** Capture a sign-in link's token before boot code can retain its URL. */
+export const takeMagicLinkToken = () => {
+    const url = new URL(window.location.href);
+    const paths = url.pathname.split('/').filter(Boolean);
+    if ( paths[0]?.toLowerCase() === 'desktop' ) paths.shift();
+    if ( paths[0]?.toLowerCase() !== 'action' || paths[1]?.toLowerCase() !== 'magic-link' ) {
+        return null;
+    }
+    const token = new URLSearchParams(url.hash.slice(1)).get('token');
+    url.hash = '';
+    window.history.replaceState(null, document.title, url.pathname + url.search);
+    return token || null;
 };

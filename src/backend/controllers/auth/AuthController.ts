@@ -77,7 +77,6 @@ import {
     normalizeBonusCode,
 } from '../../util/signupBonus.js';
 import { isTemporaryPasswordExpired } from '../../util/temporaryPassword.js';
-import { buildUserDetails, scrubSensitive } from '../../util/userDetails.js';
 import {
     assertValidUsername,
     generateUsername,
@@ -113,7 +112,7 @@ import type { ReauthReason } from '../../services/auth/AuthService';
 import { normalizeAbsolutePath } from '../../services/fs/resolveNode.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { PuterController } from '../types.js';
-import { startWebSession } from './webSession.js';
+import { completeWebLogin, signOtpLoginChallenge } from './webSession.js';
 import { completeOidcLoginReturn } from './oidcLoginReturn.js';
 
 const FINGERPRINT_MAX_LENGTH = 128;
@@ -286,9 +285,7 @@ const isBuiltInAdmin = (username: unknown): boolean =>
     typeof username === 'string' &&
     BUILT_IN_ADMIN_USERNAMES.has(username.toLowerCase());
 
-/** Lifetime of the `otp-login` JWT `/login` hands back. */
-const OTP_LOGIN_TOKEN_TTL = '5m';
-// Covers the token's lifetime plus verify's clock tolerance.
+// Covers the `otp-login` token's lifetime plus verify's clock tolerance.
 const OTP_LOGIN_TOKEN_USED_WINDOW_MS = 10 * 60_000;
 
 // How long a failed-SMS-send record stays readable by its error_id — long
@@ -544,16 +541,11 @@ export class AuthController extends PuterController {
         // OTP/recovery call can re-enforce the match without re-trusting
         // a free-form claim from the client.
         if (user.otp_enabled) {
-            const otpClaims: Record<string, unknown> = {
-                user_uid: user.uuid,
-                purpose: 'otp-login',
-                // Keeps each token distinct for the single-use check.
-                jti: uuidv4(),
-            };
-            if (reauthAuthId) otpClaims.auth_id = reauthAuthId;
-            const otp_jwt_token = this.services.token.sign('otp', otpClaims, {
-                expiresIn: OTP_LOGIN_TOKEN_TTL,
-            });
+            const otp_jwt_token = signOtpLoginChallenge(
+                this.services.token,
+                user,
+                reauthAuthId ? { auth_id: reauthAuthId } : {},
+            );
 
             res.status(202).json({
                 proceed: true,
@@ -4726,32 +4718,13 @@ export class AuthController extends PuterController {
                       config: this.config,
                       oidc: this.services.oidc,
                   });
-        const gui_token = await startWebSession(req, res, user, {
-            config: this.config,
-            auth: this.services.auth,
-        });
-
-        // The whoami payload, so a no-reload login can store it as
-        // window.user verbatim and skip a round-trip on first paint.
-        const details = await buildUserDetails(
-            user,
-            {
-                config: this.config,
-                clients: this.clients,
-                stores: this.stores,
-                services: this.services,
-            },
-            { isUser: true },
-        );
-        scrubSensitive(details);
-
         // Response body gets the GUI token (client never sees session token)
-        res.json({
-            proceed: true,
-            next_step: 'complete',
-            token: gui_token,
-            user: details,
-            ...(redirectUrl ? { redirectUrl } : {}),
+        const body = await completeWebLogin(req, res, user, {
+            config: this.config,
+            clients: this.clients,
+            stores: this.stores,
+            services: this.services,
         });
+        res.json({ ...body, ...(redirectUrl ? { redirectUrl } : {}) });
     }
 }
