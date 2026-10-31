@@ -63,8 +63,13 @@ the transcription models in force at commit and at completion. Session attempts
 are limited per credential before authentication runs.
 
 Credential checks run in batches of at most 16 with no overlapping sweeps.
-During drain, new sessions receive `server_restarting` and close with 1012.
-Open sessions can finish an in-flight response for up to five seconds at shutdown.
+When the drain starts, open sessions get a `puter.reconnect` event and new
+sessions receive `server_restarting` and close with 1012. Open sessions can
+finish an in-flight response for up to five seconds at shutdown, then close
+with 1012. A host extension can announce a restart early by emitting
+`serverRestartAnnounced` (optionally with `closeInMs`); that only sends the
+notice, so a false alarm leaves the server working normally. Each session gets
+the notice at most once a minute.
 
 ## Configuration
 
@@ -83,4 +88,5 @@ Responses and input transcriptions are billed after completion; holds bound
 what is in flight. Sessions require a paid plan (`subscription.gate.realtime.openai`
 can waive it) and accept session, app and full-access API tokens. Conversation
 state lives upstream and is lost when a connection ends; the SDK reconnects
-with the same settings but an empty conversation.
+with the same settings and replays its recent items, with assistant replies cut
+to what the user heard.

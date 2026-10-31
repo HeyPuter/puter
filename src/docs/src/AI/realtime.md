@@ -88,6 +88,23 @@ To interrupt, stop local playback immediately and send `response.cancel` with th
 
 Connection loss ends the session. Reconnecting creates a new conversation. Tool execution and automatic reconnection belong to your client.
 
+## Server restarts
+
+When Puter knows ahead of time that the server a session runs on will restart, it sends each open session this event, at most once a minute:
+
+```json
+{
+    "type": "puter.reconnect",
+    "event_id": "event_puter_1767225600000",
+    "reason": "server_restarting",
+    "close_in_ms": 90000
+}
+```
+
+The `reason` field is `server_restarting`. The `close_in_ms` field, when present, is about how long until the server closes the session itself. The session keeps working until then. Open a new connection after a short, randomized delay, and once it gets `session.created` and your client is idle, with no response generating and no user turn in progress, move to it and close the old one. A connection that reaches a server that is also restarting gets a `server_restarting` error and closes with 1012. In that case keep the old session and try again after a short, randomized delay. If the server closes the old session first, the close code is 1012, and your client reconnects the same way. A restart can also drop the connection without any notice, so treat an unexpected close the same way.
+
+A new connection starts an empty conversation. To keep context, add earlier items back with `conversation.item.create` before you request a response. Event types that start with `puter.` come from Puter, not the provider.
+
 ## Errors, billing, and limits
 
 API errors arrive as `{ "type": "error", "error": { "code": "...", "message": "..." } }`. Handle socket errors and close frames too. Authentication failures use `invalid_api_key`. Other relay codes include `model_not_found`, `insufficient_funds`, `subscription_required`, `rate_limit_exceeded`, `invalid_event`, `connection_timeout`, `provider_unavailable`, `upstream_error`, and `server_restarting`.

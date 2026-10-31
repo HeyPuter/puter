@@ -344,6 +344,15 @@ export class ConvoSpeaker {
     get active() {
         return this.#context !== null;
     }
+    /**
+     * Whether audio is scheduled or playing.
+     *
+     * @returns {boolean}
+     * @internal
+     */
+    get playing() {
+        return this.#sources.size > 0;
+    }
 
     /**
      * Starts playback without requesting microphone access.
@@ -454,6 +463,7 @@ export class ConvoSpeaker {
                     this.#last.playedMs,
                     (offset + duration) * 1000,
                 );
+            if (!this.#sources.size) this.#convo.playbackEnded();
         };
         this.#nextAt = source.end;
         node.start(start);
@@ -469,21 +479,8 @@ export class ConvoSpeaker {
      * @internal
      */
     playbackPosition(responseId) {
-        const context = this.#context;
-        const heard =
-            (context?.currentTime ?? 0) -
-            (context?.outputLatency || context?.baseLatency || 0);
-        for (const source of this.#sources) {
-            if (source.end > heard)
-                return {
-                    itemId: source.itemId,
-                    contentIndex: source.contentIndex,
-                    playedMs: Math.floor(
-                        (source.offset + Math.max(0, heard - source.start)) *
-                            1000,
-                    ),
-                };
-        }
+        const [current] = this.unheard();
+        if (current) return current;
         const last = this.#last;
         if (last && responseId && last.responseId === responseId)
             return {
@@ -495,10 +492,38 @@ export class ConvoSpeaker {
     }
 
     /**
+     * Each item with scheduled audio the listener hasn't fully heard, in play
+     * order, with how much of it was heard.
+     *
+     * @returns {ConvoPlaybackPosition[]}
+     * @internal
+     */
+    unheard() {
+        const context = this.#context;
+        const heard =
+            (context?.currentTime ?? 0) -
+            (context?.outputLatency || context?.baseLatency || 0);
+        /** @type {Map<string, ConvoPlaybackPosition>} */
+        const items = new Map();
+        for (const source of this.#sources) {
+            if (source.end <= heard || items.has(source.itemId)) continue;
+            items.set(source.itemId, {
+                itemId: source.itemId,
+                contentIndex: source.contentIndex,
+                playedMs: Math.floor(
+                    (source.offset + Math.max(0, heard - source.start)) * 1000,
+                ),
+            });
+        }
+        return [...items.values()];
+    }
+
+    /**
      * @returns {void}
      * @internal
      */
     clearPlayback() {
+        const playing = this.#sources.size > 0;
         for (const source of this.#sources) {
             source.node.onended = null;
             source.node.stop();
@@ -507,6 +532,7 @@ export class ConvoSpeaker {
         this.#sources.clear();
         this.#last = null;
         this.#nextAt = 0;
+        if (playing) this.#convo.playbackEnded();
     }
 
     /**

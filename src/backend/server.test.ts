@@ -1400,7 +1400,7 @@ describe('PuterServer keep-alive timeout', () => {
 });
 
 describe('PuterServer lifecycle hooks', () => {
-    it('runs prepare-shutdown bottom-up, once, before tearing down', async () => {
+    it('runs drain-start and prepare-shutdown bottom-up, once, before tearing down', async () => {
         const port = await allocateEphemeralPort();
         const server = await setupTestServer({ port } as unknown as IConfig, {
             listen: true,
@@ -1408,6 +1408,9 @@ describe('PuterServer lifecycle hooks', () => {
 
         const order: string[] = [];
         const probe = (label: string) => ({
+            onServerDrainStart: (info?: { drainMs?: number }) => {
+                order.push(`drain:${label}:${info?.drainMs}`);
+            },
             onServerPrepareShutdown: () => {
                 order.push(`prepare:${label}`);
             },
@@ -1425,10 +1428,15 @@ describe('PuterServer lifecycle hooks', () => {
             (layer as Record<string, unknown>).hookOrderProbe = probe(label);
         }
 
-        await server.prepareShutdown();
+        await server.prepareShutdown({ drainMs: 1_000 });
         await server.shutdown();
 
         expect(order).toEqual([
+            'drain:client:1000',
+            'drain:store:1000',
+            'drain:service:1000',
+            'drain:controller:1000',
+            'drain:driver:1000',
             'prepare:client',
             'prepare:store',
             'prepare:service',
