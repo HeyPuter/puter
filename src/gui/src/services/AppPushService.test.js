@@ -108,3 +108,32 @@ describe('the pushStatus IPC handler', () => {
         warn.mockRestore();
     });
 });
+
+describe('the disablePush IPC handler', () => {
+    const revokes = () => fetch.mock.calls.filter(([url]) => url.endsWith('/auth/revoke-user-app'));
+
+    it('revokes the calling app`s push permission, as Settings does', async () => {
+        const { disablePush } = await makeService();
+        await expect(disablePush({}, from('app-1'))).resolves.toEqual({ removed: true });
+        expect(revokes()).toHaveLength(1);
+        const [, init] = revokes()[0];
+        expect(init.method).toBe('POST');
+        expect(JSON.parse(init.body)).toEqual({ app_uid: 'app-1', permission: 'notifications:push' });
+    });
+
+    it('revokes nothing for an app without the permission', async () => {
+        held = false;
+        const { disablePush } = await makeService();
+        await expect(disablePush({}, from('app-1'))).resolves.toEqual({ removed: false });
+        expect(revokes()).toHaveLength(0);
+    });
+
+    it('rejects when the server refuses the revoke', async () => {
+        const { disablePush } = await makeService();
+        const check = fetch.getMockImplementation();
+        fetch.mockImplementation(async (url, init) => (url.endsWith('/auth/revoke-user-app')
+            ? { ok: false, status: 500, json: async () => ({ message: 'down', code: 'internal_error' }) }
+            : check(url, init)));
+        await expect(disablePush({}, from('app-1'))).rejects.toMatchObject({ code: 'internal_error' });
+    });
+});

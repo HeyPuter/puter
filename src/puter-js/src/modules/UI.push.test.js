@@ -22,7 +22,7 @@ const quietLogger = () => {
 };
 
 /** A UI module inside a desktop that advertises `features`. */
-const makeUI = (features = 'push-status') => {
+const makeUI = (features = 'push-status,disable-push') => {
     globalThis.location = { search: `?puter.gui_features=${features}` };
     return new UIModule(
         {
@@ -89,5 +89,38 @@ describe('ui.pushStatus_', () => {
         const ui = makeUI('enable-push');
         await expect(ui.pushStatus_()).resolves.toBeNull();
         expect(ipcCalls('pushStatus')).toHaveLength(0);
+    });
+});
+
+describe('ui.disablePush_', () => {
+    it('asks the desktop and resolves whether the app held the permission', async () => {
+        const ui = makeUI();
+        const result = ui.disablePush_();
+        await vi.waitFor(() => expect(ipcCalls('disablePush')).toHaveLength(1));
+        await reply('disablePush', { removed: true });
+        await expect(result).resolves.toBe(true);
+    });
+
+    it('rejects with the desktop`s error when the revoke failed', async () => {
+        const ui = makeUI();
+        const result = ui.disablePush_();
+        const rejection = expect(result).rejects.toMatchObject({
+            code: 'ipc_handler_failed',
+        });
+        await vi.waitFor(() => expect(ipcCalls('disablePush')).toHaveLength(1));
+        await reply('disablePush', {
+            $: 'puter-ipc-error',
+            error: {
+                code: 'ipc_handler_failed',
+                message: 'The request could not be completed.',
+            },
+        });
+        await rejection;
+    });
+
+    it('resolves false without asking a desktop that does not list it', async () => {
+        const ui = makeUI('enable-push,push-status');
+        await expect(ui.disablePush_()).resolves.toBe(false);
+        expect(ipcCalls('disablePush')).toHaveLength(0);
     });
 });

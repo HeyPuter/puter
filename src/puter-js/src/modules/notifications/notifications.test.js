@@ -1028,6 +1028,18 @@ describe('enablePush', () => {
     });
 });
 
+describe('disable inside the desktop', () => {
+    it('has the desktop revoke the app`s push permission', async () => {
+        const ui = { ...makeUI(), disablePush_: vi.fn(async () => true) };
+        expect(await makeModule({ ui }).disable()).toBe(true);
+        expect(ui.disablePush_).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolves false from a desktop that can`t', async () => {
+        expect(await makeModule({ ui: makeUI() }).disable()).toBe(false);
+    });
+});
+
 describe('status inside the desktop', () => {
     it('answers what the desktop says', async () => {
         const ui = { ...makeUI(), pushStatus_: vi.fn(async () => 'on') };

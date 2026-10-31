@@ -2421,6 +2421,18 @@ export class UIModule extends EventListener {
         return typeof result?.state === 'string' ? result.state : null;
     }
 
+    /** Backs `puter.notifications.disable()` inside the desktop: revokes this app's `notifications:push` grant. @internal @returns {Promise<boolean>} Whether the app held it; `false` from a desktop that can't */
+    async disablePush_ () {
+        if ( this.env !== 'app' || ! this.#guiOffers('disable-push') ) return false;
+        let result;
+        try {
+            result = await this.#ipc_stub({ method: 'disablePush', parameters: {} });
+        } catch ( e ) {
+            throw PuterJSError.from(e);
+        }
+        return result?.removed === true;
+    }
+
     /** Offers to turn push on in the user's browser, for `puter.notifications.enablePush()`: the desktop shows the offer in the `app` environment, a popup on the Puter origin does in `web` (call it from a click), and every other environment resolves `false`. @internal @returns {Promise<boolean>} `true` when this browser now receives pushes */
     async enablePush () {
         if ( this.env === 'app' ) {

@@ -137,7 +137,7 @@ See [`notify()`](/Notifications/notify/) for every field, and [Rate Limits and Q
 - **[`puter.notifications.onPush()`](/Notifications/onPush/)** - Handle your notifications for one key, in the page and as browser pushes
 - **[`puter.notifications.on('click')`](/Notifications/on/)** - React when the user clicks one of your notifications
 - **[`puter.notifications.enable()`](/Notifications/enable/)** - Turn on push notifications for your website in this browser
-- **[`puter.notifications.disable()`](/Notifications/disable/)** - Turn off push notifications for your website in this browser
+- **[`puter.notifications.disable()`](/Notifications/disable/)** - Turn off push notifications for your app
 - **[`puter.notifications.status()`](/Notifications/status/)** - Check whether push notifications are on in this browser, without asking
 - **[`puter.notifications.requestPermission()`](/Notifications/requestPermission/)** - Ask the user to allow pushes from your app
 - **[`puter.notifications.hasPermission()`](/Notifications/hasPermission/)** - Check whether your app may send pushes

@@ -598,7 +598,7 @@ const launch_app = async (options) => {
         // for: such a message is never replied to, and a reply timeout can't
         // stand in for the check because legitimate replies only arrive when
         // the user closes the dialog.
-        iframe_url.searchParams.append('puter.gui_features', 'feedback-dialog,enable-push,custom-domains,push-status');
+        iframe_url.searchParams.append('puter.gui_features', 'feedback-dialog,enable-push,custom-domains,push-status,disable-push');
 
         // Add options.args to URL
         iframe_url.searchParams.append('puter.args', JSON.stringify(withoutNotificationClick(options.args) ?? {}));

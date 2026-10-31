@@ -234,6 +234,8 @@ const on = await puter.notifications.enable();
 
 When your app doesn't hold the permission yet, Puter's permission dialog opens. When the user allows it, Puter also turns pushes on in the browser they answered in, and your notifications go out as pushes from then on. For a user who already allowed your app, in a browser where pushes aren't on yet, it shows a one-button dialog that turns them on. [`requestPermission()`](/Notifications/requestPermission/) asks for the permission alone, and [`enablePush()`](/Notifications/enablePush/) is the same call as [`enable()`](/Notifications/enable/) inside the desktop. [`hasPermission()`](/Notifications/hasPermission/) says whether the user allowed your app, without asking, so you can decide whether to show a button at all.
 
+To turn pushes off, call [`disable()`](/Notifications/disable/). Inside the desktop it removes your app's permission, so pushes stop on every device of the user, and a later [`enable()`](/Notifications/enable/) asks again.
+
 While the app is open, [`onPush()`](/Notifications/onPush/) and [`onNotification()`](/Notifications/onNotification/) receive its notifications live, the same as on a website. Inside the desktop, the result of an [`onPush()`](/Notifications/onPush/) handler is never shown as a browser notification. Puter shows the notification itself.
 
 ## Where pushes work

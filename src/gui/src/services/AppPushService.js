@@ -19,6 +19,7 @@
 
 import { Service } from '../definitions.js';
 import { appHoldsPermissions } from '../helpers/holdsPermissions.js';
+import { revokePushApp } from '../helpers/notificationApi.js';
 import { browserPushState, PUSH_PERMISSION, pushClientWithin } from '../helpers/pushClient.js';
 
 /** The calling app, from the GUI's own record of the window that owns its iframe. */
@@ -30,13 +31,16 @@ const app_uid_of = (ipc_context) => ipc_context?.caller?.app?.window?.attr?.('da
  */
 export class AppPushService extends Service {
     static description = `
-        Tells apps whether their pushes reach this browser.
+        Tells apps whether their pushes reach this browser, and turns them off.
     `;
 
     async _init ({ services }) {
         const svc_ipc = services.get('ipc');
         svc_ipc.register_ipc_handler('pushStatus', {
             handler: this.pushStatus.bind(this),
+        });
+        svc_ipc.register_ipc_handler('disablePush', {
+            handler: this.disablePush.bind(this),
         });
     }
 
@@ -51,5 +55,21 @@ export class AppPushService extends Service {
         if ( state !== 'on' ) return { state };
         const held = await appHoldsPermissions([PUSH_PERMISSION], app_uid_of(ipc_context));
         return { state: held ? 'on' : 'off' };
+    }
+
+    /**
+     * IPC: revokes the calling app's `notifications:push` grant, as Settings
+     * does, so its notifications stop going out as pushes and a later
+     * `enablePush` asks again.
+     *
+     * @returns {Promise<{ removed: boolean }>} Whether the app held it.
+     */
+    async disablePush (_params, { ipc_context } = {}) {
+        const app_uid = app_uid_of(ipc_context);
+        if ( ! await appHoldsPermissions([PUSH_PERMISSION], app_uid) ) {
+            return { removed: false };
+        }
+        await revokePushApp(app_uid);
+        return { removed: true };
     }
 }
