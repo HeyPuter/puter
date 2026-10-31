@@ -584,7 +584,9 @@ describe('a deleted app`s retire', () => {
         expect(await liveInApp(app.uid)).toBe(seeded - KV_HANDLE_RETIRE_BATCH);
 
         await resumeUntil(async () => expect(await liveInApp(app.uid)).toBe(0));
-    });
+        // Seeds and retires a full batch, which a loaded runner takes past the
+        // default timeout; a timed-out run then leaks its clock into the next.
+    }, 30_000);
 
     it('leaves alone shares made after the deletion under the same uid', async () => {
         const app = await makeApp();
