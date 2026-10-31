@@ -5192,6 +5192,10 @@ export class EventsService extends PuterService {
      * Queue a `single` and try to hand it straight over. The queue comes first:
      * an attempt that fails after it is recorded is a retry, where one that
      * fails before it is a lost event.
+     *
+     * Resolves once the event is queued. The hand-over runs detached: it can
+     * take a whole handler run, and the dispatch queueing the next row's event
+     * must not wait on it.
      */
     async #owe(
         row: DispatchSubscription,
@@ -5205,10 +5209,22 @@ export class EventsService extends PuterService {
                 handlerDepth,
             );
             this.#reportShed(shed);
-            await this.#drain(row, { justAuthorized: true });
         } catch (err) {
             this.#enqueueFailed(row, err);
+            return;
         }
+        void (async () => {
+            try {
+                await this.#drain(row, { justAuthorized: true });
+            } catch (err) {
+                // Queued, so the sweeper retries it.
+                console.warn(
+                    '[events] could not hand over a queued delivery',
+                    row.subId,
+                    err,
+                );
+            }
+        })();
     }
 
     /**

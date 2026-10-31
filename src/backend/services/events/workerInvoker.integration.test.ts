@@ -1238,8 +1238,7 @@ describe('handlers whose writes run handlers', () => {
         );
         const maxDepth = limitFor(EVENTS_HANDLER_DEPTH, plan.id);
         const entry = (await env.server.stores.fsEntry.getEntryByPath(path))!;
-        // Awaited end to end, queue and drain included, unlike a write's own
-        // fire-and-forget dispatch.
+        // Awaited until the event is queued; the drain runs on its own.
         const dispatchAt = (handlerDepth: number) =>
             events().dispatchFs('fs.write.file', entry, {
                 handlerDepth,
@@ -1253,8 +1252,10 @@ describe('handlers whose writes run handlers', () => {
         await dispatchAt(maxDepth);
         // Dropped, not held for a retry that could never run, and not counted
         // as the handler failing.
+        await waitUntil(async () =>
+            expect(await pending().depth(subId)).toBe(0),
+        );
         expect(callsFor(worker.appUid)).toHaveLength(1);
-        expect(await pending().depth(subId)).toBe(0);
         await expect(
             env.server.clients.redis.get(`ev:qf:{${subId}}`),
         ).resolves.toBeNull();

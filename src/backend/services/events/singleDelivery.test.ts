@@ -157,11 +157,23 @@ const register = async (
     return row;
 };
 
-const dispatch = (node = entry()): Promise<void> =>
-    service.dispatchFs('fs.write.file', node, {
+/**
+ * Let the hand-over a `single` starts off the dispatch path run to where it
+ * parks: a socket send, a handler run, or a lease.
+ */
+const handedOver = async (): Promise<void> => {
+    for (let i = 0; i < 20; i++)
+        await new Promise((resolve) => setImmediate(resolve));
+};
+
+const dispatch = async (node = entry()): Promise<boolean> => {
+    const matched = await service.dispatchFs('fs.write.file', node, {
         actingUserId: userId,
         ancestors: async () => ancestors(),
     });
+    await handedOver();
+    return matched;
+};
 
 /** Wait out the coalescing window a `broadcast` delivery sits in. */
 const flushed = (count = 1): Promise<void> =>
@@ -765,6 +777,42 @@ describe('a delivery owed to exactly one consumer', () => {
         expect(invoked).toHaveLength(1);
         await expect(pending.depth(row.subId)).resolves.toBe(0);
         await expect(keysOf(row.subId)).resolves.toEqual([]);
+    });
+
+    it('queues every row`s event without waiting on another row`s handler run', async () => {
+        socketConnected = false;
+        const first = await register({ subId: 'first' });
+        const second = await register({ subId: 'second' });
+        let finish!: () => void;
+        const running = new Promise<void>((resolve) => {
+            finish = resolve;
+        });
+        service.worker = {
+            invoke: async (invocation: WorkerInvocation) => {
+                invoked.push(invocation);
+                await running;
+                return { outcome: 'settled' };
+            },
+        };
+
+        await service.dispatchFs('fs.write.file', entry(), {
+            actingUserId: userId,
+            ancestors: async () => ancestors(),
+        });
+
+        await expect(pending.depth(first.subId)).resolves.toBe(1);
+        await expect(pending.depth(second.subId)).resolves.toBe(1);
+        // Both runs start rather than the second waiting on the first.
+        await handedOver();
+        expect(invoked.map((call) => call.subId).sort()).toEqual(
+            [first.subId, second.subId].sort(),
+        );
+
+        finish();
+        await vi.waitFor(async () => {
+            await expect(pending.depth(first.subId)).resolves.toBe(0);
+            await expect(pending.depth(second.subId)).resolves.toBe(0);
+        });
     });
 
     it('is never delivered as a broadcast copy as well', async () => {
