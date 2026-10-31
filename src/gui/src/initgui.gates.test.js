@@ -88,7 +88,7 @@ describe('the requests a sign-in popup makes after an account is picked', () => 
     it('records every early exchange, so none is repeated unmatched', () => {
         const boot = src.slice(src.indexOf('window.initgui = async'));
         const sdkLogin = boot.slice(
-            boot.indexOf('// show signup window'),
+            boot.indexOf('const popup_auth_options = {'),
             boot.indexOf('window.popup_signin_consent = !!picked_a_user_for_sdk_login;'),
         );
         expect(sdkLogin.split('await exchangeUserAppTokenEarly();').length - 1).toBe(3);

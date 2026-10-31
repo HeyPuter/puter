@@ -72,6 +72,11 @@ describe('auth.signIn on a first-party page', () => {
         expect(new URLSearchParams(new URL(signInFrame().src).hash.slice(1)).get('request_auth')).toBe('true');
     });
 
+    it('passes the email on to the frame, so it starts on email sign-in', () => {
+        auth.signIn({ email: ' me@example.com ' }).catch(() => {});
+        expect(new URLSearchParams(new URL(signInFrame().src).hash.slice(1)).get('email')).toBe('me@example.com');
+    });
+
     it('ignores a token for another sign-in or from another window', async () => {
         const result = auth.signIn();
         let settled = false;

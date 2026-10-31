@@ -1,178 +1,177 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
-import { makeActor } from '../../core/actor.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
-import {
-    MAGIC_LINK_ERRORS,
-    MagicLinkFailure,
-    type MagicLinkError,
-} from '../../services/auth/MagicLinkService.js';
-import type { UserRow } from '../../stores/user/UserStore.js';
+import { MAGIC_LINK_TTL_SECONDS } from '../../services/auth/MagicLinkService.js';
+import { cleanEmail } from '../../util/email.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { PuterController } from '../types.js';
-import { issueUserAppToken } from './userAppToken.js';
+import { completeWebLogin, signOtpLoginChallenge } from './webSession.js';
 
-const SIGNIN_SESSION_PARAM = 'puter.signin_session';
+/** Marks the browser that asked for a link; the link's own browser check. */
+export const MAGIC_LINK_BINDING_COOKIE = 'puter_magic_link';
+const BINDING_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 
-const appendQueryParam = (url: string, key: string, value: string): string => {
-    const sep = url.includes('?') ? '&' : '?';
-    return `${url}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+const REQUEST_WINDOW_MS = 15 * 60_000;
+
+const requestEmailKey = (req: Request): string => {
+    const email = req.body?.email;
+    return typeof email === 'string' ? cleanEmail(email.trim()) : '';
+};
+
+const bindingFrom = (req: Request): string | null => {
+    const value = req.cookies?.[MAGIC_LINK_BINDING_COOKIE];
+    return typeof value === 'string' && BINDING_SHAPE.test(value)
+        ? value
+        : null;
 };
 
 /**
- * Passwordless sign-in links for third-party sites. The popup on the GUI origin
- * requests a link and polls for the result; the emailed link lands on the
- * consume page, which signs the user in and redirects to the site.
+ * Sign-in links. Both routes are called by the GUI on its own origin: one mails
+ * the link, the other spends it from the page the link opens.
  */
 export class MagicLinkController extends PuterController {
     registerRoutes(router: PuterRouter): void {
         // -- POST /auth/magic-link/request ----------------------------
-        // Only the GUI's own windows ask for links, so this is gated to the
-        // GUI origin: an arbitrary site must not be able to mail anyone links.
-        // `opener_origin` names the third-party site a popup is signing in;
-        // without it the link signs the user in to Puter itself.
+        // Mails a link, so an off-origin page must not be able to call it.
         router.post(
             '/auth/magic-link/request',
             {
-                subdomain: 'api',
                 guiOriginOnly: true,
                 rateLimit: [
                     {
                         scope: 'magic-link-request',
                         limit: 10,
-                        window: 15 * 60_000,
+                        window: REQUEST_WINDOW_MS,
                         key: 'ip',
                     },
                     {
                         scope: 'magic-link-request-email',
-                        limit: 5,
-                        window: 15 * 60_000,
-                        key: (req) =>
-                            String(req.body?.email ?? '')
-                                .trim()
-                                .toLowerCase(),
+                        limit: 3,
+                        window: REQUEST_WINDOW_MS,
+                        key: requestEmailKey,
+                    },
+                    {
+                        scope: 'magic-link-request-email-day',
+                        limit: 10,
+                        window: 24 * 60 * 60_000,
+                        key: requestEmailKey,
                     },
                 ],
             },
             async (req: Request, res: Response) => {
-                const body = req.body ?? {};
-                await this.services.magicLink.request({
-                    email: body.email,
-                    returnUrl: body.return_url,
-                    openerOrigin: body.opener_origin,
+                const binding =
+                    bindingFrom(req) ??
+                    crypto.randomBytes(32).toString('base64url');
+                const { requestId } = await this.services.magicLink.request({
+                    email: req.body?.email,
+                    appOrigin: req.body?.app_origin,
+                    browserBinding: binding,
                 });
-                // Same answer whether or not the address has an account.
-                res.json({ success: true });
+                res.cookie(MAGIC_LINK_BINDING_COOKIE, binding, {
+                    ...sessionCookieFlags(this.config, { crossSite: false }),
+                    httpOnly: true,
+                    maxAge: MAGIC_LINK_TTL_SECONDS * 1000,
+                    path: '/',
+                });
+                res.json({ success: true, request_id: requestId });
             },
         );
 
-        // -- GET /auth/magic-link/consume -----------------------------
-        // The emailed link. Lives on the GUI origin so the session cookie it
-        // sets is the desktop's own, like the OIDC callback.
-        router.get(
+        // -- POST /auth/magic-link/consume ----------------------------
+        // Answers like `/login`: a session, or the 2FA challenge. A browser
+        // that didn't ask for the link gets `confirm` until it resends with
+        // `confirm: true`.
+        router.post(
             '/auth/magic-link/consume',
             {
-                subdomain: '',
+                guiOriginOnly: true,
                 rateLimit: {
                     scope: 'magic-link-consume',
                     limit: 30,
-                    window: 15 * 60_000,
+                    window: REQUEST_WINDOW_MS,
                     key: 'ip',
                 },
             },
             async (req: Request, res: Response) => {
-                let consumed;
-                try {
-                    consumed = await this.services.magicLink.consume(
-                        req.query?.token,
-                        req,
-                    );
-                } catch (e) {
-                    if (e instanceof MagicLinkFailure) {
-                        res.redirect(302, this.#errorRedirect(e.code));
-                        return;
-                    }
-                    throw e;
-                }
-                const { user, claims } = consumed;
-
-                const meta = {
-                    ip: req.ip || req.socket?.remoteAddress,
-                    user_agent: req.headers?.['user-agent'],
-                    origin: req.headers?.origin,
-                    host: req.headers?.host,
-                };
-                const { session: guiSession, token: sessionToken } =
-                    await this.services.auth.createSessionToken(
-                        user as UserRow,
-                        meta,
-                    );
-                res.cookie(
-                    this.config.cookie_name ?? 'puter_token',
-                    sessionToken,
+                const body = req.body ?? {};
+                const redemption = await this.services.magicLink.redeem(
+                    body.token,
                     {
-                        ...sessionCookieFlags(this.config),
-                        httpOnly: true,
+                        browserBinding: bindingFrom(req),
+                        confirmed: body.confirm === true,
                     },
                 );
-
-                if (!claims.opener_origin) {
-                    // Puter's own sign-in: the cookie above is the whole
-                    // result, and the desktop picks it up on landing.
-                    res.redirect(302, claims.return_url);
+                if (redemption.status === 'confirm') {
+                    res.json({
+                        proceed: false,
+                        next_step: 'confirm',
+                        email: redemption.email,
+                        app_origin: redemption.appOrigin,
+                    });
                     return;
                 }
 
-                const actor = makeActor({
-                    user,
-                    session: {
-                        uid: String(guiSession.uuid),
-                        kind: 'web',
-                    },
-                });
-                const issued = await issueUserAppToken(
+                const { claims } = redemption;
+                const fingerprint =
+                    typeof body.fingerprint === 'string'
+                        ? body.fingerprint
+                        : null;
+                const user = await this.services.magicLink.resolveUser(
+                    claims.email,
+                    req,
                     {
-                        clients: this.clients,
-                        stores: this.stores,
-                        services: this.services,
+                        data: {
+                            'cf-turnstile-response':
+                                body['cf-turnstile-response'] ?? null,
+                        },
+                        fingerprint,
                     },
-                    actor,
-                    { origin: claims.opener_origin },
                 );
+                const link = {
+                    request_id: claims.rid,
+                    app_origin: claims.app,
+                };
 
-                await this.services.magicLink.storeLandingPickup(
-                    claims.session,
-                    issued,
-                );
-                // Anyone already long-polling `/login/wait` hears it now.
-                this.clients.event.emit(
-                    `pubsub.login.${claims.session}`,
-                    { authtoken: issued.token },
-                    {},
-                );
+                if (user.otp_enabled) {
+                    res.status(202).json({
+                        proceed: true,
+                        next_step: 'otp',
+                        otp_jwt_token: signOtpLoginChallenge(
+                            this.services.token,
+                            user,
+                        ),
+                        ...link,
+                    });
+                    return;
+                }
 
-                res.redirect(
-                    302,
-                    appendQueryParam(
-                        claims.return_url,
-                        SIGNIN_SESSION_PARAM,
-                        claims.session,
-                    ),
-                );
+                const login = await completeWebLogin(req, res, user, {
+                    config: this.config,
+                    clients: this.clients,
+                    stores: this.stores,
+                    services: this.services,
+                });
+                res.json({ ...login, ...link });
             },
         );
-    }
-
-    /** Land a failed link on the desktop's login window with a clamped code. */
-    #errorRedirect(code: MagicLinkError): string {
-        const origin = (this.config.origin ?? '').replace(/\/$/, '');
-        const clamped = (MAGIC_LINK_ERRORS as readonly string[]).includes(code)
-            ? code
-            : 'unauthorized';
-        const params = new URLSearchParams({
-            action: 'login',
-            auth_error: '1',
-            message: clamped,
-        });
-        return `${origin}/?${params.toString()}`;
     }
 }

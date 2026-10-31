@@ -1,56 +1,64 @@
-import type { Request } from 'express';
-import { v4 as uuidv4 } from 'uuid';
-import validator from 'validator';
-import { HttpError } from '../../core/http/HttpError.js';
-import type { LayerInstances } from '../../types';
-import type { puterServices } from '../index';
-import type { UserRow } from '../../stores/user/UserStore';
-import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
-import { PuterService } from '../types';
-import { cleanEmail, isBlockedEmail } from '../../util/email.js';
-import { generate_identifier } from '../../util/identifier.js';
-import { generateDefaultFsentries } from '../../util/userProvisioning.js';
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 
-const TOKEN_SCOPE = 'magic-link';
-const TOKEN_PURPOSE = 'magic-link';
+import crypto from 'node:crypto';
+import type { Request } from 'express';
+import { HttpError } from '../../core/http/HttpError.js';
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
+import type { UserRow } from '../../stores/user/UserStore.js';
+import type { LayerInstances } from '../../types.js';
+import { isStorableEmail } from '../../util/email.js';
+import type { puterServices } from '../index.js';
+import { PuterService } from '../types.js';
+import { signupClientIp } from '../user/SignupService.js';
+
 /** How long an emailed link stays valid. */
 export const MAGIC_LINK_TTL_SECONDS = 15 * 60;
-/** How long a consumed link's app token waits for the landing page. */
-export const MAGIC_LINK_PICKUP_TTL_SECONDS = 2 * 60;
 
-/** Error codes the consume page may surface in a redirect. */
-export const MAGIC_LINK_ERRORS = [
-    'link_expired',
-    'account_suspended',
-    'signup_blocked',
-    'unauthorized',
-] as const;
-export type MagicLinkError = (typeof MAGIC_LINK_ERRORS)[number];
+const LINK_SCOPE = 'magic-link';
+// Every token scope shares one signing key; the purpose says which job.
+const LINK_PURPOSE = 'magic-link';
 
-interface LinkClaims {
+export interface MagicLinkClaims {
     purpose: string;
     jti: string;
     email: string;
-    /**
-     * Lookup key the app's landing page collects its token by; minted here so
-     * no client has to know it ahead of time.
-     */
-    session: string;
-    return_url: string;
-    /** The app the link signs the user in to; null when it is Puter itself. */
-    opener_origin: string | null;
+    /** The request this link answers, so the window that asked can tell. */
+    rid: string;
+    /** Sha256 of the requesting browser's binding cookie. */
+    bnd: string;
+    /** The site the sign-in was requested for; null for Puter itself. */
+    app: string | null;
 }
 
-interface PickupRecord {
-    token: string;
-    app_uid: string;
-}
+export type MagicLinkRedemption =
+    | { status: 'confirm'; email: string; appOrigin: string | null }
+    | { status: 'redeemed'; claims: MagicLinkClaims };
 
-export class MagicLinkFailure extends Error {
-    constructor(public readonly code: MagicLinkError) {
-        super(code);
-    }
-}
+const sha256 = (value: string): string =>
+    crypto.createHash('sha256').update(value).digest('hex');
+
+const sameDigest = (a: string, b: string): boolean => {
+    const ba = Buffer.from(a);
+    const bb = Buffer.from(b);
+    return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+};
 
 const parseOrigin = (value: unknown): string | null => {
     if (typeof value !== 'string' || !value) return null;
@@ -63,401 +71,205 @@ const parseOrigin = (value: unknown): string | null => {
     }
 };
 
+const linkExpired = () =>
+    new HttpError(400, 'This sign-in link has expired or was already used.', {
+        legacyCode: 'link_expired',
+    });
+
 /**
- * Passwordless sign-in. A window on the GUI origin asks for a link, the user
- * clicks it in their inbox, and the consume page signs them in. The window that
- * asked is abandoned: the sign-in continues on the tab the link opens. Asked
- * for by a third-party site's popup, the link also mints that opener's app
- * token, parks it under a short-lived key, and lands the user back on the site,
- * whose page collects the token by that key. Asked for by Puter's own login
- * window, it signs the user in to Puter and lands them on the desktop. The link
- * is a signed, single-use token.
+ * Passwordless sign-in by email. A link signs in only the browser that opens
+ * it, never the one that asked for it, and a browser other than the requester
+ * has to confirm the account first. Accounts with 2FA still need their second
+ * factor, and new accounts go through the same signup gate as OIDC.
  */
 export class MagicLinkService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
 
-    #requestKey(jti: string): string {
-        return `magiclink:req:${jti}`;
-    }
-
-    #landingKey(session: string): string {
-        return `magiclink:landing:${session}`;
-    }
-
-    // -- Request ------------------------------------------------------
-
     /**
-     * Validate a link request and email the link. Throws 400 on bad input;
-     * never reveals whether the address has an account. Without a mail
-     * transport the email client prints the message instead, so a dev box still
-     * gets a usable link in its console.
+     * Mail a sign-in link to `email`. Answers the same whether or not the
+     * address has an account; a suspended account, or a new address while
+     * signup is disabled, gets no mail.
      */
     async request(input: {
         email: unknown;
-        returnUrl: unknown;
-        openerOrigin: unknown;
-    }): Promise<void> {
+        appOrigin: unknown;
+        /** The requesting browser's binding cookie value. */
+        browserBinding: string;
+    }): Promise<{ requestId: string }> {
         const email = typeof input.email === 'string' ? input.email.trim() : '';
-        if (!email || !validator.isEmail(email)) {
+        if (!isStorableEmail(email)) {
             throw new HttpError(400, 'Invalid email.', {
                 legacyCode: 'bad_request',
             });
         }
-        const guiOrigin = (this.config.origin ?? '').replace(/\/$/, '');
-        const hasOpener =
-            input.openerOrigin !== undefined &&
-            input.openerOrigin !== null &&
-            input.openerOrigin !== '';
-        const openerOrigin = hasOpener ? parseOrigin(input.openerOrigin) : null;
-        if (hasOpener && !openerOrigin) {
-            throw new HttpError(
-                400,
-                'opener_origin must be an http(s) origin.',
-                {
-                    legacyCode: 'bad_request',
-                },
-            );
+        const hasApp =
+            input.appOrigin !== undefined &&
+            input.appOrigin !== null &&
+            input.appOrigin !== '';
+        const appOrigin = hasApp ? parseOrigin(input.appOrigin) : null;
+        if (hasApp && !appOrigin) {
+            throw new HttpError(400, 'app_origin must be an http(s) origin.', {
+                legacyCode: 'bad_request',
+            });
         }
-        let returnUrl =
-            typeof input.returnUrl === 'string' ? input.returnUrl : '';
-        if (openerOrigin) {
-            // The link lands the user on `return_url` with a sign-in session
-            // id, so it must belong to the site that asked — never a third
-            // origin.
-            if (!returnUrl || parseOrigin(returnUrl) !== openerOrigin) {
-                throw new HttpError(
-                    400,
-                    'return_url must be on the opener origin.',
-                    { legacyCode: 'invalid_return_url' },
-                );
-            }
-        } else {
-            // Puter's own sign-in lands on the desktop, or on another page of
-            // the GUI when one is named.
-            if (!returnUrl) returnUrl = `${guiOrigin}/`;
-            if (parseOrigin(returnUrl) !== guiOrigin) {
-                throw new HttpError(
-                    400,
-                    'return_url must be on the GUI origin.',
-                    { legacyCode: 'invalid_return_url' },
-                );
-            }
-        }
-        const jti = uuidv4();
-        const session = uuidv4();
-        const record = { session };
-        await this.clients.redis.set(
-            this.#requestKey(jti),
-            JSON.stringify(record),
-            'EX',
-            MAGIC_LINK_TTL_SECONDS,
-        );
 
-        const claims: LinkClaims = {
-            purpose: TOKEN_PURPOSE,
-            jti,
+        // Blocked and undeliverable addresses get no mail at all.
+        await this.services.signup.validateEmail(email);
+
+        const requestId = crypto.randomUUID();
+        const holder = await this.stores.user.findEmailOwner(email);
+        if (holder?.suspended) return { requestId };
+        if (!holder && this.config.disable_user_signup) return { requestId };
+
+        const claims: MagicLinkClaims = {
+            purpose: LINK_PURPOSE,
+            jti: crypto.randomUUID(),
             email,
-            session,
-            return_url: returnUrl,
-            opener_origin: openerOrigin,
+            rid: requestId,
+            bnd: sha256(input.browserBinding),
+            app: appOrigin,
         };
         const token = this.services.token.sign(
-            TOKEN_SCOPE,
+            LINK_SCOPE,
             { ...claims },
-            {
-                expiresIn: MAGIC_LINK_TTL_SECONDS,
-            },
+            { expiresIn: MAGIC_LINK_TTL_SECONDS },
         );
-        const link = `${guiOrigin}/auth/magic-link/consume?token=${encodeURIComponent(token)}`;
+        // In the fragment: never sent to the server, so it stays out of
+        // access logs and Referer headers, and a mail scanner that fetches
+        // the URL can't spend it.
+        const origin = (this.config.origin ?? '').replace(/\/$/, '');
+        const link = `${origin}/action/magic-link#${new URLSearchParams({ token })}`;
 
         const sent = await this.clients.email.send(
             email,
             'magic_link_sign_in',
             {
                 link,
-                app_host: openerOrigin ? new URL(openerOrigin).host : null,
+                app_host: appOrigin ? new URL(appOrigin).host : null,
             },
         );
         if (sent === null) {
-            // No transport: the email client already printed the message,
-            // but the bare link is what a developer wants to copy.
             console.warn(
                 `[magic-link] no email transport configured; sign-in link for ${email}: ${link}`,
             );
         }
+        return { requestId };
     }
 
-    // -- Consume ------------------------------------------------------
-
     /**
-     * Burn the link and resolve the account it signs in. Creates the account
-     * when the address is new; confirms it when it was still pending. Throws
-     * `MagicLinkFailure` with a code safe to put in a redirect.
+     * Spend a link. A browser without the requester's binding cookie gets
+     * `confirm` first, with the link left unspent, so a link someone else sent
+     * can't sign it in unasked.
      */
-    async consume(
+    async redeem(
         token: unknown,
+        opts: { browserBinding: string | null; confirmed: boolean },
+    ): Promise<MagicLinkRedemption> {
+        if (typeof token !== 'string' || !token) throw linkExpired();
+        let claims: MagicLinkClaims;
+        try {
+            claims = this.services.token.verify<MagicLinkClaims>(
+                LINK_SCOPE,
+                token,
+            );
+        } catch {
+            throw linkExpired();
+        }
+        if (
+            claims.purpose !== LINK_PURPOSE ||
+            typeof claims.jti !== 'string' ||
+            typeof claims.email !== 'string' ||
+            typeof claims.rid !== 'string' ||
+            typeof claims.bnd !== 'string'
+        ) {
+            throw linkExpired();
+        }
+
+        const sameBrowser =
+            typeof opts.browserBinding === 'string' &&
+            sameDigest(sha256(opts.browserBinding), claims.bnd);
+        if (!sameBrowser && !opts.confirmed) {
+            return {
+                status: 'confirm',
+                email: claims.email,
+                appOrigin: claims.app ?? null,
+            };
+        }
+
+        // Fails closed: a link that might have been used already is used.
+        const firstUse = await checkRateLimit(
+            `magic-link-used:${claims.jti}`,
+            1,
+            (MAGIC_LINK_TTL_SECONDS + 60) * 1000,
+            undefined,
+            { failOpen: false },
+        );
+        if (!firstUse) throw linkExpired();
+        return { status: 'redeemed', claims };
+    }
+
+    /**
+     * The account a redeemed link signs in, created when the address has none.
+     * `signup` is what the new-account gate reads from the request.
+     */
+    async resolveUser(
+        email: string,
         req: Request,
-    ): Promise<{
-        user: UserRow;
-        claims: LinkClaims;
-    }> {
-        if (typeof token !== 'string' || !token) {
-            throw new MagicLinkFailure('link_expired');
-        }
-        let claims: LinkClaims;
-        try {
-            claims = this.services.token.verify<LinkClaims>(TOKEN_SCOPE, token);
-        } catch {
-            throw new MagicLinkFailure('link_expired');
-        }
-        if (claims.purpose !== TOKEN_PURPOSE || !claims.jti) {
-            throw new MagicLinkFailure('link_expired');
-        }
-
-        const raw = await this.clients.redis.getdel(
-            this.#requestKey(claims.jti),
-        );
-        if (!raw) throw new MagicLinkFailure('link_expired');
-        const record = JSON.parse(raw) as { session: string };
-        if (record.session !== claims.session) {
-            throw new MagicLinkFailure('link_expired');
-        }
-
-        const user = await this.#resolveUser(claims.email, req);
-        return { user, claims };
-    }
-
-    async #resolveUser(email: string, req: Request): Promise<UserRow> {
-        const existing = await this.stores.user.findEmailOwner(email, {
+        signup: {
+            data: Record<string, unknown>;
+            fingerprint: string | null;
+        },
+        attempt = 0,
+    ): Promise<UserRow> {
+        const holder = await this.services.signup.signupEmailHolder(email, {
             force: true,
+            releaseSeat: true,
         });
-        if (existing) {
-            if (existing.suspended) {
-                throw new MagicLinkFailure('account_suspended');
+        if (holder) {
+            if (holder.suspended) {
+                throw new HttpError(401, 'This account is suspended.', {
+                    legacyCode: 'account_suspended',
+                });
             }
-            if (existing.email_confirmed) return existing;
-            return this.#confirmPending(existing, email);
-        }
-        return this.#createUser(email, req);
-    }
-
-    /** Clicking the link proved ownership, so a pending account is confirmed. */
-    async #confirmPending(user: UserRow, email: string): Promise<UserRow> {
-        await this.stores.user.unconfirmOthersByEmail(
-            user.id,
-            email,
-            cleanEmail(email),
-        );
-        try {
-            await this.stores.user.update(user.id, {
-                email_confirmed: 1,
-                requires_email_confirmation: 0,
-                email_confirm_code: null,
-                email_confirm_token: null,
-            });
-        } catch (e) {
-            if (!isOwnedEmailConflict(e)) throw e;
-            throw new MagicLinkFailure('unauthorized');
-        }
-        try {
-            this.clients.event?.emit(
-                'user.email-confirmed',
-                { user_id: user.id, user_uid: user.uuid, email },
-                {},
-            );
-        } catch {
-            // Best-effort hook.
-        }
-        const fresh = await this.stores.user.getById(user.id, { force: true });
-        return fresh ?? user;
-    }
-
-    async #createUser(email: string, req: Request): Promise<UserRow> {
-        if (this.config.disable_user_signup) {
-            throw new MagicLinkFailure('signup_blocked');
-        }
-        if (isBlockedEmail(email, this.config.blockedEmailDomains)) {
-            throw new MagicLinkFailure('unauthorized');
+            // Whoever set an unconfirmed account's password may not own the
+            // inbox, and signing the inbox's owner in would share it with them.
+            if (!holder.email_confirmed) {
+                throw new HttpError(
+                    400,
+                    'An account with this email exists but the email is not yet confirmed. Please sign in with your password to confirm it first.',
+                    { legacyCode: 'email_unconfirmed' },
+                );
+            }
+            return holder;
         }
 
-        let username: string;
-        let attempts = 0;
-        do {
-            username = generate_identifier();
-            if (++attempts > 20) throw new MagicLinkFailure('unauthorized');
-        } while (await this.stores.user.getByUsername(username));
-
-        const clientIp = req.ip || req.socket?.remoteAddress || null;
-        const userAgent = req.headers?.['user-agent'] ?? null;
-
-        const emailEvent = {
-            email: cleanEmail(email),
-            allow: true,
-            message: null as string | null,
-        };
-        try {
-            await this.clients.event?.emitAndWait(
-                'email.validate',
-                emailEvent,
-                {},
-            );
-        } catch (e) {
-            console.warn('[magic-link] email validate hook failed:', e);
-        }
-        if (!emailEvent.allow) throw new MagicLinkFailure('unauthorized');
-
-        const validateEvent = {
+        const outcome = await this.services.signup.signupVerifiedEmail({
             req,
-            source: 'magic-link' as never,
-            data: { username, email },
-            ip: clientIp,
-            user_agent: userAgent,
+            source: 'magic_link',
             email,
-            clean_email: cleanEmail(email),
-            is_temp: false,
-            allow: true,
-            no_temp_user: false,
-            requires_email_confirmation: false,
-            requires_phone_verification: false,
-            requires_card_verification: false,
-            reputation: null as number | null,
-            message: null as string | null,
-            code: null as string | null,
-            trail_id: undefined as string | undefined,
-        };
-        try {
-            await this.clients.event?.emitAndWait(
-                'puter.signup.validate',
-                validateEvent as never,
-                {},
+            data: signup.data,
+            fingerprint: signup.fingerprint,
+        });
+        if (outcome.raced && attempt === 0) {
+            return this.resolveUser(email, req, signup, attempt + 1);
+        }
+        if (!outcome.success || !outcome.user) {
+            throw new HttpError(
+                403,
+                (outcome.error ?? 'Signup blocked') +
+                    (outcome.requestCode
+                        ? ` Request Code: ${outcome.requestCode}`
+                        : ''),
+                { legacyCode: 'signup_blocked' },
             );
-        } catch (e) {
-            console.warn('[magic-link] validate hook failed:', e);
         }
-        if (!validateEvent.allow) throw new MagicLinkFailure('signup_blocked');
-
-        const cfg = this.config as {
-            always_require_phone_verification?: boolean;
-            always_require_card_verification?: boolean;
-        };
-        let created: UserRow;
-        try {
-            created = await this.stores.user.create({
-                username,
-                uuid: uuidv4(),
-                password: null,
-                email,
-                clean_email: cleanEmail(email),
-                free_storage: this.config.storage_capacity ?? null,
-                requires_email_confirmation: false,
-                email_confirmed: true,
-                requires_phone_verification:
-                    Boolean(validateEvent.requires_phone_verification) ||
-                    Boolean(cfg.always_require_phone_verification),
-                requires_card_verification:
-                    Boolean(validateEvent.requires_card_verification) ||
-                    Boolean(cfg.always_require_card_verification),
-                ...(validateEvent.reputation != null
-                    ? { reputation: validateEvent.reputation }
-                    : {}),
-                audit_metadata: {
-                    ip: clientIp,
-                    ip_fwd: req.headers?.['x-forwarded-for'],
-                    user_agent: userAgent,
-                    origin: req.headers?.origin,
-                },
-                signup_ip: clientIp,
-                signup_ip_forwarded: clientIp,
-                signup_user_agent: userAgent,
-                signup_origin: req.headers?.origin,
-                signup_server: this.config.serverId,
-            });
-        } catch (e) {
-            if (!isOwnedEmailConflict(e)) throw e;
-            // Someone else claimed the address between the lookup and the
-            // insert; a second click on the same link would resolve it.
-            throw new MagicLinkFailure('link_expired');
-        }
-
-        const defaultGroup = this.config.default_user_group;
-        if (defaultGroup) {
-            try {
-                await this.stores.group.addUsers(defaultGroup, [
-                    created.username,
-                ]);
-            } catch (e) {
-                console.warn('[magic-link] group assignment failed:', e);
-            }
-        }
-        try {
-            await generateDefaultFsentries(
-                this.clients.db,
-                this.stores.user,
-                created,
-            );
-        } catch (e) {
-            console.warn('[magic-link] generateDefaultFsentries failed:', e);
-        }
-
-        const user =
-            (await this.stores.user.getById(created.id, { force: true })) ??
-            created;
-        for (const [key, data] of [
-            [
-                'user.email-confirmed',
-                { user_id: user.id, user_uid: user.uuid, email: user.email },
-            ],
-            [
-                'puter.signup.success',
-                {
-                    user_id: user.id,
-                    user_uuid: user.uuid,
-                    email: user.email,
-                    username: user.username,
-                    ip: clientIp,
-                },
-            ],
-            ['user.save_account', { user_id: user.id }],
-        ] as const) {
-            try {
-                this.clients.event?.emit(key as never, data as never, {});
-            } catch {
-                // Best-effort hooks.
-            }
-        }
-        return user;
-    }
-
-    // -- Pickup -------------------------------------------------------
-
-    /**
-     * Park an app's token for the app's landing page, which is bound to the
-     * app's origin by `/login/wait` and takes its copy exactly once.
-     */
-    async storeLandingPickup(
-        session: string,
-        pickup: PickupRecord,
-    ): Promise<void> {
-        await this.clients.redis.set(
-            this.#landingKey(session),
-            JSON.stringify(pickup),
-            'EX',
-            MAGIC_LINK_PICKUP_TTL_SECONDS,
-        );
-    }
-
-    /**
-     * The landing copy, left in place. The caller decides whether it is for
-     * them before burning it with `burnLandingPickup`, so a stray poll from
-     * another origin cannot take it away from the page it was minted for.
-     */
-    async peekLandingPickup(session: string): Promise<string | null> {
-        const raw = await this.clients.redis.get(this.#landingKey(session));
-        if (!raw) return null;
-        return (JSON.parse(raw) as PickupRecord).token;
-    }
-
-    async burnLandingPickup(session: string): Promise<void> {
-        await this.clients.redis.del(this.#landingKey(session));
+        this.services.signup.announceSignup(outcome.user, {
+            ip: signupClientIp(req),
+            bonusCode: null,
+            fingerprint: signup.fingerprint,
+            emailConfirmed: true,
+            saveAccount: true,
+        });
+        return outcome.user;
     }
 }

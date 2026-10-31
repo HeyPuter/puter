@@ -34,7 +34,18 @@ import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequi
 import { openVerificationGateWindow } from './helpers/verification_gates.js';
 import UIAuthLogin from './UI/Auth/UIAuthLogin.js';
 import UIAuth2FA from './UI/Auth/UIAuth2FA.js';
-import { takeOidcLoginChallenge } from './helpers/authRedirect.js';
+import UIAuthMagicLink from './UI/Auth/UIAuthMagicLink.js';
+import UIAuthMagicLinkConsume from './UI/Auth/UIAuthMagicLinkConsume.js';
+import {
+    takeMagicLinkToken,
+    takeOidcLoginChallenge,
+} from './helpers/authRedirect.js';
+import {
+    MAGIC_LINK_CHANNEL,
+    announceMagicLinkSignIn,
+    appHostOf,
+    looksLikeEmail,
+} from './helpers/magicLinkSignIn.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
 import UIPermissionDialog from './UI/UIPermissionDialog.js';
@@ -1551,6 +1562,7 @@ window.showTurnstileChallenge = function (options) {
 
 window.initgui = async function (options) {
     const oidcChallenge = takeOidcLoginChallenge();
+    const magicLinkToken = takeMagicLinkToken();
     const url = new URL(window.location).href;
     window.url = url;
     const url_paths = parse_url_paths(window.location.pathname);
@@ -1681,6 +1693,33 @@ window.initgui = async function (options) {
     // Closing the window answers the frame, after any code it already sent.
     if (window.embedded_in_frame && action === 'request-email-confirmation') {
         closeAccountChecksOnEscape(window, (accountWindow) => $(accountWindow).close());
+    }
+
+    if (action === 'magic-link') {
+        const signed_in =
+            magicLinkToken && (await UIAuthMagicLinkConsume(magicLinkToken));
+        if (signed_in) {
+            await window.update_auth_data(signed_in.token, signed_in.user);
+            // The window that asked for the link finishes the sign-in when
+            // it is still open in this browser; a popup hands its opener the
+            // token from there.
+            const handed_off = await announceMagicLinkSignIn({
+                requestId: signed_in.request_id,
+                userUuid: signed_in.user?.uuid,
+                openChannel: () => new BroadcastChannel(MAGIC_LINK_CHANNEL),
+            });
+            if (handed_off) {
+                await UIAlert({ message: i18n('magic_link_signed_in_close_tab') });
+            } else if (signed_in.app_origin) {
+                await UIAlert({
+                    message: i18n('magic_link_signed_in_return_to_app', [
+                        appHostOf(signed_in.app_origin),
+                    ]),
+                });
+            }
+        }
+        window.location.replace('/');
+        return;
     }
 
     if (action === 'oidc-2fa') {
@@ -1951,16 +1990,24 @@ window.initgui = async function (options) {
             !window.is_auth() &&
             !(window.attempt_temp_user_creation && window.first_visit_ever)
         ) {
-            // show signup window
+            const popup_auth_options = {
+                reload_on_success: false,
+                send_confirmation_code: true,
+                page: true,
+            };
+            // A site that already knows the user's email starts on email
+            // sign-in; everyone else starts on signup.
+            const signin_email = window.url_query_params.get('email');
             if (
-                await UIAuthSignup({
-                    reload_on_success: false,
-                    send_confirmation_code: true,
-                    page: true,
-                })
+                looksLikeEmail(signin_email)
+                    ? await UIAuthMagicLink({
+                          ...popup_auth_options,
+                          email: signin_email.trim(),
+                      })
+                    : await UIAuthSignup(popup_auth_options)
             ) {
-                // Completing signup in a sign-in popup is the user asking to
-                // be signed in to the opener.
+                // Signing up or in from a sign-in popup is the user asking
+                // to be signed in to the opener.
                 window.popup_signin_consent = true;
                 await exchangeUserAppTokenEarly();
             }

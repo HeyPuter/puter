@@ -58,9 +58,11 @@ export const mayOfferProviders = () => ! (window.embedded_in_popup
  * @param {string} provider
  * @param {'login'|'signup'} kind
  * @param {string | undefined} referrer
+ * @param {string} [loginHint] The address the provider's account picker
+ *   starts on.
  * @returns {string}
  */
-export const providerStartUrl = (provider, kind, referrer) => {
+export const providerStartUrl = (provider, kind, referrer, loginHint) => {
     let url = `${window.gui_origin}/auth/oidc/${encodeURIComponent(provider)}/start?flow=${kind}`;
     // Return to the interface the flow started from (the backend whitelists the path).
     const return_to = get_oidc_return_to();
@@ -68,11 +70,47 @@ export const providerStartUrl = (provider, kind, referrer) => {
     if ( referrer ) url += `&referrer=${encodeURIComponent(referrer)}`;
     // A provider sign-in can create the account, so a signup link's code rides along.
     if ( window.signup_bonus_code ) url += `&bonusCode=${encodeURIComponent(window.signup_bonus_code)}`;
+    if ( loginHint ) url += `&login_hint=${encodeURIComponent(loginHint)}`;
     if ( window.embedded_in_popup && window.url_query_params?.get('msg_id') ) {
         url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(window.url_query_params.get('msg_id'))}`;
         if ( window.openerOrigin ) url += `&opener_origin=${encodeURIComponent(window.openerOrigin)}`;
     }
     return url;
+};
+
+/**
+ * Leaves for a provider's sign-in. A provider won't load in a frame, so the
+ * framing page opens it in a popup instead. `unavailable` covers an SDK that
+ * can't.
+ *
+ * @param {string} url From `providerStartUrl`.
+ */
+export const startProviderSignIn = (url) => {
+    if ( window.embedded_in_frame ) {
+        window.tell_popup_frame('provider', { url });
+        window.tell_popup_frame('unavailable');
+        return;
+    }
+    window.location.href = url;
+};
+
+/**
+ * A provider's button. A self-hosted instance's own provider gets a generic
+ * one.
+ *
+ * @param {string} provider
+ * @param {'login'|'signup'} kind
+ * @returns {string}
+ */
+export const providerButtonHtml = (provider, kind) => {
+    const known = KNOWN[provider];
+    const label = known
+        ? i18n(known[kind])
+        : i18n(kind === 'login' ? 'sign_in_with_provider' : 'sign_up_with_provider', [humanizeOidcProviderId(provider)]);
+    const icon = known ? known.icon : OIDC_GENERIC_PROVIDER_ICON;
+    return `<button type="button" class="dashboard-dialog-btn auth-provider-btn oidc-${known ? provider : 'custom'}-btn" data-provider="${html_encode(provider)}">`
+        + `<span class="auth-provider-icon" aria-hidden="true">${icon}</span><span>${label}</span>`
+        + '</button>';
 };
 
 /** @type {WeakMap<import('./authFlow.js').AuthFlow, Promise<{ providers?: string[], signupOidcOnly?: boolean } | null>>} */
@@ -83,8 +121,10 @@ const lookups = new WeakMap();
  * its screens draws them straight away instead of after another round trip.
  *
  * @param {import('./authFlow.js').AuthFlow} flow
+ * @returns {Promise<{ providers?: string[], signupOidcOnly?: boolean } | null>}
+ *   Null when the lookup failed.
  */
-const lookUpProviders = (flow) => {
+export const lookUpProviders = (flow) => {
     let lookup = lookups.get(flow);
     if ( ! lookup ) {
         lookup = (async () => {
@@ -121,28 +161,9 @@ export async function renderProviderButtons ($list, { kind, referrer, flow }) {
         ...KNOWN_ORDER.filter((provider) => data.providers.includes(provider)),
         ...data.providers.filter((provider) => ! KNOWN_OIDC_PROVIDERS.includes(provider)),
     ];
-    let h = '';
-    for ( const provider of ordered ) {
-        const known = KNOWN[provider];
-        const label = known
-            ? i18n(known[kind])
-            : i18n(kind === 'login' ? 'sign_in_with_provider' : 'sign_up_with_provider', [humanizeOidcProviderId(provider)]);
-        const icon = known ? known.icon : OIDC_GENERIC_PROVIDER_ICON;
-        h += `<button type="button" class="dashboard-dialog-btn auth-provider-btn oidc-${known ? provider : 'custom'}-btn" data-provider="${html_encode(provider)}">`;
-        h += `<span class="auth-provider-icon" aria-hidden="true">${icon}</span><span>${label}</span>`;
-        h += '</button>';
-    }
-    $list.html(h);
+    $list.html(ordered.map((provider) => providerButtonHtml(provider, kind)).join(''));
     $list.on('click', '.auth-provider-btn', function () {
-        const url = providerStartUrl($(this).attr('data-provider'), kind, referrer());
-        // A provider won't load in a frame, so the framing page opens this
-        // in a popup instead. `unavailable` covers an SDK that can't.
-        if ( window.embedded_in_frame ) {
-            window.tell_popup_frame('provider', { url });
-            window.tell_popup_frame('unavailable');
-            return;
-        }
-        window.location.href = url;
+        startProviderSignIn(providerStartUrl($(this).attr('data-provider'), kind, referrer()));
     });
     return { providers: ordered, signupOidcOnly: data.signupOidcOnly === true };
 }

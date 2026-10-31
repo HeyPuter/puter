@@ -70,8 +70,9 @@ describe('framedPopupAction', () => {
 
 describe('framedPopupParams', () => {
     it('keeps only the popup parameters a framing page may pass', () => {
-        const params = framedPopupParams('#msg_id=7&options=%7B%22multiple%22%3Atrue%7D&request_auth=true&subdomain=mysite&user=abc&auth_token=x&attempt_temp_user_creation=true&api_origin=https%3A%2F%2Fevil.test');
+        const params = framedPopupParams('#email=me%40example.com&msg_id=7&options=%7B%22multiple%22%3Atrue%7D&request_auth=true&subdomain=mysite&user=abc&auth_token=x&attempt_temp_user_creation=true&api_origin=https%3A%2F%2Fevil.test');
         expect(Object.fromEntries(params)).toEqual({
+            email: 'me@example.com',
             msg_id: '7',
             options: '{"multiple":true}',
             request_auth: 'true',

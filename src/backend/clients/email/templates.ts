@@ -339,16 +339,16 @@ support@puter.com immediately.
     },
     magic_link_sign_in: {
         subject:
-            '{{#if app_host}}Your sign-in link for {{app_host}}{{else}}Your Puter sign-in link{{/if}}',
+            '{{#if app_host}}Your Puter sign-in link for {{app_host}}{{else}}Your Puter sign-in link{{/if}}',
         html: `
 <p>Hi there,</p>
 {{#if app_host}}
-<p><strong>{{app_host}}</strong> is powered by Puter for its AI and cloud features. Use this link to sign in:</p>
+<p>Use this link to sign in to Puter on <strong>{{app_host}}</strong>:</p>
 {{else}}
 <p>Use this link to sign in to Puter:</p>
 {{/if}}
-<p><a href="{{{link}}}">{{{link}}}</a></p>
-<p>The link works once and expires in 15 minutes. If you didn't request it, you can ignore this email.</p>
+<p><a href="{{{link}}}">Sign in to Puter</a></p>
+<p>Open it in the browser where you asked for it. It works once and expires in 15 minutes. If you didn't ask for it, you can ignore this email.</p>
 <p>Sincerely,</p>
 <p>Puter</p>
         `,

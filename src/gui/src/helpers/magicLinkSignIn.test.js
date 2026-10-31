@@ -1,113 +1,152 @@
 import { describe, it, expect } from 'vitest';
 import {
+    announceMagicLinkSignIn,
     appHostOf,
-    buildRequestBody,
+    consumeErrorMessage,
     looksLikeEmail,
-    magicLinkOffered,
-    nextAuthWindow,
-    originOf,
-    returnUrlAllowed,
+    oidcProviderForEmail,
+    watchMagicLinkSignIn,
 } from './magicLinkSignIn.js';
 
-describe('originOf', () => {
-    it('returns the origin of an http(s) URL', () => {
-        expect(originOf('https://todo.example/list?x=1')).toBe('https://todo.example');
-        expect(originOf('http://localhost:8081/')).toBe('http://localhost:8081');
-    });
-
-    it('rejects other schemes and garbage', () => {
-        expect(originOf('javascript:alert(1)')).toBeNull();
-        expect(originOf('file:///tmp/x.html')).toBeNull();
-        expect(originOf('not a url')).toBeNull();
-        expect(originOf(null)).toBeNull();
-    });
-});
-
-describe('returnUrlAllowed', () => {
-    it('accepts a return URL on the opener origin', () => {
-        expect(returnUrlAllowed('https://todo.example/a?b=c', 'https://todo.example')).toBe(true);
-    });
-
-    it('rejects another origin, including lookalikes', () => {
-        expect(returnUrlAllowed('https://todo.example.evil/', 'https://todo.example')).toBe(false);
-        expect(returnUrlAllowed('https://todo.example:8443/', 'https://todo.example')).toBe(false);
-        expect(returnUrlAllowed('http://todo.example/', 'https://todo.example')).toBe(false);
-    });
-});
-
-describe('buildRequestBody for Puter itself', () => {
-    it('omits the opener and return URL so the backend lands on the desktop', () => {
-        expect(buildRequestBody({ email: 'someone@example.com' })).toEqual({
-            email: 'someone@example.com',
-        });
-    });
-});
-
-describe('magicLinkOffered', () => {
-    const params = new URLSearchParams({ return_url: 'https://todo.example/app' });
-
-    it('is offered when the popup carries a return URL on the opener', () => {
-        expect(magicLinkOffered({ embeddedInPopup: true, openerOrigin: 'https://todo.example', params })).toBe(true);
-    });
-
-    it('is not offered outside a popup, without a return URL, or with a foreign one', () => {
-        expect(magicLinkOffered({ embeddedInPopup: false, openerOrigin: 'https://todo.example', params })).toBe(false);
-        expect(magicLinkOffered({ embeddedInPopup: true, openerOrigin: 'https://todo.example', params: new URLSearchParams() })).toBe(false);
-        expect(magicLinkOffered({ embeddedInPopup: true, openerOrigin: 'https://other.example', params })).toBe(false);
-        expect(magicLinkOffered({ embeddedInPopup: true, openerOrigin: null, params })).toBe(false);
-    });
-});
-
-describe('nextAuthWindow', () => {
-    it('routes to the window a result asks for', () => {
-        expect(nextAuthWindow({ next: 'login' })).toBe('login');
-        expect(nextAuthWindow({ next: 'magic', email: 'a@b.co' })).toBe('magic');
-        expect(nextAuthWindow({ next: 'signup' })).toBe('signup');
-    });
-
-    it('stops on a dismissal, a sign-in, or an unknown target', () => {
-        expect(nextAuthWindow(false)).toBeNull();
-        expect(nextAuthWindow(true)).toBeNull();
-        expect(nextAuthWindow({ next: 'elsewhere' })).toBeNull();
-        expect(nextAuthWindow(undefined)).toBeNull();
-    });
-});
-
-describe('appHostOf', () => {
-    it('shows the host with its port', () => {
-        expect(appHostOf('http://localhost:8081')).toBe('localhost:8081');
-        expect(appHostOf('https://todo.example')).toBe('todo.example');
-    });
-});
-
 describe('looksLikeEmail', () => {
-    it('accepts a plain address and rejects obvious non-addresses', () => {
-        expect(looksLikeEmail('a@b.co')).toBe(true);
-        expect(looksLikeEmail(' a@b.co ')).toBe(true);
-        expect(looksLikeEmail('a@b')).toBe(false);
-        expect(looksLikeEmail('nope')).toBe(false);
+    it('accepts ordinary addresses, trimmed', () => {
+        expect(looksLikeEmail('someone@example.com')).toBe(true);
+        expect(looksLikeEmail('  someone@example.com ')).toBe(true);
+    });
+
+    it('rejects usernames, blanks and non-strings', () => {
+        expect(looksLikeEmail('someone')).toBe(false);
+        expect(looksLikeEmail('someone@localhost')).toBe(false);
+        expect(looksLikeEmail('')).toBe(false);
         expect(looksLikeEmail(undefined)).toBe(false);
     });
 });
 
-describe('buildRequestBody', () => {
-    const base = {
-        email: ' someone@example.com ',
-        returnUrl: 'https://todo.example/list',
-        openerOrigin: 'https://todo.example',
-    };
+describe('oidcProviderForEmail', () => {
+    const all = ['google', 'microsoft', 'apple'];
 
-    it('produces the wire shape with a trimmed email', () => {
-        expect(buildRequestBody(base)).toEqual({
-            email: 'someone@example.com',
-            return_url: base.returnUrl,
-            opener_origin: 'https://todo.example',
-        });
+    it('routes consumer Google and Microsoft addresses to their provider', () => {
+        expect(oidcProviderForEmail('a@gmail.com', all)).toBe('google');
+        expect(oidcProviderForEmail('A@GoogleMail.com', all)).toBe('google');
+        expect(oidcProviderForEmail('a@outlook.com', all)).toBe('microsoft');
+        expect(oidcProviderForEmail('a@hotmail.com', all)).toBe('microsoft');
     });
 
-    it('returns null when any input cannot make a valid request', () => {
-        expect(buildRequestBody({ ...base, email: 'nope' })).toBeNull();
-        expect(buildRequestBody({ ...base, returnUrl: 'https://evil.example/' })).toBeNull();
-        expect(buildRequestBody({ ...base, openerOrigin: 'ftp://x' })).toBeNull();
+    it('sends every other address to a link', () => {
+        expect(oidcProviderForEmail('a@example.com', all)).toBeNull();
+        // Apple can hand back a relay address instead of this one.
+        expect(oidcProviderForEmail('a@icloud.com', all)).toBeNull();
+        // A lookalike subdomain is not the provider's domain.
+        expect(oidcProviderForEmail('a@gmail.com.evil.test', all)).toBeNull();
+    });
+
+    it('only routes to a provider this deployment enabled', () => {
+        expect(oidcProviderForEmail('a@gmail.com', ['microsoft'])).toBeNull();
+        expect(oidcProviderForEmail('a@gmail.com', [])).toBeNull();
+        expect(oidcProviderForEmail('a@gmail.com', undefined)).toBeNull();
+    });
+
+    it('routes nothing for a malformed address', () => {
+        expect(oidcProviderForEmail('gmail.com', all)).toBeNull();
+    });
+});
+
+describe('appHostOf', () => {
+    it('returns the host, port included', () => {
+        expect(appHostOf('https://todo.example')).toBe('todo.example');
+        expect(appHostOf('http://localhost:8081')).toBe('localhost:8081');
+    });
+
+    it('returns an empty string for anything unparseable', () => {
+        expect(appHostOf('not a url')).toBe('');
+        expect(appHostOf(null)).toBe('');
+    });
+});
+
+describe('consumeErrorMessage', () => {
+    it('maps known codes to their translation key', () => {
+        expect(consumeErrorMessage(400, { code: 'link_expired' })).toEqual({ key: 'magic_link_expired_message' });
+        expect(consumeErrorMessage(401, { code: 'account_suspended' })).toEqual({ key: 'account_suspended_message' });
+        expect(consumeErrorMessage(429, null)).toEqual({ key: 'magic_link_too_many_requests' });
+    });
+
+    it('shows the server text for blocked signups and unconfirmed accounts', () => {
+        expect(consumeErrorMessage(403, {
+            code: 'signup_blocked',
+            message: 'Signup blocked Request Code: abc',
+        })).toEqual({ text: 'Signup blocked Request Code: abc' });
+        expect(consumeErrorMessage(400, {
+            code: 'email_unconfirmed',
+            message: 'Sign in with your password to confirm it first.',
+        })).toEqual({ text: 'Sign in with your password to confirm it first.' });
+    });
+
+    it('falls back to the generic message', () => {
+        expect(consumeErrorMessage(403, { code: 'signup_blocked' })).toEqual({ key: 'auth_error_generic' });
+        expect(consumeErrorMessage(500, { code: 'internal_error', message: 'boom' })).toEqual({ key: 'auth_error_generic' });
+        expect(consumeErrorMessage(400, null)).toEqual({ key: 'auth_error_generic' });
+    });
+});
+
+// Two ends of one BroadcastChannel name: a message posted on one end reaches
+// the others, never itself.
+const fakeChannelPair = () => {
+    const ends = [];
+    const open = () => {
+        const end = {
+            onmessage: null,
+            closed: false,
+            postMessage (data) {
+                for ( const other of ends ) {
+                    if ( other !== end && !other.closed ) other.onmessage?.({ data });
+                }
+            },
+            close () {
+                end.closed = true;
+            },
+        };
+        ends.push(end);
+        return end;
+    };
+    return { open, ends };
+};
+
+describe('magic link hand-off between tabs', () => {
+    it('signs the waiting window in and tells the link tab it answered', async () => {
+        const { open } = fakeChannelPair();
+        const signedIn = [];
+        watchMagicLinkSignIn({ requestId: 'r1', openChannel: open, onSignedIn: (uuid) => signedIn.push(uuid) });
+        const acked = await announceMagicLinkSignIn({ requestId: 'r1', userUuid: 'u1', openChannel: open, timeoutMs: 50 });
+        expect(acked).toBe(true);
+        expect(signedIn).toEqual(['u1']);
+    });
+
+    it('ignores a link another window asked for', async () => {
+        const { open } = fakeChannelPair();
+        const signedIn = [];
+        watchMagicLinkSignIn({ requestId: 'r1', openChannel: open, onSignedIn: (uuid) => signedIn.push(uuid) });
+        const acked = await announceMagicLinkSignIn({ requestId: 'r2', userUuid: 'u1', openChannel: open, timeoutMs: 20 });
+        expect(acked).toBe(false);
+        expect(signedIn).toEqual([]);
+    });
+
+    it('reports no answer when no window is waiting or channels are unavailable', async () => {
+        const { open, ends } = fakeChannelPair();
+        expect(await announceMagicLinkSignIn({ requestId: 'r1', userUuid: 'u1', openChannel: open, timeoutMs: 10 })).toBe(false);
+        expect(ends[0].closed).toBe(true);
+        const unavailable = () => {
+            throw new ReferenceError('BroadcastChannel is not defined');
+        };
+        expect(await announceMagicLinkSignIn({ requestId: 'r1', userUuid: 'u1', openChannel: unavailable })).toBe(false);
+        expect(typeof watchMagicLinkSignIn({ requestId: 'r1', openChannel: unavailable, onSignedIn: () => {} })).toBe('function');
+    });
+
+    it('stops listening once the waiting window gives up', async () => {
+        const { open } = fakeChannelPair();
+        const signedIn = [];
+        const stop = watchMagicLinkSignIn({ requestId: 'r1', openChannel: open, onSignedIn: (uuid) => signedIn.push(uuid) });
+        stop();
+        expect(await announceMagicLinkSignIn({ requestId: 'r1', userUuid: 'u1', openChannel: open, timeoutMs: 10 })).toBe(false);
+        expect(signedIn).toEqual([]);
     });
 });

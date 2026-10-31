@@ -11488,10 +11488,16 @@ body.dashboard-mode .notifications-close-all {
     background: var(--dashboard-border);
 }
 
-.auth-provider-list {
+.auth-provider-list,
+.auth-sign-in-methods {
     display: flex;
     flex-direction: column;
     gap: 8px;
+}
+
+/* The login's providers and its email sign-in, as one list. */
+.auth-sign-in-methods .auth-provider-list:empty {
+    display: none;
 }
 
 .dashboard-dialog-btn.auth-provider-btn {
