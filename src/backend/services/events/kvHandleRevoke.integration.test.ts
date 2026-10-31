@@ -278,6 +278,32 @@ describe('revoking a handle', () => {
             expect(await ownerWatches()).toBe(false);
         });
 
+        it('still suspends durable subscriptions when ending them fails', async () => {
+            await clearRows();
+            const { handle } = await mint();
+            const durable = await subscribeDurable(handle);
+            await events().subscribe(guest.actor, SOCKET_ID, {
+                subject: `kv:${handle}:*`,
+            });
+            // Retired with the grant left alone, so only the retire settle
+            // can suspend the row.
+            await env.server.stores.kvShareHandle.retireMany([handle], 'owner');
+
+            const store = env.server.stores.eventSubscription;
+            const listing = vi
+                .spyOn(store, 'listForKvHandles')
+                .mockRejectedValue(new Error('redis unavailable'));
+            try {
+                await events().settleRetiredKvHandles({
+                    handles: [handle],
+                    userId: guest.id,
+                });
+                await suspendedRow(durable.subId);
+            } finally {
+                listing.mockRestore();
+            }
+        });
+
         it('ends them when the holder gives it up', async () => {
             await clearRows();
             const { handle } = await mint();

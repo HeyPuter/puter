@@ -90,19 +90,13 @@ export interface TieredQuota {
  * away without saying so, so the cap is really on how much a disconnect can
  * leave behind. A client watching more than a few dozen distinct anchors wants
  * one subscription on their common parent instead.
+ *
+ * With the connections an account may hold open (`MAX_SOCKETS_PER_USER`), this
+ * is also what bounds the rows a share holder can put in the owner's keyspace.
+ * A count across connections would also count ones that dropped and haven't
+ * been reaped yet, and refuse the resubscribes that replace them.
  */
 export const EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET = 50;
-
-/**
- * Live subscriptions one user may hold through a share handle someone else
- * minted for them, across all of their connections.
- *
- * Those rows sit in the owner's keyspace, where each one costs a filter
- * evaluation on the owner's writes, so opening more connections must not let
- * the holder add them without bound. The owner's own rows through the handle
- * don't count.
- */
-export const EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE = 100;
 
 /**
  * Durable subscriptions one account may hold, across every app.
