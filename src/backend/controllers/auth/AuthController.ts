@@ -3810,8 +3810,9 @@ export class AuthController extends PuterController {
 
         let app = await this.stores.app.getByUid(app_uid);
         if (!app && resolvedFromOrigin) {
-            // Hosted-subdomain origins get the site owner stamped as the
-            // app's creator at bootstrap; external origins stay unowned.
+            // Hosted-subdomain and custom-domain origins get the site owner
+            // stamped as the app's creator at bootstrap; external origins
+            // stay unowned.
             // Canonical origin only, so alternate hosts share one row.
             const canonicalOrigin =
                 this.services.auth.canonicalizeOrigin(origin);

@@ -17,6 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { isIP } from 'node:net';
+import type { EventClient } from '../clients/event/EventClient';
+import type { EventMetadata } from '../clients/event/types';
+import { HttpError } from '../core/http/HttpError';
 import type { SubdomainStore } from '../stores/subdomain/SubdomainStore';
 import type { PrivateLaunchDecision } from './privateLaunchAccess';
 
@@ -190,6 +194,42 @@ export function extractPuterHostedSubdomain(
     }
 
     return null;
+}
+
+/**
+ * The site name a host outside our hosting domains serves, as
+ * `site.resolveHost` listeners report it. Null without a listener, when custom
+ * domains are off, or when nothing claims the host. Throws when a listener
+ * failed, so an outage doesn't read as an unclaimed (external) host.
+ */
+export async function resolveCustomHostSubdomain(
+    host: unknown,
+    config: { custom_domains_enabled?: unknown } | undefined | null,
+    events:
+        | Pick<EventClient, 'emitAndWait' | 'hasListeners'>
+        | undefined
+        | null,
+): Promise<string | null> {
+    if (!config?.custom_domains_enabled || !events) return null;
+    if (!events.hasListeners('site.resolveHost')) return null;
+    if (typeof host !== 'string') return null;
+    const normalized = host.trim().toLowerCase().replace(/\.+$/, '');
+    // A custom domain is a registrable name: never an IP or a single label.
+    if (!normalized.includes('.') || isIP(normalized) !== 0) return null;
+
+    const event = {
+        host: normalized,
+        result: { subdomain: null as string | null },
+    };
+    const meta: EventMetadata = {};
+    await events.emitAndWait('site.resolveHost', event, meta);
+    if (meta.listener_failed) {
+        throw new HttpError(503, 'Could not resolve the site for this host', {
+            code: 'site_host_unresolved',
+        });
+    }
+    const subdomain = event.result.subdomain;
+    return typeof subdomain === 'string' && subdomain ? subdomain : null;
 }
 
 /**
