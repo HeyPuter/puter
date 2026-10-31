@@ -1655,7 +1655,8 @@ export class MeteringService extends PuterService {
 
     /**
      * `exact` reads purchased credit consistently, for a spend decision that
-     * has to see the consumption a write just recorded.
+     * has to see the consumption a write just recorded. A cached record with no
+     * credit left still answers: it can only understate the balance.
      */
     async getAllowedUsage(
         actor: Actor,
@@ -1667,9 +1668,7 @@ export class MeteringService extends PuterService {
     }> {
         const [userSubscription, addons, totals] = await Promise.all([
             this.getActorSubscription(actor),
-            exact
-                ? this.getActorAddons(actor, { consistentRead: true })
-                : this.#addonsForSettle(actor),
+            this.#addonsForSettle(actor, { consistentRead: exact }),
             this.currentMonthTotals(actor),
         ]);
 
@@ -2336,13 +2335,16 @@ export class MeteringService extends PuterService {
     }
 
     /** `getActorAddons`, through `#spentAddons`. Shared by gates and settles. */
-    async #addonsForSettle(actor: Actor): Promise<UsageAddons> {
+    async #addonsForSettle(
+        actor: Actor,
+        { consistentRead }: { consistentRead?: boolean } = {},
+    ): Promise<UsageAddons> {
         const uuid = actor.user?.uuid;
         const cached = uuid ? this.#spentAddons.get(uuid) : undefined;
         if (cached && cached.expiresAt > Date.now()) return cached.addons;
 
         const drops = this.#spentAddonsDrops;
-        const addons = await this.getActorAddons(actor);
+        const addons = await this.getActorAddons(actor, { consistentRead });
         if (!uuid) return addons;
         this.#spentAddons.delete(uuid);
         const creditLeft =
