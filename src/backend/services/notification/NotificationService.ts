@@ -278,6 +278,19 @@ export class NotificationService extends PuterService {
     }
 
     /**
+     * Delete one of the user's notifications and tell their other tabs, so it
+     * leaves every open list at once.
+     *
+     * @returns Whether a row was deleted; false for a uid naming none of the
+     *   user's rows, which also sends nothing.
+     */
+    async remove(uid: string, userId: number): Promise<boolean> {
+        const removed = await this.stores.notification.deleteByUid(uid, userId);
+        if (removed) this.#socket().removed(userId, uid);
+        return removed;
+    }
+
+    /**
      * Deliver one dispatched notification over the desktop's wire. The events
      * layer decides who is owed a delivery; this turns that decision into the
      * message the GUI has always listened for.

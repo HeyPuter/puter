@@ -19,7 +19,7 @@
 
 import UINotification from '../UINotification.js';
 import { reveal_dashboard } from '../UIWindow.js';
-import { getNotification, listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
+import { deleteNotification, getNotification, listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
 import { applyToastMark, createNotificationFeed, createReplayLog, missedAfterReconnect } from '../../helpers/notificationFeed.js';
 import { formatAbsoluteTime, formatRelativeTime } from '../../i18n/formatTime.js';
 import {
@@ -45,6 +45,7 @@ import {
     reconcileWithServer,
     senderNameFor,
     setReadAt,
+    takeMarksSince,
     titleWithBadge,
     toEntry,
     unreadCount,
@@ -174,7 +175,7 @@ const runLimited = async (items, limit, task) => {
  * Reading one (its check, or acting on it) acknowledges it on the server,
  * which also marks it read in every other open tab; it stays listed, just
  * quieter. A toast timing out does not, so nothing is lost while someone is
- * looking away.
+ * looking away. Removing one (its ✕) deletes it, from every open tab too.
  *
  * @param {{ $el_window: JQuery, socket: import('socket.io-client').Socket }} opts
  * @returns {{ open: () => void, close: (opts?: { restoreFocus?: boolean }) => void, refresh: () => Promise<void>, isOpen: () => boolean }}
@@ -204,6 +205,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
      * ack finished, `Infinity` while it is still out.
      */
     const acked = new Map();
+    /** Deletions a listing in flight can't know about; same shape as `acked`. */
+    const removed = new Map();
     let listingRequestedAt = 0;
     /** Uids of the first listing, which a reconnect's catch-up never raises. */
     let knownAtLoad = null;
@@ -313,17 +316,24 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
                         ${time}
                     </span>
                 </${actionable ? 'button' : 'div'}>
-                ${unread ? `<button type="button" class="dashboard-notification-read"
-                    aria-label="${i18n('notification_mark_read_named', { title })}" title="${i18n('notification_mark_read')}">${checkIcon}</button>` : ''}
+                <span class="dashboard-notification-actions">
+                    ${unread ? `<button type="button" class="dashboard-notification-read"
+                        aria-label="${i18n('notification_mark_read_named', { title })}" title="${i18n('notification_mark_read')}">${checkIcon}</button>` : ''}
+                    <button type="button" class="dashboard-notification-remove"
+                        aria-label="${i18n('notification_remove_named', { title })}" title="${i18n('notification_remove')}">${closeIcon}</button>
+                </span>
             </li>`;
     };
 
+    /** A row's secondary controls, by the class each one carries. */
+    const ROW_CONTROLS = ['dashboard-notification-read', 'dashboard-notification-remove'];
+
     /**
      * Where the keyboard is in the list, so a re-render — which rebuilds
-     * every row — can put it back: on the same entry, or if that one is
-     * gone, on the entry that took its place. A check that was just pressed
-     * is gone with the unread state; the row's own control, or the panel,
-     * takes the focus instead.
+     * every row — can put it back: on the same control of the same entry, or
+     * if that entry is gone, of the one that took its place. A check that was
+     * just pressed is gone with the unread state; the row's own control, or
+     * the panel, takes the focus instead.
      */
     const focusedRow = () => {
         const active = document.activeElement;
@@ -332,12 +342,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         return {
             uid: row.getAttribute('data-uid'),
             index: $list.children().index(row),
-            read: active.classList.contains('dashboard-notification-read'),
+            control: ROW_CONTROLS.find((name) => active.classList.contains(name)) ?? null,
         };
     };
 
-    const rowControl = (row, read) => (
-        (read ? row.querySelector('.dashboard-notification-read') : null)
+    const rowControl = (row, control) => (
+        (control ? row.querySelector(`.${control}`) : null)
         ?? row.querySelector('button')
     );
 
@@ -346,7 +356,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const rows = $list.children().get();
         const same = rows.find((row) => row.getAttribute('data-uid') === was.uid);
         const row = same ?? rows[Math.min(was.index, rows.length - 1)];
-        const target = (row && rowControl(row, was.read)) ?? $panel[0];
+        const target = (row && rowControl(row, was.control)) ?? $panel[0];
         target.focus({ preventScroll: true });
     };
 
@@ -411,14 +421,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
                     missed = missedAfterReconnect(rows, { known: knownAtLoad, log: replayLog });
                 }
                 const now = Date.now();
-                const server = listedEntries(rows, now, HISTORY_LIMIT);
-                // Acked since this listing was requested: unread in its snapshot.
-                // Anything acked before it is settled and can be forgotten.
-                const readSince = new Set();
-                for ( const [uid, at] of acked ) {
-                    if ( at >= listingRequestedAt ) readSince.add(uid);
-                    else acked.delete(uid);
-                }
+                // Acked or removed since this listing was requested: its
+                // snapshot still has them unread, or at all.
+                const readSince = takeMarksSince(acked, listingRequestedAt);
+                const removedSince = takeMarksSince(removed, listingRequestedAt);
+                const server = listedEntries(rows, now, HISTORY_LIMIT)
+                    .filter((entry) => ! removedSince.has(entry.uid));
                 entries = reconcileWithServer(entries, server, now, undefined, readSince);
                 loaded = true;
                 if ( missed.length ) receive(missed, { replay: true });
@@ -473,6 +481,31 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         if ( failed.length > 0 ) {
             setStatus(i18n('notifications_mark_all_failed', [], false));
             await refresh();
+        }
+    };
+
+    /** Take an entry, and any toast for it, off screen. */
+    const dropEntry = (uid) => {
+        $(`.notification[data-uid="${html_encode(uid)}"]`).closest('.notification-wrapper').remove();
+        entries = entries.filter((e) => e.uid !== uid);
+    };
+
+    /** Take an entry off the list now and delete it on the server; put it back if that fails. */
+    const remove = async (uid) => {
+        const entry = entries.find((e) => e.uid === uid);
+        if ( ! entry ) return;
+        removed.set(uid, Infinity);
+        dropEntry(uid);
+        render();
+        try {
+            await deleteNotification(uid);
+            removed.set(uid, Date.now());
+        } catch (err) {
+            console.warn('Could not remove notification:', err);
+            removed.delete(uid);
+            entries = mergeEntries(entries, [entry]).entries;
+            render();
+            setStatus(i18n('notifications_remove_failed', [], false));
         }
     };
 
@@ -589,7 +622,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
      */
     const receive = (rawItems, { replay = false } = {}) => {
         const now = Date.now();
-        const incoming = rawItems.map((raw) => toEntry(raw, now)).filter(Boolean);
+        const incoming = rawItems.map((raw) => toEntry(raw, now))
+            .filter((entry) => entry && ! removed.has(entry.uid));
         const result = mergeEntries(entries, incoming);
         entries = result.entries;
 
@@ -741,6 +775,10 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         e.stopPropagation();
         void markRead($(this).closest('.dashboard-notification').attr('data-uid'));
     });
+    $panel.on('click', '.dashboard-notification-remove', function (e) {
+        e.stopPropagation();
+        void remove($(this).closest('.dashboard-notification').attr('data-uid'));
+    });
     $panel.on('click', '.dashboard-notification-main.is-actionable', function () {
         const uid = $(this).closest('.dashboard-notification').attr('data-uid');
         const entry = entries.find((e) => e.uid === uid);
@@ -806,6 +844,14 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         if ( ! entries.some((e) => e.uid === uid && isUnread(e)) ) return;
         entries = setReadAt(entries, uid, now);
         render();
+    });
+    // Removed in another tab. Not gated, for the same reason as the ack.
+    socket.on('notif.removed', ({ uid }) => {
+        if ( ! uid ) return;
+        removed.set(uid, Date.now());
+        const listed = entries.some((e) => e.uid === uid);
+        dropEntry(uid);
+        if ( listed ) render();
     });
     // Every (re)connection: anything read elsewhere while this tab was
     // offline is marked so in the server's list, and anything new is in it.

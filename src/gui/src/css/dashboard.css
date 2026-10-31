@@ -8794,8 +8794,12 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    /* Room for the ✕ that appears on hover, so text never sits under it */
+    /* Room for the controls that appear on hover, so text never sits under them */
     padding-right: 22px;
+}
+
+.dashboard-notification.is-unread .dashboard-notification-content {
+    padding-right: 50px;
 }
 
 .dashboard-notification-sender {
@@ -8844,10 +8848,16 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     margin-top: 2px;
 }
 
-.dashboard-notification-read {
+.dashboard-notification-actions {
     position: absolute;
     top: 8px;
     right: 8px;
+    display: flex;
+    gap: 2px;
+}
+
+.dashboard-notification-read,
+.dashboard-notification-remove {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -8863,32 +8873,36 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     transition: opacity 0.12s, background-color 0.15s, color 0.15s;
 }
 
-.dashboard-notification-read svg {
+.dashboard-notification-read svg,
+.dashboard-notification-remove svg {
     width: 14px;
     height: 14px;
 }
 
-.dashboard-notification:hover .dashboard-notification-read,
-.dashboard-notification:focus-within .dashboard-notification-read {
+.dashboard-notification:hover :is(.dashboard-notification-read, .dashboard-notification-remove),
+.dashboard-notification:focus-within :is(.dashboard-notification-read, .dashboard-notification-remove) {
     opacity: 1;
 }
 
 @media (hover: hover) {
-    .dashboard-notification-read:hover {
+    .dashboard-notification-read:hover,
+    .dashboard-notification-remove:hover {
         background: var(--dashboard-border);
         color: var(--dashboard-text);
     }
 }
 
-/* Touch has no hover to reveal it */
+/* Touch has no hover to reveal them */
 @media (hover: none) {
-    .dashboard-notification-read {
+    .dashboard-notification-read,
+    .dashboard-notification-remove {
         opacity: 1;
     }
 }
 
 .dashboard-notification-main:focus-visible,
 .dashboard-notification-read:focus-visible,
+.dashboard-notification-remove:focus-visible,
 .dashboard-notifications-mark-all:focus-visible,
 .dashboard-notifications-close:focus-visible,
 .dashboard-notifications-retry:focus-visible {
@@ -9168,6 +9182,7 @@ body.dashboard-mode .notifications-close-all {
     .dashboard-notifications-scrim,
     .dashboard-notification,
     .dashboard-notification-read,
+    .dashboard-notification-remove,
     .dashboard-notification-icon,
     .dashboard-notification-title,
     .dashboard-notification-text {

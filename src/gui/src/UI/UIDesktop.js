@@ -381,6 +381,12 @@ async function UIDesktop (options) {
         update_tab_notif_count_badge();
     });
 
+    // Removed from the notification history: its toast goes too.
+    window.socket.on('notif.removed', ({ uid }) => {
+        toasts_for(uid).remove();
+        update_tab_notif_count_badge();
+    });
+
     window.socket.on('app.opened', async (app) => {
         // don't update if this is the original client that initiated the action
         if ( app.original_client_socket_id === window.socket.id )
