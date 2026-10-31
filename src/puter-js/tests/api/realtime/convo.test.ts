@@ -422,6 +422,41 @@ describe('convo built SDK and browser media', () => {
         }
     });
 
+    it('reconnects through a credential lookup that fails once', async () => {
+        const dropping = loadNodePuter(
+            { ...manifest, apiOrigin: proxyOrigin },
+            env.users.user.token,
+        );
+        const conversation = await dropping.ai.convo({ output: ['text'] });
+        const log = watch(conversation);
+        const auth = vi.spyOn(env.server.services.auth, 'authenticate');
+        const warn = vi.spyOn(console, 'warn');
+        try {
+            await conversation.connect();
+            auth.mockRejectedValueOnce(new Error('auth store unavailable'));
+            for (const socket of proxied) socket.destroy();
+            await log.until(() =>
+                log.events.some(
+                    (event) => event.type === 'ready' && event.reconnected,
+                ),
+            );
+            // The first attempt failed its lookup, a later one went through.
+            expect(warn).toHaveBeenCalledWith(
+                '[realtime] credential lookup failed',
+                expect.objectContaining({ message: 'auth store unavailable' }),
+            );
+            expect(log.count('reconnecting')).toBe(1);
+            conversation.sendText('Still there?');
+            await log.until(() => log.count('turn.done') === 1);
+            expect(log.count('close')).toBe(0);
+        } finally {
+            auth.mockRestore();
+            warn.mockRestore();
+            conversation.close();
+            closeNodePuter(dropping);
+        }
+    });
+
     it('moves to a new session when a restart is announced, restoring context', async () => {
         const conversation = await puter.ai.convo({ output: ['text'] });
         const log = watch(conversation);

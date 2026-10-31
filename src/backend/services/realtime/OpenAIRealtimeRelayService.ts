@@ -166,6 +166,8 @@ const DRAIN_RESPONSE_MS = 5_000;
 const SETTLE_MS = 5_000;
 // RFC 6455 "Service Restart": the client should reconnect.
 const CLOSE_RESTART = 1012;
+// RFC 6455 "Try Again Later": a temporary overload on our side.
+const CLOSE_TRY_AGAIN_LATER = 1013;
 // Puter's own server event asking the client to reconnect when idle. OpenAI
 // event types never start with `puter.`.
 export const RECONNECT_EVENT = 'puter.reconnect';
@@ -497,7 +499,7 @@ const reconnectEvent = (closeInMs: number | undefined): string =>
  *
  * The client socket is accepted before authenticating: socket.io ends any
  * upgrade that hasn't written a byte within a second, which an auth lookup
- * under load can miss. Failures arrive as an `error` event and a 1008 close.
+ * under load can miss. Failures arrive as an `error` event and a close frame.
  * Limits, quirks and load-testing notes are in this directory's README.
  */
 export class OpenAIRealtimeRelayService extends PuterService {
@@ -544,6 +546,10 @@ export class OpenAIRealtimeRelayService extends PuterService {
             this.#wss!.handleUpgrade(req, socket, head, (client) => {
                 this.#runSession(client, req, url).catch((err: unknown) => {
                     console.warn('[realtime] session setup failed', err);
+                    if (client.readyState !== WebSocket.OPEN) return;
+                    client.send(
+                        errorEvent('internal_error', 'Realtime setup failed'),
+                    );
                     client.close(1011, 'internal error');
                 });
             });
@@ -915,7 +921,11 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 setImmediate(() => void drainUsage());
             }
             if (usageQueue.length > MAX_PENDING_USAGE) {
-                reject('rate_limit_exceeded', 'Too many pending usage events');
+                reject(
+                    'rate_limit_exceeded',
+                    'Too many pending usage events',
+                    CLOSE_TRY_AGAIN_LATER,
+                );
             }
         };
 
@@ -1127,8 +1137,11 @@ export class OpenAIRealtimeRelayService extends PuterService {
         if (closed) return;
         try {
             actor = token ? await this.#authenticateCached(token, req) : null;
-        } catch {
-            actor = null;
+        } catch (err) {
+            // A lookup that failed says nothing about the credential.
+            console.warn('[realtime] credential lookup failed', err);
+            reject('internal_error', 'Could not verify credentials', 1011);
+            return;
         }
         if (closed) return;
         if (!actor) {
