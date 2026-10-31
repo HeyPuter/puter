@@ -54,7 +54,6 @@
     "dev": "npm start",
     "build": "npm run setupExtensions && npm run build:ts && cd src/gui && node ./build.js && cd ../puter-js && npm run build",
     "build:workerLib": "cd src/puter-js && npm run build && cd ../worker && npm run build",
-    "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
     "build:ts": "tsc -p tsconfig.build.json && node ./tools/write-dist-package-json.mjs",
     "check:puterjs:types": "node tools/checkPuterjsTypes.mjs",

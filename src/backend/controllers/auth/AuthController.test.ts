@@ -43,6 +43,10 @@ import {
     requireUserActorGate,
 } from '../../core/http/middleware/gates.js';
 import {
+    configureRateLimit,
+    listConfiguredRateLimitBackends,
+} from '../../core/http/middleware/rateLimit.js';
+import {
     ROUTES_METADATA_KEY,
     type CollectedRoute,
     type TokenSource,
@@ -1751,6 +1755,40 @@ describe('AuthController.handleLoginOtp + handleLoginRecoveryCode', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('refuses the sign-in while the used-token store is down', async () => {
+        const { user, secret, otpToken } = await startOtpLogin();
+        const token = await otpToken();
+
+        const { default: backend } = listConfiguredRateLimitBackends();
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => {
+                    throw new Error('store down');
+                },
+            },
+        });
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const res = makeRes();
+        try {
+            await expect(
+                controller.handleLoginOtp(
+                    makeReq({ token, code: liveTotp(user.username, secret) }),
+                    res,
+                ),
+            ).rejects.toThrow('store down');
+        } finally {
+            logged.mockRestore();
+            configureRateLimit({
+                default: backend,
+                redis: server.clients.redis,
+                kv: server.stores.kv,
+                metering: server.services.metering,
+            });
+        }
+        expect(res.body).toBeUndefined();
     });
 
     it('a wrong code leaves the token usable for a retry', async () => {

@@ -4637,13 +4637,19 @@ export class AuthController extends PuterController {
         await checkRateLimit(`${scope}:${userUid}`, limit, window);
     }
 
-    /** An `otp-login` JWT completes one sign-in; a second redemption is refused. */
+    /**
+     * An `otp-login` JWT completes one sign-in; a second redemption is refused.
+     * Fails closed: while the store can't say whether the token was used, the
+     * sign-in is refused rather than letting a captured token replay.
+     */
     async #consumeOtpLoginToken(token: string): Promise<void> {
         const digest = crypto.createHash('sha256').update(token).digest('hex');
         const firstUse = await checkRateLimit(
             `login-otp-token-used:${digest}`,
             1,
             OTP_LOGIN_TOKEN_USED_WINDOW_MS,
+            undefined,
+            { failOpen: false },
         );
         if (!firstUse) {
             throw new HttpError(400, 'Invalid token.', {
