@@ -125,7 +125,9 @@
  *   `push-sw.js`. Default `/puter-sw.js`.
  * @property {(error: Error & { code?: string }) => void} [onError] Called when
  *   the handler throws or runs past 5 seconds (`push_handler_timeout`), the
- *   live listener stops, or keeping the browser's subscription current fails.
+ *   live listener stops, keeping the browser's subscription current fails, or
+ *   the confirmation push after `enable()` doesn't arrive
+ *   (`push_verification_timeout`).
  */
 
 /** @typedef {'webpush' | 'web'} PushPlatform `web` gets no pushes. */

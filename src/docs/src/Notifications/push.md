@@ -92,7 +92,9 @@ document.getElementById('enable').addEventListener('click', async () => {
 });
 ```
 
-The browser asks for permission on your domain. Puter then sends a confirmation push to that browser, which shows once as "Notifications are on". The browser is registered once your worker hands the confirmation back. Allowing it also lets your app's notifications go out as pushes.
+The browser asks for permission on your domain. Puter then sends a confirmation push to that browser, which shows once as "Notifications are on". Allowing it also lets your app's notifications go out as pushes.
+
+[`enable()`](/Notifications/enable/) resolves once the browser has answered and Puter has its subscription. Pushes start once your worker hands the confirmation back, usually within seconds. If the confirmation doesn't arrive within 30 seconds, the `onError` of [`onPush()`](/Notifications/onPush/) gets `push_verification_timeout`, and the next page load tries again.
 
 The choice sticks. On later page loads, [`onPush()`](/Notifications/onPush/) keeps the registration current without asking again.
 
@@ -303,7 +305,7 @@ The browser can be allowed to show notifications while the operating system hide
 | --- | --- |
 | [`enable()`](/Notifications/enable/) resolves `false` | The user blocked notifications for your site, the page is in a private window, the browser has no Web Push, or on iOS the page isn't opened from the Home Screen. The user unblocks your site in the browser's site settings. |
 | It rejects with `push_worker_unavailable` | `/puter-sw.js` isn't on your origin, returns a `404`, isn't served as JavaScript, is redirected, or throws when it loads. Open its URL in a tab to check. |
-| It rejects with `push_verification_timeout` | The worker doesn't import `push-sw.js`, or the confirmation push didn't arrive within 30 seconds. Reload the page and try again. |
+| The `onError` of [`onPush()`](/Notifications/onPush/) gets `push_verification_timeout` | The worker doesn't import `push-sw.js`, or the confirmation push didn't arrive within 30 seconds. The next page load tries again. |
 | It rejects with an `AbortError` from the browser | The browser couldn't reach its push service. In Brave, turn on Google services for push messaging. |
 | It rejects with `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click first. |
 | A push shows the plain title and text, not your handler's result | This browser hasn't run [`onPush()`](/Notifications/onPush/) for that `channel` yet, or the handler threw, took over 5 seconds, or used an outside variable. Check the worker's console. |

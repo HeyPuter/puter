@@ -206,6 +206,43 @@ describe('syncWebPush', () => {
         });
     });
 
+    it('says when only the confirmation is left, before it arrives', async () => {
+        const nav = makeNav();
+        server((route) =>
+            route === '/push/web/subscriptions'
+                ? { status: 'pending' }
+                : { device: { uid: 'd3' } },
+        );
+        const onPending = vi.fn();
+        const syncing = syncWebPush(puter, { worker, nav, onPending });
+        await vi.waitFor(() => expect(onPending).toHaveBeenCalledTimes(1));
+        expect(
+            mockRequest.mock.calls.some(
+                ([, , route]) => route === '/push/web/subscriptions/verify',
+            ),
+        ).toBe(false);
+        nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+        await expect(syncing).resolves.toEqual({ uid: 'd3' });
+    });
+
+    it('stops waiting for the confirmation once its signal aborts, without verifying', async () => {
+        const nav = makeNav();
+        server(() => ({ status: 'pending' }));
+        const stop = new AbortController();
+        const syncing = syncWebPush(puter, {
+            worker,
+            nav,
+            signal: stop.signal,
+            onPending: () => stop.abort(),
+        });
+        await expect(syncing).rejects.toMatchObject({
+            code: 'push_verification_canceled',
+        });
+        expect(
+            mockRequest.mock.calls.map(([, , route]) => route),
+        ).not.toContain('/push/web/subscriptions/verify');
+    });
+
     it('replaces a subscription made with Puter`s earlier key', async () => {
         store.set('handlers:puter:server-key', OLD_KEY);
         const stale = makeSubscription(fromBase64Url(OLD_KEY));
@@ -1098,6 +1135,82 @@ describe('enable', () => {
         expect(store.get(OPT_IN)).toBe(true);
     });
 
+    it('resolves once the server has the subscription and confirms the browser in the background', async () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        server((route) =>
+            route === '/push/web/subscriptions'
+                ? { status: 'pending' }
+                : { device: { uid: 'd2' } },
+        );
+        const { module } = makeModule();
+        await expect(module.enable()).resolves.toBe(true);
+        expect(store.get(OPT_IN)).toBe(true);
+        const verifies = () =>
+            mockRequest.mock.calls.filter(
+                ([, , route]) => route === '/push/web/subscriptions/verify',
+            );
+        expect(verifies()).toHaveLength(0);
+
+        nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+        await vi.waitFor(() => expect(verifies()).toHaveLength(1));
+        expect(verifies()[0][3]).toMatchObject({ challenge: 'c.sig' });
+    });
+
+    it('reports a confirmation that never arrives, keeps the opt-in, and the next load tries again', async () => {
+        vi.useFakeTimers();
+        const nav = makeNav();
+        withBrowser(nav);
+        server(() => ({ status: 'pending' }));
+        const onError = vi.fn();
+        const { module } = makeModule();
+        await module.onPush('chat', () => {}, { onError });
+        await expect(module.enable()).resolves.toBe(true);
+
+        await vi.advanceTimersByTimeAsync(30_000);
+        expect(onError).toHaveBeenCalledWith(
+            expect.objectContaining({ code: 'push_verification_timeout' }),
+        );
+        expect(store.get(OPT_IN)).toBe(true);
+
+        mockRequest.mockClear();
+        const { module: reloaded } = makeModule();
+        await reloaded.onPush('chat', () => {}, { onError: () => {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mockRequest).toHaveBeenCalledWith(
+            expect.anything(),
+            'POST',
+            '/push/web/subscriptions',
+            expect.anything(),
+        );
+    });
+
+    it('waits for the confirmation in the Puter GUI, which reads the device right after', async () => {
+        const nav = makeNav({ active: { scriptURL: `${ORIGIN}/sw.js` } });
+        withBrowser(nav);
+        server((route) =>
+            route === '/push/web/subscriptions'
+                ? { status: 'pending' }
+                : { device: { uid: 'd2' } },
+        );
+        const { module } = makeModule({ env: 'gui' });
+        let done = false;
+        const enabling = (async () => {
+            const on = await module.enable();
+            done = true;
+            return on;
+        })();
+        await vi.waitFor(() =>
+            expect(
+                mockRequest.mock.calls.map(([, , route]) => route),
+            ).toContain('/push/web/subscriptions'),
+        );
+        await flush();
+        expect(done).toBe(false);
+        nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+        await expect(enabling).resolves.toBe(true);
+    });
+
     it('rejects user_gesture_required outside a click, without prompting', async () => {
         withBrowser(makeNav(), 'default');
         Object.defineProperty(globalThis.navigator, 'userActivation', {
@@ -1135,6 +1248,28 @@ describe('enable', () => {
 });
 
 describe('disable', () => {
+    it('stops a confirmation still on its way, so the browser is not registered after', async () => {
+        const subscription = makeSubscription();
+        const nav = makeNav();
+        nav.pushManager.subscribe.mockResolvedValue(subscription);
+        withBrowser(nav);
+        server((route) =>
+            route === '/push/web/subscriptions'
+                ? { status: 'pending' }
+                : { removed: true },
+        );
+        const { module } = makeModule();
+        await module.enable();
+        nav.pushManager.getSubscription.mockResolvedValue(subscription);
+        await module.disable();
+        nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+        await flush();
+        expect(
+            mockRequest.mock.calls.map(([, , route]) => route),
+        ).not.toContain('/push/web/subscriptions/verify');
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
     it('removes the subscription and forgets the opt-in', async () => {
         store.set(OPT_IN, true);
         const subscription = makeSubscription();

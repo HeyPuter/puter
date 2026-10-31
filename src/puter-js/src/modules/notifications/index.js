@@ -46,14 +46,12 @@ export const CLICK_PARAM = 'puter.notification';
 const HANDLER_TIMEOUT_MS = 5_000;
 /** How long an older `push-sw.js`, which never answers, is waited for. */
 const WORKER_SHOW_TIMEOUT_MS = 2_000;
-/**
- * Sync failures that are the server's or the user's standing choice, not a
- * fault.
- */
+/** Sync failures that are the server's or the user's choice, not a fault. */
 const QUIET_SYNC_ERRORS = new Set([
     'push_disabled',
     'push_revoked',
     'push_unavailable',
+    'push_verification_canceled',
     'too_many_requests',
 ]);
 
@@ -181,6 +179,11 @@ export class NotificationsModule extends EventListener {
      */
     #sourceWrites = new Map();
     #receipts = new ReceiptLog(() => this.#showsOwn());
+    /**
+     * Aborted by `disable()` and sign-out, so a confirmation still on its way
+     * doesn't register this browser after them.
+     */
+    #stopVerifying = new AbortController();
 
     /** @param {import('../../index.js').Puter} puter */
     constructor(puter) {
@@ -329,21 +332,40 @@ export class NotificationsModule extends EventListener {
 
     /**
      * `enable()` on a website or the GUI: registers this browser and, on a
-     * website, remembers that this user turned push on here.
+     * website, remembers that this user turned push on here. A website resolves
+     * once the server has the subscription and confirms it in the background; a
+     * failed confirmation is tried again on the next load.
      *
      * @param {{ url: string; scope?: string }} worker
      * @internal
      */
     async _enableWebPush(worker) {
         this.#useWorker(worker);
+        /** @type {() => void} */
+        let pending = () => {};
+        const sent = new Promise((resolve) => {
+            pending = () => resolve(undefined);
+        });
+        const syncing = syncWebPush(this.puter, {
+            worker,
+            onPending: pending,
+            signal: this.#stopVerifying.signal,
+        });
         try {
-            await syncWebPush(this.puter, { worker });
+            // The GUI reads the registered device right after.
+            await (this.puter.env === 'gui'
+                ? syncing
+                : Promise.race([syncing, sent]));
         } catch (error) {
             if (error?.code === 'push_revoked') await this.#recordOptIn(false);
             throw error;
         }
         this.#workerRegistered = true;
         await this.#recordOptIn(true);
+        void this.#finishSync(
+            syncing,
+            'could not confirm this browser for pushes',
+        );
     }
 
     /**
@@ -355,6 +377,7 @@ export class NotificationsModule extends EventListener {
      * @internal
      */
     async _disableWebPush(worker) {
+        this.#cancelVerification();
         try {
             return await removeWebPush(this.puter, { worker });
         } finally {
@@ -372,6 +395,7 @@ export class NotificationsModule extends EventListener {
     async _forgetPush(authToken) {
         if (this.puter.env !== 'web') return;
         this.#syncs.clear();
+        this.#cancelVerification();
         try {
             if (authToken && webPushSupported()) {
                 await removeWebPush(this.puter, {
@@ -450,17 +474,30 @@ export class NotificationsModule extends EventListener {
             warnStorage(error);
         }
         if (!optedIn) return;
+        await this.#finishSync(
+            syncWebPush(this.puter, {
+                worker,
+                signal: this.#stopVerifying.signal,
+            }),
+            'could not keep the push subscription current',
+        );
+    }
+
+    /** Settles a sync nobody waits on; quiet about the expected failures. */
+    async #finishSync(syncing, what) {
         try {
-            await syncWebPush(this.puter, { worker });
+            await syncing;
             this.#workerRegistered = true;
         } catch (error) {
             if (error?.code === 'push_revoked') await this.#recordOptIn(false);
             if (QUIET_SYNC_ERRORS.has(error?.code)) return;
-            this.#reportPush(
-                error,
-                'could not keep the push subscription current',
-            );
+            this.#reportPush(error, what);
         }
+    }
+
+    #cancelVerification() {
+        this.#stopVerifying.abort();
+        this.#stopVerifying = new AbortController();
     }
 
     /**

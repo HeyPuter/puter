@@ -6,7 +6,9 @@ platforms: [websites, apps]
 
 Turns on push notifications for your app in the browser the user is in. Call it from a click. It asks for the browser's permission first, before anything else, because browsers only show that prompt from a user gesture.
 
-On a website, the browser asks on your own origin, and pushes arrive through your service worker (see [`onPush()`](/Notifications/onPush/)). Puter then sends a confirmation push to that browser, which shows once as "Notifications are on". The browser is registered once your page hands the confirmation back. Allowing it also lets your app's notifications go out as pushes.
+On a website, the browser asks on your own origin, and pushes arrive through your service worker (see [`onPush()`](/Notifications/onPush/)). Puter then sends a confirmation push to that browser, which shows once as "Notifications are on". Allowing it also lets your app's notifications go out as pushes.
+
+The call resolves as soon as the browser has answered and Puter has its subscription. It doesn't wait for the confirmation. Pushes start once your page hands the confirmation back, usually within seconds. If the confirmation doesn't arrive within 30 seconds, the `onError` of [`onPush()`](/Notifications/onPush/) gets `push_verification_timeout`, or the console does without one, and the next page load tries again.
 
 The choice sticks. Once enabled, [`onPush()`](/Notifications/onPush/) keeps the subscription current on later page loads without asking again. After [`disable()`](/Notifications/disable/), after the user turns your app off in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/), page loads don't subscribe again until your page calls [`enable()`](/Notifications/enable/) again from a click.
 
@@ -42,7 +44,6 @@ It rejects with an error carrying `message` and `code`:
 | `push_subscription_conflict` | The worker already has a push subscription from another service, such as Firebase or OneSignal. Give Puter its own worker in a folder, such as `/puter/puter-sw.js`, and pass that path as `serviceWorker`. |
 | `push_subscribe_failed` | The browser's push service refused to create a subscription. |
 | `push_endpoint_revoked` | Another Puter account turned your app off on this browser's subscription, and a fresh subscription couldn't replace it. Rare: `enable()` replaces it on its own first. |
-| `push_verification_timeout` | The confirmation push didn't arrive. |
 | `user_gesture_required` | The call wasn't made from a user gesture, such as a click. |
 | `too_many_requests` | Pushes were turned on too many times in a short time. Try again later. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |

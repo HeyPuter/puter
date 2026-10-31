@@ -39,7 +39,7 @@ Once pushes are on, a page in the background shows the handler's result as a not
 
 ## Turn Pushes On
 
-Browsers only show their permission prompt from a user gesture, so call [`puter.notifications.enable()`](/Notifications/enable/) from a click. It asks the browser's permission on your domain, confirms the browser with Puter, and resolves `true` when pushes are on. The browser shows the confirmation once, as "Notifications are on".
+Browsers only show their permission prompt from a user gesture, so call [`puter.notifications.enable()`](/Notifications/enable/) from a click. It asks the browser's permission on your domain, registers the browser with Puter, and resolves `true` when pushes are on. Puter confirms the browser with a push that shows once, as "Notifications are on", and pushes start once it arrives, usually within seconds.
 
 ```js
 async function turnOnPushes () {
