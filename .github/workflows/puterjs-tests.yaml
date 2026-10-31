@@ -118,9 +118,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The base branch lives in this repo; for a fork PR, the head
+          # repo's copy of it can be arbitrarily stale.
           - ref: ${{ github.base_ref }}
+            repository: ${{ github.repository }}
             artifact: base
           - ref: ${{ github.head_ref }}
+            repository: ${{ github.event.pull_request.head.repo.full_name }}
             artifact: pr
 
     steps:
@@ -129,7 +133,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ matrix.ref }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          repository: ${{ matrix.repository }}
 
       - name: Set up Node.js
         if: needs.changes.outputs.puterjs == 'true'
