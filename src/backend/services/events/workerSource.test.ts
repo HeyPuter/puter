@@ -83,29 +83,60 @@ interface LoadedWorker {
     sandbox: Record<string, unknown>;
 }
 
+const API_ORIGIN = 'https://api.example';
+
+/**
+ * A puter.js stand-in: `call(url)` sends through the fetch the runtime handed
+ * the client and throws a body-shaped error on a non-2xx, the way puter.js
+ * does, with no status on it.
+ */
+interface StubUser {
+    authToken: string;
+    call(url: string): Promise<Response>;
+}
+
 /**
  * Deploy a handler set the way the driver does — runtime first, generated
- * source after — into a context that stands in for the isolate.
+ * source after — into a context that stands in for the isolate. `network`
+ * answers every fetch made inside it.
  */
 const loadWorker = (
     handlers: EventHandler[],
-    options: { invokeKey?: string } = {},
+    options: {
+        invokeKey?: string;
+        network?: (url: string) => Promise<Response>;
+    } = {},
 ): LoadedWorker => {
     const generated = generateEventsWorkerSource(handlers);
     const userTokens: string[] = [];
     let dispatch: FetchHandler | null = null;
+    const network =
+        options.network ?? (() => Promise.resolve(new Response('')));
 
     const sandbox: Record<string, unknown> = {
         Response,
         Request,
         URL,
-        fetch: () => Promise.resolve(new Response('')),
+        fetch: (input: string) => network(String(input)),
         console,
         events_invoke_key: options.invokeKey ?? INVOKE_KEY,
-        puter_endpoint: 'https://api.example',
-        init_puter_portable: (token: string) => {
+        puter_endpoint: API_ORIGIN,
+        init_puter_portable: (
+            token: string,
+            _apiOrigin: string,
+            _type: string,
+            clientOptions: { fetch: (url: string) => Promise<Response> },
+        ): StubUser => {
             userTokens.push(token);
-            return { authToken: token };
+            return {
+                authToken: token,
+                call: async (url) => {
+                    const response = await clientOptions.fetch(url);
+                    if (!response.ok)
+                        throw { message: 'request failed', code: 'internal_error' };
+                    return response;
+                },
+            };
         },
         self: {
             addEventListener: (_type: string, listener: unknown) => {
@@ -404,6 +435,114 @@ describe('the generated worker inside its runtime', () => {
             (await invoke(worker, { body: delivery({ handler: 'good' }) }))
                 .status,
         ).toBe(200);
+    });
+});
+
+describe('a handler failed by a Puter API call', () => {
+    const answering =
+        (status: number, headers: Record<string, string> = {}) =>
+        (url: string) =>
+            Promise.resolve(
+                new Response('', {
+                    status: url.startsWith(API_ORIGIN) ? status : 200,
+                    headers,
+                }),
+            );
+    const errorOf = (res: Response) => res.headers.get('x-puter-events-error');
+
+    it('answers platform-error when it throws after a 5xx from Puter', async () => {
+        const worker = loadWorker(
+            [handler('a', `async ({ user }) => { await user.call('${API_ORIGIN}/kv'); }`)],
+            { network: answering(503) },
+        );
+        const res = await invoke(worker, { body: delivery() });
+        expect(res.status).toBe(500);
+        expect(errorOf(res)).toBe('platform-error');
+        expect(res.headers.get('retry-after')).toBeNull();
+    });
+
+    it('passes on the wait a 429 from Puter named', async () => {
+        const worker = loadWorker(
+            [handler('a', `async ({ user }) => { await user.call('${API_ORIGIN}/kv'); }`)],
+            { network: answering(429, { 'retry-after': '7' }) },
+        );
+        const res = await invoke(worker, { body: delivery() });
+        expect(errorOf(res)).toBe('platform-error');
+        expect(res.headers.get('retry-after')).toBe('7');
+    });
+
+    it('answers platform-error when Puter could not be reached', async () => {
+        const worker = loadWorker(
+            [handler('a', `async ({ user }) => { await user.call('${API_ORIGIN}/kv'); }`)],
+            {
+                network: () => Promise.reject(new TypeError('fetch failed')),
+            },
+        );
+        const res = await invoke(worker, { body: delivery() });
+        expect(errorOf(res)).toBe('platform-error');
+    });
+
+    it('leaves a failure the handler handled, or marked terminal, to the handler', async () => {
+        const worker = loadWorker(
+            [
+                handler(
+                    'caught',
+                    `async ({ user }) => { try { await user.call('${API_ORIGIN}/kv'); } catch {} }`,
+                ),
+                handler(
+                    'terminal',
+                    `async ({ user }) => {
+                        try { await user.call('${API_ORIGIN}/kv'); }
+                        catch (err) { throw Object.assign(new Error('drop'), { terminal: true }); }
+                    }`,
+                ),
+            ],
+            { network: answering(500) },
+        );
+        expect(
+            (await invoke(worker, { body: delivery({ handler: 'caught' }) }))
+                .status,
+        ).toBe(200);
+        const terminal = await invoke(worker, {
+            body: delivery({ handler: 'terminal' }),
+        });
+        expect(terminal.status).toBe(400);
+        expect(errorOf(terminal)).toBe('handler-terminal');
+    });
+
+    it('counts only Puter`s own API, and only failures during this run', async () => {
+        const worker = loadWorker(
+            [
+                handler(
+                    'elsewhere',
+                    `async ({ user }) => { await user.call('https://third.party/x'); throw new Error('own'); }`,
+                ),
+                handler(
+                    'swallow',
+                    `async ({ user }) => { try { await user.call('${API_ORIGIN}/kv'); } catch {} }`,
+                ),
+                handler('own', `async () => { throw new Error('own'); }`),
+            ],
+            {
+                network: (url) =>
+                    Promise.resolve(
+                        new Response('', {
+                            status: url.startsWith(API_ORIGIN) ? 503 : 502,
+                        }),
+                    ),
+            },
+        );
+        const elsewhere = await invoke(worker, {
+            body: delivery({ handler: 'elsewhere' }),
+        });
+        expect(errorOf(elsewhere)).toBe('handler-terminal');
+
+        // Same token, so the same client: the earlier run's failure is not
+        // this one's.
+        await invoke(worker, { body: delivery({ handler: 'swallow' }) });
+        const own = await invoke(worker, { body: delivery({ handler: 'own' }) });
+        expect(own.status).toBe(400);
+        expect(errorOf(own)).toBe('handler-terminal');
     });
 });
 

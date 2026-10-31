@@ -404,7 +404,9 @@ export const EVENTS_REGION_PENDING_CEILING = 1_000_000;
 // a handler that answers "no" is not. Retrying on a fixed cadence turns one
 // broken deploy into a permanent load on whatever is failing, so the wait
 // doubles per attempt up to a ceiling, and a run of failures stops the
-// subscription rather than retrying it forever.
+// subscription rather than retrying it forever. A run Puter could not start or
+// finish backs off the same way but is not the handler's failure, so it never
+// counts toward that run.
 
 /** Wait before the first retry of a delivery a handler could not take. */
 export const EVENTS_RETRY_BASE_MS = 2_000;
@@ -413,7 +415,7 @@ export const EVENTS_RETRY_BASE_MS = 2_000;
 export const EVENTS_RETRY_MAX_MS = 5 * 60 * 1000;
 
 /**
- * Failures in a row before a subscription is suspended. Counted per
+ * Handler failures in a row before a subscription is suspended. Counted per
  * subscription and reset by the first delivery a handler takes, so an
  * occasional failure never accumulates into one.
  */

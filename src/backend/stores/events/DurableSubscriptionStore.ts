@@ -476,6 +476,30 @@ export class DurableSubscriptionStore extends PuterStore {
     }
 
     /**
+     * Replace one row's `context`, keeping its id and whatever it is still
+     * owed. Null when a concurrent unsubscribe already deleted the row.
+     */
+    async updateContext(
+        row: DurableSubscription,
+        context: string | null,
+    ): Promise<{ row: DurableSubscription; bump: GenerationBump } | null> {
+        this.#assertContext(context);
+        const written = await this.clients.db.write(
+            `UPDATE \`${TABLE}\` SET \`context\` = ? WHERE \`sub_id\` = ?`,
+            [context, row.subId],
+        );
+        if (!written.anyRowsAffected) return null;
+
+        // Rebuilt from the table rather than cached from `row`: a row
+        // suspended since it was read must not go back into the cache.
+        await this.#rebuildRegion(row.ownerUserId);
+        return {
+            row: { ...row, context },
+            bump: await this.#bump(row.ownerUserId),
+        };
+    }
+
+    /**
      * Bring this region's cache for one owner up to date with the table, unless
      * it already is. Returns whether the table was read, which is what the
      * hot-path tests assert on.

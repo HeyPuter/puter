@@ -671,6 +671,12 @@ const examples = [
                 source: '/playground/examples/events-list-suspended.html',
             },
             {
+                title: "Change a Subscription's Context",
+                description: 'Change the context of a persistent subscription without ending it, using the Puter.js Events API. Run it in the playground.',
+                slug: 'events-update',
+                source: '/playground/examples/events-update.html',
+            },
+            {
                 title: 'End a Persistent Subscription',
                 description: 'Create and end a persistent subscription with the Puter.js Events API. Run and modify this example in the playground.',
                 slug: 'events-unsubscribe',

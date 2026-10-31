@@ -100,13 +100,16 @@ These rules apply to a `queue` subscription, in a client or in the events worker
 | Resolves | Done. |
 | Throws | The event is dropped and replaced by a [gap marker](/Events/subjects/#gaps) with `reason: 'handler_rejected'`. It counts as a failure. |
 | Throws a temporary error: a network error, a timeout, a rate limit (`429`), a `5xx`, or any error with `retry: true` | Retried after 2 seconds, then 4, 8 and so on, up to 5 minutes apart. It counts as a failure. |
-| Never answers (the tab closed, the worker crashed, or it ran past 30 seconds in the worker) | Offered again. |
+| Runs past 30 seconds in the events worker | Retried on the same schedule. It counts as a failure. |
+| Never answers in a client (the tab closed or the connection dropped) | Offered again. |
 
 To have an error retried, throw it with `retry: true`:
 
 ```js
 throw Object.assign(new Error('Service busy, try later'), { retry: true });
 ```
+
+In the events worker, a run that fails because of Puter doesn't count as a failure. It's retried on the same schedule, and waits longer if Puter's answer asked for a longer wait, up to 5 minutes. That covers a run Puter couldn't start or finish, and a handler that throws after a call it made through `user` got a `5xx`, a `429`, or a network error from Puter. To drop the event in that case anyway, throw an error with `terminal: true`.
 
 **Five failures in a row suspend the subscription** with `failures`. The developer is notified, and publishing the handler again resumes it.
 
@@ -116,7 +119,7 @@ Advanced: a handler can call `ack()` to mark the event done before it finishes. 
 
 ## `context` is captured once, up to 4 KB
 
-A handler can't use outside variables (see [`puter.events.handlers`](/Events/handlers/)), so `context` is how values reach it. It's evaluated **once, at this call**. Below, `ctx.endpoint` stays whatever `process.env.INGEST_URL` was when you subscribed, until you subscribe again:
+A handler can't use outside variables (see [`puter.events.handlers`](/Events/handlers/)), so `context` is how values reach it. It's evaluated **once, at this call**. Below, `ctx.endpoint` stays whatever `process.env.INGEST_URL` was when you subscribed, until you change it with [`puter.events.update()`](/Events/update/):
 
 ```js
 await puter.events.onPersistent({

@@ -564,7 +564,7 @@ Over any of these: `too_many_requests`, except `kv.share.received` notifications
 
 A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients. Each one counts toward the recipient budget, and the call counts once toward the mint budget. When the recipients don't all fit in the recipient budget, the whole call fails with `too_many_requests`, and the part that did fit still counts. A `fetch()` page defaults to 50 events and holds up to 200.
 
-Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one.
+Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one. Changing a subscription's context with [`puter.events.update()`](/Events/update/) counts toward the `subscribe` limit.
 
 #### Delivery
 
@@ -598,6 +598,8 @@ Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one
 | `user` token lifetime in the events worker | 15 minutes                 | Per run            |
 
 Failures count as in a row until the handler takes a delivery or an hour passes without another failure; either resets the count to zero.
+
+Only the handler's own failures count, including a run past the 30-second timeout. A run in the events worker that Puter couldn't start or finish, or that threw after a Puter API call from `user` got a `5xx`, a `429`, or a network error, is retried on the same delay schedule and doesn't count. When Puter's answer names a longer wait (`Retry-After`), the retry waits that long, up to 5 minutes. Puter's own failures never suspend a subscription, and the events it holds while retrying stay within the backlog limits above.
 
 Over the deploy limit, deliveries stay queued and retry after the hour rolls over.
 
@@ -643,7 +645,7 @@ Deliveries are billed to the account holding the subscription:
 
 µ¢ is a microcent (a millionth of a cent). Deliveries for `queue` subscriptions bill on the `single` line, and every other delivery, session subscriptions included, bills at the broadcast rate. Handler runs bill separately as worker usage.
 
-Free: idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, deliveries with no client connected to receive them and no handler run, and gap markers.
+Free: idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, deliveries with no client connected to receive them and no handler run, `queue` deliveries still waiting to reach a client or a handler, retries (a `queue` event bills once however many attempts it takes), and gap markers.
 
 When the holder's balance runs out, deliveries stop and persistent subscriptions are suspended with `no_credit`, and the holder is notified. The backlog is kept for 1 hour. Topping up resumes them within a few minutes.
 

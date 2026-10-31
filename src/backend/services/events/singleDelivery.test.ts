@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_REGION_PENDING_CEILING,
+    EVENTS_RETRY_MAX_MS,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_SOCKET_LEASE_MS,
     EVENTS_WORKER_INVOCATION_LIMIT,
@@ -82,6 +83,8 @@ interface MeteredLine {
 let socketConnected = true;
 /** What the handler seam reports back, which is what settles a lease or not. */
 let workerOutcome: WorkerInvocationOutcome = 'deferred';
+/** The least wait the handler seam's answer names, if any. */
+let workerRetryAfterMs: number | undefined;
 /** Stand-in for presence: which remote region, if any, answers one attempt. */
 let candidateRegionImpl: (
     holderUserId: number,
@@ -180,6 +183,7 @@ beforeEach(async () => {
     userId = 7000 + seq;
     socketConnected = true;
     workerOutcome = 'deferred';
+    workerRetryAfterMs = undefined;
     candidateRegionImpl = async () => null;
     candidateRegionCalls = [];
     sent = [];
@@ -312,7 +316,7 @@ beforeEach(async () => {
     service.worker = {
         invoke: async (invocation: WorkerInvocation) => {
             invoked.push(invocation);
-            return workerOutcome;
+            return { outcome: workerOutcome, retryAfterMs: workerRetryAfterMs };
         },
     };
 });
@@ -492,6 +496,75 @@ describe('a delivery owed to exactly one consumer', () => {
         expect(metered).toHaveLength(1);
         expect(delivered).toHaveLength(1);
         await expect(redis.get(`ev:qf:{${row.subId}}`)).resolves.toBe('2');
+    });
+
+    it('retries a run Puter could not complete without counting it or billing for it', async () => {
+        socketConnected = false;
+        workerOutcome = 'unavailable';
+        const row = await register();
+
+        await dispatch();
+        for (let attempt = 1; attempt < 8; attempt++) {
+            jump(deliveryBackoffMs(attempt) + 1);
+            await service.sweepPending();
+        }
+
+        expect(invoked).toHaveLength(8);
+        expect(rows.get(row.subId)?.suspendedAt).toBeNull();
+        await expect(redis.get(`ev:qf:{${row.subId}}`)).resolves.toBeNull();
+        expect(metered).toEqual([]);
+        expect(delivered).toEqual([]);
+        await expect(pending.depth(row.subId)).resolves.toBe(1);
+
+        // Back up: one bill for the one event.
+        workerOutcome = 'settled';
+        jump(deliveryBackoffMs(8) + 1);
+        await service.sweepPending();
+        expect(metered).toHaveLength(1);
+        await expect(pending.depth(row.subId)).resolves.toBe(0);
+    });
+
+    it('leaves a run of handler failures where it was across a run Puter could not complete', async () => {
+        socketConnected = false;
+        workerOutcome = 'retriable';
+        const row = await register();
+        await dispatch();
+        await expect(redis.get(`ev:qf:{${row.subId}}`)).resolves.toBe('1');
+
+        workerOutcome = 'unavailable';
+        jump(deliveryBackoffMs(1) + 1);
+        await service.sweepPending();
+
+        expect(invoked).toHaveLength(2);
+        await expect(redis.get(`ev:qf:{${row.subId}}`)).resolves.toBe('1');
+    });
+
+    it('waits as long as the answer asked, up to the backoff ceiling', async () => {
+        socketConnected = false;
+        workerOutcome = 'unavailable';
+        workerRetryAfterMs = 60_000;
+        await register();
+
+        await dispatch();
+        expect(invoked).toHaveLength(1);
+
+        // Past the plain backoff, inside the wait the answer named.
+        jump(deliveryBackoffMs(1) + 1);
+        await service.sweepPending();
+        expect(invoked).toHaveLength(1);
+
+        jump(60_000);
+        await service.sweepPending();
+        expect(invoked).toHaveLength(2);
+
+        // A wait past the ceiling is held to it.
+        workerRetryAfterMs = 60 * 60 * 1000;
+        jump(EVENTS_RETRY_MAX_MS + 1);
+        await service.sweepPending();
+        expect(invoked).toHaveLength(3);
+        jump(EVENTS_RETRY_MAX_MS + 1);
+        await service.sweepPending();
+        expect(invoked).toHaveLength(4);
     });
 
     it('resumes a socket-only account row once its client reconnects, rather than wedging forever', async () => {
@@ -811,7 +884,7 @@ describe('a delivery everyone connected gets', () => {
         service.worker = {
             invoke: async (invocation: WorkerInvocation) => {
                 invoked.push(invocation);
-                return workerOutcome;
+                return { outcome: workerOutcome };
             },
             available: () => false,
         };

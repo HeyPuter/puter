@@ -1148,6 +1148,24 @@ describe('persistent delivery routing', () => {
         expect(seen).toHaveLength(1);
     });
 
+    it('hands later deliveries the context update() set, frozen', async () => {
+        const events = makeModule();
+        const seen = [];
+        events.channel.registerDurable(
+            'app-1#sub',
+            delivery => seen.push(delivery.ctx),
+            { label: 'old' },
+        );
+
+        events.channel.updateDurableContext('app-1#sub', { label: 'new' });
+        events.channel.updateDurableContext('app-1#other', { label: 'x' });
+        sockets[0].fire('events.delivery', durable('app-1#sub', '/user/a/new.txt'));
+
+        expect(seen).toEqual([{ label: 'new' }]);
+        expect(Object.isFrozen(seen[0])).toBe(true);
+        expect(events.channel.durable.has('app-1#other')).toBe(false);
+    });
+
     it('stops routing once the subscription is let go, and closes with the last', async () => {
         const events = makeModule();
         const seen = [];

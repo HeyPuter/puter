@@ -26,10 +26,14 @@ import {
     INTERNAL_ADMISSION_BYPASS,
     INTERNAL_DEPLOY_TARGET,
 } from '../../drivers/workers/WorkerDriver.js';
-import type { EventsInvokeCall } from '../../clients/events/EventsWorkerInvokerClient.js';
+import type {
+    EventsInvokeAnswer,
+    EventsInvokeCall,
+} from '../../clients/events/EventsWorkerInvokerClient.js';
 import {
-    EVENTS_HANDLED_HEADER,
     EVENTS_INVOKE_PATH,
+    answerFrom,
+    failedAnswer,
 } from '../../clients/events/EventsWorkerInvokerClient.js';
 import type { puterServices } from '../../services/index.js';
 import {
@@ -37,7 +41,10 @@ import {
     eventsWorkerScope,
     eventsWorkerScript,
 } from '../../services/events/workerRuntime.js';
-import { generateEventsWorkerSource } from '../../services/events/workerSource.js';
+import {
+    generateEventsWorkerSource,
+    handlerSetHash,
+} from '../../services/events/workerSource.js';
 import type { puterStores } from '../../stores/index.js';
 import type { IConfig, LayerInstances } from '../../types.js';
 import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
@@ -113,20 +120,24 @@ export class EventsWorkerDeployer {
         script: string,
     ): Promise<EventsDeployOutcome> {
         const { stores, drivers } = this.#layers;
+        const scope = eventsWorkerScope(this.#layers.config);
 
-        const handlers = await stores.eventHandler.allForApp(appUid);
-        if (handlers.length === 0) return 'no-handlers';
-
-        const generated = generateEventsWorkerSource(handlers);
+        // Names and hashes are enough to tell a stale request, so the set's
+        // sources are read and built only once the throttle has let it through.
+        const set = await stores.eventHandler.setForApp(appUid);
+        if (set.length === 0) return 'no-handlers';
         // Two apps that published byte-identical sets share one script, which
         // is sound: the source is the same, and everything per-app arrives with
         // the invocation. Whoever deploys first owns it.
-        if (
-            eventsWorkerScript(
-                generated.setHash,
-                eventsWorkerScope(this.#layers.config),
-            ) !== script
-        )
+        if (eventsWorkerScript(handlerSetHash(set), scope) !== script)
+            return 'stale';
+
+        if (await this.#tooManyDeploysThisHour(appUid)) return 'throttled';
+
+        const handlers = await stores.eventHandler.allForApp(appUid);
+        const generated = generateEventsWorkerSource(handlers);
+        // The set can move between the two reads.
+        if (eventsWorkerScript(generated.setHash, scope) !== script)
             return 'stale';
         if (generated.tooLarge) {
             console.error(
@@ -139,8 +150,6 @@ export class EventsWorkerDeployer {
                 `[events] ${appUid}: handlers not runnable as published:`,
                 generated.broken.join(', '),
             );
-
-        if (await this.#tooManyDeploysThisHour(appUid)) return 'throttled';
 
         const owner = await this.#owner(appUid);
         if (!owner) return 'no-owner';
@@ -289,11 +298,7 @@ export class LocalEventsInvokeTransport {
         this.#deployer = deployer;
     }
 
-    async send(call: EventsInvokeCall): Promise<{
-        status: number | null;
-        handled?: boolean;
-        error?: string;
-    }> {
+    async send(call: EventsInvokeCall): Promise<EventsInvokeAnswer> {
         const request = (): Request =>
             new Request(
                 `http://${call.script}.workers.puter.localhost${EVENTS_INVOKE_PATH}`,
@@ -323,10 +328,7 @@ export class LocalEventsInvokeTransport {
                 return { status: null, error: 'script not resident' };
             return retried;
         } catch (err) {
-            return {
-                status: null,
-                error: err instanceof Error ? err.message : String(err),
-            };
+            return failedAnswer(err);
         }
     }
 
@@ -337,7 +339,7 @@ export class LocalEventsInvokeTransport {
     async #dispatch(
         request: Request,
         timeoutMs: number,
-    ): Promise<{ status: number; handled: boolean } | null> {
+    ): Promise<EventsInvokeAnswer | null> {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<'timeout'>((resolve) => {
             timer = setTimeout(() => resolve('timeout'), timeoutMs);
@@ -348,12 +350,10 @@ export class LocalEventsInvokeTransport {
                 this.#services.localworkerservice.dispatchEventsWorker(request),
                 timeout,
             ]);
-            if (response === 'timeout') throw new Error('invocation timed out');
+            if (response === 'timeout')
+                throw new DOMException('invocation timed out', 'TimeoutError');
             if (response === null) return null;
-            return {
-                status: response.status,
-                handled: response.headers.get(EVENTS_HANDLED_HEADER) === '1',
-            };
+            return answerFrom(response);
         } finally {
             clearTimeout(timer);
         }

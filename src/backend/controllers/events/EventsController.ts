@@ -105,6 +105,24 @@ export class EventsController extends PuterController {
     }
 
     /**
+     * POST /events/subscriptions/update — replace one subscription's `context`
+     * in place. An id the caller does not hold reads as absent.
+     */
+    @Post('/subscriptions/update', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async update(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const { sub } = await this.services.events.updateDurable(
+            actor,
+            bodyRecord(req),
+        );
+        res.json(sub);
+    }
+
+    /**
      * GET /events/fetch — what the caller missed, one page at a time.
      *
      * Stateless: no subscription, no stored position, nothing written. The

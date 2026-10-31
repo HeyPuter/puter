@@ -509,7 +509,7 @@ describe('WorkerDriver', () => {
             );
         });
 
-        it('returns app_uid for sandboxed/app-bound workers and null for user-scoped workers', async () => {
+        it('returns app_uid and app_name for sandboxed/app-bound workers and null for user-scoped workers', async () => {
             const tag = `wkuid${Math.random().toString(36).slice(2, 8)}`;
             const owner = await makeUser(tag);
             const app = await server.stores.app.create(
@@ -538,15 +538,21 @@ describe('WorkerDriver', () => {
             const seen = (await inCtx(
                 () => target.getFilePaths({}),
                 actorFor(owner),
-            )) as Array<{ name: string; app_uid: string | null }>;
+            )) as Array<{
+                name: string;
+                app_uid: string | null;
+                app_name: string | null;
+            }>;
 
             const bound = seen.find((r) => r.name === `${tag}-bound`);
             const plain = seen.find((r) => r.name === `${tag}-plain`);
 
             expect(bound).toBeDefined();
             expect(bound?.app_uid).toBe(app.uid);
+            expect(bound?.app_name).toBe(`app-${tag}`);
             expect(plain).toBeDefined();
             expect(plain?.app_uid).toBeNull();
+            expect(plain?.app_name).toBeNull();
         });
     });
 
@@ -613,6 +619,7 @@ describe('WorkerDriver', () => {
                         file_path: dir.path,
                         file_uid: dir.uuid,
                         app_uid: app.uid,
+                        app_name: app.name,
                         created_at: expect.any(String),
                     },
                 ]);

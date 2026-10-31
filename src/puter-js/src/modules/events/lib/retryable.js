@@ -12,18 +12,39 @@
  */
 export const isRetryableError = (error) => {
     if ( !error || typeof error !== 'object' ) return false;
+    if ( isTerminalError(error) ) return false;
     const err = /** @type {Record<string, unknown>} */ (error);
-    if ( err.terminal === true || err.code === 'events_terminal' ) return false;
     if ( err.retry === true ) return true;
 
-    const status = Number(err.status ?? err.statusCode);
-    if ( status === 429 || (status >= 500 && status < 600) ) return true;
+    if ( isRetryableStatus(Number(err.status ?? err.statusCode)) ) return true;
     if ( typeof err.code === 'string' && RETRYABLE_CODES.includes(err.code) ) return true;
     if ( err.name === 'TimeoutError' ) return true;
     return err.name === 'TypeError' &&
         typeof err.message === 'string' &&
         /fetch|network/i.test(err.message);
 };
+
+/**
+ * Whether the handler asked for the event to be dropped, whatever else the
+ * error says.
+ *
+ * @param {unknown} error What the handler threw.
+ * @returns {boolean}
+ */
+export const isTerminalError = (error) => {
+    if ( !error || typeof error !== 'object' ) return false;
+    const err = /** @type {Record<string, unknown>} */ (error);
+    return err.terminal === true || err.code === 'events_terminal';
+};
+
+/**
+ * An HTTP status that means "not now": a 429 or any 5xx.
+ *
+ * @param {number} status
+ * @returns {boolean}
+ */
+export const isRetryableStatus = (status) =>
+    status === 429 || (status >= 500 && status < 600);
 
 const RETRYABLE_CODES = [
     'network_error',
