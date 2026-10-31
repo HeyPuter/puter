@@ -77,6 +77,7 @@ export default suite('notifications', {
             'off',
             'requestPermission',
             'hasPermission',
+            'status',
             'listDevices',
             'removeDevice',
         ] as const) {
@@ -229,6 +230,37 @@ export default suite('notifications', {
         t.assert.equal(
             await asApp(t, appUid, () => t.puter.notifications.hasPermission()),
             true,
+        );
+    },
+
+    'the pushNotifications resource checks the same grant, batched with backgroundEvents': async (
+        t,
+    ) => {
+        const appUid = await makeApp(t);
+        const check = () =>
+            asApp(t, appUid, () =>
+                t.puter.perms.check([
+                    { resource: 'backgroundEvents' },
+                    { resource: 'pushNotifications' },
+                ]),
+            );
+        t.assert.deepEqual(await check(), [false, false]);
+
+        await t.puter.perms.grantApp(appUid, 'notifications:push');
+        t.assert.deepEqual(await check(), [false, true]);
+        t.assert.equal(
+            await asApp(t, appUid, () =>
+                t.puter.perms.check(t.puter.perms.Resource.PUSH_NOTIFICATIONS),
+            ),
+            true,
+        );
+    },
+
+    'status resolves one of its four states without asking': async (t) => {
+        const state = await t.puter.notifications.status();
+        t.assert.ok(
+            ['on', 'off', 'blocked', 'unavailable'].includes(state),
+            `status() resolved ${state}`,
         );
     },
 });
