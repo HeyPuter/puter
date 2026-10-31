@@ -96,10 +96,10 @@ When the share is of an app's data, the holder gets a `kv.share.received` [notif
 ## Who can share
 
 - **Account.** Where the deployment requires a confirmed email address, an unconfirmed account is rejected with `account_is_not_verified`. Sharing doesn't need a phone number, a card, or a paid plan. A temporary account can't share and gets `events_kv_handle_requires_account`.
-- **Apps.** An app can share only its own data, and only with the user's consent, which it asks for with [`puter.perms.request('kvShare', …)`](/Perms/request/). The consent names a prefix and a level. It covers that prefix and every key under it, at that level and the levels below it.
+- **Apps.** An app can share only its own data, and only with the user's consent, which it asks for with [`puter.perms.request('kvShare', …)`](/Perms/request/). The consent names a prefix and a level. A request without a level asks for `'read'`, the same default `access` has. The consent covers that prefix and every key under it, at that level and the levels below it.
 - **Recipient blocks.** A user who blocked you, or who doesn't accept shares from anyone, can't be shared with. The call fails with `recipient_not_accepting_shares`. A block added later doesn't remove an existing share. You can still lower its access, clear its label with `label: null`, or stop it, and raising its access or setting a new label fails with `recipient_not_accepting_shares`.
 
-See [Rate Limits and Quotas](/rate-limits-and-quotas/#events) for how many shares an account can make per minute and hold at once.
+See [Rate Limits and Quotas](/rate-limits-and-quotas/#events) for how many shares an account can make per minute and hold at once, and [Key-value store](/rate-limits-and-quotas/#key-value-store) for how much all the holders of your shares can read and write together.
 
 ## Errors
 

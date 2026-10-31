@@ -74,7 +74,8 @@
  * @typedef {Object} PermsKvShareRequest
  * @property {string} prefix - The key prefix of the region, such as
  *   `'workspace:abc:'`. Not the whole namespace, and not a pattern.
- * @property {PermsKvShareAccess} [access] - Defaults to `'watch'`.
+ * @property {PermsKvShareAccess} [access] - Defaults to `'read'`, the level
+ *   `puter.kv.share()` creates by default.
  */
 
 /**

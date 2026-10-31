@@ -182,6 +182,10 @@ const subtreeClause = (
     ]),
 });
 
+/** Whether `permission` is `root` or beneath it, comparing case exactly. */
+const inSubtree = (permission: string, root: string): boolean =>
+    permission === root || permission.startsWith(`${root}:`);
+
 /** `roots` less any at or beneath another of them, which that one's scan covers. */
 const outermostRoots = (roots: readonly string[]): string[] => {
     const all = new Set(roots);
@@ -526,10 +530,14 @@ export class PermissionStore extends PuterStore {
         permission: string,
         issuerUserId: number,
     ): Promise<boolean> {
+        const { scope, params } = this.#issuerHolderScope(
+            holderUserId,
+            issuerUserId,
+            [permission],
+        );
         const result = await this.clients.db.write(
-            'DELETE FROM `user_to_user_permissions` WHERE `holder_user_id` = ? ' +
-                'AND `permission` = ? AND `issuer_user_id` = ?',
-            [holderUserId, permission, issuerUserId],
+            `DELETE FROM \`user_to_user_permissions\` WHERE ${scope}`,
+            params,
         );
         if (!result.anyRowsAffected) return false;
         await this.tombstoneCacheKeys([this.#u2uCacheKey(holderUserId)]);
@@ -566,8 +574,8 @@ export class PermissionStore extends PuterStore {
     }
 
     /**
-     * Which of `permissions` this issuer granted this holder, as the primary
-     * spells them. A point lookup on the table's key.
+     * Which of `permissions` this issuer granted this holder. A point lookup on
+     * the table's key.
      */
     async findUserUserPermsByIssuer(
         holderUserId: number,
@@ -587,17 +595,28 @@ export class PermissionStore extends PuterStore {
         return rows.map((row) => String(row.permission));
     }
 
+    /**
+     * One issuer's grants of `permissions` to one holder, matched byte for byte
+     * as checks and the flat view match them. MySQL's column collation folds
+     * case, so there the indexed comparison is narrowed by a binary one.
+     */
     #issuerHolderScope(
         holderUserId: number,
         issuerUserId: number,
         permissions: readonly string[],
     ): { scope: string; params: unknown[] } {
         const unique = [...new Set(permissions)];
+        const list = unique.map(() => '?').join(', ');
+        const exact = this.clients.db.case({
+            mysql: {
+                sql: `\`permission\` IN (${list}) AND CAST(\`permission\` AS BINARY) IN (${list})`,
+                params: [...unique, ...unique],
+            },
+            otherwise: { sql: `\`permission\` IN (${list})`, params: unique },
+        });
         return {
-            scope:
-                '`holder_user_id` = ? AND `issuer_user_id` = ? AND ' +
-                `\`permission\` IN (${unique.map(() => '?').join(', ')})`,
-            params: [holderUserId, issuerUserId, ...unique],
+            scope: `\`holder_user_id\` = ? AND \`issuer_user_id\` = ? AND ${exact.sql}`,
+            params: [holderUserId, issuerUserId, ...exact.params],
         };
     }
 
@@ -713,22 +732,28 @@ export class PermissionStore extends PuterStore {
             typeof permission === 'string' ? [permission] : [...permission];
         if (roots.length === 0) return [];
         const { where, params } = subtreeClause(roots);
-        const scope = '`holder_user_id` = ? AND `issuer_user_id` = ?';
-        const scoped = [holderUserId, issuerUserId, ...params];
 
         // The primary: a replica behind it misses a grant just made, whose
-        // flat entry would then outlive the revoke.
+        // flat entry would then outlive the revoke. Narrowed here because
+        // `LIKE` folds case on MySQL and SQLite, and checks never do.
         const removed = (
             await this.clients.db.pread(
                 'SELECT `permission` FROM `user_to_user_permissions` ' +
-                    `WHERE ${scope} AND (${where})`,
-                scoped,
+                    `WHERE \`holder_user_id\` = ? AND \`issuer_user_id\` = ? AND (${where})`,
+                [holderUserId, issuerUserId, ...params],
             )
-        ).map((row) => String(row.permission));
+        )
+            .map((row) => String(row.permission))
+            .filter((held) => roots.some((root) => inSubtree(held, root)));
         if (removed.length > 0) {
+            const { scope, params: exact } = this.#issuerHolderScope(
+                holderUserId,
+                issuerUserId,
+                removed,
+            );
             await this.clients.db.write(
-                `DELETE FROM \`user_to_user_permissions\` WHERE ${scope} AND (${where})`,
-                scoped,
+                `DELETE FROM \`user_to_user_permissions\` WHERE ${scope}`,
+                exact,
             );
             await this.tombstoneCacheKeys([this.#u2uCacheKey(holderUserId)]);
         }
