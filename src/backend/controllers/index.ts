@@ -30,6 +30,7 @@ import { HostingController } from './hosting/HostingController.js';
 import { KvShareController } from './kvShare/KvShareController.js';
 import { LegacyFSController } from './fs/LegacyFSController.js';
 import { NotificationController } from './notification/NotificationController.js';
+import { MagicLinkController } from './auth/MagicLinkController.js';
 import { OIDCController } from './oidc/OIDCController.js';
 import { PuterAIController } from './puterai/PuterAIController.js';
 import { ShareController } from './share/ShareController.js';
@@ -63,6 +64,7 @@ export const puterControllers = {
     share: ShareController,
     webdav: WebDAVController,
     oidc: OIDCController,
+    magicLink: MagicLinkController,
     wisp: WispController,
     peer: PeerController,
     // Last so its catch-all static fallback doesn't shadow earlier routes.
