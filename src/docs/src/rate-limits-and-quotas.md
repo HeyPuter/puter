@@ -552,7 +552,8 @@ Counted per event, per region:
 | `unsubscribe`                                     | 600/min  | Per user, all apps |
 | Acknowledgements                                  | 600/min  | Per user, all apps |
 | Share-handle mint / revoke                        | 60/min   | Per user, all apps |
-| Recipients of `kv.share()`                        | 300/min, 2,000/hour | Per user, all apps |
+| New recipients of `kv.share()`                    | 300/min, 2,000/hour | Per user, all apps |
+| Recipients named in `kv.share()`                  | 1,200/min | Per user, all apps |
 | `kv.share.received` notifications                 | 5/hour   | Per owner and holder |
 | Handler publish / remove                          | 60/min   | Per user, all apps |
 | Subscription and share-handle listings (combined) | 120/min  | Per user, per app  |
@@ -562,7 +563,7 @@ Counted per event, per region:
 
 Over any of these: `too_many_requests`, except `kv.share.received` notifications: a share past that limit is still made, and the holder isn't notified about it. Listing pages hold up to 200 items.
 
-A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients. Each one counts toward the recipient budget, and the call counts once toward the mint budget. When the recipients don't all fit in the recipient budget, the whole call fails with `too_many_requests`, and the part that did fit still counts. A `fetch()` page defaults to 50 events and holds up to 200.
+A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients, and each one counts toward the named-recipient limit. A recipient who doesn't already have the share also counts toward the new-recipient limit, including a username that doesn't exist and a user the share is refused for. The call counts once toward the mint limit when it makes a share, changes one, or has any recipient who counts as new. A call where every recipient already has the share at the same access level and label counts only toward the named-recipient limit. When the recipients don't all fit in a limit, the whole call fails with `too_many_requests`, and the part that did fit still counts. A `fetch()` page defaults to 50 events and holds up to 200.
 
 Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one.
 

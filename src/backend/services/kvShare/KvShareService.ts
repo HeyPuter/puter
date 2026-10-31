@@ -23,6 +23,7 @@ import {
     EVENTS_KV_HANDLES_PER_HOLDER,
     EVENTS_KV_HANDLES_PER_USER,
     KV_SHARE_GRANT_LIMITS,
+    KV_SHARE_LOOKUP_LIMIT,
     KV_SHARE_NOTICE_LIMIT,
     limitFor,
     type TieredQuota,
@@ -621,8 +622,8 @@ export class KvShareService extends PuterService {
         if (app === null && !isAccountContext(actor)) throw handleOwnerOnly();
 
         const ownerUserId = owner.id;
-        // The budget is the user's, so an app spends its user's slots.
-        await this.#spendHandleBudget(ownerUserId);
+        // The budgets are the user's, so an app spends its user's slots.
+        await this.#spendLookupBudget(ownerUserId, recipients.length);
 
         const keyPrefix = assertShareablePrefix(request.prefix);
         const label = parseKvShareLabel(request.label);
@@ -637,11 +638,6 @@ export class KvShareService extends PuterService {
         // neither whether a username exists nor a handle it may no longer
         // hand out.
         if (app) await this.#assertKvShareDelegated(actor, permission);
-
-        // One unit per named recipient, before any lookup, so a batch is no
-        // cheaper way to probe usernames than single calls.
-        const named = recipients.filter((r) => !isHttpError(r)).length;
-        await this.#spendGrantBudget(ownerUserId, named);
 
         const results: KvShareMintResult[] = recipients.map((r) =>
             isHttpError(r) ? { error: r } : {},
@@ -702,6 +698,34 @@ export class KvShareService extends PuterService {
                 );
             },
         );
+
+        const keepLevel =
+            options.keepLevelUnlessNamed &&
+            (request.access === undefined || request.access === null);
+        const wantedFor = (existing: KvShareHandle) => ({
+            permission: keepLevel ? existing.permission : permission,
+            label,
+        });
+        // A call that only finds shares it leaves as they are spends neither
+        // budget. Every other named recipient costs a grant unit, unknown ones
+        // included, so naming a stranger costs what sharing with them would.
+        const standing = new Set(
+            plans.filter((plan) => plan.existing).map((plan) => plan.index),
+        );
+        const charged =
+            recipients.filter((r) => !isHttpError(r)).length -
+            standing.size -
+            duplicates.filter(([, first]) => standing.has(first)).length;
+        const changes = plans.some(
+            ({ existing }) =>
+                existing !== null &&
+                shareChanges(existing, wantedFor(existing)),
+        );
+        if (charged > 0 || changes) {
+            await this.#spendHandleBudget(ownerUserId);
+            await this.#spendGrantBudget(ownerUserId, charged);
+        }
+
         // New shares only, so ones made before these rules can still be
         // narrowed or taken back.
         const added = plans.filter((plan) => !plan.existing);
@@ -733,9 +757,6 @@ export class KvShareService extends PuterService {
             fresh.length,
         );
 
-        const keepLevel =
-            options.keepLevelUnlessNamed &&
-            (request.access === undefined || request.access === null);
         // No lock spans the batch: each recipient is its own region, a level
         // change takes its handle's own lock, and the caps above were checked
         // for the whole batch.
@@ -745,12 +766,12 @@ export class KvShareService extends PuterService {
             async ({ index, grantee, existing }) => {
                 try {
                     const row = existing
-                        ? await this.#changeShare(actor, existing, grantee, {
-                              permission: keepLevel
-                                  ? existing.permission
-                                  : permission,
-                              label,
-                          })
+                        ? await this.#changeShare(
+                              actor,
+                              existing,
+                              grantee,
+                              wantedFor(existing),
+                          )
                         : await this.#grantAndMint(actor, grantee, {
                               ownerUserId,
                               appUid,
@@ -1566,6 +1587,17 @@ export class KvShareService extends PuterService {
             );
             if (admitted < units) throw tooManyCalls();
         }
+    }
+
+    /** One unit per named recipient, spent before anything is looked up. */
+    async #spendLookupBudget(userId: number, units: number): Promise<void> {
+        const admitted = await claimRateLimit(
+            `${KV_SHARE_LOOKUP_LIMIT.scope}:${userId}`,
+            KV_SHARE_LOOKUP_LIMIT.limit,
+            KV_SHARE_LOOKUP_LIMIT.window,
+            units,
+        );
+        if (admitted < units) throw tooManyCalls();
     }
 
     async #spendHandleBudget(userId: number): Promise<void> {

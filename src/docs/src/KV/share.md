@@ -87,6 +87,8 @@ Sharing the same prefix of the same app's data with the same user again changes 
 
 Leave out `label` to keep the current label, pass a new one to replace it, or pass `null` to clear it.
 
+A call where every recipient already has the share, at the same access level and with the same label, changes nothing. It counts toward the limit on named recipients but not toward the mint or new-recipient limits, so your app can share again each time it opens to get the `handle` back. A call with any recipient who doesn't have the share yet counts toward all three. See [Rate Limits and Quotas](/rate-limits-and-quotas/#call-budgets) for the numbers.
+
 ## What the holder sees
 
 The holder is never told who shared or what the prefix is. The keys they read and write are relative to the prefix. The label is the only thing about the share you choose to tell them.

@@ -204,13 +204,21 @@ export const EVENTS_KV_HANDLES_PER_APP = tiered(10_000, 2_000, 0);
 export const EVENTS_KV_HANDLES_PER_HOLDER = 256;
 
 /**
- * Recipients one account may share with, per minute and per hour. A batch
- * spends one per recipient, on top of the per-call mint budget.
+ * Recipients one account may share with, per minute and per hour. A call spends
+ * one per recipient that doesn't already hold the share, on top of the per-call
+ * mint budget.
  */
 export const KV_SHARE_GRANT_LIMITS = [
     userWindow('kvShare:grants:minute', 300),
     userWindow('kvShare:grants:hour', 2_000, 60 * 60_000),
 ] as const;
+
+/**
+ * Recipients one account may name in share calls per minute, existing shares
+ * included. Each one is looked up before the call knows whether it changes
+ * anything, so a client that shares again on every load is bounded here.
+ */
+export const KV_SHARE_LOOKUP_LIMIT = userWindow('kvShare:lookups', 1_200);
 
 /** Recipients one `POST /kv/shares` call may name. */
 export const KV_SHARE_BATCH_MAX = 50;
