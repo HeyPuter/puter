@@ -3,29 +3,20 @@
     <script src="https://js.puter.com/v2/"></script>
     <script>
         (async () => {
-            // Wrong — will sort as 1, 10, 100, 2, 20
-            await puter.kv.set('item:1', '...');
-            await puter.kv.set('item:10', '...');
-            await puter.kv.set('item:2', '...');
-
-            // Correct — zero-pad to a fixed width
-            await puter.kv.set('item:001', '...');
-            await puter.kv.set('item:002', '...');
-            await puter.kv.set('item:010', '...');
-            await puter.kv.set('item:100', '...');
+            // Pad numbers to a fixed width, so string order matches number order
+            const keys = ['item:010', 'item:002', 'item:100', 'item:001'];
+            for (const key of keys) {
+                await puter.kv.set(key, '...');
+            }
 
             const items = await puter.kv.list('item:*');
             puter.print('Items with zero-padding: <br/>');
             puter.print(items.join('<br/>'));
 
             // Cleanup
-            await puter.kv.del('item:1');
-            await puter.kv.del('item:10');
-            await puter.kv.del('item:2');
-            await puter.kv.del('item:001');
-            await puter.kv.del('item:002');
-            await puter.kv.del('item:010');
-            await puter.kv.del('item:100');
+            for (const key of keys) {
+                await puter.kv.del(key);
+            }
         })();
     </script>
 </body>

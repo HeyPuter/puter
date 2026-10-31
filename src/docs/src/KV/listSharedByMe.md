@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
 
-Lists the shares you made with [`puter.kv.share()`](/KV/share/), a page at a time. Shares that stopped stay in the listing for 30 days with `revokedAt` and `revokedBy` set, as a record of who had access and when it ended. After 30 days they are deleted.
+Lists the shares you made with [`puter.kv.share()`](/KV/share/), a page at a time. A share that stopped stays in the listing for 30 days with `revokedAt` and `revokedBy` set, so you can see who had access and when it ended. After 30 days it's deleted.
 
 In an app, the listing has only the shares of that app's data. Outside an app, it has every share you made, and `appUid` narrows it to one app.
 
@@ -21,7 +21,7 @@ puter.kv.listSharedByMe(options)
 
 #### `options` (Object) (optional)
 
-- `limit` (Number): Shares per page. Defaults to `50`, at most `200`.
+- `limit` (Number): Shares per page. Defaults to `50`. A value over `200` is lowered to `200`.
 - `cursor` (String): The `cursor` from the previous page.
 - `includeTotal` (Boolean): Add `total` to the result. Defaults to `false`.
 - `appUid` (String | null): List only the shares of this app's data. Pass `null` for the store that belongs to no app. In an app, the only uid you can pass is the app's own.
@@ -36,12 +36,12 @@ A `Promise` that resolves to:
     - `prefix` (String): The shared prefix, ending with `:`.
     - `access` (String): `'watch'`, `'read'`, or `'write'`.
     - `appUid` (String | null): The app whose data is shared, or `null` for the store that belongs to no app.
-    - `holder` (String | null): The holder's username. When the holder deletes their account, their shares are deleted with it and leave this listing.
+    - `holder` (String | null): The holder's username. When the holder deletes their account, their shares are deleted and leave this listing.
     - `label` (String | null): The label the holder is shown.
     - `notify` (Boolean): Whether you and the holder can send each other notifications through the share with [`puter.notifications.notify()`](/Notifications/notify/).
     - `createdAt` (Number): When the share was made, in Unix seconds.
     - `revokedAt` (Number | null): When the share stopped, in Unix seconds, or `null` while it's live.
-    - `revokedBy` (String | null): Who stopped it. It's `'owner'` when you revoked it, `'holder'` when the holder removed their own access, and `'system'` when the app whose data it was got deleted or you removed that app along with its data. It's `null` while the share is live, and on some shares that stopped before Puter recorded who stopped them.
+    - `revokedBy` (String | null): Who stopped it. It's `'owner'` when you revoked it, `'holder'` when the holder removed their own access, and `'system'` when the app whose data it was got deleted or you removed that app along with its data. It's `null` while the share is live, and can be `null` on an older share that stopped.
 - `cursor` (String): Pass it as `cursor` to get the next page. It's included only if there are more pages to load.
 - `total` (Number): The number of shares across every page that match `appUid` and `state`. Only included when `includeTotal` is `true`.
 
@@ -61,13 +61,11 @@ The promise rejects with `{ message, code }`:
 <strong class="example-title">Show who has access, and who left</strong>
 
 ```js
-const { items } = await puter.kv.listSharedByMe({ includeTotal: true });
+const { items } = await puter.kv.listSharedByMe();
 for (const share of items) {
-    const state = share.revokedBy === 'holder'
-        ? 'left'
-        : share.revokedAt
-            ? 'removed'
-            : share.access;
+    let state = share.access;
+    if (share.revokedBy === 'holder') state = 'left';
+    else if (share.revokedAt) state = 'removed';
     puter.print(`${share.holder}: ${share.prefix} (${state})<br>`);
 }
 ```

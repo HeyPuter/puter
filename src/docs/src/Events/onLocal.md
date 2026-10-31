@@ -1,14 +1,14 @@
 ---
 title: puter.events.onLocal()
-description: Subscribe to changes on a file, directory, or key-value key for as long as this client is connected.
+description: Subscribe to changes on a file, directory, key-value key, or notifications for as long as this client is connected.
 platforms: [websites, apps, nodejs]
 ---
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Subscribes to a subject and calls `handler` each time something matching it changes. The subscription belongs to this client's connection: nothing is stored, nothing runs while the page is closed, and it ends when the connection does. Changes from other devices and regions reach it too; one made in another region typically arrives a few hundred milliseconds later than a local one. See [Subjects and events](/Events/subjects/) for the subject syntax and the event shape.
+Subscribes to a subject and calls `handler` each time something matching it changes. The subscription belongs to this client's connection. Nothing is stored, nothing runs while the page is closed, and the subscription ends when the connection does. Changes from other devices and regions reach it too. A change made in another region usually arrives a few hundred milliseconds later than a local one. See [Subjects and events](/Events/subjects/) for the subject syntax and the event shape.
 
-Not for Puter workers: a subscription there only lasts for one invocation. To react to changes from a worker, use [`onPersistent()`](/Events/onPersistent/) with a published handler.
+In a Puter worker, a subscription only lasts for one invocation. To react to changes from a worker, use [`onPersistent()`](/Events/onPersistent/) with a published handler.
 
 On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
 
@@ -21,28 +21,31 @@ puter.events.onLocal(subject, handler, options)
 ## Parameters
 
 #### `subject` (String) (required)
-What to watch: `fs:<path or uid>[:<op>]`, `kv:<key>`, or `notif:<audience>`. See [Subjects](/Events/subjects/).
+What to watch, such as `fs:~/Documents`, `kv:cart`, `kv:<handle>:*`, or `notif:app-user`. See [Subjects and events](/Events/subjects/).
 
 #### `handler` (Function) (required)
-Called with `{ event }` for each delivery; see [The event](/Events/subjects/#the-event). `event.op === 'gap'` means events were dropped by a limit or missed while the connection was down: re-read what you're watching (see [Gaps](/Events/subjects/#gaps)). A handler that throws is logged to the console; the subscription continues.
+Called with `{ event }` for each delivery. See [The event](/Events/subjects/#the-event). When `event.op` is `'gap'`, events were dropped by a limit or missed while the connection was down, so re-read what you're watching (see [Gaps](/Events/subjects/#gaps)). A handler that throws is logged to the console, and the subscription continues.
 
 #### `options` (Object) (optional)
 
-- `onError` (Function): Called with `{ message, code }` if the subscription can't be restored after a disconnect: re-subscribing failed, the reconnect was refused, or the server kept closing the connection. A single disconnect is reconnected without calling it; the handler gets a `reconnect` gap instead. After `onError`, the subscription is over; call `onLocal()` again to resume. It's also called with `code: 'subscription_ended'` and a `reason` when the server ends the subscription (see [Subscriptions the server ends](#subscriptions-the-server-ends)). Without it, the error is logged to the console.
+- `onError` (Function): Called with `{ message, code }` once the subscription is over. That happens when it can't be restored after a disconnect (see [Reconnects](#reconnects)), or when the server ends it, with `code: 'subscription_ended'` and a `reason` (see [Subscriptions the server ends](#subscriptions-the-server-ends)). The handler isn't called after that. Call `onLocal()` again to resume. Without `onError`, the error is logged to the console.
 - `timeout` (Number): How long to wait for the server to confirm the subscription, in milliseconds. Defaults to `30000`.
-- `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value` (`null` on a `del`, absent on an `expire`). See [Getting the new value](/Events/subjects/#getting-the-new-value) for when it's left out. Refused on other subjects.
+- `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value`. See [Getting the new value](/Events/subjects/#getting-the-new-value) for when it's left out. Other subjects are refused with `invalid_include_value`.
 
 ## Return value
 
-A `Promise` that resolves, once the server confirms the subscription, to:
+A `Promise` that resolves, once the server confirms the subscription, to a subscription object:
 
 - `subId` (String | null): The server's id for the subscription. It changes on every reconnect, so don't store anything against it.
-- `subject` (String): The subject as you passed it. A relative `fs:` path comes back resolved: `fs:inbox` returns as `fs:~/AppData/<appId>/inbox` in an app, `fs:~/inbox` otherwise. For `kv:`, `anchor.uid` is the app it resolved to; for `notif:`, the app, or your user id when acting as the account.
-- `anchor` (Object): The node the subscription is attached to, as `{ uid, path }`: the subject itself, or its nearest existing parent if the subject doesn't exist yet. For `kv:`, `uid` is the app whose store is watched and `path` is the key prefix. Through a share handle, `uid` is the handle and `path` is empty. `path` is the one from when you subscribed; a later rename doesn't update it.
-- `match` (String | null): The pattern matched under the anchor, if the subject had one. For a path that didn't exist yet, it's the rest of that path, and it covers that path and everything under it.
+- `subject` (String): The subject as you passed it. A relative `fs:` path comes back resolved. In an app, `fs:inbox` comes back as `fs:~/AppData/<appId>/inbox`, and outside an app as `fs:~/inbox`.
+- `anchor` (Object): What the subscription is attached to, as `{ uid, path }`.
+    - For `fs:`, the node the subject names, or its nearest existing parent folder if the subject doesn't exist yet. Its `path` is the one from when you subscribed, so a later rename doesn't update it. On another user's file or folder, `path` is empty.
+    - For `kv:`, `uid` is the app whose store is watched and `path` is the key prefix. Through a share handle, `uid` is the handle and `path` is empty.
+    - For `notif:`, `uid` is the app the subject is about, which is your app for the two-segment form, or your user id when it names no app. Its `path` is empty.
+- `match` (String | null): The pattern matched under the anchor, or `null` when there is none. For a path that didn't exist yet, it's the rest of that path, and it covers that path and everything under it.
 - `op` (String | null): The one operation this subscription is limited to, or `null` for all.
 - `includeValue` (Boolean): Whether `kv:` deliveries carry the new value.
-- `off` (Function): Ends the subscription; see [`subscription.off()`](/Events/off/).
+- `off` (Function): Ends the subscription. See [`subscription.off()`](/Events/off/).
 
 The promise rejects with `{ message, code }`:
 
@@ -52,11 +55,13 @@ The promise rejects with `{ message, code }`:
 | `invalid_handler` | `handler` isn't a function. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `invalid_subject_op` | The `:op` suffix isn't one of the five operations. |
-| `invalid_subject_pattern` | The pattern is over its limits: 256 characters, 16 segments, one `*` per segment, one `**` in total. Through a share handle, the 256 characters are counted after the handle. |
+| `invalid_subject_audience` | A `notif:` subject names an audience other than `account`, `developer`, or `app-user`. |
+| `invalid_subject_pattern` | The pattern is over 256 characters or 16 segments, or uses more than one `*` in a segment or more than one `**` in total. Through a share handle, the 256 characters are counted after the handle. |
 | `invalid_kv_pattern` | A `kv:` subject has a `*` before the end, or a `?`. |
-| `invalid_kv_handle_key` | A `kv:<handle>:…` subject names no key, or a key that tries to leave the shared region. |
+| `invalid_kv_handle_key` | A `kv:<handle>` subject names no key, a key starting with `:`, or a key with a `..` segment. |
 | `invalid_include_value` | `includeValue` isn't a boolean, or the subject isn't `kv:`. |
 | `events_cross_app_disabled` | The subject names another app's key-value data, and that's turned off on this server. |
+| `events_kv_handles_disabled` | The subject names a share handle, and watching through share handles is turned off on this server. |
 | `forbidden` | The other app doesn't share its data, or your app hasn't been granted read access to its key-value data (see [`puter.perms.request('appData')`](/Perms/appData/)). |
 | `subject_does_not_exist` | The subject doesn't exist, or this account can't read it. |
 | `events_subscription_limit` | This connection already has 50 subscriptions, or you already have 1,000 through this share handle across all your connections. |
@@ -68,11 +73,11 @@ The promise rejects with `{ message, code }`:
 
 ## Reconnects
 
-All of a client's session subscriptions share one connection, opened by the first `onLocal()` and closed when the last one ends.
+All of a client's session subscriptions share one connection. The first `onLocal()` opens it, and it closes when the last subscription ends.
 
-If the connection drops (a network blip, a sign-in, an API origin change, or the server closing it), the SDK reconnects and subscribes again. The handler and subscription object stay the same; only `subId` changes, so don't store anything against it. `onError` is called only if the subscription can't be restored: re-subscribing fails, the reconnect is refused (`reauth_required` after a sign-out), or the server keeps closing the connection (`events_connection_failed`).
+If the connection drops (a network blip, a sign-in, an API origin change, or the server closing it), the SDK reconnects and subscribes again. The handler and the subscription object stay the same, and only `subId` changes. Changes made while the connection was down aren't sent afterwards. Once the subscription is back, the handler gets one [gap marker](/Events/subjects/#gaps) with `reason: 'reconnect'`, so a handler that re-reads on gaps catches up by itself. For `notif:` subjects, [`fetch()`](/Events/fetch/) reads exactly what was missed.
 
-Changes made while it was down aren't sent afterwards. Once the subscription is back, the handler gets one [gap marker](/Events/subjects/#gaps) with `reason: 'reconnect'`, so a handler that re-reads on gaps catches up by itself. For `notif:` subjects, [`fetch()`](/Events/fetch/) reads exactly what was missed.
+The SDK calls `onError` only if the subscription can't be restored. That's when subscribing again fails, when the reconnect is refused (`reauth_required` after a sign-out), or when the server keeps closing the connection (`events_connection_failed`).
 
 ```js
 const sub = await puter.events.onLocal('fs:~/Documents', handler, {
@@ -82,14 +87,14 @@ const sub = await puter.events.onLocal('fs:~/Documents', handler, {
 
 ## Subscriptions the server ends
 
-The server can end a session subscription on its own, without a disconnect. `onError` is called once, and the handler isn't called after that. What was already on its way to the handler is usually delivered first, but not always: a delivery held back by a limit or an empty balance, or one for a change made at about the same moment, may never arrive.
+The server can end a session subscription on its own, without a disconnect. The SDK calls `onError` once, and the handler isn't called after that. What was already on its way to the handler usually arrives first, but not always. A delivery held back by a limit or an empty balance, or one for a change made at about the same moment, may never arrive.
 
 | `code` | `reason` | When |
 | --- | --- | --- |
 | `subscription_ended` | `anchor_deleted` | The node it was attached to was deleted, and it couldn't move up to a parent folder (see [Watching a path before it exists](/Events/subjects/#watching-a-path-before-it-exists)). |
 | `subscription_ended` | `permission_revoked` | It was made through a share handle, and the share stopped (see [Sharing key-value data with another user](/Events/subjects/#sharing-key-value-data-with-another-user)). |
 
-If the connection is down when this happens, or drops before `onError` is called, the SDK isn't told. It subscribes again with the original subject when it reconnects: a path then anchors on its nearest existing folder and keeps watching, like a path that doesn't exist yet, while a uid fails and `onError` is called with `subject_does_not_exist` instead.
+If the connection is down when this happens, or drops before `onError` is called, the SDK isn't told. It subscribes again with the original subject when it reconnects. A path then anchors on its nearest existing folder and keeps watching, like a path that doesn't exist yet. A uid, or a share handle that stopped, fails, and `onError` is called with `subject_does_not_exist`.
 
 ## Examples
 
@@ -114,7 +119,7 @@ If the connection is down when this happens, or drops before `onError` is called
                 puter.print(`${event.op}: ${event.path}<br>`);
             });
 
-            // (3) Change something — the handler runs
+            // (3) Change something, and the handler runs
             await puter.fs.write(`${dir}/hello.txt`, 'Hello!');
 
             // (4) Stop listening (cleanup)
@@ -137,7 +142,7 @@ If the connection is down when this happens, or drops before `onError` is called
             const dir = puter.randName();
             await puter.fs.mkdir(dir);
 
-            // (2) Subscribe anyway — the subscription anchors on `dir` and
+            // (2) Subscribe anyway. The subscription anchors on `dir` and
             //     matches the rest of the path as it appears.
             const sub = await puter.events.onLocal(
                 `fs:${dir}/inbox/trigger.json:add`,

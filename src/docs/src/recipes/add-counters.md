@@ -1,15 +1,15 @@
 ---
 title: Add Counters
-description: "Learn how to add counters to your app with Puter.js that stay accurate even when many updates happen at once."
+description: "Learn how to add counters to your app with Puter.js that stay accurate even when the user updates them from several tabs at once."
 tags: [kv]
 order: 8
 ---
 
-Many apps count something: how often the user opened the app, how many words
-they wrote, how many hints they have left. `puter.kv` is your database in
-Puter.js, and it has counter methods built in. The database does the addition
-for you, so a count stays accurate even when two tabs update it at the same
-moment. [Store data](/recipes/store-data/) covers the basic reads and writes.
+Many apps count something, such as how often the user opened the app, how many
+words they wrote, or how many hints they have left. The Puter.js database,
+[`puter.kv`](/KV/), has counter methods built in. The database does the
+addition, so a count stays accurate even when two tabs update it at the same
+moment. [Store Data](/recipes/store-data/) covers the basic reads and writes.
 
 ## Count Up
 
@@ -20,32 +20,34 @@ value:
 const opens = await puter.kv.incr('opens');
 ```
 
-A key that doesn't exist yet starts at 0, so the first call returns 1. There is
-nothing to set up first.
-
-To add more than one, pass the amount:
+A key that doesn't exist yet starts at 0, so the first call returns 1. To add
+more than one, pass the amount:
 
 ```js
 await puter.kv.incr('wordsWritten', 250);
 ```
 
-The addition happens inside the database in a single write, so two calls at the
-same moment always add two. The key must hold a number. When it holds anything
-else, such as the text `'5'`, the call rejects with `value_not_a_number` and the
-stored value stays as it was.
+The addition happens inside the database in a single write, so two tabs that
+count at the same moment both add theirs. Two calls at nearly the same moment
+from different places, such as two devices far apart, can still lose one of the
+additions, as [`puter.kv.set()`](/KV/set/#writing-only-if-absent) explains for
+`onlyIfAbsent`.
+
+The key must hold a number. When it holds anything else, such as the text
+`'5'`, the call rejects with `value_not_a_number` and the stored value stays as
+it was.
 
 ## Count Down
 
-To subtract, use the [`puter.kv.decr()`](/KV/decr/) method. It works the same
-way and also returns the new value:
+To subtract, use the [`puter.kv.decr()`](/KV/decr/) method. It also returns the
+new value:
 
 ```js
 await puter.kv.decr('unread');
 ```
 
-A counter keeps going below zero, so a counter at 0 goes to -1. When a count
-must stay at zero or above, check the value it returns and undo the step if it
-went too far:
+A counter keeps going below zero. When a count must stay at zero or above, check
+the value it returns and undo the step if it went too far:
 
 ```js
 const hintsLeft = await puter.kv.decr('hintsLeft');
@@ -57,8 +59,8 @@ if ( hintsLeft < 0 ) {
 }
 ```
 
-Checking the returned value is safe when two tabs spend the last hint at once.
-Only one of them sees 0, and the other sees -1 and gives it back.
+This holds when two tabs spend the last hint at once. Only one of them sees 0,
+and the other sees -1 and gives it back.
 
 ## Read a Counter
 
@@ -72,12 +74,7 @@ const opens = await puter.kv.get('opens') ?? 0;
 
 ## Count Several Things in One Key
 
-So far each count has its own key, such as `opens` or `hintsLeft`. When an app
-tracks several counts that belong together, it can keep them all in one key
-instead. The value of that key is an object, and each count is a field of the
-object.
-
-For example, a writing app can keep all of its usage counts in one object.
+Counts that belong together can share one key, as fields of an object:
 
 ```js
 {
@@ -88,27 +85,30 @@ For example, a writing app can keep all of its usage counts in one object.
 }
 ```
 
-To add to these counts, pass an object with the fields you want to change to
-[`puter.kv.incr()`](/KV/incr/). The value of each field is the amount to add.
-All the fields change in the same write, and the call returns the whole stored
-object:
+To add to them, pass [`puter.kv.incr()`](/KV/incr/) an object that maps each
+field to the amount to add. All the fields change in the same write, and the
+call returns the whole stored object:
 
 ```js
 const stats = await puter.kv.incr('stats', { opens: 1, wordsWritten: 250 });
 // { opens: 13, wordsWritten: 4750, hintsLeft: 3, features: { export: 2 } }
 ```
 
-To reach a field inside a nested object, such as `features`, write its path
-with dot notation:
+To reach a field inside a nested object, such as `features`, write its path with
+dot notation:
 
 ```js
 await puter.kv.incr('stats', { 'features.export': 1 });
 // { opens: 13, wordsWritten: 4750, hintsLeft: 3, features: { export: 3 } }
 ```
 
-Fields left out of the call, such as `hintsLeft`, stay as they are. A field
-that doesn't exist yet starts at 0, and missing objects along the path are
-created for you.
+Fields left out of the call stay as they are. A field that doesn't exist yet
+starts at 0, and missing objects along the path are created. A negative amount
+subtracts, so one call can move a count from one field to another:
+
+```js
+await puter.kv.incr('stats', { hintsLeft: -1, hintsUsed: 1 });
+```
 
 ## Count per Day
 
@@ -123,8 +123,8 @@ await puter.kv.incr(`opens:${ today }`);
 
 To have old days delete themselves, set a TTL with the
 [`puter.kv.expire()`](/KV/expire/) method the first time a day is counted. Only
-one call ever gets 1 back, so the TTL is set once. Later calls to
-[`puter.kv.incr()`](/KV/incr/) keep that TTL as it is:
+one call gets 1 back, so the TTL is set once, and later calls to
+[`puter.kv.incr()`](/KV/incr/) keep it:
 
 ```js
 const key = `opens:${ today }`;
@@ -135,14 +135,14 @@ if ( count === 1 ) {
 }
 ```
 
-[Query a collection](/recipes/query-collection/) shows how to read a range of
-dated keys back, such as one month.
+[Query a Collection](/recipes/query-collection/#filter-by-date) shows how to
+read a range of dated keys back, such as one month.
 
 ## Keep the Highest Score
 
-[`puter.kv.incr()`](/KV/incr/) can add to a number, but it can't keep track of
-the highest one, like a game's best score. The simple way is to read the current
-best, compare, and save:
+[`puter.kv.incr()`](/KV/incr/) adds to a number, but it can't keep the highest
+one, like a game's best score. The simple way is to read the current best,
+compare, and save:
 
 ```js
 async function saveScore (score) {
@@ -155,9 +155,9 @@ async function saveScore (score) {
 ```
 
 If two tabs finish a game at the same time, both can read the old best, and the
-lower score might get saved last. If that matters, save each new best as its own
-key, with the score padded so the keys sort in number order. The highest score
-is then the last key:
+lower score can get saved last. When that matters, save each new best as its
+own key, with the score padded so the keys sort in number order. The highest
+score is then the last key:
 
 ```js
 const scoreKey = (score) => `score:${ String(score).padStart(10, '0') }`;
@@ -174,9 +174,9 @@ async function saveScore (score) {
 }
 ```
 
-`reverse: true` lists the keys from last to first, so `limit: 1` gives you just
-the highest. If two tabs save at once, each one adds its own key, and the higher
-score still comes out on top.
+With `reverse: true`, [`puter.kv.list()`](/KV/list/) returns the keys from last
+to first, so `limit: 1` gives just the highest. If two tabs save at once, each
+adds its own key, and the higher score still comes out on top.
 
 ## Reset a Counter
 

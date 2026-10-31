@@ -6,7 +6,7 @@ platforms: [websites, apps]
 
 Whether your app's push notifications reach the browser the user is in right now. It never prompts and never changes anything, so call it on page load to decide whether to show your own "Turn on notifications" button, which calls [`enable()`](/Notifications/enable/).
 
-On a website, it's `'on'` when the user turned pushes on in this browser with [`enable()`](/Notifications/enable/), and this browser still holds the subscription. Pushes start once Puter confirms the browser, usually within seconds of [`enable()`](/Notifications/enable/) resolving. Inside the Puter desktop, it's `'on'` when pushes are on in this browser and your app holds the [`notifications:push`](/Notifications/requestPermission/) permission.
+On a website, it's `'on'` when the user turned pushes on in this browser with [`enable()`](/Notifications/enable/), and this browser still holds the subscription. Pushes start once Puter confirms the browser, usually within seconds of [`enable()`](/Notifications/enable/) resolving. Inside the Puter desktop, it's `'on'` when pushes are on in this browser and the user allowed pushes from your app.
 
 ## Syntax
 ```js
@@ -17,7 +17,7 @@ puter.notifications.status(options)
 ## Parameters
 
 #### `options` (Object) (optional)
-- `serviceWorker` (String): path of the worker passed to [`enable()`](/Notifications/enable/). Default `/puter-sw.js`. Only used on a website.
+- `serviceWorker` (String): The path of the worker passed to [`enable()`](/Notifications/enable/). Defaults to `/puter-sw.js`. Only used on a website.
 
 ## Return value
 A `Promise` that resolves to one of these strings. It never rejects.
@@ -27,9 +27,9 @@ A `Promise` that resolves to one of these strings. It never rejects.
 | `'on'` | Pushes from your app reach this browser. |
 | `'off'` | They don't yet. Call [`enable()`](/Notifications/enable/) from a click to turn them on. |
 | `'blocked'` | The browser blocks notifications, for your site on a website or for Puter inside the desktop. The user unblocks them in the browser's site settings. |
-| `'unavailable'` | This browser or page can't receive pushes, such as a browser without Web Push, or the server has no push notification service. |
+| `'unavailable'` | This browser or environment can't receive pushes, such as a browser without Web Push or Node.js, or the desktop can't tell. |
 
-On a website, the call doesn't ask the server, so it answers `'off'` on a server without a push notification service, and [`enable()`](/Notifications/enable/) then rejects with `push_unavailable`. It also answers `'off'` when nobody is signed in.
+On a website, the call doesn't ask the server. It answers `'off'` on a server without a push notification service, where [`enable()`](/Notifications/enable/) then rejects with `push_unavailable`. It also answers `'off'` when nobody is signed in.
 
 ## Examples
 

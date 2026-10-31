@@ -24,6 +24,8 @@ To subscribe, use the [`puter.events.onLocal()`](/Events/onLocal/) method. The
 subscription lasts until you end it or the user closes the tab, which is what a
 page that only updates what it shows needs. To run code while your app is
 closed, see [Run Code in the Background](/recipes/run-code-in-the-background/).
+To keep one open file in sync, see
+[Keep an Open File in Sync](/recipes/keep-an-open-file-in-sync/).
 
 ## Watch a Key
 
@@ -42,39 +44,19 @@ await showSettings();
 
 Subscribe first, then do the first read. The
 [`onLocal()`](/Events/onLocal/) promise resolves once the subscription is in
-place. A change made during the first read then still reaches the handler.
+place, so a change made during the first read still reaches the handler.
 
 A key that expires on its own sends no event. Neither does
 [`puter.kv.flush()`](/KV/flush/).
 
 On a website, the user has to be signed in. If nobody is,
-[`onLocal()`](/Events/onLocal/) opens the Puter sign-in window. It rejects with
-`auth_canceled` if the user closes the window.
-
-Some subjects below use [`puter.appID`](/Utils/appID/). The app ID is only
-known after sign-in, so sign the user in first. The
-[`puter.auth.signIn()`](/Auth/signIn/) method opens a popup, so call it from a
-click:
-
-```js
-if (puter.auth.isSignedIn()) {
-    await startWatching();
-} else {
-    signInButton.addEventListener('click', async () => {
-        await puter.auth.signIn();
-        await startWatching();
-    });
-}
-```
-
-Here `startWatching()` runs the subscriptions from the sections below. An app
-running on Puter is always signed in, so it can call it directly.
+[`onLocal()`](/Events/onLocal/) opens the Puter sign-in window, and rejects
+with `auth_canceled` if the user closes it.
 
 ## Get the New Value With the Event
 
 To skip the read in the handler, pass `includeValue: true`. Each event then
-has the key's new value in `event.value`. The value is `null` when the key was
-deleted:
+has the key's new value in `event.value`, or `null` when the key was deleted:
 
 ```js
 const sub = await puter.events.onLocal('kv:settings', async ({ event }) => {
@@ -83,12 +65,10 @@ const sub = await puter.events.onLocal('kv:settings', async ({ event }) => {
 }, { includeValue: true });
 ```
 
-The value is sometimes left out, so keep the fallback to
-[`puter.kv.get()`](/KV/get/). For example, it's left out on a
-[gap](#handle-gaps). Every case is listed under
-[Getting the new value](/Events/subjects/#getting-the-new-value).
-
-The `includeValue` option works on `kv:` subjects only.
+The value is sometimes left out, for example on a [gap](#handle-gaps), so keep
+the fallback to [`puter.kv.get()`](/KV/get/). Every case is listed under
+[Getting the new value](/Events/subjects/#getting-the-new-value). The
+`includeValue` option works on `kv:` subjects only.
 
 ## Watch Several Keys
 
@@ -103,6 +83,11 @@ await puter.events.onLocal(`kv:${puter.appID}:cart:*`, handler);   // cart:apple
 If the keys contain `:`, start the subject with your [app ID](/Utils/appID/),
 as in the second line. Without it, `kv:cart:*` is read as the keys of an app
 called `cart`, and the subscription is refused.
+
+On a website, [`puter.appID`](/Utils/appID/) is only known after sign-in, so
+sign the user in before you subscribe. The
+[`puter.auth.signIn()`](/Auth/signIn/) method opens a popup, so call it from a
+click. An app running on Puter is always signed in.
 
 Use one subscription for the whole group, since a tab can hold only a limited
 number of subscriptions. See
@@ -170,14 +155,14 @@ await puter.events.onLocal('fs:uploads/*.json:add', handler);   // only new ones
 await puter.events.onLocal('fs:uploads/**/*.png', handler);     // PNGs at any depth
 ```
 
-The suffix is one of `add`, `write`, `move` or `remove`. It works on `fs:`
+The suffix is one of `add`, `write`, `move` or `remove`, and works on `fs:`
 subjects only. Events the subject filters out are never sent.
 
 ## Handle Gaps
 
 Sometimes an event can't be delivered. The handler then gets a gap marker in
-its place. A gap marker has `op: 'gap'` and no key or path. It only
-tells you that something changed, so read everything the view shows again:
+its place, with `op: 'gap'` and no key or path. It only tells you that
+something changed, so read everything the view shows again:
 
 ```js
 const sub = await puter.events.onLocal('fs:inbox/*.json:add', ({ event }) => {
@@ -186,18 +171,17 @@ const sub = await puter.events.onLocal('fs:inbox/*.json:add', ({ event }) => {
 });
 ```
 
-A gap also arrives after the connection drops and comes back, as covered in
-[When the Connection Drops](#when-the-connection-drops). The handlers in [Watch a Key](#watch-a-key) and [Watch a Folder](#watch-a-folder)
+The handlers in [Watch a Key](#watch-a-key) and [Watch a Folder](#watch-a-folder)
 read everything again on every event, so they need no extra code for gaps.
 
 Several quick writes to the same key or file can arrive as one event with the
-latest state. So one event can stand for more than one change.
+latest state, so one event can stand for more than one change.
 
 ## Stop Watching
 
 To stop, call [`off()`](/Events/off/) on the subscription when the view that
-uses it goes away. For example, the user closes a panel or opens a different
-folder. Closing the tab ends every subscription on its own.
+uses it goes away, for example when the user closes a panel or opens a
+different folder. Closing the tab ends every subscription on its own.
 
 ```js
 let sub;
@@ -220,14 +204,14 @@ for example when a laptop goes to sleep or the network changes. The SDK then
 reconnects and subscribes again by itself.
 
 Changes made while the connection was down are not sent later. Instead, each
-subscription's handler gets one [gap](#handle-gaps) with `reason: 'reconnect'`.
-The handlers above read everything again on a gap, so they catch up with no
-extra code.
+subscription's handler gets one [gap](#handle-gaps) with `reason: 'reconnect'`,
+so handlers that read everything again on a gap catch up with no extra code.
 
 The SDK can fail to restore a subscription, for example after the user signs
 out. The subscription then ends and `onError` is called. The same happens, with
-the code `subscription_ended`, when the watched file or folder is deleted.
-Nothing arrives after that, so tell the user the view has stopped updating:
+the code `subscription_ended`, when the file or folder you subscribed to is
+deleted, if it existed when you subscribed. Nothing arrives after that, so tell
+the user the view has stopped updating:
 
 ```js
 const sub = await puter.events.onLocal('kv:settings', showSettings, {
@@ -235,11 +219,5 @@ const sub = await puter.events.onLocal('kv:settings', showSettings, {
 });
 ```
 
-Without `onError` the error is only logged to the console. Your app then stops
+Without `onError` the error is only logged to the console, and your app stops
 updating without any sign.
-
-## Notes
-
-- Work that has to happen while your app is closed, such as processing files
-  as they arrive, needs a [persistent subscription](/Events/onPersistent/)
-  instead.

@@ -1,28 +1,29 @@
 ---
 title: Store a Small List
-description: "Learn how to keep a list in one Puter.js key-value entry, so your app loads it with a single read and edits any item in place. It fits a few thousand small items."
+description: "Learn how to store a list of up to a few thousand small items with Puter.js, so your app loads it in one read and edits any item in place."
 tags: [kv, data-modeling]
 order: 10
 ---
 
-Most applications keep a list the user adds to and edits later, such as todos,
-notes, saved records or an activity log. The whole list can live in one
-key-value entry as an array, so you read all of it with a single
-[`puter.kv.get()`](/KV/get/) call, without pagination.
+Most apps keep a list the user adds to and edits, such as todos, notes or an
+activity log. With [`puter.kv`](/KV/), the whole list can live in one key as an
+array, so a single read loads all of it without pagination.
 
 ## Add an Item
 
 To add an item to the end of the list, use the [`puter.kv.add()`](/KV/add/)
-method and wrap the item in an array:
+method with the item wrapped in an array:
 
 ```js
 await puter.kv.add('todos', [{ text: 'Buy milk', done: false }]);
 ```
 
-If the key does not exist yet, it is created as an array. The append is atomic,
-so two concurrent calls both add their item.
+The first call creates the list. The append is atomic, so two tabs adding at
+the same moment both add their item. The array is needed because
+[`puter.kv.add()`](/KV/add/) reads a plain object as a map of paths, and would
+add each field as a path instead of appending the object.
 
-To add several items, put them all in the array. Each element is appended as a
+To add several items, put them all in the array. Each one is appended as a
 separate item:
 
 ```js
@@ -34,10 +35,9 @@ await puter.kv.add('todos', [
 
 ## Show the List
 
-To load the list, use the [`puter.kv.get()`](/KV/get/) method. One read returns
-every item in the order it was added, so you don't need an additional field for
-sorting. A list that was never written comes back as `null`, so default it to an
-empty array:
+To load the list, use the [`puter.kv.get()`](/KV/get/) method. Items come back
+in the order they were added. A list that was never written comes back as
+`null`, so default it to an empty array:
 
 ```js
 const todos = await puter.kv.get('todos') ?? [];
@@ -53,12 +53,11 @@ This marks the first todo as done:
 await puter.kv.update('todos', { '[0].done': true });
 ```
 
-The index is the item's position in the array you read with
+The index is the item's position in the array from
 [`puter.kv.get()`](/KV/get/). To edit an item you know by a field value, find
 its index first:
 
 ```js
-const todos = await puter.kv.get('todos') ?? [];
 const index = todos.findIndex((todo) => todo.text === 'Buy milk');
 
 await puter.kv.update('todos', { [`[${ index }].done`]: true });
@@ -73,27 +72,26 @@ await puter.kv.update('todos', { [`[${ index }]`]: { text: 'Buy oat milk', done:
 ## Delete an Item
 
 To remove an item, use the [`puter.kv.remove()`](/KV/remove/) method with its
-index in brackets:
+index in brackets. Every item after it moves down by one index:
 
 ```js
 await puter.kv.remove('todos', `[${ index }]`);
 ```
 
-Every item after it moves down by one index. To delete several items, pass all
-their indexes in one call, such as `remove('todos', '[0]', '[3]')`. The indexes
-in one call refer to the list as it was before the call.
+To delete several items in one call, pass their indexes from highest to lowest:
 
-Because indexes shift, a list edited from two tabs or devices at once can go
+```js
+await puter.kv.remove('todos', '[3]', '[0]');
+```
+
+Since indexes shift, a list edited from two tabs or devices at once can go
 wrong. After one tab deletes an item, the other tab still has the old indexes
-and can edit or delete the wrong item. In that case, [store items by
-ID](/recipes/store-items-by-id/) instead, where each item has a fixed ID.
+and can change the wrong item. When that can happen, [store items by
+ID](/recipes/store-items-by-id/) instead, so each item keeps a fixed ID.
 
 ## When to Switch
 
-One entry holds up to [400 KB](/KV/MAX_VALUE_SIZE/), which is a few thousand
-small items. If your list holds more than that, or you expect it to, [store a
-large collection](/recipes/store-large-collection/) instead, which gives you:
-
-- no ceiling on how many records you keep
-- an expiry per record, instead of one for the whole list
-- reads a page at a time, instead of the whole list on every render
+One key has a [size limit](/KV/MAX_VALUE_SIZE/) that fits a few thousand small
+items. A list that can grow past that goes in [one key per
+item](/recipes/store-large-collection/), which also lets each item expire on its
+own and loads the list a page at a time.

@@ -92,7 +92,8 @@ array, which is cached too. Passing `true` for `refresh` fetches a new copy
 and replaces the cache after the feed has been read successfully.
 
 Only titles and links are cached, which keeps each value well under the
-[KV value size limit](/KV/MAX_VALUE_SIZE/).
+[KV value size limit](/KV/MAX_VALUE_SIZE/). To keep full articles, save them as
+files instead, as in [Store Files](/recipes/store-files/).
 
 ## Show the Headlines
 
@@ -146,8 +147,3 @@ showFeed();
 Titles are assigned through `textContent`, so markup in a feed stays text.
 If a refresh fails, the current headlines stay on the page and the status
 shows the error.
-
-## Notes
-
-- To keep full articles or other large feed data, save it as files instead.
-  See [store files](/recipes/store-files/).

@@ -1,6 +1,6 @@
 ---
 title: Keep an API Key Secret
-description: "Learn how to call a third-party API from your app without exposing its API key, by keeping the key in a Puter.js serverless worker."
+description: "Learn how to call a third-party API from your app with Puter.js without exposing its API key."
 tags: [workers, kv, auth]
 order: 43
 ---
@@ -110,8 +110,8 @@ router.get('/forecast', async ({ request }) => {
 Anyone who knows the worker's URL can call it, and each call spends your key.
 You can limit calls per visitor or per signed-in user.
 
-To limit each visitor without asking them to sign in, count calls by IP address.
-[Add a contact form](/recipes/add-contact-form/#limit-how-often-a-visitor-can-send)
+To limit each visitor without asking them to sign in, limit by IP address.
+[Add a Contact Form](/recipes/add-contact-form/#limit-how-often-a-visitor-can-send)
 shows a complete worker that does this.
 
 To limit each user, have your users sign in with their Puter account. Call the
@@ -122,9 +122,9 @@ The route can answer `401` to callers without a `user`, and count each user's
 calls.
 
 Here is the complete worker with a limit of 100 calls per user per day. The
-count is kept in your own [key-value store](/KV/) with `me.puter`, which is
-Puter.js signed in to your account as the worker's owner, so users cannot reset
-it:
+count is kept in your own [key-value store](/KV/) with
+[`me.puter`](/Workers/router/#integration-with-puter-js), which is Puter.js signed in
+as you, the worker's owner, so users can't reset it:
 
 ```js
 const API_KEY = 'sk_live_your_key_here';
@@ -180,10 +180,12 @@ router.get('/forecast', async ({ request, user }) => {
 ```
 
 The `getCaller()` helper looks the user up, because a request with a made-up
-token still gets a `user` and only fails once it is used. Each user gets one
-counter per day. The [`incr()`](/KV/incr/) method starts a missing counter at 0,
-and [`expire()`](/KV/expire/) deletes it two days later, so your store only
-keeps recent counters.
+token still gets a `user` and only fails once it is used, as
+[Handle Errors in a Worker](/recipes/handle-worker-errors/#check-who-is-calling)
+explains. Each user gets one counter per day, kept with
+[`puter.kv.incr()`](/KV/incr/), which adds 1 on the server so two calls at
+once both count. The first call of the day sets an expiry with
+[`puter.kv.expire()`](/KV/expire/), so the counter is deleted two days later.
 
 In your app, call the worker with [`puter.workers.exec()`](/Workers/exec/) and
 show the message when the limit is reached:

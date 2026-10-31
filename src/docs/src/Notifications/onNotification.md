@@ -4,11 +4,13 @@ description: Receive your app's notifications while it's open, including the one
 platforms: [websites, apps]
 ---
 
-Calls `handler` for each of your app's notifications while the app is open. It first hands over the notifications your app already has, oldest first, then each new one as it's sent. If the connection drops, the ones sent or replaced meanwhile are read back when it returns. Each notification reaches a listener once, however it arrived. A notification [replaced through its `group`](/Notifications/notify/#groups) keeps its `uid` and reaches the listener again, once, with the new content and `replaced: true`.
+Calls `handler` for each of your app's notifications while the app is open. It first hands over the notifications your app already has, oldest first, then each new one as it's sent. When the connection drops, it reads back the ones sent or replaced meanwhile once the connection returns. Each notification reaches a listener once. A notification [replaced through its `group`](/Notifications/notify/#groups) keeps its `uid` and reaches the listener again, once per replacement, with the new content and `replaced: true`.
 
-It only receives notifications your app sent, never the user's other notifications. It needs to run as an app (an app on Puter, or a website using Puter.js); with an account session and no app, such as the Puter desktop itself or Node.js with an account token, it rejects with `app_required`.
+It receives only notifications your app sent, never the user's other notifications. It has to run as an app, meaning an app on Puter or a website using Puter.js. With an account session and no app, such as Node.js with an account token, it rejects with `app_required`. On a website with nobody signed in, it asks the user to sign in first.
 
-It runs on [Events](/Events/), so the server needs events turned on. Where they're off, it rejects with `events_disabled`.
+It runs on [Events](/Events/) and reads the `notif:app-user` [subject](/Events/subjects/#notifications), so the server needs events turned on. Where they're off, it rejects with `events_disabled`.
+
+While a page has a listener, it tells Puter that it received each notification, and whether the user is looking at the page. That can keep the notification from going out as a push, as [When a notification is pushed](/Notifications/push/#when-a-notification-is-pushed) describes.
 
 ## Syntax
 ```js
@@ -29,23 +31,24 @@ Called with one notification:
 - `data` (any): `null` when it was sent without one.
 - `group` (String | null)
 - `channel` (String | null)
+- `sensitive` (Boolean): `true` when it was sent with `sensitive: true`. The handler still gets its title and text.
 - `createdAt` (Number): When it was sent, in milliseconds since the epoch. For a replacement, when it was replaced.
-- `replaced` (Boolean): `true` when it replaced an earlier notification with the same `uid` and `group`. Show it in place of the one you already have for that `uid`.
+- `replaced` (Boolean): `true` when it replaced an earlier notification in its `group` and kept that one's `uid`. Show it in place of the one you already have with that `uid`.
 - `app` (Object | null): The app that sent it, as `{ uid, name, icon }`.
 
-A handler that throws is logged to the console; the listener keeps going.
+A handler that throws or rejects is logged to the console, and the listener keeps going.
 
 #### `options` (Object) (optional)
 
-- `catchUp` (Boolean): Hand over the notifications your app already has before the new ones. Defaults to `true`. With `false`, only notifications sent from now on are delivered.
-- `since` (Number): Milliseconds since the epoch. Notifications read back (when catching up, or after a reconnect) are handed over only if they were sent in or after this second. Pass the `createdAt` of the last one you handled; that one can come again, so skip it by `uid`. Live notifications are always handed over.
-- `onError` (Function): Called with `{ message, code }` when the listener stops on its own: the connection couldn't be restored, reading what was missed after a reconnect failed, or the signed-in account or app changed (`code: 'auth_changed'`). The listener is already stopped by then, and nothing more is handed over; call `onNotification()` again to resume. It's also called, without stopping, with `code: 'catch_up_truncated'` if reading back had to stop early. Without it, errors are logged to the console.
+- `catchUp` (Boolean): Hand over the notifications your app already has before the new ones. Defaults to `true`. With `false`, only notifications sent after the call are handed over.
+- `since` (Number): Milliseconds since the epoch. Notifications read back, when catching up or after a reconnect, are handed over only if they were sent in or after that second. Pass the `createdAt` of the last one you handled. That one can come again, so skip it by `uid`. Live notifications are always handed over.
+- `onError` (Function): Called with `{ message, code }` when the listener stops on its own. That happens when the connection couldn't be restored, when reading what was missed after a reconnect failed, or when the signed-in account or app changed (`code: 'auth_changed'`). The listener has already stopped by then, and nothing more is handed over. Call [`onNotification()`](/Notifications/onNotification/) again to resume. It's also called, without stopping the listener, with `code: 'catch_up_truncated'` if reading back had to stop early. Without `onError`, errors are logged to the console.
 
 ## Return value
 
 A `Promise` that resolves, once the listener is live and caught up, to an object with:
 
-- `off()` (Function): Stops the listener. Returns a `Promise`; calling it again does nothing.
+- `off()` (Function): Stops the listener. Returns a `Promise`. Calling it again does nothing.
 
 It rejects with an error carrying `message` and `code`:
 

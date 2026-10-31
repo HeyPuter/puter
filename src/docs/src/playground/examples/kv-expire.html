@@ -13,7 +13,7 @@
             // (3) Wait 2 seconds and get the value
             setTimeout(async () => {
                 const name = await puter.kv.get('name');
-                puter.print("Value :", name);
+                puter.print(`Value: ${name}`);
             }, 2000);
         })();
     </script>

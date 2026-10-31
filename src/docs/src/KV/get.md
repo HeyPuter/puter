@@ -4,17 +4,20 @@ description: Get the value stored in a key from the user's own key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-When passed a key, will return that key's value, or `null` if the key does not exist or has expired.
+Returns the value stored at a key, or `null` if the key doesn't exist or has expired.
 
 ## Syntax
+
 ```js
 puter.kv.get(key)
 puter.kv.get(key, optConfig)
 ```
 
 ## Parameters
+
 #### `key` (String) (required)
-A string containing the name of the key you want to retrieve the value of.
+
+The key to read.
 
 #### `optConfig` (Object) (optional)
 
@@ -22,11 +25,12 @@ A string containing the name of the key you want to retrieve the value of.
 
 The last argument. It takes these properties:
 
-- `handle` (String): Work on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix. The share needs `read` or `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): Work on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+- `handle` (String): Reads data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `read` or `write` access. A key the owner's app keeps private reads as `null`. See [Sharing with other users](/KV/#sharing-with-other-users).
+- `appUuid` (String): Reads another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
 
-## Return value 
-A `Promise` that will resolve to the key's value. If the key does not exist or has expired, it will resolve to `null`. An empty marker left by [`puter.kv.expire()`](/KV/expire/) or [`puter.kv.expireAt()`](/KV/expireAt/) also reads as `null`.
+## Return value
+
+A `Promise` that resolves to the key's value, or `null` if the key doesn't exist or has expired. An empty entry left by [`puter.kv.expire()`](/KV/expire/) or [`puter.kv.expireAt()`](/KV/expireAt/) also reads as `null`.
 
 ## Errors
 
@@ -34,11 +38,11 @@ With `handle`, the promise can reject with these codes:
 
 | Code | Meaning |
 | -- | -- |
-| `kv_handle_not_found` | `handle` doesn't exist, the share stopped, or it isn't shared with you. |
-| `kv_handle_access_denied` | The share's access doesn't allow this method. |
-| `kv_handle_option_invalid` | `handle` was combined with `appUuid` or `disableSharing`. |
-| `kv_handle_key_invalid` | With `handle`, the key is empty or longer than 768 bytes. |
-| `kv_handles_disabled` | Shares can't be used this way on this deployment. |
+| `kv_handle_not_found` | `handle` doesn't exist, the share stopped, it isn't shared with you, or the call comes from an app other than the one whose data it shares. |
+| `kv_handle_access_denied` | The share is `watch` only. |
+| `kv_handle_option_invalid` | `handle` was combined with `appUuid`. |
+| `kv_handle_key_invalid` | The key is empty or longer than 768 bytes. |
+| `kv_handles_disabled` | Calls through a share are turned off on this deployment. |
 
 ## Examples
 

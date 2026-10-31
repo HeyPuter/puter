@@ -3,13 +3,13 @@ title: Key-Value Store
 description: Store and retrieve data using key-value pairs in the user's own cloud store.
 ---
 
-The Key-Value Store API lets you store and retrieve data using key-value pairs in the cloud.
+The Key-Value Store API lets you store and retrieve data as key-value pairs in the cloud. Each app gets its own store in each user's account.
 
-It supports various operations such as set, get, delete, list keys, increment and decrement values, and flush data. This enables you to build powerful functionality into your app, including persisting application data, caching, storing configuration settings, and much more.
+You can set, get, and delete keys, list them by prefix, increment and decrement numbers, change parts of a stored object, and set keys to expire. Apps use it to persist app data, cache results, and store settings.
 
-Puter.js handles all the infrastructure for you, so you don't need to set up servers, handle scaling, or manage backups. And thanks to the [User-Pays Model](/user-pays-model/), you don't have to worry about storage, read, or write costs, as users of your application cover their own usage.
+Puter.js runs the infrastructure, so there are no servers to set up, scale, or back up. With the [User-Pays Model](/user-pays-model/), each user covers their own storage, read, and write costs.
 
-<div class="info"><strong>Need to share data across users?</strong> Each user's key-value store lives in their own account. A user can share part of theirs with another user, as described in <a href="#sharing-with-other-users">Sharing with other users</a>. To keep a single, centralized store that every user reads from and writes to, use a <a href="/Workers/">Serverless Worker</a>. Its code can act on the worker owner's resources, giving all users one shared backend.</div>
+<div class="info"><strong>Need to share data across users?</strong> Each user's key-value store lives in their own account. A user can share part of theirs with another user, as described in <a href="#sharing-with-other-users">Sharing with other users</a>. For one central store that every user reads and writes, use a <a href="/Workers/">Serverless Worker</a>. Its code acts on the worker owner's resources, so all users share one backend.</div>
 
 ## Features
 
@@ -169,6 +169,7 @@ Puter.js handles all the infrastructure for you, so you don't need to set up ser
         })();
     </script>
 </body>
+</html>
 ```
 
 </div>
@@ -189,7 +190,7 @@ Puter.js handles all the infrastructure for you, so you don't need to set up ser
             await puter.kv.set('isCool', true);
             puter.print("Key-value pairs created/updated<br>");
 
-            // (2) Rretrieve all keys
+            // (2) Retrieve all keys
             const keys = await puter.kv.list();
             puter.print(`Keys are: ${keys}<br>`);
 
@@ -203,6 +204,7 @@ Puter.js handles all the infrastructure for you, so you don't need to set up ser
         })();
     </script>
 </body>
+</html>
 ```
 
 </div>
@@ -248,13 +250,13 @@ Pick the tool by what you want to do:
 
 A share has one of three levels, and each includes the ones before it:
 
-- **`watch`**: the holder gets [events](/Events/subjects/#sharing-key-value-data-with-another-user) when keys under the prefix change, and can [`list()`](/KV/list/) the keys, all without their values.
-- **`read`**: the holder can also read values with [`get()`](/KV/get/) and [`list()`](/KV/list/).
-- **`write`**: the holder can also change keys with every other method. Write includes delete, so every holder with write access can change or remove any key under the prefix.
+- **`watch`**: the holder gets [events](/Events/subjects/#sharing-key-value-data-with-another-user) when keys under the prefix change, and can list the keys without their values.
+- **`read`**: the holder can also read values.
+- **`write`**: the holder can also change and delete any key under the prefix.
 
-An app shares its user's data only with that user's consent, asked once with [`puter.perms.request('kvShare', …)`](/Perms/request/) at the level it will share or higher. Without it, [`puter.kv.share()`](/KV/share/) fails with `events_kv_handle_not_delegated`.
+An app shares its user's data only with that user's consent, which it asks for once with [`puter.perms.request('kvShare', …)`](/Perms/request/).
 
-The holder finds the share with [`puter.kv.listShared()`](/KV/listShared/), and passes its `handle` to the other methods. Keys are relative to the shared prefix. Here the owner writes `list:<id>:meta`, and the holder reads the same key as `meta`:
+The holder finds the share with [`puter.kv.listShared()`](/KV/listShared/) and passes its `handle` to the other [`puter.kv`](/KV/) methods, in the same app or outside any app. Keys are relative to the shared prefix. Here the owner writes `list:<id>:meta`, and the holder reads the same key as `meta`:
 
 ```js
 // The owner, once per app: let this app share `list:` keys with write access
@@ -272,11 +274,9 @@ await puter.kv.set(`item:${crypto.randomUUID()}`, { text: 'milk' }, { handle });
 const entries = await puter.kv.list('item:*', true, { handle });
 ```
 
-- **What the holder knows.** A share tells the holder its level, its app, and an optional label. It never says who shared it or what the prefix is. The label is plain text the owner sets with [`puter.kv.share()`](/KV/share/). Render it with `textContent`, never as HTML.
-- **Notifications.** A share made with `notify: true` lets the owner and the holder send each other notifications through its handle with [`puter.notifications.notify()`](/Notifications/notify/). When such a share of an app's data is made, the holder gets a `kv.share.received` notification in that app, on [`notif:app-user`](/Events/subjects/#notifications). It carries the `handle`, `access`, `label`, and `createdAt`. Listen for it with [`puter.events.onLocal()`](/Events/onLocal/), or read missed ones with [`puter.events.fetch()`](/Events/fetch/). The Puter desktop doesn't show it, so your app is where the holder finds out about the share. The live notification needs notifications to be turned on for events on the deployment. Calling [`puter.kv.listShared()`](/KV/listShared/) when your app opens finds new shares in every case.
-- **Blocks.** A user who blocked the owner, or who doesn't accept shares from anyone, can't be shared with, and [`puter.kv.share()`](/KV/share/) fails with `recipient_not_accepting_shares`.
-- **Account.** Sharing needs a confirmed email address where the deployment requires one, and no phone number, card, or paid plan.
-- **Private entries.** Entries written with `disableSharing` aren't readable or listed through a share. Deleting one through a share resolves as deleting a missing key does, and the entry stays. Any other write to one through a share is refused with `kv_handle_access_denied`, the same error as a method the share's level doesn't allow. A holder with write access can learn that a private key exists from that refusal, or because deleting it sends no change event, but never its value. Keep private entries outside the prefixes you share.
+- **What the holder sees.** A share tells the holder its level, its app, and an optional label the owner sets, but not who shared it or what the prefix is.
+- **Notifications.** A share made with `notify: true` lets the owner and the holder send each other notifications through its handle with [`puter.notifications.notify()`](/Notifications/notify/), and tells the holder about the share inside your app. See [What the holder sees](/KV/share/#what-the-holder-sees).
+- **Private entries.** Entries written with [`disableSharing`](/KV/set/#private-entries) can't be read or listed through a share. Keep them outside the prefixes you share.
 - **Writes from several users.** When two users write the same key at about the same time, the last write wins. For a log of changes, write each change to its own key, such as `chg:<timestamp>-<random>`, instead of updating one shared counter.
 - **Cost.** Each user pays for their own reads and writes, including the ones they make through a share.
 
@@ -289,6 +289,8 @@ These recipes show sharing in a full app:
 - [Send Live Updates to Other Users](/recipes/send-live-updates-to-other-users/)
 - [Manage Who Has Access to Shared Data](/recipes/manage-who-has-access-to-shared-data/)
 - [Build a Group Chat](/recipes/build-a-group-chat/)
+- [Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/)
+- [Alert Users When Shared Data Changes](/recipes/alert-users-when-shared-data-changes/)
 - [Share Data From Your Backend](/recipes/share-data-from-your-backend/)
 
 ## Examples

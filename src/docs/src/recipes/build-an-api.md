@@ -18,16 +18,18 @@ path and the function that handles it.
 
 When your app calls a worker with
 [`puter.workers.exec()`](/Workers/exec/), the worker knows which user is calling
-and gets that user's Puter account as `user.puter`. A route can then read and
-write the user's own [key-value store](/KV/), files and AI, the same way your
-app does in the browser. The data stays in the user's account, and the usage is
+and gets that user's Puter account as
+[`user.puter`](/Workers/router/#integration-with-puter-js). A route can then read
+and write the user's own [key-value store](/KV/), files and AI, the same way
+your app does in the browser. The data stays in the user's account, and the usage is
 billed to them under the [User-Pays model](/user-pays-model/), so you get a
 backend without paying for its storage.
 
 ## Define a Route
 
-The `router` object is available in every worker. Register a route with the
-method's name and a path, and return what the caller should get back:
+The [`router`](/Workers/router/) object is available in every worker. Register
+a route with the method's name and a path, and return what the caller should
+get back:
 
 ```js
 router.get('/me', async ({ user }) => {
@@ -40,16 +42,18 @@ router.get('/me', async ({ user }) => {
 });
 ```
 
-There is one method per HTTP verb: `router.get()`, `router.post()`,
-`router.put()`, `router.delete()` and `router.options()`.
+Each HTTP verb has its own method, such as
+[`router.post()`](/Workers/router/#http-methods) and
+[`router.delete()`](/Workers/router/#http-methods).
 
-`user` is only there when the request came through
+The handler gets a `user` only when the request came through
 [`puter.workers.exec()`](/Workers/exec/), so every route that uses it starts by
 checking for it.
 
 ## Store Data in the User's Account
 
-To save something for the caller, write it with `user.puter.kv`. Read the JSON
+To save something for the caller, write it to their [key-value store](/KV/)
+with [`user.puter.kv`](/Workers/router/#integration-with-puter-js). Read the JSON
 body with `request.json()`:
 
 ```js
@@ -122,8 +126,10 @@ returns a string is sent as text. To choose the status code or the headers,
 return a [`Response`](https://developer.mozilla.org/en-US/docs/Web/API/Response),
 as the `401`, `400` and `404` answers above do.
 
-The worker adds CORS headers to every response, so your app can call it from
-any origin without extra setup.
+The worker adds CORS headers to what your routes return and answers preflight
+requests, so your app can call it from any origin without extra setup.
+[Handle Errors in a Worker](/recipes/handle-worker-errors/) shows how to give
+every error a shape your app can read.
 
 ## Handle Unknown Paths
 
@@ -166,8 +172,9 @@ curl "https://notes-api.puter.work/slugify?text=Hello%20World"
 # hello-world
 ```
 
-To keep what an outside service sends you, store it in your own account with
-`me.puter`, which is available to every request whoever made it:
+To keep what an outside service sends you, store it in your own account. In a
+worker, [`me.puter`](/Workers/router/#integration-with-puter-js) is Puter.js signed in
+as you, the worker's owner, and every request can use it, whoever made it:
 
 ```js
 router.post('/webhooks/payments', async ({ request }) => {
@@ -198,7 +205,7 @@ behind routes that check for `user`.
 Once the worker is [deployed](/Workers/#deployment), call it with
 [`puter.workers.exec()`](/Workers/exec/). It takes the same arguments as
 `fetch()` and adds the signed-in user's session, which is what gives the worker
-`user.puter`:
+[`user.puter`](/Workers/router/#integration-with-puter-js):
 
 ```js
 const API = 'https://notes-api.puter.work';
@@ -215,9 +222,9 @@ const notes = await (await puter.workers.exec(`${API}/notes?q=milk`)).json();
 
 A plain `fetch()` of the same URL carries no session, so `user` is undefined
 and the notes routes answer `401`. It works for
-[routes without a user](#routes-without-a-user), which is how
-callers without Puter.js reach them.
+[routes without a user](#routes-without-a-user), which is how callers without
+Puter.js reach them.
 
 To keep data that every user reads and writes together, such as a leaderboard,
-store it with `me.puter` instead. See
-[Store server-side data](/recipes/store-server-side-data/).
+store it with [`me.puter`](/Workers/router/#integration-with-puter-js) instead, as
+in [Store Server-Side Data](/recipes/store-server-side-data/).

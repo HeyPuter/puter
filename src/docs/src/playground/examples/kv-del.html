@@ -5,15 +5,15 @@
         (async () => {
             // create a new key-value pair
             await puter.kv.set('name', 'Puter Smith');
-            document.write("Key-value pair 'name' created/updated<br>");
+            puter.print("Key-value pair 'name' created/updated<br>");
 
             // delete the key 'name'
             await puter.kv.del('name');
-            document.write("Key-value pair 'name' deleted<br>");
+            puter.print("Key-value pair 'name' deleted<br>");
 
             // try to retrieve the value of key 'name'
             const name = await puter.kv.get('name');
-            document.write('Name is now: ', name);
+            puter.print(`Name is now: ${name}`);
         })();
     </script>
 </body>
