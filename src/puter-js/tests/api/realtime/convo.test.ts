@@ -613,6 +613,165 @@ describe('convo built SDK and browser media', () => {
         }
     });
 
+    it('keeps real microphone capture through a socket that closes before the conversation notices', async () => {
+        browser ??= await chromium.launch({
+            args: [
+                '--use-fake-ui-for-media-stream',
+                '--use-fake-device-for-media-stream',
+                '--autoplay-policy=no-user-gesture-required',
+                '--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessChecks,BlockInsecurePrivateNetworkRequests',
+            ],
+        });
+        const page = await browser.newPage();
+        try {
+            await page.route('**/__convo_mic_test__', (route) =>
+                route.fulfill({
+                    contentType: 'text/html',
+                    body: '<!doctype html><title>Microphone reconnect test</title>',
+                }),
+            );
+            await page.goto(`${env.apiOrigin}/__convo_mic_test__`);
+            // Through the proxy, so the test can drop the connection.
+            await page.evaluate(
+                ({ origin, apiOrigin }) => {
+                    Object.assign(globalThis, {
+                        PUTER_ORIGIN: origin,
+                        PUTER_API_ORIGIN: apiOrigin,
+                    });
+                },
+                { origin: env.origin, apiOrigin: proxyOrigin },
+            );
+            await page.addScriptTag({
+                content: readFileSync(
+                    new URL('../../../dist/puter.js', import.meta.url),
+                    'utf8',
+                ),
+            });
+            await page.evaluate(async (token) => {
+                const g = globalThis as typeof globalThis & {
+                    puter: PuterSDK;
+                    test: Record<string, unknown>;
+                };
+                g.puter.setAuthToken(token);
+                const sockets: WebSocket[] = [];
+                // `globalThis`: this file's own `WebSocket` is the `ws` import.
+                const Native = globalThis.WebSocket;
+                g.WebSocket = class extends Native {
+                    constructor(...args: ConstructorParameters<typeof Native>) {
+                        super(...args);
+                        sockets.push(this);
+                    }
+                };
+                const tracks: MediaStreamTrack[] = [];
+                let mediaCalls = 0;
+                const capture = navigator.mediaDevices.getUserMedia.bind(
+                    navigator.mediaDevices,
+                );
+                navigator.mediaDevices.getUserMedia = async (constraints) => {
+                    mediaCalls++;
+                    const stream = await capture(constraints);
+                    tracks.push(...stream.getTracks());
+                    return stream;
+                };
+                const c = await g.puter.ai.convo({ output: ['text'] });
+                const events: string[] = [];
+                c.on('*', (event) => events.push(event.type));
+                await c.connect();
+                await c.microphone.start();
+                g.test = {
+                    c,
+                    events,
+                    tracks,
+                    sockets,
+                    mediaCalls: () => mediaCalls,
+                };
+            }, env.users.user.token);
+            const before = connections.at(-1)!;
+            const appendsTo = (connection: (typeof connections)[number]) =>
+                connection.received.filter(
+                    (event) => event.type === 'input_audio_buffer.append',
+                ).length;
+            await vi.waitFor(() =>
+                expect(appendsTo(before)).toBeGreaterThan(0),
+            );
+
+            // The socket reads as closing while the conversation still reads
+            // connected, until the connection drops below. Chunks that arrive
+            // meanwhile are refused by the transport.
+            const gap = await page.evaluate(async () => {
+                const t = (globalThis as unknown as { test: any }).test;
+                const socket = t.sockets.at(-1) as WebSocket;
+                Object.defineProperty(socket, 'readyState', {
+                    configurable: true,
+                    get: () => 2,
+                });
+                let refused = 0;
+                const appendAudio = t.c.appendAudio.bind(t.c);
+                t.c.appendAudio = (pcm: Int16Array) => {
+                    try {
+                        appendAudio(pcm);
+                    } catch (error) {
+                        refused++;
+                        throw error;
+                    }
+                };
+                await new Promise((resolve) => setTimeout(resolve, 300));
+                return {
+                    refused,
+                    state: t.c.state,
+                    live: t.tracks.every(
+                        (track: MediaStreamTrack) =>
+                            track.readyState === 'live',
+                    ),
+                    events: t.events,
+                };
+            });
+            expect(gap.refused).toBeGreaterThan(0);
+            expect(gap.state).toBe('connected');
+            expect(gap.live).toBe(true);
+            expect(gap.events).not.toContain('error');
+
+            for (const socket of proxied) socket.destroy();
+            await vi.waitFor(
+                () => {
+                    const replacement = connections.at(-1)!;
+                    expect(replacement).not.toBe(before);
+                    expect(appendsTo(replacement)).toBeGreaterThan(0);
+                },
+                { timeout: 15_000 },
+            );
+            const after = await page.evaluate(() => {
+                const t = (globalThis as unknown as { test: any }).test;
+                const live = t.tracks.every(
+                    (track: MediaStreamTrack) => track.readyState === 'live',
+                );
+                const state = t.c.state;
+                t.c.close();
+                return {
+                    live,
+                    state,
+                    mediaCalls: t.mediaCalls(),
+                    ended: t.tracks.every(
+                        (track: MediaStreamTrack) =>
+                            track.readyState === 'ended',
+                    ),
+                    reconnected: t.events.includes('reconnecting'),
+                    errors: t.events.filter((type: string) => type === 'error'),
+                };
+            });
+            expect(after).toEqual({
+                live: true,
+                state: 'connected',
+                mediaCalls: 1,
+                ended: true,
+                reconnected: true,
+                errors: [],
+            });
+        } finally {
+            await page.close();
+        }
+    }, 45_000);
+
     // Last: the relay refuses new sessions from here on.
     it('keeps the session working while a draining server refuses its replacement', async () => {
         const draining = loadNodePuter(

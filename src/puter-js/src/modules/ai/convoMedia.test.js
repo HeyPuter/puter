@@ -161,36 +161,101 @@ it('reports browser playback failures with SDK error codes', async () => {
         message: 'Could not start playback',
     });
 });
-it('drops chunks under backpressure or while reconnecting, and stops on other errors', async () => {
-    const c = makeConvo();
+/** A started microphone over fake browser media. */
+const startedMic = async (c = makeConvo()) => {
     const audioTrack = track();
-    vi.stubGlobal('navigator', {
-        mediaDevices: {
-            getUserMedia: async () => ({ getTracks: () => [audioTrack] }),
-        },
-    });
+    const getUserMedia = vi.fn(async () => ({
+        getTracks: () => [audioTrack],
+        getAudioTracks: () => [audioTrack],
+    }));
+    vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
     const mic = new ConvoMicrophone(c);
     helpers.push(mic);
     await mic.start();
-    const port = FakeWorklet.instances[0].port;
-    const pcm = new Int16Array(480);
-    c.appendAudio.mockImplementationOnce(() => {
-        throw { code: 'queue_full', message: 'full' };
-    });
-    port.onmessage({ data: { pcm } });
+    const port = FakeWorklet.instances.at(-1).port;
+    const context = FakeContext.instances.at(-1);
+    return { c, mic, port, context, audioTrack, getUserMedia };
+};
+const pcm = new Int16Array(480);
+
+it('drops a chunk the transport refuses and keeps capturing', async () => {
+    const { c, port, context, audioTrack } = await startedMic();
+    for (const code of ['queue_full', 'session_closed', 'session_not_ready']) {
+        c.appendAudio.mockImplementationOnce(() => {
+            throw { code, message: code };
+        });
+        port.onmessage({ data: { pcm } });
+    }
+    expect(port.postMessage).toHaveBeenCalledTimes(3);
     expect(audioTrack.stop).not.toHaveBeenCalled();
+    expect(port.close).not.toHaveBeenCalled();
+    expect(context.close).not.toHaveBeenCalled();
+    expect(c.reportMediaError).not.toHaveBeenCalled();
+
+    // Later chunks go out as usual.
+    port.onmessage({ data: { pcm } });
+    expect(c.appendAudio).toHaveBeenCalledTimes(4);
+    expect(c.appendAudio).toHaveBeenLastCalledWith(pcm);
+});
+
+it('drops chunks while reconnecting or muted, without sending them later', async () => {
+    const { c, mic, port, audioTrack } = await startedMic();
     c.state = 'connecting';
     port.onmessage({ data: { pcm } });
-    expect(c.appendAudio).toHaveBeenCalledOnce();
-    expect(port.postMessage).toHaveBeenCalledTimes(2);
+    mic.mute();
     c.state = 'connected';
+    port.onmessage({ data: { pcm } });
+    expect(c.appendAudio).not.toHaveBeenCalled();
+    expect(port.postMessage).toHaveBeenCalledTimes(2);
+    mic.unmute();
+    port.onmessage({ data: { pcm } });
+    expect(c.appendAudio).toHaveBeenCalledOnce();
+    expect(audioTrack.stop).not.toHaveBeenCalled();
+});
+
+it('ignores callbacks from a stopped capture, including one stopped while reconnecting', async () => {
+    const { c, mic, port, audioTrack } = await startedMic();
+    const onmessage = port.onmessage;
+    c.state = 'connecting';
+    mic.stop();
+    c.state = 'connected';
+    onmessage({ data: { pcm } });
+    expect(c.appendAudio).not.toHaveBeenCalled();
+    expect(port.postMessage).not.toHaveBeenCalled();
+    expect(audioTrack.stop).toHaveBeenCalledOnce();
+    expect(c.reportMediaError).not.toHaveBeenCalled();
+});
+
+it('releases capture once on a genuine error, and ignores chunks after a final close', async () => {
+    const { c, mic, port, context, audioTrack } = await startedMic();
     c.appendAudio.mockImplementationOnce(() => {
-        throw { code: 'session_closed', message: 'closed' };
+        throw { code: 'invalid_argument', message: 'bad chunk' };
     });
     port.onmessage({ data: { pcm } });
-    expect(audioTrack.stop).toHaveBeenCalled();
-    expect(c.reportMediaError).toHaveBeenCalledWith(
-        expect.objectContaining({ code: 'session_closed' }),
+    mic.stop();
+    expect(audioTrack.stop).toHaveBeenCalledOnce();
+    expect(port.close).toHaveBeenCalledOnce();
+    expect(context.close).toHaveBeenCalledOnce();
+    expect(c.reportMediaError).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ code: 'invalid_argument' }),
+    );
+
+    const next = await startedMic();
+    const onmessage = next.port.onmessage;
+    next.c.state = 'closed';
+    onmessage({ data: { pcm } });
+    expect(next.c.appendAudio).not.toHaveBeenCalled();
+    expect(next.c.reportMediaError).not.toHaveBeenCalled();
+});
+
+it('releases capture once when the processor fails', async () => {
+    const { c, port, context, audioTrack } = await startedMic();
+    FakeWorklet.instances.at(-1).onprocessorerror();
+    expect(audioTrack.stop).toHaveBeenCalledOnce();
+    expect(port.close).toHaveBeenCalledOnce();
+    expect(context.close).toHaveBeenCalledOnce();
+    expect(c.reportMediaError).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ code: 'media_error' }),
     );
 });
 it('captures at the device rate', async () => {

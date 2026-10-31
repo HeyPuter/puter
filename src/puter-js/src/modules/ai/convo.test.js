@@ -2126,3 +2126,104 @@ describe('reconnect retries', () => {
         });
     });
 });
+
+describe('microphone through a reconnect', () => {
+    const worklets = [];
+    const audioTrack = { enabled: true, readyState: 'live', stop: vi.fn() };
+    const getUserMedia = vi.fn(async () => ({
+        getTracks: () => [audioTrack],
+        getAudioTracks: () => [audioTrack],
+    }));
+    beforeEach(() => {
+        worklets.length = 0;
+        audioTrack.stop.mockClear();
+        getUserMedia.mockClear();
+        vi.stubGlobal('window', {});
+        vi.stubGlobal(
+            'AudioContext',
+            class {
+                state = 'running';
+                destination = {};
+                audioWorklet = { addModule: async () => {} };
+                resume = async () => {};
+                close = vi.fn(async () => {});
+                createMediaStreamSource() {
+                    return { connect() {}, disconnect() {} };
+                }
+            },
+        );
+        vi.stubGlobal(
+            'AudioWorkletNode',
+            class {
+                port = {
+                    onmessage: null,
+                    postMessage: vi.fn(),
+                    close: vi.fn(),
+                };
+                connect() {}
+                disconnect() {}
+                constructor() {
+                    worklets.push(this);
+                }
+            },
+        );
+        vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } });
+        vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
+        vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    });
+    const appends = (s) =>
+        s.sent.filter((event) => event.type === 'input_audio_buffer.append');
+
+    it.each([1012, 1006])(
+        'keeps capturing when the socket closes (%i) before the conversation notices',
+        async (code) => {
+            const c = await connected();
+            await c.microphone.start();
+            fakeTime();
+            const events = track(c);
+            const port = worklets[0].port;
+            const first = socket();
+            port.onmessage({ data: { pcm: new Int16Array(480) } });
+            expect(appends(first)).toHaveLength(1);
+
+            // Closing, but no close event yet: the conversation still reads
+            // as connected.
+            first.readyState = 2;
+            port.onmessage({ data: { pcm: new Int16Array(480).fill(7) } });
+            expect(port.postMessage).toHaveBeenCalledTimes(2);
+            expect(audioTrack.stop).not.toHaveBeenCalled();
+            expect(port.close).not.toHaveBeenCalled();
+            expect(events.errors()).toEqual([]);
+
+            first.readyState = 1;
+            first.close(code);
+            port.onmessage({ data: { pcm: new Int16Array(480) } });
+            await answerReconnect();
+            expect(c.state).toBe('connected');
+            const replacement = socket();
+            expect(replacement).not.toBe(first);
+            expect(appends(replacement)).toHaveLength(0);
+
+            port.onmessage({ data: { pcm: new Int16Array(480) } });
+            expect(appends(replacement)).toHaveLength(1);
+            expect(getUserMedia).toHaveBeenCalledOnce();
+            expect(worklets).toHaveLength(1);
+            expect(events.errors()).toEqual([]);
+
+            c.close();
+            expect(audioTrack.stop).toHaveBeenCalledOnce();
+            expect(port.close).toHaveBeenCalledOnce();
+        },
+    );
+
+    it('releases capture once on a final close', async () => {
+        const c = await connected();
+        await c.microphone.start();
+        socket().close(1008, 'invalid_api_key');
+        expect(c.state).toBe('closed');
+        expect(audioTrack.stop).toHaveBeenCalledOnce();
+        expect(worklets[0].port.close).toHaveBeenCalledOnce();
+        c.close();
+        expect(audioTrack.stop).toHaveBeenCalledOnce();
+    });
+});
