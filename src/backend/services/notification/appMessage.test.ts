@@ -143,13 +143,20 @@ describe('parseAppMessage', () => {
         rejects({ title: 't', data: { blob: 'x'.repeat(1024) } }, 'data');
     });
 
-    it('limits group to 64 characters of a small charset', () => {
+    it('limits group to 128 characters of a small charset', () => {
         expect(
             parseAppMessage({ title: 't', group: 'Chat_1.thread:2-a' }).group,
         ).toBe('Chat_1.thread:2-a');
+        expect(
+            parseAppMessage({ title: 't', group: 'dm:ana@example.com' }).group,
+        ).toBe('dm:ana@example.com');
+        expect(
+            parseAppMessage({ title: 't', group: 'x'.repeat(128) }).group,
+        ).toBe('x'.repeat(128));
         rejects({ title: 't', group: 'has space' }, 'group');
+        rejects({ title: 't', group: 'a/b' }, 'group');
         rejects({ title: 't', group: '' }, 'group');
-        rejects({ title: 't', group: 'x'.repeat(65) }, 'group');
+        rejects({ title: 't', group: 'x'.repeat(129) }, 'group');
     });
 
     it('limits channel to 32 lowercase letters, digits and dashes', () => {

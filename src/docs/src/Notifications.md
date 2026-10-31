@@ -18,10 +18,10 @@ await puter.notifications.notify({
 
 A notification goes to your app alone; the Puter desktop's notifications panel doesn't show it. It reaches your app in these ways:
 
-- **Live**, on every open page of your app, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). A page in the background with an [`onPush()`](/Notifications/onPush/) handler shows the notification itself.
+- **Live**, on every open page of your app, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). A page in the background with an [`onPush()`](/Notifications/onPush/) handler shows the notification itself, in a browser where the user turned pushes on.
 - **As a push**, when no page answers within 5 seconds that it's visible and focused or that it shows the notification itself. It goes to the browsers where the user turned pushes on for your app.
 
-For a push, the user has to have turned them on. On a website, call [`enable()`](/Notifications/enable/) from a click and handle pushes with [`onPush()`](/Notifications/onPush/). Pushes arrive on your own origin through a small service worker. [Push notifications for your app](/Notifications/push/) has the setup step by step and the browsers and devices that can receive them. On iPhone and iPad, the user first adds your site to the Home Screen. Inside the Puter desktop, pushes go through Puter: ask with [`requestPermission()`](/Notifications/requestPermission/), and [`enablePush()`](/Notifications/enablePush/) offers to turn them on in the browser.
+For a push, the user has to have turned them on. On a website, call [`enable()`](/Notifications/enable/) from a click and handle pushes with [`onPush()`](/Notifications/onPush/). Pushes arrive on your own origin through a small service worker. [Push notifications for your app](/Notifications/push/) has the setup step by step and the browsers and devices that can receive them. On iPhone and iPad, the user first adds your site to the Home Screen. Inside the Puter desktop, pushes go through Puter, and [`enable()`](/Notifications/enable/) asks the user to allow your app and turns pushes on in their browser.
 
 A user gets at most 12 pushes a minute and 1,000 a day from each app. A new or unlisted app gets 6 a minute and 200 a day, and a website using Puter.js starts out unlisted. A notification over that still reaches your app live. It just isn't pushed.
 
@@ -137,7 +137,8 @@ See [`notify()`](/Notifications/notify/) for every field, and [Rate Limits and Q
 - **[`puter.notifications.onPush()`](/Notifications/onPush/)** - Handle your notifications for one key, in the page and as browser pushes
 - **[`puter.notifications.on('click')`](/Notifications/on/)** - React when the user clicks one of your notifications
 - **[`puter.notifications.enable()`](/Notifications/enable/)** - Turn on push notifications for your website in this browser
-- **[`puter.notifications.disable()`](/Notifications/disable/)** - Turn off push notifications for your website in this browser
+- **[`puter.notifications.disable()`](/Notifications/disable/)** - Turn off push notifications for your app
+- **[`puter.notifications.status()`](/Notifications/status/)** - Check whether push notifications are on in this browser, without asking
 - **[`puter.notifications.requestPermission()`](/Notifications/requestPermission/)** - Ask the user to allow pushes from your app
 - **[`puter.notifications.hasPermission()`](/Notifications/hasPermission/)** - Check whether your app may send pushes
 - **[`puter.notifications.enablePush()`](/Notifications/enablePush/)** - Offer to turn on pushes in the browser the user is in

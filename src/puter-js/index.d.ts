@@ -247,6 +247,7 @@ export type {
     PushHandler,
     PushPlatform,
     PushShown,
+    PushStatus,
 } from './types/modules/notifications/types.js';
 
 // -- puter.os --

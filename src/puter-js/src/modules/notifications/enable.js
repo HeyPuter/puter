@@ -10,9 +10,10 @@ import { webPushSupported, workerFor } from './lib/webPush.js';
  * Inside the Puter desktop this is `enablePush()`. On a website it asks for
  * notification permission on the site's own origin, then subscribes through the
  * site's service worker (`/puter-sw.js` unless `serviceWorker` names another)
- * and confirms the subscription with Puter. It rejects with `push_revoked` when
- * the user turned the app off in Puter; `requestPermission()` from a click
- * undoes that.
+ * and sends the subscription to Puter. It resolves then; Puter's confirmation
+ * push finishes the registration in the background. It rejects with
+ * `push_revoked` when the user turned the app off in Puter;
+ * `requestPermission()` from a click undoes that.
  *
  * @this {import('./index.js').NotificationsModule}
  * @param {{ serviceWorker?: string }} [options]

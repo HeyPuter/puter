@@ -518,6 +518,10 @@ export class UIModule extends EventListener {
     // we start from 1 because 0 is falsy and we want to avoid that for the message id
     #messageID = 1;
 
+    // Read once at load: an app's router may rewrite the URL afterwards.
+    #guiFeatures = new URLSearchParams(globalThis.location?.search ?? '')
+        .get('puter.gui_features')?.split(',') ?? [];
+
     // Holds the callback functions for the various events
     // that are triggered when a watched item has changed.
     itemWatchCallbackFunctions = [];
@@ -2380,9 +2384,7 @@ export class UIModule extends EventListener {
         if ( this.env === 'app' ) {
             // An older desktop has no handler and would never reply; see
             // showFeedbackDialog.
-            const features = new URLSearchParams(globalThis.location?.search ?? '')
-                .get('puter.gui_features')?.split(',') ?? [];
-            if ( ! features.includes('custom-domains') ) {
+            if ( ! this.#guiOffers('custom-domains') ) {
                 throw new PuterJSError(
                     'Custom domains are not available on this Puter desktop',
                     'not_supported',
@@ -2409,9 +2411,26 @@ export class UIModule extends EventListener {
 
     /** Whether the host GUI lists this IPC dialog in `puter.gui_features` on the app iframe's URL (see launchApp.js); a GUI without the handler never replies, and a real reply waits for the user, so no timeout can stand in for this. @param {string} feature @returns {boolean} */
     #guiOffers (feature) {
-        const features = new URLSearchParams(globalThis.location?.search ?? '')
-            .get('puter.gui_features')?.split(',') ?? [];
-        return features.includes(feature);
+        return this.#guiFeatures.includes(feature);
+    }
+
+    /** Backs `puter.notifications.status()` inside the desktop: this browser's push state for this app, or null from a desktop that can't answer. @internal @returns {Promise<string | null>} */
+    async pushStatus_ () {
+        if ( this.env !== 'app' || ! this.#guiOffers('push-status') ) return null;
+        const result = await this.#ipc_stub({ method: 'pushStatus', parameters: {} });
+        return typeof result?.state === 'string' ? result.state : null;
+    }
+
+    /** Backs `puter.notifications.disable()` inside the desktop: revokes this app's `notifications:push` grant. @internal @returns {Promise<boolean>} Whether the app held it; `false` from a desktop that can't */
+    async disablePush_ () {
+        if ( this.env !== 'app' || ! this.#guiOffers('disable-push') ) return false;
+        let result;
+        try {
+            result = await this.#ipc_stub({ method: 'disablePush', parameters: {} });
+        } catch ( e ) {
+            throw PuterJSError.from(e);
+        }
+        return result?.removed === true;
     }
 
     /** Offers to turn push on in the user's browser, for `puter.notifications.enablePush()`: the desktop shows the offer in the `app` environment, a popup on the Puter origin does in `web` (call it from a click), and every other environment resolves `false`. @internal @returns {Promise<boolean>} `true` when this browser now receives pushes */

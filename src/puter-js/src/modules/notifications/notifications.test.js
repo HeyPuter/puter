@@ -983,11 +983,11 @@ describe('receipts', () => {
 });
 
 describe('requestPermission and hasPermission', () => {
-    it('asks for notifications:push through puter.perms', async () => {
+    it('asks for the pushNotifications resource through puter.perms', async () => {
         const notifications = makeModule();
         expect(await notifications.requestPermission()).toBe(true);
         expect(notifications.puter.perms.request).toHaveBeenCalledWith(
-            'notifications:push',
+            'pushNotifications',
         );
     });
 
@@ -998,13 +998,13 @@ describe('requestPermission and hasPermission', () => {
         expect(await notifications.requestPermission()).toBe(false);
     });
 
-    it('checks notifications:push without prompting', async () => {
+    it('checks the pushNotifications resource without prompting', async () => {
         const notifications = makeModule({
             perms: { request: vi.fn(), check: vi.fn(async () => false) },
         });
         expect(await notifications.hasPermission()).toBe(false);
         expect(notifications.puter.perms.check).toHaveBeenCalledWith(
-            'notifications:push',
+            'pushNotifications',
         );
         expect(notifications.puter.perms.request).not.toHaveBeenCalled();
     });
@@ -1025,6 +1025,40 @@ describe('enablePush', () => {
 
     it('resolves false where there is no desktop or popup to ask', async () => {
         expect(await makeModule({ ui: makeUI() }).enablePush()).toBe(false);
+    });
+});
+
+describe('disable inside the desktop', () => {
+    it('has the desktop revoke the app`s push permission', async () => {
+        const ui = { ...makeUI(), disablePush_: vi.fn(async () => true) };
+        expect(await makeModule({ ui }).disable()).toBe(true);
+        expect(ui.disablePush_).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolves false from a desktop that can`t', async () => {
+        expect(await makeModule({ ui: makeUI() }).disable()).toBe(false);
+    });
+});
+
+describe('status inside the desktop', () => {
+    it('answers what the desktop says', async () => {
+        const ui = { ...makeUI(), pushStatus_: vi.fn(async () => 'on') };
+        expect(await makeModule({ ui }).status()).toBe('on');
+        expect(ui.pushStatus_).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        ['a desktop that can`t answer', async () => null],
+        ['an answer it doesn`t know', async () => 'maybe'],
+        [
+            'a failed answer',
+            async () => {
+                throw new Error('ipc_handler_failed');
+            },
+        ],
+    ])('is unavailable for %s', async (_, pushStatus_) => {
+        const ui = { ...makeUI(), pushStatus_: vi.fn(pushStatus_) };
+        expect(await makeModule({ ui }).status()).toBe('unavailable');
     });
 });
 

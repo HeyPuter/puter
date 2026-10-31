@@ -34,6 +34,8 @@ export const appRootDirPermission = (appUid, access) =>
 
 export const BACKGROUND_EVENTS_PERMISSION = 'events:background';
 
+export const PUSH_NOTIFICATIONS_PERMISSION = 'notifications:push';
+
 /**
  * Share-delegation roots by the level of share they let the app create for its
  * user. Mirrors the server's list.

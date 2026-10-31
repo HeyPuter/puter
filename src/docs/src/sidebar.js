@@ -604,6 +604,14 @@ let sidebar = [
                 path: '/Notifications/disable',
             },
             {
+                title: '<code>status()</code>',
+                page_title: '<code>puter.notifications.status()</code>',
+                title_tag: 'puter.notifications.status()',
+                icon: '/assets/img/function.svg',
+                source: '/Notifications/status.md',
+                path: '/Notifications/status',
+            },
+            {
                 title: "<code>on('click')</code>",
                 page_title: "<code>puter.notifications.on('click')</code>",
                 title_tag: "puter.notifications.on('click')",

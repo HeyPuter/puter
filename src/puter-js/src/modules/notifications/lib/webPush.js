@@ -148,11 +148,16 @@ const registerWorker = async (nav, worker, { keepSiteWorker = false } = {}) => {
 };
 
 /**
- * Resolves the next challenge the worker hands this page; `cancel` stops
- * waiting.
+ * Resolves the next challenge the worker hands this page, or null once `signal`
+ * aborts; `cancel` stops waiting.
+ *
+ * @param {Navigator} nav
+ * @param {AbortSignal} [signal]
+ * @returns {{ promise: Promise<string | null>; cancel: () => void }}
  */
-const nextChallenge = (nav) => {
+const nextChallenge = (nav, signal) => {
     let cancel = () => {};
+    /** @type {Promise<string | null>} */
     const promise = new Promise((resolve, reject) => {
         const onMessage = (event) => {
             const data = event.data;
@@ -160,6 +165,10 @@ const nextChallenge = (nav) => {
             if (typeof data.challenge !== 'string') return;
             cancel();
             resolve(data.challenge);
+        };
+        const onAbort = () => {
+            cancel();
+            resolve(null);
         };
         const timer = setTimeout(() => {
             cancel();
@@ -173,9 +182,12 @@ const nextChallenge = (nav) => {
         cancel = () => {
             clearTimeout(timer);
             nav.serviceWorker.removeEventListener('message', onMessage);
+            signal?.removeEventListener('abort', onAbort);
         };
         nav.serviceWorker.addEventListener('message', onMessage);
         nav.serviceWorker.startMessages?.();
+        if (signal?.aborted) onAbort();
+        else signal?.addEventListener('abort', onAbort);
     });
     return { promise, cancel: () => cancel() };
 };
@@ -251,11 +263,22 @@ const currentSubscription = async (puter, registration, key) => {
  * is confirmed by a push the worker hands back; a known one is only refreshed.
  * Needs notification permission already granted.
  *
+ * @param {import('../../../index.js').Puter} puter
+ * @param {{
+ *     worker: { url: string; scope?: string };
+ *     label?: string;
+ *     nav?: Navigator;
+ *     onPending?: () => void;
+ *     signal?: AbortSignal;
+ * }} options
+ *   `onPending` runs once the server has the subscription and only its
+ *   confirmation is left. Aborting `signal` stops waiting for that
+ *   confirmation, with `push_verification_canceled`.
  * @returns {Promise<Record<string, unknown>>} The server's device record.
  */
 export async function syncWebPush(
     puter,
-    { worker, label, nav = globalThis.navigator } = {},
+    { worker, label, nav = globalThis.navigator, onPending, signal },
 ) {
     const { publicKey } = await request(puter, 'GET', '/push/web/key');
     if (typeof publicKey !== 'string' || publicKey === '') {
@@ -275,7 +298,7 @@ export async function syncWebPush(
     await rememberPuterKey(publicKey);
 
     // Listening first: the confirmation can arrive before the POST returns.
-    const challenge = nextChallenge(nav);
+    const challenge = nextChallenge(nav, signal);
     try {
         let result;
         try {
@@ -289,13 +312,21 @@ export async function syncWebPush(
             result = await announce(puter, subscription, label);
         }
         if (result.status === 'active') return result.device;
+        onPending?.();
+        const answer = await challenge.promise;
+        if (answer === null) {
+            throw new PuterJSError(
+                'Push notifications were turned off before this browser was confirmed',
+                'push_verification_canceled',
+            );
+        }
         const { device } = await request(
             puter,
             'POST',
             '/push/web/subscriptions/verify',
             {
                 subscription: subscriptionBody(subscription),
-                challenge: await challenge.promise,
+                challenge: answer,
             },
         );
         return device;

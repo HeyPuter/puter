@@ -26,7 +26,7 @@ puter.notifications.notify(notification)
 - `icon` (String): An `https` URL to an image. Without it, your app's icon is used.
 - `target` (String): A path inside your app, starting with `/`, such as `/chats/42`. When the user clicks the notification it's handed back to your app through [`on('click')`](/Notifications/on/). Up to 512 characters.
 - `data` (any): A JSON value of up to 1 KB, handed back on click. Push providers can read it, so put IDs in it, not personal content.
-- `group` (String): A newer notification with the same group replaces the one showing, and the device alerts the user again. Letters, digits and `. _ : -`, up to 64 characters.
+- `group` (String): A newer notification with the same group replaces the one showing, and the device alerts the user again. Letters, digits and `. _ : @ -`, up to 128 characters.
 - `channel` (String): What kind of notification it is, such as `messages` or `reminders`. Lowercase letters, digits and `-`, up to 32 characters.
 - `sensitive` (Boolean): Pushes, and the notification a page of your app shows itself, show a generic line instead of the title and text. A sensitive push carries no `channel`, `target` or `data`, so no [`onPush()`](/Notifications/onPush/) handler runs for it, a tap opens `/`, and [`on('click')`](/Notifications/on/) gets `null` for `target` and `data`. [`onNotification()`](/Notifications/onNotification/) still gets the whole notification.
 - `priority` (String): Only `'normal'` is available to apps.
