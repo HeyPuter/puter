@@ -180,7 +180,7 @@ Events never say who made a change. On a shared folder, that would tell every su
 
 [`puter.kv.flush()`](/KV/flush/) delivers nothing, since the keys a flush can list aren't reliably the keys it removed.
 
-Writes to the same subject within 250 ms arrive as one event carrying the latest state, so a multipart upload or a save loop is one delivery rather than one per write.
+Writes to the same subject within 250 ms arrive as one event carrying the latest state, so a multipart upload or a save loop is one delivery rather than one per write. All of an app's notifications share one subject, so notifications sent within 250 ms of each other arrive as the last of them. [`fetch()`](/Events/fetch/) still returns every one.
 
 ### Gaps
 
