@@ -19,7 +19,10 @@
 
 import MockRedis from 'ioredis-mock';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET } from '../../controllers/events/limits.js';
+import {
+    EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE,
+    EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
+} from '../../controllers/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types.js';
 import {
@@ -253,6 +256,171 @@ describe('the per-socket cap', () => {
         );
         expect(await redis.scard(`ev:s:{${USER}}:socket-a`)).toBe(
             EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
+        );
+    });
+});
+
+describe('rows made through a share handle', () => {
+    const HANDLE = 'kvh-handle-a';
+    const OTHER_HANDLE = 'kvh-handle-b';
+    const CAP = EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE;
+
+    /** A row in `USER`'s keyspace, made through a handle by `holderUserId`. */
+    const through = (
+        holderUserId: number,
+        i: number,
+        over: Partial<SessionSubscription> = {},
+    ): SessionSubscription =>
+        makeSub({
+            subId: `h-${holderUserId}-${i}`,
+            // Spread over connections so the per-socket cap never binds.
+            socketId: `socket-${Math.floor(i / 10)}`,
+            holderUserId,
+            ownerUserId: USER,
+            subject: `kv:${HANDLE}:*`,
+            token: `k#owner#app#ws:`,
+            anchorUid: 'app',
+            anchorPath: 'ws:',
+            permission: 'kv-share:owner:app:ws',
+            ...over,
+        });
+
+    const isLimit = (err: unknown) =>
+        isHttpError(err) &&
+        err.statusCode === 429 &&
+        err.legacyCode === 'events_subscription_limit';
+
+    it('holds another user to the cap through one handle, across their connections', async () => {
+        const holder = USER + 7000;
+        for (let i = 0; i < CAP; i++) await store.add(through(holder, i));
+
+        const overflow = through(holder, CAP);
+        await expect(store.add(overflow)).rejects.toSatisfy(isLimit);
+        // Rolled back: nothing of the refused row is left to reap or count.
+        expect(
+            await redis.smembers(`ev:s:{${holder}}:${overflow.socketId}`),
+        ).not.toContain(`${USER}|${overflow.token}|${overflow.subId}`);
+        expect(await redis.scard(`ev:kh:{${USER}}:${HANDLE}`)).toBe(CAP);
+
+        // Another handle has its own room.
+        await expect(
+            store.add(
+                through(holder, CAP + 1, { subject: `kv:${OTHER_HANDLE}:*` }),
+            ),
+        ).resolves.toMatchObject({ userId: USER });
+    });
+
+    it('frees a slot once a row is unsubscribed or its connection goes', async () => {
+        const holder = USER + 7000;
+        const rows = Array.from({ length: CAP }, (_, i) => through(holder, i));
+        for (const row of rows) await store.add(row);
+
+        await store.remove(rows[0]);
+        await expect(store.add(through(holder, CAP))).resolves.toMatchObject({
+            userId: USER,
+        });
+        await expect(store.add(through(holder, CAP + 1))).rejects.toSatisfy(
+            isLimit,
+        );
+
+        // A whole connection's worth.
+        await store.reapSocket(holder, rows[CAP - 1].socketId);
+        for (let i = 0; i < 10; i++)
+            await store.add(through(holder, CAP + 10 + i));
+        await expect(store.add(through(holder, CAP + 20))).rejects.toSatisfy(
+            isLimit,
+        );
+    });
+
+    it('never counts the owner`s own rows through the handle', async () => {
+        for (let i = 0; i < CAP + 20; i++) await store.add(through(USER, i));
+        const holder = USER + 7000;
+        for (let i = 0; i < CAP; i++) await store.add(through(holder, i));
+
+        await expect(store.add(through(holder, CAP))).rejects.toSatisfy(
+            isLimit,
+        );
+        await expect(store.add(through(USER, CAP + 20))).resolves.toMatchObject(
+            { userId: USER },
+        );
+    });
+
+    it('never lets concurrent adds through one handle exceed the cap', async () => {
+        const holder = USER + 7000;
+        const results = await Promise.allSettled(
+            Array.from({ length: CAP + 10 }, (_, i) =>
+                store.add(through(holder, i)),
+            ),
+        );
+
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(
+            CAP,
+        );
+        expect(await redis.scard(`ev:kh:{${USER}}:${HANDLE}`)).toBe(CAP);
+    });
+
+    it('lists the rows made through the given handles, and no others', async () => {
+        const holder = USER + 7000;
+        const held = through(holder, 0);
+        const own = through(USER, 1);
+        await store.add(held);
+        await store.add(own);
+        await store.add(
+            through(holder, 2, { subject: `kv:${OTHER_HANDLE}:*` }),
+        );
+        await store.add(makeSub({ subId: 'plain', subject: 'kv:ws:*' }));
+
+        const listed = await store.listForKvHandles(USER, [HANDLE]);
+        expect(listed.map((row) => row.subId).sort()).toEqual(
+            [held.subId, own.subId].sort(),
+        );
+        // Nothing is indexed under a user who owns none of it.
+        await expect(store.listForKvHandles(holder, [HANDLE])).resolves.toEqual(
+            [],
+        );
+
+        await store.remove(held);
+        await expect(store.listForKvHandles(USER, [HANDLE])).resolves.toEqual([
+            own,
+        ]);
+    });
+
+    it('lets go of rows whose handle no longer stands on refresh, and keeps the rest', async () => {
+        const holder = USER + 7000;
+        const viaHandle = through(holder, 0, { socketId: 'socket-a' });
+        const own = sharedWith(holder, { subId: 'folder', token: 'f#shared' });
+        await store.add(viaHandle);
+        await store.add(own);
+
+        const asked: string[] = [];
+        const { reasserted, lapsed } = await store.refresh(holder, 'socket-a', {
+            stillHeld: async (row) => {
+                asked.push(row.subId);
+                return false;
+            },
+        });
+
+        // Only rows made through a handle are asked about.
+        expect(asked).toEqual([viaHandle.subId]);
+        expect(lapsed).toEqual([viaHandle]);
+        expect(reasserted).toEqual([{ ownerUserId: USER, token: 'f#shared' }]);
+    });
+
+    it('renews the handle index with the rows that still stand', async () => {
+        const holder = USER + 7000;
+        const row = through(holder, 0, { socketId: 'socket-a' });
+        await store.add(row);
+        await redis.del(`ev:kh:{${USER}}:${HANDLE}`);
+
+        await store.refresh(holder, 'socket-a', {
+            stillHeld: async () => true,
+        });
+
+        await expect(store.listForKvHandles(USER, [HANDLE])).resolves.toEqual([
+            row,
+        ]);
+        expect(await redis.ttl(`ev:kh:{${USER}}:${HANDLE}`)).toBeGreaterThan(
+            SESSION_SUBSCRIPTION_TTL_SECONDS - 10,
         );
     });
 });
@@ -839,11 +1007,11 @@ describe('rows asking for kv values', () => {
         await store.add(asking());
         await store.add(makeSub({ socketId: 'socket-b' }));
 
-        expect(await store.refresh(USER, 'socket-a')).toEqual([
+        expect((await store.refresh(USER, 'socket-a')).reasserted).toEqual([
             { ownerUserId: USER, token: 'f#anchor' },
             { ownerUserId: USER, token: VALUE },
         ]);
-        expect(await store.refresh(USER, 'socket-b')).toEqual([
+        expect((await store.refresh(USER, 'socket-b')).reasserted).toEqual([
             { ownerUserId: USER, token: 'f#anchor' },
         ]);
     });
