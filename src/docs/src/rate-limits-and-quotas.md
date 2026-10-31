@@ -457,7 +457,7 @@ An app, its workers and the tokens it issues can send the user they act for an `
 
 | Limit                             | Value                             | Scope             |
 | --------------------------------- | --------------------------------- | ----------------- |
-| `app.message` notifications       | 30/min, 300/day                   | Per user, per app |
+| `app.message` notifications       | 30/min, 1,000/day                 | Per user, per app |
 | Pushes                            | 12/min, 1,000/day                 | Per user, per app |
 | Pushes from a new or unlisted app | 6/min, 200/day                    | Per user, per app |
 | Browsers with pushes turned on    | 10 per app, 20 for Puter          | Per user          |

@@ -6,7 +6,7 @@ platforms: [websites, apps]
 
 Sends the user your app runs for a notification. It goes to your app, not the Puter desktop's notifications panel, and reaches every open page of your app, on any of the user's devices, through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/). Puter asks those pages whether they received it. When no page answers within 5 seconds that it's visible and focused, or that it shows the notification itself, it also goes out as a push to the browsers where the user [turned pushes on](/Notifications/enable/) for your app. [Push notifications for your app](/Notifications/push/#when-a-notification-is-pushed) has the details.
 
-Only an app can send notifications, meaning an app running on Puter or a website using Puter.js. Every notification carries your app's name. A user gets at most 30 notifications a minute and 300 a day from each app.
+Only an app can send notifications, meaning an app running on Puter or a website using Puter.js. Every notification carries your app's name. A user gets at most 30 notifications a minute and 1,000 a day from each app.
 
 Pushes have their own caps. A user gets at most 12 pushes a minute and 1,000 a day from each app, or 6 a minute and 200 a day from an app younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower caps. Over a push cap, the notification still reaches your app live and the call still resolves. See [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
 
