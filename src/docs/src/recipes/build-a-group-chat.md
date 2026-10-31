@@ -45,7 +45,9 @@ doesn't say who made it or what its prefix is.
 
 Share the room with each member at write access. With `notify: true`, each
 member is told about the room right away, and the members and the creator can
-notify each other through the share:
+notify each other through the share, as
+[Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/)
+shows:
 
 ```js
 for (const username of ['alice', 'bob']) {
