@@ -238,6 +238,8 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
             success: true,
             errors: [],
             url: `https://${name}.puter.work`,
+            app_uid: null,
+            app_name: null,
         });
 
         const [url, init] = putCalls()[0]!;
@@ -253,6 +255,37 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
         expect(row).toBeTruthy();
         expect(Number(row!.user_id)).toBe(user.id);
         expect(Number(row!.root_dir_id)).toBe(entry.id);
+    });
+
+    it('names the app a bound worker runs as, and lists it with the worker', async () => {
+        const { user, actor } = await makeUser();
+        const app = await server.stores.app.create(
+            {
+                name: `bound-${user.username}`,
+                title: `bound-${user.username}`,
+                index_url: `https://bound-${user.username}.example.com/`,
+            },
+            { ownerUserId: user.id },
+        );
+        const path = `/${user.username}/bound.js`;
+        await writeSource(actor, user.id, path, 'export default {}');
+        const name = `bound-${user.username}`;
+
+        const result = await inCtx(actor, () =>
+            target.create({ appId: app.uid, workerName: name, filePath: path }),
+        );
+
+        expect(result).toMatchObject({
+            success: true,
+            app_uid: app.uid,
+            app_name: app.name,
+        });
+        const listed = (
+            (await inCtx(actor, () =>
+                target.getFilePaths({ workerName: name }),
+            )) as Array<{ app_uid: string | null; app_name: string | null }>
+        )[0];
+        expect(listed).toMatchObject({ app_uid: app.uid, app_name: app.name });
     });
 
     it('sends the puter_auth secret and puter_endpoint binding in the deploy metadata', async () => {
@@ -1319,6 +1352,7 @@ describe('WorkerDriver.getFilePaths source resolution', () => {
             file_path: string | null;
             file_uid: string | null;
             app_uid: string | null;
+            app_name: string | null;
             created_at: string | null;
         }>;
 
@@ -1328,6 +1362,7 @@ describe('WorkerDriver.getFilePaths source resolution', () => {
         expect(row.file_path).toBe(path);
         expect(row.file_uid).toBe(entry.uuid);
         expect(row.app_uid).toBeNull();
+        expect(row.app_name).toBeNull();
         expect(row.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 

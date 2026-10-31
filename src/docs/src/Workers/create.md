@@ -60,6 +60,8 @@ Two identities are in play inside a worker, and only the first is affected by th
 - `puter.*` (also `me.puter`) — the **worker's own** identity, set by the binding above.
 - `user.puter.*` — the identity of **whoever called the worker** via [`puter.workers.exec()`](/Workers/exec/). If an app calls a worker, this is that calling app's namespace, regardless of which app the worker itself runs as.
 
+The app a worker runs as also owns what the worker sends. Notifications and pushes the worker sends with [`puter.notifications.notify()`](/Notifications/notify/) come from that app, so a sandboxed worker sends them as its `sandbox-<workerName>` app. To send them as your app, bind the worker to it with `appName`. The [`WorkerDeployment`](/Objects/workerdeployment) this call resolves to, and the [`WorkerInfo`](/Objects/workerinfo) that [`puter.workers.list()`](/Workers/list/) and [`puter.workers.get()`](/Workers/get/) return, name that app in `app_uid` and `app_name`.
+
 Changing a worker's binding does not migrate its data. A worker redeployed with a different `sandbox` setting or `appName` starts against a different namespace, and anything it wrote under the old identity stays where it was.
 
 ## Return Value
