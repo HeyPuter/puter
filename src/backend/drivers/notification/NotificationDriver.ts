@@ -93,6 +93,26 @@ const tooManyAppMessages = (): HttpError =>
         legacyCode: 'too_many_requests',
     });
 
+/** The handle in `to`, which must be `{ handle }` and nothing else. */
+const parseNotifyTarget = (to: unknown): string => {
+    const target = to as Record<string, unknown> | null;
+    if (
+        !target ||
+        typeof target !== 'object' ||
+        Array.isArray(target) ||
+        Object.keys(target).length !== 1 ||
+        typeof target.handle !== 'string' ||
+        target.handle === ''
+    ) {
+        throw new HttpError(
+            400,
+            '`to` must be an object with only a string `handle`',
+            { legacyCode: 'bad_request', fields: { field: 'to' } },
+        );
+    }
+    return target.handle;
+};
+
 /** Whether a row belongs to the slice, as the same SQL scope selected it. */
 const inScope = (
     row: Record<string, unknown>,
@@ -123,8 +143,8 @@ const inScope = (
  *   grant changes that. A slice an actor may not see comes back empty rather
  *   than refused — the mailbox is not an oracle.
  * - The holder creates any registered type but `app.message`, silently. An actor
- *   holding an app creates `app.message` only, for its own user, and it is
- *   delivered live.
+ *   holding an app creates `app.message` only, for its own user or, through a
+ *   KV share handle, for the share's other party, and it is delivered live.
  *
  * `read` and `select` also take an optional `subject` naming one slice
  * (`notif:<appUid>:<audience>`); the two-segment form expands from the actor's
@@ -210,11 +230,12 @@ export class NotificationDriver extends PuterDriver {
         // Silent: a driver `create` has never pushed to the live socket, only
         // ever written the row — moving through the registry does not change
         // that.
-        return this.#write(actor.user.id, value, {
+        const uid = await this.#write(actor.user.id, value, {
             type: registeredType,
             appUid,
             silent: true,
         });
+        return this.#readBack(uid, actor.user.id);
     }
 
     async read(args: Record<string, unknown>): Promise<unknown> {
@@ -312,14 +333,17 @@ export class NotificationDriver extends PuterDriver {
         return { success: !!ok };
     }
 
-    /** An app's message to its own user; the actor names recipient and app. */
+    /**
+     * An app's message to its own user, or with `to.handle` to the other party
+     * of a KV share. The actor names the app; the share names the recipient.
+     */
     async #createAppMessage(
         actor: UserActor,
         appUid: string,
         object: Record<string, unknown>,
         value: Record<string, unknown>,
     ): Promise<unknown> {
-        const { type, ...fields } = value;
+        const { type, to, ...fields } = value;
         if (type !== APP_MESSAGE_TYPE) {
             throw typeNotAllowed(`Apps can create only ${APP_MESSAGE_TYPE}`);
         }
@@ -332,9 +356,29 @@ export class NotificationDriver extends PuterDriver {
                 );
             }
         }
+        const handle = to === undefined ? undefined : parseNotifyTarget(to);
         const message = parseAppMessage(fields);
         assertValueFits(value);
-        return this.#sendAppMessage(actor.user.id, appUid, message);
+
+        if (handle === undefined) {
+            const uid = await this.#sendAppMessage(
+                actor.user.id,
+                appUid,
+                message,
+            );
+            return this.#readBack(uid, actor.user.id);
+        }
+        const recipient = await this.services.kvShare.resolveNotifyRecipient(
+            actor,
+            handle,
+        );
+        const uid = await this.#sendAppMessage(
+            recipient.recipientUserId,
+            recipient.appUid,
+            message,
+        );
+        // The row is the recipient's, so the sender gets its uid alone.
+        return { uid };
     }
 
     /**
@@ -346,7 +390,7 @@ export class NotificationDriver extends PuterDriver {
         recipientId: number,
         appUid: string,
         message: AppMessage,
-    ): Promise<Record<string, unknown> | null> {
+    ): Promise<string> {
         // Primary: a lagging replica would turn a replacement into a new
         // notification, which spends a day slot.
         const open = message.group
@@ -378,7 +422,7 @@ export class NotificationDriver extends PuterDriver {
                     { type: APP_MESSAGE_TYPE, replace: true },
                 )
             ) {
-                return this.#readBack(uid, recipientId);
+                return uid;
             }
             // Shown or dismissed since the lookup, so this one is new after all.
             await this.#spendAppMessageLimits(recipientId, appUid, ['day']);
@@ -431,7 +475,7 @@ export class NotificationDriver extends PuterDriver {
         }
     }
 
-    /** Writes for `userId`, who need not be the actor. */
+    /** Writes for `userId`, who need not be the actor, and names the row. */
     async #write(
         userId: number,
         value: Record<string, unknown>,
@@ -441,7 +485,7 @@ export class NotificationDriver extends PuterDriver {
             silent: boolean;
             group?: string | null;
         },
-    ): Promise<Record<string, unknown> | null> {
+    ): Promise<string> {
         const uid = await this.services.notification.notify(
             [userId],
             value,
@@ -452,7 +496,7 @@ export class NotificationDriver extends PuterDriver {
                 legacyCode: 'internal_error',
             });
         }
-        return this.#readBack(uid, userId);
+        return uid;
     }
 
     /** The service hands back only the uid; the primary has the rest. */

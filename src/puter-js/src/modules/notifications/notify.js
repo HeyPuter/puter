@@ -10,11 +10,13 @@ const toError = (error) => {
 };
 
 /**
- * Sends the user this app runs for a notification. Only an app can send one.
+ * Sends the user this app runs for a notification, or with `to` the other party
+ * of a KV share. Only an app can send one.
  *
  * @this {import('./index.js').NotificationsModule}
  * @param {import('./types.js').NotificationInput} notification
- * @returns {Promise<string>} The new notification's uid.
+ * @returns {Promise<string>} The notification's uid; on a replacement, the uid
+ *   of the notification it replaced.
  */
 export async function notify(notification) {
     if (

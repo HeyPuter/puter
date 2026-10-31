@@ -21,6 +21,17 @@
  * @property {'normal'} [priority] Only `'normal'` is available to apps.
  * @property {number} [ttl] Seconds a push may wait for an offline device, 1 to
  *   86400. Default 3600.
+ * @property {NotificationRecipient} [to] Send it to the other party of a KV
+ *   share instead of the user the app runs for.
+ */
+
+/**
+ * Who a notification goes to, when it isn't the user the app runs for.
+ *
+ * @typedef {Object} NotificationRecipient
+ * @property {string} handle A KV share handle made with `notify: true`. The
+ *   notification goes to the share's other party: the holder when its owner
+ *   sends, the owner when its holder sends.
  */
 
 /**

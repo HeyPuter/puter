@@ -239,6 +239,7 @@ export type {
     NotificationHandler,
     NotificationInput,
     NotificationListener,
+    NotificationRecipient,
     NotificationSender,
     OnNotificationOptions,
     OnPushOptions,

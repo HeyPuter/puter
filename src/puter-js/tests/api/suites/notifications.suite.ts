@@ -34,12 +34,16 @@ const makeApp = async (t: TestContext): Promise<string> => {
     return (app as unknown as { uid: string }).uid;
 };
 
-const appToken = async (t: TestContext, appUid: string): Promise<string> => {
+const appToken = async (
+    t: TestContext,
+    appUid: string,
+    who: 'user' | 'other' = 'user',
+): Promise<string> => {
     const response = await fetch(`${t.env.apiOrigin}/auth/get-user-app-token`, {
         method: 'POST',
         headers: {
             'content-type': 'application/json',
-            authorization: `Bearer ${t.env.users.user.token}`,
+            authorization: `Bearer ${t.env.users[who].token}`,
         },
         body: JSON.stringify({ app_uid: appUid }),
     });
@@ -52,8 +56,9 @@ const asApp = async <T>(
     t: TestContext,
     appUid: string,
     run: () => Promise<T>,
+    who: 'user' | 'other' = 'user',
 ): Promise<T> => {
-    const token = await appToken(t, appUid);
+    const token = await appToken(t, appUid, who);
     // setAuthToken keeps the app identity, so it is put back afterwards.
     const sdk = t.puter as unknown as { appID?: string; appDataPath?: string };
     const { appID, appDataPath } = sdk;
@@ -185,6 +190,76 @@ export default suite('notifications', {
             }
         });
     },
+
+    'a notification reaches the other party of a share through its handle':
+        async (t) => {
+            const appUid = await makeApp(t);
+            const share = await t.puter.kv.share({
+                prefix: unique('room'),
+                recipient: t.env.users.other.username,
+                appUuid: appUid,
+                notify: true,
+            });
+            const ownUids = async (who: 'user' | 'other') =>
+                asApp(
+                    t,
+                    appUid,
+                    async () => {
+                        const page = await t.puter.events.fetch({
+                            subject: 'notif:app-user',
+                            limit: 200,
+                        });
+                        return page.items
+                            .filter((event) => event.type === 'app.message')
+                            .map((event) => event.uid);
+                    },
+                    who,
+                );
+            try {
+                const toHolder = await asApp(t, appUid, () =>
+                    t.puter.notifications.notify({
+                        title: unique('to-holder'),
+                        to: { handle: share.handle },
+                    }),
+                );
+                t.assert.equal(typeof toHolder, 'string');
+                t.assert.ok(
+                    (await ownUids('other')).includes(toHolder),
+                    'the holder has it',
+                );
+                t.assert.ok(
+                    !(await ownUids('user')).includes(toHolder),
+                    'the owner does not',
+                );
+
+                const toOwner = await asApp(
+                    t,
+                    appUid,
+                    () =>
+                        t.puter.notifications.notify({
+                            title: unique('to-owner'),
+                            to: { handle: share.handle },
+                        }),
+                    'other',
+                );
+                t.assert.ok(
+                    (await ownUids('user')).includes(toOwner),
+                    'the owner has it',
+                );
+
+                const error = await t.assert.rejects(() =>
+                    asApp(t, appUid, () =>
+                        t.puter.notifications.notify({
+                            title: 'Nobody',
+                            to: { handle: 'kvh-not-a-share' },
+                        }),
+                    ),
+                );
+                t.assert.equal(codeOf(error), 'subject_does_not_exist');
+            } finally {
+                await t.puter.kv.unshare(share.handle);
+            }
+        },
 
     "an app reads only its own app's notifications": async (t) => {
         const other = await makeApp(t);
