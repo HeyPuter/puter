@@ -270,14 +270,15 @@ describe.each(backends)('CreditHoldStore.reserve on $name', ({ redis }) => {
         expect(pttl).toBeGreaterThan(500_000);
     });
 
-    it('refuses a budget read before a release or usage write landed', async () => {
+    it('refuses a budget read before a usage write landed, but not one before a release', async () => {
         const id = user();
+        // A release alone leaves the balance as it was.
         const before = (await a.version(id))!;
         const held = await reserve(a, id, 1000);
         await b.release(id, held.outcome === 'accepted' ? held.member : null);
-        expect((await a.reserve(id, 1000, BUDGET, before)).outcome).toBe(
-            'stale',
-        );
+        const after = await a.reserve(id, 1000, BUDGET, before);
+        expect(after.outcome).toBe('accepted');
+        await a.release(id, after.outcome === 'accepted' ? after.member : null);
 
         const read = (await a.version(id))!;
         await b.bump(id);

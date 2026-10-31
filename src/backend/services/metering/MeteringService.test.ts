@@ -4465,6 +4465,31 @@ describe('MeteringService', () => {
             await hold?.release();
         });
 
+        it('reads purchased credit consistently only while some is left', async () => {
+            await withBalance(BUDGET);
+            const get = vi.spyOn(server.stores.kv, 'get');
+            const consistentAddonReads = () =>
+                get.mock.calls.filter(
+                    ([args]) =>
+                        args.consistentRead &&
+                        String(args.key).endsWith(':addons'),
+                ).length;
+            // With none, the cached record that says so answers.
+            await target.getAllowedUsage(actor);
+            get.mockClear();
+            await (
+                await target.reserveCreditsIfAffordable(actor, 1000)
+            )?.release();
+            expect(consistentAddonReads()).toBe(0);
+
+            await target.updateAddonCredit(actor.user.uuid!, 5_000);
+            get.mockClear();
+            await (
+                await target.reserveCreditsIfAffordable(actor, 1000)
+            )?.release();
+            expect(consistentAddonReads()).toBe(1);
+        });
+
         it('marks the balance changed on credit, allowance and manual usage changes', async () => {
             const uuid = actor.user.uuid!;
             const versions = [await server.stores.creditHold.version(uuid)];

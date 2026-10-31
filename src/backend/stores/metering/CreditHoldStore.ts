@@ -150,13 +150,6 @@ redis.call('INCR', ${key})
 redis.call('PEXPIRE', ${key}, ${ttl})
 `;
 
-/** KEYS: the actor's hold set, its version. ARGV: member, version ttl, seed. */
-const RELEASE_SCRIPT = `
-redis.call('ZREM', KEYS[1], ARGV[1])
-${bumpVersion('KEYS[2]', 'ARGV[3]', 'ARGV[2]')}
-return 1
-`;
-
 /** KEYS: the actor's hold version. ARGV: version ttl, seed. */
 const BUMP_SCRIPT = `
 ${bumpVersion('KEYS[1]', 'ARGV[2]', 'ARGV[1]')}
@@ -171,7 +164,7 @@ type ScriptRunner = {
     creditHoldTake(...args: string[]): Promise<number>;
     creditHoldSum(...args: string[]): Promise<[string, number]>;
     creditHoldReserve(...args: string[]): Promise<[string, number]>;
-    creditHoldRelease(...args: string[]): Promise<number>;
+    zrem(key: string, member: string): Promise<number>;
     creditHoldBump(...args: string[]): Promise<number>;
     get(key: string): Promise<string | null>;
 };
@@ -216,10 +209,6 @@ export class CreditHoldStore extends PuterStore {
         client.defineCommand('creditHoldReserve', {
             numberOfKeys: 2,
             lua: RESERVE_SCRIPT,
-        });
-        client.defineCommand('creditHoldRelease', {
-            numberOfKeys: 2,
-            lua: RELEASE_SCRIPT,
         });
         client.defineCommand('creditHoldBump', {
             numberOfKeys: 1,
@@ -365,20 +354,16 @@ export class CreditHoldStore extends PuterStore {
     }
 
     /**
-     * Give a hold back, and mark the balance changed so a reservation that read
-     * it before the release's usage landed reads it again. Safe to call twice;
-     * the second call releases nothing.
+     * Give a hold back. Safe to call twice; the second call releases nothing.
+     *
+     * The version isn't bumped here: the usage a hold stands for bumps it when
+     * it's recorded, before the hold is released, and a release with no usage
+     * leaves the balance as it was.
      */
     async release(userId: string, member: string | null): Promise<void> {
         if (!userId || !member) return;
         try {
-            await this.#redis.creditHoldRelease(
-                holdsKey(userId),
-                versionKey(userId),
-                member,
-                String(VERSION_TTL_MS),
-                versionSeed(),
-            );
+            await this.#redis.zrem(holdsKey(userId), member);
         } catch (e) {
             // The hold expires on its own, so the account gets its budget
             // back either way — just later than it should have.
