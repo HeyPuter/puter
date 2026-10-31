@@ -92,6 +92,8 @@ let calls: StubCall[];
 let answer: number | 'hang' = 200;
 /** Whether the stub's answer carries the handled header, as a real one would. */
 let answerHandled = true;
+/** Further headers on the stub's answer, such as the runtime's error code. */
+let answerHeaders: Record<string, string> = {};
 /**
  * Whether the stub reports the script missing until it sees the deployed
  * header.
@@ -137,10 +139,10 @@ const startStub = async (): Promise<string> => {
             // Stands in for the dispatcher forwarding a genuine answer from
             // the script, so it carries the marker a real one would — unless
             // a test is specifically simulating something that never reached one.
-            res.writeHead(
-                answer,
-                answerHandled ? { 'x-puter-events-handled': '1' } : {},
-            ).end();
+            res.writeHead(answer, {
+                ...(answerHandled ? { 'x-puter-events-handled': '1' } : {}),
+                ...answerHeaders,
+            }).end();
         });
     });
     await new Promise<void>((resolve) =>
@@ -314,6 +316,15 @@ const heldForMs = async (subId: string): Promise<number> => {
 };
 
 /**
+ * Wait until the delivery is held past its claim's own lease, which only a
+ * failed attempt's backoff does. Needs the clock frozen with `jump`.
+ */
+const heldForBackoff = (subId: string): Promise<void> =>
+    waitUntil(async () =>
+        expect(await heldForMs(subId)).toBeGreaterThan(2 * INVOKE_TIMEOUT_MS),
+    );
+
+/**
  * Wait until this subscription has `count` failed attempts on record. The
  * counter moves only after the attempt's hold or gap marker is written, so it
  * can't be the in-flight claim's lease or another test's late attempt.
@@ -395,6 +406,7 @@ beforeEach(async () => {
     calls = [];
     answer = 200;
     answerHandled = true;
+    answerHeaders = {};
     dispatchMissing = false;
     await env.server.clients.db.write('DELETE FROM `event_subscriptions`', []);
     events().invalidateUser(userId);
@@ -611,19 +623,67 @@ describe('what each answer does to the delivery', () => {
         });
     });
 
-    it('holds a 4xx with no handled marker for retry rather than dropping it', async () => {
+    it('holds a 4xx with no handled marker for retry, without counting it', async () => {
         // Nothing said this reached the script — an edge 404, a WAF — so it
-        // must not read as the handler's own refusal.
+        // is neither the handler's refusal nor its failure.
         answer = 404;
         answerHandled = false;
         const subId = await subscribe();
+        jump(0);
 
         await touch('unmarked.txt');
         await invoked(1);
 
-        await failuresRecorded(subId, 1);
-        expect(await heldForMs(subId)).toBeGreaterThan(0);
+        await heldForBackoff(subId);
         expect(await pending().depth(subId)).toBe(1);
+        expect(
+            await env.server.clients.redis.get(`ev:qf:{${subId}}`),
+        ).toBeNull();
+    });
+
+    it('does not count a run a Puter API failure ended, and waits as long as it asked', async () => {
+        answer = 500;
+        answerHeaders = {
+            'x-puter-events-error': 'platform-error',
+            'retry-after': '30',
+        };
+        const subId = await subscribe();
+        jump(0);
+
+        await touch('platform.txt');
+        await invoked(1);
+
+        await waitUntil(async () =>
+            expect(await heldForMs(subId)).toBe(30_000),
+        );
+        expect(
+            await env.server.clients.redis.get(`ev:qf:{${subId}}`),
+        ).toBeNull();
+    });
+
+    it('never suspends a subscription for Puter`s own failures', async () => {
+        answer = 502;
+        answerHandled = false;
+        const subId = await subscribe();
+        jump(0);
+
+        await touch('outage.txt');
+        for (
+            let attempt = 1;
+            attempt <= EVENTS_CONSECUTIVE_FAILURES + 1;
+            attempt++
+        ) {
+            await invoked(attempt);
+            await heldForBackoff(subId);
+            jump(deliveryBackoffMs(attempt) + 50);
+            await events().sweepPending();
+        }
+
+        await invoked(EVENTS_CONSECUTIVE_FAILURES + 2);
+        expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+        expect(
+            await env.server.clients.redis.get(`ev:qf:{${subId}}`),
+        ).toBeNull();
     });
 
     it('holds one it could not answer, for longer each time', async () => {

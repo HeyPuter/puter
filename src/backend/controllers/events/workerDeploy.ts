@@ -26,10 +26,14 @@ import {
     INTERNAL_ADMISSION_BYPASS,
     INTERNAL_DEPLOY_TARGET,
 } from '../../drivers/workers/WorkerDriver.js';
-import type { EventsInvokeCall } from '../../clients/events/EventsWorkerInvokerClient.js';
+import type {
+    EventsInvokeAnswer,
+    EventsInvokeCall,
+} from '../../clients/events/EventsWorkerInvokerClient.js';
 import {
-    EVENTS_HANDLED_HEADER,
     EVENTS_INVOKE_PATH,
+    answerFrom,
+    failedAnswer,
 } from '../../clients/events/EventsWorkerInvokerClient.js';
 import type { puterServices } from '../../services/index.js';
 import {
@@ -289,11 +293,7 @@ export class LocalEventsInvokeTransport {
         this.#deployer = deployer;
     }
 
-    async send(call: EventsInvokeCall): Promise<{
-        status: number | null;
-        handled?: boolean;
-        error?: string;
-    }> {
+    async send(call: EventsInvokeCall): Promise<EventsInvokeAnswer> {
         const request = (): Request =>
             new Request(
                 `http://${call.script}.workers.puter.localhost${EVENTS_INVOKE_PATH}`,
@@ -323,10 +323,7 @@ export class LocalEventsInvokeTransport {
                 return { status: null, error: 'script not resident' };
             return retried;
         } catch (err) {
-            return {
-                status: null,
-                error: err instanceof Error ? err.message : String(err),
-            };
+            return failedAnswer(err);
         }
     }
 
@@ -337,7 +334,7 @@ export class LocalEventsInvokeTransport {
     async #dispatch(
         request: Request,
         timeoutMs: number,
-    ): Promise<{ status: number; handled: boolean } | null> {
+    ): Promise<EventsInvokeAnswer | null> {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<'timeout'>((resolve) => {
             timer = setTimeout(() => resolve('timeout'), timeoutMs);
@@ -348,12 +345,10 @@ export class LocalEventsInvokeTransport {
                 this.#services.localworkerservice.dispatchEventsWorker(request),
                 timeout,
             ]);
-            if (response === 'timeout') throw new Error('invocation timed out');
+            if (response === 'timeout')
+                throw new DOMException('invocation timed out', 'TimeoutError');
             if (response === null) return null;
-            return {
-                status: response.status,
-                handled: response.headers.get(EVENTS_HANDLED_HEADER) === '1',
-            };
+            return answerFrom(response);
         } finally {
             clearTimeout(timer);
         }

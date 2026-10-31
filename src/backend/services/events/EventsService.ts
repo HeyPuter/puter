@@ -229,6 +229,7 @@ import {
     RecordingWorkerInvoker,
     type WorkerInvocation,
     type WorkerInvocationOutcome,
+    type WorkerInvocationResult,
     type WorkerInvokerSeam,
 } from './workerSeam.js';
 
@@ -1287,7 +1288,7 @@ export class EventsService extends PuterService {
 
     override onServerStart(): void {
         // Without it nothing can be addressed, and every background delivery
-        // fails its way to a suspension with no obvious cause.
+        // keeps retrying with no obvious cause.
         if (
             this.config.events?.workerRuntime === true &&
             !this.config.events?.internalSecret
@@ -5135,16 +5136,16 @@ export class EventsService extends PuterService {
         // Over the invocation budget nothing ran, so nothing was delivered and
         // the lease is the backoff — and the budget refusal itself must not
         // spend the one bill this entry gets, nor count against the handler.
-        const outcome = await this.#invokeHandler(invocation);
-        singleAttempt.add(1, {
-            target: 'worker',
-            result: outcome ?? 'over-budget',
-        });
-        if (outcome === null) return false;
+        const result = await this.#invokeHandler(invocation);
+        if (result === null) {
+            singleAttempt.add(1, { target: 'worker', result: 'over-budget' });
+            return false;
+        }
 
         // Never runnable, so dropped outright: not a handler failure, and no
         // gap marker, which would be handed to the handler at this same depth.
-        if (outcome === 'too-deep') {
+        if (result === 'too-deep') {
+            singleAttempt.add(1, { target: 'worker', result: 'too-deep' });
             await this.stores.pendingDelivery.settle(
                 row.subId,
                 claimed.entryId,
@@ -5152,6 +5153,8 @@ export class EventsService extends PuterService {
             return true;
         }
 
+        const { outcome, retryAfterMs } = result;
+        singleAttempt.add(1, { target: 'worker', result: outcome });
         // Only a settled outcome is a delivery: billing and reporting it
         // ahead of that would charge for an attempt that failed, is still
         // retrying, or was discarded outright.
@@ -5171,7 +5174,7 @@ export class EventsService extends PuterService {
         // Nothing was attempted, so nothing failed: the lease paces the retry.
         if (outcome === 'deferred') return false;
 
-        await this.#handlerFailed(row, claimed, outcome);
+        await this.#handlerFailed(row, claimed, outcome, retryAfterMs);
         return false;
     }
 
@@ -5184,12 +5187,14 @@ export class EventsService extends PuterService {
      * now", and the delivery waits longer each time. Both count: five failures
      * in a row is a handler that is not working, whichever way it is failing,
      * and retrying it forever is how one bad deploy becomes a standing load on
-     * whatever it is calling.
+     * whatever it is calling. A run Puter could not start or finish waits the
+     * same way but never counts, so Puter's own outage suspends nobody.
      */
     async #handlerFailed(
         row: DispatchSubscription,
         claimed: ClaimedDelivery,
         outcome: Exclude<WorkerInvocationOutcome, 'settled' | 'deferred'>,
+        retryAfterMs?: number,
     ): Promise<void> {
         const pending = this.stores.pendingDelivery;
         try {
@@ -5209,7 +5214,13 @@ export class EventsService extends PuterService {
                         meterFor(row),
                         bill,
                     );
-            } else await pending.deferAfterFailure(row.subId, claimed.entryId);
+            } else
+                await pending.deferAfterFailure(
+                    row.subId,
+                    claimed.entryId,
+                    retryAfterMs,
+                );
+            if (outcome === 'unavailable') return;
 
             const failures = await pending.recordFailure(row.subId);
             if (failures < EVENTS_CONSECUTIVE_FAILURES) return;
@@ -5537,7 +5548,7 @@ export class EventsService extends PuterService {
             // A `broadcast` invocation is never retried. A run that finished,
             // or threw an error that drops the event, counts as delivered.
             try {
-                const outcome = await this.worker.invoke(delivery.worker!);
+                const { outcome } = await this.worker.invoke(delivery.worker!);
                 invoked = outcome === 'settled' || outcome === 'terminal';
             } catch (err) {
                 console.warn('[events] handler invocation failed', err);
@@ -5740,7 +5751,7 @@ export class EventsService extends PuterService {
      */
     async #invokeHandler(
         invocation: WorkerInvocation,
-    ): Promise<WorkerInvocationOutcome | 'too-deep' | null> {
+    ): Promise<WorkerInvocationResult | 'too-deep' | null> {
         const gate = await this.#handlerGate(invocation);
         if (gate === 'too-deep') return 'too-deep';
         if (gate === 'over-budget') return null;

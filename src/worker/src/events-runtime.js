@@ -11,11 +11,13 @@
  * captured before handler code can run — so a handler cannot spoof it — and,
  * on the runtime's own failure answers, a machine-readable `x-puter-events-error`
  * naming which one: `bad-key`, `bad-body`, `handler-broken`, `unknown-handler`,
- * `no-token`, `handler-threw`, `handler-terminal`.
+ * `no-token`, `platform-error`, `handler-threw`, `handler-terminal`.
  *
  * A handler that throws a retryable error (see `isRetryableError`, inlined
  * ahead of this file) answers 500 and is retried; any other throw answers 400
- * and drops the event.
+ * and drops the event. A throw after a Puter API call from `user` failed with
+ * a 429, a 5xx or a network error answers 500 `platform-error`, with that
+ * call's `retry-after` when it had one, unless the handler marked it terminal.
  *
  * An unauthorized invocation answers 500 rather than 401: the only way to get
  * one is a platform-side fault (a key rotated under a resident script), which
@@ -31,6 +33,13 @@
     // Captured for the same reason: handler code cannot replace it.
     const isRetryable =
         typeof isRetryableError === 'function' ? isRetryableError : () => false;
+    const isTerminal =
+        typeof isTerminalError === 'function' ? isTerminalError : () => false;
+    const isFailureStatus =
+        typeof isRetryableStatus === 'function'
+            ? isRetryableStatus
+            : () => false;
+    const nativeFetch = globalThis.fetch.bind(globalThis);
 
     const INVOKE_PATH = '/__events/invoke';
     const HANDLED_HEADER = 'x-puter-events-handled';
@@ -66,6 +75,48 @@
     }
 
     const apiOrigin = globalThis.puter_endpoint || 'https://api.puter.com';
+    const apiHost = new URL(apiOrigin).origin;
+
+    /** Seconds from a `retry-after` header, as ms; 0 when absent or a date. */
+    const retryAfterMs = (value) => {
+        const seconds = Number(value);
+        return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 0;
+    };
+
+    const isApiRequest = (input) => {
+        try {
+            const url = typeof input === 'string' ? input : input?.url;
+            return new URL(String(url), apiOrigin).origin === apiHost;
+        } catch {
+            return false;
+        }
+    };
+
+    /**
+     * The fetch a client's puter.js calls go through, counting Puter API
+     * answers that were Puter's failure. Counted per client: concurrent runs
+     * on one token share it.
+     */
+    const observedFetch = (entry) => async (input, init) => {
+        const toApi = isApiRequest(input);
+        let response;
+        try {
+            response = await nativeFetch(input, init);
+        } catch (err) {
+            if (toApi && err?.name !== 'AbortError') {
+                entry.platformFailures++;
+                entry.retryAfterMs = 0;
+            }
+            throw err;
+        }
+        if (toApi && isFailureStatus(response.status)) {
+            entry.platformFailures++;
+            entry.retryAfterMs = retryAfterMs(
+                response.headers.get('retry-after'),
+            );
+        }
+        return response;
+    };
 
     // Deliveries arriving on the same token reuse one client rather than
     // rebuilding puter.js each time. Keyed on the token itself so a client is
@@ -83,16 +134,18 @@
             clientsByToken.set(token, cached);
             return cached;
         }
-        const client = init_puter_portable(token, apiOrigin, 'userPuter', {
+        const entry = { client: null, platformFailures: 0, retryAfterMs: 0 };
+        entry.client = init_puter_portable(token, apiOrigin, 'userPuter', {
             // No delivery room, no presence, no per-invocation socket: this
             // client only ever makes plain API calls on the handler's behalf.
             socket: false,
+            fetch: observedFetch(entry),
         });
-        clientsByToken.set(token, client);
+        clientsByToken.set(token, entry);
         if (clientsByToken.size > MAX_CLIENTS) {
             clientsByToken.delete(clientsByToken.keys().next().value);
         }
-        return client;
+        return entry;
     };
 
     /**
@@ -101,12 +154,14 @@
      * `errorCode` names one of the runtime's own failure modes; a handler's
      * own 2xx/4xx/500 carries none.
      */
-    const answer = (status, body, errorCode) => {
+    const answer = (status, body, errorCode, retryAfter = 0) => {
         const headers = {
             'content-type': 'application/json',
             [HANDLED_HEADER]: '1',
         };
         if (errorCode) headers[ERROR_HEADER] = errorCode;
+        if (retryAfter > 0)
+            headers['retry-after'] = String(Math.ceil(retryAfter / 1000));
         return new NativeResponse(JSON.stringify(body), { status, headers });
     };
 
@@ -183,20 +238,29 @@
             body.ctx === null || body.ctx === undefined ? {} : body.ctx,
         );
 
+        const user = clientForToken(token);
+        const failuresBefore = user.platformFailures;
         try {
             await run({
                 event: body.event,
                 ctx,
-                user: clientForToken(token),
+                user: user.client,
                 fetch: globalThis.fetch.bind(globalThis),
                 ack,
             });
             return answer(200, { ok: true });
         } catch (err) {
             if (acked) return answer(200, { ok: true });
-            const retry = isRetryable(err);
             const message =
                 err && err.message ? String(err.message) : String(err);
+            if (user.platformFailures > failuresBefore && !isTerminal(err))
+                return answer(
+                    500,
+                    { error: message },
+                    'platform-error',
+                    user.retryAfterMs,
+                );
+            const retry = isRetryable(err);
             return answer(
                 retry ? 500 : 400,
                 { error: message },

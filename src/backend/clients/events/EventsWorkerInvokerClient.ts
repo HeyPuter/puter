@@ -69,6 +69,13 @@ export const EVENTS_HANDLED_HEADER = 'x-puter-events-handled';
 export const EVENTS_ERROR_HEADER = 'x-puter-events-error';
 
 /**
+ * Runtime failure answers that are Puter's fault rather than the handler's: a
+ * key the script no longer matches, no token to run as, or a handler that
+ * failed because a Puter API call it made did.
+ */
+const PLATFORM_ERROR_CODES = new Set(['bad-key', 'no-token', 'platform-error']);
+
+/**
  * Set on the retry after this backend deploys a missing script itself, so the
  * dispatcher skips its own deploy-on-miss callback and negative cache and goes
  * straight to retrying the namespace.
@@ -139,27 +146,38 @@ export interface EventsInvokeCall {
     deployed?: boolean;
 }
 
+/** What one attempt at delivering an invocation came back with. */
+export interface EventsInvokeAnswer {
+    /** `null` when no answer came back. */
+    status: number | null;
+    /** Set only when the answer provably came from the script. */
+    handled?: boolean;
+    error?: string;
+    /** Set only by the dispatcher transport, naming its own failure. */
+    dispatchReason?: string;
+    /** No answer within the invoke timeout. */
+    timedOut?: boolean;
+    /** From a `retry-after` header in seconds. */
+    retryAfterMs?: number;
+}
+
 /**
- * Delivers an invocation. `status` null means nothing ran (retriable);
- * `handled` is set only when the answer provably came from the script, so an
- * unmarked 4xx is not a handler's refusal.
+ * Delivers an invocation. `handled` is set only when the answer provably came
+ * from the script, so an unmarked 4xx is not a handler's refusal.
  */
 export interface EventsInvokeTransport {
-    send(call: EventsInvokeCall): Promise<{
-        status: number | null;
-        handled?: boolean;
-        error?: string;
-        /** Set only by the dispatcher transport, naming its own failure. */
-        dispatchReason?: string;
-    }>;
+    send(call: EventsInvokeCall): Promise<EventsInvokeAnswer>;
 }
 
 /**
  * `settled`: handler accepted (2xx). `terminal`: handler refused (marked 4xx),
- * not retried. `retriable`: no handler answer (5xx, 429, timeout, transport
- * failure, unmarked 4xx).
+ * not retried. `retriable`: the handler failed or ran past the timeout.
+ * `unavailable`: Puter could not start or finish the run (transport, dispatch
+ * and deploy failures, unmarked answers, a Puter API failure inside the
+ * handler); retried like `retriable` but never the handler's fault.
  */
-export type WorkerInvokeOutcome = 'settled' | 'terminal' | 'retriable';
+export type WorkerInvokeOutcome =
+    'settled' | 'terminal' | 'retriable' | 'unavailable';
 
 export interface WorkerInvokeResult {
     outcome: WorkerInvokeOutcome;
@@ -167,6 +185,8 @@ export interface WorkerInvokeResult {
     status: number | null;
     /** Why it could not answer, when nothing did. */
     error?: string;
+    /** How long the answer asked to be left alone. */
+    retryAfterMs?: number;
 }
 
 const NO_TRANSPORT =
@@ -202,7 +222,11 @@ export class EventsWorkerInvokerClient extends PuterClient {
     async invoke(request: WorkerInvokeRequest): Promise<WorkerInvokeResult> {
         const transport = this.#pickTransport();
         if (!transport)
-            return { outcome: 'retriable', status: null, error: NO_TRANSPORT };
+            return {
+                outcome: 'unavailable',
+                status: null,
+                error: NO_TRANSPORT,
+            };
 
         const call: EventsInvokeCall = {
             script: request.script,
@@ -229,7 +253,7 @@ export class EventsWorkerInvokerClient extends PuterClient {
                 );
                 if (outcome !== 'deployed')
                     return {
-                        outcome: 'retriable',
+                        outcome: 'unavailable',
                         status: null,
                         error: `deploy: ${outcome}`,
                     };
@@ -243,23 +267,28 @@ export class EventsWorkerInvokerClient extends PuterClient {
             }
         }
 
-        const { status, handled, error } = result;
+        const { status, handled, error, timedOut, retryAfterMs } = result;
+        // Past the timeout the handler was most likely still running, which
+        // is its own doing; any other missing answer never reached it.
         if (status === null)
-            return { outcome: 'retriable', status: null, error };
+            return {
+                outcome: timedOut ? 'retriable' : 'unavailable',
+                status: null,
+                error,
+            };
 
-        const outcome = outcomeForStatus(status, handled === true);
-        // An unmarked 4xx (429 aside — that one is always retriable) is not
-        // the handler's own answer; say so even when the transport did not,
-        // so the reason a delivery kept retrying shows up in the log rather
-        // than reading as an unexplained retry.
-        const unmarkedFourxx =
-            status !== 429 && status >= 400 && status < 500 && !handled;
+        const outcome = outcomeForStatus(status, handled === true, error);
+        // An unmarked failure is not the handler's own answer; say so even
+        // when the transport did not, so the reason a delivery kept retrying
+        // shows up in the log rather than reading as an unexplained retry.
+        const unmarked = status >= 300 && !handled;
         const reportedError =
-            error ?? (unmarkedFourxx ? 'unmarked 4xx' : undefined);
+            error ?? (unmarked ? `unmarked ${status}` : undefined);
         return {
             outcome,
             status,
             ...(reportedError ? { error: reportedError } : {}),
+            ...(retryAfterMs ? { retryAfterMs } : {}),
         };
     }
 
@@ -307,12 +336,7 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
         this.#agent = null;
     }
 
-    async send(call: EventsInvokeCall): Promise<{
-        status: number | null;
-        handled?: boolean;
-        error?: string;
-        dispatchReason?: string;
-    }> {
+    async send(call: EventsInvokeCall): Promise<EventsInvokeAnswer> {
         try {
             // `new URL(path, base)` resolves an absolute path against the
             // base's origin, dropping any path prefix `base` already carries.
@@ -347,18 +371,9 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                     dispatchReason: dispatchError,
                 };
 
-            const handled = response.headers.get(EVENTS_HANDLED_HEADER) === '1';
-            const errorHeader = response.headers.get(EVENTS_ERROR_HEADER);
-            return {
-                status: response.status,
-                handled,
-                ...(errorHeader ? { error: errorHeader } : {}),
-            };
+            return answerFrom(response);
         } catch (err) {
-            return {
-                status: null,
-                error: err instanceof Error ? err.message : String(err),
-            };
+            return failedAnswer(err);
         }
     }
 
@@ -373,18 +388,54 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
     }
 }
 
+/** What a script's answer says, read the same way by every transport. */
+export const answerFrom = (response: {
+    status: number;
+    headers: { get(name: string): string | null };
+}): EventsInvokeAnswer => {
+    const errorHeader = response.headers.get(EVENTS_ERROR_HEADER);
+    const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
+    return {
+        status: response.status,
+        handled: response.headers.get(EVENTS_HANDLED_HEADER) === '1',
+        ...(errorHeader ? { error: errorHeader } : {}),
+        ...(retryAfterMs ? { retryAfterMs } : {}),
+    };
+};
+
+/** An attempt that threw before any answer came back. */
+export const failedAnswer = (err: unknown): EventsInvokeAnswer => ({
+    status: null,
+    error: err instanceof Error ? err.message : String(err),
+    // What `AbortSignal.timeout` rejects with.
+    ...((err as { name?: unknown } | null)?.name === 'TimeoutError'
+        ? { timedOut: true }
+        : {}),
+});
+
+/** Whole seconds only; an HTTP-date form reads as absent. */
+const parseRetryAfterMs = (value: string | null): number => {
+    const seconds = Number(value);
+    return value && Number.isFinite(seconds) && seconds > 0
+        ? seconds * 1000
+        : 0;
+};
+
 /**
- * 2xx took it regardless. 429 is always "not now". Any other 4xx is a refusal
- * only when `handled` says the answer is provably the script's own — an
- * unmarked 4xx came from something between here and the handler.
+ * 2xx took it regardless. Anything else not marked as the script's own answer
+ * came from something between here and the handler. A marked answer is a
+ * refusal when it is a 4xx other than 429, Puter's failure when the runtime
+ * names one, and the handler's failure otherwise.
  */
 export const outcomeForStatus = (
     status: number,
     handled: boolean,
+    errorCode?: string,
 ): WorkerInvokeOutcome => {
     if (status >= 200 && status < 300) return 'settled';
+    if (!handled) return 'unavailable';
+    if (errorCode && PLATFORM_ERROR_CODES.has(errorCode)) return 'unavailable';
     if (status === 429) return 'retriable';
-    if (status >= 400 && status < 500)
-        return handled ? 'terminal' : 'retriable';
+    if (status >= 400 && status < 500) return 'terminal';
     return 'retriable';
 };

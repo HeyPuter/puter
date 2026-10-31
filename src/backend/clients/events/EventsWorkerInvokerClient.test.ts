@@ -33,6 +33,7 @@ import {
     EVENTS_ERROR_HEADER,
     EVENTS_HANDLED_HEADER,
     EventsWorkerInvokerClient,
+    outcomeForStatus,
     type WorkerInvokeRequest,
 } from './EventsWorkerInvokerClient.js';
 
@@ -54,13 +55,21 @@ const stubFetch = (
     (async () =>
         new Response(null, { status, headers })) as unknown as FetchImpl;
 
-/** A stub fetch that never answers until the abort signal fires. */
+/**
+ * A stub fetch that never answers until the abort signal fires, then rejects
+ * with the signal's reason the way undici does.
+ */
 const hangingFetch: FetchImpl = ((_url: string, init?: RequestInit) =>
     new Promise((_resolve, reject) => {
         init?.signal?.addEventListener('abort', () =>
-            reject(new Error('This operation was aborted')),
+            reject(init.signal!.reason),
         );
     })) as unknown as FetchImpl;
+
+/** A stub fetch that fails before any answer, as a refused connection does. */
+const refusedFetch: FetchImpl = (async () => {
+    throw new TypeError('fetch failed');
+}) as unknown as FetchImpl;
 
 /** A stub fetch that records the URL it was called with. */
 const capturingFetch = (
@@ -141,13 +150,39 @@ describe('DispatcherInvokeTransport', () => {
         });
     });
 
-    it('answers null with an error when the request times out', async () => {
+    it('answers null and says so when the request times out', async () => {
         const transport = new DispatcherInvokeTransport('http://dispatcher', 's', {
             fetchImpl: hangingFetch,
         });
         const result = await transport.send({ ...CALL, timeoutMs: 10 });
         expect(result.status).toBeNull();
-        expect(result.error).toMatch(/abort/i);
+        expect(result.timedOut).toBe(true);
+    });
+
+    it('answers null without a timeout when the request fails outright', async () => {
+        const transport = new DispatcherInvokeTransport('http://dispatcher', 's', {
+            fetchImpl: refusedFetch,
+        });
+        expect(await transport.send(CALL)).toEqual({
+            status: null,
+            error: 'fetch failed',
+        });
+    });
+
+    it('reads a retry-after in seconds, and ignores a date', async () => {
+        const answer = (value: string) =>
+            new DispatcherInvokeTransport('http://dispatcher', 's', {
+                fetchImpl: stubFetch(500, {
+                    [EVENTS_HANDLED_HEADER]: '1',
+                    [EVENTS_ERROR_HEADER]: 'platform-error',
+                    'retry-after': value,
+                }),
+            }).send(CALL);
+
+        expect((await answer('30')).retryAfterMs).toBe(30_000);
+        expect(
+            (await answer('Wed, 21 Oct 2015 07:28:00 GMT')).retryAfterMs,
+        ).toBeUndefined();
     });
 
     it('surfaces the runtime`s own error header alongside its status', async () => {
@@ -275,7 +310,7 @@ describe('EventsWorkerInvokerClient deploy-on-miss', () => {
 
         expect(calls).toHaveLength(1);
         expect(result).toEqual({
-            outcome: 'retriable',
+            outcome: 'unavailable',
             status: null,
             error: 'deploy: stale',
         });
@@ -300,7 +335,7 @@ describe('EventsWorkerInvokerClient deploy-on-miss', () => {
         expect(handlerCalls).toBe(1);
         // The first send plus the one retry — never a third.
         expect(calls).toHaveLength(2);
-        expect(result.outcome).toBe('retriable');
+        expect(result.outcome).toBe('unavailable');
         expect(result.status).toBeNull();
     });
 
@@ -317,7 +352,7 @@ describe('EventsWorkerInvokerClient deploy-on-miss', () => {
 
         expect(calls).toHaveLength(1);
         expect(result).toEqual({
-            outcome: 'retriable',
+            outcome: 'unavailable',
             status: null,
             error: 'dispatcher: missing (404)',
         });
@@ -342,7 +377,7 @@ describe('EventsWorkerInvokerClient deploy-on-miss', () => {
 
         expect(handlerCalled).toBe(false);
         expect(result).toEqual({
-            outcome: 'retriable',
+            outcome: 'unavailable',
             status: null,
             error: 'dispatcher: forbidden (403)',
         });
@@ -402,9 +437,98 @@ describe('EventsWorkerInvokerClient deploy-on-miss', () => {
         expect(calls).toHaveLength(2);
         expect(deployCalls).toHaveLength(0);
         expect(result).toEqual({
-            outcome: 'retriable',
+            outcome: 'unavailable',
             status: null,
             error: 'dispatcher: deploy-timeout (503)',
         });
     });
+
+    it('reports a deploy that was throttled as Puter`s failure', async () => {
+        const client = makeClient();
+        client.setTransport(
+            new DispatcherInvokeTransport('http://dispatcher', 's', {
+                fetchImpl: alwaysMissingFetch([]),
+            }),
+        );
+        client.setMissHandler(async () => 'throttled');
+
+        expect((await client.invoke(REQUEST)).outcome).toBe('unavailable');
+    });
+});
+
+describe('whose failure an invocation was', () => {
+    const invokeWith = (fetchImpl: FetchImpl, timeoutMs?: number) => {
+        const client = new EventsWorkerInvokerClient({
+            events: timeoutMs ? { invokeTimeoutMs: timeoutMs } : {},
+        } as unknown as IConfig);
+        client.setTransport(
+            new DispatcherInvokeTransport('http://dispatcher', 's', {
+                fetchImpl,
+            }),
+        );
+        return client.invoke(REQUEST);
+    };
+
+    it('counts a run past the timeout against the handler', async () => {
+        expect((await invokeWith(hangingFetch, 10)).outcome).toBe('retriable');
+    });
+
+    it('puts a request that never got an answer on Puter', async () => {
+        expect((await invokeWith(refusedFetch)).outcome).toBe('unavailable');
+    });
+
+    it('puts an unmarked 5xx, 429 or 4xx on Puter', async () => {
+        for (const status of [500, 502, 429, 404]) {
+            const result = await invokeWith(stubFetch(status));
+            expect(result).toEqual({
+                outcome: 'unavailable',
+                status,
+                error: `unmarked ${status}`,
+            });
+        }
+    });
+
+    it('puts a handler failed by a Puter API call on Puter, with its wait', async () => {
+        const result = await invokeWith(
+            stubFetch(500, {
+                [EVENTS_HANDLED_HEADER]: '1',
+                [EVENTS_ERROR_HEADER]: 'platform-error',
+                'retry-after': '20',
+            }),
+        );
+        expect(result).toEqual({
+            outcome: 'unavailable',
+            status: 500,
+            error: 'platform-error',
+            retryAfterMs: 20_000,
+        });
+    });
+
+    it('answers unavailable with no dispatcher configured', async () => {
+        const result = await makeClient().invoke(REQUEST);
+        expect(result.outcome).toBe('unavailable');
+    });
+});
+
+describe('outcomeForStatus', () => {
+    it.each([
+        [200, true, undefined, 'settled'],
+        [204, false, undefined, 'settled'],
+        [400, true, 'handler-terminal', 'terminal'],
+        [404, true, 'unknown-handler', 'terminal'],
+        [500, true, 'handler-threw', 'retriable'],
+        [500, true, 'handler-broken', 'retriable'],
+        [429, true, undefined, 'retriable'],
+        [500, true, 'bad-key', 'unavailable'],
+        [500, true, 'no-token', 'unavailable'],
+        [500, true, 'platform-error', 'unavailable'],
+        [500, false, undefined, 'unavailable'],
+        [429, false, undefined, 'unavailable'],
+        [403, false, undefined, 'unavailable'],
+    ] as const)(
+        'reads %i (handled: %s, %s) as %s',
+        (status, handled, errorCode, expected) => {
+            expect(outcomeForStatus(status, handled, errorCode)).toBe(expected);
+        },
+    );
 });
