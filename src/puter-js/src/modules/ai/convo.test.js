@@ -1289,6 +1289,23 @@ describe('restart notice', () => {
         expect(c.state).toBe('connected');
     });
 
+    it('stops opening replacements after one hits the size limit', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver(notice);
+        await vi.advanceTimersByTimeAsync(SPREAD);
+        socket().deliver({
+            type: 'session.created',
+            session: { instructions: 'x'.repeat(4 * 1024 * 1024) },
+        });
+        const sockets = FakeWebSocket.instances.length;
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(FakeWebSocket.instances).toHaveLength(sockets);
+        expect(c.state).toBe('connected');
+        expect(first.readyState).toBe(1);
+    });
+
     it('drops a held replacement that gets its own notice or an error', async () => {
         const c = await connected();
         fakeTime();
@@ -2017,6 +2034,26 @@ describe('reconnect retries', () => {
         await vi.advanceTimersByTimeAsync(10_000);
         expect(c.state).toBe('closed');
         expect(closed).toHaveBeenCalledOnce();
+        expect(FakeWebSocket.instances.length).toBe(attempts);
+    });
+
+    it('ends on an event over the size limit during a reconnect, without more attempts', async () => {
+        const c = await connected();
+        fakeTime();
+        const closed = vi.fn();
+        c.on('close', closed);
+        socket().close(1006);
+        await vi.advanceTimersByTimeAsync(500);
+        const attempts = FakeWebSocket.instances.length;
+        socket().deliver({
+            type: 'session.created',
+            session: { instructions: 'x'.repeat(4 * 1024 * 1024) },
+        });
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(c.state).toBe('closed');
+        expect(closed).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ type: 'close', code: 4009 }),
+        );
         expect(FakeWebSocket.instances.length).toBe(attempts);
     });
 
