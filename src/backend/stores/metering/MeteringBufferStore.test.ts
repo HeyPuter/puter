@@ -524,6 +524,87 @@ describe('MeteringBufferStore', () => {
             expect((res as { total: number }).total).toBe(10);
         });
 
+        it('misses nothing in an exact read when a flush lands between its reads', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            const flushing = target.flushCycle();
+            await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+
+            // The store read sees the counter from before the flush's write;
+            // the flush then writes it and leaves its claim before any claim
+            // read that follows the store read.
+            let storeReadStarted = false;
+            let flushed!: Promise<void>;
+            const realGet = kv.get.bind(kv);
+            const get = vi
+                .spyOn(kv, 'get')
+                .mockImplementation(async (args) => {
+                    if (!args.consistentRead || args.key !== key) {
+                        return realGet(args);
+                    }
+                    if (storeReadStarted) return realGet(args);
+                    storeReadStarted = true;
+                    const before = await realGet(args);
+                    write.release();
+                    flushed = flushing.then(() => {});
+                    await flushed;
+                    return before;
+                });
+            const redis = server.clients.redis as unknown as {
+                meterRead: (...args: string[]) => Promise<unknown>;
+            };
+            const realRead = redis.meterRead.bind(redis);
+            const read = vi
+                .spyOn(redis, 'meterRead')
+                .mockImplementation(async (...args: string[]) => {
+                    if (storeReadStarted) {
+                        await vi.waitFor(() => expect(flushed).toBeDefined());
+                        await flushed;
+                    }
+                    return realRead(...args);
+                });
+            try {
+                const { res } = await target.readExact({ key });
+                expect((res as { total: number }).total).toBe(10);
+            } finally {
+                get.mockRestore();
+                read.mockRestore();
+                write.spy.mockRestore();
+                await flushing;
+            }
+            expect(await storedTotal(key)).toBe(10);
+        });
+
+        it('counts nothing twice in an exact read when a flush lands during its store read', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            const flushing = target.flushCycle();
+            await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+
+            // The claim was read with the amount still on it; the store read
+            // then sees it written.
+            let landed = false;
+            const realGet = kv.get.bind(kv);
+            const get = vi
+                .spyOn(kv, 'get')
+                .mockImplementation(async (args) => {
+                    if (args.consistentRead && args.key === key && !landed) {
+                        landed = true;
+                        write.release();
+                        await flushing;
+                    }
+                    return realGet(args);
+                });
+            try {
+                const { res } = await target.readExact({ key });
+                expect((res as { total: number }).total).toBe(10);
+            } finally {
+                get.mockRestore();
+                write.spy.mockRestore();
+                await flushing;
+            }
+        });
+
         it('reads a written-through increment once the cache is back', async () => {
             await target.incr({ key, pathAndAmountMap: { total: 10 } });
             await target.flushCycle();
