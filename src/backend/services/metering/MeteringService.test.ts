@@ -4537,6 +4537,48 @@ describe('MeteringService', () => {
         });
     });
 
+    describe('settling a charge while a flush is out', () => {
+        it('splits a charge over the allowance using usage a flush has claimed', async () => {
+            const uuid = actor.user.uuid!;
+            const { monthUsageAllowance: allowance } =
+                await target.getActorSubscription(actor);
+            await target.updateAddonCredit(uuid, 1_000_000);
+            const Service = target.constructor as typeof MeteringService;
+            const threshold = Service.PRECISION_THRESHOLD;
+            // Keeps the first charge buffered instead of read exactly.
+            Service.PRECISION_THRESHOLD = 2;
+            await target.incrementUsage(actor, 'kv:read', 1, allowance - 5);
+            Service.PRECISION_THRESHOLD = threshold;
+
+            // A flush claims it and stalls before writing it onward.
+            const kv = server.stores.kv;
+            const realIncr = kv.incr.bind(kv);
+            let release: () => void = () => {};
+            const gate = new Promise<void>((r) => (release = r));
+            const write = vi
+                .spyOn(kv, 'incr')
+                .mockImplementation(async (...args) => {
+                    await gate;
+                    return realIncr(...args);
+                });
+            const flushing = server.stores.meteringBuffer.flushCycle();
+            await vi.waitFor(() => expect(write).toHaveBeenCalled());
+            write.mockImplementation(realIncr);
+
+            // 5 µ¢ of this is left in the allowance; the rest is credit.
+            await target.incrementUsage(actor, 'kv:read', 1, 10);
+            release();
+            await flushing;
+            write.mockRestore();
+            await waitFor(async () => {
+                const addons = await target.getActorAddons(actor, {
+                    consistentRead: true,
+                });
+                expect(addons.consumedPurchaseCredits).toBe(5);
+            });
+        });
+    });
+
     // ── Resolver registration ────────────────────────────────────────
 
     describe('resolver registration', () => {

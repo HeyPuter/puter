@@ -536,20 +536,18 @@ describe('MeteringBufferStore', () => {
             let storeReadStarted = false;
             let flushed!: Promise<void>;
             const realGet = kv.get.bind(kv);
-            const get = vi
-                .spyOn(kv, 'get')
-                .mockImplementation(async (args) => {
-                    if (!args.consistentRead || args.key !== key) {
-                        return realGet(args);
-                    }
-                    if (storeReadStarted) return realGet(args);
-                    storeReadStarted = true;
-                    const before = await realGet(args);
-                    write.release();
-                    flushed = flushing.then(() => {});
-                    await flushed;
-                    return before;
-                });
+            const get = vi.spyOn(kv, 'get').mockImplementation(async (args) => {
+                if (!args.consistentRead || args.key !== key) {
+                    return realGet(args);
+                }
+                if (storeReadStarted) return realGet(args);
+                storeReadStarted = true;
+                const before = await realGet(args);
+                write.release();
+                flushed = flushing.then(() => {});
+                await flushed;
+                return before;
+            });
             const redis = server.clients.redis as unknown as {
                 meterRead: (...args: string[]) => Promise<unknown>;
             };
@@ -585,16 +583,14 @@ describe('MeteringBufferStore', () => {
             // then sees it written.
             let landed = false;
             const realGet = kv.get.bind(kv);
-            const get = vi
-                .spyOn(kv, 'get')
-                .mockImplementation(async (args) => {
-                    if (args.consistentRead && args.key === key && !landed) {
-                        landed = true;
-                        write.release();
-                        await flushing;
-                    }
-                    return realGet(args);
-                });
+            const get = vi.spyOn(kv, 'get').mockImplementation(async (args) => {
+                if (args.consistentRead && args.key === key && !landed) {
+                    landed = true;
+                    write.release();
+                    await flushing;
+                }
+                return realGet(args);
+            });
             try {
                 const { res } = await target.readExact({ key });
                 expect((res as { total: number }).total).toBe(10);
@@ -604,6 +600,71 @@ describe('MeteringBufferStore', () => {
                 await flushing;
             }
         });
+
+        it('counts usage behind another flush’s claim in an exact read', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            try {
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                // Arrives while the claim is out, so it can't be flushed yet.
+                await target.incr({ key, pathAndAmountMap: { total: 5 } });
+                const { res } = await target.readExact({ key });
+                expect((res as { total: number }).total).toBe(15);
+                write.release();
+                await flushing;
+            } finally {
+                write.spy.mockRestore();
+            }
+        });
+
+        /**
+         * Lets a held flush finish during the first consistent store read of
+         * `key`, which then answers with what the store holds afterwards.
+         */
+        const landDuringStoreRead = (
+            release: () => void,
+            flushing: Promise<unknown>,
+        ) => {
+            let landed = false;
+            const realGet = kv.get.bind(kv);
+            return vi.spyOn(kv, 'get').mockImplementation(async (args) => {
+                const ours = Array.isArray(args.key)
+                    ? args.key.includes(key)
+                    : args.key === key;
+                if (args.consistentRead && ours && !landed) {
+                    landed = true;
+                    release();
+                    await flushing;
+                }
+                return realGet(args);
+            });
+        };
+
+        for (const shape of ['single', 'array'] as const) {
+            it(`counts nothing twice in ${shape === 'single' ? 'a single' : 'an array'} read without a base when a flush lands during it`, async () => {
+                await target.incr({ key, pathAndAmountMap: { total: 10 } });
+                // No cached base: the counter is new to the store.
+                await target.forgetBase(key);
+                const write = holdCalls(kv, 'incr');
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                const get = landDuringStoreRead(write.release, flushing);
+                try {
+                    const { res } = await target.get({
+                        key: shape === 'single' ? key : [key],
+                    });
+                    const value = (
+                        shape === 'single' ? res : (res as unknown[])[0]
+                    ) as { total: number };
+                    expect(value.total).toBe(10);
+                } finally {
+                    get.mockRestore();
+                    write.spy.mockRestore();
+                    await flushing;
+                }
+            });
+        }
 
         it('reads a written-through increment once the cache is back', async () => {
             await target.incr({ key, pathAndAmountMap: { total: 10 } });
@@ -1657,6 +1718,30 @@ describe('MeteringBufferStore', () => {
                     `meter:pending:{${bucketTag(key)}}`,
                 ),
             ).toEqual({});
+        });
+
+        it('reads a re-driven write that already landed, with a warm base', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 100 } });
+            await target.flushCycle();
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+
+            const passThrough = kv.incr.bind(kv);
+            const lost = vi
+                .spyOn(kv, 'incr')
+                .mockImplementationOnce(
+                    async (...args: Parameters<typeof kv.incr>) => {
+                        await passThrough(...args);
+                        throw new Error('request timed out');
+                    },
+                );
+            await target.flushCycle();
+            lost.mockRestore();
+            await ageClaim();
+            await target.flushCycle();
+
+            expect(await storedTotal(key)).toBe(105);
+            const { res } = await target.get({ key });
+            expect((res as { total: number }).total).toBe(105);
         });
 
         it('applies a re-driven write whose first copy never landed', async () => {

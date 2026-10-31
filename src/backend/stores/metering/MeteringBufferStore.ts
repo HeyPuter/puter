@@ -153,8 +153,8 @@ const UNWRITABLE_PATH_MEMO_LIMIT = 1000;
 const EXACT_READ_MEMO_LIMIT = 10_000;
 
 /**
- * Store reads an exact read makes while a claim keeps changing under it. The
- * last one stands even so; it can only count an amount twice, never miss one.
+ * Store reads a consistent read makes while the buffer keeps shrinking under
+ * it; see `#readStoreAndBuffer`.
  */
 const EXACT_READ_ATTEMPTS = 3;
 
@@ -700,10 +700,27 @@ end
 return redis.call('HGETALL', KEYS[1])
 `;
 
+/**
+ * KEYS: pending, base, base sequence. ARGV: paths found already applied.
+ *
+ * Takes paths an earlier copy of the write already applied off a claim, and
+ * drops the cached base in the same step: the base may or may not have them,
+ * and the store does, so the next read seeds a fresh one from the store.
+ */
+const FENCED_SCRIPT = `
+redis.call('HDEL', KEYS[1], '${INTENT_FIELD}')
+for i = 1, #ARGV do
+    redis.call('HDEL', KEYS[1], ARGV[i])
+end
+redis.call('DEL', KEYS[2], KEYS[3])
+return 1
+`;
+
 type ScriptRunner = {
     meterIncr(...args: string[]): Promise<[string[], string[], string[]]>;
     meterRead(...args: string[]): Promise<[string[], string[], string[]]>;
     meterApply(...args: string[]): Promise<number>;
+    meterFenced(...args: string[]): Promise<number>;
     meterDrain(...args: string[]): Promise<[string[], number]>;
     meterClaim(...args: string[]): Promise<string[] | null>;
     /** `[1, amounts]` when re-claimed, `[0, hadIndexEntry]` when not. */
@@ -904,10 +921,27 @@ export class MeteringBufferStore extends PuterStore {
                 consistentRead: true,
             });
             const fetchedValues = fetched as (unknown | null)[];
-            misses.forEach((i, idx) => {
-                const persisted = flattenAmounts(fetchedValues[idx]);
-                results[i] = mergedOrNull(persisted, deltas[i]!);
-            });
+            await Promise.all(
+                misses.map(async (i, idx) => {
+                    const k = keys[i]!;
+                    // As in `#readStoreAndBuffer`: a buffer that shrank during
+                    // the store read may be counted in both, so read again.
+                    const now = await this.#readBuffered(k).catch(() => null);
+                    if (now && !sameAmounts(deltas[i]!, now.delta)) {
+                        const { stored, buffered } =
+                            await this.#readStoreAndBuffer(k);
+                        results[i] = mergedOrNull(
+                            flattenAmounts(stored),
+                            buffered,
+                        );
+                        return;
+                    }
+                    results[i] = mergedOrNull(
+                        flattenAmounts(fetchedValues[idx]),
+                        deltas[i]!,
+                    );
+                }),
+            );
         }
 
         return { res: results };
@@ -950,46 +984,11 @@ export class MeteringBufferStore extends PuterStore {
                 `[metering] exact read could not flush ${key}: ${(e as Error).message}`,
             );
         }
-        // Another deployment's claim (or ours, if the flush failed) isn't in
-        // the store yet. The claim is read before the store: an amount gone
-        // from it by then was written before the store read, so the read has
-        // it. One that leaves during the store read is counted twice, so the
-        // read is retried when the claim changes under it.
-        for (let attempt = 1; ; attempt++) {
-            const claim = await this.#outstandingClaim(key);
-            const stored = await this.stores.kv.get({
-                key,
-                consistentRead: true,
-            });
-            if (
-                attempt < EXACT_READ_ATTEMPTS &&
-                !sameAmounts(claim, await this.#outstandingClaim(key))
-            ) {
-                continue;
-            }
-            if (Object.keys(claim).length === 0) return stored;
-            return { res: mergedOrNull(flattenAmounts(stored.res), claim) };
-        }
-    }
-
-    /** Amounts a flush has claimed for `key` and not yet written onward. */
-    async #outstandingClaim(key: string): Promise<FlatAmounts> {
-        try {
-            const tag = bucketTag(key);
-            const [, , claim] = await this.#redis.meterRead(
-                deltaKey(tag, key),
-                baseKey(tag, key),
-                claimedKey(tag),
-                key,
-                pendingKey(tag, ''),
-            );
-            return parseClaim(claim).amounts;
-        } catch (e) {
-            console.warn(
-                `[metering] claim unreadable for ${key}: ${(e as Error).message}`,
-            );
-            return {};
-        }
+        // Whatever is still buffered, a claim another deployment holds and
+        // usage that arrived behind it included, isn't in the store yet.
+        const { stored, buffered } = await this.#readStoreAndBuffer(key);
+        if (Object.keys(buffered).length === 0) return { res: stored };
+        return { res: mergedOrNull(flattenAmounts(stored), buffered) };
     }
 
     #rememberExactRead(key: string, now: number): void {
@@ -1218,6 +1217,10 @@ export class MeteringBufferStore extends PuterStore {
             numberOfKeys: 2,
             lua: APPLY_SCRIPT,
         });
+        client.defineCommand('meterFenced', {
+            numberOfKeys: 3,
+            lua: FENCED_SCRIPT,
+        });
         client.defineCommand('meterDrain', {
             numberOfKeys: 2,
             lua: DRAIN_SCRIPT,
@@ -1335,17 +1338,37 @@ export class MeteringBufferStore extends PuterStore {
 
     async #readThrough(key: string): Promise<unknown | null> {
         const { delta, base } = await this.#readBuffered(key);
-        // Without a cached base, a write a settle just made is in the store
-        // and nowhere else, so the read has to be consistent.
-        const resolved =
-            Object.keys(base).length > 0
-                ? base
-                : flattenAmounts(
-                      (await this.stores.kv.get({ key, consistentRead: true }))
-                          .res,
-                  );
+        if (Object.keys(base).length > 0) return mergedOrNull(base, delta);
+        const { stored, buffered } = await this.#readStoreAndBuffer(key);
+        return mergedOrNull(flattenAmounts(stored), buffered);
+    }
 
-        return mergedOrNull(resolved, delta);
+    /**
+     * The store's view of `key`, read consistently, and what is buffered for it
+     * (delta and outstanding claim) that the store doesn't have yet.
+     *
+     * The buffer is read first: an amount gone from it by then was written
+     * before the store read, so the store read has it. One that leaves during
+     * the store read would be counted twice, so the read is retried when the
+     * buffer shrinks under it. The last attempt stands even so; it can only
+     * count an amount twice, never miss one.
+     */
+    async #readStoreAndBuffer(
+        key: string,
+    ): Promise<{ stored: unknown; buffered: FlatAmounts }> {
+        for (let attempt = 1; ; attempt++) {
+            const { delta: buffered } = await this.#readBuffered(key);
+            const { res: stored } = await this.stores.kv.get({
+                key,
+                consistentRead: true,
+            });
+            if (
+                attempt >= EXACT_READ_ATTEMPTS ||
+                sameAmounts(buffered, (await this.#readBuffered(key)).delta)
+            ) {
+                return { stored, buffered };
+            }
+        }
     }
 
     // -- Internals: flush ---------------------------------------------
@@ -1705,7 +1728,12 @@ export class MeteringBufferStore extends PuterStore {
                 if (err instanceof KvFencedWriteError) {
                     // Applied already, by an earlier copy of this write.
                     fencedCounter.add(1);
-                    await this.#dropFromClaim(tag, nonce, paths);
+                    await this.#redis.meterFenced(
+                        pendingKey(tag, nonce),
+                        baseKey(tag, key),
+                        baseSeqKey(tag, key),
+                        ...paths,
+                    );
                     continue;
                 }
                 if (!isPermanentSettleError(err)) throw e;
