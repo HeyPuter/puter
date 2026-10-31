@@ -50,7 +50,7 @@ import { KlingImageProvider } from './KlingImageProvider.js';
 
 let server: PuterServer;
 let fetchSpy: MockInstance<typeof fetch>;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -73,7 +73,7 @@ const makeProvider = () =>
 
 beforeEach(() => {
     fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
     incrementUsageSpy.mockResolvedValue({} as never);
 });
@@ -318,7 +318,7 @@ describe('KlingImageProvider billing', () => {
     });
 
     it('rejects before calling Kling when credits run short', async () => {
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         await expect(generate({})).rejects.toMatchObject({ statusCode: 402 });
         expect(fetchSpy).not.toHaveBeenCalled();
     });

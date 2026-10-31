@@ -71,7 +71,7 @@ vi.mock('together-ai', () => {
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -96,7 +96,7 @@ const makeProvider = () =>
 beforeEach(() => {
     generateMock.mockReset();
     togetherCtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -158,7 +158,7 @@ describe('TogetherImageProvider.generate test_mode', () => {
         expect(result).toBe(
             'https://puter-sample-data.puter.site/image_example.png',
         );
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateMock).not.toHaveBeenCalled();
     });
 });
@@ -189,7 +189,7 @@ describe('TogetherImageProvider.generate argument validation', () => {
 describe('TogetherImageProvider.generate credit gate', () => {
     it('throws 402 BEFORE hitting Together when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
 
         await expect(
             withTestActor(() =>
@@ -760,7 +760,7 @@ describe('Together supported sizes and references', () => {
             width: 1024,
             height: 1024,
         });
-        expect(Number.isFinite(hasCreditsSpy.mock.calls[0][1])).toBe(true);
+        expect(Number.isFinite(admitSpy.mock.calls[0][1])).toBe(true);
     });
 
     it('resolves provider aliases without changing the selected model', async () => {
@@ -790,7 +790,7 @@ describe('Together supported sizes and references', () => {
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateMock).not.toHaveBeenCalled();
     });
 
@@ -859,7 +859,7 @@ it.each(['3K', 'unknown', ' 5k '])(
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateMock).not.toHaveBeenCalled();
     },
 );
@@ -895,7 +895,7 @@ describe('Together current API prices', () => {
                 input_image: 'https://example.com/reference.png',
             }),
         );
-        expect(hasCreditsSpy).toHaveBeenCalledWith(expect.anything(), 4685000);
+        expect(admitSpy).toHaveBeenCalledWith(expect.anything(), 4685000, undefined);
         expect(incrementUsageSpy).toHaveBeenCalledWith(
             expect.anything(),
             'togetherai:google/flash-image-3.1:0.5K',

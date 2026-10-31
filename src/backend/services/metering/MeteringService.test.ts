@@ -4290,6 +4290,203 @@ describe('MeteringService', () => {
         });
     });
 
+    describe('reserveCreditsIfAffordable', () => {
+        const BUDGET = 20_000_000;
+        const HOLD = 16_200_000;
+
+        afterEach(() => {
+            vi.restoreAllMocks();
+        });
+
+        /** Spends the fresh actor's allowance down to exactly `balance`. */
+        const withBalance = async (balance: number) => {
+            const { remaining } = await target.getAllowedUsage(actor);
+            if (remaining > balance) {
+                await target.incrementUsage(
+                    actor,
+                    'kv:read',
+                    1,
+                    remaining - balance,
+                );
+            }
+            expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                balance,
+            );
+        };
+
+        it('admits exactly one of two concurrent holds that only fit alone', async () => {
+            await withBalance(BUDGET);
+            const holds = await Promise.all([
+                target.reserveCreditsIfAffordable(actor, HOLD),
+                target.reserveCreditsIfAffordable(actor, HOLD),
+            ]);
+
+            expect(holds.filter((h) => h !== null)).toHaveLength(1);
+            expect(await target.getOutstandingHolds(actor)).toBe(HOLD);
+            await Promise.all(holds.map((h) => h?.release()));
+        });
+
+        it('compares against the gross balance, counting live holds once', async () => {
+            await withBalance(BUDGET);
+            const other = await target.reserveCredits(actor, 5_000_000);
+
+            expect(
+                await target.reserveCreditsIfAffordable(actor, 15_000_001),
+            ).toBeNull();
+            const fits = await target.reserveCreditsIfAffordable(
+                actor,
+                15_000_000,
+            );
+            expect(fits).not.toBeNull();
+            expect(await target.getOutstandingHolds(actor)).toBe(BUDGET);
+
+            // A release gives the headroom back for a retry.
+            await other.release();
+            expect(
+                await target.reserveCreditsIfAffordable(actor, 5_000_000),
+            ).not.toBeNull();
+        });
+
+        it('counts allowance and purchased credit together', async () => {
+            await withBalance(1_000_000);
+            await target.updateAddonCredit(actor.user.uuid!, 2_000_000);
+
+            expect(
+                await target.reserveCreditsIfAffordable(actor, 3_000_001),
+            ).toBeNull();
+            expect(
+                await target.reserveCreditsIfAffordable(actor, 3_000_000),
+            ).not.toBeNull();
+        });
+
+        it('reads the balance again when usage lands and a hold is released after the read', async () => {
+            await withBalance(BUDGET);
+            // A request still running, about to record its usage and release.
+            const running = await target.reserveCredits(actor, HOLD);
+            const settle = async () => {
+                await target.incrementUsage(actor, 'kv:read', 1, HOLD);
+                await running.release();
+            };
+            // The admission's balance read finishes first, then the
+            // settlement lands before its reservation runs.
+            const read = target.getAllowedUsage.bind(target);
+            let settled = false;
+            vi.spyOn(target, 'getAllowedUsage').mockImplementation(
+                async (...args) => {
+                    const balance = await read(...args);
+                    if (!settled) {
+                        settled = true;
+                        await settle();
+                    }
+                    return balance;
+                },
+            );
+
+            expect(await target.reserveCreditsIfAffordable(actor, HOLD)).toBe(
+                null,
+            );
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+
+        it('would over-admit that interleaving without the version check', async () => {
+            await withBalance(BUDGET);
+            const running = await target.reserveCredits(actor, HOLD);
+            const read = target.getAllowedUsage.bind(target);
+            let settled = false;
+            vi.spyOn(target, 'getAllowedUsage').mockImplementation(
+                async (...args) => {
+                    const balance = await read(...args);
+                    if (!settled) {
+                        settled = true;
+                        await target.incrementUsage(actor, 'kv:read', 1, HOLD);
+                        await running.release();
+                    }
+                    return balance;
+                },
+            );
+            vi.spyOn(server.stores.creditHold, 'version').mockResolvedValue('');
+
+            const hold = await target.reserveCreditsIfAffordable(actor, HOLD);
+            expect(hold).not.toBeNull();
+            await hold?.release();
+        });
+
+        it('marks the balance changed once a usage write lands', async () => {
+            const before = await server.stores.creditHold.version(
+                actor.user.uuid!,
+            );
+            await target.incrementUsage(actor, 'kv:read', 1, 1_000);
+            expect(
+                await server.stores.creditHold.version(actor.user.uuid!),
+            ).not.toBe(before);
+        });
+
+        it('lets the balance decide, holding nothing, when the cache is unavailable', async () => {
+            await withBalance(BUDGET);
+            vi.spyOn(server.stores.creditHold, 'reserve').mockResolvedValue({
+                outcome: 'unavailable',
+            });
+
+            const hold = await target.reserveCreditsIfAffordable(actor, HOLD);
+            expect(hold).not.toBeNull();
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+            expect(
+                await target.reserveCreditsIfAffordable(actor, BUDGET + 1),
+            ).toBeNull();
+        });
+
+        it('stops checking the version after repeated changes, without overlapping holds', async () => {
+            await withBalance(BUDGET);
+            const reserve = vi.spyOn(server.stores.creditHold, 'reserve');
+            reserve
+                .mockResolvedValueOnce({ outcome: 'stale' })
+                .mockResolvedValueOnce({ outcome: 'stale' })
+                .mockResolvedValueOnce({ outcome: 'stale' });
+
+            const hold = await target.reserveCreditsIfAffordable(actor, HOLD);
+            expect(hold).not.toBeNull();
+            expect(reserve).toHaveBeenCalledTimes(4);
+            expect(reserve.mock.calls[3][3]).toBe('');
+            await hold?.release();
+        });
+
+        it('treats the system actor, a userless actor and amounts it can’t hold as the plain check does', async () => {
+            for (const [who, amount] of [
+                [SYSTEM_ACTOR, HOLD],
+                [actor, 0],
+                [actor, -5],
+            ] as const) {
+                const hold = await target.reserveCreditsIfAffordable(
+                    who,
+                    amount,
+                );
+                expect(hold).not.toBeNull();
+            }
+            for (const amount of [Number.NaN, Number.POSITIVE_INFINITY]) {
+                expect(
+                    await target.reserveCreditsIfAffordable(actor, amount),
+                ).toBeNull();
+            }
+            await expect(
+                target.reserveCreditsIfAffordable({ user: {} } as Actor, HOLD),
+            ).rejects.toThrow();
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+
+        it('passes the hold lifetime through and renews it', async () => {
+            await withBalance(BUDGET);
+            const hold = await target.reserveCreditsIfAffordable(actor, 750, {
+                ttlMs: 500,
+            });
+            await new Promise((r) => setTimeout(r, 620));
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+            await hold?.extend?.();
+            expect(await target.getOutstandingHolds(actor)).toBe(750);
+            await hold?.release();
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+    });
+
     // ── Resolver registration ────────────────────────────────────────
 
     describe('resolver registration', () => {

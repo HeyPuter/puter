@@ -84,7 +84,7 @@ vi.mock('openai', () => {
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -108,7 +108,7 @@ const mockAudioResponse = (bytes = 'opus-audio') => new Response(bytes);
 beforeEach(() => {
     speechCreateMock.mockReset();
     openAICtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -205,7 +205,7 @@ describe('OpenAITTSProvider.synthesize test_mode', () => {
             url: 'https://puter-sample-data.puter.site/tts_example.mp3',
             content_type: 'audio',
         });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(speechCreateMock).not.toHaveBeenCalled();
     });
 });
@@ -283,7 +283,7 @@ describe('OpenAITTSProvider.synthesize argument validation', () => {
 describe('OpenAITTSProvider.synthesize credit gate', () => {
     it('throws 402 BEFORE hitting OpenAI when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
 
         await expect(
             withTestActor(() => provider.synthesize({ text: 'hi' })),
@@ -298,7 +298,9 @@ describe('OpenAITTSProvider.synthesize credit gate', () => {
             user: { id: 7, uuid: `tts-hold-${Date.now()}`, username: 'hold' },
         });
         const userId = actor.user!.uuid;
-        hasCreditsSpy.mockResolvedValue(true);
+        admitSpy.mockImplementation((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
+        );
         let heldDuringCall = -1;
         speechCreateMock.mockImplementationOnce(async () => {
             heldDuringCall = await server.stores.creditHold.outstanding(userId);
@@ -324,7 +326,9 @@ describe('OpenAITTSProvider.synthesize credit gate', () => {
         const actor = makeActor({
             user: { id: 8, uuid: `tts-fail-${Date.now()}`, username: 'fail' },
         });
-        hasCreditsSpy.mockResolvedValue(true);
+        admitSpy.mockImplementation((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
+        );
         speechCreateMock.mockRejectedValueOnce(new Error('upstream down'));
 
         await expect(
@@ -463,7 +467,7 @@ describe('OpenAITTSProvider.synthesize metering', () => {
         expect(cost).toBe(expectedCost);
     });
 
-    it('asks for hasEnoughCredits with the same total it later meters', async () => {
+    it('reserves the same total it later meters', async () => {
         const provider = makeProvider();
         speechCreateMock.mockResolvedValueOnce(mockAudioResponse());
 
@@ -473,8 +477,8 @@ describe('OpenAITTSProvider.synthesize metering', () => {
         );
 
         const expectedCost = OPENAI_TTS_COSTS['tts-1'] * text.length;
-        // First call to hasEnoughCredits should match the metered cost.
-        const creditCall = hasCreditsSpy.mock.calls[0]!;
+        // The first reservation should match the metered cost.
+        const creditCall = admitSpy.mock.calls[0]!;
         expect(creditCall[1]).toBe(expectedCost);
     });
 });
