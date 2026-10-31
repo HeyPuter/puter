@@ -153,7 +153,7 @@ Your app's notifications always reach your app while it's open. To also have the
 const granted = await puter.perms.request('pushNotifications');
 ```
 
-The grant is per app and per user, and is checked every time a notification is sent. Without it, or once the user revokes it, your notifications still reach your app while it's open, but none go out as pushes. [`puter.notifications.requestPermission()`](/Notifications/requestPermission/) asks for the same grant.
+The grant is per app and per user, and is checked every time a notification is sent. Without it, or once the user revokes it, your notifications still reach your app while it's open, but none go out as pushes. The same grant is what [`puter.notifications.requestPermission()`](/Notifications/requestPermission/) asks for.
 
 ## Batching
 

@@ -44,6 +44,7 @@ It rejects with an error carrying `message` and `code`:
 | `push_subscription_conflict` | The worker already has a push subscription from another service, such as Firebase or OneSignal. Give Puter its own worker in a folder, such as `/puter/puter-sw.js`, and pass that path as `serviceWorker`. |
 | `push_subscribe_failed` | The browser's push service refused to create a subscription. |
 | `push_endpoint_revoked` | Another Puter account turned your app off on this browser's subscription, and a fresh subscription couldn't replace it. Rare: `enable()` replaces it on its own first. |
+| `push_verification_canceled` | [`disable()`](/Notifications/disable/) was called before this call finished. |
 | `user_gesture_required` | The call wasn't made from a user gesture, such as a click. |
 | `too_many_requests` | Pushes were turned on too many times in a short time. Try again later. |
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
