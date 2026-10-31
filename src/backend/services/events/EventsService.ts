@@ -3173,7 +3173,11 @@ export class EventsService extends PuterService {
         compileMatch(key, { separator: KV_MATCH_SEPARATOR });
 
         const share = await this.stores.kvShareHandle.getByHandle(handle);
-        if (!share || share.revokedAt !== null)
+        if (
+            !share ||
+            share.revokedAt !== null ||
+            (await this.stores.kvShareHandle.predatesItsApp(share))
+        )
             throw unknownKvShareHandle(handle);
         if (
             actor.user?.id !== share.granteeUserId &&

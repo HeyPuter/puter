@@ -948,15 +948,55 @@ describe('SystemKVStore', () => {
             expect(await ifVersion(1)).toBe(false);
         });
 
-        it('lists at most `limit` of them', async () => {
+        it('pages through them in key order from where the last page ended', async () => {
             const shared = prefix();
             for (const name of ['a', 'b', 'c'])
                 await target.putReservedItem(`${shared}${name}`, { n: 1 });
 
-            expect(
-                await target.queryReservedItems(shared, { limit: 2 }),
-            ).toHaveLength(2);
+            const first = await target.pageReservedItems(shared, { limit: 2 });
+            expect(first.items.map((item) => item.key)).toEqual([
+                `${shared}a`,
+                `${shared}b`,
+            ]);
+            expect(first.nextKey).toBe(`${shared}b`);
+            const rest = await target.pageReservedItems(shared, {
+                limit: 2,
+                afterKey: first.nextKey,
+            });
+            expect(rest.items.map((item) => item.key)).toEqual([`${shared}c`]);
             expect(await target.queryReservedItems(shared)).toHaveLength(3);
+        });
+
+        it('updates one only while its condition holds, and returns it', async () => {
+            const key = `${prefix()}item`;
+            const claim = (owner: string) =>
+                target.updateReservedItemIf(
+                    key,
+                    { set: { owner }, setIfAbsent: { since: 1 } },
+                    'attribute_not_exists(#o)',
+                    {},
+                    { '#o': 'owner' },
+                );
+
+            expect(await claim('first')).toMatchObject({
+                owner: 'first',
+                since: 1,
+            });
+            expect(await claim('second')).toBeNull();
+            expect(
+                await target.updateReservedItemIf(
+                    key,
+                    { set: { since: 2 }, remove: ['owner'] },
+                    '#o = :o',
+                    { ':o': 'first' },
+                    { '#o': 'owner' },
+                ),
+            ).toEqual(
+                expect.not.objectContaining({ owner: expect.anything() }),
+            );
+            expect(await target.getReservedItem(key)).toMatchObject({
+                since: 2,
+            });
         });
     });
 

@@ -28,6 +28,7 @@ import {
 import { HttpError } from '../../core/http/HttpError.js';
 import { WEB_AND_EXTENSION_PROTOCOLS } from '../../util/validation.js';
 import { awaitLater } from '../../util/concurrency.js';
+import { appGenerationStart } from '../../util/appGeneration.js';
 import {
     ASSET_WINDOW_SECONDS,
     GODMODE_TOKEN_MAX_AGE_SECONDS,
@@ -57,9 +58,6 @@ import type {
 const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
 // Successor uids an origin can derive after its earlier apps were repointed.
 const MAX_ORIGIN_UID_GENERATIONS = 8;
-// Allowed gap between a session's creation time (server clock) and its app's
-// (database clock) before the session counts as older than the app.
-const APP_SESSION_CLOCK_SKEW_SECONDS = 60;
 
 // Revoked and expired sessions are kept this long, so a stale token still gets
 // `session_revoked`/`session_expired` rather than `invalid`, then deleted. Web
@@ -562,7 +560,7 @@ export class AuthService extends PuterService {
                 appUid,
                 workerName,
                 auth_id,
-                notBefore: this.#appSessionsNotBefore(app),
+                notBefore: appGenerationStart(app),
             },
         );
         if (!session) {
@@ -1808,7 +1806,7 @@ export class AuthService extends PuterService {
             appUid,
             {
                 auth_id: this.#authIdFor(actor.user as UserRow),
-                notBefore: this.#appSessionsNotBefore(app),
+                notBefore: appGenerationStart(app),
             },
         );
 
@@ -2685,7 +2683,7 @@ export class AuthService extends PuterService {
         // uid returns with the next app on that origin. A session older than
         // the app was made for the earlier one. Checked before `touch()` so a
         // rejected token doesn't slide the old session's expiry.
-        const notBefore = this.#appSessionsNotBefore(app);
+        const notBefore = appGenerationStart(app);
         const createdAt = Number(session.created_at);
         if (notBefore !== null && createdAt > 0 && createdAt < notBefore) {
             return { reauth: { reason: 'session_revoked' } };
@@ -2712,19 +2710,6 @@ export class AuthService extends PuterService {
         const block =
             await this.services.appOriginBlocklist.isOriginBlocked(indexUrl);
         return block.blocked ? { reason: block.reason } : null;
-    }
-
-    /**
-     * Unix seconds before which an app or worker session for `app` belongs to
-     * an earlier app with the same uid; null when the creation time is
-     * unknown.
-     */
-    #appSessionsNotBefore(
-        app: { created_epoch?: unknown } | null | undefined,
-    ): number | null {
-        const created = Number(app?.created_epoch);
-        if (!Number.isFinite(created) || created <= 0) return null;
-        return created - APP_SESSION_CLOCK_SKEW_SECONDS;
     }
 
     #createdBefore(row: SessionRow | null, notBefore: number | null): boolean {
@@ -2802,7 +2787,7 @@ export class AuthService extends PuterService {
             if (blocked) return { blocked };
             // As with app sessions: a token minted under an earlier app that
             // held this uid doesn't authenticate as the current one.
-            const notBefore = this.#appSessionsNotBefore(app);
+            const notBefore = appGenerationStart(app);
             if (
                 this.#createdBefore(session, notBefore) ||
                 this.#createdBefore(parentSession, notBefore)

@@ -24,12 +24,14 @@ import {
     mintKvHandleId,
     type KvShareAccess,
 } from '../../services/kvShare/kvShares.js';
+import { predatesApp } from '../../util/appGeneration.js';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import {
     keysetPage,
     openIdCursor,
     type PageResult,
 } from '../../util/pagination.js';
+import { KV_GLOBAL_APP_KEY } from '../systemKv/SystemKVStore.js';
 import { PuterStore } from '../types.js';
 import { assertColumnWidths, KV_SHARE_HANDLE_WIDTHS } from './columnWidths.js';
 
@@ -320,7 +322,8 @@ export class KvShareHandleStore extends PuterStore {
      * A forged id is refused without a read. Only a signed id falls back to the
      * primary on a replica miss: that is for read-after-mint, and legacy ids
      * are no longer minted. A handle or owner forgotten in the last minute,
-     * before or during the read, is read from the primary too.
+     * before or during the read, is read from the primary too. A handle older
+     * than its app reads as gone.
      */
     async getLive(handle: string): Promise<LiveKvShareHandle | null> {
         const kind = kvHandleIdKind(handle, this.config.jwt_secret_v2);
@@ -358,6 +361,10 @@ export class KvShareHandleStore extends PuterStore {
             return null;
         }
         const { label: _label, ...row } = toRow({ ...found, label: null });
+        if (await this.predatesItsApp(row)) {
+            if (cacheable) this.#missing.set(handle, true);
+            return null;
+        }
         const live: LiveKvShareHandle = {
             row,
             ownerUuid: String(found.owner_uuid),
@@ -365,6 +372,22 @@ export class KvShareHandleStore extends PuterStore {
         };
         if (cacheable) this.#live.set(handle, live);
         return live;
+    }
+
+    /**
+     * Whether a handle was made for an earlier app under its app's uid: an
+     * origin-derived uid comes back verbatim when the app is registered again,
+     * and its predecessor's handles must not reach the new one. Such a handle
+     * reads as gone wherever a handle is resolved.
+     */
+    async predatesItsApp(
+        row: Pick<KvShareHandle, 'appUid' | 'createdAt'>,
+    ): Promise<boolean> {
+        if (row.appUid === KV_GLOBAL_APP_KEY) return false;
+        return predatesApp(
+            row.createdAt,
+            await this.stores.app.getByUid(row.appUid),
+        );
     }
 
     #forget(handle: string): void {

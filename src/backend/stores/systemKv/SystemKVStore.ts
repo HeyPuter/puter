@@ -1651,28 +1651,46 @@ export class SystemKVStore extends PuterStore {
 
     /**
      * Reserved items whose key starts with `prefix`, in the system namespace.
-     * One page only, of at most `limit` items when given: a caller either has a
-     * bounded set (presence: one item per region) or takes the rest on a later
-     * call. Expired rows are excluded the same way `list` excludes them, so a
-     * caller never sees one the table's own sweep has not reclaimed yet.
+     * One page only: today's one caller (presence) is bounded by
+     * deployed-region count. Expired rows are excluded the same way `list`
+     * excludes them, so a caller never sees one the table's own sweep has not
+     * reclaimed yet.
      */
     async queryReservedItems<T extends Record<string, unknown>>(
         prefix: string,
-        { limit = 0 }: { limit?: number } = {},
     ): Promise<T[]> {
+        return (await this.pageReservedItems<T>(prefix, { limit: 0 })).items;
+    }
+
+    /**
+     * Up to `limit` reserved items whose key starts with `prefix`, in key order
+     * after `afterKey` (a `limit` of 0 reads one unbounded page). `nextKey` is
+     * where the next page starts, while more may remain. Expired rows are left
+     * out, as in {@link queryReservedItems}.
+     */
+    async pageReservedItems<T extends Record<string, unknown>>(
+        prefix: string,
+        { limit, afterKey }: { limit: number; afterKey?: string },
+    ): Promise<{ items: T[]; nextKey?: string }> {
         const now = Date.now() / 1000;
         const response = await this.clients.dynamo.query(
             this.tableName,
             { namespace: SYSTEM_NAMESPACE },
             limit,
-            undefined,
+            afterKey === undefined
+                ? undefined
+                : { namespace: SYSTEM_NAMESPACE, key: afterKey },
             '',
             false,
             { beginsWith: { key: 'key', value: prefix } },
         );
-        return ((response.Items ?? []) as T[]).filter(
-            (item) => !item.ttl || (item.ttl as number) > now,
-        );
+        const last = response.LastEvaluatedKey?.key;
+        return {
+            items: ((response.Items ?? []) as T[]).filter(
+                (item) => !item.ttl || (item.ttl as number) > now,
+            ),
+            ...(last === undefined ? {} : { nextKey: String(last) }),
+        };
     }
 
     /**
@@ -1771,6 +1789,72 @@ export class SystemKVStore extends PuterStore {
     }
 
     /**
+     * Update one reserved item, creating it when missing, if `condition` holds.
+     * `set` attributes are written outright, `setIfAbsent` ones only where the
+     * item doesn't carry them, and `remove` ones are dropped. Returns the item
+     * as it now stands, or `null` when the condition refused it. Condition
+     * tokens must not start with `#u` or `:u`.
+     */
+    async updateReservedItemIf<T extends Record<string, unknown>>(
+        key: string,
+        change: {
+            set?: Record<string, unknown>;
+            setIfAbsent?: Record<string, unknown>;
+            remove?: string[];
+        },
+        condition: string,
+        conditionValues: Record<string, unknown> = {},
+        conditionNames: Record<string, string> = {},
+    ): Promise<T | null> {
+        assertKey(key);
+        const names: Record<string, string> = { ...conditionNames };
+        const values: Record<string, unknown> = { ...conditionValues };
+        const setParts: string[] = [];
+        const removeParts: string[] = [];
+        let idx = 0;
+        const token = (attr: string) => {
+            const name = `#u${idx}`;
+            names[name] = attr;
+            return { name, value: `:u${idx++}` };
+        };
+        for (const [attr, value] of Object.entries(change.set ?? {})) {
+            const t = token(attr);
+            values[t.value] = value;
+            setParts.push(`${t.name} = ${t.value}`);
+        }
+        for (const [attr, value] of Object.entries(change.setIfAbsent ?? {})) {
+            const t = token(attr);
+            values[t.value] = value;
+            setParts.push(`${t.name} = if_not_exists(${t.name}, ${t.value})`);
+        }
+        for (const attr of change.remove ?? [])
+            removeParts.push(token(attr).name);
+        const expression = [
+            setParts.length > 0 ? `SET ${setParts.join(', ')}` : '',
+            removeParts.length > 0 ? `REMOVE ${removeParts.join(', ')}` : '',
+        ]
+            .filter(Boolean)
+            .join(' ');
+        if (!expression)
+            throw new Error('kv: a reserved update needs a change');
+
+        try {
+            const response = await this.clients.dynamo.update(
+                this.tableName,
+                { namespace: SYSTEM_NAMESPACE, key },
+                expression,
+                values,
+                names,
+                { condition },
+            );
+            return (response.Attributes as T | undefined) ?? null;
+        } catch (err) {
+            if (isConditionRefused(err)) return null;
+            throw err;
+        }
+    }
+
+    /**
      * Delete one reserved item, conditional on an attribute the caller read
      * still holding. False means the item changed or is already gone.
      */
@@ -1788,7 +1872,9 @@ export class SystemKVStore extends PuterStore {
                 {
                     condition: {
                         expression: condition,
-                        values: conditionValues,
+                        ...(Object.keys(conditionValues).length > 0
+                            ? { values: conditionValues }
+                            : {}),
                         names: conditionNames,
                     },
                 },

@@ -60,6 +60,7 @@ import {
     sealCursor,
     unsealCursor,
 } from '../../util/pagination.js';
+import { predatesApp } from '../../util/appGeneration.js';
 import { KV_COSTS } from './costs.js';
 import {
     KV_HANDLE_NAMESPACE_BUDGET,
@@ -454,11 +455,15 @@ export class KVStoreDriver extends PuterDriver {
         if (userId !== row.granteeUserId && userId !== row.ownerUserId)
             throw handleNotFound();
 
-        // Side by side, so the app lookup costs no round trip of its own.
+        // Side by side, so the app lookup costs no round trip of its own. A
+        // handle older than its app was made for an earlier app under the
+        // same uid, and is gone with it.
         const [appGone, allowed] = await Promise.all([
             row.appUid === KV_GLOBAL_APP_KEY
                 ? false
-                : this.stores.app.getByUid(row.appUid).then((app) => !app),
+                : this.stores.app
+                      .getByUid(row.appUid)
+                      .then((app) => !app || predatesApp(row.createdAt, app)),
             this.services.permission.check(
                 actor,
                 kvSharePermission(ownerUuid, row.appUid, row.keyPrefix, level),
