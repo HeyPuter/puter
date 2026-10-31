@@ -45,6 +45,7 @@ import {
 } from '../metering/consts.js';
 import type { AuthResult, AuthService } from '../auth/AuthService.js';
 import { PuterService } from '../types.js';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 
 export type SocketReauthError = Error & { data: Record<string, unknown> };
@@ -439,6 +440,15 @@ export class SocketService extends PuterService {
             }
         }
     }
+
+    /**
+     * Unanswered acks one socket holds, and for how long. An acked broadcast
+     * leaves its callback on every socket it reaches, and nodes other than the
+     * asker free it only on an answer or a disconnect. Asks must time out well
+     * inside the age; an answer after it is ignored.
+     */
+    static MAX_PENDING_ACKS = 64;
+    static PENDING_ACK_TTL_MS = 60_000;
 
     /**
      * Asks the sockets in `specifiers` that listed `key` in `auth.acks`,
@@ -1051,6 +1061,13 @@ export class SocketService extends PuterService {
         if (!this.#io) return;
 
         this.#io.on('connection', (socket: AuthenticatedSocket) => {
+            // socket.io keeps a socket's waiting acks in this map, private in
+            // its types; the adapter writes to it on every node.
+            (socket as unknown as { acks: unknown }).acks = new BoundedTtlMap({
+                maxEntries: SocketService.MAX_PENDING_ACKS,
+                ttlMs: SocketService.PENDING_ACK_TTL_MS,
+            });
+
             const actor = socket.actor;
             // The id is what both limits below bucket on, so a user without
             // one has nothing to key against.
