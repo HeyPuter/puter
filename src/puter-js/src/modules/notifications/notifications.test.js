@@ -983,11 +983,11 @@ describe('receipts', () => {
 });
 
 describe('requestPermission and hasPermission', () => {
-    it('asks for notifications:push through puter.perms', async () => {
+    it('asks for the pushNotifications resource through puter.perms', async () => {
         const notifications = makeModule();
         expect(await notifications.requestPermission()).toBe(true);
         expect(notifications.puter.perms.request).toHaveBeenCalledWith(
-            'notifications:push',
+            'pushNotifications',
         );
     });
 
@@ -998,13 +998,13 @@ describe('requestPermission and hasPermission', () => {
         expect(await notifications.requestPermission()).toBe(false);
     });
 
-    it('checks notifications:push without prompting', async () => {
+    it('checks the pushNotifications resource without prompting', async () => {
         const notifications = makeModule({
             perms: { request: vi.fn(), check: vi.fn(async () => false) },
         });
         expect(await notifications.hasPermission()).toBe(false);
         expect(notifications.puter.perms.check).toHaveBeenCalledWith(
-            'notifications:push',
+            'pushNotifications',
         );
         expect(notifications.puter.perms.request).not.toHaveBeenCalled();
     });

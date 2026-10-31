@@ -135,6 +135,15 @@ A notification goes to one user, the one the call runs for. You can send it from
 - **A [Puter Worker](/Workers/)**, with `user.puter.notifications.notify()` in a route your page calls through [`puter.workers.exec()`](/Workers/exec/). It notifies the user who called the worker, from the app that called it.
 - **An [events handler](/Events/handlers/)**, with `user.notifications.notify()`. It notifies the user who holds the subscription, and it runs while your app is closed. Running a handler in the background needs the user's `events:background` permission, as [`onPersistent()`](/Events/onPersistent/) describes.
 
+An app that notifies from an events handler needs the user to allow both background events and pushes. Ask for both with [`puter.perms.request()`](/Perms/request/#batching), so the user answers one prompt:
+
+```js
+const [background, pushes] = await puter.perms.request([
+    { resource: 'backgroundEvents' },
+    { resource: 'pushNotifications' },
+]);
+```
+
 To notify another user, have a handler that runs for them call it, as in [Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/).
 
 In a worker, `me.puter` is you, the worker's owner. A `me.puter.notifications.notify()` call notifies you, not the user who called the worker, and it rejects with `forbidden` when the worker doesn't run as an app.
