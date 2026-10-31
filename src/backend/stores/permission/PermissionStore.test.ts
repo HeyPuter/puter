@@ -29,6 +29,7 @@ import { CACHE_TOMBSTONE_SUFFIX } from '../types.ts';
 import {
     FLAT_PERM_SCAN_CONCURRENCY,
     U2U_CACHE_MAX_ROWS,
+    U2U_EXACT_DELETE_CHUNK,
 } from './PermissionStore.ts';
 
 describe('PermissionStore', () => {
@@ -1853,6 +1854,52 @@ describe('PermissionStore', () => {
                     )
                 ).sort(),
             ).toEqual(live);
+        });
+
+        it('withdraws a subtree larger than one delete names, in chunks', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const root = 'kv-share-read:owner:app:big';
+            const perms = Array.from(
+                { length: U2U_EXACT_DELETE_CHUNK + 1 },
+                (_, i) => `${root}:k${i}`,
+            );
+            for (let i = 0; i < perms.length; i += 200) {
+                const rows = perms.slice(i, i + 200);
+                await server.clients.db.write(
+                    'INSERT INTO `user_to_user_permissions` (`holder_user_id`, `issuer_user_id`, `permission`, `extra`) VALUES ' +
+                        rows.map(() => '(?, ?, ?, ?)').join(', '),
+                    rows.flatMap((perm) => [holder.id, issuer.id, perm, '{}']),
+                );
+            }
+
+            const writes = vi.spyOn(server.clients.db, 'write');
+            let removed: string[];
+            let deletes: unknown[][];
+            try {
+                removed = await store.deleteUserUserPermSubtreeForHolder(
+                    holder.id,
+                    issuer.id,
+                    root,
+                );
+                deletes = writes.mock.calls.filter(([sql]) =>
+                    String(sql).startsWith(
+                        'DELETE FROM `user_to_user_permissions`',
+                    ),
+                );
+            } finally {
+                writes.mockRestore();
+            }
+
+            expect(removed.sort()).toEqual([...perms].sort());
+            expect(deletes).toHaveLength(2);
+            expect(
+                await store.findUserUserPermsByIssuer(
+                    holder.id,
+                    issuer.id,
+                    perms,
+                ),
+            ).toEqual([]);
         });
 
         it('reports whether the delete matched a row', async () => {
