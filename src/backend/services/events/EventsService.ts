@@ -5671,10 +5671,11 @@ export class EventsService extends PuterService {
      * Where an app's handlers currently live: the script its published set
      * hashes to, and the key an invocation of it carries.
      *
-     * Resolved per invocation rather than cached, from the set's names and
-     * hashes alone — a cache here would go on addressing a superseded script,
-     * which is still deployed and still running the handlers it was baked with,
-     * until the entry expired.
+     * Resolved from the set's names and hashes alone, through the store's
+     * cache. A publish or removal drops that entry, so a superseded script —
+     * still deployed, still running the handlers it was baked with — is
+     * addressed only by a read that raced the write, and only until the entry
+     * expires.
      */
     async #addressEventsWorker(
         appUid: string,
@@ -5682,7 +5683,7 @@ export class EventsService extends PuterService {
         if (!workerRuntimeReady(this.config)) return null;
         const secret = this.config.events!.internalSecret!;
 
-        const set = await this.stores.eventHandler.setForApp(appUid);
+        const set = await this.stores.eventHandler.cachedSetForApp(appUid);
         if (set.length === 0) return null;
 
         // A gone or suspended owner is nobody to deploy or bill this as, so
