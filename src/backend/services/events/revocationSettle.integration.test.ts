@@ -527,11 +527,14 @@ describe('what a revoked grant settles', () => {
         ).sub;
 
         await write(uniquePath(inner));
+        const lease = `ev:ql:{${sub.subId}}`;
         await vi.waitFor(
-            async () =>
+            async () => {
                 expect(
                     await env.server.stores.pendingDelivery.depth(sub.subId),
-                ).toBeGreaterThan(0),
+                ).toBeGreaterThan(0);
+                expect(await env.server.clients.redis.zcard(lease)).toBe(1);
+            },
             { timeout: 5_000, interval: 25 },
         );
 
@@ -539,6 +542,8 @@ describe('what a revoked grant settles', () => {
         await unshare(shared, 'list');
         expect((await rowOf(sub.subId)).suspended_reason).toBeNull();
 
+        // The first hand-over's lease lapses, and the sweep reads the row.
+        await env.server.clients.redis.del(lease);
         delivered.length = 0;
         await events().sweepPending();
 

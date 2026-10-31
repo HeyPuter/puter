@@ -307,6 +307,21 @@ describe('handing a delivery out', () => {
         await expect(store.settle(subId, entryId)).resolves.toBe(true);
         await expect(store.settle(subId, entryId)).resolves.toBe(false);
     });
+
+    it('reports a delivery in flight, or waiting out a retry, until its lease lapses', async () => {
+        const { entryId } = await store.enqueue(subId, event('a'));
+        await expect(store.inFlight(subId)).resolves.toBe(false);
+
+        await store.claim(subId, { leaseMs: 30_000 });
+        await expect(store.inFlight(subId)).resolves.toBe(true);
+
+        await store.deferAfterFailure(subId, entryId);
+        await expect(store.inFlight(subId)).resolves.toBe(true);
+
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.now() + EVENTS_RETRY_BASE_MS + 1);
+        await expect(store.inFlight(subId)).resolves.toBe(false);
+    });
 });
 
 describe('when a handler could not take it', () => {

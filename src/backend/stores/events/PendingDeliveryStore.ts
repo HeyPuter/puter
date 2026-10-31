@@ -736,6 +736,19 @@ export class PendingDeliveryStore extends PuterStore {
         return Number(await this.clients.redis.zcard(pendingKey(subId))) || 0;
     }
 
+    /**
+     * Whether one of this subscription's deliveries is leased: in flight, or
+     * waiting out a retry. Nothing of its can be claimed until that lapses.
+     */
+    async inFlight(subId: string): Promise<boolean> {
+        const leased = await this.clients.redis.zcount(
+            leaseKey(subId),
+            Date.now(),
+            '+inf',
+        );
+        return Number(leased) > 0;
+    }
+
     /** What the region is holding in total, and what its ceiling is read from. */
     async regionDepth(): Promise<number> {
         const raw = await this.clients.redis.get(COUNTER_KEY);

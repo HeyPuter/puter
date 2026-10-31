@@ -63,6 +63,8 @@ let sent: DeliveryEnvelope[];
 let delivered: DeliveryEnvelope[];
 let invoked: WorkerInvocation[];
 let rows: Map<string, DurableSubscription>;
+/** Every subscription row the service read, in order. */
+let rowReads: string[];
 let entries: Map<string, FSEntry>;
 let alarms: ReturnType<typeof vi.fn>;
 let notified: ReturnType<typeof vi.fn>;
@@ -202,6 +204,7 @@ beforeEach(async () => {
     delivered = [];
     invoked = [];
     rows = new Map();
+    rowReads = [];
     entries = new Map();
     alarms = vi.fn();
     notified = vi.fn();
@@ -236,7 +239,10 @@ beforeEach(async () => {
             pendingDelivery: pending,
             durableSubscription: {
                 warmRegion: async () => false,
-                getBySubId: async (subId: string) => rows.get(subId) ?? null,
+                getBySubId: async (subId: string) => {
+                    rowReads.push(subId);
+                    return rows.get(subId) ?? null;
+                },
                 remove: async (row: DurableSubscription) => {
                     rows.delete(row.subId);
                     return { userId: row.holderUserId, generation: 1 };
@@ -1129,6 +1135,62 @@ describe('the sweep order a busy subscription holds', () => {
         // and it moves it back — behind everything else already waiting.
         const afterSweep = await redis.zscore('ev:qx', row.subId);
         expect(Number(afterSweep)).toBeGreaterThan(Number(afterPublish));
+    });
+
+    it('moves a leased subscription back without reading its row', async () => {
+        socketConnected = false;
+        const row = await register();
+        await dispatch();
+        expect(invoked).toHaveLength(1);
+        const heldAt = await redis.zscore('ev:qx', row.subId);
+
+        jump(1_000);
+        rowReads = [];
+        await service.sweepPending();
+        expect(rowReads).toEqual([]);
+        expect(invoked).toHaveLength(1);
+        expect(Number(await redis.zscore('ev:qx', row.subId))).toBeGreaterThan(
+            Number(heldAt),
+        );
+
+        // Once the lease lapses, the row is read and the delivery retried.
+        jump(61_000);
+        await service.sweepPending();
+        expect(rowReads).toEqual([row.subId]);
+        expect(invoked).toHaveLength(2);
+    });
+
+    it('does not hold the rest of a pass behind one slow handler run', async () => {
+        socketConnected = false;
+        const first = await register({ subId: 'first' });
+        const second = await register({ subId: 'second' });
+        await dispatch();
+        expect(invoked).toHaveLength(2);
+
+        let finish!: () => void;
+        const running = new Promise<void>((resolve) => {
+            finish = resolve;
+        });
+        const retried: string[] = [];
+        service.worker = {
+            invoke: async (invocation: WorkerInvocation) => {
+                retried.push(invocation.subId);
+                // Whichever runs first never answers until the end.
+                if (retried.length === 1) await running;
+                return { outcome: 'settled' };
+            },
+        };
+
+        jump(61_000);
+        const sweeping = service.sweepPending();
+        await vi.waitFor(() =>
+            expect([...retried].sort()).toEqual(
+                [first.subId, second.subId].sort(),
+            ),
+        );
+
+        finish();
+        await expect(sweeping).resolves.toBe(2);
     });
 });
 

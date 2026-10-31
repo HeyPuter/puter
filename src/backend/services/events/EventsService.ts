@@ -718,6 +718,12 @@ const PENDING_SWEEP_INTERVAL_MS = 10_000;
 const PENDING_SWEEP_SUBSCRIPTIONS = 100;
 
 /**
+ * Subscriptions one sweep pass works on at once, so one slow handler run holds
+ * up one lane rather than everything behind it.
+ */
+const PENDING_SWEEP_CONCURRENCY = 10;
+
+/**
  * Deliveries one subscription may be handed in a row. A consumer that settles
  * inline would otherwise drain a whole backlog inside one ack.
  */
@@ -2797,50 +2803,64 @@ export class EventsService extends PuterService {
         // A partial write can move a pending set without its share of the
         // region counter going with it, in either direction. This is what
         // keeps that drift from being permanent.
-        await this.stores.pendingDelivery
-            .reconcileRegionDepth()
-            .catch((err) => {
-                console.warn('[events] pending counter reconcile failed', err);
-            });
-
-        let attempted = 0;
-        for (const { subId } of await this.stores.pendingDelivery.head(
-            PENDING_SWEEP_SUBSCRIPTIONS,
-        )) {
-            try {
-                const row =
-                    await this.stores.durableSubscription.getBySubId(subId);
-                // Nothing left to deliver to, so nothing left to hold.
-                if (!row || this.#isOver(row)) {
-                    await this.stores.pendingDelivery.purge(subId);
-                    continue;
-                }
-                // A suspended row is not delivered to, but the backlog its
-                // suspension put a deadline on is this pass's to enforce: past
-                // it the events go and a gap marker says so, which is the half
-                // that keeps a suspension from being a free memory hold.
-                if (row.suspendedAt !== null) {
-                    // Except a revoked row's, which names paths its holder may
-                    // no longer see: anything a dispatch in flight queued after
-                    // the settle's own purge goes now, not at a deadline.
-                    if (row.suspendedReason === 'permission_revoked')
-                        await this.stores.pendingDelivery.purge(subId);
-                    // A hold not past its deadline yet must not pin the head
-                    // against every other backlog in the region.
-                    else if (
-                        (await this.stores.pendingDelivery.expireHold(
-                            subId,
-                        )) === 0
-                    )
-                        await this.stores.pendingDelivery.defer(subId);
-                    continue;
-                }
-                attempted += await this.#drain(row, { deferWhenBusy: true });
-            } catch (err) {
-                console.warn('[events] pending sweep failed', subId, err);
-            }
+        try {
+            await this.stores.pendingDelivery.reconcileRegionDepth();
+        } catch (err) {
+            console.warn('[events] pending counter reconcile failed', err);
         }
+
+        const heads = await this.stores.pendingDelivery.head(
+            PENDING_SWEEP_SUBSCRIPTIONS,
+        );
+        // Settled: `#sweepOne` reports its own failures.
+        const handed = await runWithConcurrencyLimitSettled(
+            heads,
+            PENDING_SWEEP_CONCURRENCY,
+            ({ subId }) => this.#sweepOne(subId),
+        );
+        let attempted = 0;
+        for (const outcome of handed)
+            if (outcome.status === 'fulfilled') attempted += outcome.value;
         return attempted;
+    }
+
+    /** One subscription's turn in the pending sweep; what it was handed. */
+    async #sweepOne(subId: string): Promise<number> {
+        try {
+            // Leased means nothing can be claimed yet, so the row isn't read.
+            if (await this.stores.pendingDelivery.inFlight(subId)) {
+                await this.stores.pendingDelivery.defer(subId);
+                return 0;
+            }
+            const row = await this.stores.durableSubscription.getBySubId(subId);
+            // Nothing left to deliver to, so nothing left to hold.
+            if (!row || this.#isOver(row)) {
+                await this.stores.pendingDelivery.purge(subId);
+                return 0;
+            }
+            // A suspended row is not delivered to, but the backlog its
+            // suspension put a deadline on is this pass's to enforce: past it
+            // the events go and a gap marker says so, which is the half that
+            // keeps a suspension from being a free memory hold.
+            if (row.suspendedAt !== null) {
+                // Except a revoked row's, which names paths its holder may no
+                // longer see: anything a dispatch in flight queued after the
+                // settle's own purge goes now, not at a deadline.
+                if (row.suspendedReason === 'permission_revoked')
+                    await this.stores.pendingDelivery.purge(subId);
+                // A hold not past its deadline yet must not pin the head
+                // against every other backlog in the region.
+                else if (
+                    (await this.stores.pendingDelivery.expireHold(subId)) === 0
+                )
+                    await this.stores.pendingDelivery.defer(subId);
+                return 0;
+            }
+            return await this.#drain(row, { deferWhenBusy: true });
+        } catch (err) {
+            console.warn('[events] pending sweep failed', subId, err);
+            return 0;
+        }
     }
 
     /** Past its expiry, so the daily reaper is only a matter of time. */
