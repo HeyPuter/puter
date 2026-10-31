@@ -809,6 +809,11 @@ describe('Alibaba official catalog', () => {
         expect(models.some((model) => model.id === 'qwen-image-fixture')).toBe(
             false,
         );
+        const fixture = models.find(
+            (model) => model.id === 'qwen-catalog-fixture',
+        )!;
+        expect(fixture.puterId).toBe('alibaba:qwen/qwen-catalog-fixture');
+        expect(modelLookupNames(models)).toContain('qwen-catalog-fixture');
         const plus = models.find((model) => model.id === 'qwen-plus')!;
         const original = ALIBABA_MODELS.find(
             (model) => model.id === 'qwen-plus',
@@ -907,6 +912,115 @@ describe('Alibaba official catalog', () => {
         expect(model.context).toBeUndefined();
         expect(model.max_tokens).toBe(0);
         expect(model.costs).toEqual({ tokens: 1_000_000 });
+    });
+
+    it.each([
+        ['qwen3.9-plus-2027-01-01', 'alibaba:qwen/qwen3.9-plus-2027-01-01'],
+        ['kimi/kimi-k3', 'alibaba:kimi/kimi-k3'],
+        [
+            'deepseek-v4.1-flash-1017',
+            'alibaba:deepseek/deepseek-v4.1-flash-1017',
+        ],
+        ['glm-5.3-prime', 'alibaba:zhipu/glm-5.3-prime'],
+        ['decision-model-preview', 'alibaba:qwen/decision-model-preview'],
+    ])(
+        'gives uncurated model %s a puterId in the alibaba:<vendor>/<id> form',
+        (id, puterId) => {
+            const model = mapAlibabaCatalogModel({
+                model: id,
+                capabilities: ['TG'],
+            })!;
+            expect(model.puterId).toBe(puterId);
+        },
+    );
+
+    it('skips a vendor-prefixed spelling of a curated model', () => {
+        const model = mapAlibabaCatalogModel({
+            model: 'zhipu/glm-5.2',
+            capabilities: ['TG', 'Reasoning'],
+            inference_metadata: {
+                request_modality: ['Text'],
+                response_modality: ['Text'],
+            },
+        });
+        expect(model).toBeNull();
+    });
+
+    it.each([
+        [
+            'ASR',
+            {
+                capabilities: ['ASR'],
+                inference_metadata: {
+                    request_modality: ['Audio'],
+                    response_modality: ['Text'],
+                },
+            },
+        ],
+        [
+            'rerank',
+            {
+                capabilities: ['TR'],
+                inference_metadata: {
+                    request_modality: ['Text'],
+                    response_modality: ['Text'],
+                },
+            },
+        ],
+        [
+            'image generation',
+            {
+                capabilities: ['IG'],
+                inference_metadata: {
+                    request_modality: ['Text'],
+                    response_modality: ['Text', 'Image'],
+                },
+            },
+        ],
+        [
+            'realtime omni',
+            {
+                capabilities: ['Realtime-Omni'],
+                inference_metadata: {
+                    request_modality: ['Text', 'Image', 'Audio', 'Video'],
+                    response_modality: ['Text', 'Audio'],
+                },
+            },
+        ],
+        [
+            'TTS',
+            {
+                capabilities: ['TTS'],
+                inference_metadata: {
+                    request_modality: ['Audio'],
+                    response_modality: ['Text'],
+                },
+            },
+        ],
+    ])('rejects %s models that cannot serve chat completions', (_kind, raw) => {
+        expect(
+            mapAlibabaCatalogModel({
+                model: 'non-chat-fixture',
+                ...(raw as AlibabaApiModel),
+            }),
+        ).toBeNull();
+    });
+
+    it('admits a vision model', () => {
+        const model = mapAlibabaCatalogModel({
+            model: 'vision-fixture',
+            capabilities: ['VU'],
+            inference_metadata: {
+                request_modality: ['Text', 'Image'],
+                response_modality: ['Text'],
+            },
+        })!;
+        expect(model.modalities?.input).toEqual(['text', 'image']);
+    });
+
+    it('does not admit an uncurated entry without capability or modality data', () => {
+        expect(mapAlibabaCatalogModel({ model: 'mystery-model' })).toBeNull();
+        expect(mapAlibabaCatalogModel({ model: 'qwen-plus' })).not.toBeNull();
     });
 
     it('refuses inference with unverified catalog prices', async () => {

@@ -82,6 +82,23 @@ const positiveLimit = (value: unknown): number | undefined =>
         ? value
         : undefined;
 
+const chatCapabilities = ['TG', 'Reasoning', 'VU'];
+
+const curatedPuterIds = new Set(ALIBABA_MODELS.map((model) => model.puterId));
+
+const inferPuterId = (id: string): string => {
+    if (id.includes('/')) return `alibaba:${id}`;
+    const family = id.split('-')[0];
+    const sibling = ALIBABA_MODELS.find(
+        (model) => model.puterId && model.id.split('-')[0] === family,
+    );
+    // Unprefixed feed ids are Model Studio's own family unless a curated
+    // sibling points at a third-party org.
+    const org =
+        sibling?.puterId?.slice('alibaba:'.length).split('/')[0] ?? 'qwen';
+    return `alibaba:${org}/${id}`;
+};
+
 export const mapAlibabaCatalogModel = (
     raw: AlibabaApiModel,
     previous?: IChatModel,
@@ -90,16 +107,25 @@ export const mapAlibabaCatalogModel = (
     const id = raw.model.trim();
     const existing =
         previous ?? ALIBABA_MODELS.find((model) => model.id === id);
+    const input = raw.inference_metadata?.request_modality;
     const output = raw.inference_metadata?.response_modality;
-    if (output && !output.includes('Text')) return null;
     if (
-        !output &&
-        !existing &&
-        !raw.capabilities?.some((capability) =>
-            ['TG', 'Reasoning', 'VU'].includes(capability),
+        raw.capabilities &&
+        !raw.capabilities.some((capability) =>
+            chatCapabilities.includes(capability),
         )
     )
         return null;
+    if (input && !input.includes('Text')) return null;
+    if (output && !output.includes('Text')) return null;
+    if (!raw.capabilities && !input && !output && !existing) return null;
+    let puterId = existing?.puterId;
+    if (!puterId) {
+        puterId = inferPuterId(id);
+        // A feed entry spelling a curated model differently would duplicate
+        // the curated entry's puterId and list the model twice.
+        if (curatedPuterIds.has(puterId)) return null;
+    }
     const catalogPricing: AlibabaCatalogTier[] = (raw.prices ?? []).map(
         (tier) => {
             // Abbreviated ranges do not specify whether k means 1000 or 1024 tokens.
@@ -149,6 +175,7 @@ export const mapAlibabaCatalogModel = (
     return {
         ...existing,
         id,
+        puterId,
         name: raw.name ?? existing?.name ?? id,
         description: raw.description ?? existing?.description,
         aliases: existing?.aliases,
