@@ -1,6 +1,10 @@
 import { fetchUrl } from '../../lib/networkUtils.js';
 import { promptIfUpgradeRequired } from '../../lib/upgradePrompt.js';
-import { RealtimeSession, createRealtimeSocket } from './convoTransport.js';
+import {
+    CLOSE_MESSAGE_TOO_LARGE,
+    RealtimeSession,
+    createRealtimeSocket,
+} from './convoTransport.js';
 import { RealtimeEvents } from './realtimeEvents.js';
 import { ConvoMicrophone, ConvoSpeaker } from './convoMedia.js';
 import { ConvoHistory } from './convoHistory.js';
@@ -45,6 +49,17 @@ const SESSION_TIMEOUT_MS = 20_000;
 // Close codes after which a dropped connection is replaced: going away,
 // abnormal closure, server error, service restart, try again later.
 const RECONNECT_CODES = new Set([1001, 1006, 1011, 1012, 1013]);
+/**
+ * Why a replacement session ended: one that hit the size limit is refused for
+ * good, anything else can be retried.
+ *
+ * @param {{ type: string; code?: number }} event
+ * @returns {string}
+ */
+const closeFailure = (event) =>
+    event.type === 'close' && event.code === CLOSE_MESSAGE_TOO_LARGE
+        ? 'message_too_large'
+        : 'session_closed';
 // Failures while reconnecting that are worth another attempt.
 const RETRYABLE_ERRORS = new Set([
     'session_closed',
@@ -779,7 +794,7 @@ export class Conversation extends RealtimeEvents {
                         code: String(event.error?.code ?? 'upstream_error'),
                     });
                 else if (event.type === 'close')
-                    done({ code: 'session_closed' });
+                    done({ code: closeFailure(event) });
             });
             handover.stopProbe = () => done({});
         });
@@ -799,7 +814,7 @@ export class Conversation extends RealtimeEvents {
                 handover.probe === session &&
                 ['close', 'error', RECONNECT_NOTICE].includes(event.type)
             )
-                this.#replacementFailed(handover, 'session_closed');
+                this.#replacementFailed(handover, closeFailure(event));
         });
         this.#scheduleHandover();
     }
@@ -1280,7 +1295,12 @@ export class Conversation extends RealtimeEvents {
                 code: event.code,
                 reason: event.reason,
             };
-            if (this.#state === 'connecting') {
+            // An event over the size limit would only arrive again, so it ends
+            // the conversation even mid-reconnect.
+            if (
+                this.#state === 'connecting' &&
+                event.code !== CLOSE_MESSAGE_TOO_LARGE
+            ) {
                 // `connect()` or the reconnect loop handles the failure.
                 this.#rejectPending(
                     failure(

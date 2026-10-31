@@ -138,20 +138,34 @@ end
 return { 'accepted', dropped }
 `;
 
-/** KEYS: the actor's hold set, its version. ARGV: member, version ttl. */
+/**
+ * Bumps the version in KEYS[n], starting a missing one from a random value so a
+ * version read before the key expired can't match its successor.
+ */
+const bumpVersion = (key: string, seed: string, ttl: string) => `
+if redis.call('EXISTS', ${key}) == 0 then
+    redis.call('SET', ${key}, ${seed})
+end
+redis.call('INCR', ${key})
+redis.call('PEXPIRE', ${key}, ${ttl})
+`;
+
+/** KEYS: the actor's hold set, its version. ARGV: member, version ttl, seed. */
 const RELEASE_SCRIPT = `
 redis.call('ZREM', KEYS[1], ARGV[1])
-redis.call('INCR', KEYS[2])
-redis.call('PEXPIRE', KEYS[2], ARGV[2])
+${bumpVersion('KEYS[2]', 'ARGV[3]', 'ARGV[2]')}
 return 1
 `;
 
-/** KEYS: the actor's hold version. ARGV: version ttl. */
+/** KEYS: the actor's hold version. ARGV: version ttl, seed. */
 const BUMP_SCRIPT = `
-redis.call('INCR', KEYS[1])
-redis.call('PEXPIRE', KEYS[1], ARGV[1])
+${bumpVersion('KEYS[1]', 'ARGV[2]', 'ARGV[1]')}
 return 1
 `;
+
+/** A random starting version; see `bumpVersion`. */
+const versionSeed = (): string =>
+    String(Math.floor((Math.random() * Number.MAX_SAFE_INTEGER) / 2));
 
 type ScriptRunner = {
     creditHoldTake(...args: string[]): Promise<number>;
@@ -298,6 +312,10 @@ export class CreditHoldStore extends PuterStore {
         version: string,
         ttlMs: number = DEFAULT_HOLD_TTL_MS,
     ): Promise<CreditReservation> {
+        // Nothing to hold, and a negative hold would lower everyone else's.
+        if (!userId || !Number.isFinite(amount) || amount <= 0) {
+            return { outcome: 'insufficient' };
+        }
         const units = Math.ceil(amount);
         const member = `${randomUUID()}:${units}`;
         const now = Date.now();
@@ -337,6 +355,7 @@ export class CreditHoldStore extends PuterStore {
             await this.#redis.creditHoldBump(
                 versionKey(userId),
                 String(VERSION_TTL_MS),
+                versionSeed(),
             );
         } catch (e) {
             console.warn(
@@ -358,6 +377,7 @@ export class CreditHoldStore extends PuterStore {
                 versionKey(userId),
                 member,
                 String(VERSION_TTL_MS),
+                versionSeed(),
             );
         } catch (e) {
             // The hold expires on its own, so the account gets its budget

@@ -90,6 +90,17 @@ describe('RealtimeSession', () => {
         expect(socket.close).toHaveBeenCalledExactlyOnceWith(4009, 'message too large');
     });
 
+    it('accepts a multibyte event of exactly 4 MiB', () => {
+        const socket = fakeSocket();
+        const { typed } = listen(new RealtimeSession(/** @type {any} */ (socket)));
+        const data = eventOfBytes(LIMIT, 'é');
+        expect(new TextEncoder().encode(data).byteLength).toBe(LIMIT);
+        expect(data.length * 3).toBeGreaterThan(LIMIT);
+        socket.deliverRaw(data);
+        expect(typed).toHaveBeenCalledOnce();
+        expect(socket.close).not.toHaveBeenCalled();
+    });
+
     it('counts encoded bytes, not characters', () => {
         const socket = fakeSocket();
         const { typed } = listen(new RealtimeSession(/** @type {any} */ (socket)));
