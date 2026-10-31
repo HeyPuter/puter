@@ -156,6 +156,11 @@ import {
     EVENTS_COST_UNITS,
     type EventsUsageType,
 } from './costs.js';
+import {
+    CONSENT_SETTLE_WINDOW_MS,
+    CONSENT_SETTLES_PER_WINDOW,
+    ConsentSettles,
+} from './consentSettles.js';
 import { DeliveryAuthCache } from './deliveryAuthCache.js';
 import { EndedSubscriptions } from './endedSubscriptions.js';
 import {
@@ -1369,8 +1374,8 @@ export class EventsService extends PuterService {
     readonly #ended = new EndedSubscriptions();
     /** Flushes per subscription that have left the coalescer but not yet sent. */
     readonly #flushing = new Map<string, number>();
-    /** Holder and app pairs whose withdrawn consent is being settled. */
-    readonly #consentSettles = new Set<string>();
+    /** Paces settles started by deliveries that found consent withdrawn. */
+    readonly #consentSettles = new ConsentSettles();
     #expirySweep: ReturnType<typeof setInterval> | null = null;
     #expiryKick: ReturnType<typeof setTimeout> | null = null;
     #pendingSweep: ReturnType<typeof setInterval> | null = null;
@@ -5689,13 +5694,16 @@ export class EventsService extends PuterService {
      *
      * The delivery's answer came through caches that can trail a grant, so the
      * no is asked again past them first. Only a fresh no settles; anything else
-     * leaves the delivery deferred, as a cached no always did.
+     * leaves the delivery deferred, as a cached no always did. Settles are
+     * budgeted per window, so a check that wrongly answers no defers rows
+     * instead of ending them all.
      */
     #settleLostConsent(actor: Actor, appUid: string): void {
         const holderUserId = actor.user!.id;
         const key = `${holderUserId}|${appUid}`;
-        if (this.#consentSettles.has(key)) return;
-        this.#consentSettles.add(key);
+        const start = this.#consentSettles.begin(key);
+        if (start === 'spent') this.#consentSettlesSpent();
+        if (start !== 'start') return;
         void (async () => {
             try {
                 const consented = await this.services.permission.check(
@@ -5703,7 +5711,17 @@ export class EventsService extends PuterService {
                     EVENTS_BACKGROUND_PERMISSION,
                     { primary: true },
                 );
-                if (consented) return;
+                if (consented) {
+                    this.#consentSettles.confirm(key);
+                    return;
+                }
+                if (!this.#consentSettles.take()) {
+                    this.#consentSettlesSpent();
+                    return;
+                }
+                console.warn(
+                    `[events] a delivery found background consent withdrawn for user ${holderUserId}, app ${appUid}; settling`,
+                );
                 await this.settleRevokedGrant({
                     holderUserId,
                     appUid,
@@ -5712,9 +5730,22 @@ export class EventsService extends PuterService {
             } catch (err) {
                 console.warn('[events] withdrawn consent settle failed', err);
             } finally {
-                this.#consentSettles.delete(key);
+                this.#consentSettles.end(key);
             }
         })();
+    }
+
+    #consentSettlesSpent(): void {
+        this.clients.alarm.create(
+            'events_consent_settle_budget',
+            'Deliveries found background consent withdrawn more often than expected; the rest are deferred, not ended',
+            {
+                settlesPerWindow: CONSENT_SETTLES_PER_WINDOW,
+                windowMs: CONSENT_SETTLE_WINDOW_MS,
+            },
+            'warning',
+            { dedup: true },
+        );
     }
 
     /**

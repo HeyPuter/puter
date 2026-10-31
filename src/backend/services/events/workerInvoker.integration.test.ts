@@ -52,6 +52,7 @@ import { runWithContext } from '../../core/context.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
+import { ConsentSettles } from './consentSettles.js';
 import {
     EVENTS_HANDLER_TOKEN_TTL_SECONDS,
     EVENTS_WORKER_SESSION_NAME,
@@ -685,6 +686,72 @@ describe('the call an owed delivery makes', () => {
             primaryRead.mockRestore();
             await redis.del(grants);
             await forgetScans();
+        }
+    });
+
+    it('defers instead of ending the row once the settle budget is spent', async () => {
+        const subId = await subscribe();
+        const { actor } = await env.server.services.auth.authenticate(
+            env.users.user.token,
+        );
+        const spent = vi
+            .spyOn(ConsentSettles.prototype, 'begin')
+            .mockReturnValue('spent');
+        const alarm = vi.spyOn(env.server.clients.alarm, 'create');
+        const primaryRead = vi.spyOn(
+            env.server.stores.permission,
+            'listUserAppPermsFromPrimary',
+        );
+
+        try {
+            await env.server.services.permission.revokeUserAppPermission(
+                actor!,
+                appUid,
+                EVENTS_BACKGROUND_PERMISSION,
+            );
+            // As in the test above: undo the listener's settle so the
+            // delivery path is what meets the withdrawn consent.
+            await waitUntil(async () =>
+                expect(
+                    (await durable().getBySubId(subId))?.suspendedAt,
+                ).not.toBeNull(),
+            );
+            await env.server.clients.db.write(
+                'UPDATE `event_subscriptions` SET `suspended_at` = NULL, ' +
+                    '`suspended_reason` = NULL WHERE `sub_id` = ?',
+                [subId],
+            );
+            events().invalidateUser(userId);
+            await env.server.stores.eventSubscription.markRegionCold(userId);
+            await durable().warmRegion(userId);
+            primaryRead.mockClear();
+
+            await touch('over-budget.txt');
+
+            await waitUntil(() =>
+                expect(
+                    alarm.mock.calls.some(
+                        ([id]) => id === 'events_consent_settle_budget',
+                    ),
+                ).toBe(true),
+            );
+            // Long enough for a settle to have run, had one started.
+            await new Promise((resolve) => setTimeout(resolve, 300));
+
+            expect(calls).toEqual([]);
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+            expect(await pending().depth(subId)).toBe(1);
+            // Spent: not even the fresh read.
+            expect(primaryRead).not.toHaveBeenCalled();
+        } finally {
+            spent.mockRestore();
+            alarm.mockRestore();
+            primaryRead.mockRestore();
+            await env.server.services.permission.grantUserAppPermission(
+                actor!,
+                appUid,
+                EVENTS_BACKGROUND_PERMISSION,
+            );
         }
     });
 
