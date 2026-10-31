@@ -230,6 +230,16 @@ export const KV_SHARE_LOOKUP_LIMIT = userWindow('kvShare:lookups', 1_200);
 /** Recipients one `POST /kv/shares` call may name. */
 export const KV_SHARE_BATCH_MAX = 50;
 
+/**
+ * Notifications one party of a share may send the other through share handles,
+ * per minute and per day, in one app. Keeps one share from spending the
+ * recipient's whole notification allowance.
+ */
+export const KV_SHARE_NOTIFY_LIMITS = [
+    userWindow('kvShare:notify:minute', 30),
+    userWindow('kvShare:notify:day', 500, 24 * 60 * 60_000),
+] as const;
+
 // -- Handler surface -------------------------------------------------
 
 /**

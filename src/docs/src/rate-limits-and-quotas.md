@@ -460,6 +460,7 @@ An app, its workers and the tokens it issues can send the user they act for an `
 | `app.message` notifications       | 30/min, 300/day                   | Per user, per app |
 | Pushes                            | 12/min, 1,000/day                 | Per user, per app |
 | Pushes from a new or unlisted app | 6/min, 200/day                    | Per user, per app |
+| Notifications through a [KV share](/KV/share/) | 30/min, 500/day       | Per sender, recipient and app |
 | Browsers with pushes turned on    | 10 per app, 20 for Puter          | Per user          |
 | Turning pushes on in a browser    | 10/min                            | Per user          |
 | `title`                           | 120 characters                    |                   |
@@ -473,7 +474,7 @@ An app, its workers and the tokens it issues can send the user they act for an `
 
 `ttl` is how long a push provider keeps trying to reach an offline device, not how long the notification is kept. `sensitive`, `target`, `group` and `channel` are used by push delivery and by clients that show the notification. Every message carries the name of the app that sent it.
 
-Over the rate limit the call fails with `429 too_many_requests`, and a refused call counts against neither window. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
+Over the rate limit the call fails with `429 too_many_requests`, and a refused call counts against neither window. Notifications one party of a KV share sends the other through its handle also count toward the limit for that sender, recipient and app, across all their shares in that app. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
 
 A notification goes out as a push only when no open page of the app answers within 5 seconds that it's visible and focused, or that it shows the notification itself. The push limits count those pushes. An app gets the lower push limits while it's younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower limits. Over a push limit the call still succeeds and the notification still reaches the app live. It just isn't pushed. Pushes are billed to the user who receives them. See [What pushes cost](#what-pushes-cost). Turning pushes on in another browser past an app's 10 removes that app's least recently seen one.
 

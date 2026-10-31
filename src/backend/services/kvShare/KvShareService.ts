@@ -25,6 +25,7 @@ import {
     KV_SHARE_GRANT_LIMITS,
     KV_SHARE_LOOKUP_LIMIT,
     KV_SHARE_NOTICE_LIMIT,
+    KV_SHARE_NOTIFY_LIMITS,
     limitFor,
     type TieredQuota,
 } from '../../controllers/events/limits.js';
@@ -39,6 +40,7 @@ import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import {
     checkRateLimit,
     claimRateLimit,
+    peekRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
 import {
     KV_HANDLE_RETIRE_BATCH,
@@ -46,6 +48,7 @@ import {
     type HeldKvShareHandle,
     type KvShareHandle,
     type KvShareHandleListOptions,
+    type LiveKvShareHandle,
     type KvShareOwnerListOptions,
     type KvShareRevokedBy,
 } from '../../stores/events/KvShareHandleStore.js';
@@ -90,6 +93,7 @@ import {
     parseKvShareLabel,
     parseKvShareNotify,
     parseKvShareRecipient,
+    withKvShareAccess,
     type KvShareAccess,
     type KvShareRecipient,
 } from './kvShares.js';
@@ -172,6 +176,15 @@ export interface RetiredKvShare {
     revokedAt: number;
 }
 
+/** Where a notification one party sends through a share handle goes. */
+export interface KvShareNotifyTarget {
+    /** The other party. Never returned to the sender. */
+    recipientUserId: number;
+    /** The app whose data is shared, which the notification belongs to. */
+    appUid: string;
+    handle: string;
+}
+
 // -- Errors -----------------------------------------------------------
 
 const disabled = (): HttpError =>
@@ -186,6 +199,30 @@ const tooManyCalls = (): HttpError =>
 
 const badRequest = (message: string, code: string): HttpError =>
     new HttpError(400, message, { legacyCode: code });
+
+const notifyNotEnabled = (): HttpError =>
+    new HttpError(403, 'This share does not allow notifications', {
+        legacyCode: 'kv_share_notify_not_enabled',
+    });
+
+/** Notifications are an app's, so the account itself sends none. */
+const notifyNeedsApp = (): HttpError =>
+    new HttpError(
+        403,
+        'Notifications through a share come from the app whose data it is',
+        { legacyCode: 'forbidden' },
+    );
+
+const tooManyNotifications = (): HttpError =>
+    new HttpError(429, 'Too many notifications through this share', {
+        legacyCode: 'too_many_requests',
+    });
+
+/** A lookup failed, so whether the share still holds is unknown. */
+const shareCheckUnavailable = (): HttpError =>
+    new HttpError(503, 'The share could not be checked right now', {
+        legacyCode: 'service_unavailable',
+    });
 
 /**
  * Listing and revoking are the owner's, and an app's only where the handle is
@@ -1166,6 +1203,116 @@ export class KvShareService extends PuterService {
         )
             return this.#unshareAsHolder(actor, share);
         throw unknownKvShareHandle(named);
+    }
+
+    /**
+     * The other party of a share, for a notification one party sends through
+     * its handle from the app whose data it is. Every check runs before the
+     * pair budget is spent. A handle that is unknown, retired, not the
+     * caller's, or seen from another app reads as absent.
+     */
+    async resolveNotifyRecipient(
+        actor: Actor,
+        handle: unknown,
+    ): Promise<KvShareNotifyTarget> {
+        const named = typeof handle === 'string' ? handle : '';
+        const senderId = actor.user?.id;
+        if (senderId === undefined) throw unknownKvShareHandle(named);
+
+        let live: LiveKvShareHandle | null;
+        try {
+            live = await this.stores.kvShareHandle.getLive(named);
+        } catch {
+            throw shareCheckUnavailable();
+        }
+        if (!live || live.ownerSuspended) throw unknownKvShareHandle(named);
+        const share = live.row;
+        const fromOwner = share.ownerUserId === senderId;
+        if (!fromOwner && share.granteeUserId !== senderId)
+            throw unknownKvShareHandle(named);
+
+        const app = actor.effectiveApp;
+        if (app === null) throw notifyNeedsApp();
+        if (!app || app.uid !== share.appUid) throw unknownKvShareHandle(named);
+        if (!share.notify) throw notifyNotEnabled();
+
+        const recipientId = fromOwner ? share.granteeUserId : share.ownerUserId;
+        let checked: { holds: boolean; refuses: boolean } | null;
+        try {
+            checked = await this.#notifyChecks(actor, share, recipientId);
+        } catch {
+            throw shareCheckUnavailable();
+        }
+        if (!checked?.holds) throw unknownKvShareHandle(named);
+        if (checked.refuses) throw recipientNotAcceptingShares();
+
+        await this.#spendNotifyBudget(senderId, recipientId, share.appUid);
+        return {
+            recipientUserId: recipientId,
+            appUid: share.appUid,
+            handle: share.handle,
+        };
+    }
+
+    /**
+     * Whether the holder's grant still stands, and whether the recipient
+     * refuses the sender. `null` when the recipient is gone. Throws when a
+     * lookup fails.
+     */
+    async #notifyChecks(
+        sender: Actor,
+        share: LiveKvShareHandle['row'],
+        recipientId: number,
+    ): Promise<{ holds: boolean; refuses: boolean } | null> {
+        const senderId = sender.user?.id;
+        const recipient = await this.stores.user.getById(recipientId);
+        if (senderId === undefined || recipient?.id === undefined) return null;
+        // The grant is the holder's, whichever side sends.
+        const holder =
+            share.ownerUserId === senderId
+                ? makeActor({ user: recipient })
+                : userRelatedActor(sender);
+        const holds = await this.services.permission.check(
+            holder,
+            withKvShareAccess(share.permission, 'watch'),
+        );
+        if (!holds) return { holds, refuses: false };
+        return {
+            holds,
+            refuses: await refusesSharesFrom(
+                this.stores.userBlock,
+                recipient,
+                senderId,
+            ),
+        };
+    }
+
+    /** One unit from each pair window, or none when either is full. */
+    async #spendNotifyBudget(
+        senderId: number,
+        recipientId: number,
+        appUid: string,
+    ): Promise<void> {
+        const keyOf = (scope: string) =>
+            `${scope}:${senderId}:${recipientId}:${appUid}`;
+        for (const window of KV_SHARE_NOTIFY_LIMITS)
+            if (
+                !(await peekRateLimit(
+                    keyOf(window.scope),
+                    window.limit,
+                    window.window,
+                ))
+            )
+                throw tooManyNotifications();
+        for (const window of KV_SHARE_NOTIFY_LIMITS)
+            if (
+                !(await checkRateLimit(
+                    keyOf(window.scope),
+                    window.limit,
+                    window.window,
+                ))
+            )
+                throw tooManyNotifications();
     }
 
     /** Whether the actor's user still has its app authorized. */
