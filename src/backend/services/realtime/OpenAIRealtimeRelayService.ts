@@ -812,19 +812,31 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
             session.close(closeCode, code);
         };
-        // A plan or balance refusal decided on a plan whose lookup failed may
-        // not apply to this account, so the client is told to retry instead.
-        const refuse = async (code: string, message: string) => {
-            let provisional = true;
+        // Whether the account's plan is, right now, a fallback for a failed
+        // lookup. Unknown counts as a fallback.
+        const planProvisional = async (): Promise<boolean> => {
             try {
-                ({ provisional } =
+                return (
                     await this.services.metering.getActorSubscriptionStatus(
                         actor!,
-                    ));
+                    )
+                ).provisional;
             } catch (err) {
                 console.warn('[realtime] plan lookup failed', err);
+                return true;
             }
-            if (provisional) {
+        };
+        // A plan or balance refusal decided on a plan whose lookup failed may
+        // not apply to this account, so the client is told to retry instead.
+        // The plan is checked on both sides of the decision: a fallback is
+        // only cached briefly, and one that ran out before the check after
+        // was still the plan the decision used.
+        const refuse = async (
+            code: string,
+            message: string,
+            provisionalBefore: boolean,
+        ) => {
+            if (provisionalBefore || (await planProvisional())) {
                 reject('internal_error', 'Could not verify subscription', 1011);
             } else {
                 reject(code, message);
@@ -914,6 +926,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             while (usageQueue.length) {
                 const { rows, holds } = usageQueue[0];
                 if (rows.length) {
+                    const provisional = await planProvisional();
                     await this.#record(
                         actor!,
                         rows,
@@ -921,6 +934,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                             void refuse(
                                 'insufficient_funds',
                                 'No usage left for request',
+                                provisional,
                             ),
                     );
                 }
@@ -953,6 +967,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
         const holdResponse = (id: string) => {
             const hold = (async () => {
                 try {
+                    const provisional = await planProvisional();
                     const taken = await this.#metering.reserveAiCredits(
                         actor!,
                         `openai:${billingModel}:realtime:audio_output`,
@@ -962,6 +977,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                         await refuse(
                             'insufficient_funds',
                             'No usage left for request',
+                            provisional,
                         );
                     }
                     return taken;
@@ -1169,6 +1185,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             reject('invalid_api_key', 'Authentication failed');
             return;
         }
+        const provisional = await planProvisional();
         try {
             await assertActorHasSubscription(
                 this.services.metering,
@@ -1183,6 +1200,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 await refuse(
                     'subscription_required',
                     'Realtime conversations require a subscription',
+                    provisional,
                 );
             } else {
                 console.warn('[realtime] subscription check failed', err);
@@ -1192,13 +1210,18 @@ export class OpenAIRealtimeRelayService extends PuterService {
         }
         if (closed) return;
         // Enough for one response's hold, so a session that opens can answer.
+        const probeProvisional = await planProvisional();
         const probe = await this.#metering.reserveAiCredits(
             actor,
             `openai:${model}:realtime:audio_output`,
             responseHoldAmount(model),
         );
         if (!probe) {
-            await refuse('insufficient_funds', 'No usage left for request');
+            await refuse(
+                'insufficient_funds',
+                'No usage left for request',
+                probeProvisional,
+            );
             return;
         }
         await probe.release();
