@@ -85,7 +85,7 @@ vi.mock('together-ai', () => {
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let remainingUsageSpy: MockInstance<MeteringService['getRemainingUsage']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
@@ -117,11 +117,13 @@ beforeEach(() => {
     videosCreateMock.mockReset();
     videosRetrieveMock.mockReset();
     togetherCtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     // Default to "has credits" so per-test setup only needs to override
     // for the explicit credit-gate scenarios. SYSTEM_ACTOR has no uuid,
     // so the live `getRemainingUsage` path can short-circuit to 0.
-    hasCreditsSpy.mockResolvedValue(true);
+    admitSpy.mockImplementation((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
+        );
     remainingUsageSpy = vi.spyOn(server.services.metering, 'getRemainingUsage');
     remainingUsageSpy.mockResolvedValue(AMPLE_CREDIT);
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
@@ -197,7 +199,7 @@ describe('TogetherVideoProvider.generate test_mode', () => {
             provider.generate({ prompt: 'hi', test_mode: true }),
         );
         expect(result).toBe('https://assets.puter.site/txt2vid.mp4');
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(videosCreateMock).not.toHaveBeenCalled();
     });
 });
@@ -238,7 +240,7 @@ const DIRECTOR = 'togetherai:minimax/video-01-director';
 describe('TogetherVideoProvider.generate credit gate', () => {
     it('throws 402 BEFORE hitting Together when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
 
         await expect(
             withTestActor(() =>
@@ -715,7 +717,7 @@ describe('TogetherVideoProvider.generate per-second models', () => {
         expect('height' in sent).toBe(false);
         expect('ratio' in sent).toBe(false);
         // The flat-rate gate is not consulted for per-second models.
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
 
         const seedance = TOGETHER_VIDEO_GENERATION_MODELS.find(
             (m) => m.model === 'ByteDance/Seedance-2.5',

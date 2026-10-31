@@ -698,6 +698,8 @@ export class MeteringService extends PuterService {
                 actorAddons,
                 totalBatchCost,
             );
+            // Before any hold this usage stands for is released.
+            await this.stores.creditHold.bump(userId);
 
             this.maybeAlertOveruse({
                 actor,
@@ -729,6 +731,10 @@ export class MeteringService extends PuterService {
                 ? ({ ...own, ...charged } as UsageByType)
                 : (charged ?? own);
         } catch (e) {
+            // Part of the usage may have landed before the failure.
+            if (actor?.user?.uuid) {
+                await this.stores.creditHold.bump(actor.user.uuid);
+            }
             console.error('[metering] batchIncrementUsages failed', {
                 actor,
                 usages,
@@ -1432,6 +1438,7 @@ export class MeteringService extends PuterService {
         }
 
         this.invalidateActorCredits(userId);
+        await this.stores.creditHold.bump(userId);
         await Promise.all([
             this.stores.meteringBuffer.forgetSummed(actorUsageKey),
             this.stores.meteringBuffer.forgetSummed(
@@ -1545,7 +1552,86 @@ export class MeteringService extends PuterService {
             opts.ttlMs,
         );
         if (!member) return NO_CREDIT_HOLD;
+        return this.#holdHandle(userId, member, opts.ttlMs);
+    }
 
+    /**
+     * Commit part of an actor's budget only if it fits beside what their other
+     * operations hold; null when it doesn't. The check and the hold are one
+     * step in the cache, and a usage write or release that lands after the
+     * balance read sends the reservation back to read it again. When the cache
+     * can't answer, the balance alone decides and nothing is held.
+     */
+    async reserveCreditsIfAffordable(
+        actor: Actor,
+        amount: number,
+        opts: { ttlMs?: number } = {},
+    ): Promise<CreditHold | null> {
+        const userId = actor?.user?.uuid;
+        if (
+            !userId ||
+            isSystemActor(actor) ||
+            !Number.isFinite(amount) ||
+            !(amount > 0)
+        ) {
+            // Nothing to hold; the plain check decides, as it always has.
+            return (await this.hasEnoughCredits(actor, amount))
+                ? NO_CREDIT_HOLD
+                : null;
+        }
+
+        for (let attempt = 1; ; attempt++) {
+            const version = await this.stores.creditHold.version(userId);
+            // Read after the version, so a write it misses bumps the version.
+            const { remaining } = await this.getAllowedUsage(actor, {
+                exact: true,
+            });
+            const budget = remaining || 0;
+            const result =
+                version === null
+                    ? ({ outcome: 'unavailable' } as const)
+                    : await this.stores.creditHold.reserve(
+                          userId,
+                          amount,
+                          budget,
+                          version,
+                          opts.ttlMs,
+                      );
+            switch (result.outcome) {
+                case 'accepted':
+                    return this.#holdHandle(userId, result.member, opts.ttlMs);
+                case 'insufficient':
+                    return null;
+                case 'unavailable':
+                    return budget >= amount ? NO_CREDIT_HOLD : null;
+                case 'stale':
+                    break;
+            }
+            // A balance that never holds still long enough to read is refused
+            // rather than checked against a read that may be out of date.
+            if (attempt >= MeteringService.RESERVE_ATTEMPTS) {
+                console.warn(
+                    `[metering] credit reservation refused for ${userId}: balance kept changing`,
+                );
+                return null;
+            }
+            await new Promise((resolve) =>
+                setTimeout(
+                    resolve,
+                    Math.random() *
+                        MeteringService.RESERVE_BACKOFF_MS *
+                        attempt,
+                ),
+            );
+        }
+    }
+
+    /** Reservations tried while the balance keeps changing under them. */
+    private static readonly RESERVE_ATTEMPTS = 5;
+    /** Upper bound of the randomized wait before each retry, times the attempt. */
+    private static readonly RESERVE_BACKOFF_MS = 20;
+
+    #holdHandle(userId: string, member: string, ttlMs?: number): CreditHold {
         let released = false;
         return {
             release: async () => {
@@ -1555,11 +1641,7 @@ export class MeteringService extends PuterService {
             },
             extend: async () => {
                 if (released) return;
-                await this.stores.creditHold.refresh(
-                    userId,
-                    member,
-                    opts.ttlMs,
-                );
+                await this.stores.creditHold.refresh(userId, member, ttlMs);
             },
         };
     }
@@ -1571,14 +1653,22 @@ export class MeteringService extends PuterService {
         return this.stores.creditHold.outstanding(userId);
     }
 
-    async getAllowedUsage(actor: Actor): Promise<{
+    /**
+     * `exact` reads purchased credit consistently, for a spend decision that
+     * has to see the consumption a write just recorded. A cached record with no
+     * credit left still answers: it can only understate the balance.
+     */
+    async getAllowedUsage(
+        actor: Actor,
+        { exact = false }: { exact?: boolean } = {},
+    ): Promise<{
         remaining: number;
         monthUsageAllowance: number;
         addons: UsageAddons;
     }> {
         const [userSubscription, addons, totals] = await Promise.all([
             this.getActorSubscription(actor),
-            this.#addonsForSettle(actor),
+            this.#addonsForSettle(actor, { consistentRead: exact }),
             this.currentMonthTotals(actor),
         ]);
 
@@ -2245,13 +2335,16 @@ export class MeteringService extends PuterService {
     }
 
     /** `getActorAddons`, through `#spentAddons`. Shared by gates and settles. */
-    async #addonsForSettle(actor: Actor): Promise<UsageAddons> {
+    async #addonsForSettle(
+        actor: Actor,
+        { consistentRead }: { consistentRead?: boolean } = {},
+    ): Promise<UsageAddons> {
         const uuid = actor.user?.uuid;
         const cached = uuid ? this.#spentAddons.get(uuid) : undefined;
         if (cached && cached.expiresAt > Date.now()) return cached.addons;
 
         const drops = this.#spentAddonsDrops;
-        const addons = await this.getActorAddons(actor);
+        const addons = await this.getActorAddons(actor, { consistentRead });
         if (!uuid) return addons;
         this.#spentAddons.delete(uuid);
         const creditLeft =
@@ -2382,6 +2475,7 @@ export class MeteringService extends PuterService {
         // Credit that lands while the account is being turned away has to take
         // effect on the next request, not at the end of the cache window.
         this.invalidateActorCredits(userId);
+        await this.stores.creditHold.bump(userId);
     }
 
     /**
@@ -2429,6 +2523,7 @@ export class MeteringService extends PuterService {
         });
         // Every node drops its cached policy, and the budget answer with it.
         this.invalidateActorSubscription(userUuid);
+        await this.stores.creditHold.bump(userUuid);
     }
 
     /**

@@ -354,10 +354,12 @@ export function withAiCostFactor(
             ? await costFactor(actor, aiModelKey(usageType))
             : 1;
         const cost = factor === 1 ? amount : scaleCost(amount, factor);
-        if (!(await metering.hasEnoughCredits(actor, cost))) return null;
-        return outlastingWrites(
-            await metering.reserveCredits(actor, cost, opts),
+        const hold = await metering.reserveCreditsIfAffordable(
+            actor,
+            cost,
+            opts,
         );
+        return hold && outlastingWrites(hold);
     };
 
     const reserveCredits = async (
