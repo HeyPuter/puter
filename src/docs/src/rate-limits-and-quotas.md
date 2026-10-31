@@ -146,6 +146,8 @@ The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sendin
 
 `/puterai/anthropic/v1/messages/count_tokens` has its own budget of 120 requests per minute per user, with no concurrency limit, and is not charged.
 
+AI requests (`/drivers/call`, which `puter.ai.*` uses, and POSTs to `/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages` and `/puterai/anthropic/v1/messages/count_tokens`) accept JSON bodies up to 128 MiB (134,217,728 bytes), including `text/plain;actually=json` bodies. A body over 50 MiB needs a `Content-Length` header and a token in the `Authorization` or `x-api-key` header (or a session cookie); an `auth_token` inside the body isn't read until the body is, so it only works up to 50 MiB. Larger bodies return HTTP 413. A server handling too many large bodies at once returns `503` with `Retry-After`; retry after the given number of seconds. Other routes accept JSON bodies up to 50 MiB.
+
 Claude's server-executed tools are clamped so a request can't reserve an unbounded amount of credit:
 
 | Tool | Limit |

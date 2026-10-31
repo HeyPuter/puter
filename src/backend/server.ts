@@ -36,6 +36,10 @@ import { createAuthProbe } from './core/http/middleware/authProbe';
 import { createRequestContextMiddleware } from './core/http/middleware/requestContext';
 import { createFingerprintMiddleware } from './core/http/middleware/fingerprint';
 import { createErrorHandler } from './core/http/middleware/errorHandler';
+import {
+    createLargeJsonBodyParser,
+    DEFAULT_JSON_LIMIT_BYTES,
+} from './core/http/middleware/largeJsonBody';
 import { actorUid, type Actor } from './core/actor';
 import { isHttpError } from './core/http/HttpError';
 import {
@@ -124,6 +128,22 @@ import type {
 
 /** Idle keep-alive timeout used when `keep_alive_timeout` is unset. */
 const DEFAULT_KEEP_ALIVE_TIMEOUT = 920_000;
+
+/**
+ * AI request routes, which take bodies up to the size Claude's Messages API
+ * accepts from a signed-in caller. puter.ai.chat goes through `/drivers/call`.
+ */
+const LARGE_JSON_ROUTES = [
+    '/drivers/call',
+    '/puterai/openai/v1/chat/completions',
+    '/puterai/openai/v1/completions',
+    '/puterai/openai/v1/responses',
+    '/puterai/anthropic/v1/messages',
+    '/puterai/anthropic/v1/messages/count_tokens',
+];
+const LARGE_JSON_LIMIT_BYTES = 128 * 1024 * 1024;
+/** Two max-size bodies per process. */
+const LARGE_JSON_BUDGET_BYTES = 2 * LARGE_JSON_LIMIT_BYTES;
 
 /** Route options a claimed subdomain's routes may use. */
 const CLAIMED_ROUTE_OPTIONS = new Set([
@@ -525,10 +545,32 @@ export class PuterServer {
             // body-parser hands over a fresh buffer and never writes to it.
             (req as { rawBody?: Buffer }).rawBody = buf;
         };
-        this.#app.use(express.json({ limit: '50mb', verify: captureRawBody }));
+        const authService = this.services.auth as AuthService | undefined;
+        const authProbe = authService
+            ? createAuthProbe({
+                  authService,
+                  cookieName: this.#config.cookie_name,
+              })
+            : undefined;
+        if (authProbe) {
+            this.#app.post(
+                LARGE_JSON_ROUTES,
+                createLargeJsonBodyParser({
+                    authProbe,
+                    limitBytes: LARGE_JSON_LIMIT_BYTES,
+                    budgetBytes: LARGE_JSON_BUDGET_BYTES,
+                }),
+            );
+        }
         this.#app.use(
             express.json({
-                limit: '50mb',
+                limit: DEFAULT_JSON_LIMIT_BYTES,
+                verify: captureRawBody,
+            }),
+        );
+        this.#app.use(
+            express.json({
+                limit: DEFAULT_JSON_LIMIT_BYTES,
                 type: (req) =>
                     req.headers['content-type'] === 'text/plain;actually=json',
                 verify: captureRawBody,
@@ -542,14 +584,8 @@ export class PuterServer {
         this.#app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 
         // -- Auth probe ----------------------------------------------
-        const authService = this.services.auth as AuthService | undefined;
-        if (authService) {
-            this.#app.use(
-                createAuthProbe({
-                    authService,
-                    cookieName: this.#config.cookie_name,
-                }),
-            );
+        if (authProbe) {
+            this.#app.use(authProbe);
         }
 
         // -- Request fingerprints ------------------------------------

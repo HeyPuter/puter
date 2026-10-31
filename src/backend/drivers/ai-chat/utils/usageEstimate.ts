@@ -29,7 +29,11 @@
  * passes every gate.
  */
 
-import { estimateTextTokens } from '../../util/tokenEstimate.js';
+import {
+    createWordScanBudget,
+    estimateTextTokens,
+    type WordScanBudget,
+} from '../../util/tokenEstimate.js';
 
 // Re-exported so existing consumers keep one import site for all estimators.
 export { estimateTextTokens } from '../../util/tokenEstimate.js';
@@ -91,23 +95,25 @@ const attachmentTokens = (value: unknown): number => {
  * recognises is charged the unmeasured estimate — the alternative is a content
  * type nobody has taught the gate about arriving for free.
  */
-const partTokens = (part: unknown): number => {
-    if (typeof part === 'string') return estimateTextTokens(part);
+const partTokens = (part: unknown, budget: WordScanBudget): number => {
+    if (typeof part === 'string') return estimateTextTokens(part, budget);
     if (!part || typeof part !== 'object') return 0;
 
     const p = part as ContentPart;
 
-    if (typeof p.text === 'string') return estimateTextTokens(p.text);
+    if (typeof p.text === 'string') return estimateTextTokens(p.text, budget);
 
     // Model-output shapes replayed as history: Anthropic thinking blocks,
     // our own streamed `reasoning` chunks, OpenAI refusals. All text — they
     // must not fall through to the attachment default below, which would
     // price a few sentences of reasoning like a full-frame image.
-    if (typeof p.thinking === 'string') return estimateTextTokens(p.thinking);
+    if (typeof p.thinking === 'string')
+        return estimateTextTokens(p.thinking, budget);
     if (typeof p.reasoning === 'string') {
-        return estimateTextTokens(p.reasoning);
+        return estimateTextTokens(p.reasoning, budget);
     }
-    if (typeof p.refusal === 'string') return estimateTextTokens(p.refusal);
+    if (typeof p.refusal === 'string')
+        return estimateTextTokens(p.refusal, budget);
 
     // OpenAI-style `{ image_url: { url } }` (or the flattened string form).
     if (p.image_url) {
@@ -136,6 +142,7 @@ const partTokens = (part: unknown): number => {
     if (p.type === 'tool_use' && p.input !== undefined) {
         return estimateTextTokens(
             typeof p.input === 'string' ? p.input : JSON.stringify(p.input),
+            budget,
         );
     }
     if (p.type === 'tool_result') {
@@ -143,10 +150,11 @@ const partTokens = (part: unknown): number => {
             typeof p.content === 'string'
                 ? p.content
                 : JSON.stringify(p.content ?? ''),
+            budget,
         );
     }
     if (p.type === 'compaction') {
-        return estimateTextTokens(String(p.encrypted_content ?? ''));
+        return estimateTextTokens(String(p.encrypted_content ?? ''), budget);
     }
 
     return UNMEASURED_ATTACHMENT_TOKENS;
@@ -164,21 +172,22 @@ const partTokens = (part: unknown): number => {
 export const estimatePromptTokens = (messages: unknown): number => {
     if (!Array.isArray(messages)) return 0;
 
+    const budget = createWordScanBudget();
     let tokens = 0;
     for (const message of messages) {
         if (typeof message === 'string') {
-            tokens += estimateTextTokens(message);
+            tokens += estimateTextTokens(message, budget);
             continue;
         }
         if (!message || typeof message !== 'object') continue;
 
         const content = (message as ContentPart).content;
         if (typeof content === 'string') {
-            tokens += estimateTextTokens(content);
+            tokens += estimateTextTokens(content, budget);
         } else if (Array.isArray(content)) {
-            for (const part of content) tokens += partTokens(part);
+            for (const part of content) tokens += partTokens(part, budget);
         } else if (content) {
-            tokens += partTokens(content);
+            tokens += partTokens(content, budget);
         }
     }
     return tokens;
