@@ -115,3 +115,66 @@ describe('the router runtime, per authed request', () => {
         expect(seen[0].requestor).toBeUndefined();
     });
 });
+
+describe('the router runtime, CORS on every response', () => {
+    const call = (path, method = 'GET') =>
+        globalThis.router.route({
+            request: new Request(`https://worker.example${path}`, { method }),
+        });
+
+    it('marks a 404 for a path no route matches', async () => {
+        loadRouter();
+
+        const response = await call('/missing');
+
+        expect(response.status).toBe(404);
+        expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    });
+
+    it('marks a 404 for a method with no routes', async () => {
+        loadRouter();
+
+        const response = await call('/ping', 'PUT');
+
+        expect(response.status).toBe(404);
+        expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    });
+
+    it('marks a response whose headers cannot be changed', async () => {
+        loadRouter();
+        globalThis.router.get('/moved', () =>
+            Response.redirect('https://elsewhere.example/', 302),
+        );
+
+        const response = await call('/moved');
+
+        expect(response.status).toBe(302);
+        expect(response.headers.get('location')).toBe('https://elsewhere.example/');
+        expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    });
+
+    it('sends a rejected puter.js call as JSON, not [object Object]', async () => {
+        loadRouter();
+        globalThis.router.get('/fails', () => {
+            throw { message: 'Not allowed', code: 'forbidden' };
+        });
+
+        const response = await call('/fails');
+
+        expect(response.status).toBe(500);
+        expect(JSON.parse(await response.text())).toEqual({
+            message: 'Not allowed',
+            code: 'forbidden',
+        });
+        expect(response.headers.get('access-control-allow-origin')).toBe('*');
+    });
+
+    it('leaves responses alone when CORS handling is off', async () => {
+        loadRouter();
+        globalThis.router.handleCors = false;
+
+        const response = await call('/missing');
+
+        expect(response.headers.has('access-control-allow-origin')).toBe(false);
+    });
+});
