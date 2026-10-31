@@ -69,11 +69,21 @@ export const EVENTS_HANDLED_HEADER = 'x-puter-events-handled';
 export const EVENTS_ERROR_HEADER = 'x-puter-events-error';
 
 /**
+ * The runtime's answer to a key it does not hold: the script was deployed under
+ * a secret that has since rotated, and redeploying it binds the current key.
+ */
+const BAD_KEY_ERROR = 'bad-key';
+
+/**
  * Runtime failure answers that are Puter's fault rather than the handler's: a
  * key the script no longer matches, no token to run as, or a handler that
  * failed because a Puter API call it made did.
  */
-const PLATFORM_ERROR_CODES = new Set(['bad-key', 'no-token', 'platform-error']);
+const PLATFORM_ERROR_CODES = new Set([
+    BAD_KEY_ERROR,
+    'no-token',
+    'platform-error',
+]);
 
 /**
  * Set on the retry after this backend deploys a missing script itself, so the
@@ -207,8 +217,8 @@ export class EventsWorkerInvokerClient extends PuterClient {
     /**
      * Deploys a script the dispatcher reports missing, in place of the
      * rehydrate callback — for the case where that callback lands on a backend
-     * other than this one. Set once; `invoke()` calls it at most once per
-     * delivery and never loops.
+     * other than this one — or one still bound to a rotated key. Set once;
+     * `invoke()` calls it at most once per delivery and never loops.
      */
     setMissHandler(handler: WorkerMissHandler): void {
         this.#missHandler = handler;
@@ -242,29 +252,26 @@ export class EventsWorkerInvokerClient extends PuterClient {
         };
 
         let result = await transport.send(call);
-        if (result.status === null && result.dispatchReason) {
-            if (
-                this.#missHandler &&
-                SELF_DEPLOYABLE_MISS_REASONS.has(result.dispatchReason)
-            ) {
-                const outcome = await this.#missHandler(
-                    request.appUid,
-                    request.script,
-                );
-                if (outcome !== 'deployed')
-                    return {
-                        outcome: 'unavailable',
-                        status: null,
-                        error: `deploy: ${outcome}`,
-                    };
-                result = await transport.send({ ...call, deployed: true });
-            } else if (
-                ALREADY_DEPLOYED_MISS_REASONS.has(result.dispatchReason)
-            ) {
-                // No deploy to trigger — just give propagation the one retry
-                // it usually needs, without spending an upload on it.
-                result = await transport.send({ ...call, deployed: true });
-            }
+        if (this.#missHandler && selfDeployable(result)) {
+            const outcome = await this.#missHandler(
+                request.appUid,
+                request.script,
+            );
+            if (outcome !== 'deployed')
+                return {
+                    outcome: 'unavailable',
+                    status: null,
+                    error: `deploy: ${outcome}`,
+                };
+            result = await transport.send({ ...call, deployed: true });
+        } else if (
+            result.status === null &&
+            result.dispatchReason &&
+            ALREADY_DEPLOYED_MISS_REASONS.has(result.dispatchReason)
+        ) {
+            // No deploy to trigger — just give propagation the one retry
+            // it usually needs, without spending an upload on it.
+            result = await transport.send({ ...call, deployed: true });
         }
 
         const { status, handled, error, timedOut, retryAfterMs } = result;
@@ -387,6 +394,13 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
         return this.#agent;
     }
 }
+
+/** Whether deploying the script is what fixes this answer. */
+const selfDeployable = (result: EventsInvokeAnswer): boolean =>
+    result.status === null
+        ? result.dispatchReason !== undefined &&
+          SELF_DEPLOYABLE_MISS_REASONS.has(result.dispatchReason)
+        : result.handled === true && result.error === BAD_KEY_ERROR;
 
 /** What a script's answer says, read the same way by every transport. */
 export const answerFrom = (response: {

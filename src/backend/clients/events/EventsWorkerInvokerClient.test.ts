@@ -443,6 +443,113 @@ describe('EventsWorkerInvokerClient deploy-on-miss', () => {
         });
     });
 
+    describe('a script still bound to a rotated key', () => {
+        /** Answers `bad-key` until it sees the deployed header, then settles. */
+        const badKeyUntilDeployedFetch = (
+            headersSeen: Array<Record<string, string>>,
+        ): FetchImpl =>
+            (async (_url: string, init?: RequestInit) => {
+                const headers = (init?.headers ?? {}) as Record<string, string>;
+                headersSeen.push(headers);
+                return headers[EVENTS_DEPLOYED_HEADER] === '1'
+                    ? new Response(null, {
+                          status: 200,
+                          headers: { [EVENTS_HANDLED_HEADER]: '1' },
+                      })
+                    : new Response(null, {
+                          status: 500,
+                          headers: {
+                              [EVENTS_HANDLED_HEADER]: '1',
+                              [EVENTS_ERROR_HEADER]: 'bad-key',
+                          },
+                      });
+            }) as unknown as FetchImpl;
+
+        const clientWith = (fetchImpl: FetchImpl) => {
+            const client = makeClient();
+            client.setTransport(
+                new DispatcherInvokeTransport('http://dispatcher', 's', {
+                    fetchImpl,
+                }),
+            );
+            return client;
+        };
+
+        it('is redeployed, then retried once with the deployed header', async () => {
+            const headersSeen: Array<Record<string, string>> = [];
+            const client = clientWith(badKeyUntilDeployedFetch(headersSeen));
+            const deploys: Array<[string, string]> = [];
+            client.setMissHandler(async (appUid, script) => {
+                deploys.push([appUid, script]);
+                return 'deployed';
+            });
+
+            const result = await client.invoke(REQUEST);
+
+            expect(deploys).toEqual([[REQUEST.appUid, REQUEST.script]]);
+            expect(headersSeen).toHaveLength(2);
+            expect(headersSeen[1][EVENTS_DEPLOYED_HEADER]).toBe('1');
+            expect(result).toEqual({ outcome: 'settled', status: 200 });
+        });
+
+        it('backs off, uncounted, when the redeploy is throttled', async () => {
+            const headersSeen: Array<Record<string, string>> = [];
+            const client = clientWith(badKeyUntilDeployedFetch(headersSeen));
+            client.setMissHandler(async () => 'throttled');
+
+            const result = await client.invoke(REQUEST);
+
+            expect(headersSeen).toHaveLength(1);
+            expect(result).toEqual({
+                outcome: 'unavailable',
+                status: null,
+                error: 'deploy: throttled',
+            });
+        });
+
+        it('stops after the one retry when the old key is still being served', async () => {
+            const calls: unknown[] = [];
+            const client = clientWith((async () => {
+                calls.push(null);
+                return new Response(null, {
+                    status: 500,
+                    headers: {
+                        [EVENTS_HANDLED_HEADER]: '1',
+                        [EVENTS_ERROR_HEADER]: 'bad-key',
+                    },
+                });
+            }) as unknown as FetchImpl);
+            let deploys = 0;
+            client.setMissHandler(async () => {
+                deploys++;
+                return 'deployed';
+            });
+
+            const result = await client.invoke(REQUEST);
+
+            expect(deploys).toBe(1);
+            expect(calls).toHaveLength(2);
+            expect(result.outcome).toBe('unavailable');
+        });
+
+        it('deploys nothing for a handler`s own failure', async () => {
+            const client = clientWith(
+                stubFetch(500, {
+                    [EVENTS_HANDLED_HEADER]: '1',
+                    [EVENTS_ERROR_HEADER]: 'handler-threw',
+                }),
+            );
+            let deploys = 0;
+            client.setMissHandler(async () => {
+                deploys++;
+                return 'deployed';
+            });
+
+            expect((await client.invoke(REQUEST)).outcome).toBe('retriable');
+            expect(deploys).toBe(0);
+        });
+    });
+
     it('reports a deploy that was throttled as Puter`s failure', async () => {
         const client = makeClient();
         client.setTransport(

@@ -99,6 +99,11 @@ let answerHeaders: Record<string, string> = {};
  * header.
  */
 let dispatchMissing = false;
+/**
+ * Whether the stub answers as a script still bound to a rotated key until it
+ * sees the deployed header.
+ */
+let staleKey = false;
 
 const events = () => env.server.services.events;
 const pending = () => env.server.stores.pendingDelivery;
@@ -133,6 +138,13 @@ const startStub = async (): Promise<string> => {
             if (dispatchMissing && deployed !== '1') {
                 res.writeHead(404, {
                     'x-puter-events-dispatch': 'missing',
+                }).end();
+                return;
+            }
+            if (staleKey && deployed !== '1') {
+                res.writeHead(500, {
+                    'x-puter-events-handled': '1',
+                    'x-puter-events-error': 'bad-key',
                 }).end();
                 return;
             }
@@ -408,6 +420,7 @@ beforeEach(async () => {
     answerHandled = true;
     answerHeaders = {};
     dispatchMissing = false;
+    staleKey = false;
     await env.server.clients.db.write('DELETE FROM `event_subscriptions`', []);
     events().invalidateUser(userId);
     await env.server.stores.eventSubscription.markRegionCold(userId);
@@ -1041,6 +1054,32 @@ describe('deploying on a dispatcher miss', () => {
             await waitUntil(async () =>
                 expect(await pending().depth(subId)).toBe(0),
             );
+        } finally {
+            createSpy.mockRestore();
+        }
+    });
+});
+
+describe('redeploying a script whose key rotated', () => {
+    it('redeploys it, settles on the retry, and counts nothing against the handler', async () => {
+        staleKey = true;
+        const createSpy = vi
+            .spyOn(env.server.drivers.workers, 'create')
+            .mockResolvedValue({ success: true, errors: [] });
+
+        try {
+            const subId = await subscribe();
+            await touch('rotated-key.txt');
+            await invoked(2);
+
+            expect(createSpy).toHaveBeenCalledTimes(1);
+            expect(calls[1].headers.deployed).toBe('1');
+            await waitUntil(async () =>
+                expect(await pending().depth(subId)).toBe(0),
+            );
+            expect(
+                await env.server.clients.redis.get(`ev:qf:{${subId}}`),
+            ).toBeNull();
         } finally {
             createSpy.mockRestore();
         }
