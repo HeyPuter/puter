@@ -812,6 +812,24 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
             session.close(closeCode, code);
         };
+        // A plan or balance refusal decided on a plan whose lookup failed may
+        // not apply to this account, so the client is told to retry instead.
+        const refuse = async (code: string, message: string) => {
+            let provisional = true;
+            try {
+                ({ provisional } =
+                    await this.services.metering.getActorSubscriptionStatus(
+                        actor!,
+                    ));
+            } catch (err) {
+                console.warn('[realtime] plan lookup failed', err);
+            }
+            if (provisional) {
+                reject('internal_error', 'Could not verify subscription', 1011);
+            } else {
+                reject(code, message);
+            }
+        };
 
         if (this.#draining) {
             reject(
@@ -896,11 +914,14 @@ export class OpenAIRealtimeRelayService extends PuterService {
             while (usageQueue.length) {
                 const { rows, holds } = usageQueue[0];
                 if (rows.length) {
-                    await this.#record(actor!, rows, () =>
-                        reject(
-                            'insufficient_funds',
-                            'No usage left for request',
-                        ),
+                    await this.#record(
+                        actor!,
+                        rows,
+                        () =>
+                            void refuse(
+                                'insufficient_funds',
+                                'No usage left for request',
+                            ),
                     );
                 }
                 await Promise.all(holds.map((hold) => releaseHold(hold)));
@@ -938,7 +959,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
                         responseHoldAmount(billingModel),
                     );
                     if (!taken) {
-                        reject(
+                        await refuse(
                             'insufficient_funds',
                             'No usage left for request',
                         );
@@ -1159,7 +1180,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
         } catch (err) {
             const status = (err as { statusCode?: number }).statusCode;
             if (status === 402 || status === 403) {
-                reject(
+                await refuse(
                     'subscription_required',
                     'Realtime conversations require a subscription',
                 );
@@ -1177,7 +1198,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             responseHoldAmount(model),
         );
         if (!probe) {
-            reject('insufficient_funds', 'No usage left for request');
+            await refuse('insufficient_funds', 'No usage left for request');
             return;
         }
         await probe.release();
