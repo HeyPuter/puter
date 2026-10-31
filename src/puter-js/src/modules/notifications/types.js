@@ -13,7 +13,8 @@
  * @property {unknown} [data] Any JSON value up to 1 KB, handed back to the app
  *   on click. Push providers can read it, so keep it to IDs.
  * @property {string} [group] A newer notification with the same group replaces
- *   the one showing and alerts again. Letters, digits and `. _ : -`.
+ *   the one showing and alerts again. Up to 128 letters, digits and
+ *   `. _ : @ -`.
  * @property {string} [channel] The kind of notification, such as `messages`.
  *   Lowercase letters, digits and `-`.
  * @property {boolean} [sensitive] Pushes show a generic line instead of the

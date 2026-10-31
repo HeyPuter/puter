@@ -467,7 +467,7 @@ An app, its workers and the tokens it issues can send the user they act for an `
 | `icon` (an `https` URL)           | 2,048 characters                  |                   |
 | `target` (a path inside the app)  | 512 characters                    |                   |
 | `data`                            | 1 KiB, measured as JSON           |                   |
-| `group`                           | 64 characters                     |                   |
+| `group`                           | 128 characters                    |                   |
 | `channel`                         | 32 characters                     |                   |
 | `ttl`                             | 1 second to 1 day, default 1 hour |                   |
 
