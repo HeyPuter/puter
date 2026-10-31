@@ -64,7 +64,8 @@ export type CascadeRow = Pick<
 //   - name / identity: `subdomain` — v1 marks this `immutable: true`; rename
 //     would orphan DNS + ACL wiring tied to the old name.
 //   - ownership: `user_id`, `app_owner` — set via `create` (or reclaimed in
-//     place by `reclaimByUuid`), never via patch.
+//     place by `reclaimByUuid`, or a worker rebound by `setAppOwner`), never
+//     via patch.
 //     Flipping either hands the site to another user / app.
 //   - access gate: `protected` — clearing this lets a future caller delete
 //     or rename a protected site (e.g. `puter-app-icons`). The driver itself
@@ -766,6 +767,25 @@ export class SubdomainStore extends PuterStore {
         for (const id of affectedRootDirIds) {
             await this.#invalidateRootDirEntry(id as number);
         }
+        return after;
+    }
+
+    /**
+     * Bind one of `userId`'s rows to another app, or to none: a worker
+     * redeployed under a different app. The caller has already authorized that
+     * binding, which a patch through `update` never could.
+     */
+    async setAppOwner(
+        uuid: string,
+        appOwner: number | null,
+        { userId }: { userId: number },
+    ): Promise<SubdomainRow | null> {
+        await this.clients.db.write(
+            'UPDATE `subdomains` SET `app_owner` = ? WHERE `uuid` = ? AND `user_id` = ?',
+            [appOwner, uuid, userId],
+        );
+        const after = await this.getByUuid(uuid, { userId, primary: true });
+        await this.#publishChanged(after ? [after] : []);
         return after;
     }
 

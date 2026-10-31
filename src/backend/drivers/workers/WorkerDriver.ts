@@ -574,6 +574,20 @@ export class WorkerDriver extends PuterDriver {
                     legacyCode: 'conflict',
                 });
             }
+            // The token above acts as `boundApp`, so the row follows it: the
+            // listing, a later hot-reload and this answer name the same app.
+            const nextAppOwner = appOwnerId ?? null;
+            const currentAppOwner =
+                existingSub.app_owner === null ||
+                existingSub.app_owner === undefined
+                    ? null
+                    : Number(existingSub.app_owner);
+            if (currentAppOwner !== nextAppOwner)
+                await this.stores.subdomain.setAppOwner(
+                    String(existingSub.uuid),
+                    nextAppOwner,
+                    { userId: actor.user.id },
+                );
         } else {
             if (!loaded?.fsEntry?.sqlId)
                 throw new HttpError(400, `Invalid file recieved!`, {

@@ -288,6 +288,83 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
         expect(listed).toMatchObject({ app_uid: app.uid, app_name: app.name });
     });
 
+    describe('redeployed under a different app', () => {
+        const seedBound = async () => {
+            const { user, actor } = await makeUser();
+            const makeApp = (label: string) =>
+                server.stores.app.create(
+                    {
+                        name: `${label}-${user.username}`,
+                        title: `${label}-${user.username}`,
+                        index_url: `https://${label}-${user.username}.example.com/`,
+                    },
+                    { ownerUserId: user.id },
+                );
+            const first = await makeApp('first');
+            const second = await makeApp('second');
+            const path = `/${user.username}/rebind.js`;
+            await writeSource(actor, user.id, path, 'v1');
+            const name = `rebind-${user.username}`;
+            const deploy = (appId: string) =>
+                inCtx(actor, () =>
+                    target.create({ appId, workerName: name, filePath: path }),
+                );
+            await deploy(first.uid);
+            return { user, actor, path, name, first, second, deploy };
+        };
+
+        const listed = async (actor: Actor, name: string) =>
+            (
+                (await inCtx(actor, () =>
+                    target.getFilePaths({ workerName: name }),
+                )) as Array<{ app_uid: string | null; app_name: string | null }>
+            )[0];
+
+        it('moves the worker row to the app its new token acts as', async () => {
+            const { actor, name, second, deploy } = await seedBound();
+
+            const result = await deploy(second.uid);
+
+            expect(result).toMatchObject({ app_uid: second.uid });
+            expect(await listed(actor, name)).toMatchObject({
+                app_uid: second.uid,
+                app_name: second.name,
+            });
+            const row = await server.stores.subdomain.getBySubdomain(
+                `workers.puter.${name}`,
+            );
+            expect(Number(row!.app_owner)).toBe(second.id);
+        });
+
+        it('hot-reloads as the new app, not the one it was first bound to', async () => {
+            const { user, actor, path, second, deploy } = await seedBound();
+            await deploy(second.uid);
+            const notifySpy = vi.spyOn(server.services.notification, 'notify');
+
+            await writeSource(actor, user.id, path, 'v2');
+
+            await waitFor(
+                () => notifySpy.mock.calls.length > 0,
+                'hot-reload notification',
+            );
+            expect(notifySpy).toHaveBeenCalledWith(
+                [user.id],
+                expect.anything(),
+                expect.objectContaining({ appUid: second.uid }),
+            );
+        });
+
+        it('drops the binding when redeployed with no app', async () => {
+            const { actor, name, deploy } = await seedBound();
+
+            expect(await deploy('')).toMatchObject({ app_uid: null });
+            expect(await listed(actor, name)).toMatchObject({
+                app_uid: null,
+                app_name: null,
+            });
+        });
+    });
+
     it('sends the puter_auth secret and puter_endpoint binding in the deploy metadata', async () => {
         const { user, actor } = await makeUser();
         const path = `/${user.username}/worker.js`;
