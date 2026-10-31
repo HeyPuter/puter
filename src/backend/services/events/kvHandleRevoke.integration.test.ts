@@ -38,7 +38,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import { EVENTS_COALESCE_WINDOW_MS } from '../../controllers/events/limits.js';
+import {
+    EVENTS_COALESCE_WINDOW_MS,
+    EVENTS_KV_HANDLE_LIMIT,
+    EVENTS_SUBSCRIBE_LIMIT,
+} from '../../controllers/events/limits.js';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import {
@@ -49,8 +53,10 @@ import {
 import type { IConfig } from '../../types.js';
 import { SESSION_SUBSCRIPTION_TTL_SECONDS } from '../../stores/events/EventSubscriptionStore.js';
 import { kvShareGrantAtEveryLevel } from '../kvShare/kvShares.js';
+import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import type { DeliveryEnvelope } from './EventsService.js';
 import { kvAnchorToken } from './subjects.js';
+import { RecordingWorkerInvoker } from './workerSeam.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 const SOCKET_ID = 'kv-revoke-socket';
@@ -156,6 +162,7 @@ const clearRows = async () => {
 beforeAll(async () => {
     env = await setupPuterTestEnv({
         events: { enabled: true, kvHandles: true },
+        kv: { shareHandles: true },
         // Seeded accounts carry no email, which the plan machinery reads as a
         // temporary account — and a temporary account holds no durable rows.
         unlimitedMetering: true,
@@ -614,6 +621,218 @@ describe('a queued row whose share can`t be checked right now', () => {
             'permission_revoked',
         );
         expect(await pending().depth(sub.subId)).toBe(0);
+    });
+});
+
+describe('a queued backlog after its share drops to watch', () => {
+    const HANDLER = 'onChange';
+    const pending = () => env.server.stores.pendingDelivery;
+    const socket = () => env.server.services.socket;
+    const soon = (check: () => unknown) =>
+        vi.waitFor(check, { timeout: 5_000, interval: 25 });
+
+    let app: { uid: string; id: number };
+    let guestApp: Actor;
+    let worker: RecordingWorkerInvoker;
+    let previousWorker: ReturnType<typeof events>['worker'];
+
+    beforeAll(async () => {
+        const name = `kv-queued-${uuidv4().slice(0, 8)}`;
+        app = await env.server.stores.app.create(
+            {
+                name,
+                title: 'Queued Values',
+                index_url: `https://${name}.example.test/index.html`,
+            },
+            { ownerUserId: owner.id },
+        );
+        guestApp = makeActor({
+            user: guest.actor.user as never,
+            app: { uid: app.uid, id: app.id },
+        });
+        // The holder launching the app, and letting its handler run unattended.
+        for (const permission of [
+            'flag:app-is-authenticated',
+            EVENTS_BACKGROUND_PERMISSION,
+        ])
+            await env.server.services.permission.grantUserAppPermission(
+                guest.actor,
+                app.uid,
+                permission,
+            );
+        await events().publishHandler(owner.actor, {
+            appUid: app.uid,
+            name: HANDLER,
+            source: 'async ({ event }) => { console.log(event.key); }',
+        });
+    });
+
+    beforeEach(async () => {
+        await clearRows();
+        const limits = [EVENTS_KV_HANDLE_LIMIT, EVENTS_SUBSCRIBE_LIMIT];
+        for (const user of [owner, guest])
+            for (const limit of limits)
+                await env.server.clients.redis.del(
+                    `rate:${limit.scope}:${user.id}`,
+                );
+        previousWorker = events().worker;
+        worker = new RecordingWorkerInvoker();
+        events().worker = worker;
+    });
+
+    afterEach(() => {
+        events().worker = previousWorker;
+    });
+
+    /** Sharing a region again is how its level changes. */
+    const shareAt = (
+        prefix: string,
+        access: 'read' | 'watch',
+        appUid?: string,
+    ) =>
+        shares().mintKvHandle(
+            owner.actor,
+            {
+                prefix,
+                recipient: { username: guest.username },
+                access,
+                ...(appUid ? { appUid } : {}),
+            },
+            { defaultAccess: 'watch' },
+        );
+
+    const subscribeValues = async (handle: string, actor = guest.actor) =>
+        (
+            await events().subscribeDurable(actor, {
+                subject: `kv:${handle}:*`,
+                delivery: 'single',
+                handlerName: HANDLER,
+                includeValue: true,
+            })
+        ).sub;
+
+    const writes = (key: string, value: unknown, appUid?: string) =>
+        runWithContext({ actor: owner.actor }, () =>
+            env.server.drivers.kvStore.set({
+                key,
+                value,
+                ...(appUid ? { optConfig: { appUuid: appUid } } : {}),
+            }),
+        );
+
+    /** One entry queued and leased to nobody, so the next drain claims it. */
+    const backlogged = async (subId: string) => {
+        await soon(async () => expect(await pending().depth(subId)).toBe(1));
+        await env.server.clients.redis.del(`ev:ql:{${subId}}`);
+    };
+
+    const deliveredTo = (subId: string) =>
+        delivered.find((one) => one.subId === subId);
+
+    const ranFor = (subId: string) =>
+        worker.recorded
+            .filter((one) => one.subId === subId)
+            .map((one) => one.event);
+
+    /** Run `step` with the holder connected in this region. */
+    const connected = async (step: () => Promise<unknown>) => {
+        const has = vi.spyOn(socket(), 'has').mockReturnValue(true);
+        try {
+            await step();
+        } finally {
+            has.mockRestore();
+        }
+    };
+
+    it('hands a connected client the backlog without the value', async () => {
+        const prefix = 'queued:socket:';
+        const { handle } = await shareAt(prefix, 'read');
+        const sub = await subscribeValues(handle);
+        await writes(`${prefix}secret`, 'private-value');
+        await backlogged(sub.subId);
+
+        await shareAt(prefix, 'watch');
+        delivered.length = 0;
+        await connected(() => events().sweepPending());
+
+        const event = deliveredTo(sub.subId)?.event;
+        expect(event).toMatchObject({ key: 'secret', op: 'set' });
+        expect(event).not.toHaveProperty('value');
+    });
+
+    it('leaves the value off an older entry a new write hands out', async () => {
+        const prefix = 'queued:next-write:';
+        const { handle } = await shareAt(prefix, 'read');
+        const sub = await subscribeValues(handle);
+        await writes(`${prefix}first`, 'private-value');
+        await backlogged(sub.subId);
+
+        await shareAt(prefix, 'watch');
+        delivered.length = 0;
+        await connected(async () => {
+            await writes(`${prefix}second`, 'later');
+            await soon(() => expect(deliveredTo(sub.subId)).toBeDefined());
+        });
+
+        const event = deliveredTo(sub.subId)?.event;
+        expect(event).toMatchObject({ key: 'first' });
+        expect(event).not.toHaveProperty('value');
+    });
+
+    it('hands a handler run the backlog without the value', async () => {
+        const prefix = 'queued:worker:';
+        const { handle } = await shareAt(prefix, 'read', app.uid);
+        const sub = await subscribeValues(handle, guestApp);
+        await writes(`${prefix}secret`, 'private-value', app.uid);
+        await soon(() => expect(ranFor(sub.subId)).toHaveLength(1));
+        expect(ranFor(sub.subId)[0]).toMatchObject({ value: 'private-value' });
+
+        await shareAt(prefix, 'watch', app.uid);
+        await env.server.clients.redis.del(`ev:ql:{${sub.subId}}`);
+        await events().sweepPending();
+
+        const [, again] = ranFor(sub.subId);
+        expect(again).toMatchObject({ key: 'secret' });
+        expect(again).not.toHaveProperty('value');
+    });
+
+    it('hands a delivery its client declined to the handler without the value', async () => {
+        const prefix = 'queued:declined:';
+        const { handle } = await shareAt(prefix, 'read', app.uid);
+        const sub = await subscribeValues(handle, guestApp);
+        delivered.length = 0;
+        await connected(async () => {
+            await writes(`${prefix}secret`, 'private-value', app.uid);
+            await soon(() => expect(deliveredTo(sub.subId)).toBeDefined());
+        });
+        const envelope = deliveredTo(sub.subId)!;
+        expect(envelope.event).toMatchObject({ value: 'private-value' });
+
+        await shareAt(prefix, 'watch', app.uid);
+        await events().declineDelivery(guestApp, {
+            subId: sub.subId,
+            id: envelope.ackId,
+        });
+
+        const [run] = ranFor(sub.subId);
+        expect(run).toMatchObject({ key: 'secret' });
+        expect(run).not.toHaveProperty('value');
+    });
+
+    it('leaves the owner`s own backlog its values', async () => {
+        const prefix = 'queued:owner:';
+        const { handle } = await shareAt(prefix, 'watch');
+        const sub = await subscribeValues(handle, owner.actor);
+        await writes(`${prefix}mine`, 'kept');
+        await backlogged(sub.subId);
+
+        delivered.length = 0;
+        await connected(() => events().sweepPending());
+
+        expect(deliveredTo(sub.subId)?.event).toMatchObject({
+            key: 'mine',
+            value: 'kept',
+        });
     });
 });
 

@@ -1158,6 +1158,20 @@ const servedAtStanding = (
     return withoutValue;
 };
 
+/**
+ * A queued delivery as `row` is served now. The queue keeps an event as it was
+ * owed, so a value the row no longer carries comes off at hand-out.
+ */
+const claimedAsServed = (
+    row: DispatchSubscription,
+    claimed: ClaimedDelivery,
+): ClaimedDelivery => {
+    if (row.includeValue === true || !('value' in claimed.event))
+        return claimed;
+    const { value: _value, ...event } = claimed.event;
+    return { ...claimed, event };
+};
+
 /** Omit inline values without changing the event's key metadata. */
 const withoutKvValue = <C extends EventContextBase>(context: C): C => {
     const { value: _value, ...withoutValue } = context as C & {
@@ -2268,7 +2282,12 @@ export class EventsService extends PuterService {
             return;
         }
         if (row.suspendedAt !== null) return;
-        if (await this.#runInWorker(row, claimed)) await this.#drain(row);
+        // A row that can't be served now lets the worker lease lapse, and a
+        // later drain asks again.
+        const serving = await this.#stillOwed(row);
+        if (!serving) return;
+        if (await this.#runInWorker(serving, claimedAsServed(serving, claimed)))
+            await this.#drain(row);
     }
 
     // -- Handlers ----------------------------------------------------
@@ -5164,9 +5183,11 @@ export class EventsService extends PuterService {
         row: DispatchSubscription,
         // Only the sweeper defers: it alone reads the pending index in score
         // order, so only it may rewrite a score without starving what is behind.
+        // A just-authorized row comes as its delivery re-check served it.
         opts?: { deferWhenBusy?: boolean; justAuthorized?: boolean },
     ): Promise<number> {
-        if (!opts?.justAuthorized && !(await this.#stillOwed(row))) {
+        const serving = opts?.justAuthorized ? row : await this.#stillOwed(row);
+        if (!serving) {
             if (opts?.deferWhenBusy)
                 await this.stores.pendingDelivery.defer(row.subId);
             return 0;
@@ -5204,13 +5225,21 @@ export class EventsService extends PuterService {
             handed++;
             // Anything still holding the lease is the next consumer's answer to
             // give, so this pass is over.
-            if (!(await this.#handOut(row, claimed))) return handed;
+            if (
+                !(await this.#handOut(
+                    serving,
+                    claimedAsServed(serving, claimed),
+                ))
+            )
+                return handed;
         }
         return handed;
     }
 
     /**
-     * Whether a queued backlog may still be handed over.
+     * The row as its queued backlog may be handed over now, or null when it may
+     * not. A share-handle row comes back as its share serves it, so a backlog
+     * queued with values goes out without them at `watch`.
      *
      * Nothing between the claim and the socket asks this — and the revoke
      * settle deliberately leaves a grant withdrawn on an _ancestor_ of an
@@ -5223,15 +5252,25 @@ export class EventsService extends PuterService {
      * whose share can't be checked right now hands out nothing and keeps its
      * backlog for a later pass.
      */
-    async #stillOwed(row: DispatchSubscription): Promise<boolean> {
-        if (row.durable !== true) return true;
+    async #stillOwed(
+        row: DispatchSubscription,
+    ): Promise<DispatchSubscription | null> {
+        if (row.durable !== true) return row;
         const durable = row as DurableSubscription;
-        const reachable = await this.#anchorStillReachable(durable);
-        if (reachable !== false) return reachable === true;
+        if (kvHandleFromSubject(durable.subject) !== null) {
+            const standing = await this.#kvShareStanding(durable);
+            if (standing === 'unknown') return null;
+            if (standing !== 'revoked')
+                return servedAtStanding(durable, standing);
+        } else {
+            const reachable = await this.#anchorStillReachable(durable);
+            if (reachable === null) return null;
+            if (reachable) return row;
+        }
 
         const suspended = await this.#suspend([durable], 'permission_revoked');
         await this.#notifyEnded(suspended, 'permission_revoked');
-        return false;
+        return null;
     }
 
     /**
