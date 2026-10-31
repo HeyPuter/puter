@@ -427,6 +427,26 @@ describe('the live cache across nodes', () => {
         );
     });
 
+    it('doesn`t cache a row a retire overtook during the app lookup', async () => {
+        const row = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-race:' }),
+        );
+        const apps = env.server.stores.app;
+        const getByUid = apps.getByUid.bind(apps);
+        const lookup = vi
+            .spyOn(apps, 'getByUid')
+            .mockImplementationOnce(async (...args) => {
+                await store().retireMany([row.handle], 'owner');
+                return getByUid(...args);
+            });
+        try {
+            await store().getLive(row.handle);
+        } finally {
+            lookup.mockRestore();
+        }
+        expect(await store().getLive(row.handle)).toBeNull();
+    });
+
     it('drops an owner\'s cached rows when the owner is suspended, here and on other nodes', async () => {
         const row = await store().mint(
             input({ appUid: 'app-forget', keyPrefix: 'forget-owner:' }),

@@ -371,8 +371,9 @@ export class KvShareHandleStore extends PuterStore {
             rows = await this.clients.db.pread(LIVE_QUERY, [handle]);
         }
 
-        // A forget that landed during the read may postdate what it returned.
-        const cacheable =
+        // A forget that landed during the read, or the app lookup after it,
+        // may postdate what it returned.
+        const cacheable = () =>
             !forgottenSince(this.#forgotten.get(handle), before) &&
             !forgottenSince(
                 this.#forgottenOwners.get(Number(rows[0]?.owner_user_id)),
@@ -381,12 +382,12 @@ export class KvShareHandleStore extends PuterStore {
 
         const found = rows[0];
         if (!found || found.revoked_at !== null || !found.owner_uuid) {
-            if (cacheable) this.#missing.set(handle, true);
+            if (cacheable()) this.#missing.set(handle, true);
             return null;
         }
         const { label: _label, ...row } = toRow({ ...found, label: null });
         if (await this.predatesItsApp(row)) {
-            if (cacheable) this.#missing.set(handle, true);
+            if (cacheable()) this.#missing.set(handle, true);
             return null;
         }
         const live: LiveKvShareHandle = {
@@ -394,7 +395,7 @@ export class KvShareHandleStore extends PuterStore {
             ownerUuid: String(found.owner_uuid),
             ownerSuspended: Boolean(Number(found.owner_suspended ?? 0)),
         };
-        if (cacheable) this.#live.set(handle, live);
+        if (cacheable()) this.#live.set(handle, live);
         return live;
     }
 
