@@ -384,6 +384,37 @@ describe('rows made through a share handle', () => {
             SESSION_SUBSCRIPTION_TTL_SECONDS - 10,
         );
     });
+
+    it('asks about each handle once per holder and app on refresh', async () => {
+        const holder = USER + 7000;
+        const rows = [
+            through(holder, 0, { socketId: 'socket-a' }),
+            through(holder, 1, {
+                socketId: 'socket-a',
+                token: 'k#owner#app#ws:a:',
+            }),
+            through(holder, 2, {
+                socketId: 'socket-a',
+                token: 'k#owner#app#ws:b:',
+            }),
+            through(holder, 3, { socketId: 'socket-a', appUid: 'app-x' }),
+            through(holder, 4, {
+                socketId: 'socket-a',
+                subject: `kv:${OTHER_HANDLE}:*`,
+            }),
+        ];
+        for (const row of rows) await store.add(row);
+
+        const stillHeld = vi.fn(async (row: SessionSubscription) =>
+            row.subject.includes(HANDLE),
+        );
+        const { lapsed } = await store.refresh(holder, 'socket-a', {
+            stillHeld,
+        });
+
+        expect(stillHeld).toHaveBeenCalledTimes(3);
+        expect(lapsed).toEqual([rows[4]]);
+    });
 });
 
 describe('removal', () => {
