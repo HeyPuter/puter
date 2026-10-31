@@ -1215,8 +1215,12 @@ describe('OpenAIRealtimeRelayService relay', () => {
         expect((await c.closed).code).toBe(1011);
     });
 
-    it('refuses an invalid or revoked credential with invalid_api_key and 1008', async () => {
-        for (const result of [{ invalid: true }, { blocked: true }]) {
+    it('refuses an invalid, blocked or revoked credential with invalid_api_key and 1008', async () => {
+        for (const result of [
+            { invalid: true },
+            { blocked: true },
+            { reauth: { reason: 'session_revoked' } },
+        ]) {
             vi.spyOn(
                 server.services.auth,
                 'authenticate',
