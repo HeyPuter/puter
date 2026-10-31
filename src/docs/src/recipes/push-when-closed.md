@@ -5,7 +5,7 @@ tags: [notifications]
 order: 67
 ---
 
-With `puter.notifications`, your app can notify the user it runs for. Each notification shows in the user's Puter notifications panel, and every open page of your app gets it right away. When no page of your app is open, the same notification goes out as a push. The browser shows it on the user's phone or desktop, and a tap opens your site.
+With `puter.notifications`, your app can notify the user it runs for. Each notification goes to your app, not the Puter desktop's notifications panel, and every open page of your app gets it right away. When no page of your app is open, the same notification goes out as a push. The browser shows it on the user's phone or desktop, and a tap opens your site.
 
 This recipe sets that up for a website on its own domain. An app inside the Puter desktop only needs [`requestPermission()`](/Notifications/requestPermission/). [Push notifications for your app](/Notifications/push/) covers both cases.
 
@@ -84,9 +84,9 @@ async function sendMessageNotification () {
 document.getElementById('send').addEventListener('click', sendMessageNotification);
 ```
 
-The notification always shows in the user's Puter notifications panel. A page you send it from is open, so that page gets it live and nothing is pushed. A push goes out when no page of your site is open. To send while the user's tabs are closed, call [`notify()`](/Notifications/notify/) from somewhere that keeps running, such as a [Puter Worker](/Workers/) with `user.puter.notifications.notify()`, or an [events handler](/Events/handlers/) with `user.notifications.notify()`. [Push notifications for your app](/Notifications/push/#sending-a-notification) has the details, and [Run Code in the Background](/recipes/run-code-in-the-background/) sets up an events handler.
+The notification goes to your app, not the Puter desktop's notifications panel. A page you send it from is open, so that page gets it live and nothing is pushed. A push goes out when no page of your site is open. To send while the user's tabs are closed, call [`notify()`](/Notifications/notify/) from somewhere that keeps running, such as a [Puter Worker](/Workers/) with `user.puter.notifications.notify()`, or an [events handler](/Events/handlers/) with `user.notifications.notify()`. [Push notifications for your app](/Notifications/push/#sending-a-notification) has the details, and [Run Code in the Background](/recipes/run-code-in-the-background/) sets up an events handler.
 
-A website using Puter.js starts out unlisted, so it gets the lower push limits for new apps. A notification over a limit still shows in the panel. The numbers are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
+A website using Puter.js starts out unlisted, so it gets the lower push limits for new apps. A notification over a limit still reaches your app live. The numbers are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
 
 Push services can read `data`, so put IDs in it and fetch the rest. For a notification whose text shouldn't leave Puter, set `sensitive: true`, and the push shows a generic line instead.
 

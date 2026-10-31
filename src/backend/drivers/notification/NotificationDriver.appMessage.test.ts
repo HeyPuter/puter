@@ -171,16 +171,15 @@ describe('app.message with live delivery over the socket wire', () => {
         const app = await makeApp(state.server, holder.user.id!);
 
         let created: Record<string, unknown> | null = null;
-        const pushed = await captureBus(
-            state.server,
-            'outer.gui.notif.message',
-            async () => {
+        let desktop: Array<Record<string, unknown>> = [];
+        const written = await captureBus(state.server, 'notif.written', () =>
+            captureBus(state.server, 'outer.gui.notif.message', async () => {
                 created = (await withActor(asApp(holder, app), () =>
                     state.driver.create(
                         message({ text: 'Body', channel: 'replies' }),
                     ),
                 )) as Record<string, unknown>;
-            },
+            }).then((seen) => (desktop = seen)),
         );
 
         const uid = created!.uid as string;
@@ -202,13 +201,16 @@ describe('app.message with live delivery over the socket wire', () => {
             audience: 'app-user',
             type: 'app.message',
         });
-        // Not silent: it went out on the wire the desktop listens to.
-        expect(pushed).toEqual([
-            {
-                user_id_list: [holder.user.id],
-                response: { uid, notification: created!.value },
-            },
+        // Not silent, but sent for the app alone: the desktop wire stays quiet.
+        expect(written).toEqual([
+            expect.objectContaining({
+                userId: holder.user.id,
+                uid,
+                type: 'app.message',
+                appUid: app.uid,
+            }),
         ]);
+        expect(desktop).toEqual([]);
     });
 
     it("lets the app's worker and the tokens it issued notify their user", async () => {

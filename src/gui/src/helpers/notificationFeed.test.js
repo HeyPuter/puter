@@ -23,7 +23,9 @@ import {
     answerNotificationReceipts,
     applyToastMark,
     createNotificationFeed,
+    createReplayLog,
     eventsNotificationsAvailable,
+    missedAfterReconnect,
     notificationSocketAcks,
     markForToast,
     notificationFromEvent,
@@ -418,9 +420,120 @@ describe('notification receipts', () => {
         expect(sdk.notifications._answerReceipt).toHaveBeenCalledWith({ uid: 'n-1' }, ack);
     });
 
+    it("does not note an app's own message, so the desktop never vouches for it", () => {
+        const sdk = sdkWithLog();
+        const socket = fakeSocket();
+        answerNotificationReceipts(socket, sdk);
+
+        socket.handlers['notif.message'][0]({ uid: 'n-2', notification: { type: 'app.message', title: 'hi' } });
+        socket.handlers['notif.message'][0]({ uid: 'n-3', notification: { type: 'share.received' } });
+
+        expect(sdk.notifications._noteReceived).toHaveBeenCalledTimes(1);
+        expect(sdk.notifications._noteReceived).toHaveBeenCalledWith('n-3');
+    });
+
     it('registers nothing with a puter.js that has no log', () => {
         const socket = fakeSocket();
         answerNotificationReceipts(socket, { notifications: {} });
         expect(socket.handlers).toEqual({});
+    });
+});
+
+describe('createReplayLog', () => {
+    const item = (uid, notification = { type: 'share.received', title: uid }) => ({ uid, notification });
+    const uids = (items) => items.map((one) => one.uid);
+
+    it('raises from a later replay only what the page missed', () => {
+        const log = createReplayLog();
+        expect(uids(log.admit([item('n-1')], { replay: true }))).toEqual(['n-1']);
+        // A reconnect: the next replay carries the one created meanwhile.
+        expect(uids(log.admit([item('n-1'), item('n-2')], { replay: true }))).toEqual(['n-2']);
+        expect(log.admit([item('n-2')], { replay: true })).toEqual([]);
+    });
+
+    it('does not raise again from a replay what arrived live', () => {
+        const log = createReplayLog();
+        expect(uids(log.admit([item('n-1')]))).toEqual(['n-1']);
+        expect(log.admit([item('n-1')], { replay: true })).toEqual([]);
+        // A live re-send under the same uid still refreshes what is on screen.
+        expect(uids(log.admit([item('n-1')]))).toEqual(['n-1']);
+    });
+
+    it('does not raise what was dismissed', () => {
+        const log = createReplayLog();
+        log.dismissed('n-1');
+        expect(uids(log.admit([item('n-1'), item('n-2')], { replay: true }))).toEqual(['n-2']);
+    });
+
+    it("leaves out an app's own message, live or replayed", () => {
+        const log = createReplayLog();
+        const message = item('n-1', { type: 'app.message', title: 'hi' });
+        expect(log.admit([message])).toEqual([]);
+        expect(log.admit([message], { replay: true })).toEqual([]);
+    });
+
+    it('skips entries without a uid and tolerates a missing list', () => {
+        const log = createReplayLog();
+        expect(log.admit([{ notification: {} }, null, item('')], { replay: true })).toEqual([]);
+        expect(log.admit(undefined, { replay: true })).toEqual([]);
+    });
+});
+
+describe('missedAfterReconnect', () => {
+    const row = (uid, over = {}) => ({
+        uid,
+        value: { type: 'share.received', title: uid },
+        created_at: '2026-10-30 12:00:00',
+        acknowledged: null,
+        ...over,
+    });
+
+    it('never raises what the page knew at load, whatever its time says', () => {
+        const log = createReplayLog();
+        // Stamped later than any page clock could be: only the uid decides.
+        const rows = [row('known', { created_at: '2099-01-01 00:00:00' })];
+
+        expect(missedAfterReconnect(rows, { known: new Set(['known']), log })).toEqual([]);
+        expect(missedAfterReconnect(rows, { known: new Set(['known']), log })).toEqual([]);
+    });
+
+    it('raises, oldest first and once, what arrived after load and the page never saw', () => {
+        const log = createReplayLog();
+        const known = new Set(['known']);
+        log.admit([{ uid: 'live', notification: { type: 'share.received' } }]);
+        const rows = [row('newer'), row('missed'), row('live'), row('known', { created_at: '2000-01-01 00:00:00' })];
+
+        const items = missedAfterReconnect(rows, { known, log });
+
+        expect(items.map((item) => item.uid)).toEqual(['missed', 'newer']);
+        expect(items[0].notification).toEqual({ type: 'share.received', title: 'missed' });
+        // The next reconnect raises nothing it already raised.
+        expect(missedAfterReconnect(rows, { known, log })).toEqual([]);
+    });
+
+    it('leaves out what was dismissed, here or on the row', () => {
+        const log = createReplayLog();
+        log.dismissed('acked-here');
+        const rows = [row('acked-here'), row('acked-row', { acknowledged: 1793389203 }), row('kept')];
+
+        expect(missedAfterReconnect(rows, { known: new Set(), log }).map((item) => item.uid)).toEqual(['kept']);
+    });
+
+    it("leaves out an app's own message", () => {
+        const log = createReplayLog();
+        const rows = [row('message', { value: { type: 'app.message', title: 'hi' } })];
+
+        expect(missedAfterReconnect(rows, { known: new Set(), log })).toEqual([]);
+    });
+});
+
+describe('createReplayLog bounds', () => {
+    it('forgets the oldest uid once it holds more than its limit', () => {
+        const log = createReplayLog({ limit: 2 });
+        const item = (uid) => ({ uid, notification: { type: 'share.received' } });
+        log.admit([item('a'), item('b'), item('c')]);
+
+        expect(log.admit([item('c')], { replay: true })).toEqual([]);
+        expect(log.admit([item('a')], { replay: true }).map((one) => one.uid)).toEqual(['a']);
     });
 });

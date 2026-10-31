@@ -4,13 +4,13 @@ description: Set up push notifications for a website on its own domain or an app
 platforms: [websites, apps]
 ---
 
-A push notification reaches the user when they aren't looking at your app. It shows on their phone or computer, and a tap opens your app. Your app sends it with [`notify()`](/Notifications/notify/), the same call that puts a notification in the user's Puter notifications panel. Puter decides whether it also goes out as a push.
+A push notification reaches the user when they aren't looking at your app. It shows on their phone or computer, and a tap opens your app. Your app sends it with [`notify()`](/Notifications/notify/), the same call that delivers a notification to your app while it's open. Puter decides whether it also goes out as a push.
 
 This page is the setup. A website on its own domain needs three steps, and an app inside the Puter desktop needs one. [Where pushes work](#where-pushes-work) lists what each browser and device needs.
 
 ## When a notification is pushed
 
-Every notification your app sends shows in the user's Puter notifications panel. Every open page of your app, on any of the user's devices, also gets it live through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/).
+Every notification your app sends goes to your app, not the Puter desktop's notifications panel. Every open page of your app, on any of the user's devices, gets it live through [`onNotification()`](/Notifications/onNotification/) and [`onPush()`](/Notifications/onPush/).
 
 Puter then asks those pages whether they received it. If a page answers within 5 seconds that it's visible and focused, or that it shows the notification itself, nothing is pushed. Otherwise Puter pushes the notification to the browsers where the user turned pushes on for your app.
 
@@ -139,7 +139,7 @@ To notify another user, have a handler that runs for them call it, as in [Notify
 
 In a worker, `me.puter` is you, the worker's owner. A `me.puter.notifications.notify()` call notifies you, not the user who called the worker, and it rejects with `forbidden` when the worker doesn't run as an app.
 
-The notification always shows in the user's Puter notifications panel. It goes out as a push only as described in [When a notification is pushed](#when-a-notification-is-pushed). A user gets at most 12 pushes a minute and 1,000 a day from each app. An app younger than 30 days or not approved for listing gets 6 a minute and 200 a day, and a website using Puter.js starts out unlisted. Over a cap, the notification still shows in the panel and [`notify()`](/Notifications/notify/) still resolves. The other limits are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
+The notification reaches your app, not the Puter desktop's notifications panel. It goes out as a push only as described in [When a notification is pushed](#when-a-notification-is-pushed). A user gets at most 12 pushes a minute and 1,000 a day from each app. An app younger than 30 days or not approved for listing gets 6 a minute and 200 a day, and a website using Puter.js starts out unlisted. Over a cap, the notification still reaches your app live and [`notify()`](/Notifications/notify/) still resolves. The other limits are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
 
 ## When the user taps
 
@@ -148,13 +148,13 @@ A tap on a push, or on a notification a page of your site showed itself, works l
 - When no page of your site is open, the browser opens the handler's `url`, resolved against your worker's scope. The new page's first [`on('click')`](/Notifications/on/) handler gets the click.
 - When a page of your site is open, the tap focuses it and calls its [`on('click')`](/Notifications/on/) handlers. A page without a `click` handler goes to `url` instead.
 
-A click in the Puter notifications panel opens your app inside Puter and hands the `target` and `data` to [`on('click')`](/Notifications/on/).
+Inside the Puter desktop, a tap on a push opens your app and hands the `target` and `data` to [`on('click')`](/Notifications/on/).
 
 ## Groups and sensitive notifications
 
 A newer notification with the same `group` replaces the one showing, and the device alerts the user again.
 
-With `sensitive: true`, pushes and the notification a page shows itself show a generic line instead of the title and text. A sensitive push carries no `channel`, `target` or `data`. So no [`onPush()`](/Notifications/onPush/) handler runs for it, a tap opens `/`, and [`on('click')`](/Notifications/on/) gets `null` for `target` and `data`. The Puter notifications panel still shows the whole notification.
+With `sensitive: true`, pushes and the notification a page shows itself show a generic line instead of the title and text. A sensitive push carries no `channel`, `target` or `data`. So no [`onPush()`](/Notifications/onPush/) handler runs for it, a tap opens `/`, and [`on('click')`](/Notifications/on/) gets `null` for `target` and `data`. [`onNotification()`](/Notifications/onNotification/) still gets the whole notification.
 
 ## A minimal page
 

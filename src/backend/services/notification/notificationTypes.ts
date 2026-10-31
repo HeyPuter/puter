@@ -121,6 +121,7 @@ export const NOTIFICATION_TYPES = [
         audience: 'app-user',
         appScoped: true,
         groupable: false,
+        accountMailbox: false,
         subject: subjectFor('app-user'),
     },
     // A key-value share is news inside the app whose data it is, and nowhere
