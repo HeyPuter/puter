@@ -54,9 +54,9 @@
  * @property {unknown} [value] What the key holds after the change — the
  *   written value on a `set`, `null` on a `del`. Present only on a
  *   subscription made with `includeValue`. Left out when the value is over
- *   16 KB serialized, when more than 128 subscriptions match the change, or
- *   when there were more subscription filters to check than one change may
- *   check. Read the key when it's absent. An `expire` never carries one.
+ *   16 KB serialized, when the change already went out with its value to 128
+ *   subscriptions, or through a share handle whose share is at `watch`. Read
+ *   the key when it's absent. An `expire` never carries one.
  * @property {boolean} self `true` when the change was made by the account
  *   holding the subscription.
  * @property {boolean} viaWorker As on {@link PuterEvent}.
@@ -72,7 +72,8 @@
  * the copy it already has.
  *
  * @typedef {Object} PuterNotifEvent
- * @property {string} id The notification's uid, and the dedup key.
+ * @property {string} id The notification's uid, and the dedup key together with
+ *   `ts` when `replaced` is set.
  * @property {string} subject `notif:<appId|userId>:<audience>`, naming the
  *   slice of the mailbox it belongs to.
  * @property {'post'} op Always `'post'` — the mailbox verbs (marking one read
@@ -87,8 +88,12 @@
  * @property {Record<string, unknown>} notification The stored payload: always
  *   `type`, a `title` on everything Puter sends, and fields that depend on
  *   `type`.
+ * @property {true} [replaced] Present when it replaced an earlier notification
+ *   under the same uid.
  * @property {boolean} self Always `true`: a mailbox is your own.
  * @property {number} ts When it was created, in milliseconds since the epoch.
+ *   On a replacement, when it was replaced, and the same on its live and
+ *   fetched copies.
  * @property {number} seq Position within one dispatch.
  */
 
@@ -101,7 +106,8 @@
  *   visible to an app), `notif:app-user` for an app's own, or
  *   `notif:<appId>:<audience>` in full.
  * @property {string} [cursor] The `cursor` from the previous page. Absent
- *   starts from the oldest notification still kept.
+ *   starts from the oldest notification still kept. A read from a cursor also
+ *   returns notifications replaced since, even ones from earlier pages.
  * @property {string} [after] The older name for `cursor`, still accepted.
  *   `cursor` wins when both are given.
  * @property {number} [limit] Events per page. Capped at 200; defaults to 50.
@@ -229,6 +235,15 @@
  */
 
 /**
+ * What `update()` changes on a persistent subscription.
+ *
+ * @typedef {Object} UpdatePersistentOptions
+ * @property {Record<string, unknown> | null} context Replaces the stored
+ *   `context`, evaluated **now** like the one `onPersistent()` takes. `null`
+ *   clears it. Capped at 4 KB serialized.
+ */
+
+/**
  * A subscription that outlives the connection that made it.
  *
  * `context` values are deliberately absent: the column holds whatever secret
@@ -237,8 +252,8 @@
  * that changes when any value does.
  *
  * @typedef {Object} PersistentSubscription
- * @property {string} subId The subscription's id, and what `unsubscribe()`
- *   names. Stable for the life of the subscription.
+ * @property {string} subId The subscription's id, and what `update()` and
+ *   `unsubscribe()` name. Stable for the life of the subscription.
  * @property {string} subject For `kv:` and `notif:`, the subject in full form,
  *   e.g. `kv:cart` as `kv:<appId>:cart`. For `fs:`, as passed.
  * @property {EventAnchor} anchor The node it is keyed to.

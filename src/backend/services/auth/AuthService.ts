@@ -953,13 +953,18 @@ export class AuthService extends PuterService {
         for (const entry of revoked) this.#announceRevocation(entry);
     }
 
-    /** Delete the owner's sessions for a worker that no longer exists. */
+    /**
+     * Delete the owner's sessions for a worker that no longer exists, or, with
+     * `exceptAppUid`, the ones a worker rebound to that app (`null`: to none)
+     * no longer runs on.
+     */
     async deleteWorkerSessionsByName(
         workerName: string,
         userId: number,
+        { exceptAppUid }: { exceptAppUid?: string | null } = {},
     ): Promise<void> {
         if (!workerName || !userId) return;
-        await this.#deleteWorkerSessions({ workerName, userId });
+        await this.#deleteWorkerSessions({ workerName, userId, exceptAppUid });
     }
 
     /**
@@ -1015,6 +1020,7 @@ export class AuthService extends PuterService {
         workerName?: string;
         userId?: number;
         appUids?: string[];
+        exceptAppUid?: string | null;
     }): Promise<void> {
         const deleted = (await this.stores.session.deleteWorkerSessions(
             filter,

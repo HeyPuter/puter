@@ -1,0 +1,25 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const dir = puter.randName();
+            await puter.fs.mkdir(dir);
+
+            const sub = await puter.events.onPersistent({
+                subject: `fs:${dir}`,
+                context: { endpoint: 'https://old.example/ingest' },
+            });
+            puter.print(`watching as ${sub.subId}<br>`);
+
+            const updated = await puter.events.update(sub.subId, {
+                context: { endpoint: 'https://new.example/ingest', retries: 3 },
+            });
+            puter.print(`same id: ${updated.subId === sub.subId}<br>`);
+            puter.print(`context keys: ${updated.contextKeys.join(', ')}<br>`);
+
+            await puter.events.unsubscribe(sub.subId);
+        })();
+    </script>
+</body>
+</html>

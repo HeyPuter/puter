@@ -87,6 +87,11 @@ export interface KnownContextFields {
      * different provider's translation of it.
      */
     strictUpstreamErrors: boolean;
+    /**
+     * Set while Puter files something into an account for it (mail delivery),
+     * so filesystem events never report that write as the request actor's own.
+     */
+    platformWrite: boolean;
 }
 
 // Every key of `KnownContextFields`, checked both ways by the compiler, so
@@ -100,6 +105,7 @@ const KNOWN_KEY_FLAGS: Record<keyof KnownContextFields, true> = {
     keepDriverSlot: true,
     upstreamSignal: true,
     strictUpstreamErrors: true,
+    platformWrite: true,
 };
 const KNOWN_KEYS: ReadonlySet<string> = new Set(Object.keys(KNOWN_KEY_FLAGS));
 

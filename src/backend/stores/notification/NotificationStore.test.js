@@ -368,6 +368,46 @@ describe('NotificationStore', () => {
         ).toEqual([mine.uid, unattributed.uid].sort());
     });
 
+    it('reads a slice`s replacements up to an id, in replacement order', async () => {
+        const u = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const write = (inApp = appUid) =>
+            store.create({
+                userId: u.id,
+                value: {},
+                audience: 'app-user',
+                appUid: inApp,
+            });
+        const replace = (row, replacedAt) =>
+            store.updateValue(row.uid, u.id, {}, { replacedAt });
+
+        const a = await write();
+        const b = await write();
+        const c = await write();
+        const otherApp = await write(`app-${uuidv4()}`);
+        const never = await write();
+        const past = await write();
+        await replace(a, 2_000);
+        await replace(b, 1_000);
+        await replace(c, 2_000);
+        await replace(otherApp, 1_500);
+        await replace(past, 500);
+        const read = (after) =>
+            store.listReplacedScoped(u.id, {
+                audience: 'app-user',
+                appUid,
+                upTo: Number(never.id),
+                after,
+                limit: 10,
+            });
+
+        const all = await read({ replacedAt: 0, id: 0 });
+        expect(all.map((r) => r.uid)).toEqual([b.uid, a.uid, c.uid]);
+        // Same millisecond: the row id carries the order on.
+        const rest = await read({ replacedAt: 2_000, id: Number(a.id) });
+        expect(rest.map((r) => r.uid)).toEqual([c.uid]);
+    });
+
     // -- mutations -----------------------------------------------------
 
     it('acknowledges only once and only for the owning user', async () => {
@@ -394,6 +434,106 @@ describe('NotificationStore', () => {
         // Shown is not dismissed — the row stays unacknowledged.
         const row = await store.getByUid(n.uid, { userId: u.id });
         expect(row.acknowledged).toBeNull();
+    });
+
+    // -- groups --------------------------------------------------------
+
+    it('finds the newest row an app wrote under a group while it is unseen', async () => {
+        const u = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const write = (group, extra = {}) =>
+            store.create({
+                userId: u.id,
+                value: { title: group ?? 'none' },
+                type: 'app.message',
+                audience: 'app-user',
+                appUid,
+                group,
+                ...extra,
+            });
+
+        const older = await write('chat-1');
+        const newer = await write('chat-1');
+        await write('Chat-1');
+        await write(null);
+        await write('chat-2');
+        await write('chat-1', { appUid: `app-${uuidv4()}` });
+        await write('chat-1', { userId: other.id });
+
+        const found = await store.getUnseenByGroup(u.id, appUid, 'chat-1');
+        expect(found.uid).toBe(newer.uid);
+        expect(found.group_key).toMatch(/^[0-9a-f]{64}$/u);
+
+        // The older unseen row is not picked up once the newest was shown.
+        await store.markShown(newer.uid, u.id);
+        expect(await store.getUnseenByGroup(u.id, appUid, 'chat-1')).toBeNull();
+        expect((await store.getByUid(older.uid)).shown).toBeNull();
+
+        const newest = await write('chat-1');
+        expect((await store.getUnseenByGroup(u.id, appUid, 'chat-1')).uid).toBe(
+            newest.uid,
+        );
+        await store.markAcknowledged(newest.uid, u.id);
+        expect(await store.getUnseenByGroup(u.id, appUid, 'chat-1')).toBeNull();
+        expect(await store.getUnseenByGroup(u.id, appUid, 'none')).toBeNull();
+    });
+
+    it('returns a grouped row as the table holds it', async () => {
+        const created = await store.create({
+            userId: user.id,
+            value: { title: 'grouped' },
+            type: 'app.message',
+            audience: 'app-user',
+            appUid: `app-${uuidv4()}`,
+            group: 'g',
+        });
+        expect(created).toEqual(
+            await store.getByUid(created.uid, { primary: true }),
+        );
+    });
+
+    it('rewrites only an unseen row when asked to, and dates a replacement', async () => {
+        const u = await makeUser();
+        const n = await store.create({ userId: u.id, value: { v: 1 } });
+        const old = '2020-01-01 00:00:00';
+        await server.clients.db.write(
+            'UPDATE `notification` SET `created_at` = ? WHERE `uid` = ?',
+            [old, n.uid],
+        );
+        const createdAt = async () =>
+            new Date(
+                (await store.getByUid(n.uid, { userId: u.id })).created_at,
+            ).getTime();
+        const before = await createdAt();
+
+        expect(await store.updateValue(n.uid, u.id, { v: 2 })).toBe(true);
+        expect(await createdAt()).toBe(before);
+
+        const replacedAt = Date.now();
+        expect(
+            await store.updateValue(
+                n.uid,
+                u.id,
+                { v: 3 },
+                { onlyUnseen: true, replacedAt },
+            ),
+        ).toBe(true);
+        const row = await store.getByUid(n.uid, { userId: u.id });
+        expect(row.value).toEqual({ v: 3 });
+        expect(Number(row.replaced_at)).toBe(replacedAt);
+        expect(await createdAt()).toBeGreaterThan(before);
+
+        await store.markShown(n.uid, u.id);
+        expect(
+            await store.updateValue(
+                n.uid,
+                u.id,
+                { v: 4 },
+                { onlyUnseen: true },
+            ),
+        ).toBe(false);
+        // Without the flag a shown row is still open, as a share's fold needs.
+        expect(await store.updateValue(n.uid, u.id, { v: 5 })).toBe(true);
     });
 
     // -- retention -----------------------------------------------------

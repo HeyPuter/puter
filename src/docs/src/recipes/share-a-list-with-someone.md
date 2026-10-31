@@ -76,12 +76,14 @@ const share = await puter.kv.share({
     recipient: 'alice',
     access: 'write',
     label: 'Groceries from Dan',
+    notify: true,
 });
 ```
 
 With write access, Alice can add, change and delete any key under the prefix,
 `meta` included. The label is plain text Alice is shown with the share, and the
-only thing about it you choose to tell her.
+only thing about it you choose to tell her. With `notify: true`, Alice is told
+about the new share in your app, as the next section shows.
 
 The share is of your app's data, so Alice uses it in your app, and her other
 apps can't see it. Each of them pays for their own reads and writes, including

@@ -132,6 +132,8 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [90, ['0095_kv-share-handle-levels.sql']],
     [91, ['0096_kv-share-handle-quota-indexes.sql']],
     [92, ['0097_user-to-user-holder-permission-index.sql']],
+    [93, ['0098_notification-groups.sql']],
+    [94, ['0099_kv-share-handle-notify.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {

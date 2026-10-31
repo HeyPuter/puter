@@ -34,12 +34,16 @@ const makeApp = async (t: TestContext): Promise<string> => {
     return (app as unknown as { uid: string }).uid;
 };
 
-const appToken = async (t: TestContext, appUid: string): Promise<string> => {
+const appToken = async (
+    t: TestContext,
+    appUid: string,
+    who: 'user' | 'other' = 'user',
+): Promise<string> => {
     const response = await fetch(`${t.env.apiOrigin}/auth/get-user-app-token`, {
         method: 'POST',
         headers: {
             'content-type': 'application/json',
-            authorization: `Bearer ${t.env.users.user.token}`,
+            authorization: `Bearer ${t.env.users[who].token}`,
         },
         body: JSON.stringify({ app_uid: appUid }),
     });
@@ -52,8 +56,9 @@ const asApp = async <T>(
     t: TestContext,
     appUid: string,
     run: () => Promise<T>,
+    who: 'user' | 'other' = 'user',
 ): Promise<T> => {
-    const token = await appToken(t, appUid);
+    const token = await appToken(t, appUid, who);
     // setAuthToken keeps the app identity, so it is put back afterwards.
     const sdk = t.puter as unknown as { appID?: string; appDataPath?: string };
     const { appID, appDataPath } = sdk;
@@ -77,6 +82,7 @@ export default suite('notifications', {
             'off',
             'requestPermission',
             'hasPermission',
+            'status',
             'listDevices',
             'removeDevice',
         ] as const) {
@@ -134,6 +140,129 @@ export default suite('notifications', {
             }
         });
     },
+
+    'a notification replaces the unread one in its group': async (t) => {
+        const appUid = await makeApp(t);
+        await asApp(t, appUid, async () => {
+            const group = unique('chat');
+            const first = await t.puter.notifications.notify({
+                title: unique('one'),
+                group,
+            });
+            const second = await t.puter.notifications.notify({
+                title: 'Two',
+                text: 'Latest',
+                group,
+            });
+            t.assert.equal(second, first, 'the replacement keeps the uid');
+
+            const otherGroup = await t.puter.notifications.notify({
+                title: unique('other'),
+                group: unique('chat'),
+            });
+            const noGroup = await t.puter.notifications.notify({
+                title: unique('plain'),
+            });
+            t.assert.ok(otherGroup !== first, 'another group is new');
+            t.assert.ok(noGroup !== first, 'no group is new');
+
+            const seen: Received[] = [];
+            const listener = await t.puter.notifications.onNotification((n) => {
+                seen.push(n);
+            });
+            try {
+                const caught = seen.filter((n) => n.uid === first);
+                t.assert.equal(caught.length, 1, 'caught up once');
+                t.assert.equal(caught[0]?.title, 'Two');
+                t.assert.equal(caught[0]?.text, 'Latest');
+                t.assert.equal(caught[0]?.replaced, true);
+
+                await t.puter.notifications.notify({ title: 'Three', group });
+                const arrived = await waitFor(
+                    () => seen.some((n) => n.title === 'Three'),
+                    DELIVERY_TIMEOUT_MS,
+                );
+                t.assert.ok(arrived, 'a live replacement is handed over');
+                const live = seen.filter((n) => n.uid === first);
+                t.assert.equal(live.length, 2, 'once per replacement');
+                t.assert.equal(live[1]?.replaced, true);
+            } finally {
+                await listener.off();
+            }
+        });
+    },
+
+    'a notification reaches the other party of a share through its handle':
+        async (t) => {
+            const appUid = await makeApp(t);
+            const share = await t.puter.kv.share({
+                prefix: unique('room'),
+                recipient: t.env.users.other.username,
+                appUuid: appUid,
+                notify: true,
+            });
+            const ownTitles = async (who: 'user' | 'other') =>
+                asApp(
+                    t,
+                    appUid,
+                    async () => {
+                        const page = await t.puter.events.fetch({
+                            subject: 'notif:app-user',
+                            limit: 200,
+                        });
+                        return page.items
+                            .filter((event) => event.type === 'app.message')
+                            .map((event) => event.notification.title);
+                    },
+                    who,
+                );
+            try {
+                const toHolder = unique('to-holder');
+                const sent = await asApp(t, appUid, () =>
+                    t.puter.notifications.notify({
+                        title: toHolder,
+                        to: { handle: share.handle },
+                    }),
+                );
+                t.assert.equal(sent, undefined, 'it resolves with nothing');
+                t.assert.ok(
+                    (await ownTitles('other')).includes(toHolder),
+                    'the holder has it',
+                );
+                t.assert.ok(
+                    !(await ownTitles('user')).includes(toHolder),
+                    'the owner does not',
+                );
+
+                const toOwner = unique('to-owner');
+                await asApp(
+                    t,
+                    appUid,
+                    () =>
+                        t.puter.notifications.notify({
+                            title: toOwner,
+                            to: { handle: share.handle },
+                        }),
+                    'other',
+                );
+                t.assert.ok(
+                    (await ownTitles('user')).includes(toOwner),
+                    'the owner has it',
+                );
+
+                const error = await t.assert.rejects(() =>
+                    asApp(t, appUid, () =>
+                        t.puter.notifications.notify({
+                            title: 'Nobody',
+                            to: { handle: 'kvh-not-a-share' },
+                        }),
+                    ),
+                );
+                t.assert.equal(codeOf(error), 'subject_does_not_exist');
+            } finally {
+                await t.puter.kv.unshare(share.handle);
+            }
+        },
 
     "an app reads only its own app's notifications": async (t) => {
         const other = await makeApp(t);
@@ -229,6 +358,37 @@ export default suite('notifications', {
         t.assert.equal(
             await asApp(t, appUid, () => t.puter.notifications.hasPermission()),
             true,
+        );
+    },
+
+    'the pushNotifications resource checks the same grant, batched with backgroundEvents': async (
+        t,
+    ) => {
+        const appUid = await makeApp(t);
+        const check = () =>
+            asApp(t, appUid, () =>
+                t.puter.perms.check([
+                    { resource: 'backgroundEvents' },
+                    { resource: 'pushNotifications' },
+                ]),
+            );
+        t.assert.deepEqual(await check(), [false, false]);
+
+        await t.puter.perms.grantApp(appUid, 'notifications:push');
+        t.assert.deepEqual(await check(), [false, true]);
+        t.assert.equal(
+            await asApp(t, appUid, () =>
+                t.puter.perms.check(t.puter.perms.Resource.PUSH_NOTIFICATIONS),
+            ),
+            true,
+        );
+    },
+
+    'status resolves one of its four states without asking': async (t) => {
+        const state = await t.puter.notifications.status();
+        t.assert.ok(
+            ['on', 'off', 'blocked', 'unavailable'].includes(state),
+            `status() resolved ${state}`,
         );
     },
 });

@@ -635,7 +635,18 @@ export class WorkerDriver extends PuterDriver {
             runtimePreamble.source + sourceCode,
             deployTarget,
         );
-        return cfResult;
+        if (existingSub && cfResult.success === true)
+            await this.#rebindAfterDeploy(existingSub, actor, workerName, {
+                appOwner: appOwnerId ?? null,
+                appUid: boundApp?.uid ?? null,
+            });
+        // The app the worker's token acts as: its KV, AppData, notifications
+        // and pushes are that app's.
+        return {
+            ...cfResult,
+            app_uid: boundApp?.uid ?? null,
+            app_name: boundApp?.name ?? null,
+        };
     }
 
     /** Tear down the caller's worker; a refused edge delete is a 502. */
@@ -698,6 +709,35 @@ export class WorkerDriver extends PuterDriver {
             userId: Number(row.user_id),
             workerName: subdomain.slice(WORKER_SUBDOMAIN_PREFIX.length),
         };
+    }
+
+    /**
+     * A redeploy under a different app (or none) moves the row to the app the
+     * new token acts as, so the listing, hot-reload and `create()` agree, and
+     * revokes the session the old binding ran on. Only once the new script is
+     * live: a failed redeploy leaves the old one running on its old token.
+     */
+    async #rebindAfterDeploy(
+        row: SubdomainRow,
+        actor: Actor & { user: { id: number } },
+        workerName: string,
+        next: { appOwner: number | null; appUid: string | null },
+    ): Promise<void> {
+        const current =
+            row.app_owner === null || row.app_owner === undefined
+                ? null
+                : Number(row.app_owner);
+        if (current === next.appOwner) return;
+        await this.stores.subdomain.setAppOwner(
+            String(row.uuid),
+            next.appOwner,
+            { userId: actor.user.id },
+        );
+        await this.services.auth.deleteWorkerSessionsByName(
+            workerName,
+            actor.user.id,
+            { exceptAppUid: next.appUid },
+        );
     }
 
     /** Script, sessions, then row: a failed step leaves the row for a retry. */
@@ -827,17 +867,17 @@ export class WorkerDriver extends PuterDriver {
                 file_path = loaded?.path;
                 file_uid = loaded?.uuid;
             }
-            let app_uid = null;
-            if (typeof r.app_owner === 'number') {
-                const loadedApp = appsById.get(r.app_owner);
-                app_uid = loadedApp?.uid ?? null;
-            }
+            const loadedApp =
+                typeof r.app_owner === 'number'
+                    ? appsById.get(r.app_owner)
+                    : undefined;
             return {
                 name,
                 url: `https://${name}.puter.work`,
                 file_path,
                 file_uid,
-                app_uid,
+                app_uid: loadedApp?.uid ?? null,
+                app_name: loadedApp?.name ?? null,
                 created_at: r.ts
                     ? new Date(r.ts as string).toISOString()
                     : null,
@@ -1147,15 +1187,18 @@ export class WorkerDriver extends PuterDriver {
     async #resolveWorkerAppBinding(
         actor: Actor & { user: { id: number } },
         requestedAppUid?: string,
-    ): Promise<{ uid: string; id?: number } | null> {
+    ): Promise<{ uid: string; id?: number; name: string | null } | null> {
         // Self-binding, either implicit or named. Not every actor shape carries
-        // `app.id`, so fall back to a lookup rather than leaving the subdomain
-        // row unowned.
+        // `app.id`, and none carries the name, so both come from the row.
         const ownApp = actor.effectiveApp;
-        const selfBinding = async () => ({
-            uid: ownApp!.uid,
-            id: ownApp!.id ?? (await this.stores.app.getByUid(ownApp!.uid))?.id,
-        });
+        const selfBinding = async () => {
+            const row = await this.stores.app.getByUid(ownApp!.uid);
+            return {
+                uid: ownApp!.uid,
+                id: ownApp!.id ?? row?.id,
+                name: row?.name ?? null,
+            };
+        };
         if (!requestedAppUid) {
             return ownApp ? await selfBinding() : null;
         }
@@ -1168,7 +1211,11 @@ export class WorkerDriver extends PuterDriver {
             // Root session: unchanged: bind to whatever it names. An unknown
             // uid still mints a token, as it did before, and simply leaves the
             // subdomain row unowned by any app.
-            return { uid: requestedAppUid, id: app?.id };
+            return {
+                uid: requestedAppUid,
+                id: app?.id,
+                name: app?.name ?? null,
+            };
         }
 
         if (!app || !(await this.#appIsOwnedByActorApp(app.id, actor))) {
@@ -1176,7 +1223,7 @@ export class WorkerDriver extends PuterDriver {
                 legacyCode: 'forbidden',
             });
         }
-        return { uid: app.uid, id: app.id };
+        return { uid: app.uid, id: app.id, name: app.name ?? null };
     }
 
     /**

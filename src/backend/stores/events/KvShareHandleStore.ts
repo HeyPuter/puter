@@ -63,6 +63,8 @@ export interface KvShareHandle {
     permission: string;
     /** Owner-set text the holder is shown, or `null`. */
     label: string | null;
+    /** Whether the two parties may notify each other through the handle. */
+    notify: boolean;
     createdAt: number;
     revokedAt: number | null;
     /** `null` while live, and on rows retired before this was recorded. */
@@ -85,13 +87,15 @@ export interface HeldKvShareHandle {
     appUid: string;
     access: KvShareAccess;
     label: string | null;
+    notify: boolean;
     createdAt: number;
 }
 
-/** What a level or label change writes; an absent field is left alone. */
+/** What a level, label or notify change writes; an absent field is left alone. */
 export interface KvShareHandleUpdate {
     permission?: string;
     label?: string | null;
+    notify?: boolean;
 }
 
 export interface KvShareHandleListOptions {
@@ -118,6 +122,7 @@ export interface MintKvShareHandleInput {
     keyPrefix: string;
     permission: string;
     label?: string | null;
+    notify?: boolean;
 }
 
 export interface FindLiveKvShareHandleInput {
@@ -143,8 +148,8 @@ const FORGOTTEN_MAX_ENTRIES = 50_000;
 
 const LIVE_QUERY =
     'SELECT h.`handle`, h.`owner_user_id`, h.`grantee_user_id`, ' +
-    'h.`app_uid`, h.`key_prefix`, h.`permission`, h.`created_at`, ' +
-    'h.`revoked_at`, h.`revoked_by`, ' +
+    'h.`app_uid`, h.`key_prefix`, h.`permission`, h.`notify`, ' +
+    'h.`created_at`, h.`revoked_at`, h.`revoked_by`, ' +
     'u.`uuid` AS `owner_uuid`, u.`suspended` AS `owner_suspended` ' +
     `FROM \`${TABLE}\` h JOIN \`user\` u ON u.\`id\` = h.\`owner_user_id\` ` +
     'WHERE h.`handle` = ?';
@@ -177,6 +182,7 @@ const toRow = (row: Record<string, unknown>): KvShareHandle => ({
         row.label === null || row.label === undefined
             ? null
             : String(row.label),
+    notify: Number(row.notify) === 1,
     createdAt: Number(row.created_at) || 0,
     revokedAt: row.revoked_at === null ? null : Number(row.revoked_at),
     revokedBy: toRevokedBy(row.revoked_by),
@@ -184,8 +190,8 @@ const toRow = (row: Record<string, unknown>): KvShareHandle => ({
 
 const SELECT_COLUMNS =
     '`handle`, `owner_user_id`, `grantee_user_id`, `app_uid`, ' +
-    '`key_prefix`, `permission`, `label`, `created_at`, `revoked_at`, ' +
-    '`revoked_by`';
+    '`key_prefix`, `permission`, `label`, `notify`, `created_at`, ' +
+    '`revoked_at`, `revoked_by`';
 
 /**
  * The level as SQL reads it off the grant's root, so the holder listing can
@@ -236,6 +242,7 @@ export class KvShareHandleStore extends PuterStore {
             keyPrefix: input.keyPrefix,
             permission: input.permission,
             label: input.label ?? null,
+            notify: input.notify === true,
             createdAt: nowSeconds(),
             revokedAt: null,
             revokedBy: null,
@@ -255,6 +262,7 @@ export class KvShareHandleStore extends PuterStore {
             key_prefix: row.keyPrefix,
             permission: row.permission,
             label: row.label,
+            notify: row.notify ? 1 : 0,
             created_at: row.createdAt,
             revoked_at: null,
         });
@@ -637,9 +645,10 @@ export class KvShareHandleStore extends PuterStore {
     }
 
     /**
-     * Change a live handle's level or label in place, scoped to its owner. A
-     * compare-and-set on `revoked_at IS NULL`, so a handle retired meanwhile
-     * stays retired; returns the row as it now stands, or `null` for none.
+     * Change a live handle's level, label or notify flag in place, scoped to
+     * its owner. A compare-and-set on `revoked_at IS NULL`, so a handle retired
+     * meanwhile stays retired; returns the row as it now stands, or `null` for
+     * none.
      */
     async update(
         handle: string,
@@ -658,6 +667,10 @@ export class KvShareHandleStore extends PuterStore {
         if (changes.label !== undefined) {
             sets.push('`label` = ?');
             params.push(changes.label);
+        }
+        if (changes.notify !== undefined) {
+            sets.push('`notify` = ?');
+            params.push(changes.notify ? 1 : 0);
         }
         if (sets.length > 0) {
             await this.clients.db.write(
@@ -698,8 +711,8 @@ export class KvShareHandleStore extends PuterStore {
         }
 
         const rows = await this.clients.db.read(
-            'SELECT `id`, `handle`, `app_uid`, `label`, `created_at`, ' +
-                `${ACCESS_COLUMN} FROM \`${TABLE}\` ` +
+            'SELECT `id`, `handle`, `app_uid`, `label`, `notify`, ' +
+                `\`created_at\`, ${ACCESS_COLUMN} FROM \`${TABLE}\` ` +
                 `WHERE ${where.join(' AND ')} ORDER BY \`id\` LIMIT ?`,
             [...params, limit + 1],
         );
@@ -713,6 +726,7 @@ export class KvShareHandleStore extends PuterStore {
                     row.label === null || row.label === undefined
                         ? null
                         : String(row.label),
+                notify: Number(row.notify) === 1,
                 createdAt: Number(row.created_at) || 0,
             })),
         };

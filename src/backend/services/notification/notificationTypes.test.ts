@@ -131,7 +131,7 @@ describe('resolveNotificationWrite', () => {
 
     it('requires an app uid for an app message', () => {
         expect(resolveNotificationWrite('app.message', 'app-1')).toMatchObject(
-            { audience: 'app-user', appScoped: true, groupable: false },
+            { audience: 'app-user', appScoped: true, groupable: true },
         );
         expect(() => resolveNotificationWrite('app.message', null)).toThrow(
             'requires an app uid',

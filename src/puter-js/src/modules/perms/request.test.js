@@ -189,6 +189,39 @@ describe('perms request(resource, details)', () => {
         ).rejects.toMatchObject({ code: 'invalid_argument' });
     });
 
+    it('asks to send pushes, alone or behind one prompt with background events', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        expect(await request.call(mod, 'pushNotifications')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: 'notifications:push',
+        });
+
+        expect(await request.call(mod, [
+            { resource: 'backgroundEvents' },
+            { resource: 'pushNotifications' },
+        ])).toEqual([true, true]);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledTimes(2);
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permissions: ['events:background', 'notifications:push'],
+        });
+
+        await expect(
+            request.call(mod, 'pushNotifications', { access: 'write' }),
+        ).rejects.toMatchObject({ code: 'invalid_argument' });
+    });
+
+    it('checks pushNotifications against the same permission string, without prompting', async () => {
+        routes({ held: { 'notifications:push': true } });
+        const mod = makeModule();
+
+        expect(await check.call(mod, 'pushNotifications')).toBe(true);
+        expect(mockReq).toHaveBeenLastCalledWith(mod.puter, CHECK_ROUTE, {
+            permissions: ['notifications:push'],
+        });
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
     it('asks to share a region of the app\'s own data, named by its prefix', async () => {
         const mod = makeModule({
             requestPermission: () => true,

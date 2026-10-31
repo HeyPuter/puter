@@ -11,7 +11,11 @@ import { fetchAllPages, iteratePages } from '../lib/pagination.js';
  * @property {string} url The URL of the worker.
  * @property {string} file_path The file path of the worker's source code.
  * @property {string} file_uid The unique identifier of the worker file.
- * @property {string | null} app_uid The unique identifier of the app or sandbox app owning the worker, or null if user-scoped.
+ * @property {string | null} app_uid The unique identifier of the app the
+ *   worker runs as, or null if user-scoped. A worker created without naming an
+ *   app runs as its own `sandbox-<workerName>` app.
+ * @property {string | null} app_name The name of that app, or null if
+ *   user-scoped.
  * @property {string} created_at The date and time when the worker was created.
  */
 
@@ -22,6 +26,11 @@ import { fetchAllPages, iteratePages } from '../lib/pagination.js';
  * @property {boolean} success Whether the worker deployment was successful.
  * @property {string} url The URL of the deployed worker.
  * @property {string[]} [errors] Any errors that occurred during deployment.
+ * @property {string | null} app_uid The unique identifier of the app the
+ *   worker runs as, or null if user-scoped. Its KV, AppData, notifications
+ *   and pushes are that app's.
+ * @property {string | null} app_name The name of that app, or null if
+ *   user-scoped.
  */
 /** @typedef {import('../lib/types.js').ListPage<WorkerInfo>} WorkerPage */
 /** @typedef {import('../lib/types.js').ListPaginationOptions} ListPaginationOptions */

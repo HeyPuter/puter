@@ -90,7 +90,8 @@ await puter.events.onLocal('kv:cart', ({ event }) => render(event.value), { incl
 The value is left out, and you read the key yourself, when:
 
 - it's over **16 KB** serialized, or
-- more than **128** subscriptions match the change in that region (including ones that didn't ask for values), or the filter-check limit stops the count early.
+- the change already went out with its value to **128** subscriptions in that region. The data owner's subscriptions are served first, then other users' in turns, as [Rate Limits and Quotas](/rate-limits-and-quotas/#how-many-subscriptions-one-event-reaches) describes, or
+- the subscription is on a [share handle](#sharing-key-value-data-with-another-user) whose share is at `watch`.
 
 ### Data from other apps
 
@@ -121,12 +122,12 @@ await puter.events.onLocal(`kv:${handle}:*`, ({ event }) => render(event.key));
 
 - **Every level can watch.** A share has `watch`, `read`, or `write` access, and all three can subscribe. With `watch`, the holder only gets events. With `read`, they can also read the keys with [`puter.kv.get()`](/KV/get/) and [`puter.kv.list()`](/KV/list/), passing the handle, to catch up after a [gap](#gaps) or to read a value an event left out. With `write`, they can also change and delete the keys. [Sharing with other users](/KV/#sharing-with-other-users) covers the levels.
 - **The holder learns only the handle.** It doesn't say whose data it is or where it sits. The `subject` and `key` in their deliveries are relative to the handle. `kv:<handle>:messages:*` narrows to part of the shared region.
-- **Values.** `includeValue` works through a handle, with the same limits.
+- **Values.** `includeValue` works through a `read` or `write` share, with the same limits. At `watch`, deliveries leave out the value even when the subscription asked for it. The level is checked on every delivery, so raising a share to `read` starts values on subscriptions already made, and lowering it to `watch` stops them. That includes events a [`queue`](/Events/onPersistent/#choosing-a-mode) subscription is still holding, which are handed over without the value.
 - **Private entries stay private.** An entry written with `disableSharing` is never delivered through a handle: no event, key, or value.
 - **Keys can't leave the handle.** A handle with no key after it, or a key using `..`, is refused with `invalid_kv_handle_key`.
 - **Writes from every side arrive.** A change the owner makes, and a change any holder makes through a `write` share, reach the owner's subscriptions and every holder's. On a holder's own write through the handle, `self` is `true`, so `self && !viaWorker` skips your own changes. See [the event](#the-event).
 
-When a share stops, deliveries through its handle stop, and every persistent subscription on it is suspended with `permission_revoked` and its backlog dropped. Every [`onLocal()`](/Events/onLocal/) subscription on it ends, and its `onError` gets `subscription_ended` with `permission_revoked`. A connection to another region can take up to 20 minutes to be told, and gets no deliveries through the handle in the meantime. If another share to the same holder still covers its keys, live deliveries through the stopped handle can continue for up to 60 seconds. This happens when the owner revokes it with [`puter.kv.unshare()`](/KV/unshare/), when the holder removes their own access the same way, and when the app whose data it is gets deleted. Where `watch` shares are off on the deployment, handle subjects fail with `events_kv_handles_disabled`.
+When a share stops, deliveries through its handle stop, and every persistent subscription on it is suspended with `permission_revoked` and its backlog dropped. Every [`onLocal()`](/Events/onLocal/) subscription on it ends, and its `onError` gets `subscription_ended` with `permission_revoked`. A connection to another region can take up to 20 minutes to be told, and gets no deliveries through the handle in the meantime. If another share to the same holder still covers its keys, live deliveries through the stopped handle can continue for up to 60 seconds. This happens when the owner revokes it with [`puter.kv.unshare()`](/KV/unshare/), when the holder removes their own access the same way, and when the app whose data it is gets deleted. While a share can't be checked, for example while the owner's account is suspended, deliveries through it pause instead. A `queue` subscription keeps its backlog and gets it once the share can be checked again. Where `watch` shares are off on the deployment, handle subjects fail with `events_kv_handles_disabled`.
 
 **Apps.** An app can share, list, and unshare its user's data with [`puter.kv.share()`](/KV/share/) and its sibling methods, but only inside its own namespace and with the user's consent. To ask for it, call [`puter.perms.request()`](/Perms/request/) with the `'kvShare'` resource, the prefix the shares will cover, and the highest level they'll have:
 
@@ -161,7 +162,7 @@ The handler is called with `{ event }`. A filesystem change carries:
 | `uid` | String | The uid of the node that changed. |
 | `path` | String | The path of the node that changed. |
 | `from` | String | On a `move`, the path the node left. Only present when the subscription was watching that location. |
-| `self` | Boolean | `true` when the account holding the subscription made the change. |
+| `self` | Boolean | `true` when the account holding the subscription made the change. Mail filed into the account's `~/.mail` folder is always `false`, including mail the account sent to itself. |
 | `viaWorker` | Boolean | `true` when the change came from server-side code running as an account, such as a worker using `me.puter` or an [events handler](/Events/handlers/) running in the events worker. A worker using `user.puter` acts as the user who called it, so its changes are that user's own, with `viaWorker` set to `false`. A handler running in a client writes as that client, also with `viaWorker` set to `false`. Skip your own changes with `self && !viaWorker`, which still lets through the ones a worker made as your account. |
 | `ts` | Number | When it happened, in milliseconds since the epoch. |
 | `seq` | Number | Position within one dispatch, when a change goes to several subscriptions. |

@@ -45,14 +45,21 @@ export interface WorkerInvocation {
 
 /**
  * `settled`: delivered. `terminal`: handler refused, not retried. `retriable`:
- * nobody answered, comes back. `deferred`: nothing attempted. Both failures
- * count toward the run that suspends a subscription.
+ * the handler failed, comes back. `unavailable`: Puter could not run it, comes
+ * back. `deferred`: nothing attempted. Only `terminal` and `retriable` count
+ * toward the run that suspends a subscription.
  */
 export type WorkerInvocationOutcome =
-    'settled' | 'terminal' | 'retriable' | 'deferred';
+    'settled' | 'terminal' | 'retriable' | 'unavailable' | 'deferred';
+
+export interface WorkerInvocationResult {
+    outcome: WorkerInvocationOutcome;
+    /** Least wait before the next attempt, when the answer named one. */
+    retryAfterMs?: number;
+}
 
 export interface WorkerInvokerSeam {
-    invoke(invocation: WorkerInvocation): Promise<WorkerInvocationOutcome>;
+    invoke(invocation: WorkerInvocation): Promise<WorkerInvocationResult>;
     /** Whether this seam can take an invocation at all. Absent means yes. */
     available?(): boolean;
 }
@@ -114,18 +121,19 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
 
     async invoke(
         invocation: WorkerInvocation,
-    ): Promise<WorkerInvocationOutcome> {
+    ): Promise<WorkerInvocationResult> {
         const { appUid, handlerName } = invocation;
-        if (!appUid || !handlerName) return 'deferred';
+        if (!appUid || !handlerName) return { outcome: 'deferred' };
+        if (!this.#available()) return { outcome: 'unavailable' };
 
         const token = await this.#mintToken(invocation);
-        if (token === null) return 'deferred';
+        if (token === null) return { outcome: 'deferred' };
 
-        // Nowhere to send it yet. Retriable rather than terminal: the address
-        // is the platform's to provide, and the app has done nothing wrong —
-        // the consecutive-failure rule is what stops this retrying forever.
+        // Nowhere to send it: the app has no handlers or no owner to run them
+        // as. Retrying cannot fix that, so the consecutive-failure rule is what
+        // stops it.
         const address = await this.#address(appUid);
-        if (address === null) return 'retriable';
+        if (address === null) return { outcome: 'retriable' };
 
         const result = await this.#client.invoke({
             script: address.script,
@@ -136,9 +144,18 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
             event: invocation.event,
             ctx: parseContext(invocation.context),
         });
-        if (result.outcome === 'retriable' && result.error)
+        if (
+            (result.outcome === 'retriable' ||
+                result.outcome === 'unavailable') &&
+            result.error
+        )
             this.#warnRetriable(address.script, appUid, result.error);
-        return result.outcome;
+        return {
+            outcome: result.outcome,
+            ...(result.retryAfterMs
+                ? { retryAfterMs: result.retryAfterMs }
+                : {}),
+        };
     }
 
     #warnRetriable(script: string, appUid: string, error: string): void {
@@ -178,9 +195,9 @@ const RECORDED_INVOCATIONS = 100;
 export class RecordingWorkerInvoker implements WorkerInvokerSeam {
     readonly recorded: WorkerInvocation[] = [];
 
-    invoke(invocation: WorkerInvocation): Promise<WorkerInvocationOutcome> {
+    invoke(invocation: WorkerInvocation): Promise<WorkerInvocationResult> {
         this.recorded.push(invocation);
         if (this.recorded.length > RECORDED_INVOCATIONS) this.recorded.shift();
-        return Promise.resolve('deferred');
+        return Promise.resolve({ outcome: 'deferred' });
     }
 }

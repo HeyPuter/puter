@@ -28,6 +28,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { NotificationFeed } from '../../../puter-js/src/modules/notifications/lib/feed.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 
@@ -446,6 +447,172 @@ describe('who a fetch may see', () => {
             subject: 'notif:developer',
         });
         expect(uidsOf(asApp)).toEqual([uid]);
+    });
+});
+
+describe('reading again from a saved cursor', () => {
+    const SUBJECT = 'notif:app-user';
+
+    /** One of the app's own messages, in a group of its own. */
+    const message = async (title: string, inApp = appUid): Promise<string> =>
+        (
+            await env.server.stores.notification.create({
+                userId,
+                value: { type: 'app.message', title },
+                type: 'app.message',
+                audience: 'app-user',
+                appUid: inApp,
+                group: `group-${uuidv4()}`,
+            })
+        ).uid as string;
+
+    /** A replacement pinned to `replacedAt`, as a group replace writes it. */
+    const replaceAt = (uid: string, title: string, replacedAt: number) =>
+        env.server.stores.notification.updateValue(
+            uid,
+            userId,
+            { type: 'app.message', title },
+            { onlyUnseen: true, replacedAt },
+        );
+
+    it('returns a notification replaced since, from an earlier page', async () => {
+        await clearMailboxes();
+        const uids: string[] = [];
+        for (let i = 0; i < 3; i++) uids.push(await message(`m${i}`));
+
+        const first = await fetchPage(appToken, { subject: SUBJECT, limit: 2 });
+        const last = await fetchPage(appToken, {
+            subject: SUBJECT,
+            limit: 2,
+            cursor: first.body.cursor,
+        });
+        expect(uidsOf(last)).toEqual([uids[2]]);
+        expect(last.body.cursor).toBeUndefined();
+
+        await env.server.services.notification.notifyUpdate(
+            uids[0],
+            userId,
+            { title: 'replaced' },
+            { type: 'app.message', replace: true },
+        );
+
+        const again = await fetchPage(appToken, {
+            subject: SUBJECT,
+            limit: 2,
+            cursor: first.body.cursor,
+        });
+        expect(uidsOf(again)).toEqual([uids[2], uids[0]]);
+        expect(again.body.items![1]).toMatchObject({
+            replaced: true,
+            notification: { title: 'replaced' },
+        });
+    });
+
+    it('pages through replacements without repeating or skipping one', async () => {
+        await clearMailboxes();
+        const uids: string[] = [];
+        for (let i = 0; i < 6; i++) uids.push(await message(`m${i}`));
+        const first = await fetchPage(appToken, { subject: SUBJECT, limit: 5 });
+        expect(first.body.cursor).toBeTruthy();
+
+        // One moment for all four, so only the row id orders them.
+        const at = Date.now();
+        for (const uid of uids.slice(0, 4)) await replaceAt(uid, 'again', at);
+
+        const seen: string[] = [];
+        let cursor = first.body.cursor;
+        do {
+            const page = await fetchPage(appToken, {
+                subject: SUBJECT,
+                limit: 2,
+                cursor,
+            });
+            seen.push(...uidsOf(page));
+            cursor = page.body.cursor;
+        } while (cursor);
+
+        expect(seen).toEqual([uids[5], ...uids.slice(0, 4)]);
+    });
+
+    it('leaves out a replacement in another app`s slice', async () => {
+        await clearMailboxes();
+        const other = await message('other app', otherAppUid);
+        const own = [await message('own 0'), await message('own 1')];
+        const first = await fetchPage(appToken, { subject: SUBJECT, limit: 1 });
+        expect(uidsOf(first)).toEqual([own[0]]);
+
+        await replaceAt(other, 'other app again', Date.now());
+
+        const again = await fetchPage(appToken, {
+            subject: SUBJECT,
+            cursor: first.body.cursor,
+        });
+        expect(uidsOf(again)).toEqual([own[1]]);
+    });
+
+    it('hands the SDK feed a replacement made while it was disconnected, once', async () => {
+        await clearMailboxes();
+        // One more than a page, so the feed holds a cursor.
+        const uids: string[] = [];
+        for (let i = 0; i < 201; i++) uids.push(await message(`message ${i}`));
+
+        const appActor = (await env.server.services.auth.authenticate(appToken))
+            .actor!;
+        let reads = 0;
+        let receive: (delivery: { event: unknown }) => void = () => {};
+        const titles: string[] = [];
+        const feed = new NotificationFeed(
+            {
+                authToken: appToken,
+                events: {
+                    onLocal: async (
+                        _subject: string,
+                        handler: typeof receive,
+                    ) => {
+                        receive = handler;
+                        return { off: async () => {} };
+                    },
+                    fetch: async (options: Record<string, unknown>) => {
+                        const page =
+                            await env.server.services.events.fetchMissed(
+                                appActor,
+                                options,
+                            );
+                        reads++;
+                        return page;
+                    },
+                },
+            } as never,
+            (notification: { title: string | null }) => {
+                titles.push(String(notification.title));
+            },
+            {},
+        );
+        const gapRead = async () => {
+            const before = reads;
+            receive({ event: { op: 'gap', reason: 'reconnect' } });
+            await vi.waitFor(() => expect(reads).toBe(before + 1));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        };
+
+        try {
+            await feed.start();
+            expect(titles).toHaveLength(201);
+
+            await env.server.services.notification.notifyUpdate(
+                uids[0],
+                userId,
+                { title: 'replaced while away' },
+                { type: 'app.message', replace: true },
+            );
+            await gapRead();
+            await gapRead();
+        } finally {
+            await feed.off();
+        }
+
+        expect(titles).toHaveLength(202);
+        expect(titles.at(-1)).toBe('replaced while away');
     });
 });
 

@@ -258,6 +258,7 @@ export default suite('events', {
         for (const method of [
             'onPersistent',
             'unsubscribe',
+            'update',
             'list',
             'fetch',
         ] as const) {
@@ -736,6 +737,39 @@ export default suite('events', {
             ! after.some((row) => row.subId === sub.subId),
             'the subscription is gone once unsubscribed',
         );
+    },
+
+    'replaces a persistent subscription`s context in place': async (t) => {
+        const dir = await makeDir(t, 'events-update');
+        const sub = await t.puter.events.onPersistent({
+            subject: `fs:${dir}`,
+            context: { label: 'old' },
+        });
+
+        try {
+            const updated = await t.puter.events.update(sub.subId, {
+                context: { label: 'new', region: 'eu' },
+            });
+            t.assert.equal(updated.subId, sub.subId, 'the id is kept');
+            t.assert.deepEqual(updated.contextKeys, ['label', 'region']);
+
+            const listed = (await t.puter.events.list()).find(
+                (row) => row.subId === sub.subId,
+            );
+            t.assert.deepEqual(listed?.contextKeys, ['label', 'region']);
+
+            const cleared = await t.puter.events.update(sub.subId, {
+                context: null,
+            });
+            t.assert.equal(cleared.contextKeys, null);
+        } finally {
+            await t.puter.events.unsubscribe(sub.subId);
+        }
+
+        const error = await t.assert.rejects(() =>
+            t.puter.events.update(sub.subId, { context: {} }),
+        );
+        t.assert.equal(codeOf(error), 'subscription_does_not_exist');
     },
 
     'answers a listing page when asked for one': async (t) => {

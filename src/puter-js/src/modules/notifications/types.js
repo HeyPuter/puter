@@ -13,7 +13,8 @@
  * @property {unknown} [data] Any JSON value up to 1 KB, handed back to the app
  *   on click. Push providers can read it, so keep it to IDs.
  * @property {string} [group] A newer notification with the same group replaces
- *   the one showing and alerts again. Letters, digits and `. _ : -`.
+ *   the one showing and alerts again. Up to 128 letters, digits and
+ *   `. _ : @ -`.
  * @property {string} [channel] The kind of notification, such as `messages`.
  *   Lowercase letters, digits and `-`.
  * @property {boolean} [sensitive] Pushes show a generic line instead of the
@@ -21,6 +22,22 @@
  * @property {'normal'} [priority] Only `'normal'` is available to apps.
  * @property {number} [ttl] Seconds a push may wait for an offline device, 1 to
  *   86400. Default 3600.
+ */
+
+/**
+ * What an app sends with `notify()` to the other party of a KV share instead of
+ * the user it runs for.
+ *
+ * @typedef {NotificationInput & { to: NotificationRecipient }} ShareNotificationInput
+ */
+
+/**
+ * Who a notification goes to, when it isn't the user the app runs for.
+ *
+ * @typedef {Object} NotificationRecipient
+ * @property {string} handle A KV share handle made with `notify: true`. The
+ *   notification goes to the share's other party: the holder when its owner
+ *   sends, the owner when its holder sends.
  */
 
 /**
@@ -48,7 +65,10 @@
  * @property {string | null} channel
  * @property {boolean} sensitive Sent with `sensitive: true`; its push and the
  *   notification the page shows for it name only the app.
- * @property {number} createdAt Milliseconds since the epoch.
+ * @property {number} createdAt Milliseconds since the epoch. For a replacement,
+ *   when it was replaced.
+ * @property {boolean} replaced It replaced an earlier notification in its
+ *   `group` and kept that one's uid.
  * @property {NotificationSender | null} app
  */
 
@@ -125,7 +145,17 @@
  *   `push-sw.js`. Default `/puter-sw.js`.
  * @property {(error: Error & { code?: string }) => void} [onError] Called when
  *   the handler throws or runs past 5 seconds (`push_handler_timeout`), the
- *   live listener stops, or keeping the browser's subscription current fails.
+ *   live listener stops, keeping the browser's subscription current fails, or
+ *   the confirmation push after `enable()` doesn't arrive
+ *   (`push_verification_timeout`).
+ */
+
+/**
+ * Whether this app's pushes reach the browser the user is in. `off` means
+ * `enable()` can turn them on, `blocked` that the browser blocks notifications,
+ * and `unavailable` that this browser, page or server can't receive pushes.
+ *
+ * @typedef {'on' | 'off' | 'blocked' | 'unavailable'} PushStatus
  */
 
 /** @typedef {'webpush' | 'web'} PushPlatform `web` gets no pushes. */

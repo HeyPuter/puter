@@ -4900,7 +4900,11 @@ export class FSService extends PuterService {
             options.ancestors ??
             ((entry: FSEntry) => fsEntry.getAncestorChain(entry.path));
         const actor = Context.get('actor') as Actor | undefined;
-        const actingUserId = actor?.user?.id;
+        // Puter filing into the account is nobody's own write, but still
+        // carries the chain depth of whatever caused it.
+        const actingUserId = Context.get('platformWrite')
+            ? undefined
+            : actor?.user?.id;
         const handlerDepth = handlerDepthOf(actor);
         const viaWorker = viaWorkerOf(actor);
         const movedFromChain = movedFrom && {

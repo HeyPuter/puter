@@ -175,6 +175,27 @@ describe('Allow on a request for notifications:push', () => {
         expect(enabling).not.toHaveBeenCalled();
     });
 
+    it('turns push on for a batch that includes it, and grants the batch in one request', async () => {
+        const client = fakeClient({ permission: 'default', registered: false });
+        registerPushClient(client);
+        const enabling = vi.fn();
+
+        const decision = UIPermissionDialog({
+            permissions: ['events:background', 'notifications:push'],
+            app_uid: `app-${apps}`,
+            on_push_enable: enabling,
+        });
+        await shown();
+        expect($('.perm-dialog-push-note').text()).toBe('perm_dialog_push_note');
+        allow();
+
+        await expect(decision).resolves.toBe(true);
+        expect(client.enable).toHaveBeenCalledTimes(1);
+        expect(enabling).toHaveBeenCalledTimes(1);
+        expect(fetch).toHaveBeenCalledTimes(1);
+        expect(JSON.parse(fetch.mock.calls[0][1].body).permissions).toEqual(['events:background', 'notifications:push']);
+    });
+
     it('leaves the browser alone for a request without that permission', async () => {
         const client = fakeClient({ permission: 'default', registered: false });
         registerPushClient(client);

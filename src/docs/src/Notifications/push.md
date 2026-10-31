@@ -18,12 +18,13 @@ A page of your site shows the notification itself when all of these are true:
 
 - The page is hidden, or its window isn't focused.
 - It has an [`onPush()`](/Notifications/onPush/) handler.
+- The user turned pushes on in this browser with [`enable()`](/Notifications/enable/), and hasn't turned them off with [`disable()`](/Notifications/disable/).
 - The user allowed notifications for your site in this browser.
 - No other tab of your site is focused.
 
 It shows what the handler returns, or the notification's own title and text when no handler matches the notification's `channel`. Inside the Puter desktop, Puter shows it instead.
 
-So a push goes out when no page of your app is open, or when the open pages are in the background and can't show the notification themselves. A page that loads an older version of Puter.js, such as one bundled from npm, holds the push back whenever it's open.
+So a push goes out when no page of your app is open, or when the open pages are in the background and can't show the notification themselves. A page that loads an older version of Puter.js, such as one bundled from npm, holds the push back while it's visible. A page with a version from before Puter asked pages whether they received a notification holds it back whenever it's open.
 
 ## A website on its own domain
 
@@ -92,9 +93,13 @@ document.getElementById('enable').addEventListener('click', async () => {
 });
 ```
 
-The browser asks for permission on your domain. Puter then sends a confirmation push to that browser, which shows once as "Notifications are on". The browser is registered once your worker hands the confirmation back. Allowing it also lets your app's notifications go out as pushes.
+The browser asks for permission on your domain. Puter then sends a confirmation push to that browser, which shows once as "Notifications are on". Allowing it also lets your app's notifications go out as pushes.
+
+The [`enable()`](/Notifications/enable/) call resolves once the browser has answered and Puter has its subscription. Pushes start once your worker hands the confirmation back, usually within seconds. If the confirmation doesn't arrive within 30 seconds, the `onError` of [`onPush()`](/Notifications/onPush/) gets `push_verification_timeout`, and the next page load tries again.
 
 The choice sticks. On later page loads, [`onPush()`](/Notifications/onPush/) keeps the registration current without asking again.
+
+To show your button only when it can help, call [`status()`](/Notifications/status/) on page load. It resolves `'off'` while [`enable()`](/Notifications/enable/) can turn pushes on, and `'on'`, `'blocked'` or `'unavailable'` otherwise.
 
 [`enable()`](/Notifications/enable/) resolves `true` when pushes are on in this browser, and `false` when the user didn't allow notifications or the browser can't receive pushes. Every error it rejects with is listed on [`enable()`](/Notifications/enable/#return-value). It rejects with `push_revoked` when the user turned your app off in Puter's settings. That choice stands until the user allows your app again, so call [`requestPermission()`](/Notifications/requestPermission/) from a click, which opens Puter's permission prompt, and then call [`enable()`](/Notifications/enable/) again:
 
@@ -129,13 +134,22 @@ await puter.notifications.notify({
 });
 ```
 
-A notification goes to one user, the one the call runs for. You can send it from three places:
+A notification goes to the user the call runs for, or with `to: { handle }` to the other side of a [key-value share](/KV/share/) made with `notify: true`. You can send it from three places:
 
 - **The page**, with [`puter.notifications.notify()`](/Notifications/notify/) as above.
 - **A [Puter Worker](/Workers/)**, with `user.puter.notifications.notify()` in a route your page calls through [`puter.workers.exec()`](/Workers/exec/). It notifies the user who called the worker, from the app that called it.
 - **An [events handler](/Events/handlers/)**, with `user.notifications.notify()`. It notifies the user who holds the subscription, and it runs while your app is closed. Running a handler in the background needs the user's `events:background` permission, as [`onPersistent()`](/Events/onPersistent/) describes.
 
-To notify another user, have a handler that runs for them call it, as in [Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/).
+An app that notifies from an events handler needs the user to allow both background events and pushes. Ask for both with [`puter.perms.request()`](/Perms/request/#batching), so the user answers one prompt:
+
+```js
+const [background, pushes] = await puter.perms.request([
+    { resource: 'backgroundEvents' },
+    { resource: 'pushNotifications' },
+]);
+```
+
+To notify another user, share data with them with `notify: true` and send through the share's handle, as [`notify()`](/Notifications/notify/#notify-the-other-side-of-a-share) describes and [Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/) shows. The push is billed to the user who receives it.
 
 In a worker, `me.puter` is you, the worker's owner. A `me.puter.notifications.notify()` call notifies you, not the user who called the worker, and it rejects with `forbidden` when the worker doesn't run as an app.
 
@@ -152,7 +166,7 @@ Inside the Puter desktop, a tap on a push opens your app and hands the `target` 
 
 ## Groups and sensitive notifications
 
-A newer notification with the same `group` replaces the one showing, and the device alerts the user again.
+A newer notification with the same `group` replaces the one showing, and the device alerts the user again. The newer one also replaces the earlier notification in place and keeps its `uid`, unless the earlier one was dismissed, for example by a tap on its push inside the Puter desktop. [`notify()`](/Notifications/notify/#groups) has the rule. A replacement counts against the notification limit per minute only. The push limits count only pushes sent, and a replacement that goes out as a push counts like any other. A group is up to 128 letters, digits and `. _ : @ -`, so it can name a chat, a thread or a person, such as `dm:ana@example.com`.
 
 With `sensitive: true`, pushes and the notification a page shows itself show a generic line instead of the title and text. A sensitive push carries no `channel`, `target` or `data`. So no [`onPush()`](/Notifications/onPush/) handler runs for it, a tap opens `/`, and [`on('click')`](/Notifications/on/) gets `null` for `target` and `data`. [`onNotification()`](/Notifications/onNotification/) still gets the whole notification.
 
@@ -212,13 +226,15 @@ A real push goes out only when no page of your site is open. To see one, turn pu
 
 ## An app inside the Puter desktop
 
-An app inside the Puter desktop needs no worker and no [`enable()`](/Notifications/enable/). Pushes go through Puter itself, and Puter shows your app's name and icon on them. Ask once, from a click:
+An app inside the Puter desktop needs no worker. Pushes go through Puter itself, and Puter shows your app's name and icon on them. Ask once, from a click:
 
 ```js
-const allowed = await puter.notifications.requestPermission();
+const on = await puter.notifications.enable();
 ```
 
-Puter's permission dialog opens. When the user allows it, Puter also turns pushes on in the browser they answered in, and your notifications go out as pushes from then on. For a user who already allowed your app, in a browser where pushes aren't on yet, [`enablePush()`](/Notifications/enablePush/) shows a one-button dialog that turns them on. [`hasPermission()`](/Notifications/hasPermission/) says whether the user allowed your app, without asking, so you can decide whether to show a button at all.
+When your app doesn't hold the permission yet, Puter's permission dialog opens. When the user allows it, Puter also turns pushes on in the browser they answered in, and your notifications go out as pushes from then on. For a user who already allowed your app, in a browser where pushes aren't on yet, it shows a one-button dialog that turns them on. To ask for the permission alone, call [`requestPermission()`](/Notifications/requestPermission/). Inside the desktop, [`enablePush()`](/Notifications/enablePush/) is the same call as [`enable()`](/Notifications/enable/). [`hasPermission()`](/Notifications/hasPermission/) says whether the user allowed your app, without asking, so you can decide whether to show a button at all.
+
+To turn pushes off, call [`disable()`](/Notifications/disable/). Inside the desktop it removes your app's permission, so pushes stop on every device of the user, and a later [`enable()`](/Notifications/enable/) asks again.
 
 While the app is open, [`onPush()`](/Notifications/onPush/) and [`onNotification()`](/Notifications/onNotification/) receive its notifications live, the same as on a website. Inside the desktop, the result of an [`onPush()`](/Notifications/onPush/) handler is never shown as a browser notification. Puter shows the notification itself.
 
@@ -294,7 +310,7 @@ The browser can be allowed to show notifications while the operating system hide
 | --- | --- |
 | [`enable()`](/Notifications/enable/) resolves `false` | The user blocked notifications for your site, the page is in a private window, the browser has no Web Push, or on iOS the page isn't opened from the Home Screen. The user unblocks your site in the browser's site settings. |
 | It rejects with `push_worker_unavailable` | `/puter-sw.js` isn't on your origin, returns a `404`, isn't served as JavaScript, is redirected, or throws when it loads. Open its URL in a tab to check. |
-| It rejects with `push_verification_timeout` | The worker doesn't import `push-sw.js`, or the confirmation push didn't arrive within 30 seconds. Reload the page and try again. |
+| The `onError` of [`onPush()`](/Notifications/onPush/) gets `push_verification_timeout` | The worker doesn't import `push-sw.js`, or the confirmation push didn't arrive within 30 seconds. The next page load tries again. |
 | It rejects with an `AbortError` from the browser | The browser couldn't reach its push service. In Brave, turn on Google services for push messaging. |
 | It rejects with `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click first. |
 | A push shows the plain title and text, not your handler's result | This browser hasn't run [`onPush()`](/Notifications/onPush/) for that `channel` yet, or the handler threw, took over 5 seconds, or used an outside variable. Check the worker's console. |

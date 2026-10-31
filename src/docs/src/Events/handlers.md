@@ -25,7 +25,7 @@ await puter.events.handlers.remove('indexDocument', { appUid });
 
 A handler is serialized with `Function.prototype.toString()` and run later, somewhere else, so nothing around the function comes with it.
 
-Every identifier a handler uses must be a parameter, something the handler declares itself, a standard global (`fetch`, `JSON`, `Math`, `console`, `URL`, `crypto`, …), or reached through `ctx`. `puter` isn't available in the [events worker](/Events/workers/); use the `user` binding, which has the same access your app has for that user in a tab. The SDK checks this before sending and rejects with `events_handler_free_variable`, naming the identifier:
+Every identifier a handler uses must be a parameter, something the handler declares itself, a standard global (`fetch`, `JSON`, `Math`, `console`, `URL`, `crypto`, …), or reached through `ctx`. `puter` isn't available in the [events worker](/Events/workers/); use the `user` binding, which has the same access your app has for that user in a tab. The SDK checks this before sending, and Puter checks it again when the handler is published, so it applies however the handler reaches Puter. Either rejects with `events_handler_free_variable`, naming the identifier:
 
 ```js
 const endpoint = 'https://example.com/ingest';

@@ -7,6 +7,7 @@ import { list } from './list.js';
 import { onLocal } from './onLocal.js';
 import { onPersistent } from './onPersistent.js';
 import { unsubscribe } from './unsubscribe.js';
+import { update } from './update.js';
 
 /** @typedef {import('../../index.js').Puter} Puter */
 
@@ -37,6 +38,7 @@ export class EventsModule extends PuterModule {
     onLocal = onLocal;
     onPersistent = onPersistent;
     unsubscribe = unsubscribe;
+    update = update;
     list = list;
     fetch = fetch;
 
@@ -63,6 +65,7 @@ export class EventsModule extends PuterModule {
             'onLocal',
             'onPersistent',
             'unsubscribe',
+            'update',
             'list',
             'fetch',
         ] ) {

@@ -248,7 +248,7 @@ Pick the tool by what you want to do:
 
 A share has one of three levels, and each includes the ones before it:
 
-- **`watch`**: the holder gets [events](/Events/subjects/#sharing-key-value-data-with-another-user) when keys under the prefix change, and can [`list()`](/KV/list/) the keys without their values.
+- **`watch`**: the holder gets [events](/Events/subjects/#sharing-key-value-data-with-another-user) when keys under the prefix change, and can [`list()`](/KV/list/) the keys, all without their values.
 - **`read`**: the holder can also read values with [`get()`](/KV/get/) and [`list()`](/KV/list/).
 - **`write`**: the holder can also change keys with every other method. Write includes delete, so every holder with write access can change or remove any key under the prefix.
 
@@ -273,7 +273,7 @@ const entries = await puter.kv.list('item:*', true, { handle });
 ```
 
 - **What the holder knows.** A share tells the holder its level, its app, and an optional label. It never says who shared it or what the prefix is. The label is plain text the owner sets with [`puter.kv.share()`](/KV/share/). Render it with `textContent`, never as HTML.
-- **Notification.** When a user shares an app's data, the holder gets a `kv.share.received` notification in that app, on [`notif:app-user`](/Events/subjects/#notifications). It carries the `handle`, `access`, `label`, and `createdAt`. Listen for it with [`puter.events.onLocal()`](/Events/onLocal/), or read missed ones with [`puter.events.fetch()`](/Events/fetch/). The Puter desktop doesn't show it, so your app is where the holder finds out about the share. The live notification needs notifications to be turned on for events on the deployment. Calling [`puter.kv.listShared()`](/KV/listShared/) when your app opens finds new shares in every case.
+- **Notifications.** A share made with `notify: true` lets the owner and the holder send each other notifications through its handle with [`puter.notifications.notify()`](/Notifications/notify/). When such a share of an app's data is made, the holder gets a `kv.share.received` notification in that app, on [`notif:app-user`](/Events/subjects/#notifications). It carries the `handle`, `access`, `label`, and `createdAt`. Listen for it with [`puter.events.onLocal()`](/Events/onLocal/), or read missed ones with [`puter.events.fetch()`](/Events/fetch/). The Puter desktop doesn't show it, so your app is where the holder finds out about the share. The live notification needs notifications to be turned on for events on the deployment. Calling [`puter.kv.listShared()`](/KV/listShared/) when your app opens finds new shares in every case.
 - **Blocks.** A user who blocked the owner, or who doesn't accept shares from anyone, can't be shared with, and [`puter.kv.share()`](/KV/share/) fails with `recipient_not_accepting_shares`.
 - **Account.** Sharing needs a confirmed email address where the deployment requires one, and no phone number, card, or paid plan.
 - **Private entries.** Entries written with `disableSharing` aren't readable or listed through a share. Deleting one through a share resolves as deleting a missing key does, and the entry stays. Any other write to one through a share is refused with `kv_handle_access_denied`, the same error as a method the share's level doesn't allow. A holder with write access can learn that a private key exists from that refusal, or because deleting it sends no change event, but never its value. Keep private entries outside the prefixes you share.

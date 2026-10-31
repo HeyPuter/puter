@@ -326,6 +326,75 @@ describe('NotificationService.notifyUpdate', () => {
         pushed.stop();
     });
 
+    it("replaces an app's unseen message in place, off the desktop wire", async () => {
+        const user = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const uid = await notifications.notify(
+            [user.id],
+            { title: 'one message', group: 'chat-1' },
+            { type: 'app.message', appUid, group: 'chat-1' },
+        );
+
+        const desktop = collect('outer.gui.notif.message');
+        const written = collect('notif.written');
+        expect(
+            await notifications.notifyUpdate(
+                uid!,
+                user.id,
+                { title: 'two messages', group: 'chat-1' },
+                { type: 'app.message', replace: true },
+            ),
+        ).toBe(true);
+        await waitFor(() => written.seen.length === 1);
+
+        expect(written.seen[0]).toMatchObject({
+            uid,
+            type: 'app.message',
+            audience: 'app-user',
+            appUid,
+            value: { title: 'two messages', type: 'app.message' },
+            updated: true,
+        });
+        expect(desktop.seen).toEqual([]);
+        expect(
+            await server.stores.notification.listByUserId(user.id, {}),
+        ).toEqual([
+            expect.objectContaining({
+                uid,
+                value: {
+                    title: 'two messages',
+                    group: 'chat-1',
+                    type: 'app.message',
+                },
+            }),
+        ]);
+        desktop.stop();
+        written.stop();
+    });
+
+    it('leaves a shown message alone when replacing', async () => {
+        const user = await makeUser();
+        const uid = await notifications.notify(
+            [user.id],
+            { title: 'one message' },
+            { type: 'app.message', appUid: `app-${uuidv4()}`, group: 'g' },
+        );
+        await server.stores.notification.markShown(uid!, user.id);
+        const written = collect('notif.written');
+
+        expect(
+            await notifications.notifyUpdate(
+                uid!,
+                user.id,
+                { title: 'two messages' },
+                { type: 'app.message', replace: true },
+            ),
+        ).toBe(false);
+        await new Promise((r) => setTimeout(r, 50));
+        expect(written.seen).toEqual([]);
+        written.stop();
+    });
+
     it('refuses to fold a type that does not group', async () => {
         const user = await makeUser();
         await expect(

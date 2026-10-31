@@ -31,10 +31,11 @@ import {
     EVENTS_HANDLER_DEPTH,
     EVENTS_HANDLER_PUBLISH_BATCH,
     EVENTS_HANDLER_PUBLISH_LIMIT,
+    EVENTS_HANDLER_SOURCE_MAX_BYTES,
     EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
     EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_KV_VALUE_MAX_BYTES,
-    EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
+    EVENTS_KV_VALUE_DELIVERIES_PER_EVENT,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_SUBSCRIBE_LIMIT,
@@ -165,7 +166,13 @@ import {
     type CompiledMatch,
 } from './matcher.js';
 import { MatcherCache } from './matcherCache.js';
-import { projectNotifRow, resolveNotifFetch } from './notifFetch.js';
+import {
+    mergeNotifCatchUp,
+    notifFetchCursor,
+    notifFetchPosition,
+    projectNotifRow,
+    resolveNotifFetch,
+} from './notifFetch.js';
 import {
     lookupFsSubject,
     lookupKvSubject,
@@ -188,9 +195,11 @@ import {
 } from './registry.js';
 import { SubscriptionCache } from './subscriptionCache.js';
 import {
+    kvShareAccessOf,
     kvShareGrantCovers,
     kvSharePermission,
     relativeToKvShareRoot,
+    type KvShareAccess,
 } from '../kvShare/kvShares.js';
 import {
     KV_MATCH_MAX_LENGTH,
@@ -226,11 +235,14 @@ import {
     eventsWorkerScript,
 } from './workerRuntime.js';
 import { handlerSetHash } from './workerSource.js';
+// The SDK's own scan, so a publish that skips the SDK is held to the same rule.
+import { scanHandlerSource } from '../../../puter-js/src/modules/events/lib/freeVariables.js';
 import {
     EventsWorkerInvoker,
     RecordingWorkerInvoker,
     type WorkerInvocation,
     type WorkerInvocationOutcome,
+    type WorkerInvocationResult,
     type WorkerInvokerSeam,
 } from './workerSeam.js';
 
@@ -266,6 +278,13 @@ export interface SubscribeRequest {
 
 export interface UnsubscribeRequest {
     subId?: unknown;
+}
+
+/** Body of `POST /events/subscriptions/update`. */
+export interface UpdateDurableRequest {
+    subId?: unknown;
+    /** Replaces the stored context; `null` clears it. */
+    context?: unknown;
 }
 
 /** Body of the `events.ack` verb: which subscription, and which delivery. */
@@ -594,6 +613,8 @@ export interface NotifDispatchInput {
     appUid: string | null;
     value: Record<string, unknown>;
     createdAt: number;
+    /** An earlier notification replaced in place; `createdAt` is when. */
+    replaced?: true;
     /** Handler runs behind whatever created it; see `Actor.handlerDepth`. */
     handlerDepth?: number;
 }
@@ -620,7 +641,8 @@ export interface KvDispatchInput {
 interface RouteLimits {
     matchedSubscriptions: number;
     filterEvaluations: number;
-    omitKvValueAbove?: number;
+    /** Deliveries that may carry a KV value; unset where there is none. */
+    kvValueDeliveries?: number;
 }
 
 // -- Socket wire names ------------------------------------------------
@@ -839,6 +861,24 @@ const handlerAppForbidden = (): HttpError =>
 
 const badRequest = (message: string, code: string): HttpError =>
     new HttpError(400, message, { legacyCode: code });
+
+/**
+ * A handler runs with nothing around it, so a name it neither binds nor gets
+ * from the runtime fails on its first delivery. Refused at publish instead.
+ */
+const assertNoFreeVariables = (source: string): void => {
+    // Over the cap the store refuses it anyway, so it isn't worth tokenizing.
+    if (Buffer.byteLength(source, 'utf8') > EVENTS_HANDLER_SOURCE_MAX_BYTES)
+        return;
+    try {
+        scanHandlerSource(source);
+    } catch (err) {
+        throw badRequest(
+            err instanceof Error ? err.message : String(err),
+            'events_handler_free_variable',
+        );
+    }
+};
 
 const errorAck = (err: unknown): VerbAck<never> => {
     if (err instanceof HttpError)
@@ -1103,17 +1143,39 @@ const inlineKvValue = (value: unknown): { value: unknown } | undefined => {
 };
 
 /**
- * The value rides only where the row asked for it. A share-handle row is no
- * exception: the owner minted the handle over that region, and the delivery
- * re-check that stops a revoked handle stops its values with it.
+ * Where a share-handle row stands for one delivery: the level its holder
+ * reaches through it, `revoked` once it reaches nothing, or `unknown` while
+ * that can't be checked (a failed lookup, a suspended owner).
  */
-const valueAsRowAskedFor = (
+type KvShareStanding = KvShareAccess | 'revoked' | 'unknown';
+
+/**
+ * A share-handle row as one delivery serves it: not at all once its share is
+ * gone, and without values while the share is at `watch`. Decided per delivery,
+ * so a level change applies to subscriptions already made.
+ */
+const servedAtStanding = (
     row: DispatchSubscription,
-    event: ProjectedKvEvent,
-): ProjectedKvEvent => {
-    if (event.value === undefined || row.includeValue === true) return event;
-    const { value: _value, ...withoutValue } = event;
+    standing: KvShareStanding,
+): DispatchSubscription | null => {
+    if (standing === 'revoked' || standing === 'unknown') return null;
+    if (standing !== 'watch' || row.includeValue !== true) return row;
+    const { includeValue: _includeValue, ...withoutValue } = row;
     return withoutValue;
+};
+
+/**
+ * A queued delivery as `row` is served now. The queue keeps an event as it was
+ * owed, so a value the row no longer carries comes off at hand-out.
+ */
+const claimedAsServed = (
+    row: DispatchSubscription,
+    claimed: ClaimedDelivery,
+): ClaimedDelivery => {
+    if (row.includeValue === true || !('value' in claimed.event))
+        return claimed;
+    const { value: _value, ...event } = claimed.event;
+    return { ...claimed, event };
 };
 
 /** Omit inline values without changing the event's key metadata. */
@@ -1124,9 +1186,39 @@ const withoutKvValue = <C extends EventContextBase>(context: C): C => {
     return withoutValue as C;
 };
 
+/**
+ * Rows in the order a fan-out serves them: the keyspace owner's own first, then
+ * the other holders taking turns, one row each per round. The first holder is
+ * picked at random per event, so none is always the one past a cap.
+ */
+const holdersTakeTurns = (
+    rows: DispatchSubscription[],
+): DispatchSubscription[] => {
+    const ordered: DispatchSubscription[] = [];
+    const byHolder = new Map<number, DispatchSubscription[]>();
+    for (const row of rows) {
+        if (row.holderUserId === row.ownerUserId) {
+            ordered.push(row);
+            continue;
+        }
+        const held = byHolder.get(row.holderUserId);
+        if (held) held.push(row);
+        else byHolder.set(row.holderUserId, [row]);
+    }
+    if (byHolder.size === 0) return ordered;
+
+    const holders = [...byHolder.values()];
+    const start = Math.floor(Math.random() * holders.length);
+    let turns = [...holders.slice(start), ...holders.slice(0, start)];
+    for (let round = 0; turns.length > 0; round++) {
+        for (const held of turns) ordered.push(held[round]);
+        turns = turns.filter((held) => held.length > round + 1);
+    }
+    return ordered;
+};
+
 /** Candidate counts at or below this can't reach any KV fan-out cap. */
 const KV_ROUTE_LIMITS_NEVER_BIND = Math.min(
-    EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
     EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
     ...Object.values(EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.bySubscription),
     EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.limit,
@@ -1287,7 +1379,7 @@ export class EventsService extends PuterService {
 
     override onServerStart(): void {
         // Without it nothing can be addressed, and every background delivery
-        // fails its way to a suspension with no obvious cause.
+        // keeps retrying with no obvious cause.
         if (
             this.config.events?.workerRuntime === true &&
             !this.config.events?.internalSecret
@@ -1934,36 +2026,53 @@ export class EventsService extends PuterService {
                 : EVENTS_FETCH_LIMIT_DEFAULT,
             EVENTS_FETCH_LIMIT_CAP,
         );
-        const cursored = Number(
+        const from = notifFetchPosition(
             openCursor(
                 request.cursor ?? request.after,
                 this.config.jwt_secret_v2,
-            )?.id,
+            ),
         );
 
         // One extra row answers "is there another page" without a count.
         // The generic slice is the desktop's view of the mailbox, so it leaves
         // out the types kept off the desktop, as the live delivery does.
-        const rows = await this.stores.notification.listScoped(user.id, {
+        const slice = {
             audience: scope.audience,
             appUid: scope.appUid,
-            after: Number.isFinite(cursored) ? cursored : null,
             limit: limit + 1,
             ...(scope.appUid === undefined
                 ? { excludeTypes: OUTSIDE_ACCOUNT_MAILBOX_TYPES }
                 : {}),
-        });
-
-        const page = rows.slice(0, limit);
+        };
+        // A replacement keeps its row, so rows behind the cursor are read
+        // again by when they were replaced: two indexed reads, not one OR.
+        const [inserted, replaced] = await Promise.all([
+            this.stores.notification.listScoped(user.id, {
+                ...slice,
+                after: from.id,
+            }),
+            from.id === null
+                ? []
+                : this.stores.notification.listReplacedScoped(user.id, {
+                      ...slice,
+                      upTo: from.id,
+                      after: from.replaced,
+                  }),
+        ]);
+        const { rows: page, next } = mergeNotifCatchUp(
+            inserted,
+            replaced,
+            limit,
+            from,
+        );
         const visible = await this.#visibleNotifications(actor, page);
-        const last = page[page.length - 1];
 
         return {
             items: visible.map((row, i) => projectNotifRow(row, user.uuid!, i)),
-            ...(rows.length > limit && last
+            ...(next
                 ? {
                       cursor: sealCursor(
-                          { id: Number(last.id) },
+                          notifFetchCursor(next),
                           this.config.jwt_secret_v2,
                       ),
                   }
@@ -2035,6 +2144,48 @@ export class EventsService extends PuterService {
         await this.stores.pendingDelivery.purge(subId);
         this.#forget(subId);
         this.#publishGeneration(bump, true);
+    }
+
+    /**
+     * Replace a durable row's `context` in place. Its id, its backlog and
+     * anything in flight are kept, and the next invocation carries the new
+     * value. Spends from the subscribe budget, which is what a replace by
+     * unsubscribe and subscribe would have spent.
+     */
+    async updateDurable(
+        actor: Actor,
+        request: UpdateDurableRequest,
+    ): Promise<{ sub: DurableSubscriptionView }> {
+        if (!this.enabled) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
+
+        await this.#spendCallBudget(holderUserId);
+
+        if (!request || !Object.hasOwn(request, 'context'))
+            throw badRequest('context is required', 'bad_request');
+        const context = parseContext(request.context);
+
+        const subId = String(request.subId ?? '');
+        const row = subId
+            ? await this.stores.durableSubscription.getBySubId(subId)
+            : null;
+        // Absent rather than refused, as unsubscribe answers.
+        if (
+            !row ||
+            row.holderUserId !== holderUserId ||
+            !rowInActorScope(actor, row)
+        )
+            throw unknownSubscription();
+        if (row.context === context) return { sub: toDurableView(row) };
+
+        const updated = await this.stores.durableSubscription.updateContext(
+            row,
+            context,
+        );
+        if (!updated) throw unknownSubscription();
+        this.#publishGeneration(updated.bump, true);
+        return { sub: toDurableView(updated.row) };
     }
 
     /**
@@ -2154,7 +2305,12 @@ export class EventsService extends PuterService {
             return;
         }
         if (row.suspendedAt !== null) return;
-        if (await this.#runInWorker(row, claimed)) await this.#drain(row);
+        // A row that can't be served now lets the worker lease lapse, and a
+        // later drain asks again.
+        const serving = await this.#stillOwed(row);
+        if (!serving) return;
+        if (await this.#runInWorker(serving, claimedAsServed(serving, claimed)))
+            await this.#drain(row);
     }
 
     // -- Handlers ----------------------------------------------------
@@ -2759,6 +2915,7 @@ export class EventsService extends PuterService {
     ): Promise<PublishedHandlerView> {
         const name = String(item?.name ?? '');
         const source = typeof item?.source === 'string' ? item.source : '';
+        assertNoFreeVariables(source);
         const sizeChecked = awaitLater(
             this.#assertHandlerSetSize(appUid, name, source),
         );
@@ -3604,7 +3761,7 @@ export class EventsService extends PuterService {
                 EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
                 plan,
             ),
-            omitKvValueAbove: EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS,
+            kvValueDeliveries: EVENTS_KV_VALUE_DELIVERIES_PER_EVENT,
         };
     }
 
@@ -3745,6 +3902,7 @@ export class EventsService extends PuterService {
                 'account') as NotifEventContext['audience'],
             appUid: input.appUid ?? null,
             notification: input.value ?? {},
+            ...(input.replaced === true ? { replaced: true as const } : {}),
             id: input.uid,
             ts: input.createdAt || Date.now(),
             handlerDepth: input.handlerDepth,
@@ -3824,7 +3982,9 @@ export class EventsService extends PuterService {
             filterEvaluations: FILTER_EVALUATIONS_PER_EVENT,
         },
     ): Promise<void> {
-        const rows = candidates.filter(unexpired);
+        // Every cap below counts in this order, so one holder's rows can't
+        // crowd out the owner's or another holder's.
+        const rows = holdersTakeTurns(candidates.filter(unexpired));
         if (rows.length === 0) return;
 
         // One throwaway projection reads the op off the registry entry rather
@@ -3843,23 +4003,25 @@ export class EventsService extends PuterService {
             limits.filterEvaluations,
         );
 
-        const deliveryContext =
-            limits.omitKvValueAbove !== undefined &&
-            (evaluated.stoppedEarly ||
-                evaluated.matched.length > limits.omitKvValueAbove)
-                ? withoutKvValue(context)
-                : context;
-
         const matched = await authorize(
             evaluated.matched.slice(0, limits.matchedSubscriptions),
         );
 
+        // The value rides on the first deliveries that asked for it, in serving
+        // order. A share-handle row at `watch` lost its ask at `authorize`.
+        let valuesLeft = limits.kvValueDeliveries ?? 0;
+        const bare =
+            limits.kvValueDeliveries === undefined
+                ? context
+                : withoutKvValue(context);
+
         let seq = 0;
         for (const row of matched) {
+            const carries = valuesLeft > 0 && row.includeValue === true;
             const event = this.#asRowAddressesIt(
                 row,
                 subject.project({
-                    ...deliveryContext,
+                    ...(carries ? context : bare),
                     // A row watching only where the node landed was never
                     // shown where it came from, so it is not handed that path.
                     ...(sawItLeave(row, context)
@@ -3877,6 +4039,7 @@ export class EventsService extends PuterService {
             // its grant, so nothing is delivered rather than the owner's
             // namespace and absolute key going out in its place.
             if (event === null) continue;
+            if (carries) valuesLeft--;
 
             // A `single` is owed rather than sent: it is queued, and never
             // coalesced or broadcast — collapsing two of them would drop one
@@ -3948,7 +4111,7 @@ export class EventsService extends PuterService {
             if (!isFsToken(row.token)) return event;
             return this.#asRecipientAddressesIt(row, event);
         }
-        const kv = valueAsRowAskedFor(row, event as ProjectedKvEvent);
+        const kv = event as ProjectedKvEvent;
         const handle = kvHandleFromSubject(row.subject);
         if (handle === null) return kv as P;
 
@@ -4110,73 +4273,86 @@ export class EventsService extends PuterService {
         if (rows.length === 0) return rows;
 
         const decisions = new Map<string, Promise<boolean>>();
-        const allowed = await Promise.all(
-            rows.map((row) => {
+        const served = await Promise.all(
+            rows.map(async (row): Promise<DispatchSubscription | null> => {
                 const shared = kvHandleFromSubject(row.subject) !== null;
                 if (
                     privateEntry &&
                     (shared || isCrossAppKvRow(row.appUid, targetAppUid))
                 )
-                    return Promise.resolve(false);
+                    return null;
                 // A row on a shared region is authorized by its grant, not by
                 // whose namespace it names — and that is one question per
                 // subscription, because the handle *is* the granted root.
-                if (shared) return this.#kvShareHolds(row);
-                if (!isCrossAppKvRow(row.appUid, targetAppUid))
-                    return Promise.resolve(true);
+                if (shared)
+                    return servedAtStanding(
+                        row,
+                        await this.#kvShareStanding(row),
+                    );
+                if (!isCrossAppKvRow(row.appUid, targetAppUid)) return row;
                 const key = `${row.holderUserId}|${row.appUid ?? ''}`;
                 let decision = decisions.get(key);
                 if (!decision) {
                     decision = this.#kvGrantHolds(row, targetAppUid);
                     decisions.set(key, decision);
                 }
-                return decision;
+                return (await decision) ? row : null;
             }),
         );
-        return rows.filter((_row, i) => allowed[i]);
+        return served.filter((row): row is DispatchSubscription => !!row);
     }
 
     /**
-     * Whether one row's holder may still watch the region it was made on. The
-     * handle must be live and theirs, so a retired one goes silent within the
-     * handle cache's lifetime even where a wider grant covers the region. The
-     * grant check doesn't vary by key, so it's cached under the row's anchor.
+     * Whether one row's holder may still watch the region it was made on, and
+     * at what level: the share's own, read off the live handle, or `write` for
+     * the owner's row. The handle must be live and theirs, so a retired one
+     * goes silent within the handle cache's lifetime even where a wider grant
+     * covers the region. The grant check doesn't vary by key, so it's cached
+     * under the row's anchor.
      */
-    async #kvShareHolds(row: DispatchSubscription): Promise<boolean> {
+    async #kvShareStanding(
+        row: DispatchSubscription,
+    ): Promise<KvShareStanding> {
         const handle = kvHandleFromSubject(row.subject);
-        if (handle === null) return false;
+        if (handle === null) return 'revoked';
         let live: LiveKvShareHandle | null;
+        let identity: GrantIdentity | null;
         try {
             live = await this.stores.kvShareHandle.getLive(handle);
+            if (
+                !live ||
+                (live.row.granteeUserId !== row.holderUserId &&
+                    live.row.ownerUserId !== row.holderUserId)
+            )
+                return 'revoked';
+            // Lifted by an unsuspend, so the row waits instead of ending.
+            if (live.ownerSuspended) return 'unknown';
+            identity = await this.#resolveGrantIdentity(row);
         } catch {
-            return false;
+            return 'unknown';
         }
-        if (
-            !live ||
-            live.ownerSuspended ||
-            (live.row.granteeUserId !== row.holderUserId &&
-                live.row.ownerUserId !== row.holderUserId)
-        )
-            return false;
+        if (!identity) return 'revoked';
 
-        const identity = await this.#grantIdentity(row);
-        if (!identity) return false;
-
+        const level =
+            live.row.ownerUserId === row.holderUserId
+                ? 'write'
+                : (kvShareAccessOf(live.row.permission) ?? 'watch');
         const key = {
             subId: row.subId,
             generation: identity.generation,
             nodeUid: row.anchorUid,
         };
         const cached = this.#deliveryAuth.read(key);
-        if (cached !== null) return cached;
+        if (cached !== null) return cached ? level : 'revoked';
 
         const allowed = await kvSharedRegionAuthorized(
             identity.actor,
             row.permission,
             this.#kvShareDeps(),
         );
+        if (allowed === null) return 'unknown';
         this.#deliveryAuth.write(key, allowed);
-        return allowed;
+        return allowed ? level : 'revoked';
     }
 
     /** Whether one row's holder may still be told about `targetAppUid`'s data. */
@@ -4199,21 +4375,31 @@ export class EventsService extends PuterService {
         }
     }
 
-    /** Who a row acts as, and the counter its answers are keyed by. */
+    /**
+     * Who a row acts as, and the counter its answers are keyed by. `null` for
+     * an identity that no longer resolves, and for a lookup that failed.
+     */
     async #grantIdentity(
         row: DispatchSubscription,
     ): Promise<GrantIdentity | null> {
         try {
-            const deps = this.#aclDeps();
-            const actor = await resolveGrantActor(row, deps);
-            if (!actor) return null;
-            return {
-                actor,
-                generation: await deliveryGenerationTag(actor, deps),
-            };
+            return await this.#resolveGrantIdentity(row);
         } catch {
             return null;
         }
+    }
+
+    /** {@link #grantIdentity}, throwing when the lookup fails. */
+    async #resolveGrantIdentity(
+        row: DispatchSubscription,
+    ): Promise<GrantIdentity | null> {
+        const deps = this.#aclDeps();
+        const actor = await resolveGrantActor(row, deps);
+        if (!actor) return null;
+        return {
+            actor,
+            generation: await deliveryGenerationTag(actor, deps),
+        };
     }
 
     /** The event's node as ACL wants it, reusing the walk dispatch already did. */
@@ -4551,7 +4737,9 @@ export class EventsService extends PuterService {
         const settling: DurableSubscription[] = [];
         for (const row of rows) {
             const covered = this.#coveredByRevocation(row, permission);
-            if (covered && !(await this.#anchorStillReachable(row)))
+            // One that can't be checked right now is left to the delivery
+            // re-check, which settles it once it can tell.
+            if (covered && (await this.#anchorStillReachable(row)) === false)
                 settling.push(row);
         }
         return settling;
@@ -4579,8 +4767,13 @@ export class EventsService extends PuterService {
             .includes(permission);
     }
 
-    /** Whether a row's holder can still reach its anchor, asked fresh. */
-    async #anchorStillReachable(row: DurableSubscription): Promise<boolean> {
+    /**
+     * Whether a row's holder can still reach its anchor, asked fresh. `null`
+     * for a share-handle row whose share can't be checked right now.
+     */
+    async #anchorStillReachable(
+        row: DurableSubscription,
+    ): Promise<boolean | null> {
         // On the token, like the families below it: the stored subject parses
         // only because a subscribe validated it, and a settle must not start
         // throwing on a row it cannot read.
@@ -4601,8 +4794,10 @@ export class EventsService extends PuterService {
                 ).length > 0
             );
         }
-        if (kvHandleFromSubject(row.subject) !== null)
-            return this.#kvShareHolds(row);
+        if (kvHandleFromSubject(row.subject) !== null) {
+            const standing = await this.#kvShareStanding(row);
+            return standing === 'unknown' ? null : standing !== 'revoked';
+        }
         if (isKvToken(row.token)) {
             if (!isCrossAppKvRow(row.appUid, row.anchorUid)) return true;
             return this.#kvGrantHolds(row, row.anchorUid);
@@ -5011,9 +5206,15 @@ export class EventsService extends PuterService {
         row: DispatchSubscription,
         // Only the sweeper defers: it alone reads the pending index in score
         // order, so only it may rewrite a score without starving what is behind.
+        // A just-authorized row comes as its delivery re-check served it.
         opts?: { deferWhenBusy?: boolean; justAuthorized?: boolean },
     ): Promise<number> {
-        if (!opts?.justAuthorized && !(await this.#stillOwed(row))) return 0;
+        const serving = opts?.justAuthorized ? row : await this.#stillOwed(row);
+        if (!serving) {
+            if (opts?.deferWhenBusy)
+                await this.stores.pendingDelivery.defer(row.subId);
+            return 0;
+        }
 
         let handed = 0;
         for (let pass = 0; pass < PENDING_DRAIN_BATCH; pass++) {
@@ -5047,13 +5248,21 @@ export class EventsService extends PuterService {
             handed++;
             // Anything still holding the lease is the next consumer's answer to
             // give, so this pass is over.
-            if (!(await this.#handOut(row, claimed))) return handed;
+            if (
+                !(await this.#handOut(
+                    serving,
+                    claimedAsServed(serving, claimed),
+                ))
+            )
+                return handed;
         }
         return handed;
     }
 
     /**
-     * Whether a queued backlog may still be handed over.
+     * The row as its queued backlog may be handed over now, or null when it may
+     * not. A share-handle row comes back as its share serves it, so a backlog
+     * queued with values goes out without them at `watch`.
      *
      * Nothing between the claim and the socket asks this — and the revoke
      * settle deliberately leaves a grant withdrawn on an _ancestor_ of an
@@ -5062,16 +5271,29 @@ export class EventsService extends PuterService {
      *
      * Asked once per drain rather than per delivery: the whole backlog stands
      * on the one grant. A row that has lost it is settled the way the revoke
-     * settle would have — permanently, and taking the backlog with it.
+     * settle would have — permanently, and taking the backlog with it. One
+     * whose share can't be checked right now hands out nothing and keeps its
+     * backlog for a later pass.
      */
-    async #stillOwed(row: DispatchSubscription): Promise<boolean> {
-        if (row.durable !== true) return true;
+    async #stillOwed(
+        row: DispatchSubscription,
+    ): Promise<DispatchSubscription | null> {
+        if (row.durable !== true) return row;
         const durable = row as DurableSubscription;
-        if (await this.#anchorStillReachable(durable)) return true;
+        if (kvHandleFromSubject(durable.subject) !== null) {
+            const standing = await this.#kvShareStanding(durable);
+            if (standing === 'unknown') return null;
+            if (standing !== 'revoked')
+                return servedAtStanding(durable, standing);
+        } else {
+            const reachable = await this.#anchorStillReachable(durable);
+            if (reachable === null) return null;
+            if (reachable) return row;
+        }
 
         const suspended = await this.#suspend([durable], 'permission_revoked');
         await this.#notifyEnded(suspended, 'permission_revoked');
-        return false;
+        return null;
     }
 
     /**
@@ -5203,16 +5425,16 @@ export class EventsService extends PuterService {
         // Over the invocation budget nothing ran, so nothing was delivered and
         // the lease is the backoff — and the budget refusal itself must not
         // spend the one bill this entry gets, nor count against the handler.
-        const outcome = await this.#invokeHandler(invocation);
-        singleAttempt.add(1, {
-            target: 'worker',
-            result: outcome ?? 'over-budget',
-        });
-        if (outcome === null) return false;
+        const result = await this.#invokeHandler(invocation);
+        if (result === null) {
+            singleAttempt.add(1, { target: 'worker', result: 'over-budget' });
+            return false;
+        }
 
         // Never runnable, so dropped outright: not a handler failure, and no
         // gap marker, which would be handed to the handler at this same depth.
-        if (outcome === 'too-deep') {
+        if (result === 'too-deep') {
+            singleAttempt.add(1, { target: 'worker', result: 'too-deep' });
             await this.stores.pendingDelivery.settle(
                 row.subId,
                 claimed.entryId,
@@ -5220,6 +5442,8 @@ export class EventsService extends PuterService {
             return true;
         }
 
+        const { outcome, retryAfterMs } = result;
+        singleAttempt.add(1, { target: 'worker', result: outcome });
         // Only a settled outcome is a delivery: billing and reporting it
         // ahead of that would charge for an attempt that failed, is still
         // retrying, or was discarded outright.
@@ -5239,7 +5463,7 @@ export class EventsService extends PuterService {
         // Nothing was attempted, so nothing failed: the lease paces the retry.
         if (outcome === 'deferred') return false;
 
-        await this.#handlerFailed(row, claimed, outcome);
+        await this.#handlerFailed(row, claimed, outcome, retryAfterMs);
         return false;
     }
 
@@ -5252,12 +5476,14 @@ export class EventsService extends PuterService {
      * now", and the delivery waits longer each time. Both count: five failures
      * in a row is a handler that is not working, whichever way it is failing,
      * and retrying it forever is how one bad deploy becomes a standing load on
-     * whatever it is calling.
+     * whatever it is calling. A run Puter could not start or finish waits the
+     * same way but never counts, so Puter's own outage suspends nobody.
      */
     async #handlerFailed(
         row: DispatchSubscription,
         claimed: ClaimedDelivery,
         outcome: Exclude<WorkerInvocationOutcome, 'settled' | 'deferred'>,
+        retryAfterMs?: number,
     ): Promise<void> {
         const pending = this.stores.pendingDelivery;
         try {
@@ -5277,7 +5503,13 @@ export class EventsService extends PuterService {
                         meterFor(row),
                         bill,
                     );
-            } else await pending.deferAfterFailure(row.subId, claimed.entryId);
+            } else
+                await pending.deferAfterFailure(
+                    row.subId,
+                    claimed.entryId,
+                    retryAfterMs,
+                );
+            if (outcome === 'unavailable') return;
 
             const failures = await pending.recordFailure(row.subId);
             if (failures < EVENTS_CONSECUTIVE_FAILURES) return;
@@ -5605,7 +5837,7 @@ export class EventsService extends PuterService {
             // A `broadcast` invocation is never retried. A run that finished,
             // or threw an error that drops the event, counts as delivered.
             try {
-                const outcome = await this.worker.invoke(delivery.worker!);
+                const { outcome } = await this.worker.invoke(delivery.worker!);
                 invoked = outcome === 'settled' || outcome === 'terminal';
             } catch (err) {
                 console.warn('[events] handler invocation failed', err);
@@ -5808,7 +6040,7 @@ export class EventsService extends PuterService {
      */
     async #invokeHandler(
         invocation: WorkerInvocation,
-    ): Promise<WorkerInvocationOutcome | 'too-deep' | null> {
+    ): Promise<WorkerInvocationResult | 'too-deep' | null> {
         const gate = await this.#handlerGate(invocation);
         if (gate === 'too-deep') return 'too-deep';
         if (gate === 'over-budget') return null;

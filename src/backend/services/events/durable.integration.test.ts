@@ -18,8 +18,9 @@
  */
 
 /**
- * Durable subscriptions end to end: the routes that create and revoke them, who
- * each credential shape may see, and what a write costs once one exists.
+ * Durable subscriptions end to end: the routes that create, update and revoke
+ * them, who each credential shape may see, and what a write costs once one
+ * exists.
  *
  * The cost assertions are the point of the whole cache. A subscription made
  * here is deliverable here without the table, and a region that has never seen
@@ -36,6 +37,7 @@ import {
 } from '../../controllers/events/limits.js';
 import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import { makeActor } from '../../core/actor.js';
+import { DURABLE_CONTEXT_MAX_BYTES } from '../../stores/events/DurableSubscriptionStore.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
 import { appSocketRoom } from '../socket/SocketService.js';
@@ -96,6 +98,13 @@ const listSubscriptions = (token: string, query = ''): Promise<ApiResponse> =>
 
 const unsubscribe = (token: string, subId: string): Promise<ApiResponse> =>
     call('POST', '/events/unsubscribe', token, { subId });
+
+const updateContext = (
+    token: string,
+    subId: string,
+    body: object,
+): Promise<ApiResponse> =>
+    call('POST', '/events/subscriptions/update', token, { subId, ...body });
 
 const subIdsOf = (response: ApiResponse): string[] =>
     (response.body.items as Array<{ subId: string }>).map((row) => row.subId);
@@ -588,6 +597,140 @@ describe('what each credential sees and removes', () => {
     });
 });
 
+describe('replacing a durable subscription`s context', () => {
+    const resetBudget = () =>
+        env.server.clients.redis.del(
+            `rate:${EVENTS_SUBSCRIBE_LIMIT.scope}:${userId}`,
+        );
+
+    /** The row this region would deliver against, read from its cache. */
+    const cachedRow = async (subId: string) => {
+        const stored =
+            await env.server.stores.durableSubscription.getBySubId(subId);
+        const cached = await env.server.stores.eventSubscription.getForTokens(
+            userId,
+            [stored!.token],
+        );
+        return cached.find((row) => row.subId === subId);
+    };
+
+    it('keeps the id and the backlog, and delivers the new value from then on', async () => {
+        await resetBudget();
+        await clearRows();
+        const created = await subscribe(appOneToken, {
+            context: { label: 'old' },
+        });
+        const subId = created.body.subId as string;
+        await env.server.stores.pendingDelivery.enqueue(subId, {
+            id: uuidv4(),
+            subject: `fs:${anchor}`,
+            op: 'gap',
+            reason: 'backlog_overflow',
+            ts: Date.now(),
+        });
+
+        const updated = await updateContext(appOneToken, subId, {
+            context: { label: 'new', region: 'eu' },
+        });
+
+        expect(updated.status).toBe(200);
+        expect(updated.body).toMatchObject({
+            subId,
+            contextKeys: ['label', 'region'],
+        });
+        expect(updated.body.contextHash).not.toBe(created.body.contextHash);
+        expect(subIdsOf(await listSubscriptions(appOneToken))).toEqual([
+            subId,
+        ]);
+        await expect(
+            env.server.stores.pendingDelivery.depth(subId),
+        ).resolves.toBe(1);
+        expect((await cachedRow(subId))?.context).toBe(
+            JSON.stringify({ label: 'new', region: 'eu' }),
+        );
+    });
+
+    it('clears it with null', async () => {
+        await resetBudget();
+        await clearRows();
+        const subId = (
+            await subscribe(env.users.user.token, { context: { a: 1 } })
+        ).body.subId as string;
+
+        const cleared = await updateContext(env.users.user.token, subId, {
+            context: null,
+        });
+
+        expect(cleared.status).toBe(200);
+        expect(cleared.body).toMatchObject({
+            contextKeys: null,
+            contextHash: null,
+        });
+        expect((await cachedRow(subId))?.context).toBeNull();
+    });
+
+    it('refuses a body without context, and a context over the cap', async () => {
+        await resetBudget();
+        await clearRows();
+        const subId = (
+            await subscribe(env.users.user.token, { context: { a: 1 } })
+        ).body.subId as string;
+
+        const missing = await updateContext(env.users.user.token, subId, {});
+        expect(missing.status).toBe(400);
+        expect(missing.body.code).toBe('bad_request');
+
+        const tooLarge = await updateContext(env.users.user.token, subId, {
+            context: { blob: 'x'.repeat(DURABLE_CONTEXT_MAX_BYTES) },
+        });
+        expect(tooLarge.status).toBe(413);
+        expect(tooLarge.body.code).toBe('events_context_too_large');
+        expect((await cachedRow(subId))?.context).toBe(
+            JSON.stringify({ a: 1 }),
+        );
+    });
+
+    it('answers a row the caller does not hold as absent', async () => {
+        await resetBudget();
+        await clearRows();
+        const mine = (await subscribe(appOneToken)).body.subId as string;
+
+        for (const token of [appTwoToken, appOneAccessToken, readUrlToken]) {
+            const refused = await updateContext(token, mine, {
+                context: { stolen: true },
+            });
+            expect(refused.status).toBe(404);
+            expect(refused.body.code).toBe('subscription_does_not_exist');
+        }
+        expect((await cachedRow(mine))?.context).toBeNull();
+    });
+
+    it('spends the subscribe budget', async () => {
+        await resetBudget();
+        try {
+            await clearRows();
+            const mine = (await subscribe(env.users.user.token)).body
+                .subId as string;
+            for (let i = 1; i < EVENTS_SUBSCRIBE_LIMIT.limit; i++)
+                await updateContext(env.users.user.token, mine, {
+                    context: { i },
+                });
+
+            const refused = await subscribe(env.users.user.token);
+            expect(refused.status).toBe(429);
+            const refusedUpdate = await updateContext(
+                env.users.user.token,
+                mine,
+                { context: { i: -1 } },
+            );
+            expect(refusedUpdate.status).toBe(429);
+            expect(refusedUpdate.body.code).toBe('too_many_requests');
+        } finally {
+            await resetBudget();
+        }
+    });
+});
+
 describe('what a write costs once a durable row exists', () => {
     it('delivers straight after subscribe without reading the table', async () => {
         await clearRows();
@@ -904,6 +1047,10 @@ describe('with events switched off', () => {
             }),
             offCall('GET', '/events/subscriptions'),
             offCall('POST', '/events/unsubscribe', { subId: 'user#nope' }),
+            offCall('POST', '/events/subscriptions/update', {
+                subId: 'user#nope',
+                context: null,
+            }),
         ]) {
             const response = await attempt;
             expect(response.status).toBe(503);

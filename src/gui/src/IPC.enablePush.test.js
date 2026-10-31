@@ -24,9 +24,10 @@ globalThis.def = globalThis.def ?? ((cls) => cls);
 globalThis.use = globalThis.use ?? (() => ({}));
 globalThis.$ = globalThis.jQuery = jQuery;
 
-const { stub, dialog } = vi.hoisted(() => ({
+const { stub, dialog, permissionDialog } = vi.hoisted(() => ({
     stub: () => ({ default: () => {} }),
     dialog: vi.fn(),
+    permissionDialog: vi.fn(),
 }));
 vi.mock('./helpers/download.js', stub);
 vi.mock('./helpers/itemIcon.js', stub);
@@ -42,7 +43,7 @@ vi.mock('./UI/UIWindowAppFeedback.js', stub);
 vi.mock('./UI/UIWindowColorPicker.js', stub);
 vi.mock('./UI/UIWindowEmailConfirmationRequired.js', stub);
 vi.mock('./UI/UIWindowFontPicker.js', stub);
-vi.mock('./UI/UIPermissionDialog.js', stub);
+vi.mock('./UI/UIPermissionDialog.js', () => ({ default: permissionDialog }));
 vi.mock('./UI/UIEnablePushDialog.js', () => ({ default: dialog }));
 vi.mock('./UI/UIWindowSaveAccount.js', stub);
 vi.mock('./UI/UIWindowSignup.js', stub);
@@ -55,10 +56,14 @@ vi.mock('./helpers/verification_gates.js', () => ({
 
 let iframe;
 let posted;
+let registerPushClient;
+/** What this browser's push client reports. */
+let browser;
 
 beforeAll(async () => {
     window.when_puter_happens = [];
     window.appCallbackFunctions = {};
+    ({ registerPushClient } = await import('./helpers/pushClient.js'));
     await import('./IPC.js');
     globalThis.puter = { services: undefined, util: { rpc: { send: vi.fn() } } };
     for (const fn of window.when_puter_happens) await fn();
@@ -66,6 +71,22 @@ beforeAll(async () => {
 
 beforeEach(() => {
     dialog.mockReset();
+    permissionDialog.mockReset();
+    browser = { permission: 'granted', registered: false };
+    window.gui_params = { pushEnabled: true };
+    registerPushClient({
+        enable: async () => {
+            browser.registered = true;
+            return { deviceUid: 'd-1' };
+        },
+        disable: async () => {
+            browser.registered = false;
+        },
+        status: async () => {
+            if ( browser.broken ) throw new Error('no push service');
+            return { ...browser };
+        },
+    });
     document.body.innerHTML = '';
     const win = document.createElement('div');
     win.setAttribute('data-app_uuid', 'app-1');
@@ -119,18 +140,89 @@ describe('the enablePush IPC message', () => {
         );
     });
 
-    it('asks the server whether this app may send pushes, and shows nothing when it may not', async () => {
+    it('asks for the permission when the app may not send pushes, and reports the state once Allow`s registration settles', async () => {
         holds(false);
-        dialog.mockResolvedValue('on');
+        permissionDialog.mockImplementation(async (options) => {
+            options.on_push_enable(new Promise((resolve) => {
+                setTimeout(() => {
+                    browser.registered = true;
+                    resolve(true);
+                }, 5);
+            }));
+            return true;
+        });
         post('enablePush');
         await settle();
 
         expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ permissions: ['notifications:push'], app_uid: 'app-1' });
+        expect(permissionDialog).toHaveBeenCalledTimes(1);
+        expect(permissionDialog).toHaveBeenCalledWith(expect.objectContaining({
+            permission: 'notifications:push',
+            app_uid: 'app-1',
+            app_name: 'team-chat',
+        }));
         expect(dialog).not.toHaveBeenCalled();
+        expect(posted).toHaveBeenCalledWith(
+            { msg: 'pushEnabled', state: 'on', original_msg_id: 'cb-1' },
+            '*',
+        );
+    });
+
+    it('answers off when the user denies the permission', async () => {
+        holds(false);
+        browser.registered = true;
+        permissionDialog.mockResolvedValue(false);
+        post('enablePush');
+        await settle();
+
+        expect(posted).toHaveBeenCalledWith(
+            { msg: 'pushEnabled', state: 'off', original_msg_id: 'cb-1' },
+            '*',
+        );
+    });
+
+    it.each([
+        ['blocked', () => {
+            browser.permission = 'denied';
+        }],
+        ['unavailable', () => {
+            browser.broken = true;
+        }],
+    ])('asks nothing of an app without the permission when this browser is %s', async (state, setUp) => {
+        holds(false);
+        setUp();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        post('enablePush');
+        await settle();
+        warn.mockRestore();
+
+        expect(permissionDialog).not.toHaveBeenCalled();
+        expect(posted).toHaveBeenCalledWith(
+            { msg: 'pushEnabled', state, original_msg_id: 'cb-1' },
+            '*',
+        );
+    });
+
+    it('answers a second call unavailable while the permission dialog is up', async () => {
+        holds(false);
+        let finish;
+        permissionDialog.mockImplementation(() => new Promise((resolve) => {
+            finish = resolve;
+        }));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        post('enablePush');
+        await settle();
+        post('enablePush');
+        await settle();
+
+        expect(permissionDialog).toHaveBeenCalledTimes(1);
         expect(posted).toHaveBeenCalledWith(
             { msg: 'pushEnabled', state: 'unavailable', original_msg_id: 'cb-1' },
             '*',
         );
+        finish(false);
+        await settle();
+        warn.mockRestore();
     });
 
     it('answers a second call unavailable while the dialog is up', async () => {

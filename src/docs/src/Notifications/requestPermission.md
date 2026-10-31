@@ -6,7 +6,9 @@ platforms: [websites, apps]
 
 Asks the user to let your app send push notifications. Your notifications always reach your app while it's open. This decides whether they also reach the user's devices when the user isn't looking at your app.
 
-It asks for the [`notifications:push`](/Perms/request/#push-notifications) permission. Inside the Puter desktop the prompt is a dialog; on a website it opens in a popup on the Puter origin, so call it from a user gesture such as a click. If the user already allowed it, it resolves `true` without asking.
+It asks for the `'pushNotifications'` resource of [`puter.perms.request()`](/Perms/request/#push-notifications). To ask for it in the same prompt as other access, such as `'backgroundEvents'` for an [events handler](/Events/handlers/), pass both to [`puter.perms.request()`](/Perms/request/#batching) instead.
+
+Inside the Puter desktop the prompt is a dialog; on a website it opens in a popup on the Puter origin, so call it from a user gesture such as a click. If the user already allowed it, it resolves `true` without asking.
 
 When the user allows it, Puter also turns push notifications on in the browser they answered in, unless they are on there already or the browser blocks them. To offer that in a browser where your app already holds the permission, call [`enablePush()`](/Notifications/enablePush/).
 

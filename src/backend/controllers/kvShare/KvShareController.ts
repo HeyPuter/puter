@@ -69,6 +69,7 @@ const shareBody = (share: KvShareView) => ({
     appUid: publicAppUid(share.appUid),
     holder: share.holderUsername,
     label: share.label,
+    notify: share.notify,
     createdAt: share.createdAt,
 });
 
@@ -128,8 +129,8 @@ export class KvShareController extends PuterController {
     /**
      * POST /kv/shares — share a region with another account, `read` unless the
      * body asks otherwise. Sharing the same region with the same account again
-     * changes its level or label in place. `recipients` shares it with several
-     * at once and reports each one on its own item.
+     * changes its level, label or `notify` flag in place. `recipients` shares
+     * it with several at once and reports each one on its own item.
      */
     @Post('/shares', {
         subdomain: 'api',
@@ -145,6 +146,7 @@ export class KvShareController extends PuterController {
             access: body.access,
             appUid: body.appUid,
             label: body.label,
+            notify: body.notify,
         };
         const recipients = batchRecipients(body);
         if (recipients) {
@@ -206,6 +208,7 @@ export class KvShareController extends PuterController {
                 appUid: publicAppUid(row.appUid),
                 holder: row.holderUsername,
                 label: row.label,
+                notify: row.notify,
                 createdAt: row.createdAt,
                 revokedAt: row.revokedAt,
                 revokedBy: row.revokedBy,
@@ -234,6 +237,7 @@ export class KvShareController extends PuterController {
                 access: row.access,
                 appUid: publicAppUid(row.appUid),
                 label: row.label,
+                notify: row.notify,
                 createdAt: row.createdAt,
             })),
             ...(page.cursor ? { cursor: page.cursor } : {}),
