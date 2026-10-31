@@ -105,12 +105,12 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 | Input pending session setup | 32 messages or 64 KiB | Error `rate_limit_exceeded`, close 1008. |
 | Forwarding queue in either direction | Reads pause at 128 KiB. Admission stops above 192 KiB toward the provider and above 4 MiB plus 128 KiB toward the client. | A full queue closes with `rate_limit_exceeded`. |
 | Client that stops reading | 30 seconds of paused upstream reads | Close 1008. |
-| Pending usage records | 32 | Error `rate_limit_exceeded`, close 1008. Records already received are still billed. |
+| Pending usage records | 32 | Error `rate_limit_exceeded`, close 1013. Records already received are still billed. |
 | Numeric usage fields | Finite, nonnegative, at most 1 billion | Invalid upstream usage closes with 1011. A `null` usage counts as none. |
 | Session setup timeout | 15 seconds | Error `connection_timeout`, close 1011. |
 | Upstream handshake timeout | 10 seconds | Close 1011. |
 | Heartbeat interval | 30 seconds | A missing pong terminates the connection on the next heartbeat. |
-| Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. Overlapping sweeps are skipped. |
+| Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. A check that fails at connection gets `internal_error` and closes with 1011. A failed recheck keeps the session and tries again on the next sweep. Overlapping sweeps are skipped. |
 | Session attempts per credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
 | Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. A response whose usage never arrives because the provider connection closed first is billed the full hold. |
 | Restart notice (`puter.reconnect`) | At most once a minute per session | Repeated announcements within the minute aren't sent. |
