@@ -1117,6 +1117,32 @@ describe('OpenAIRealtimeRelayService relay', () => {
             ).toBe(false);
         });
 
+        it('still asks for a retry when the fallback runs out right after the refusal', async () => {
+            // The plan check refuses on a fallback; by the time the refusal is
+            // classified, the lookup has recovered.
+            const metering = server.services.metering;
+            let decided = false;
+            vi.mocked(metering.getActorSubscription).mockImplementation(
+                async () => {
+                    decided = true;
+                    return { id: 'user_free', monthUsageAllowance: 0 } as never;
+                },
+            );
+            vi.spyOn(metering, 'getActorSubscriptionStatus').mockImplementation(
+                async () =>
+                    ({
+                        policy: { id: 'user_free', monthUsageAllowance: 0 },
+                        paid: false,
+                        provisional: !decided,
+                    }) as never,
+            );
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'internal_error' },
+            });
+            expect((await c.closed).code).toBe(1011);
+        });
+
         it('asks a session to retry instead of reporting no funds', async () => {
             const u = await server.stores.user.getByUsername(user.username);
             const c = open(
