@@ -23,6 +23,7 @@ import {
     afterAll,
     afterEach,
     beforeAll,
+    beforeEach,
     describe,
     expect,
     it,
@@ -1369,8 +1370,13 @@ describe('SocketService.askWithAck through the cluster adapter', () => {
     let adapter: {
         serverCount: () => Promise<number>;
         doPublish: (message: unknown) => Promise<string>;
+        doPublishResponse: (uid: string, response: unknown) => Promise<void>;
+        onMessage: (message: unknown) => void;
         onResponse: (response: unknown) => void;
-        nsp: { _onServerSideEmit: (args: unknown[]) => void };
+        nsp: {
+            _onServerSideEmit: (args: unknown[]) => void;
+            sockets: Map<string, { acks: { size: number } }>;
+        };
     };
     const openSockets: ClientSocket[] = [];
 
@@ -1630,6 +1636,104 @@ describe('SocketService.askWithAck through the cluster adapter', () => {
             );
 
             expect(asked).toMatchObject({ responses: ['seen'], others: true });
+        });
+    });
+
+    describe('asked by another node', () => {
+        // socket.io-adapter's cluster message types and socket.io's EVENT packet.
+        const BROADCAST = 3;
+        const BROADCAST_ACK = 12;
+        const EVENT = 2;
+        let asks = 0;
+
+        const askFromPeer = () =>
+            adapter.onMessage({
+                uid: 'peer-node',
+                nsp: '/',
+                type: BROADCAST,
+                data: {
+                    requestId: `peer-ask-${++asks}`,
+                    packet: { type: EVENT, data: ['demo.ack', {}] },
+                    opts: {
+                        rooms: [ackRoom(String(userId), 'demo.ack')],
+                        except: [],
+                        flags: { timeout: 5_000 },
+                    },
+                },
+            });
+
+        /** Answers this node relayed back to the asking node. */
+        const relayed = () =>
+            vi
+                .mocked(adapter.doPublishResponse)
+                .mock.calls.flatMap(([, response]) => {
+                    const r = response as {
+                        type: number;
+                        data: { packet: unknown };
+                    };
+                    return r.type === BROADCAST_ACK ? [r.data.packet] : [];
+                });
+
+        const pendingOn = (tab: ClientSocket) =>
+            adapter.nsp.sockets.get(tab.id!)!.acks.size;
+
+        beforeEach(() => {
+            vi.spyOn(adapter, 'doPublishResponse').mockResolvedValue();
+        });
+
+        afterEach(() => {
+            vi.mocked(adapter.doPublishResponse).mockRestore();
+        });
+
+        it('keeps a bounded number of asks a socket never answers', async () => {
+            const silent = await connect(['demo.ack']);
+            const answering = await connect(['demo.ack']);
+            answering.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+                ack('seen'),
+            );
+
+            // Rounds under the cap, so the answering socket never holds a full one.
+            const round = SocketService.MAX_PENDING_ACKS / 2;
+            for (let asked = round; asked <= round * 3; asked += round) {
+                for (let i = 0; i < round; i++) askFromPeer();
+                await vi.waitFor(() => expect(relayed()).toHaveLength(asked));
+            }
+
+            expect(relayed()).toEqual(Array(round * 3).fill('seen'));
+            expect(pendingOn(answering)).toBe(0);
+            expect(pendingOn(silent)).toBe(SocketService.MAX_PENDING_ACKS);
+        });
+
+        it('stops waiting on an ask past its age, and ignores its late answer', async () => {
+            const answers: Array<(r: unknown) => void> = [];
+            const tab = await connect(['demo.ack']);
+            tab.on('demo.ack', (_d: unknown, ack: (r: unknown) => void) =>
+                answers.push(ack),
+            );
+
+            askFromPeer();
+            askFromPeer();
+            await vi.waitFor(() => expect(answers).toHaveLength(2));
+            answers[0]('in time');
+            await vi.waitFor(() => expect(relayed()).toEqual(['in time']));
+            expect(pendingOn(tab)).toBe(1);
+
+            const later = Date.now() + SocketService.PENDING_ACK_TTL_MS;
+            const clock = vi.spyOn(Date, 'now').mockReturnValue(later);
+            try {
+                askFromPeer();
+                await vi.waitFor(() => expect(answers).toHaveLength(3));
+                expect(pendingOn(tab)).toBe(1);
+
+                answers[1]('late');
+                answers[2]('after');
+                await vi.waitFor(() =>
+                    expect(relayed()).toEqual(['in time', 'after']),
+                );
+                expect(pendingOn(tab)).toBe(0);
+            } finally {
+                clock.mockRestore();
+            }
         });
     });
 

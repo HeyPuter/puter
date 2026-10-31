@@ -31,8 +31,9 @@ interface Entry<V> {
 
 /**
  * In-process map with a size cap and an optional per-entry TTL, for caches,
- * memos and log throttles. Expired entries read as missing; reads refresh an
- * entry's recency, so eviction drops the least recently used one.
+ * memos and log throttles. Expired entries read as missing and are dropped from
+ * the least recently used end on set; reads refresh an entry's recency, so
+ * eviction drops the least recently used one.
  */
 export class BoundedTtlMap<K, V> {
     readonly #maxEntries: number;
@@ -58,6 +59,7 @@ export class BoundedTtlMap<K, V> {
 
     set(key: K, value: V): this {
         this.#entries.delete(key);
+        this.#dropExpired();
         if (this.#entries.size >= this.#maxEntries) {
             const oldest = this.#entries.keys().next();
             if (!oldest.done) this.#entries.delete(oldest.value);
@@ -97,6 +99,16 @@ export class BoundedTtlMap<K, V> {
         if (this.has(key)) return false;
         this.set(key, true);
         return true;
+    }
+
+    /** So a TTL frees memory too, not only reads as missing. */
+    #dropExpired(): void {
+        if (this.#ttlMs === undefined) return;
+        const now = Date.now();
+        for (const [key, entry] of this.#entries) {
+            if (entry.expiresAt > now) return;
+            this.#entries.delete(key);
+        }
     }
 
     #live(key: K): Entry<V> | undefined {
