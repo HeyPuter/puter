@@ -142,9 +142,8 @@ See [`notify()`](/Notifications/notify/) for every field, and [Rate Limits and Q
 - **[`puter.notifications.hasPermission()`](/Notifications/hasPermission/)** - Check whether your app may send pushes
 - **[`puter.notifications.enablePush()`](/Notifications/enablePush/)** - Offer to turn on pushes in the browser the user is in
 
-For Puter's own web and mobile apps, which decide where pushes go:
+For Puter's own apps, which manage where pushes go:
 
-- **[`puter.notifications.registerDevice()`](/Notifications/registerDevice/)** - Register a device for push notifications
 - **[`puter.notifications.listDevices()`](/Notifications/listDevices/)** - List the user's registered devices
 - **[`puter.notifications.removeDevice()`](/Notifications/removeDevice/)** - Stop pushes to a device
 

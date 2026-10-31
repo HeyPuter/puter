@@ -1031,7 +1031,7 @@ describe('enablePush', () => {
 describe('devices', () => {
     const device = {
         uid: 'd-1',
-        platform: 'web',
+        platform: 'webpush',
         label: 'Laptop',
         user_agent: 'UA',
         created_at: 10,
@@ -1040,32 +1040,13 @@ describe('devices', () => {
     };
     const mapped = {
         uid: 'd-1',
-        platform: 'web',
+        platform: 'webpush',
         label: 'Laptop',
         userAgent: 'UA',
         createdAt: 10,
         lastSeenAt: 20,
         current: true,
     };
-
-    it('registers with POST /push/devices', async () => {
-        mockFetchUrl.mockResolvedValue(jsonResponse({ device }));
-        const result = await makeModule().registerDevice({
-            platform: 'web',
-            token: 'tok',
-            label: 'Laptop',
-        });
-
-        expect(result).toEqual(mapped);
-        const [url, init] = mockFetchUrl.mock.calls[0];
-        expect(url).toBe('https://api.test/push/devices');
-        expect(init).toMatchObject({ method: 'POST', includePuterAuth: true });
-        expect(JSON.parse(init.body)).toEqual({
-            platform: 'web',
-            token: 'tok',
-            label: 'Laptop',
-        });
-    });
 
     it('lists with GET /push/devices', async () => {
         mockFetchUrl.mockResolvedValue(jsonResponse({ devices: [device] }));
@@ -1110,28 +1091,6 @@ describe('devices', () => {
         );
     });
 
-    it('passes a token conflict through as push_device_conflict', async () => {
-        mockFetchUrl.mockResolvedValue(
-            jsonResponse(
-                {
-                    error: 'This device is registered to another user',
-                    message: 'This device is registered to another user',
-                    code: 'push_device_conflict',
-                },
-                409,
-            ),
-        );
-
-        const error = await rejects(() =>
-            makeModule().registerDevice({
-                platform: 'ios',
-                token: 'tok',
-            }),
-        );
-        expect(error).toBeInstanceOf(PuterJSError);
-        expect(error.code).toBe('push_device_conflict');
-    });
-
     it('names the status when the error has no body', async () => {
         mockFetchUrl.mockResolvedValue({
             status: 502,
@@ -1149,10 +1108,6 @@ describe('devices', () => {
         );
 
     it.each([
-        [
-            'registerDevice',
-            (m) => m.registerDevice({ platform: 'web', token: 't' }),
-        ],
         ['listDevices', (m) => m.listDevices()],
         ['removeDevice', (m) => m.removeDevice('d-1')],
     ])(
