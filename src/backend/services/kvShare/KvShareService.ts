@@ -88,6 +88,7 @@ import {
     kvSharePrefixCaseConflict,
     parseKvShareAccess,
     parseKvShareLabel,
+    parseKvShareNotify,
     parseKvShareRecipient,
     type KvShareAccess,
     type KvShareRecipient,
@@ -109,6 +110,8 @@ export interface KvShareRequest {
     appUid?: unknown;
     /** `undefined` keeps the stored label, `null` clears it. */
     label?: unknown;
+    /** `undefined` keeps the stored flag. */
+    notify?: unknown;
 }
 
 /** A share request's fields other than who it is for. */
@@ -149,6 +152,7 @@ export interface KvShareView {
     appUid: string;
     holderUsername: string;
     label: string | null;
+    notify: boolean;
     createdAt: number;
 }
 
@@ -297,13 +301,18 @@ const RETIRE_SETTLE_CONCURRENCY = 8;
 const levelRank = (permission: string): number =>
     KV_SHARE_ACCESS_LEVELS.indexOf(kvShareAccessOf(permission) ?? 'watch');
 
-/** Whether a mint finding this live row changes its level or label. */
-const shareChanges = (
-    row: KvShareHandle,
-    wanted: { permission: string; label: string | null | undefined },
-): boolean =>
+/** What a mint asks of a share; `undefined` leaves that field as it is. */
+interface WantedShare {
+    permission: string;
+    label: string | null | undefined;
+    notify: boolean | undefined;
+}
+
+/** Whether a mint finding this live row changes its level, label or flag. */
+const shareChanges = (row: KvShareHandle, wanted: WantedShare): boolean =>
     row.permission !== wanted.permission ||
-    (wanted.label !== undefined && wanted.label !== row.label);
+    (wanted.label !== undefined && wanted.label !== row.label) ||
+    (wanted.notify !== undefined && wanted.notify !== row.notify);
 
 /** A share change's lock: its lifetime, and how long another change waits. */
 const SHARE_CHANGE_LOCK_MS = 10_000;
@@ -342,6 +351,7 @@ const ownerView = (
     appUid: row.appUid,
     holderUsername,
     label: row.label,
+    notify: row.notify,
     createdAt: row.createdAt,
     revokedAt: row.revokedAt,
     revokedBy: row.revokedBy,
@@ -627,6 +637,7 @@ export class KvShareService extends PuterService {
 
         const keyPrefix = assertShareablePrefix(request.prefix);
         const label = parseKvShareLabel(request.label);
+        const notify = parseKvShareNotify(request.notify);
         const appUid = await this.#mintNamespace(app, request);
         const permission = assertPrefixFitsAccess(
             owner.uuid,
@@ -702,9 +713,10 @@ export class KvShareService extends PuterService {
         const keepLevel =
             options.keepLevelUnlessNamed &&
             (request.access === undefined || request.access === null);
-        const wantedFor = (existing: KvShareHandle) => ({
+        const wantedFor = (existing: KvShareHandle): WantedShare => ({
             permission: keepLevel ? existing.permission : permission,
             label,
+            notify,
         });
         // A call that only finds shares it leaves as they are spends neither
         // budget. Every other named recipient costs a grant unit, unknown ones
@@ -778,6 +790,7 @@ export class KvShareService extends PuterService {
                               keyPrefix,
                               permission,
                               label: label ?? null,
+                              notify: notify === true,
                           });
                     results[index].share = this.#view(row, grantee.username);
                 } catch (err) {
@@ -830,6 +843,7 @@ export class KvShareService extends PuterService {
             keyPrefix: string;
             permission: string;
             label: string | null;
+            notify: boolean;
         },
     ): Promise<KvShareHandle> {
         // The user behind the app, so the authority checked is theirs. Which
@@ -872,15 +886,17 @@ export class KvShareService extends PuterService {
             keyPrefix: share.keyPrefix,
             permission: share.permission,
             label: share.label,
+            notify: share.notify,
         });
-        await this.#notifyReceived(row);
+        if (row.notify) await this.#notifyReceived(row);
         return row;
     }
 
     /**
-     * Tell the holder, in the app whose data it is, that a share arrived, never
-     * naming the owner. Best-effort and bounded per owner and holder: the share
-     * stands either way.
+     * Tell the holder, in the app whose data it is, that a share now allows
+     * notifications, never naming the owner. Sent when one is made with
+     * `notify` or turned on. Best-effort and bounded per owner and holder: the
+     * share stands either way.
      */
     async #notifyReceived(row: KvShareHandle): Promise<void> {
         if (row.appUid === KV_GLOBAL_APP_KEY) return;
@@ -915,7 +931,7 @@ export class KvShareService extends PuterService {
         actor: Actor,
         existing: KvShareHandle,
         holder: UserRow & { id: number; username: string },
-        wanted: { permission: string; label: string | null | undefined },
+        wanted: WantedShare,
     ): Promise<KvShareHandle> {
         if (!shareChanges(existing, wanted)) return existing;
         return withRedisLock(
@@ -950,26 +966,29 @@ export class KvShareService extends PuterService {
         actor: Actor,
         existing: KvShareHandle,
         holder: UserRow & { id: number; username: string },
-        wanted: { permission: string; label: string | null | undefined },
+        wanted: WantedShare,
     ): Promise<KvShareHandle> {
         const levelChanges = existing.permission !== wanted.permission;
         const labelChanges =
             wanted.label !== undefined && wanted.label !== existing.label;
-        if (!levelChanges && !labelChanges) return existing;
+        const notifyChanges =
+            wanted.notify !== undefined && wanted.notify !== existing.notify;
+        if (!levelChanges && !labelChanges && !notifyChanges) return existing;
 
         // An app also needs the consent the share stands on, as it would to
         // revoke it.
         if (actor.effectiveApp)
             await this.#assertKvShareDelegated(actor, existing.permission);
 
-        // A holder who now refuses this owner's shares can still be narrowed
-        // or have the label cleared, and nothing more.
+        // A holder who now refuses this owner's shares can still be narrowed,
+        // have the label cleared or notifications turned off, and nothing more.
         const raises =
             levelChanges &&
             levelRank(wanted.permission) > levelRank(existing.permission);
         const relabels = labelChanges && wanted.label !== null;
+        const startsNotifying = notifyChanges && wanted.notify === true;
         if (
-            (raises || relabels) &&
+            (raises || relabels || startsNotifying) &&
             (await refusesSharesFrom(
                 this.stores.userBlock,
                 holder,
@@ -1004,9 +1023,13 @@ export class KvShareService extends PuterService {
             {
                 ...(levelChanges ? { permission: wanted.permission } : {}),
                 ...(labelChanges ? { label: wanted.label } : {}),
+                ...(notifyChanges ? { notify: wanted.notify } : {}),
             },
         );
-        if (updated && updated.revokedAt === null) return updated;
+        if (updated && updated.revokedAt === null) {
+            if (startsNotifying) await this.#notifyReceived(updated);
+            return updated;
+        }
         // Retired meanwhile: the retire withdrew the region before the grant
         // above landed, so that grant is withdrawn here.
         if (levelChanges)
@@ -1027,6 +1050,7 @@ export class KvShareService extends PuterService {
             appUid: row.appUid,
             holderUsername,
             label: row.label,
+            notify: row.notify,
             createdAt: row.createdAt,
         };
     }

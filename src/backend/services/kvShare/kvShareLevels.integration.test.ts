@@ -763,6 +763,7 @@ describe('what has been shared with me', () => {
             access: 'write',
             appUid: GLOBAL,
             label: 'Plans',
+            notify: false,
             createdAt: expect.any(Number),
         });
         expect(page.items.some((row) => row.handle === gone.handle)).toBe(

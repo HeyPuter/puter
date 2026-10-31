@@ -125,6 +125,7 @@ describe('/kv/shares', () => {
                 'handle',
                 'holder',
                 'label',
+                'notify',
                 'prefix',
             ].sort(),
         );
@@ -133,6 +134,42 @@ describe('/kv/shares', () => {
             appUid: null,
             holder: env.users.other.username,
             label: 'Groceries',
+            notify: false,
+        });
+    });
+
+    it('takes notify, keeps it on a re-share that leaves it out, and shows it to both sides', async () => {
+        const prefix = `notify-${uuidv4().slice(0, 8)}:`;
+        const on = await shareWithOther({ prefix, notify: true });
+        expect(on).toMatchObject({ prefix, notify: true });
+
+        const kept = await shareWithOther({ prefix, access: 'write' });
+        expect(kept).toMatchObject({ handle: on.handle, notify: true });
+
+        const listed = async (path: string, token: string) =>
+            (
+                (await (await req('GET', path, token)).json()) as {
+                    items: Array<Record<string, unknown>>;
+                }
+            ).items.find((row) => row.handle === on.handle);
+        expect(
+            await listed('/kv/shares?limit=200', env.users.user.token),
+        ).toMatchObject({ notify: true });
+        expect(
+            await listed('/kv/shares/with-me?limit=200', env.users.other.token),
+        ).toMatchObject({ notify: true });
+
+        const off = await shareWithOther({ prefix, notify: false });
+        expect(off).toMatchObject({ handle: on.handle, notify: false });
+
+        const refused = await req('POST', '/kv/shares', env.users.user.token, {
+            prefix,
+            recipient: env.users.other.username,
+            notify: 'yes',
+        });
+        expect(refused.status).toBe(400);
+        await expect(refused.json()).resolves.toMatchObject({
+            code: 'kv_share_notify_invalid',
         });
     });
 
@@ -171,6 +208,7 @@ describe('/kv/shares', () => {
             appUid: null,
             holder: env.users.other.username,
             label: 'Trip',
+            notify: false,
             createdAt: shared.createdAt,
             revokedAt: null,
             revokedBy: null,
@@ -192,6 +230,7 @@ describe('/kv/shares', () => {
             access: 'write',
             appUid: null,
             label: 'Trip',
+            notify: false,
             createdAt: shared.createdAt,
         });
         expect(withMeText).not.toContain(env.users.user.username);
@@ -729,6 +768,30 @@ describe('/kv/shares', () => {
                 await expect(lowered.json()).resolves.toMatchObject({
                     code: 'too_many_requests',
                 });
+            } finally {
+                await resetBudgets(env);
+            }
+        });
+
+        it('counts turning notify on or off as a change', async () => {
+            const prefix = `again-${uuidv4().slice(0, 8)}:`;
+            const other = env.users.other.username;
+            expect((await shareAt(prefix, { recipient: other })).status).toBe(
+                200,
+            );
+            await drain(EVENTS_KV_HANDLE_LIMIT);
+            try {
+                expect(
+                    (await shareAt(prefix, { recipient: other })).status,
+                ).toBe(200);
+                expect(
+                    (
+                        await shareAt(prefix, {
+                            recipient: other,
+                            notify: true,
+                        })
+                    ).status,
+                ).toBe(429);
             } finally {
                 await resetBudgets(env);
             }

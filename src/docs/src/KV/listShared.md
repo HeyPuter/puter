@@ -37,6 +37,7 @@ A `Promise` that resolves to:
     - `access` (String): `'watch'`, `'read'`, or `'write'`.
     - `appUid` (String | null): The app whose data it is, or `null` for the store that belongs to no app.
     - `label` (String | null): Plain text the owner set. Render it as text, with `textContent`, never as HTML.
+    - `notify` (Boolean): Whether you and the owner can send each other notifications through the share with [`puter.notifications.notify()`](/Notifications/notify/).
     - `createdAt` (Number): When the share was made, in Unix seconds.
 - `cursor` (String): Pass it as `cursor` to get the next page. It's included only if there are more pages to load.
 - `total` (Number): The number of live shares across every page. Only included when `includeTotal` is `true`.
