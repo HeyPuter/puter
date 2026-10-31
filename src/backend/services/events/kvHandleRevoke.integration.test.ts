@@ -412,6 +412,88 @@ describe('revoking a handle', () => {
     });
 });
 
+describe('a queued row whose share can`t be checked right now', () => {
+    const handles = () => env.server.stores.kvShareHandle;
+    const pending = () => env.server.stores.pendingDelivery;
+
+    /** A durable `single` on a fresh handle, with a backlog waiting. */
+    const queued = async () => {
+        await clearRows();
+        const { handle } = await mint();
+        const sub = await subscribeDurable(handle);
+        await ownerWrites(`${PREFIX}messages:1`, { body: 'queued' });
+        await vi.waitFor(
+            async () =>
+                expect(await pending().depth(sub.subId)).toBeGreaterThan(0),
+            { timeout: 5_000, interval: 25 },
+        );
+        return { handle, sub, depth: await pending().depth(sub.subId) };
+    };
+
+    /** One sweep pass, reporting whether it went for this row's backlog. */
+    const sweepClaims = async (subId: string) => {
+        const claim = vi.spyOn(pending(), 'claim');
+        try {
+            await events().sweepPending();
+            return claim.mock.calls.some(([id]) => id === subId);
+        } finally {
+            claim.mockRestore();
+        }
+    };
+
+    it('keeps the row and its backlog when the share lookup fails', async () => {
+        const { sub, depth } = await queued();
+
+        const failing = vi
+            .spyOn(handles(), 'getLive')
+            .mockRejectedValue(new Error('lookup unavailable'));
+        try {
+            expect(await sweepClaims(sub.subId)).toBe(false);
+        } finally {
+            failing.mockRestore();
+        }
+
+        expect((await rowOf(sub.subId))?.suspended_reason).toBeNull();
+        expect(await pending().depth(sub.subId)).toBe(depth);
+        expect(await sweepClaims(sub.subId)).toBe(true);
+    });
+
+    it('holds the backlog while the owner is suspended, and hands it out after', async () => {
+        const { handle, sub, depth } = await queued();
+        const live = await handles().getLive(handle);
+
+        const suspended = vi
+            .spyOn(handles(), 'getLive')
+            .mockResolvedValue({ ...live!, ownerSuspended: true });
+        try {
+            expect(await sweepClaims(sub.subId)).toBe(false);
+        } finally {
+            suspended.mockRestore();
+        }
+        expect((await rowOf(sub.subId))?.suspended_reason).toBeNull();
+        expect(await pending().depth(sub.subId)).toBe(depth);
+
+        expect(await sweepClaims(sub.subId)).toBe(true);
+        expect((await rowOf(sub.subId))?.suspended_reason).toBeNull();
+    });
+
+    it('still settles a share that is gone', async () => {
+        const { sub } = await queued();
+
+        const gone = vi.spyOn(handles(), 'getLive').mockResolvedValue(null);
+        try {
+            expect(await sweepClaims(sub.subId)).toBe(false);
+        } finally {
+            gone.mockRestore();
+        }
+
+        expect((await rowOf(sub.subId))?.suspended_reason).toBe(
+            'permission_revoked',
+        );
+        expect(await pending().depth(sub.subId)).toBe(0);
+    });
+});
+
 describe('the owner`s handle listing', () => {
     it('shows what was shared, retired handles included', async () => {
         const { handle } = await mint();
