@@ -119,7 +119,7 @@ Advanced: a handler can call `ack()` to mark the event done before it finishes. 
 
 ## `context` is captured once, up to 4 KB
 
-A handler can't use outside variables (see [`puter.events.handlers`](/Events/handlers/)), so `context` is how values reach it. It's evaluated **once, at this call**. Below, `ctx.endpoint` stays whatever `process.env.INGEST_URL` was when you subscribed, until you subscribe again:
+A handler can't use outside variables (see [`puter.events.handlers`](/Events/handlers/)), so `context` is how values reach it. It's evaluated **once, at this call**. Below, `ctx.endpoint` stays whatever `process.env.INGEST_URL` was when you subscribed, until you change it with [`puter.events.update()`](/Events/update/):
 
 ```js
 await puter.events.onPersistent({

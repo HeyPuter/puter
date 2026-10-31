@@ -564,7 +564,7 @@ Over any of these: `too_many_requests`, except `kv.share.received` notifications
 
 A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients. Each one counts toward the recipient budget, and the call counts once toward the mint budget. When the recipients don't all fit in the recipient budget, the whole call fails with `too_many_requests`, and the part that did fit still counts. A `fetch()` page defaults to 50 events and holds up to 200.
 
-Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one.
+Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one. Changing a subscription's context with [`puter.events.update()`](/Events/update/) counts toward the `subscribe` limit.
 
 #### Delivery
 

@@ -144,6 +144,7 @@ export type {
     PuterEvent,
     PuterKvEvent,
     PuterNotifEvent,
+    UpdatePersistentOptions,
 } from './types/modules/events/types.js';
 export type { EventSubscription } from './types/modules/events/lib/subscription.js';
 export type { EventHandlers } from './types/modules/events/lib/handlers.js';

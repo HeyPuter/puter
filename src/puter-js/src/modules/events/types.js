@@ -229,6 +229,15 @@
  */
 
 /**
+ * What `update()` changes on a persistent subscription.
+ *
+ * @typedef {Object} UpdatePersistentOptions
+ * @property {Record<string, unknown> | null} context Replaces the stored
+ *   `context`, evaluated **now** like the one `onPersistent()` takes. `null`
+ *   clears it. Capped at 4 KB serialized.
+ */
+
+/**
  * A subscription that outlives the connection that made it.
  *
  * `context` values are deliberately absent: the column holds whatever secret
@@ -237,8 +246,8 @@
  * that changes when any value does.
  *
  * @typedef {Object} PersistentSubscription
- * @property {string} subId The subscription's id, and what `unsubscribe()`
- *   names. Stable for the life of the subscription.
+ * @property {string} subId The subscription's id, and what `update()` and
+ *   `unsubscribe()` name. Stable for the life of the subscription.
  * @property {string} subject For `kv:` and `notif:`, the subject in full form,
  *   e.g. `kv:cart` as `kv:<appId>:cart`. For `fs:`, as passed.
  * @property {EventAnchor} anchor The node it is keyed to.

@@ -267,6 +267,13 @@ export interface UnsubscribeRequest {
     subId?: unknown;
 }
 
+/** Body of `POST /events/subscriptions/update`. */
+export interface UpdateDurableRequest {
+    subId?: unknown;
+    /** Replaces the stored context; `null` clears it. */
+    context?: unknown;
+}
+
 /** Body of the `events.ack` verb: which subscription, and which delivery. */
 export interface AckRequest {
     subId?: unknown;
@@ -2036,6 +2043,48 @@ export class EventsService extends PuterService {
         await this.stores.pendingDelivery.purge(subId);
         this.#forget(subId);
         this.#publishGeneration(bump, true);
+    }
+
+    /**
+     * Replace a durable row's `context` in place. Its id, its backlog and
+     * anything in flight are kept, and the next invocation carries the new
+     * value. Spends from the subscribe budget, which is what a replace by
+     * unsubscribe and subscribe would have spent.
+     */
+    async updateDurable(
+        actor: Actor,
+        request: UpdateDurableRequest,
+    ): Promise<{ sub: DurableSubscriptionView }> {
+        if (!this.enabled) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
+
+        await this.#spendCallBudget(holderUserId);
+
+        if (!request || !Object.hasOwn(request, 'context'))
+            throw badRequest('context is required', 'bad_request');
+        const context = parseContext(request.context);
+
+        const subId = String(request.subId ?? '');
+        const row = subId
+            ? await this.stores.durableSubscription.getBySubId(subId)
+            : null;
+        // Absent rather than refused, as unsubscribe answers.
+        if (
+            !row ||
+            row.holderUserId !== holderUserId ||
+            !rowInActorScope(actor, row)
+        )
+            throw unknownSubscription();
+        if (row.context === context) return { sub: toDurableView(row) };
+
+        const updated = await this.stores.durableSubscription.updateContext(
+            row,
+            context,
+        );
+        if (!updated) throw unknownSubscription();
+        this.#publishGeneration(updated.bump, true);
+        return { sub: toDurableView(updated.row) };
     }
 
     /**

@@ -276,6 +276,22 @@ export class EventChannel {
     }
 
     /**
+     * Hand later deliveries to this client's handler with a new context, after
+     * `update()` changed the subscription's. A subscription not routed here is
+     * left alone.
+     *
+     * @internal
+     * @param {string} subId
+     * @param {Record<string, unknown> | null} ctx
+     * @returns {void}
+     */
+    updateDurableContext (subId, ctx) {
+        const registered = this.durable.get(subId);
+        if ( ! registered ) return;
+        registered.ctx = Object.freeze({ ...(ctx ?? {}) });
+    }
+
+    /**
      * Stop routing a persistent subscription here. The subscription is
      * untouched — ending it is `unsubscribe()`, which is a different thing from
      * this page no longer running its handler.

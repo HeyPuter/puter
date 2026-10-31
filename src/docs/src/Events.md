@@ -266,6 +266,7 @@ These Events features are supported out of the box when using Puter.js:
 - **[`subscription.off()`](/Events/off/)** - End a session subscription
 - **[`puter.events.onPersistent()`](/Events/onPersistent/)** - Subscribe with a subscription that keeps running when your app is closed
 - **[`puter.events.list()`](/Events/list/)** - List the persistent subscriptions this caller holds
+- **[`puter.events.update()`](/Events/update/)** - Change a persistent subscription's context without ending it
 - **[`puter.events.unsubscribe()`](/Events/unsubscribe/)** - End a persistent subscription
 - **[`puter.events.fetch()`](/Events/fetch/)** - Read what a subject recorded while nothing was listening
 - **[`puter.events.handlers`](/Events/handlers/)** - Publish, list and remove the named handlers persistent subscriptions run
@@ -286,6 +287,7 @@ You can see various Puter.js Events features in action from the following exampl
   - [Bind to a Handler Version](/playground/events-persistent-pinned/)
   - [List Persistent Subscriptions](/playground/events-list/)
   - [Find Suspended Subscriptions](/playground/events-list-suspended/)
+  - [Change a Subscription's Context](/playground/events-update/)
   - [End a Persistent Subscription](/playground/events-unsubscribe/)
 - Catching up
   - [Catch Up on Notifications](/playground/events-fetch/)

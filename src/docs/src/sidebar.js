@@ -500,6 +500,14 @@ let sidebar = [
                 path: '/Events/list',
             },
             {
+                title: '<code>update()</code>',
+                page_title: '<code>puter.events.update()</code>',
+                title_tag: 'puter.events.update()',
+                icon: '/assets/img/function.svg',
+                source: '/Events/update.md',
+                path: '/Events/update',
+            },
+            {
                 title: '<code>unsubscribe()</code>',
                 page_title: '<code>puter.events.unsubscribe()</code>',
                 title_tag: 'puter.events.unsubscribe()',
