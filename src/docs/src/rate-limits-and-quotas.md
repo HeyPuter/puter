@@ -252,6 +252,8 @@ Before the provider runs, the balance must cover every page the call can be bill
 | Concurrent calls                | 30   | 15   | 8         |
 | Concurrent `list`               | 5    | 3    | 2         |
 
+Calls through [share handles](/KV/share/) into one user's data for one app also share one budget across every holder of those shares. The budget is 6,000 units per 10 seconds on every plan. The budget counts storage use, so large entries and big listings use more of it. Reading counts about 1 unit for every 8 KB read, with each entry rounded up to 4 KB. Writing counts 3 units for every 1 KB of each entry written. Every call counts at least 1 unit. So a `get()` of a small entry counts 1 unit, a `set()` of a value up to 1 KB counts 3, and a `list()` page that reads 1 MB counts 128. Over the budget, calls through those shares fail with `too_many_requests` until older calls leave the 10-second window. Calls the owner makes without a handle don't count toward it.
+
 Sizes are the same for every account:
 
 | Size                      | Limit                                     |

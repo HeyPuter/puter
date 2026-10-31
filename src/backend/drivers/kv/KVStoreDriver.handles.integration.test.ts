@@ -45,6 +45,8 @@ import {
     kvSharePermission,
     type KvShareAccess,
 } from '../../services/kvShare/kvShares.js';
+import { claimRateLimit } from '../../core/http/middleware/rateLimit.js';
+import { kvNamespace } from '../../stores/systemKv/SystemKVStore.js';
 import {
     createTestUser,
     setupPuterTestEnv,
@@ -54,6 +56,7 @@ import {
 import type { IConfig } from '../../types.js';
 import { openCursor, sealCursor } from '../../util/pagination.js';
 import type { KVStoreDriver } from './KVStoreDriver.js';
+import { KV_HANDLE_NAMESPACE_BUDGET } from './limits.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 const GLOBAL = 'os-global';
@@ -243,6 +246,10 @@ afterAll(async () => {
     await env?.shutdown();
 });
 
+/** The redis key of the budget every handle call into a namespace spends. */
+const budgetKey = (user: TestUser, appUid = GLOBAL) =>
+    `rate:kv:handles:${kvNamespace(user.uuid, appUid)}`;
+
 // Every mint spends the 60/min budget, and this file makes more than that.
 beforeEach(async () => {
     for (const user of [owner, guest, stranger]) {
@@ -250,6 +257,7 @@ beforeEach(async () => {
             `rate:${EVENTS_KV_HANDLE_LIMIT.scope}:${user.id}`,
         );
         await env.server.clients.redis.del(`rate:events:subscribe:${user.id}`);
+        await env.server.clients.redis.del(budgetKey(user));
     }
 });
 
@@ -1409,6 +1417,80 @@ describe('what a call costs', () => {
         } finally {
             charged.mockRestore();
         }
+    });
+});
+
+describe('the budget every holder of a namespace shares', () => {
+    const spent = async () =>
+        Number(await env.server.clients.redis.zcard(budgetKey(owner)));
+
+    it('is spent by every holder together, and refuses them all once it is gone', async () => {
+        const prefix = region('budget');
+        await ownerSet(`${prefix}k`, 'v');
+        const forGuest = await share(prefix, 'read');
+        const forStranger = await share(prefix, 'read', { holder: stranger });
+
+        expect(await guestGet(forGuest.handle, 'k')).toBe('v');
+        expect(await guestGet(forStranger.handle, 'k', stranger.actor)).toBe(
+            'v',
+        );
+        expect(await spent()).toBe(2);
+
+        const { limit, window } = KV_HANDLE_NAMESPACE_BUDGET;
+        await claimRateLimit(
+            budgetKey(owner).slice('rate:'.length),
+            limit,
+            window,
+            limit,
+        );
+        for (const call of [
+            () => guestGet(forGuest.handle, 'k'),
+            () => guestGet(forStranger.handle, 'k', stranger.actor),
+        ])
+            await expect(call()).rejects.toMatchObject({
+                statusCode: 429,
+                legacyCode: 'too_many_requests',
+            });
+        // The owner's own calls spend none of it.
+        expect(await ownerGet(`${prefix}k`)).toBe('v');
+        // Nor does another owner's namespace.
+        const { handle: elsewhere } = await shares().mintKvHandle(
+            guest.actor,
+            {
+                prefix: region('budget-other'),
+                recipient: { username: owner.username },
+                access: 'read',
+            },
+            { defaultAccess: 'read' },
+        );
+        expect(await guestGet(elsewhere, 'k', owner.actor)).toBeNull();
+
+        await env.server.clients.redis.del(budgetKey(owner));
+        expect(await guestGet(forGuest.handle, 'k')).toBe('v');
+    });
+
+    it('charges a call by the storage it reads and writes', async () => {
+        const prefix = region('cost');
+        const { handle } = await share(prefix, 'write');
+        const big = 'x'.repeat(100 * 1024);
+        for (const key of ['a', 'b', 'c', 'd'])
+            await ownerSet(`${prefix}big:${key}`, big);
+        expect(await spent()).toBe(0);
+
+        await guestSet(handle, 'small', 'x');
+        await vi.waitFor(async () => expect(await spent()).toBe(3));
+        expect(await guestGet(handle, 'small')).toBe('x');
+        await vi.waitFor(async () => expect(await spent()).toBe(4));
+
+        const page = (await as(guest.actor, (d) =>
+            d.list({ as: 'entries', pattern: 'big:*', ...via(handle) }),
+        )) as unknown[];
+        expect(page).toHaveLength(4);
+        // About 400 KB read, at a unit per 8 KB.
+        await vi.waitFor(async () => {
+            expect(await spent()).toBeGreaterThanOrEqual(4 + 50);
+            expect(await spent()).toBeLessThan(4 + 60);
+        });
     });
 });
 
