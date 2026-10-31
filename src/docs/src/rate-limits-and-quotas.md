@@ -599,7 +599,7 @@ Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one
 
 Failures count as in a row until the handler takes a delivery or an hour passes without another failure; either resets the count to zero.
 
-Only the handler's own failures count, including a run past the 30-second timeout. A run in the events worker that Puter couldn't start or finish, or that threw after a Puter API call from `user` got a `5xx`, a `429`, or a network error, is retried on the same delay schedule and doesn't count. When Puter's answer names a longer wait (`Retry-After`), the retry waits that long, up to 5 minutes. These retries stop only when the delivery goes through or the backlog limits above drop it.
+Only the handler's own failures count, including a run past the 30-second timeout. A run in the events worker that Puter couldn't start or finish, or that threw after a Puter API call from `user` got a `5xx`, a `429`, or a network error, is retried on the same delay schedule and doesn't count. When Puter's answer names a longer wait (`Retry-After`), the retry waits that long, up to 5 minutes. Puter's own failures never suspend a subscription, and the events it holds while retrying stay within the backlog limits above.
 
 Over the deploy limit, deliveries stay queued and retry after the hour rolls over.
 
