@@ -362,10 +362,11 @@ export class NotificationsModule extends EventListener {
         const sent = new Promise((resolve) => {
             pending = () => resolve(undefined);
         });
+        const signal = this.#stopVerifying.signal;
         const syncing = syncWebPush(this.puter, {
             worker,
             onPending: pending,
-            signal: this.#stopVerifying.signal,
+            signal,
         });
         try {
             // The GUI reads the registered device right after.
@@ -375,6 +376,13 @@ export class NotificationsModule extends EventListener {
         } catch (error) {
             if (error?.code === 'push_revoked') await this.#recordOptIn(false);
             throw error;
+        }
+        // A disable() that ran meanwhile wins.
+        if (signal.aborted) {
+            throw new PuterJSError(
+                'Push notifications were turned off while they were being turned on',
+                'push_verification_canceled',
+            );
         }
         this.#workerRegistered = true;
         await this.#recordOptIn(true);

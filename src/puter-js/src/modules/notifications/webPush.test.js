@@ -1393,6 +1393,29 @@ describe('disable', () => {
         expect(store.has(OPT_IN)).toBe(false);
     });
 
+    it('wins over an enable() still in flight', async () => {
+        withBrowser(makeNav({ existing: makeSubscription() }));
+        let announce;
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') return { publicKey: KEY };
+            if (method === 'POST' && route === '/push/web/subscriptions') {
+                return await new Promise((resolve) => {
+                    announce = () => resolve({ status: 'pending' });
+                });
+            }
+            return { removed: true };
+        });
+        const { module } = makeModule();
+        const enabling = module.enable();
+        await vi.waitFor(() => expect(announce).toBeDefined());
+        await module.disable();
+        announce();
+        await expect(enabling).rejects.toMatchObject({
+            code: 'push_verification_canceled',
+        });
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
     it('removes the subscription and forgets the opt-in', async () => {
         store.set(OPT_IN, true);
         const subscription = makeSubscription();
