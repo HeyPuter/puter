@@ -166,7 +166,13 @@ import {
     type CompiledMatch,
 } from './matcher.js';
 import { MatcherCache } from './matcherCache.js';
-import { projectNotifRow, resolveNotifFetch } from './notifFetch.js';
+import {
+    mergeNotifCatchUp,
+    notifFetchCursor,
+    notifFetchPosition,
+    projectNotifRow,
+    resolveNotifFetch,
+} from './notifFetch.js';
 import {
     lookupFsSubject,
     lookupKvSubject,
@@ -2020,36 +2026,53 @@ export class EventsService extends PuterService {
                 : EVENTS_FETCH_LIMIT_DEFAULT,
             EVENTS_FETCH_LIMIT_CAP,
         );
-        const cursored = Number(
+        const from = notifFetchPosition(
             openCursor(
                 request.cursor ?? request.after,
                 this.config.jwt_secret_v2,
-            )?.id,
+            ),
         );
 
         // One extra row answers "is there another page" without a count.
         // The generic slice is the desktop's view of the mailbox, so it leaves
         // out the types kept off the desktop, as the live delivery does.
-        const rows = await this.stores.notification.listScoped(user.id, {
+        const slice = {
             audience: scope.audience,
             appUid: scope.appUid,
-            after: Number.isFinite(cursored) ? cursored : null,
             limit: limit + 1,
             ...(scope.appUid === undefined
                 ? { excludeTypes: OUTSIDE_ACCOUNT_MAILBOX_TYPES }
                 : {}),
-        });
-
-        const page = rows.slice(0, limit);
+        };
+        // A replacement keeps its row, so rows behind the cursor are read
+        // again by when they were replaced: two indexed reads, not one OR.
+        const [inserted, replaced] = await Promise.all([
+            this.stores.notification.listScoped(user.id, {
+                ...slice,
+                after: from.id,
+            }),
+            from.id === null
+                ? []
+                : this.stores.notification.listReplacedScoped(user.id, {
+                      ...slice,
+                      upTo: from.id,
+                      after: from.replaced,
+                  }),
+        ]);
+        const { rows: page, next } = mergeNotifCatchUp(
+            inserted,
+            replaced,
+            limit,
+            from,
+        );
         const visible = await this.#visibleNotifications(actor, page);
-        const last = page[page.length - 1];
 
         return {
             items: visible.map((row, i) => projectNotifRow(row, user.uuid!, i)),
-            ...(rows.length > limit && last
+            ...(next
                 ? {
                       cursor: sealCursor(
-                          { id: Number(last.id) },
+                          notifFetchCursor(next),
                           this.config.jwt_secret_v2,
                       ),
                   }

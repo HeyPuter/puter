@@ -106,7 +106,8 @@
  *   visible to an app), `notif:app-user` for an app's own, or
  *   `notif:<appId>:<audience>` in full.
  * @property {string} [cursor] The `cursor` from the previous page. Absent
- *   starts from the oldest notification still kept.
+ *   starts from the oldest notification still kept. A read from a cursor also
+ *   returns notifications replaced since, even ones from earlier pages.
  * @property {string} [after] The older name for `cursor`, still accepted.
  *   `cursor` wins when both are given.
  * @property {number} [limit] Events per page. Capped at 200; defaults to 50.

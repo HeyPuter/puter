@@ -553,6 +553,39 @@ describe('onNotification', () => {
         });
     });
 
+    it('hands over a replacement from an earlier page after a reconnect, once', async () => {
+        const replacement = event(
+            'n-1',
+            { title: 'two' },
+            { replaced: true, ts: 2_000 },
+        );
+        const events = makeEvents({
+            pages: [
+                { items: [event('n-1'), event('n-2')], cursor: 'c-1' },
+                { items: [event('n-3')] },
+                // From the saved cursor: the last page again, plus the
+                // replacement of a notification on the page before it.
+                { items: [event('n-3'), replacement] },
+            ],
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+        await notifications.onNotification((n) => seen.push([n.uid, n.title]));
+
+        // Its live copy arrives first, so the fetched one is a repeat.
+        events.state.push(replacement);
+        events.state.push({ op: 'gap', reason: 'reconnect' });
+        await flush();
+
+        expect(seen).toEqual([
+            ['n-1', 'title n-1'],
+            ['n-2', 'title n-2'],
+            ['n-3', 'title n-3'],
+            ['n-1', 'two'],
+        ]);
+        expect(events.state.fetches.at(-1)).toMatchObject({ cursor: 'c-1' });
+    });
+
     it('with catchUp: false, skips what was there but not what arrives', async () => {
         let release;
         const gate = new Promise((resolve) => {

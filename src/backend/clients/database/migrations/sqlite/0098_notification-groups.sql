@@ -24,10 +24,15 @@
 --   - `replaced_at` : epoch milliseconds of the last replacement, null for a
 --                     row never replaced. Live and fetched copies carry it as
 --                     their version, so a client can tell a replacement from a
---                     copy it already has.
+--                     copy it already has. Indexed per mailbox slice, so a
+--                     catch-up reads the rows replaced since its cursor
+--                     without scanning the ones that never were.
 
 ALTER TABLE `notification` ADD COLUMN `group_key` TEXT DEFAULT NULL;
 ALTER TABLE `notification` ADD COLUMN `replaced_at` INTEGER DEFAULT NULL;
 
 CREATE INDEX IF NOT EXISTS `idx_notification_group`
     ON `notification` (`user_id`, `app_uid`, `group_key`);
+
+CREATE INDEX IF NOT EXISTS `idx_notification_replaced`
+    ON `notification` (`user_id`, `audience`, `app_uid`, `replaced_at`);

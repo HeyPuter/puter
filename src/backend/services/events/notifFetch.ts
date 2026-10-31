@@ -91,23 +91,130 @@ const epochMs = (value: unknown): number => {
     return 0;
 };
 
+type NotifRow = Record<string, unknown>;
+
+/** Drivers hand a bigint back as a number or a string. */
+const replacedAtOf = (row: NotifRow): number | null =>
+    row.replaced_at === null || row.replaced_at === undefined
+        ? null
+        : Number(row.replaced_at);
+
+/** A row's `ts`: when it was replaced, or else when it was created. */
+const rowTs = (row: NotifRow): number =>
+    replacedAtOf(row) ?? epochMs(row.created_at);
+
+/** A replacement's place in replacement order. */
+interface ReplacedKey {
+    replacedAt: number;
+    id: number;
+}
+
+/**
+ * Where a catch-up resumes: after `id`, the last row read in insertion order
+ * (null before the first page), and after `replaced`, the last replacement read
+ * among the rows up to `id`.
+ */
+export interface NotifFetchPosition {
+    id: number | null;
+    replaced: ReplacedKey;
+}
+
+/** The position an opened cursor names. A missing part starts from scratch. */
+export const notifFetchPosition = (
+    cursor: Record<string, unknown> | undefined,
+): NotifFetchPosition => {
+    const id = Number(cursor?.id);
+    const replacedAt = Number(cursor?.replacedAt);
+    const replacedId = Number(cursor?.replacedId);
+    return {
+        id: Number.isSafeInteger(id) && id >= 0 ? id : null,
+        replaced:
+            Number.isSafeInteger(replacedAt) && Number.isSafeInteger(replacedId)
+                ? { replacedAt, id: replacedId }
+                : { replacedAt: 0, id: 0 },
+    };
+};
+
+/** The cursor payload for `position`. */
+export const notifFetchCursor = (
+    position: NotifFetchPosition,
+): Record<string, unknown> => ({
+    id: position.id,
+    replacedAt: position.replaced.replacedAt,
+    replacedId: position.replaced.id,
+});
+
+const laterKey = (a: ReplacedKey, b: ReplacedKey): ReplacedKey =>
+    a.replacedAt > b.replacedAt ||
+    (a.replacedAt === b.replacedAt && a.id > b.id)
+        ? a
+        : b;
+
+const replacedKeyOf = (row: NotifRow): ReplacedKey => ({
+    replacedAt: replacedAtOf(row) ?? 0,
+    id: Number(row.id),
+});
+
+/**
+ * One catch-up page from its two reads, each `limit + 1` deep: `inserted`, the
+ * rows after `from.id` in id order, and `replaced`, the rows up to it replaced
+ * after `from.replaced`, in replacement order. Merged oldest first by `ts`.
+ * `next` is where the following page starts, or null on the last page.
+ */
+export const mergeNotifCatchUp = (
+    inserted: NotifRow[],
+    replaced: NotifRow[],
+    limit: number,
+    from: NotifFetchPosition,
+): { rows: NotifRow[]; next: NotifFetchPosition | null } => {
+    const rows: NotifRow[] = [];
+    let i = 0;
+    let r = 0;
+    while (
+        rows.length < limit &&
+        (i < inserted.length || r < replaced.length)
+    ) {
+        const takeReplaced =
+            r < replaced.length &&
+            (i === inserted.length || rowTs(replaced[r]) < rowTs(inserted[i]));
+        rows.push(takeReplaced ? replaced[r++] : inserted[i++]);
+    }
+    if (i === inserted.length && r === replaced.length)
+        return { rows, next: null };
+
+    // With every replacement behind `from.id` read, each row up to the new id
+    // was read as it stands, so the mark moves past all of them.
+    const mark =
+        r === replaced.length
+            ? rows
+                  .filter((row) => replacedAtOf(row) !== null)
+                  .map(replacedKeyOf)
+                  .reduce(laterKey, from.replaced)
+            : r > 0
+              ? replacedKeyOf(replaced[r - 1])
+              : from.replaced;
+    return {
+        rows,
+        next: {
+            id: i > 0 ? Number(inserted[i - 1].id) : from.id,
+            replaced: mark,
+        },
+    };
+};
+
 /**
  * One stored notification in the shape a live delivery has. `id` is the row's
  * uid on both paths, so a client that fetched a row and then received it can
  * tell they are the same notification.
  */
 export const projectNotifRow = (
-    row: Record<string, unknown>,
+    row: NotifRow,
     userUuid: string,
     seq: number,
 ): ProjectedNotifEvent => {
     const appUid = (row.app_uid as string | null) ?? null;
     const audience = (row.audience as NotificationAudience) ?? 'account';
-    // Drivers hand a bigint back as a number or a string.
-    const replacedAt =
-        row.replaced_at === null || row.replaced_at === undefined
-            ? null
-            : Number(row.replaced_at);
+    const replacedAt = replacedAtOf(row);
     return {
         id: String(row.uid),
         subject: `notif:${appUid ?? userUuid}:${audience}`,
@@ -120,7 +227,7 @@ export const projectNotifRow = (
         ...(replacedAt !== null ? { replaced: true as const } : {}),
         // A fetched row is always the caller's own mailbox.
         self: true,
-        ts: replacedAt ?? epochMs(row.created_at),
+        ts: rowTs(row),
         seq,
     };
 };

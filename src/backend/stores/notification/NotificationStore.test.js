@@ -368,6 +368,46 @@ describe('NotificationStore', () => {
         ).toEqual([mine.uid, unattributed.uid].sort());
     });
 
+    it('reads a slice`s replacements up to an id, in replacement order', async () => {
+        const u = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const write = (inApp = appUid) =>
+            store.create({
+                userId: u.id,
+                value: {},
+                audience: 'app-user',
+                appUid: inApp,
+            });
+        const replace = (row, replacedAt) =>
+            store.updateValue(row.uid, u.id, {}, { replacedAt });
+
+        const a = await write();
+        const b = await write();
+        const c = await write();
+        const otherApp = await write(`app-${uuidv4()}`);
+        const never = await write();
+        const past = await write();
+        await replace(a, 2_000);
+        await replace(b, 1_000);
+        await replace(c, 2_000);
+        await replace(otherApp, 1_500);
+        await replace(past, 500);
+        const read = (after) =>
+            store.listReplacedScoped(u.id, {
+                audience: 'app-user',
+                appUid,
+                upTo: Number(never.id),
+                after,
+                limit: 10,
+            });
+
+        const all = await read({ replacedAt: 0, id: 0 });
+        expect(all.map((r) => r.uid)).toEqual([b.uid, a.uid, c.uid]);
+        // Same millisecond: the row id carries the order on.
+        const rest = await read({ replacedAt: 2_000, id: Number(a.id) });
+        expect(rest.map((r) => r.uid)).toEqual([c.uid]);
+    });
+
     // -- mutations -----------------------------------------------------
 
     it('acknowledges only once and only for the owning user', async () => {

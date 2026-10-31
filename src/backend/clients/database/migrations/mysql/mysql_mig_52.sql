@@ -23,9 +23,9 @@
 CALL _puter_add_col('notification', 'group_key', '`group_key` char(64) CHARACTER SET ascii COLLATE ascii_bin DEFAULT NULL');
 CALL _puter_add_col('notification', 'replaced_at', '`replaced_at` bigint DEFAULT NULL');
 
-DROP PROCEDURE IF EXISTS _puter_add_notification_group_index;
+DROP PROCEDURE IF EXISTS _puter_add_notification_group_indexes;
 DELIMITER //
-CREATE PROCEDURE _puter_add_notification_group_index()
+CREATE PROCEDURE _puter_add_notification_group_indexes()
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
@@ -36,9 +36,18 @@ BEGIN
     ALTER TABLE `notification` ADD INDEX `idx_notification_group`
       (`user_id`, `app_uid`, `group_key`);
   END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'notification'
+      AND INDEX_NAME = 'idx_notification_replaced'
+  ) THEN
+    ALTER TABLE `notification` ADD INDEX `idx_notification_replaced`
+      (`user_id`, `audience`, `app_uid`, `replaced_at`);
+  END IF;
 END//
 DELIMITER ;
 
-CALL _puter_add_notification_group_index();
+CALL _puter_add_notification_group_indexes();
 
-DROP PROCEDURE IF EXISTS _puter_add_notification_group_index;
+DROP PROCEDURE IF EXISTS _puter_add_notification_group_indexes;

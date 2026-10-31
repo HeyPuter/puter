@@ -7,7 +7,8 @@ export const SUBJECT = 'notif:app-user';
 const PAGE_SIZE = 200;
 // Retention bounds a read; this only ends a cursor that never runs out.
 const MAX_PAGES = 100_000;
-// A read restarts at the last cursor: only its last page and later can repeat.
+// A read restarts at the last cursor: only its last page and what changed since
+// can repeat.
 const REMEMBERED = 5000;
 
 /** Notes `uid` at `version`, dropping the oldest entry past `keep`. */

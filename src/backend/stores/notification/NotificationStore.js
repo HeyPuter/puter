@@ -40,6 +40,40 @@ import { PuterStore } from '../types';
 const groupKey = (group) =>
     group ? createHash('sha256').update(group, 'utf8').digest('hex') : null;
 
+const pageLimit = (limit) => {
+    const n = Number(limit);
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 50;
+};
+
+/**
+ * The WHERE terms that pick one mailbox slice. `appUid: null` is the rows about
+ * no app; `undefined` is every app.
+ *
+ * @param {number} userId
+ * @param {{
+ *     audience: string;
+ *     appUid?: string | null;
+ *     excludeTypes: readonly string[];
+ * }} scope
+ */
+const sliceWhere = (userId, { audience, appUid, excludeTypes }) => {
+    const where = ['`user_id` = ?', '`audience` = ?'];
+    const params = [userId, audience];
+    if (excludeTypes.length > 0) {
+        where.push(
+            `\`type\` NOT IN (${excludeTypes.map(() => '?').join(', ')})`,
+        );
+        params.push(...excludeTypes);
+    }
+    if (appUid === null) {
+        where.push('`app_uid` IS NULL');
+    } else if (appUid !== undefined) {
+        where.push('`app_uid` = ?');
+        params.push(appUid);
+    }
+    return { where, params };
+};
+
 export class NotificationStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
@@ -186,24 +220,14 @@ export class NotificationStore extends PuterStore {
         userId,
         { audience, appUid, after = null, limit = 50, excludeTypes = [] },
     ) {
-        const n = Number(limit);
-        const safeLimit = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 50;
+        const safeLimit = pageLimit(limit);
         if (safeLimit === 0) return [];
 
-        const where = ['`user_id` = ?', '`audience` = ?'];
-        const params = [userId, audience];
-        if (excludeTypes.length > 0) {
-            where.push(
-                `\`type\` NOT IN (${excludeTypes.map(() => '?').join(', ')})`,
-            );
-            params.push(...excludeTypes);
-        }
-        if (appUid === null) {
-            where.push('`app_uid` IS NULL');
-        } else if (appUid !== undefined) {
-            where.push('`app_uid` = ?');
-            params.push(appUid);
-        }
+        const { where, params } = sliceWhere(userId, {
+            audience,
+            appUid,
+            excludeTypes,
+        });
         if (after !== null && Number.isFinite(Number(after))) {
             where.push('`id` > ?');
             params.push(Math.floor(Number(after)));
@@ -213,6 +237,52 @@ export class NotificationStore extends PuterStore {
             `SELECT * FROM \`notification\`
              WHERE ${where.join(' AND ')}
              ORDER BY \`id\` ASC
+             LIMIT ?`,
+            [...params, safeLimit],
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
+    /**
+     * The rows of a mailbox slice up to id `upTo` that were replaced after
+     * `after`, in replacement order: what a client that read up to `upTo` has
+     * not seen since. Keyset on (`replaced_at`, `id`), so rows replaced in the
+     * same millisecond page without a repeat or a skip. Scoped like
+     * `listScoped`.
+     *
+     * @param {number} userId
+     * @param {{
+     *     audience: string;
+     *     appUid?: string | null;
+     *     upTo: number;
+     *     after: { replacedAt: number; id: number };
+     *     limit?: number;
+     *     excludeTypes?: readonly string[];
+     * }} opts
+     */
+    async listReplacedScoped(
+        userId,
+        { audience, appUid, upTo, after, limit = 50, excludeTypes = [] },
+    ) {
+        const safeLimit = pageLimit(limit);
+        if (safeLimit === 0) return [];
+
+        const { where, params } = sliceWhere(userId, {
+            audience,
+            appUid,
+            excludeTypes,
+        });
+        where.push(
+            '`id` <= ?',
+            '`replaced_at` >= ?',
+            '(`replaced_at` > ? OR `id` > ?)',
+        );
+        params.push(upTo, after.replacedAt, after.replacedAt, after.id);
+
+        const rows = await this.clients.db.read(
+            `SELECT * FROM \`notification\`
+             WHERE ${where.join(' AND ')}
+             ORDER BY \`replaced_at\` ASC, \`id\` ASC
              LIMIT ?`,
             [...params, safeLimit],
         );

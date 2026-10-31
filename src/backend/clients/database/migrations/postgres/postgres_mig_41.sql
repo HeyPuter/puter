@@ -24,3 +24,6 @@ ALTER TABLE notification ADD COLUMN IF NOT EXISTS replaced_at bigint DEFAULT NUL
 
 CREATE INDEX IF NOT EXISTS idx_notification_group
     ON notification (user_id, app_uid, group_key);
+
+CREATE INDEX IF NOT EXISTS idx_notification_replaced
+    ON notification (user_id, audience, app_uid, replaced_at);

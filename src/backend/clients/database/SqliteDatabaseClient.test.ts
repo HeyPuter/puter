@@ -712,6 +712,18 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
         );
     });
 
+    it('indexes notification.replaced_at per mailbox slice for catch-up', async () => {
+        const columns = await client.read(
+            'PRAGMA index_info(`idx_notification_replaced`)',
+        );
+        expect(columns.map((c) => String(c.name))).toEqual([
+            'user_id',
+            'audience',
+            'app_uid',
+            'replaced_at',
+        ]);
+    });
+
     it('leaves an already-migrated database untouched on a second boot', async () => {
         const dir = mkdtempSync(join(tmpdir(), 'puter-sqlite-'));
         const path = join(dir, 'nested', 'puter.sqlite');

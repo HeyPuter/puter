@@ -26,7 +26,7 @@ puter.events.fetch(options)
 #### `options` (Object) (required)
 
 - `subject` (String) (required): What to read: `notif:app-user` (the ones belonging to the app you're running as), `notif:developer` (about your app, for its owner), or `notif:<appId>:<audience>`. Audiences are `account`, `developer` (about an app, sent to its owner), and `app-user` (about your data inside an app). Apps and websites never see `account` notifications: `notif:account` returns an empty page for them.
-- `cursor` (String): The `cursor` from the previous page. Leave it off to start from the oldest notification still kept.
+- `cursor` (String): The `cursor` from the previous page. Leave it off to start from the oldest notification still kept. A read from a cursor returns the notifications created after it, plus any notification [replaced](/Notifications/notify/#groups) since that page was read, even one from an earlier page.
 - `after` (String): The older name for `cursor`, still accepted. If both are given, `cursor` is used.
 - `limit` (Number): Events per page. Defaults to 50, max 200.
 

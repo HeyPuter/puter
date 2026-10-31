@@ -165,6 +165,11 @@ cursor. Only the newest ones can come back, so the last 200 are enough. On a
 first visit there is no saved cursor, so `cursor` is `undefined` and
 `catchUp()` shows every notification Puter still keeps.
 
+A read from the saved cursor also returns any notification replaced since,
+even one from before the cursor. A notification your app replaced while the
+page was closed comes back with `replaced` set and its new `ts`, and
+`showOnce()` shows it.
+
 A [gap](/recipes/watch-for-changes/#handle-gaps) means notifications were not
 delivered, and one also arrives after a reconnect. Calling `catchUp()` on a gap
 reads what was missed, and `showOnce()` skips the rest.

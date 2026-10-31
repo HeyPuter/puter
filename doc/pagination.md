@@ -59,6 +59,10 @@ store:
   row — and the query seeks past it (`WHERE (col, id) > (?, ?) ORDER BY col,
   id`). Any SQL list gaining a cursor must have a deterministic `ORDER BY`
   ending in a unique tiebreaker (`id`).
+- The notification catch-up (`GET /events/fetch`) holds two keysets in one
+  sealed cursor: the last `id` it returned, and the last `(replaced_at, id)`
+  among rows up to that id. Each is its own indexed read, merged into one
+  page, so a row replaced after a client read it comes back from that cursor.
 
 Cursors that carry a sort also pin it: a request that passes a cursor plus a
 conflicting sort is rejected with 400.
