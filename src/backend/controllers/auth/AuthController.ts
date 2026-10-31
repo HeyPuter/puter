@@ -3828,6 +3828,10 @@ export class AuthController extends PuterController {
                 await this.services.auth.subdomainOwnerIdFromOrigin(
                     canonicalOrigin,
                 );
+            // A deleted app's key-value shares would reattach to the new row
+            // under the reused uid. Retired before the row exists and allowed
+            // to throw, so a failure leaves no row and the next launch retries.
+            await this.services.kvShare.retireBeforeAppUidReuse(app_uid);
             app = await this.stores.app.createFromOrigin(
                 app_uid,
                 canonicalOrigin,

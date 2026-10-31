@@ -1651,19 +1651,20 @@ export class SystemKVStore extends PuterStore {
 
     /**
      * Reserved items whose key starts with `prefix`, in the system namespace.
-     * One page only: today's one caller (presence) is bounded by
-     * deployed-region count. Expired rows are excluded the same way `list`
-     * excludes them, so a caller never sees one the table's own sweep has not
-     * reclaimed yet.
+     * One page only, of at most `limit` items when given: a caller either has a
+     * bounded set (presence: one item per region) or takes the rest on a later
+     * call. Expired rows are excluded the same way `list` excludes them, so a
+     * caller never sees one the table's own sweep has not reclaimed yet.
      */
     async queryReservedItems<T extends Record<string, unknown>>(
         prefix: string,
+        { limit = 0 }: { limit?: number } = {},
     ): Promise<T[]> {
         const now = Date.now() / 1000;
         const response = await this.clients.dynamo.query(
             this.tableName,
             { namespace: SYSTEM_NAMESPACE },
-            0,
+            limit,
             undefined,
             '',
             false,
@@ -1761,6 +1762,36 @@ export class SystemKVStore extends PuterStore {
                 { ...conditionValues, ':expired': 1 },
                 { ...conditionNames, '#ttl': 'ttl' },
                 { condition },
+            );
+            return true;
+        } catch (err) {
+            if (isConditionRefused(err)) return false;
+            throw err;
+        }
+    }
+
+    /**
+     * Delete one reserved item, conditional on an attribute the caller read
+     * still holding. False means the item changed or is already gone.
+     */
+    async deleteReservedItemIf(
+        key: string,
+        condition: string,
+        conditionValues: Record<string, unknown>,
+        conditionNames: Record<string, string> = {},
+    ): Promise<boolean> {
+        assertKey(key);
+        try {
+            await this.clients.dynamo.del(
+                this.tableName,
+                { namespace: SYSTEM_NAMESPACE, key },
+                {
+                    condition: {
+                        expression: condition,
+                        values: conditionValues,
+                        names: conditionNames,
+                    },
+                },
             );
             return true;
         } catch (err) {
@@ -2765,12 +2796,17 @@ export class SystemKVStore extends PuterStore {
     /**
      * Delete up to `maxItems` items of one user's app namespace, as the
      * platform: no mutation events and no usage. Idempotent; `done` once the
-     * namespace is empty.
+     * namespace is empty. `stillWanted` is asked before each page is deleted,
+     * after its keys are read, and a no ends the call with `stopped`: what's
+     * written once it would say no is kept.
      */
     async purgeNamespace(
         namespace: string,
-        { maxItems }: { maxItems: number },
-    ): Promise<{ deleted: number; done: boolean }> {
+        {
+            maxItems,
+            stillWanted,
+        }: { maxItems: number; stillWanted?: () => Promise<boolean> },
+    ): Promise<{ deleted: number; done: boolean; stopped?: boolean }> {
         const parsed = parseKvNamespace(namespace);
         if (
             !parsed ||
@@ -2787,7 +2823,9 @@ export class SystemKVStore extends PuterStore {
             const page = await this.#deletePage(namespace, pageKey, {
                 limit: Math.min(maxItems - deleted, PURGE_PAGE_ITEMS),
                 consistent: true,
+                beforeDelete: stillWanted,
             });
+            if (page.stopped) return { deleted, done: false, stopped: true };
             deleted += page.deleted;
             pageKey = page.pageKey;
             if (!pageKey) return { deleted, done: true };
@@ -2804,11 +2842,20 @@ export class SystemKVStore extends PuterStore {
     async #deletePage(
         namespace: string,
         pageKey: Record<string, unknown> | undefined,
-        { limit = 0, consistent }: { limit?: number; consistent: boolean },
+        {
+            limit = 0,
+            consistent,
+            beforeDelete,
+        }: {
+            limit?: number;
+            consistent: boolean;
+            beforeDelete?: () => Promise<boolean>;
+        },
     ): Promise<{
         deleted: number;
         usage: KVUsage;
         pageKey?: Record<string, unknown>;
+        stopped?: boolean;
     }> {
         const response = await this.clients.dynamo.query(
             this.tableName,
@@ -2823,6 +2870,8 @@ export class SystemKVStore extends PuterStore {
             response.ConsumedCapacity?.CapacityUnits as number | undefined,
         );
         const keys = (response.Items ?? []).map((entry) => String(entry.key));
+        if (keys.length > 0 && beforeDelete && !(await beforeDelete()))
+            return { deleted: 0, usage, stopped: true };
         if (keys.length > 0) {
             try {
                 const deleted = await this.clients.dynamo.batchDel(

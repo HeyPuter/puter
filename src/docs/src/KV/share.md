@@ -87,6 +87,8 @@ Sharing the same prefix of the same app's data with the same user again changes 
 
 Leave out `label` to keep the current label, pass a new one to replace it, or pass `null` to clear it.
 
+Concurrent calls that share the same prefix with the same user make one share. Every call resolves to it, with the `access` and `label` of the call that made it.
+
 ## What the holder sees
 
 The holder is never told who shared or what the prefix is. The keys they read and write are relative to the prefix. The label is the only thing about the share you choose to tell them.

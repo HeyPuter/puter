@@ -600,19 +600,27 @@ export class KvShareHandleStore extends PuterStore {
     /**
      * One batch of live handles in these apps' namespaces, oldest first. A
      * deleted app's handles are retired off this; the caller repeats until a
-     * batch comes back short.
+     * batch comes back short. `createdAtMost` (unix seconds) leaves out handles
+     * made later, which belong to an app registered since under the same uid.
      */
     async listLiveForApps(
         appUids: readonly string[],
         limit = KV_HANDLE_RETIRE_BATCH,
+        createdAtMost?: number,
     ): Promise<KvShareHandle[]> {
         const unique = [...new Set(appUids)];
         if (unique.length === 0) return [];
+        const created =
+            createdAtMost === undefined ? '' : 'AND `created_at` <= ? ';
         const rows = await this.clients.db.pread(
             `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
                 `WHERE \`app_uid\` IN (${unique.map(() => '?').join(', ')}) ` +
-                'AND `revoked_at` IS NULL ORDER BY `id` LIMIT ?',
-            [...unique, limit],
+                `AND \`revoked_at\` IS NULL ${created}ORDER BY \`id\` LIMIT ?`,
+            [
+                ...unique,
+                ...(createdAtMost === undefined ? [] : [createdAtMost]),
+                limit,
+            ],
         );
         return rows.map(toRow);
     }
@@ -620,20 +628,48 @@ export class KvShareHandleStore extends PuterStore {
     /**
      * One batch of live handles one owner holds out in one app's namespace,
      * oldest first, over the `(owner_user_id, app_uid, id)` index. The caller
-     * repeats until a batch comes back short.
+     * repeats until a batch comes back short. `createdAtMost` as in
+     * {@link listLiveForApps}.
      */
     async listLiveForOwnerApp(
         ownerUserId: number,
         appUid: string,
         limit = KV_HANDLE_RETIRE_BATCH,
+        createdAtMost?: number,
     ): Promise<KvShareHandle[]> {
+        const created =
+            createdAtMost === undefined ? '' : 'AND `created_at` <= ? ';
         const rows = await this.clients.db.pread(
             `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
                 'WHERE `owner_user_id` = ? AND `app_uid` = ? ' +
-                'AND `revoked_at` IS NULL ORDER BY `id` LIMIT ?',
-            [ownerUserId, appUid, limit],
+                `AND \`revoked_at\` IS NULL ${created}ORDER BY \`id\` LIMIT ?`,
+            [
+                ownerUserId,
+                appUid,
+                ...(createdAtMost === undefined ? [] : [createdAtMost]),
+                limit,
+            ],
         );
         return rows.map(toRow);
+    }
+
+    /**
+     * One batch of live handles one user holds, by id after `afterId`, over the
+     * grantee index. Deleting the holder's account retires off this before its
+     * rows cascade away.
+     */
+    async listLiveHeldBy(
+        granteeUserId: number,
+        afterId = 0,
+        limit = KV_HANDLE_RETIRE_BATCH,
+    ): Promise<Array<KvShareHandle & { id: number }>> {
+        const rows = await this.clients.db.pread(
+            `SELECT \`id\`, ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                'WHERE `grantee_user_id` = ? AND `id` > ? ' +
+                'AND `revoked_at` IS NULL ORDER BY `id` LIMIT ?',
+            [granteeUserId, afterId, limit],
+        );
+        return rows.map((row) => ({ ...toRow(row), id: Number(row.id) }));
     }
 
     /**

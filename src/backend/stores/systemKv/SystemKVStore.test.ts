@@ -897,6 +897,67 @@ describe('SystemKVStore', () => {
                 ).rejects.toThrow();
             }
         });
+
+        it('asks stillWanted before deleting a page, and stops on a no', async () => {
+            await seed(3);
+            let asked = 0;
+            expect(
+                await target.purgeNamespace(namespaceOf(), {
+                    maxItems: 10,
+                    stillWanted: async () => {
+                        asked++;
+                        return false;
+                    },
+                }),
+            ).toEqual({ deleted: 0, done: false, stopped: true });
+            expect(asked).toBe(1);
+            expect(
+                (await target.list({ as: 'keys' }, appOpts())).res,
+            ).toHaveLength(3);
+
+            expect(
+                await target.purgeNamespace(namespaceOf(), {
+                    maxItems: 10,
+                    stillWanted: async () => true,
+                }),
+            ).toEqual({ deleted: 3, done: true });
+        });
+    });
+
+    describe('reserved items', () => {
+        const prefix = () =>
+            `test-reserved#${Math.random().toString(36).slice(2)}#`;
+
+        it('deletes one only while its condition holds', async () => {
+            const key = `${prefix()}item`;
+            const ifVersion = (version: number) =>
+                target.deleteReservedItemIf(
+                    key,
+                    '#v = :v',
+                    { ':v': version },
+                    { '#v': 'version' },
+                );
+            await target.putReservedItem(key, { version: 1 });
+
+            expect(await ifVersion(2)).toBe(false);
+            expect(await target.getReservedItem(key)).toMatchObject({
+                version: 1,
+            });
+            expect(await ifVersion(1)).toBe(true);
+            expect(await target.getReservedItem(key)).toBeNull();
+            expect(await ifVersion(1)).toBe(false);
+        });
+
+        it('lists at most `limit` of them', async () => {
+            const shared = prefix();
+            for (const name of ['a', 'b', 'c'])
+                await target.putReservedItem(`${shared}${name}`, { n: 1 });
+
+            expect(
+                await target.queryReservedItems(shared, { limit: 2 }),
+            ).toHaveLength(2);
+            expect(await target.queryReservedItems(shared)).toHaveLength(3);
+        });
     });
 
     describe('expireAt / expire', () => {
