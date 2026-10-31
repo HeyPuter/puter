@@ -24,7 +24,7 @@ A page of your site shows the notification itself when all of these are true:
 
 It shows what the handler returns, or the notification's own title and text when no handler matches the notification's `channel`. Inside the Puter desktop, Puter shows it instead.
 
-So a push goes out when no page of your app is open, or when the open pages are in the background and can't show the notification themselves. A page that loads an older version of Puter.js, such as one bundled from npm, holds the push back whenever it's open.
+So a push goes out when no page of your app is open, or when the open pages are in the background and can't show the notification themselves. A page that loads an older version of Puter.js, such as one bundled from npm, holds the push back while it's visible. A page with a version from before Puter asked pages whether they received a notification holds it back whenever it's open.
 
 ## A website on its own domain
 
