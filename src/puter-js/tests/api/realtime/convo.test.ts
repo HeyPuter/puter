@@ -433,17 +433,25 @@ describe('convo built SDK and browser media', () => {
         const warn = vi.spyOn(console, 'warn');
         try {
             await conversation.connect();
-            auth.mockRejectedValueOnce(new Error('auth store unavailable'));
+            // Every lookup fails, the SDK's own socket.io connection included,
+            // until the relay has refused a reconnect attempt on one.
+            auth.mockRejectedValue(new Error('auth store unavailable'));
             for (const socket of proxied) socket.destroy();
+            await vi.waitFor(
+                () =>
+                    expect(warn).toHaveBeenCalledWith(
+                        '[realtime] credential lookup failed',
+                        expect.objectContaining({
+                            message: 'auth store unavailable',
+                        }),
+                    ),
+                { timeout: 10_000 },
+            );
+            auth.mockRestore();
             await log.until(() =>
                 log.events.some(
                     (event) => event.type === 'ready' && event.reconnected,
                 ),
-            );
-            // The first attempt failed its lookup, a later one went through.
-            expect(warn).toHaveBeenCalledWith(
-                '[realtime] credential lookup failed',
-                expect.objectContaining({ message: 'auth store unavailable' }),
             );
             expect(log.count('reconnecting')).toBe(1);
             conversation.sendText('Still there?');
