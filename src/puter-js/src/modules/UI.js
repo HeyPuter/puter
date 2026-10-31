@@ -2414,6 +2414,13 @@ export class UIModule extends EventListener {
         return this.#guiFeatures.includes(feature);
     }
 
+    /** Backs `puter.notifications.status()` inside the desktop: this browser's push state for this app, or null from a desktop that can't answer. @internal @returns {Promise<string | null>} */
+    async pushStatus_ () {
+        if ( this.env !== 'app' || ! this.#guiOffers('push-status') ) return null;
+        const result = await this.#ipc_stub({ method: 'pushStatus', parameters: {} });
+        return typeof result?.state === 'string' ? result.state : null;
+    }
+
     /** Offers to turn push on in the user's browser, for `puter.notifications.enablePush()`: the desktop shows the offer in the `app` environment, a popup on the Puter origin does in `web` (call it from a click), and every other environment resolves `false`. @internal @returns {Promise<boolean>} `true` when this browser now receives pushes */
     async enablePush () {
         if ( this.env === 'app' ) {

@@ -1028,6 +1028,28 @@ describe('enablePush', () => {
     });
 });
 
+describe('status inside the desktop', () => {
+    it('answers what the desktop says', async () => {
+        const ui = { ...makeUI(), pushStatus_: vi.fn(async () => 'on') };
+        expect(await makeModule({ ui }).status()).toBe('on');
+        expect(ui.pushStatus_).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        ['a desktop that can`t answer', async () => null],
+        ['an answer it doesn`t know', async () => 'maybe'],
+        [
+            'a failed answer',
+            async () => {
+                throw new Error('ipc_handler_failed');
+            },
+        ],
+    ])('is unavailable for %s', async (_, pushStatus_) => {
+        const ui = { ...makeUI(), pushStatus_: vi.fn(pushStatus_) };
+        expect(await makeModule({ ui }).status()).toBe('unavailable');
+    });
+});
+
 describe('devices', () => {
     const device = {
         uid: 'd-1',

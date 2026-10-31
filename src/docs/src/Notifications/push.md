@@ -99,6 +99,8 @@ The browser asks for permission on your domain. Puter then sends a confirmation 
 
 The choice sticks. On later page loads, [`onPush()`](/Notifications/onPush/) keeps the registration current without asking again.
 
+To show your button only when it can help, call [`status()`](/Notifications/status/) on page load. It resolves `'off'` while [`enable()`](/Notifications/enable/) can turn pushes on, and `'on'`, `'blocked'` or `'unavailable'` otherwise.
+
 [`enable()`](/Notifications/enable/) resolves `true` when pushes are on in this browser, and `false` when the user didn't allow notifications or the browser can't receive pushes. Every error it rejects with is listed on [`enable()`](/Notifications/enable/#return-value). It rejects with `push_revoked` when the user turned your app off in Puter's settings. That choice stands until the user allows your app again, so call [`requestPermission()`](/Notifications/requestPermission/) from a click, which opens Puter's permission prompt, and then call [`enable()`](/Notifications/enable/) again:
 
 ```js

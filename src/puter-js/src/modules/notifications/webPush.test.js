@@ -1307,6 +1307,69 @@ describe('enable', () => {
     });
 });
 
+describe('status', () => {
+    it('is unavailable where the browser has no Web Push, and outside a page', async () => {
+        const { module } = makeModule();
+        await expect(module.status()).resolves.toBe('unavailable');
+        withBrowser(makeNav());
+        const { module: node } = makeModule({ env: 'nodejs' });
+        await expect(node.status()).resolves.toBe('unavailable');
+    });
+
+    it('is blocked when the browser blocks notifications for the site', async () => {
+        store.set(OPT_IN, true);
+        withBrowser(makeNav({ existing: makeSubscription() }), 'denied');
+        const { module } = makeModule();
+        await expect(module.status()).resolves.toBe('blocked');
+    });
+
+    it('is off before the browser is asked, without a subscription, or without the user`s opt-in', async () => {
+        store.set(OPT_IN, true);
+        withBrowser(makeNav({ existing: makeSubscription() }), 'default');
+        await expect(makeModule().module.status()).resolves.toBe('off');
+
+        withBrowser(makeNav());
+        await expect(makeModule().module.status()).resolves.toBe('off');
+
+        store.delete(OPT_IN);
+        withBrowser(makeNav({ existing: makeSubscription() }));
+        await expect(makeModule().module.status()).resolves.toBe('off');
+    });
+
+    it('is on with a subscription the user turned on here, and off after disable()', async () => {
+        store.set(OPT_IN, true);
+        const nav = makeNav({ existing: makeSubscription() });
+        withBrowser(nav);
+        mockRequest.mockResolvedValue({ removed: true });
+        const { module } = makeModule();
+        await expect(module.status()).resolves.toBe('on');
+        expect(nav.serviceWorker.getRegistration).toHaveBeenCalledWith(
+            '/puter-sw.js',
+        );
+
+        await module.disable();
+        nav.pushManager.getSubscription.mockResolvedValue(null);
+        await expect(module.status()).resolves.toBe('off');
+    });
+
+    it('looks up the worker it is given', async () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        await makeModule().module.status({ serviceWorker: '/js/sw.js' });
+        expect(nav.serviceWorker.getRegistration).toHaveBeenCalledWith(
+            '/js/sw.js',
+        );
+    });
+
+    it('is off for a visitor who has not signed in', async () => {
+        store.set(OPT_IN, true);
+        withBrowser(makeNav({ existing: makeSubscription() }));
+        const { module, host } = makeModule();
+        host.authToken = null;
+        await expect(module.status()).resolves.toBe('off');
+    });
+});
+
 describe('disable', () => {
     it('stops a confirmation still on its way, so the browser is not registered after', async () => {
         const subscription = makeSubscription();

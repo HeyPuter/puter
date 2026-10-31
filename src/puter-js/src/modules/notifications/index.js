@@ -17,6 +17,7 @@ import {
 import { ReceiptLog } from './lib/receipts.js';
 import { toClick } from './lib/shapes.js';
 import {
+    currentWebPush,
     removeWebPush,
     syncWebPush,
     webPushSupported,
@@ -28,6 +29,7 @@ import { onNotification } from './onNotification.js';
 import { onPush, shownFrom } from './onPush.js';
 import { removeDevice } from './removeDevice.js';
 import { hasPermission, requestPermission } from './requestPermission.js';
+import { status } from './status.js';
 
 /** The desktop's broadcast for a click on one of this app's notifications. */
 export const CLICK_BROADCAST = 'notificationClick';
@@ -150,6 +152,7 @@ export class NotificationsModule extends EventListener {
     onNotification = onNotification;
     enable = enable;
     disable = disable;
+    status = status;
     onPush = onPush;
     requestPermission = requestPermission;
     hasPermission = hasPermission;
@@ -211,6 +214,7 @@ export class NotificationsModule extends EventListener {
             'onNotification',
             'enable',
             'disable',
+            'status',
             'onPush',
             'requestPermission',
             'hasPermission',
@@ -395,6 +399,29 @@ export class NotificationsModule extends EventListener {
         } finally {
             if (this.puter.env === 'web') await this.#forgetOptIns();
         }
+    }
+
+    /**
+     * `status()` on a website or the GUI. On a website, a subscription counts
+     * only while the signed-in user's opt-in is recorded here.
+     *
+     * @param {{ url: string; scope?: string }} worker
+     * @returns {Promise<import('./types.js').PushStatus>}
+     * @internal
+     */
+    async _webPushStatus(worker) {
+        const permission = globalThis.Notification?.permission;
+        if (permission === 'denied') return 'blocked';
+        if (permission !== 'granted') return 'off';
+        let subscription = null;
+        try {
+            subscription = await currentWebPush({ worker });
+        } catch {
+            return 'off';
+        }
+        if (!subscription) return 'off';
+        if (this.puter.env !== 'web') return 'on';
+        return (await this.#readOptIn()) ? 'on' : 'off';
     }
 
     /**

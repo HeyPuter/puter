@@ -130,6 +130,14 @@
  *   (`push_verification_timeout`).
  */
 
+/**
+ * Whether this app's pushes reach the browser the user is in. `off` means
+ * `enable()` can turn them on, `blocked` that the browser blocks notifications,
+ * and `unavailable` that this browser, page or server can't receive pushes.
+ *
+ * @typedef {'on' | 'off' | 'blocked' | 'unavailable'} PushStatus
+ */
+
 /** @typedef {'webpush' | 'web'} PushPlatform `web` gets no pushes. */
 
 /**
