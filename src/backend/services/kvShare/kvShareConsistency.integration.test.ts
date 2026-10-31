@@ -322,7 +322,7 @@ describe.each(ENGINES)('key-value shares on %s', (engine) => {
 
     describe('revoking a grant the database spells differently', () => {
         it.skipIf(engine !== 'mysql')(
-            'clears the flat entry under the spelling it removed',
+            'leaves a grant spelled in another case standing',
             async () => {
                 const tag = uuidv4().slice(0, 8);
                 const stored = kvSharePermission(
@@ -352,13 +352,58 @@ describe.each(ENGINES)('key-value shares on %s', (engine) => {
                     [asked],
                 );
 
-                expect(removed).toEqual([stored]);
-                expect(
-                    await flat().getFlatUserPerms(guest.id, [stored]),
-                ).toEqual([]);
+                expect(removed).toEqual([]);
                 expect(await permissions().check(guest.actor, stored)).toBe(
-                    false,
+                    true,
                 );
+            },
+        );
+
+        it.skipIf(engine !== 'mysql')(
+            'deletes with no operator MySQL warns is deprecated, whatever the connection charset',
+            async () => {
+                const prefix = region('warn');
+                await share(prefix, 'read');
+                const write = vi.spyOn(db(), 'write');
+                try {
+                    await permissions().revokeUserUserPermissionSubtree(
+                        owner.actor,
+                        guest.username,
+                        kvShareGrantAtEveryLevel(
+                            kvSharePermission(owner.uuid, GLOBAL, prefix),
+                        ),
+                    );
+                    await permissions().revokeUserUserPermission(
+                        owner.actor,
+                        guest.username,
+                        kvSharePermission(owner.uuid, GLOBAL, region('warn')),
+                    );
+                } finally {
+                    write.mockRestore();
+                }
+                const deletes = write.mock.calls.filter(([query]) =>
+                    query.startsWith('DELETE FROM `user_to_user_permissions`'),
+                );
+                expect(deletes).toHaveLength(2);
+
+                const connection = await mysql.createConnection({
+                    ...MYSQL,
+                    database,
+                    charset: 'LATIN1_SWEDISH_CI',
+                });
+                try {
+                    for (const [query, params] of deletes) {
+                        await connection.query(
+                            String(query),
+                            params as never[],
+                        );
+                        const [warnings] =
+                            await connection.query('SHOW WARNINGS');
+                        expect(warnings).toEqual([]);
+                    }
+                } finally {
+                    await connection.end();
+                }
             },
         );
     });

@@ -1389,20 +1389,17 @@ export class PermissionService extends PuterService {
             );
 
         // As the single revoke: the flat key goes only where no issuer's grant
-        // remains, read from the primary the delete just landed on. A database
-        // that matches case-insensitively may have removed a row spelled other
-        // than asked, and its flat key is under that spelling.
-        const spellings = [...new Set([...rewritten, ...removed])];
+        // remains, read from the primary the delete just landed on.
         const remaining = new Set(
             (
                 await this.stores.permission.readLinkedUserUserPermsFromPrimary(
                     user.id,
-                    spellings,
+                    rewritten,
                 )
             ).map((row) => row.permission),
         );
         await this.stores.permission.delFlatUserPerms(
-            spellings
+            rewritten
                 .filter((permission) => !remaining.has(permission))
                 .map((permission) => ({ holderUserId: user.id, permission })),
         );

@@ -410,6 +410,17 @@ describe('the level a call needs', () => {
             legacyCode: 'kv_handle_access_denied',
         });
     });
+
+    it('keeps working after the owner stops a legacy share spelled in another case', async () => {
+        const tag = uuidv4().slice(0, 8);
+        const legacy = await legacyShare(`Notes-${tag}:`, 'read');
+        await ownerSet(`notes-${tag}:x:k`, 'v');
+        const { handle } = await share(`notes-${tag}:x:`, 'read');
+
+        await shares().removeKvShare(owner.actor, legacy.handle);
+
+        expect(await guestGet(handle, 'k')).toBe('v');
+    });
 });
 
 describe('a call refused before the handle is looked at', () => {
