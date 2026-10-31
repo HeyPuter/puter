@@ -574,20 +574,6 @@ export class WorkerDriver extends PuterDriver {
                     legacyCode: 'conflict',
                 });
             }
-            // The token above acts as `boundApp`, so the row follows it: the
-            // listing, a later hot-reload and this answer name the same app.
-            const nextAppOwner = appOwnerId ?? null;
-            const currentAppOwner =
-                existingSub.app_owner === null ||
-                existingSub.app_owner === undefined
-                    ? null
-                    : Number(existingSub.app_owner);
-            if (currentAppOwner !== nextAppOwner)
-                await this.stores.subdomain.setAppOwner(
-                    String(existingSub.uuid),
-                    nextAppOwner,
-                    { userId: actor.user.id },
-                );
         } else {
             if (!loaded?.fsEntry?.sqlId)
                 throw new HttpError(400, `Invalid file recieved!`, {
@@ -649,6 +635,11 @@ export class WorkerDriver extends PuterDriver {
             runtimePreamble.source + sourceCode,
             deployTarget,
         );
+        if (existingSub && cfResult.success === true)
+            await this.#rebindAfterDeploy(existingSub, actor, workerName, {
+                appOwner: appOwnerId ?? null,
+                appUid: boundApp?.uid ?? null,
+            });
         // The app the worker's token acts as: its KV, AppData, notifications
         // and pushes are that app's.
         return {
@@ -718,6 +709,35 @@ export class WorkerDriver extends PuterDriver {
             userId: Number(row.user_id),
             workerName: subdomain.slice(WORKER_SUBDOMAIN_PREFIX.length),
         };
+    }
+
+    /**
+     * A redeploy under a different app (or none) moves the row to the app the
+     * new token acts as, so the listing, hot-reload and `create()` agree, and
+     * revokes the session the old binding ran on. Only once the new script is
+     * live: a failed redeploy leaves the old one running on its old token.
+     */
+    async #rebindAfterDeploy(
+        row: SubdomainRow,
+        actor: Actor & { user: { id: number } },
+        workerName: string,
+        next: { appOwner: number | null; appUid: string | null },
+    ): Promise<void> {
+        const current =
+            row.app_owner === null || row.app_owner === undefined
+                ? null
+                : Number(row.app_owner);
+        if (current === next.appOwner) return;
+        await this.stores.subdomain.setAppOwner(
+            String(row.uuid),
+            next.appOwner,
+            { userId: actor.user.id },
+        );
+        await this.services.auth.deleteWorkerSessionsByName(
+            workerName,
+            actor.user.id,
+            { exceptAppUid: next.appUid },
+        );
     }
 
     /** Script, sessions, then row: a failed step leaves the row for a retry. */

@@ -539,14 +539,24 @@ export class SessionStore extends PuterStore {
      * Returns each deleted row as `{ uuid, userId, accessTokenUid }` so the
      * caller can announce the revocation and drop access-token grants.
      *
+     * `exceptAppUid` keeps the session bound to that app (`null`: the
+     * user-scoped one), for a worker rebound to it.
+     *
      * @param {{
      *     workerName?: string;
      *     userId?: number;
      *     appUid?: string;
      *     appUids?: string[];
+     *     exceptAppUid?: string | null;
      * }} filter
      */
-    async deleteWorkerSessions({ workerName, userId, appUid, appUids } = {}) {
+    async deleteWorkerSessions({
+        workerName,
+        userId,
+        appUid,
+        appUids,
+        exceptAppUid,
+    } = {}) {
         const where = ["`kind` = 'worker'"];
         const params = [];
         if (workerName) {
@@ -568,6 +578,11 @@ export class SessionStore extends PuterStore {
             if (appUids.length === 0) return [];
             where.push(`\`app_uid\` IN (${appUids.map(() => '?').join(', ')})`);
             params.push(...appUids);
+        }
+        if (exceptAppUid === null) where.push('`app_uid` IS NOT NULL');
+        else if (exceptAppUid !== undefined) {
+            where.push('(`app_uid` IS NULL OR `app_uid` <> ?)');
+            params.push(exceptAppUid);
         }
         // No filter would mean every worker session on the server.
         if (params.length === 0) return [];

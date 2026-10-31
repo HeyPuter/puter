@@ -310,8 +310,22 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
                     target.create({ appId, workerName: name, filePath: path }),
                 );
             await deploy(first.uid);
-            return { user, actor, path, name, first, second, deploy };
+            const firstToken = deployedToken();
+            return {
+                user,
+                actor,
+                path,
+                name,
+                first,
+                second,
+                deploy,
+                firstToken,
+            };
         };
+
+        const appOf = async (token: string) =>
+            (await server.services.auth.authenticate(token)).actor
+                ?.effectiveApp?.uid;
 
         const listed = async (actor: Actor, name: string) =>
             (
@@ -355,13 +369,50 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
         });
 
         it('drops the binding when redeployed with no app', async () => {
-            const { actor, name, deploy } = await seedBound();
+            const { actor, name, deploy, firstToken } = await seedBound();
 
             expect(await deploy('')).toMatchObject({ app_uid: null });
             expect(await listed(actor, name)).toMatchObject({
                 app_uid: null,
                 app_name: null,
             });
+            expect(await server.services.auth.authenticate(firstToken)).toEqual(
+                { invalid: true },
+            );
+            expect(
+                (await server.services.auth.authenticate(deployedToken()))
+                    .actor,
+            ).toBeTruthy();
+        });
+
+        it('revokes the old app`s token once the new one is deployed', async () => {
+            const { second, deploy, firstToken } = await seedBound();
+
+            await deploy(second.uid);
+
+            expect(await server.services.auth.authenticate(firstToken)).toEqual(
+                { invalid: true },
+            );
+            expect(await appOf(deployedToken())).toBe(second.uid);
+        });
+
+        it('leaves the old binding and its token alone when the redeploy fails', async () => {
+            const { name, first, second, deploy, firstToken } =
+                await seedBound();
+            fetchSpy.mockResolvedValue(
+                edgeResponse({
+                    success: false,
+                    errors: [{ message: 'script too large' }],
+                }),
+            );
+
+            expect(await deploy(second.uid)).toMatchObject({ success: false });
+
+            expect(await appOf(firstToken)).toBe(first.uid);
+            const row = await server.stores.subdomain.getBySubdomain(
+                `workers.puter.${name}`,
+            );
+            expect(Number(row!.app_owner)).toBe(first.id);
         });
     });
 
