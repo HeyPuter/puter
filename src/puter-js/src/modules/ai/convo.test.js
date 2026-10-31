@@ -1908,6 +1908,78 @@ describe('reconnect retries', () => {
         expect(c.state).toBe('connected');
     });
 
+    it('reconnects after the server sheds load with 1013, keeping listeners', async () => {
+        const c = await connected();
+        fakeTime();
+        const text = [];
+        c.on('text', (event) => text.push(event.delta));
+        const closed = vi.fn();
+        c.on('close', closed);
+        socket().deliver({
+            type: 'error',
+            error: {
+                code: 'rate_limit_exceeded',
+                message: 'Too many pending usage events',
+            },
+        });
+        socket().close(1013, 'rate_limit_exceeded');
+        expect(c.state).toBe('connecting');
+        await answerReconnect();
+        expect(c.state).toBe('connected');
+        socket().deliver({
+            type: 'response.output_text.delta',
+            response_id: 'resp_1',
+            delta: 'Back',
+        });
+        expect(text).toEqual(['Back']);
+        expect(closed).not.toHaveBeenCalled();
+    });
+
+    it('retries a reconnect whose credential lookup failed on the server', async () => {
+        const c = await connected();
+        fakeTime();
+        const events = track(c);
+        socket().close(1006);
+        await vi.advanceTimersByTimeAsync(500);
+        socket().deliver({
+            type: 'error',
+            error: {
+                code: 'internal_error',
+                message: 'Could not verify credentials',
+            },
+        });
+        socket().close(1011, 'internal_error');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(c.state).toBe('connecting');
+        const attempts = FakeWebSocket.instances.length;
+        await answerReconnect(1_000);
+        expect(FakeWebSocket.instances.length).toBe(attempts + 1);
+        expect(c.state).toBe('connected');
+        expect(events.types()).toContain('ready');
+    });
+
+    it('ends on an invalid credential during a reconnect', async () => {
+        const c = await connected();
+        fakeTime();
+        const closed = vi.fn();
+        c.on('close', closed);
+        socket().close(1006);
+        await vi.advanceTimersByTimeAsync(500);
+        const attempts = FakeWebSocket.instances.length;
+        socket().deliver({
+            type: 'error',
+            error: {
+                code: 'invalid_api_key',
+                message: 'Authentication failed',
+            },
+        });
+        socket().close(1008, 'invalid_api_key');
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(c.state).toBe('closed');
+        expect(closed).toHaveBeenCalledOnce();
+        expect(FakeWebSocket.instances.length).toBe(attempts);
+    });
+
     describe('while the browser is offline', () => {
         let target;
         beforeEach(() => {
