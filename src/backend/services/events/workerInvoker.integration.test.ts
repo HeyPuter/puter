@@ -635,6 +635,59 @@ describe('the call an owed delivery makes', () => {
         expect(await pending().depth(subId)).toBe(1);
     });
 
+    it('keeps the row when only a stale cached answer says the consent is gone', async () => {
+        const subId = await subscribe();
+        const redis = env.server.clients.redis;
+        const app = await env.server.stores.app.getByUid(appUid);
+        // What a node that cached this app's grants before the consent was
+        // given still holds: every grant but that one.
+        const grants = `perms:u2a:${userId}:${app!.id}`;
+        const beforeConsent = (
+            await env.server.stores.permission.listUserAppPermsFromPrimary(
+                userId,
+                app!.id,
+            )
+        ).filter((row) => row.permission !== EVENTS_BACKGROUND_PERMISSION);
+        const forgetScans = async () => {
+            for (const key of await redis.keys('permission-scan:*'))
+                await redis.del(key);
+        };
+        const permission = env.server.services.permission;
+        const check = vi.spyOn(permission, 'check');
+        const primaryRead = vi.spyOn(
+            env.server.stores.permission,
+            'listUserAppPermsFromPrimary',
+        );
+        try {
+            await redis.del(`${grants}:deleted`);
+            await redis.set(grants, JSON.stringify(beforeConsent), 'EX', 300);
+            await forgetScans();
+
+            await touch('stale-consent.txt');
+            // The delivery asked for the consent and was told no.
+            await waitUntil(async () => {
+                const asked = check.mock.calls.findIndex(
+                    ([, perm]) => perm === EVENTS_BACKGROUND_PERMISSION,
+                );
+                expect(asked).toBeGreaterThanOrEqual(0);
+                expect(await check.mock.results[asked].value).toBe(false);
+            });
+            // Long enough for a settle to have run, had one started.
+            await new Promise((resolve) => setTimeout(resolve, 300));
+
+            expect(calls).toEqual([]);
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+            expect(await pending().depth(subId)).toBe(1);
+            // Kept because the no was asked again past the caches.
+            expect(primaryRead).toHaveBeenCalled();
+        } finally {
+            check.mockRestore();
+            primaryRead.mockRestore();
+            await redis.del(grants);
+            await forgetScans();
+        }
+    });
+
     it('settles the delivery when the handler takes it', async () => {
         const subId = await subscribe();
 

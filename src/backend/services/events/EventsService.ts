@@ -5657,10 +5657,9 @@ export class EventsService extends PuterService {
         // answers it, so only a grant change costs a lookup.
         const consent = await this.#hasBackgroundConsent(actor);
         if (consent !== true) {
-            // A definite no is a withdrawal whose settle never ran or failed.
+            // A no may be a withdrawal whose settle never ran or failed.
             // Without one the row stays in service, deferred forever.
-            if (consent === false)
-                this.#settleLostConsent(invocation.holderUserId, appUid);
+            if (consent === false) this.#settleLostConsent(actor, appUid);
             return null;
         }
 
@@ -5687,13 +5686,24 @@ export class EventsService extends PuterService {
     /**
      * Run the revocation settle for consent a delivery found withdrawn. One at
      * a time per holder and app, however many deliveries find it at once.
+     *
+     * The delivery's answer came through caches that can trail a grant, so the
+     * no is asked again past them first. Only a fresh no settles; anything else
+     * leaves the delivery deferred, as a cached no always did.
      */
-    #settleLostConsent(holderUserId: number, appUid: string): void {
+    #settleLostConsent(actor: Actor, appUid: string): void {
+        const holderUserId = actor.user!.id;
         const key = `${holderUserId}|${appUid}`;
         if (this.#consentSettles.has(key)) return;
         this.#consentSettles.add(key);
         void (async () => {
             try {
+                const consented = await this.services.permission.check(
+                    actor,
+                    EVENTS_BACKGROUND_PERMISSION,
+                    { primary: true },
+                );
+                if (consented) return;
                 await this.settleRevokedGrant({
                     holderUserId,
                     appUid,

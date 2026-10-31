@@ -978,13 +978,17 @@ export class PermissionStore extends PuterStore {
 
     // -- SQL: user-to-app permissions --------------------------------
 
+    /** `primary` reads past the row cache, as `listUserAppPermsFromPrimary`. */
     async readUserAppPerms(
         userId: number,
         appId: number,
         permissions: string[],
+        { primary = false }: { primary?: boolean } = {},
     ): Promise<LinkedUserAppPermRow[]> {
         if (permissions.length === 0) return [];
-        const all = await this.#readAllUserAppPerms(userId, appId);
+        const all = primary
+            ? await this.listUserAppPermsFromPrimary(userId, appId)
+            : await this.#readAllUserAppPerms(userId, appId);
         const wanted = new Set(permissions);
         return all.filter((row) => wanted.has(row.permission));
     }

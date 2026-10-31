@@ -539,6 +539,35 @@ describe('PermissionService (integration)', () => {
             expect(has).toBeFalsy();
         });
 
+        it('reads a user→app grant past a stale cache with `primary`', async () => {
+            const { user, actor } = await makeUserActor();
+            const app = await makeApp(user.id);
+            const permission = 'events:background';
+            await runWithContext({ actor }, () =>
+                permService.grantUserAppPermission(actor, app.uid, permission),
+            );
+            // The grant set a node cached before the grant landed.
+            const grants = `perms:u2a:${user.id}:${app.id}`;
+            await server.clients.redis.del(`${grants}:deleted`);
+            await server.clients.redis.set(grants, '[]', 'EX', 60);
+            const appActor = makeActor({
+                user: actor.user as never,
+                app: { uid: app.uid, id: app.id },
+            });
+
+            try {
+                // `noCache` skips only the scan cache.
+                await expect(
+                    permService.check(appActor, permission, { noCache: true }),
+                ).resolves.toBe(false);
+                await expect(
+                    permService.check(appActor, permission, { primary: true }),
+                ).resolves.toBe(true);
+            } finally {
+                await server.clients.redis.del(grants);
+            }
+        });
+
         it('revokeUserAppPermission throws 403 when actor is an app-under-user', async () => {
             const { user } = await makeUserActor();
             const app = await makeApp(user.id);
