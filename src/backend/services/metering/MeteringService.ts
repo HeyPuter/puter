@@ -731,6 +731,10 @@ export class MeteringService extends PuterService {
                 ? ({ ...own, ...charged } as UsageByType)
                 : (charged ?? own);
         } catch (e) {
+            // Part of the usage may have landed before the failure.
+            if (actor?.user?.uuid) {
+                await this.stores.creditHold.bump(actor.user.uuid);
+            }
             console.error('[metering] batchIncrementUsages failed', {
                 actor,
                 usages,
@@ -1434,6 +1438,7 @@ export class MeteringService extends PuterService {
         }
 
         this.invalidateActorCredits(userId);
+        await this.stores.creditHold.bump(userId);
         await Promise.all([
             this.stores.meteringBuffer.forgetSummed(actorUsageKey),
             this.stores.meteringBuffer.forgetSummed(
@@ -1576,13 +1581,7 @@ export class MeteringService extends PuterService {
         }
 
         for (let attempt = 1; ; attempt++) {
-            // The last attempt skips the version check rather than refuse an
-            // actor whose balance keeps moving; it still can't overlap
-            // another reservation.
-            const version =
-                attempt < MeteringService.RESERVE_ATTEMPTS
-                    ? await this.stores.creditHold.version(userId)
-                    : '';
+            const version = await this.stores.creditHold.version(userId);
             // Read after the version, so a write it misses bumps the version.
             const { remaining } = await this.getAllowedUsage(actor, {
                 exact: true,
@@ -1606,13 +1605,31 @@ export class MeteringService extends PuterService {
                 case 'unavailable':
                     return budget >= amount ? NO_CREDIT_HOLD : null;
                 case 'stale':
-                    continue;
+                    break;
             }
+            // A balance that never holds still long enough to read is refused
+            // rather than checked against a read that may be out of date.
+            if (attempt >= MeteringService.RESERVE_ATTEMPTS) {
+                console.warn(
+                    `[metering] credit reservation refused for ${userId}: balance kept changing`,
+                );
+                return null;
+            }
+            await new Promise((resolve) =>
+                setTimeout(
+                    resolve,
+                    Math.random() *
+                        MeteringService.RESERVE_BACKOFF_MS *
+                        attempt,
+                ),
+            );
         }
     }
 
-    /** Reservations tried before the version check is skipped. */
-    private static readonly RESERVE_ATTEMPTS = 4;
+    /** Reservations tried while the balance keeps changing under them. */
+    private static readonly RESERVE_ATTEMPTS = 5;
+    /** Upper bound of the randomized wait before each retry, times the attempt. */
+    private static readonly RESERVE_BACKOFF_MS = 20;
 
     #holdHandle(userId: string, member: string, ttlMs?: number): CreditHold {
         let released = false;
@@ -2456,6 +2473,7 @@ export class MeteringService extends PuterService {
         // Credit that lands while the account is being turned away has to take
         // effect on the next request, not at the end of the cache window.
         this.invalidateActorCredits(userId);
+        await this.stores.creditHold.bump(userId);
     }
 
     /**
@@ -2503,6 +2521,7 @@ export class MeteringService extends PuterService {
         });
         // Every node drops its cached policy, and the budget answer with it.
         this.invalidateActorSubscription(userUuid);
+        await this.stores.creditHold.bump(userUuid);
     }
 
     /**

@@ -303,6 +303,25 @@ describe.each(backends)('CreditHoldStore.reserve on $name', ({ redis }) => {
         expect((await reserve(b, id, HOLD)).outcome).toBe('accepted');
     });
 
+    it('refuses amounts it can’t hold without touching the hold set', async () => {
+        const id = user();
+        await reserve(a, id, 1000);
+        for (const amount of [0, -5_000, Number.NaN, Infinity]) {
+            expect((await reserve(a, id, amount)).outcome).toBe('insufficient');
+        }
+        expect(await a.outstanding(id)).toBe(1000);
+    });
+
+    it('starts a missing version from a random value', async () => {
+        const id = user();
+        expect(await a.version(id)).toBe('0');
+        await b.bump(id);
+        const first = (await a.version(id))!;
+        expect(first).not.toBe('1');
+        await b.bump(id);
+        expect(Number(await a.version(id))).toBe(Number(first) + 1);
+    });
+
     it('reports an unreachable cache as unavailable, not as insufficient', async () => {
         const id = user();
         const client = servers[0].clients.redis as unknown as {

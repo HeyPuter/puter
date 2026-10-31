@@ -4435,19 +4435,44 @@ describe('MeteringService', () => {
             ).toBeNull();
         });
 
-        it('stops checking the version after repeated changes, without overlapping holds', async () => {
+        it('reads the balance again while it keeps changing, then refuses', async () => {
+            await withBalance(BUDGET);
+            const reserve = vi
+                .spyOn(server.stores.creditHold, 'reserve')
+                .mockResolvedValue({ outcome: 'stale' });
+
+            expect(await target.reserveCreditsIfAffordable(actor, HOLD)).toBe(
+                null,
+            );
+            expect(reserve).toHaveBeenCalledTimes(5);
+            // Every attempt checks the version; none falls back to skipping it.
+            expect(reserve.mock.calls.every(([, , , v]) => v !== '')).toBe(
+                true,
+            );
+            expect(await target.getOutstandingHolds(actor)).toBe(0);
+        });
+
+        it('admits once the balance holds still', async () => {
             await withBalance(BUDGET);
             const reserve = vi.spyOn(server.stores.creditHold, 'reserve');
             reserve
-                .mockResolvedValueOnce({ outcome: 'stale' })
                 .mockResolvedValueOnce({ outcome: 'stale' })
                 .mockResolvedValueOnce({ outcome: 'stale' });
 
             const hold = await target.reserveCreditsIfAffordable(actor, HOLD);
             expect(hold).not.toBeNull();
-            expect(reserve).toHaveBeenCalledTimes(4);
-            expect(reserve.mock.calls[3][3]).toBe('');
+            expect(reserve).toHaveBeenCalledTimes(3);
             await hold?.release();
+        });
+
+        it('marks the balance changed on credit, allowance and manual usage changes', async () => {
+            const uuid = actor.user.uuid!;
+            const versions = [await server.stores.creditHold.version(uuid)];
+            await target.updateAddonCredit(uuid, 1_000);
+            versions.push(await server.stores.creditHold.version(uuid));
+            await target.setActorCurrentMonthUsageTotal(actor, 5_000);
+            versions.push(await server.stores.creditHold.version(uuid));
+            expect(new Set(versions).size).toBe(3);
         });
 
         it('treats the system actor, a userless actor and amounts it can’t hold as the plain check does', async () => {
