@@ -46,7 +46,7 @@ The users to share with, from 1 to 50, each in any form `recipient` takes. Every
 
 What the holder can do. Defaults to `'read'`. Each level includes the ones before it.
 
-- `'watch'`: receive [events](/Events/subjects/#sharing-key-value-data-with-another-user) when keys under the prefix change, and list the keys without their values with [`puter.kv.list()`](/KV/list/).
+- `'watch'`: receive [events](/Events/subjects/#sharing-key-value-data-with-another-user) when keys under the prefix change, and list the keys without their values with [`puter.kv.list()`](/KV/list/). Events leave out the value, even for a subscription that passes `includeValue`.
 - `'read'`: also read values with [`puter.kv.get()`](/KV/get/) and [`puter.kv.list()`](/KV/list/).
 - `'write'`: also change and delete keys with every other [`puter.kv`](/KV/) method, such as [`puter.kv.set()`](/KV/set/), [`puter.kv.incr()`](/KV/incr/) and [`puter.kv.del()`](/KV/del/). Write access includes delete, so a holder can change or remove any key under the prefix.
 
@@ -83,7 +83,7 @@ Any other error, such as a bad `prefix`, rejects the whole call. Before it share
 
 ## Sharing the same prefix again
 
-Sharing the same prefix of the same app's data with the same user again changes the existing share instead of making a second one. The share keeps its `handle` and `createdAt` and gets the new `access`. Use this to raise or lower a holder's access. The holder's subscriptions through the handle keep working.
+Sharing the same prefix of the same app's data with the same user again changes the existing share instead of making a second one. The share keeps its `handle` and `createdAt` and gets the new `access`. Use this to raise or lower a holder's access. The holder's subscriptions through the handle keep working, and follow the new access. Lowering a share to `'watch'` stops values on its events, and raising it to `'read'` starts them for subscriptions that asked for values.
 
 Leave out `label` to keep the current label, pass a new one to replace it, or pass `null` to clear it.
 

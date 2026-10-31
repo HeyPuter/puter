@@ -188,9 +188,11 @@ import {
 } from './registry.js';
 import { SubscriptionCache } from './subscriptionCache.js';
 import {
+    kvShareAccessOf,
     kvShareGrantCovers,
     kvSharePermission,
     relativeToKvShareRoot,
+    type KvShareAccess,
 } from '../kvShare/kvShares.js';
 import {
     KV_MATCH_SEPARATOR,
@@ -1103,9 +1105,8 @@ const inlineKvValue = (value: unknown): { value: unknown } | undefined => {
 };
 
 /**
- * The value rides only where the row asked for it. A share-handle row is no
- * exception: the owner minted the handle over that region, and the delivery
- * re-check that stops a revoked handle stops its values with it.
+ * The value rides only where the row asked for it. A share-handle row's ask is
+ * dropped at the delivery re-check while its share is at `watch`.
  */
 const valueAsRowAskedFor = (
     row: DispatchSubscription,
@@ -1113,6 +1114,27 @@ const valueAsRowAskedFor = (
 ): ProjectedKvEvent => {
     if (event.value === undefined || row.includeValue === true) return event;
     const { value: _value, ...withoutValue } = event;
+    return withoutValue;
+};
+
+/**
+ * Where a share-handle row stands for one delivery: the level its holder
+ * reaches through it, or `revoked` once it reaches nothing.
+ */
+type KvShareStanding = KvShareAccess | 'revoked';
+
+/**
+ * A share-handle row as one delivery serves it: not at all once its share is
+ * gone, and without values while the share is at `watch`. Decided per delivery,
+ * so a level change applies to subscriptions already made.
+ */
+const servedAtStanding = (
+    row: DispatchSubscription,
+    standing: KvShareStanding,
+): DispatchSubscription | null => {
+    if (standing === 'revoked') return null;
+    if (standing !== 'watch' || row.includeValue !== true) return row;
+    const { includeValue: _includeValue, ...withoutValue } = row;
     return withoutValue;
 };
 
@@ -4103,46 +4125,53 @@ export class EventsService extends PuterService {
         if (rows.length === 0) return rows;
 
         const decisions = new Map<string, Promise<boolean>>();
-        const allowed = await Promise.all(
-            rows.map((row) => {
+        const served = await Promise.all(
+            rows.map(async (row): Promise<DispatchSubscription | null> => {
                 const shared = kvHandleFromSubject(row.subject) !== null;
                 if (
                     privateEntry &&
                     (shared || isCrossAppKvRow(row.appUid, targetAppUid))
                 )
-                    return Promise.resolve(false);
+                    return null;
                 // A row on a shared region is authorized by its grant, not by
                 // whose namespace it names — and that is one question per
                 // subscription, because the handle *is* the granted root.
-                if (shared) return this.#kvShareHolds(row);
-                if (!isCrossAppKvRow(row.appUid, targetAppUid))
-                    return Promise.resolve(true);
+                if (shared)
+                    return servedAtStanding(
+                        row,
+                        await this.#kvShareStanding(row),
+                    );
+                if (!isCrossAppKvRow(row.appUid, targetAppUid)) return row;
                 const key = `${row.holderUserId}|${row.appUid ?? ''}`;
                 let decision = decisions.get(key);
                 if (!decision) {
                     decision = this.#kvGrantHolds(row, targetAppUid);
                     decisions.set(key, decision);
                 }
-                return decision;
+                return (await decision) ? row : null;
             }),
         );
-        return rows.filter((_row, i) => allowed[i]);
+        return served.filter((row): row is DispatchSubscription => !!row);
     }
 
     /**
-     * Whether one row's holder may still watch the region it was made on. The
-     * handle must be live and theirs, so a retired one goes silent within the
-     * handle cache's lifetime even where a wider grant covers the region. The
-     * grant check doesn't vary by key, so it's cached under the row's anchor.
+     * Whether one row's holder may still watch the region it was made on, and
+     * at what level: the share's own, read off the live handle, or `write` for
+     * the owner's row. The handle must be live and theirs, so a retired one
+     * goes silent within the handle cache's lifetime even where a wider grant
+     * covers the region. The grant check doesn't vary by key, so it's cached
+     * under the row's anchor.
      */
-    async #kvShareHolds(row: DispatchSubscription): Promise<boolean> {
+    async #kvShareStanding(
+        row: DispatchSubscription,
+    ): Promise<KvShareStanding> {
         const handle = kvHandleFromSubject(row.subject);
-        if (handle === null) return false;
+        if (handle === null) return 'revoked';
         let live: LiveKvShareHandle | null;
         try {
             live = await this.stores.kvShareHandle.getLive(handle);
         } catch {
-            return false;
+            return 'revoked';
         }
         if (
             !live ||
@@ -4150,18 +4179,22 @@ export class EventsService extends PuterService {
             (live.row.granteeUserId !== row.holderUserId &&
                 live.row.ownerUserId !== row.holderUserId)
         )
-            return false;
+            return 'revoked';
 
         const identity = await this.#grantIdentity(row);
-        if (!identity) return false;
+        if (!identity) return 'revoked';
 
+        const level =
+            live.row.ownerUserId === row.holderUserId
+                ? 'write'
+                : (kvShareAccessOf(live.row.permission) ?? 'watch');
         const key = {
             subId: row.subId,
             generation: identity.generation,
             nodeUid: row.anchorUid,
         };
         const cached = this.#deliveryAuth.read(key);
-        if (cached !== null) return cached;
+        if (cached !== null) return cached ? level : 'revoked';
 
         const allowed = await kvSharedRegionAuthorized(
             identity.actor,
@@ -4169,7 +4202,7 @@ export class EventsService extends PuterService {
             this.#kvShareDeps(),
         );
         this.#deliveryAuth.write(key, allowed);
-        return allowed;
+        return allowed ? level : 'revoked';
     }
 
     /** Whether one row's holder may still be told about `targetAppUid`'s data. */
@@ -4534,7 +4567,7 @@ export class EventsService extends PuterService {
             );
         }
         if (kvHandleFromSubject(row.subject) !== null)
-            return this.#kvShareHolds(row);
+            return (await this.#kvShareStanding(row)) !== 'revoked';
         if (isKvToken(row.token)) {
             if (!isCrossAppKvRow(row.appUid, row.anchorUid)) return true;
             return this.#kvGrantHolds(row, row.anchorUid);

@@ -3069,8 +3069,19 @@ describe('cross-user kv handles', () => {
         expect(wire).not.toContain(`u${userId}`);
     });
 
+    /** The handle at `read`, the lowest level that carries values. */
+    const mintReadHandle = () =>
+        mintHandle({
+            permission: kvSharePermission(
+                `user-${userId}`,
+                OWN_APP,
+                PREFIX,
+                'read',
+            ),
+        });
+
     it('hands a guest the value when it asked, keyed relative to the handle', async () => {
-        mintHandle();
+        mintReadHandle();
         vi.useFakeTimers();
         const asking = (
             await service.subscribe(actorFor(guestId), socketId, {
@@ -3095,6 +3106,23 @@ describe('cross-user kv handles', () => {
         expect(byId.get(silent.subId)).not.toHaveProperty('value');
     });
 
+    it('holds the value back from a guest whose share is at watch', async () => {
+        mintHandle();
+        vi.useFakeTimers();
+        const { sub } = await service.subscribe(actorFor(guestId), socketId, {
+            subject: `kv:${handle}:*`,
+            includeValue: true,
+        });
+
+        await dispatchKv([`${PREFIX}title`], { values: ['hello'] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0].envelope.subId).toBe(sub.subId);
+        expect(sent[0].envelope.event).toMatchObject({ key: 'title' });
+        expect(sent[0].envelope.event).not.toHaveProperty('value');
+    });
+
     it('delivers every key under the granted region', async () => {
         mintHandle();
         vi.useFakeTimers();
@@ -3112,7 +3140,7 @@ describe('cross-user kv handles', () => {
     });
 
     it('withholds a private key from the grantee, value and all', async () => {
-        mintHandle();
+        mintReadHandle();
         vi.useFakeTimers();
         const { sub } = await service.subscribe(actorFor(guestId), socketId, {
             subject: `kv:${handle}:*`,

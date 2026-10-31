@@ -8,20 +8,20 @@ order: 19
 <div class="info">KV sharing is in beta. Method shapes, limits, and behavior may change between releases.</div>
 
 A scoreboard app keeps the score of a game in the scorekeeper's Puter account.
-Fans want to see each change as it happens. With a watch share, another Puter
+Fans want to see each change as it happens. With a read share, another Puter
 user gets an [event](/Events/) each time a key under a prefix changes, with the
-new value in it. They can't read or change the keys in any other way.
+new value in it, and can load the keys at any time. They can't change them.
 
 | You want to… | Use |
 | --- | --- |
-| Send changes to people you pick, as they happen | A watch share, as in this recipe |
-| Let them load the current data at any time too | A read share, as in [When Fans Need to Catch Up](#when-fans-need-to-catch-up) |
+| Send changes to people you pick, as they happen | A read share, as in this recipe |
+| Tell them that something changed, without the data | A watch share. Its events name the key and leave out the value. |
 | Show data to anyone, signed in or not | [Hosting](/Hosting/) or a [worker](/Workers/). A share is for one Puter user. |
 
 ## Share the Game
 
 Keep each game under its own prefix, and share it with
-[`puter.kv.share()`](/KV/share/) at `'watch'` access. Your app first asks the
+[`puter.kv.share()`](/KV/share/) at `'read'` access. Your app first asks the
 user once for permission to share the `game:` prefix with
 [`puter.perms.request()`](/Perms/request/):
 
@@ -29,12 +29,12 @@ user once for permission to share the `game:` prefix with
 const prefix = `game:${crypto.randomUUID()}:`;
 await puter.kv.set(`${prefix}score`, { home: 0, away: 0 });
 
-await puter.perms.request('kvShare', { prefix: 'game:', access: 'watch' });
+await puter.perms.request('kvShare', { prefix: 'game:', access: 'read' });
 
 const share = await puter.kv.share({
     prefix,
     recipient: 'alice',
-    access: 'watch',
+    access: 'read',
     label: 'Lions vs Bears',
 });
 ```
@@ -73,20 +73,10 @@ one the same way.
 
 ## When Fans Need to Catch Up
 
-A watch share sends changes and nothing else. A fan who opens your app between
-two changes sees nothing until the next one. When the connection drops, the
-fan gets an event with `op: 'gap'` for the changes they missed, and has no way
-to read the current score.
-
-If fans need to catch up, share with read access instead. Sharing the same
-prefix with the same person again changes their access and keeps the handle:
-
-```js
-await puter.kv.share(prefix, 'alice', 'read');
-```
-
-Your app then needs permission at `read` level too, so request `access: 'read'`
-in the first step. With read access, the fan loads the score when the app opens
+A fan who opens your app between two changes sees nothing until the next one.
+When the connection drops, the fan gets an event with `op: 'gap'` for the
+changes they missed. A read share also lets the fan load the score with
+[`puter.kv.get()`](/KV/get/), passing the handle, so load it when the app opens
 and again after a gap:
 
 ```js
@@ -102,9 +92,8 @@ await puter.events.onLocal(`kv:${handle}:*`, async ({ event }) => {
 ## Limits
 
 - A value over 16 KB arrives without `value`, and so does a change that reaches
-  more subscriptions than the limit for values. With read access, the fan can
-  load the value with [`puter.kv.get()`](/KV/get/). With watch access, keep the
-  values you share small.
+  more subscriptions than the limit for values. The fan can load the value with
+  [`puter.kv.get()`](/KV/get/).
 - Entries saved with [`disableSharing: true`](/KV/set/) are never sent through a share.
 - Each fan takes one of the scorekeeper's shares, and an account can hold a
   limited number of them.

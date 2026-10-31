@@ -248,7 +248,7 @@ Pick the tool by what you want to do:
 
 A share has one of three levels, and each includes the ones before it:
 
-- **`watch`**: the holder gets [events](/Events/subjects/#sharing-key-value-data-with-another-user) when keys under the prefix change, and can [`list()`](/KV/list/) the keys without their values.
+- **`watch`**: the holder gets [events](/Events/subjects/#sharing-key-value-data-with-another-user) when keys under the prefix change, and can [`list()`](/KV/list/) the keys, all without their values.
 - **`read`**: the holder can also read values with [`get()`](/KV/get/) and [`list()`](/KV/list/).
 - **`write`**: the holder can also change keys with every other method. Write includes delete, so every holder with write access can change or remove any key under the prefix.
 
