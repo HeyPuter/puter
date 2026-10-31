@@ -34,7 +34,10 @@ import {
     vi,
 } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import { EVENTS_DURABLE_SUBSCRIPTIONS_MAX } from '../../controllers/events/limits.js';
+import {
+    EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
+    EVENTS_REVOKED_SUBSCRIPTIONS_KEPT,
+} from '../../controllers/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
@@ -227,7 +230,7 @@ describe('creating a subscription', () => {
                 )
                     readBeforeRecount = true;
                 const rows = await realPread(sql, ...rest);
-                if (text.includes('SUM(CASE WHEN `app_uid`')) recounts++;
+                if (text.includes('AS `for_app`')) recounts++;
                 return rows;
             });
         try {
@@ -466,6 +469,115 @@ describe('the per-account cap', () => {
         );
         await durable().create(input());
         await expect(durable().countForHolder(userId)).resolves.toMatchObject({ total: 1 });
+    });
+});
+
+describe('rows suspended for good', () => {
+    /** Rows written straight to the table, suspended `reason` at `at`. */
+    const seed = async (
+        count: number,
+        reason: string,
+        opts: { appUid?: string | null; at?: (i: number) => number } = {},
+    ) => {
+        const now = Math.floor(Date.now() / 1000);
+        for (let i = 0; i < count; i++)
+            await env.server.clients.db.insert('event_subscriptions', {
+                sub_id: `${opts.appUid ?? 'user'}#${reason}-${uuidv4()}`,
+                token: token(),
+                owner_user_id: userId,
+                holder_user_id: userId,
+                app_uid: opts.appUid ?? null,
+                subject: `fs:${anchorPath}`,
+                anchor_uid: anchorUid,
+                anchor_path: anchorPath,
+                match: null,
+                delivery: 'broadcast',
+                ops: null,
+                handler_name: null,
+                targets: '["socket"]',
+                context: null,
+                permission: 'list',
+                expires_at: null,
+                suspended_at: opts.at?.(i) ?? now,
+                suspended_reason: reason,
+                created_at: now,
+            });
+    };
+
+    it('hold no slot, while rows that can resume keep theirs', async () => {
+        const appUid = `app-${uuidv4()}`;
+        await durable().create(input({ appUid }));
+        await seed(3, 'permission_revoked', { appUid });
+        await seed(1, 'handler_not_found', { appUid });
+        await seed(1, 'failures');
+        await seed(1, 'no_credit');
+
+        await expect(durable().countForHolder(userId, appUid)).resolves.toEqual(
+            { total: 4, forApp: 2, terminal: 3 },
+        );
+    });
+
+    it('let a holder at the cap subscribe again, through the recount too', async () => {
+        const limits = { perUser: 2, perApp: 2 };
+        const first = await durable().create(input({ limits }));
+        const second = await durable().create(input({ limits }));
+        await durable().suspend([first.row, second.row], 'permission_revoked');
+
+        await durable().create(input({ limits }));
+        await durable().create(input({ limits }));
+        await expect(durable().create(input({ limits }))).rejects.toSatisfy(
+            codeOf('events_subscription_limit'),
+        );
+    });
+
+    it('leave a resumable suspension holding its slot', async () => {
+        const limits = { perUser: 1, perApp: 1 };
+        const { row } = await durable().create(input({ limits }));
+        await durable().suspend([row], 'failures');
+
+        await expect(durable().create(input({ limits }))).rejects.toSatisfy(
+            codeOf('events_subscription_limit'),
+        );
+    });
+
+    it('are left out of what a revocation reads', async () => {
+        const { row: live } = await durable().create(input());
+        const { row: failing } = await durable().create(input());
+        const { row: revoked } = await durable().create(input());
+        await durable().suspend([failing], 'failures');
+        await durable().suspend([revoked], 'permission_revoked');
+
+        const held = await durable().listActiveForHolder(userId, null, {
+            includeSuspended: true,
+        });
+        expect(held.map((row) => row.subId).sort()).toEqual(
+            [live.subId, failing.subId].sort(),
+        );
+    });
+
+    it('are deleted oldest first once a holder keeps more than the limit', async () => {
+        const base = Math.floor(Date.now() / 1000) - 10_000;
+        await seed(
+            EVENTS_REVOKED_SUBSCRIPTIONS_KEPT + 2,
+            'permission_revoked',
+            {
+                at: (i) => base + i,
+            },
+        );
+
+        await durable().create(input());
+
+        await expect(durable().countForHolder(userId)).resolves.toEqual({
+            total: 1,
+            forApp: 0,
+            terminal: EVENTS_REVOKED_SUBSCRIPTIONS_KEPT,
+        });
+        const [oldest] = await env.server.clients.db.pread(
+            'SELECT MIN(`suspended_at`) AS `at` FROM `event_subscriptions` ' +
+                'WHERE `suspended_reason` = ?',
+            ['permission_revoked'],
+        );
+        expect(Number(oldest.at)).toBe(base + 2);
     });
 });
 

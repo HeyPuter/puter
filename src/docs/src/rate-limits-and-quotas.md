@@ -522,6 +522,7 @@ See [Events](/Events/) for an overview, [`onLocal()`](/Events/subjects/#gaps) fo
 - Over a subscription limit: `events_subscription_limit`. Over a share-handle limit: `events_kv_handle_limit_reached`.
 - Anonymous accounts get `events_durable_requires_account` for persistent subscriptions and `events_kv_handle_requires_account` for share handles.
 - Unsubscribing or revoking frees a slot immediately. Revoked handles don't count. They stay in [`puter.kv.listSharedByMe()`](/KV/listSharedByMe/) for 30 days after they stop, and are then deleted.
+- A persistent subscription [suspended](/Events/onPersistent/#suspended-subscriptions) with `permission_revoked` doesn't count toward the persistent subscription limits, since it never resumes. One suspended for any other reason still counts.
 - A [`puter.kv.share()`](/KV/share/) call with several recipients is refused as a whole with `events_kv_handle_limit_reached` when its new shares would go over the all-apps or per-app limit. Sharing a prefix again with a user who already has it takes no slot. The limit per holder applies to each recipient on its own, and a recipient over it gets the error on their own item.
 - A share handle minted without naming an app counts only toward the all-apps limit.
 - A share's key prefix has a length limit that depends on the app's uid and the access level. For an app uid of the usual form, `app-` and a uuid, the prefix without its trailing `:` can be at most 168 characters for `watch`, 163 for `read`, and 162 for `write`. In the store that belongs to no app, it can be at most 199, 194, and 193. A longer prefix is refused with `invalid_kv_share_prefix`.
@@ -619,6 +620,7 @@ Over the deploy limit, deliveries stay queued and retry after the hour rolls ove
 | Backlog kept                       | 100 deliveries |
 | How long the backlog is kept       | 24 hours for `handler_not_found` and `failures`; 1 hour for `no_credit`; dropped immediately for `permission_revoked` |
 | Suspended subscription deleted after | 30 days |
+| Subscriptions suspended with `permission_revoked` kept | 500 per account. Past that, subscribing again deletes the oldest ones. |
 
 When a kept backlog expires, it's replaced by one gap marker (`suspended_backlog_expired`).
 

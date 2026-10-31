@@ -126,6 +126,13 @@ export const EVENTS_DURABLE_SUBSCRIPTIONS_MAX =
 export const SUSPENDED_ROW_TTL_DAYS = 30;
 
 /**
+ * Subscriptions stopped by a revoked grant that one account keeps for `list`.
+ * They hold no quota slot, so past this the oldest are deleted when the account
+ * subscribes again, keeping its rows bounded.
+ */
+export const EVENTS_REVOKED_SUBSCRIPTIONS_KEPT = 500;
+
+/**
  * Subscribe calls per minute, per user.
  *
  * Resolves a path and takes a write, so a loop over subscribes is a write loop.

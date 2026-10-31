@@ -20,6 +20,7 @@
 import { randomUUID } from 'node:crypto';
 import {
     EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
+    EVENTS_REVOKED_SUBSCRIPTIONS_KEPT,
     type TieredQuota,
 } from '../../controllers/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
@@ -134,6 +135,19 @@ export type SuspendedReason = (typeof SUSPENDED_REASONS)[number];
 export const isSuspendedReason = (value: unknown): value is SuspendedReason =>
     SUSPENDED_REASONS.includes(value as SuspendedReason);
 
+/**
+ * Reasons that never lift. A row suspended for one is kept only so its holder
+ * can list it, so it holds no quota slot.
+ */
+export const TERMINAL_SUSPENDED_REASONS: readonly SuspendedReason[] = [
+    'permission_revoked',
+];
+
+/** Rows suspended for good. The `?`s bind {@link TERMINAL_SUSPENDED_REASONS}. */
+const TERMINAL_CLAUSE =
+    '(`suspended_at` IS NOT NULL AND `suspended_reason` IN (' +
+    `${TERMINAL_SUSPENDED_REASONS.map(() => '?').join(', ')}))`;
+
 /** Where a row is moving to when its anchor is deleted under it. */
 export interface ReanchorInput {
     token: string;
@@ -161,6 +175,37 @@ const quotaReached = (limit: number, scope: 'account' | 'app'): HttpError =>
             : `An account may hold ${limit} durable subscriptions`,
         { legacyCode: 'events_subscription_limit' },
     );
+
+/** What one holder's rows add up to, as the quota reads them. */
+export interface DurableHolderCount {
+    /** Rows holding a slot: live, or suspended for a reason that lifts. */
+    total: number;
+    /** The part of `total` that is one app's. */
+    forApp: number;
+    /** Rows suspended for good, which hold no slot. */
+    terminal: number;
+}
+
+/**
+ * The refusal for a create whose holder is at a cap, or `null`. `own` is how
+ * many of the counted rows are this create's: none before its insert, one
+ * after.
+ */
+const quotaRefusal = (
+    input: DurableSubscriptionInput,
+    held: DurableHolderCount,
+    own: 0 | 1,
+): HttpError | null => {
+    const perUser = Math.min(
+        input.limits?.perUser ?? EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
+        EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
+    );
+    const perApp = input.limits?.perApp ?? perUser;
+    if (held.total - own >= perUser) return quotaReached(perUser, 'account');
+    if (input.appUid !== null && held.forApp - own >= perApp)
+        return quotaReached(perApp, 'app');
+    return null;
+};
 
 /**
  * The quota refusal for a create that concurrent creates beat to the last slot
@@ -262,7 +307,11 @@ export class DurableSubscriptionStore extends PuterStore {
             permission: input.permission,
         });
 
-        const refusal = await this.#overQuota(input, 0);
+        const refusal = quotaRefusal(
+            input,
+            await this.countForHolder(input.holderUserId, input.appUid),
+            0,
+        );
         if (refusal) throw refusal;
 
         const row: DurableSubscription = {
@@ -313,8 +362,17 @@ export class DurableSubscriptionStore extends PuterStore {
         // Concurrent creates can all pass the count above. Counted again with
         // this row in it, each one past the cap takes itself back out — at
         // the last slot that may refuse more than it had to, never fewer.
-        const lost = await this.#overQuota(input, 1);
+        const held = await this.countForHolder(
+            input.holderUserId,
+            input.appUid,
+        );
+        const lost = quotaRefusal(input, held, 1);
         if (lost) throw new DurableQuotaRaceLost(lost, await this.remove(row));
+        if (held.terminal > EVENTS_REVOKED_SUBSCRIPTIONS_KEPT)
+            await this.#dropOldestTerminal(
+                input.holderUserId,
+                held.terminal - EVENTS_REVOKED_SUBSCRIPTIONS_KEPT,
+            );
 
         // Write-through, and over the whole owner rather than the one row: it
         // costs the same indexed read as a warm would, on a path rate-limited
@@ -586,16 +644,27 @@ export class DurableSubscriptionStore extends PuterStore {
     async countForHolder(
         holderUserId: number,
         appUid: string | null = null,
-    ): Promise<{ total: number; forApp: number }> {
+    ): Promise<DurableHolderCount> {
+        const terminal = TERMINAL_SUSPENDED_REASONS;
         const [row] = await this.clients.db.pread(
-            `SELECT COUNT(*) AS \`total\`, ` +
-                'SUM(CASE WHEN `app_uid` = ? THEN 1 ELSE 0 END) AS `for_app` ' +
+            `SELECT SUM(CASE WHEN ${TERMINAL_CLAUSE} THEN 0 ELSE 1 END) AS \`total\`, ` +
+                `SUM(CASE WHEN ${TERMINAL_CLAUSE} THEN 0 ` +
+                'WHEN `app_uid` = ? THEN 1 ELSE 0 END) AS `for_app`, ' +
+                `SUM(CASE WHEN ${TERMINAL_CLAUSE} THEN 1 ELSE 0 END) AS \`terminal\` ` +
                 `FROM \`${TABLE}\` WHERE \`holder_user_id\` = ? AND ${this.#unexpiredClause()}`,
-            [appUid, holderUserId, nowSeconds()],
+            [
+                ...terminal,
+                ...terminal,
+                appUid,
+                ...terminal,
+                holderUserId,
+                nowSeconds(),
+            ],
         );
         return {
             total: Number(row?.total ?? 0),
             forApp: Number(row?.for_app ?? 0),
+            terminal: Number(row?.terminal ?? 0),
         };
     }
 
@@ -604,11 +673,12 @@ export class DurableSubscriptionStore extends PuterStore {
      * index the listing and the quota use — passing `appUid` narrows to one
      * app's rows, which is what a grant made to that app can have authorized.
      *
-     * `includeSuspended` also returns rows already out of service. A revocation
-     * needs them: the three resumable reasons hold a backlog, and a row skipped
-     * here comes back in service on the next resume and hands it over.
+     * `includeSuspended` also returns rows out of service for a reason that
+     * lifts. A revocation needs them: those reasons hold a backlog, and a row
+     * skipped here comes back in service on the next resume and hands it over.
      *
-     * Bounded by the per-account quota, so the whole set fits one read.
+     * Bounded by the per-account quota, so the whole set fits one read. Rows
+     * suspended for good hold no slot, so they are left out.
      */
     async listActiveForHolder(
         holderUserId: number,
@@ -617,10 +687,16 @@ export class DurableSubscriptionStore extends PuterStore {
     ): Promise<DurableSubscription[]> {
         const where = [
             '`holder_user_id` = ?',
-            ...(opts.includeSuspended ? [] : ['`suspended_at` IS NULL']),
+            opts.includeSuspended
+                ? `NOT ${TERMINAL_CLAUSE}`
+                : '`suspended_at` IS NULL',
             this.#unexpiredClause(),
         ];
-        const params: unknown[] = [holderUserId, nowSeconds()];
+        const params: unknown[] = [
+            holderUserId,
+            ...(opts.includeSuspended ? TERMINAL_SUSPENDED_REASONS : []),
+            nowSeconds(),
+        ];
         if (appUid !== null) {
             where.push('`app_uid` = ?');
             params.push(appUid);
@@ -753,28 +829,24 @@ export class DurableSubscriptionStore extends PuterStore {
     // -- Internals ---------------------------------------------------
 
     /**
-     * The refusal for a create whose holder is at a cap, or `null`. `own` is
-     * how many of the counted rows are this create's — none before its insert,
-     * one after.
+     * Delete a holder's oldest rows suspended for good, past what `list` keeps.
+     * Best-effort: the next subscribe tries again.
      */
-    async #overQuota(
-        input: DurableSubscriptionInput,
-        own: 0 | 1,
-    ): Promise<HttpError | null> {
-        const perUser = Math.min(
-            input.limits?.perUser ?? EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
-            EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
-        );
-        const perApp = input.limits?.perApp ?? perUser;
-        const held = await this.countForHolder(
-            input.holderUserId,
-            input.appUid,
-        );
-        if (held.total - own >= perUser)
-            return quotaReached(perUser, 'account');
-        if (input.appUid !== null && held.forApp - own >= perApp)
-            return quotaReached(perApp, 'app');
-        return null;
+    async #dropOldestTerminal(
+        holderUserId: number,
+        count: number,
+    ): Promise<void> {
+        try {
+            const rows = await this.clients.db.pread(
+                `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                    `WHERE \`holder_user_id\` = ? AND ${TERMINAL_CLAUSE} ` +
+                    'ORDER BY `suspended_at`, `id` LIMIT ?',
+                [holderUserId, ...TERMINAL_SUSPENDED_REASONS, count],
+            );
+            await this.#reap(rows.map(toRow));
+        } catch (err) {
+            console.warn('[events] could not drop old revoked rows', err);
+        }
     }
 
     /**

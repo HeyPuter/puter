@@ -141,6 +141,8 @@ A persistent subscription can stop without being unsubscribed. It's then *suspen
 
 A suspended subscription stops delivering and isn't billed. Its backlog is cut to 100 deliveries and kept for 24 hours (`handler_not_found`, `failures`) or 1 hour (`no_credit`), then replaced by one gap marker. A `permission_revoked` backlog is dropped immediately. Suspended subscriptions are deleted after 30 days.
 
+A subscription suspended for a reason that can resume still counts toward your [persistent subscription limit](/rate-limits-and-quotas/#what-an-account-can-hold) until you unsubscribe it. One suspended with `permission_revoked` doesn't count, since it never resumes. An account keeps at most 500 of those, and past that, subscribing again deletes the oldest ones.
+
 ## Delivery guarantees
 
 Clients connect to the nearest region. Events reach a client wherever it's connected.
