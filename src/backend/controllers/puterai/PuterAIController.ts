@@ -448,6 +448,7 @@ export class PuterAIController extends PuterController {
                   }
                 : {}),
             ...openaiCompatProvider(body),
+            ...(body.fallback === false ? { fallback: false } : {}),
         };
 
         const result = await this.#complete(res, completeArgs);
@@ -545,8 +546,7 @@ export class PuterAIController extends PuterController {
                         }
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            | UsageDetails
-                            | undefined;
+                            UsageDetails | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -649,6 +649,7 @@ export class PuterAIController extends PuterController {
                 : {}),
             ...(finiteMaxTokens(body.max_tokens) ?? {}),
             ...openaiCompatProvider(body),
+            ...(body.fallback === false ? { fallback: false } : {}),
         };
 
         const completionId = `cmpl-${randomId()}`;
@@ -694,8 +695,7 @@ export class PuterAIController extends PuterController {
                         sendChunk(ev.text);
                     } else if (ev.type === 'usage') {
                         usageDetails = ev.usageDetails as
-                            | UsageDetails
-                            | undefined;
+                            UsageDetails | undefined;
                         finishReason = ev.finish_reason as string | undefined;
                     } else if (ev.type === 'error') {
                         res.write(
@@ -749,8 +749,7 @@ export class PuterAIController extends PuterController {
                     text: extractTextContent(
                         (
                             messageResult.message as
-                                | Record<string, unknown>
-                                | undefined
+                                Record<string, unknown> | undefined
                         )?.content,
                     ),
                     index: 0,
@@ -869,6 +868,7 @@ export class PuterAIController extends PuterController {
                   }
                 : {}),
             provider: providerName,
+            ...(body.fallback === false ? { fallback: false } : {}),
         };
 
         const responseId = generateId('resp');

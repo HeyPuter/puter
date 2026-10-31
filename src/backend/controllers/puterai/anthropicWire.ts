@@ -431,6 +431,7 @@ export const parseAnthropicRequest = (
             : {}),
         ...(betas.length ? { anthropicBetas: betas } : {}),
         provider: toStringOrEmpty(body.provider) || 'claude',
+        ...(body.fallback === false ? { fallback: false } : {}),
     };
     // Silently ignored: metadata, service_tier, inference_geo, container,
     // fallbacks, diagnostics.

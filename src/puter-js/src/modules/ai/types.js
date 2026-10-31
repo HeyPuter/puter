@@ -67,6 +67,8 @@
  * @property {boolean} [vision]
  * @property {string} [driver]
  * @property {string} [provider] The provider to route the request through.
+ * @property {boolean} [fallback] Set to `false` to fail the request when the first provider tried
+ * fails, instead of retrying it on another provider that serves the same model.
  * @property {Tool[]} [tools] Function/tool definitions the model can call. See Function Calling.
  * @property {boolean} [normalize] Response-format control for non-streaming results. `true` returns the
  * OpenAI-style shape regardless of provider or release date (`message.content` as a string,
