@@ -62,7 +62,7 @@ When Puter knows ahead of time that the server a session runs on will restart, i
 
 The conversation makes up to ten attempts over about a minute. In a browser that reports being offline, it first waits up to two minutes for the connection to come back. If every attempt fails, or the server refuses with an error such as `insufficient_funds`, the conversation closes. A closed conversation cannot reconnect. To start another session, prepare a new one.
 
-Native event definitions are listed in the [OpenAI realtime reference](https://developers.openai.com/api/reference/resources/realtime/server-events). Native events retain their provider fields. Sending native events preserves direct control of the session. Audio helpers expect the session to use PCM16 at 24 kHz.
+Native event definitions are listed in the [OpenAI realtime reference](https://developers.openai.com/api/reference/resources/realtime/server-events). Native events retain their provider fields. Sending native events preserves direct control of the session. Puter refuses `conversation.item.retrieve` events and MCP tools (`"type": "mcp"`) in `session.update` and `response.create` events. Sending one fires an `error` event with code `invalid_event`, and the conversation closes with code 1008. Audio helpers expect the session to use PCM16 at 24 kHz.
 
 ## Convenience events
 

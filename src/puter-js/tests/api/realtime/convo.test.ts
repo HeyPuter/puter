@@ -467,6 +467,33 @@ describe('convo built SDK and browser media', () => {
         }
     });
 
+    it('closes with invalid_event when Puter refuses a native event', async () => {
+        const conversation = await puter.ai.convo({ output: ['text'] });
+        const log = watch(conversation);
+        try {
+            await conversation.connect();
+            conversation.send({
+                type: 'conversation.item.retrieve',
+                item_id: 'item_1',
+            });
+            await log.until(() => conversation.state === 'closed');
+            expect(
+                log.events.find((event) => event.type === 'error'),
+            ).toMatchObject({ error: { code: 'invalid_event' } });
+            expect(
+                log.events.find((event) => event.type === 'close'),
+            ).toMatchObject({ code: 1008 });
+            expect(log.count('reconnecting')).toBe(0);
+            expect(
+                received.some(
+                    (event) => event.type === 'conversation.item.retrieve',
+                ),
+            ).toBe(false);
+        } finally {
+            conversation.close();
+        }
+    });
+
     // Last: the relay refuses new sessions from here on.
     it('keeps the session working while a draining server refuses its replacement', async () => {
         const draining = loadNodePuter(

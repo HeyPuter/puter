@@ -128,8 +128,8 @@ export interface RealtimeTranscriptionUsage {
 
 const OPENAI_KEY_PROTOCOL = 'openai-insecure-api-key.';
 export const MAX_REALTIME_MESSAGE_BYTES = 64 * 1024;
-// OpenAI events can carry whole items, such as a retrieved audio item or a
-// long reply, so upstream messages get far more room than client ones.
+// OpenAI events can carry whole items, such as a long reply, so upstream
+// messages get far more room than client ones.
 export const MAX_UPSTREAM_MESSAGE_BYTES = 4 * 1024 * 1024;
 const MAX_PENDING_MESSAGES = 32;
 // Usage batches waiting on metering; past this the session closes, but every
@@ -375,6 +375,39 @@ const responseHoldAmount = (model: string): number => {
     );
 };
 
+/** Bills `count` responses that never reported usage at one hold each. */
+const unreportedResponseRows = (model: string, count: number): UsageInput[] => [
+    {
+        usageType: `openai:${model}:realtime:unreported_response`,
+        usageAmount: count,
+        costOverride: count * responseHoldAmount(model),
+    },
+];
+
+/**
+ * Why a client event is refused, or null. Retrieved items and MCP tool output
+ * can exceed the upstream message cap.
+ */
+const clientEventRefusal = (event: RealtimeEvent): string | null => {
+    if (event.type === 'conversation.item.retrieve') {
+        return 'conversation.item.retrieve is not supported';
+    }
+    const config: unknown =
+        event.type === 'session.update'
+            ? event.session
+            : event.type === 'response.create'
+              ? event.response
+              : undefined;
+    if (
+        isRecord(config) &&
+        Array.isArray(config.tools) &&
+        config.tools.some((tool) => isRecord(tool) && tool.type === 'mcp')
+    ) {
+        return 'MCP tools are not supported';
+    }
+    return null;
+};
+
 /** Whichever of two pricings of the same usage costs more. */
 export const costlierRows = (
     a: UsageInput[],
@@ -613,8 +646,9 @@ export class OpenAIRealtimeRelayService extends PuterService {
         const token = realtimeTokenFrom(req, url);
         let actor: Actor | null = null;
         let rechecking = false;
-        // Responses started upstream and not yet done. A response only bills
-        // on `response.done`, so the upstream outlives the client until then.
+        // Responses started upstream and not yet done. A response bills its
+        // usage on `response.done`, so the upstream outlives the client until
+        // then; one the upstream closes on first is billed its hold.
         let inFlight = 0;
         const inFlightIds = new Set<string>();
         // Client `response.create` events whose response hasn't started; the
@@ -836,12 +870,12 @@ export class OpenAIRealtimeRelayService extends PuterService {
         // draining after the session closes.
         const usageQueue: {
             rows: UsageInput[];
-            hold?: Promise<CreditHold | null>;
+            holds: Promise<CreditHold | null>[];
         }[] = [];
         let recording = false;
         const drainUsage = async () => {
             while (usageQueue.length) {
-                const { rows, hold } = usageQueue[0];
+                const { rows, holds } = usageQueue[0];
                 if (rows.length) {
                     await this.#record(actor!, rows, () =>
                         reject(
@@ -850,18 +884,19 @@ export class OpenAIRealtimeRelayService extends PuterService {
                         ),
                     );
                 }
-                await releaseHold(hold);
+                await Promise.all(holds.map((hold) => releaseHold(hold)));
                 usageQueue.shift();
             }
             recording = false;
         };
-        // `hold` is released once `rows` are recorded.
+        // `holds` are released once `rows` are recorded.
         const meter = (
             rows: UsageInput[],
-            hold?: Promise<CreditHold | null>,
+            ...maybeHolds: (Promise<CreditHold | null> | undefined)[]
         ) => {
-            if (!rows.length && !hold) return;
-            usageQueue.push({ rows, hold });
+            const holds = maybeHolds.filter((hold) => hold !== undefined);
+            if (!rows.length && !holds.length) return;
+            usageQueue.push({ rows, holds });
             if (!recording) {
                 recording = true;
                 setImmediate(() => void drainUsage());
@@ -1026,6 +1061,11 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     'invalid_event',
                     'The session model is set by the connection URL',
                 );
+                return;
+            }
+            const refusal = clientEventRefusal(event);
+            if (refusal) {
+                reject('invalid_event', refusal);
                 return;
             }
             spend(size);
@@ -1247,27 +1287,30 @@ export class OpenAIRealtimeRelayService extends PuterService {
         });
         up.on('close', (code, reason) => {
             if (settleTimer) clearTimeout(settleTimer);
-            if (inFlight > 0) {
-                this.clients.alarm.create(
-                    'realtime_unbilled_response',
-                    'Realtime upstream closed before a response reported usage',
-                    {
-                        userId: actor?.user?.uuid,
-                        model: billingModel,
-                        inFlight,
-                        code,
-                    },
-                    'warning',
-                    { dedup: true },
-                );
-            }
-            for (const id of [...responseHolds.keys()]) {
-                void releaseHold(takeHold(id));
-            }
             session.close(
                 code === 1005 || code === 1006 ? 1011 : code,
                 reason.toString().slice(0, 120),
             );
+            const holds = [...responseHolds.values()];
+            responseHolds.clear();
+            if (inFlight === 0) {
+                for (const hold of holds) void releaseHold(hold);
+                return;
+            }
+            this.clients.alarm.create(
+                'realtime_unreported_response',
+                'Realtime upstream closed before a response reported usage',
+                {
+                    userId: actor?.user?.uuid,
+                    model: billingModel,
+                    inFlight,
+                    code,
+                },
+                'warning',
+                { dedup: true },
+            );
+            // The holds are released once this charge is recorded.
+            meter(unreportedResponseRows(billingModel, inFlight), ...holds);
         });
     }
 

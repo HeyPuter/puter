@@ -194,7 +194,11 @@ describe('OpenAIRealtimeRelayService relay', () => {
     let user: TestUserCredentials;
     let relayUrl: string;
     const upstreamRequests: IncomingMessage[] = [];
-    const upstreamEvents: { type: string; response_id?: string }[] = [];
+    const upstreamEvents: {
+        type: string;
+        response_id?: string;
+        event_id?: string;
+    }[] = [];
     const clients = new Set<WebSocket>();
     let responseCount = 0;
 
@@ -292,6 +296,11 @@ describe('OpenAIRealtimeRelayService relay', () => {
                             item: { audio: 'A'.repeat(event.bytes) },
                         }),
                     );
+                    return;
+                }
+                // Drops the connection, like a provider ending the session.
+                if (event.type === 'test.drop') {
+                    ws.terminate();
                     return;
                 }
                 if (event.type === 'test.oversize') {
@@ -611,9 +620,22 @@ describe('OpenAIRealtimeRelayService relay', () => {
         c.ws.close();
     });
 
-    it('closes on an oversized upstream message and alarms on the response it loses', async () => {
+    // 8,000 audio input and 4,096 audio output tokens at mini rates.
+    const MINI_HOLD = 8_000 * 1000 + 4_096 * 2000;
+    const unreportedRows = (costOverride: number) => [
+        {
+            usageType: 'openai:gpt-realtime-mini:realtime:unreported_response',
+            usageAmount: 1,
+            costOverride,
+        },
+    ];
+
+    it('closes on an oversized upstream message and bills the response it loses at its hold', async () => {
         const alarm = vi.spyOn(server.clients.alarm, 'create');
-        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        const spy = vi.spyOn(server.services.metering, 'batchIncrementUsages');
+        const c = open(
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${user.token}`,
+        );
         await c.waitFor('session.created');
         c.ws.send(JSON.stringify({ type: 'hold.response' }));
         await c.waitFor('response.created');
@@ -625,14 +647,107 @@ describe('OpenAIRealtimeRelayService relay', () => {
             ),
         ).toBe(false);
         await vi.waitFor(() =>
-            expect(alarm).toHaveBeenCalledWith(
-                'realtime_unbilled_response',
-                expect.any(String),
-                expect.objectContaining({ inFlight: 1 }),
-                'warning',
-                { dedup: true },
+            expect(spy.mock.calls.map(([, rows]) => rows)).toContainEqual(
+                unreportedRows(MINI_HOLD),
             ),
         );
+        expect(alarm).toHaveBeenCalledWith(
+            'realtime_unreported_response',
+            expect.any(String),
+            expect.objectContaining({ inFlight: 1 }),
+            'warning',
+            { dedup: true },
+        );
+    });
+
+    it('bills a response at its hold through the cost factor when the upstream drops mid-response', async () => {
+        const dropped = await createTestUser(server, {
+            username: 'realtime-dropped',
+            password: 'realtime-dropped-password',
+        });
+        const row = await server.stores.user.getByUsername(dropped.username);
+        const actor = { user: row } as never;
+        const metering = server.services.metering;
+        const spy = vi.spyOn(metering, 'batchIncrementUsages');
+        await withAiCostFactorHook(server.clients.event, 2, async () => {
+            const c = open(
+                `${relayUrl}?model=gpt-realtime-mini&auth_token=${dropped.token}`,
+            );
+            await c.waitFor('session.created');
+            c.ws.send(JSON.stringify({ type: 'hold.response' }));
+            await c.waitFor('response.created');
+            await vi.waitFor(async () =>
+                expect(await metering.getOutstandingHolds(actor)).toBe(
+                    MINI_HOLD * 2,
+                ),
+            );
+            c.ws.send(JSON.stringify({ type: 'test.drop' }));
+            expect((await c.closed).code).toBe(1011);
+            await vi.waitFor(() =>
+                expect(spy.mock.calls.map(([, rows]) => rows)).toContainEqual(
+                    unreportedRows(MINI_HOLD * 2),
+                ),
+            );
+        });
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actor)).toBe(0),
+        );
+    });
+
+    const mcpTool = {
+        type: 'mcp',
+        server_label: 'docs',
+        server_url: 'https://mcp.example.com',
+    };
+    it.each([
+        [
+            'conversation.item.retrieve',
+            { type: 'conversation.item.retrieve', item_id: 'item_1' },
+        ],
+        [
+            'an MCP tool in session.update',
+            {
+                type: 'session.update',
+                session: { type: 'realtime', tools: [mcpTool] },
+            },
+        ],
+        [
+            'an MCP tool in response.create',
+            { type: 'response.create', response: { tools: [mcpTool] } },
+        ],
+    ])('refuses %s without forwarding it', async (_name, event) => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const eventId = `event_refused_${Date.now()}_${Math.random()}`;
+        c.ws.send(JSON.stringify({ ...event, event_id: eventId }));
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_event' },
+        });
+        expect((await c.closed).code).toBe(1008);
+        expect(upstreamEvents.some((e) => e.event_id === eventId)).toBe(false);
+    });
+
+    it('forwards function tools', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(
+            JSON.stringify({
+                type: 'session.update',
+                session: {
+                    type: 'realtime',
+                    tools: [
+                        {
+                            type: 'function',
+                            name: 'lookup',
+                            parameters: { type: 'object' },
+                        },
+                    ],
+                },
+            }),
+        );
+        await c.waitForEcho('session.update');
+        expect(c.events.some((e) => e.type === 'error')).toBe(false);
+        c.ws.close();
     });
 
     it('treats a null usage as none and keeps the session', async () => {
@@ -654,7 +769,7 @@ describe('OpenAIRealtimeRelayService relay', () => {
         c.ws.close();
         await c.closed;
         expect(alarm).not.toHaveBeenCalledWith(
-            'realtime_unbilled_response',
+            'realtime_unreported_response',
             expect.anything(),
             expect.anything(),
             expect.anything(),
@@ -1065,11 +1180,8 @@ describe('OpenAIRealtimeRelayService relay', () => {
         expect(await metering.getOutstandingHolds(actor)).toBe(0);
         c.ws.send(JSON.stringify({ type: 'hold.response' }));
         await c.waitFor('response.created');
-        // 8,000 audio input and 4,096 audio output tokens at mini rates.
         await vi.waitFor(async () =>
-            expect(await metering.getOutstandingHolds(actor)).toBe(
-                8_000 * 1000 + 4_096 * 2000,
-            ),
+            expect(await metering.getOutstandingHolds(actor)).toBe(MINI_HOLD),
         );
         c.ws.close();
         await vi.waitFor(async () =>

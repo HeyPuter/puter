@@ -47,13 +47,18 @@ backpressure bounds what a slow client can queue. Usage is priced as each event
 arrives, before any forwarding decision, and recorded serially off the
 forwarding path through the AI cost-factor hook. Pricing follows the model the
 session reports, falling back to the connection's; a client `session.update`
-that changes the model is refused.
+that changes the model is refused. So are `conversation.item.retrieve` and MCP
+tools in `session.update` or `response.create`, since a retrieved item or MCP
+output can exceed the upstream message cap.
 
 When a session closes with a response still generating, the relay cancels it
 and keeps the upstream open for up to five seconds so the cancelled response
 reports, and is billed for, what it generated. A response the client requested
-that starts during that window is cancelled the same way. An upstream that
-closes with a response unreported raises a warning alarm.
+that starts during that window is cancelled the same way. When the upstream
+closes, for any reason, with a started response that hasn't reported usage,
+that response is billed its full hold through the same metering path and a
+warning alarm is raised. A response the client requested but that never
+started isn't billed.
 
 Each response holds a fixed amount of the account's budget
 (`RESPONSE_HOLD_*_TOKENS` at the model's audio rates) from `response.created`
