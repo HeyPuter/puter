@@ -437,6 +437,46 @@ describe('conversation helpers and limits', () => {
             expect.objectContaining({ code: 'queue_full' }),
         );
     });
+    it('keeps the conversation through server events larger than an upload', async () => {
+        const c = await connected();
+        const updates = [];
+        const items = [];
+        c.on('session.updated', (event) => updates.push(event));
+        c.on('*', (event) => {
+            if (event.type === 'conversation.item.done') items.push(event);
+        });
+        const instructions = 'x'.repeat(1024 * 1024);
+        socket().deliver({
+            type: 'session.updated',
+            session: { instructions },
+        });
+        socket().deliver({
+            type: 'conversation.item.done',
+            item: {
+                id: 'item_audio',
+                type: 'message',
+                role: 'assistant',
+                status: 'completed',
+                content: [
+                    {
+                        type: 'output_audio',
+                        audio: 'A'.repeat(3 * 1024 * 1024),
+                        transcript: 'Hello there',
+                    },
+                ],
+            },
+        });
+        expect(updates).toHaveLength(1);
+        expect(updates[0].session.instructions).toBe(instructions);
+        expect(items).toHaveLength(1);
+        expect(c.state).toBe('connected');
+        expect(() => c.sendText('hi')).not.toThrow();
+        // What the app sends keeps its own 64 KiB cap.
+        expect(() => c.send({ type: 'x', pad: 'x'.repeat(65536) })).toThrow(
+            expect.objectContaining({ code: 'input_too_large' }),
+        );
+    });
+
     it('rejects only the operation an error names', async () => {
         const c = await connected({ turnDetection: false });
         const update = c.configure({ instructions: 'changed' });

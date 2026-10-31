@@ -123,6 +123,39 @@ describe('convo built SDK and browser media', () => {
                             },
                         }),
                     );
+                // Provider events far larger than anything a client sends.
+                if (event.type === 'test.large') {
+                    send({
+                        type: 'session.updated',
+                        session: { instructions: 'x'.repeat(1536 * 1024) },
+                    });
+                    const item = {
+                        id: `item_${++ids}`,
+                        object: 'realtime.item',
+                        type: 'message',
+                        role: 'assistant',
+                    };
+                    send({
+                        type: 'conversation.item.added',
+                        item: { ...item, status: 'in_progress', content: [] },
+                    });
+                    send({
+                        type: 'conversation.item.done',
+                        item: {
+                            ...item,
+                            status: 'completed',
+                            content: [
+                                {
+                                    type: 'output_audio',
+                                    audio: Buffer.alloc(1536 * 1024).toString(
+                                        'base64',
+                                    ),
+                                    transcript: 'Hello there',
+                                },
+                            ],
+                        },
+                    });
+                }
                 if (event.type === 'conversation.item.truncate')
                     socket.send(
                         JSON.stringify({
@@ -452,6 +485,47 @@ describe('convo built SDK and browser media', () => {
         } finally {
             auth.mockRestore();
             warn.mockRestore();
+            conversation.close();
+            closeNodePuter(dropping);
+        }
+    });
+
+    it('delivers provider events larger than an upload and restores them after a drop', async () => {
+        const dropping = loadNodePuter(
+            { ...manifest, apiOrigin: proxyOrigin },
+            env.users.user.token,
+        );
+        const conversation = await dropping.ai.convo({ output: ['text'] });
+        const log = watch(conversation);
+        try {
+            await conversation.connect();
+            conversation.send({ type: 'test.large' });
+            await log.until(() => log.count('conversation.item.done') === 1);
+            const update = log.events.find(
+                (event) =>
+                    event.type === 'session.updated' &&
+                    typeof event.session?.instructions === 'string' &&
+                    event.session.instructions.length === 1536 * 1024,
+            );
+            expect(update).toBeDefined();
+            expect(conversation.state).toBe('connected');
+
+            for (const socket of proxied) socket.destroy();
+            await log.until(() =>
+                log.events.some(
+                    (event) => event.type === 'ready' && event.reconnected,
+                ),
+            );
+            await vi.waitFor(() =>
+                expect(restored(connections.at(-1)!)).toContainEqual({
+                    type: 'message',
+                    role: 'assistant',
+                    content: [{ type: 'output_text', text: 'Hello there' }],
+                }),
+            );
+            expect(log.count('reconnecting')).toBe(1);
+            expect(log.count('close')).toBe(0);
+        } finally {
             conversation.close();
             closeNodePuter(dropping);
         }

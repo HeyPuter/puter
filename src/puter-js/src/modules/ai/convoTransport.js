@@ -4,6 +4,21 @@ import { RealtimeEvents } from './realtimeEvents.js';
 
 const REALTIME_PATH = '/puterai/openai/v1/realtime';
 const encoder = new TextEncoder();
+// The relay's cap on provider messages, which can carry whole items. What the
+// SDK sends is capped separately, and much lower.
+const MAX_SERVER_MESSAGE_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Whether `data` encodes to more than `limit` UTF-8 bytes. A UTF-16 code unit
+ * encodes to at most three bytes, so only a long string is encoded to check.
+ *
+ * @param {string} data
+ * @param {number} limit
+ * @returns {boolean}
+ */
+const exceedsBytes = (data, limit) =>
+    data.length > limit ||
+    (data.length * 3 > limit && encoder.encode(data).byteLength > limit);
 
 /**
  * One live realtime session. Events in both directions are OpenAI Realtime API
@@ -23,10 +38,7 @@ export class RealtimeSession extends RealtimeEvents {
             try {
                 const data =
                     typeof msg.data === 'string' ? msg.data : String(msg.data);
-                if (
-                    data.length > 65536 ||
-                    encoder.encode(data).byteLength > 65536
-                ) {
+                if (exceedsBytes(data, MAX_SERVER_MESSAGE_BYTES)) {
                     // Browsers only accept 1000 and 3000-4999 here.
                     socket.close(4009, 'message too large');
                     return;
