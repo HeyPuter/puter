@@ -1,5 +1,10 @@
-import type { IncomingMessage } from 'node:http';
+import {
+    createServer,
+    type IncomingMessage,
+    type Server as HttpServer,
+} from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { PassThrough } from 'node:stream';
 import {
     afterAll,
     afterEach,
@@ -26,6 +31,7 @@ import { kv } from '../../util/kvSingleton';
 import {
     MAX_REALTIME_MESSAGE_BYTES,
     MAX_UPSTREAM_MESSAGE_BYTES,
+    OpenAIRealtimeRelayService,
     REALTIME_PATH,
     type RealtimeUsage,
     type RealtimeTranscriptionUsage,
@@ -1344,6 +1350,147 @@ describe('OpenAIRealtimeRelayService relay', () => {
         );
         expect(c.events.some((e) => e.type === 'error')).toBe(false);
         c.ws.close();
+    });
+
+    // A relay of its own, so draining it leaves the shared one serving.
+    describe('refusing sessions while draining', () => {
+        let relay: OpenAIRealtimeRelayService;
+        let httpServer: HttpServer;
+        let drainUrl: string;
+        // Server-side sockets the relay accepted, in order.
+        const accepted: WebSocket[] = [];
+        const uncaught: unknown[] = [];
+        const onUncaught = (err: unknown) => uncaught.push(err);
+
+        beforeAll(async () => {
+            relay = new OpenAIRealtimeRelayService(
+                {
+                    domain: 'puter.localhost',
+                    realtime: {
+                        upstreamUrl: `ws://127.0.0.1:${(upstream.address() as AddressInfo).port}`,
+                    },
+                    providers: { 'openai-completion': { apiKey: 'sk-test' } },
+                } satisfies Partial<IConfig> as IConfig,
+                server.clients,
+                server.stores,
+                server.services,
+            );
+            httpServer = createServer();
+            relay.attachHttpServer(httpServer);
+            await new Promise<void>((resolve) =>
+                httpServer.listen(0, '127.0.0.1', resolve),
+            );
+            const { port } = httpServer.address() as AddressInfo;
+            drainUrl = `ws://api.puter.localhost:${port}${REALTIME_PATH}?model=gpt-realtime-mini&auth_token=${user.token}`;
+            process.on('uncaughtException', onUncaught);
+        });
+
+        beforeEach(() => {
+            const handleUpgrade = WebSocketServer.prototype.handleUpgrade;
+            vi.spyOn(
+                WebSocketServer.prototype,
+                'handleUpgrade',
+            ).mockImplementation(function (
+                this: WebSocketServer,
+                req,
+                socket,
+                head,
+                done,
+            ) {
+                handleUpgrade.call(this, req, socket, head, (ws, r) => {
+                    accepted.push(ws);
+                    vi.spyOn(ws, 'emit');
+                    done(ws, r);
+                });
+            });
+        });
+
+        afterAll(async () => {
+            process.off('uncaughtException', onUncaught);
+            await relay.onServerPrepareShutdown();
+            await new Promise((r) => httpServer.close(r));
+        });
+
+        it('handles a socket error on an upgrade for another host', () => {
+            const socket = new PassThrough();
+            const req = {
+                url: REALTIME_PATH,
+                headers: { host: 'evil.example' },
+            } as IncomingMessage;
+            httpServer.emit('upgrade', req, socket, Buffer.alloc(0));
+            expect(() =>
+                socket.emit('error', new Error('read ECONNRESET')),
+            ).not.toThrow();
+        });
+
+        // Last in this block: it shuts the relay down.
+        it('refuses late sessions, survives a client error mid-refusal, and finishes open ones', async () => {
+            const metering = vi.spyOn(
+                server.services.metering,
+                'batchIncrementUsages',
+            );
+            const established = open(drainUrl);
+            await established.waitFor('session.created');
+            await relay.onServerDrainStart({ drainMs: 60_000 });
+            await established.waitFor('puter.reconnect');
+
+            const late = open(drainUrl);
+            expect(await late.waitFor('error')).toMatchObject({
+                error: { code: 'server_restarting' },
+            });
+            expect((await late.closed).code).toBe(1012);
+
+            const before = accepted.length;
+            const oversized = new WebSocket(drainUrl);
+            clients.add(oversized);
+            oversized.on('error', () => {});
+            // Sent on open, before the client reads the refusal: the relay's
+            // close frame is already out when this reaches it.
+            oversized.once('open', () =>
+                oversized.send(Buffer.alloc(MAX_REALTIME_MESSAGE_BYTES + 1)),
+            );
+            const socket = await vi.waitFor(() => {
+                expect(accepted.length).toBeGreaterThan(before);
+                return accepted[before];
+            });
+            await vi.waitFor(() =>
+                expect(socket.readyState).toBe(WebSocket.CLOSED),
+            );
+            expect(
+                vi
+                    .mocked(socket.emit)
+                    .mock.calls.filter(([name]) => name === 'error'),
+            ).toEqual([
+                [
+                    'error',
+                    expect.objectContaining({
+                        code: 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH',
+                    }),
+                ],
+            ]);
+            expect(uncaught).toEqual([]);
+
+            // The established session keeps working and billing, then
+            // finishes its response and closes with 1012 at shutdown.
+            metering.mockClear();
+            established.ws.send('{"type":"response.create"}');
+            await established.waitFor('response.done');
+            await vi.waitFor(() => expect(metering).toHaveBeenCalled());
+            established.ws.send(JSON.stringify({ type: 'slow.response' }));
+            await vi.waitFor(() =>
+                expect(
+                    established.events.filter(
+                        (e) => e.type === 'response.created',
+                    ),
+                ).toHaveLength(2),
+            );
+            await relay.onServerPrepareShutdown();
+            expect((await established.closed).code).toBe(1012);
+            expect(
+                established.events.filter((e) => e.type === 'response.done'),
+            ).toHaveLength(2);
+            expect(uncaught).toEqual([]);
+        }, 20_000);
     });
 
     describe('restart', () => {
