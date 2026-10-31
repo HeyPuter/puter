@@ -922,11 +922,13 @@ export class MeteringBufferStore extends PuterStore {
             });
             const fetchedValues = fetched as (unknown | null)[];
             await Promise.all(
-                misses.map(async (i, idx) => {
+                misses.map(async (i, idx): Promise<void> => {
                     const k = keys[i]!;
                     // As in `#readStoreAndBuffer`: a buffer that shrank during
                     // the store read may be counted in both, so read again.
-                    const now = await this.#readBuffered(k).catch(() => null);
+                    const now = await this.#readBuffered(k).catch(
+                        (): null => null,
+                    );
                     if (now && !sameAmounts(deltas[i]!, now.delta)) {
                         const { stored, buffered } =
                             await this.#readStoreAndBuffer(k);
