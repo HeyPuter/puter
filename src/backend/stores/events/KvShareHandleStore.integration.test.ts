@@ -672,6 +672,26 @@ describe('the live cache across nodes', () => {
         });
     });
 
+    it('reads a handle once for concurrent misses', async () => {
+        const row = await store().mint(
+            input({ appUid: 'app-forget', keyPrefix: 'forget-concurrent:' }),
+        );
+        // The test engine runs primary reads through `read` too, so this
+        // counts every query.
+        const read = vi.spyOn(env.server.clients.db, 'read');
+        try {
+            const [first, second] = await Promise.all([
+                store().getLive(row.handle),
+                store().getLive(row.handle),
+            ]);
+            expect(first).not.toBeNull();
+            expect(second).toBe(first);
+            expect(handleReads(read)).toBe(1);
+        } finally {
+            read.mockRestore();
+        }
+    });
+
     it('reads nothing for an id whose mac does not verify', async () => {
         const row = await store().mint(
             input({ appUid: 'app-forget', keyPrefix: 'forget-d:' }),

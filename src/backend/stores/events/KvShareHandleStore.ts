@@ -228,6 +228,8 @@ export class KvShareHandleStore extends PuterStore {
         ttlMs: FORGOTTEN_TTL_MS,
     });
     #forgets = 0;
+    /** Reads in flight, so concurrent misses on one handle share a query. */
+    readonly #reading = new Map<string, Promise<LiveKvShareHandle | null>>();
 
     async mint(input: MintKvShareHandleInput): Promise<KvShareHandle> {
         const row: KvShareHandle = {
@@ -312,6 +314,8 @@ export class KvShareHandleStore extends PuterStore {
     #forgetOwner(ownerUserId: number): void {
         this.#forgottenOwners.set(ownerUserId, ++this.#forgets);
         this.#live.deleteWhere(({ row }) => row.ownerUserId === ownerUserId);
+        // A read's owner is only known once it returns.
+        this.#reading.clear();
     }
 
     /**
@@ -322,8 +326,9 @@ export class KvShareHandleStore extends PuterStore {
      * A forged id is refused without a read. Only a signed id falls back to the
      * primary on a replica miss: that is for read-after-mint, and legacy ids
      * are no longer minted. A handle or owner forgotten in the last minute,
-     * before or during the read, is read from the primary too. A handle older
-     * than its app reads as gone.
+     * before or during the read, is read from the primary too. Concurrent
+     * misses on one handle share one read. A handle older than its app reads as
+     * gone.
      */
     async getLive(handle: string): Promise<LiveKvShareHandle | null> {
         const kind = kvHandleIdKind(handle, this.config.jwt_secret_v2);
@@ -332,6 +337,22 @@ export class KvShareHandleStore extends PuterStore {
         if (cached) return cached;
         if (this.#missing.has(handle)) return null;
 
+        const reading = this.#reading.get(handle);
+        if (reading) return reading;
+        const read = this.#readLive(handle, kind);
+        this.#reading.set(handle, read);
+        try {
+            return await read;
+        } finally {
+            if (this.#reading.get(handle) === read)
+                this.#reading.delete(handle);
+        }
+    }
+
+    async #readLive(
+        handle: string,
+        kind: 'signed' | 'legacy',
+    ): Promise<LiveKvShareHandle | null> {
         let before = this.#forgets;
         const primary = this.#forgotten.has(handle);
         let rows = primary
@@ -394,6 +415,7 @@ export class KvShareHandleStore extends PuterStore {
         this.#forgotten.set(handle, ++this.#forgets);
         this.#live.delete(handle);
         this.#missing.delete(handle);
+        this.#reading.delete(handle);
     }
 
     /** Drops the cached copies on this node and every other one. */
