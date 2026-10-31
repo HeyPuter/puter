@@ -17,7 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET } from '../../controllers/events/limits.js';
+import {
+    EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE,
+    EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
+} from '../../controllers/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { kvHandleFromSubject } from '../../services/events/subjects.js';
 import { bumpGeneration } from '../../util/redisGeneration.js';
@@ -291,6 +294,13 @@ const subscriptionLimitReached = (): HttpError =>
         { legacyCode: 'events_subscription_limit' },
     );
 
+const kvHandleLimitReached = (): HttpError =>
+    new HttpError(
+        429,
+        `You may hold ${EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE} live subscriptions through one share handle`,
+        { legacyCode: 'events_subscription_limit' },
+    );
+
 /** What a refresh kept alive, and the rows it let go. */
 export interface RefreshResult {
     /** Every (owner, token) the socket still holds, value variants included. */
@@ -353,7 +363,8 @@ export class EventSubscriptionStore extends PuterStore {
      *
      * The cap is decided on the cardinality after `sadd`, rolling the member
      * back when over — `scard` then `sadd` would let two concurrent adds both
-     * pass.
+     * pass. A row another user makes through a share handle is also held to the
+     * per-handle cap, which concurrent adds can overshoot slightly.
      */
     async add(sub: SessionSubscription): Promise<GenerationBump> {
         const { holderUserId, ownerUserId, socketId, token, subId } = sub;
@@ -381,6 +392,21 @@ export class EventSubscriptionStore extends PuterStore {
             throw counted?.[0] ?? subscriptionLimitReached();
         }
 
+        const handle = kvHandleFromSubject(sub.subject);
+        if (handle !== null && holderUserId !== ownerUserId) {
+            let full = true;
+            try {
+                full = await this.#kvHandleFull(sub, handle);
+            } finally {
+                if (full)
+                    await this.clients.redis.srem(
+                        socketKey(holderUserId, socketId),
+                        ref,
+                    );
+            }
+            if (full) throw kvHandleLimitReached();
+        }
+
         const counts = await this.#writeRow(sub);
         await this.#keepDurableWindow(ownerUserId, [token]);
 
@@ -393,6 +419,26 @@ export class EventSubscriptionStore extends PuterStore {
             generation: await this.bumpGeneration(ownerUserId),
             announce: announce.length > 0 ? announce : undefined,
         };
+    }
+
+    /**
+     * Whether the row's holder already holds the cap through this handle. The
+     * index is only read row by row once it's past the cap, so the common add
+     * costs one `scard`.
+     */
+    async #kvHandleFull(
+        sub: SessionSubscription,
+        handle: string,
+    ): Promise<boolean> {
+        const indexed = await this.clients.redis.scard(
+            kvHandleKey(sub.ownerUserId, handle),
+        );
+        if (indexed < EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE) return false;
+        const live = await this.listForKvHandles(sub.ownerUserId, [handle]);
+        const held = live.filter(
+            (row) => row.holderUserId === sub.holderUserId,
+        ).length;
+        return held >= EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE;
     }
 
     /**

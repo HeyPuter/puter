@@ -520,9 +520,10 @@ See [Events](/Events/) for an overview, [`onLocal()`](/Events/subjects/#gaps) fo
 | KV share handles                     | Per user, per app  | 10,000 | 2,000 | 0       |
 | KV share handles with one other user | Per owner and holder | 256  | 256  | 0         |
 | Session subscriptions                | Per connection     | 50   | 50   | 50        |
+| Session subscriptions through one KV share handle | Per holder, all connections | 1,000 | 1,000 | 1,000 |
 
 - Over a subscription limit: `events_subscription_limit`. Over a share-handle limit: `events_kv_handle_limit_reached`.
-- Session subscriptions through a share handle count toward the limit per connection like any other. With the [open connections per account](#live-connections), that limit is what bounds how many one holder can have.
+- Session subscriptions through a share handle also count toward the limit per connection. The limit through one handle counts the holder's subscriptions in one region, including ones on connections that dropped and haven't been cleaned up yet. The owner's own subscriptions through the handle don't count.
 - Anonymous accounts get `events_durable_requires_account` for persistent subscriptions and `events_kv_handle_requires_account` for share handles.
 - Unsubscribing or revoking frees a slot immediately. Revoked handles don't count. They stay in [`puter.kv.listSharedByMe()`](/KV/listSharedByMe/) for 30 days after they stop, and are then deleted.
 - A [`puter.kv.share()`](/KV/share/) call with several recipients is refused as a whole with `events_kv_handle_limit_reached` when its new shares would go over the all-apps or per-app limit. Sharing a prefix again with a user who already has it takes no slot. The limit per holder applies to each recipient on its own, and a recipient over it gets the error on their own item.

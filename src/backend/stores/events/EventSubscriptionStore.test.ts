@@ -19,7 +19,10 @@
 
 import MockRedis from 'ioredis-mock';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET } from '../../controllers/events/limits.js';
+import {
+    EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE,
+    EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET,
+} from '../../controllers/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types.js';
 import {
@@ -318,6 +321,38 @@ describe('rows made through a share handle', () => {
         await store.reapSocket(holder, 'socket-b');
 
         expect(await redis.scard(`ev:kh:{${USER}}:${HANDLE}`)).toBe(0);
+    });
+
+    it('holds another user to a loose cap through one handle, across their connections', async () => {
+        const cap = EVENTS_SESSION_SUBSCRIPTIONS_PER_KV_HANDLE;
+        const isLimit = (err: unknown) =>
+            isHttpError(err) &&
+            err.statusCode === 429 &&
+            err.legacyCode === 'events_subscription_limit';
+        const holder = USER + 7000;
+        for (let i = 0; i < 10; i++) await store.add(through(USER, i));
+        for (let i = 0; i < cap; i++) await store.add(through(holder, i));
+
+        const overflow = through(holder, cap);
+        await expect(store.add(overflow)).rejects.toSatisfy(isLimit);
+        expect(
+            await redis.smembers(`ev:s:{${holder}}:${overflow.socketId}`),
+        ).not.toContain(`${USER}|${overflow.token}|${overflow.subId}`);
+
+        // The owner's own rows don't count, and another handle has its own room.
+        await expect(store.add(through(USER, 10))).resolves.toMatchObject({
+            userId: USER,
+        });
+        await expect(
+            store.add(
+                through(holder, cap + 1, { subject: `kv:${OTHER_HANDLE}:*` }),
+            ),
+        ).resolves.toMatchObject({ userId: USER });
+
+        await store.remove(through(holder, 0));
+        await expect(
+            store.add(through(holder, cap + 2)),
+        ).resolves.toMatchObject({ userId: USER });
     });
 
     it('lists the rows made through the given handles, and no others', async () => {
