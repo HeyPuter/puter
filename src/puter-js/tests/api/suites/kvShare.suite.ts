@@ -135,6 +135,7 @@ export default suite('kvShare', {
                 'handle',
                 'holder',
                 'label',
+                'notify',
                 'prefix',
             ]);
             t.assert.equal(share.prefix, prefix);
@@ -154,6 +155,7 @@ export default suite('kvShare', {
                     'createdAt',
                     'handle',
                     'label',
+                    'notify',
                 ]);
                 t.assert.equal(held!.access, 'write');
 
@@ -345,6 +347,49 @@ export default suite('kvShare', {
             await t.puter.kv.unshare(share.handle);
         },
 
+    'share takes notify, keeps it when left out, and both sides see it':
+        async (t) => {
+            const prefix = unique('notify');
+            const share = await t.puter.kv.share({
+                prefix,
+                recipient: t.env.users.other.username,
+                notify: true,
+            });
+            t.assert.equal(share.notify, true);
+
+            const kept = await t.puter.kv.share(
+                prefix,
+                t.env.users.other.username,
+                'write',
+            );
+            t.assert.equal(kept.handle, share.handle);
+            t.assert.equal(kept.notify, true);
+
+            const { items: mine } = await t.puter.kv.listSharedByMe({
+                limit: 200,
+            });
+            t.assert.equal(
+                mine.find((one) => one.handle === share.handle)?.notify,
+                true,
+            );
+            await as(t, 'other', async () => {
+                const { items } = await t.puter.kv.listShared({ limit: 200 });
+                t.assert.equal(
+                    items.find((one) => one.handle === share.handle)?.notify,
+                    true,
+                );
+            });
+
+            const off = await t.puter.kv.share({
+                prefix,
+                recipient: t.env.users.other.username,
+                notify: false,
+            });
+            t.assert.equal(off.notify, false);
+
+            await t.puter.kv.unshare(share.handle);
+        },
+
     'share with several recipients reports each one on its own item': async (
         t,
     ) => {
@@ -429,7 +474,9 @@ export default suite('kvShare', {
         t.assert.equal(codeOf(pattern), 'invalid_kv_share_prefix');
     },
 
-    "sharing an app's data notifies the holder inside that app": async (t) => {
+    "sharing an app's data with notify tells the holder inside that app": async (
+        t,
+    ) => {
         const name = `kvshare-app-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
         const app = await t.puter.apps.create(
             name,
@@ -446,6 +493,7 @@ export default suite('kvShare', {
             recipient: t.env.users.other.username,
             label: 'From the app',
             appUuid: appUid,
+            notify: true,
         });
         t.assert.equal(share.appUid, appUid);
 

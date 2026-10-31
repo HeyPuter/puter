@@ -31,7 +31,7 @@ puter.events.onPersistent(options)
 - `handler` (Function | String | Object): The handler source you wrote this subscription against: a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Only its **hash** is sent. The subscription is created only if it matches what's published under `handlerName`, so `handlerName` is required with it. Passing a function also runs it in this client for each delivery it receives (see below).
 - `context` (Object): Values the handler needs, passed to it as a frozen `ctx`. **Up to 4 KB serialized**; see below.
 - `expiresAt` (Number | String): When the subscription ends on its own, as unix seconds or an ISO-8601 string. Must be in the future.
-- `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value` (`null` on a `del`, absent on an `expire`). The value is left out when it's over 16 KB, when more than 128 subscriptions match the change in that region, or when the filter-check limit stops the count early. Refused on other subjects.
+- `includeValue` (Boolean): For a `kv:` subject, include the key's new value as `event.value` (`null` on a `del`, absent on an `expire`). The value is left out when it's over 16 KB, when the change already went out with its value to 128 subscriptions in that region, or through a [share handle](/Events/subjects/#sharing-key-value-data-with-another-user) whose share is at `watch`. Refused on other subjects.
 - `onError` (Function): Called with `{ message, code }` when this client stops running `handler` because its connection can't be restored (`reauth_required` after a sign-out, `events_connection_failed` otherwise). The subscription itself keeps going in the events worker, and resumes taking deliveries here once this client reconnects. Only used with a function `handler`; without it, the stop is logged to the console.
 
 ## Background delivery needs consent
@@ -100,13 +100,16 @@ These rules apply to a `queue` subscription, in a client or in the events worker
 | Resolves | Done. |
 | Throws | The event is dropped and replaced by a [gap marker](/Events/subjects/#gaps) with `reason: 'handler_rejected'`. It counts as a failure. |
 | Throws a temporary error: a network error, a timeout, a rate limit (`429`), a `5xx`, or any error with `retry: true` | Retried after 2 seconds, then 4, 8 and so on, up to 5 minutes apart. It counts as a failure. |
-| Never answers (the tab closed, the worker crashed, or it ran past 30 seconds in the worker) | Offered again. |
+| Runs past 30 seconds in the events worker | Retried on the same schedule. It counts as a failure. |
+| Never answers in a client (the tab closed or the connection dropped) | Offered again. |
 
 To have an error retried, throw it with `retry: true`:
 
 ```js
 throw Object.assign(new Error('Service busy, try later'), { retry: true });
 ```
+
+In the events worker, a run that fails because of Puter doesn't count as a failure. It's retried on the same schedule, and waits longer if Puter's answer asked for a longer wait, up to 5 minutes. That covers a run Puter couldn't start or finish, and a handler that throws after a call it made through `user` got a `5xx`, a `429`, or a network error from Puter. To drop the event in that case anyway, throw an error with `terminal: true`.
 
 **Five failures in a row suspend the subscription** with `failures`. The developer is notified, and publishing the handler again resumes it.
 
@@ -116,7 +119,7 @@ Advanced: a handler can call `ack()` to mark the event done before it finishes. 
 
 ## `context` is captured once, up to 4 KB
 
-A handler can't use outside variables (see [`puter.events.handlers`](/Events/handlers/)), so `context` is how values reach it. It's evaluated **once, at this call**. Below, `ctx.endpoint` stays whatever `process.env.INGEST_URL` was when you subscribed, until you subscribe again:
+A handler can't use outside variables (see [`puter.events.handlers`](/Events/handlers/)), so `context` is how values reach it. It's evaluated **once, at this call**. Below, `ctx.endpoint` stays whatever `process.env.INGEST_URL` was when you subscribed, until you change it with [`puter.events.update()`](/Events/update/):
 
 ```js
 await puter.events.onPersistent({
@@ -140,6 +143,8 @@ A persistent subscription can stop without being unsubscribed. It's then *suspen
 | `permission_revoked` | The permission or share it relied on was withdrawn. | **Never.** Subscribe again. |
 
 A suspended subscription stops delivering and isn't billed. Its backlog is cut to 100 deliveries and kept for 24 hours (`handler_not_found`, `failures`) or 1 hour (`no_credit`), then replaced by one gap marker. A `permission_revoked` backlog is dropped immediately. Suspended subscriptions are deleted after 30 days.
+
+A subscription suspended for a reason that can resume still counts toward your [persistent subscription limit](/rate-limits-and-quotas/#what-an-account-can-hold) until you unsubscribe it. One suspended with `permission_revoked` doesn't count, since it never resumes. An account keeps at most 500 of those, and past that, subscribing again deletes the oldest ones.
 
 ## Delivery guarantees
 

@@ -37,6 +37,7 @@ import {
     APP_MESSAGE_TYPE,
     appMessageSender,
     parseAppMessage,
+    type AppMessage,
 } from '../../services/notification/appMessage.js';
 import {
     APP_READABLE_AUDIENCES,
@@ -50,6 +51,7 @@ import {
     resolveNotificationWrite,
     type NotificationTypeName,
 } from '../../services/notification/notificationTypes.js';
+import { withRedisLock } from '../../util/redisLock.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
 import type { DriverRateLimitConfig } from '../meta.js';
@@ -58,6 +60,12 @@ import { CRUD_CONCURRENT } from '../util/crudLimits.js';
 const MAX_SELECT_LIMIT = 200;
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
+// A group's sends queue for up to ~1 s; a stalled holder blocks them for the TTL.
+const GROUP_LOCK_MS = 5_000;
+const GROUP_LOCK_ATTEMPTS = 40;
+const GROUP_LOCK_RETRY_MS = 25;
+
+type AppMessageWindow = 'minute' | 'day';
 
 /** The mailbox slice a call named, in the terms the query takes it. */
 interface MailboxScope {
@@ -84,6 +92,37 @@ const typeNotAllowed = (message: string): HttpError =>
         legacyCode: 'forbidden',
         code: 'notification_type_not_allowed',
     });
+
+const tooManyAppMessages = (): HttpError =>
+    new HttpError(429, 'Too many notifications from this app.', {
+        legacyCode: 'too_many_requests',
+    });
+
+/** One refusal for either limit a notification through a share can hit. */
+const tooManySharedNotifications = (): HttpError =>
+    new HttpError(429, 'Too many notifications.', {
+        legacyCode: 'too_many_requests',
+    });
+
+/** The handle in `to`, which must be `{ handle }` and nothing else. */
+const parseNotifyTarget = (to: unknown): string => {
+    const target = to as Record<string, unknown> | null;
+    if (
+        !target ||
+        typeof target !== 'object' ||
+        Array.isArray(target) ||
+        Object.keys(target).length !== 1 ||
+        typeof target.handle !== 'string' ||
+        target.handle === ''
+    ) {
+        throw new HttpError(
+            400,
+            '`to` must be an object with only a string `handle`',
+            { legacyCode: 'bad_request', fields: { field: 'to' } },
+        );
+    }
+    return target.handle;
+};
 
 /** Whether a row belongs to the slice, as the same SQL scope selected it. */
 const inScope = (
@@ -115,8 +154,8 @@ const inScope = (
  *   grant changes that. A slice an actor may not see comes back empty rather
  *   than refused — the mailbox is not an oracle.
  * - The holder creates any registered type but `app.message`, silently. An actor
- *   holding an app creates `app.message` only, for its own user, and it is
- *   delivered live.
+ *   holding an app creates `app.message` only, for its own user or, through a
+ *   KV share handle, for the share's other party, and it is delivered live.
  *
  * `read` and `select` also take an optional `subject` naming one slice
  * (`notif:<appUid>:<audience>`); the two-segment form expands from the actor's
@@ -202,11 +241,12 @@ export class NotificationDriver extends PuterDriver {
         // Silent: a driver `create` has never pushed to the live socket, only
         // ever written the row — moving through the registry does not change
         // that.
-        return this.#write(actor, value, {
+        const uid = await this.#write(actor.user.id, value, {
             type: registeredType,
             appUid,
             silent: true,
         });
+        return this.#readBack(uid, actor.user.id);
     }
 
     async read(args: Record<string, unknown>): Promise<unknown> {
@@ -304,14 +344,17 @@ export class NotificationDriver extends PuterDriver {
         return { success: !!ok };
     }
 
-    /** An app's message to its own user; the actor names recipient and app. */
+    /**
+     * An app's message to its own user, or with `to.handle` to the other party
+     * of a KV share. The actor names the app; the share names the recipient.
+     */
     async #createAppMessage(
         actor: UserActor,
         appUid: string,
         object: Record<string, unknown>,
         value: Record<string, unknown>,
     ): Promise<unknown> {
-        const { type, ...fields } = value;
+        const { type, to, ...fields } = value;
         if (type !== APP_MESSAGE_TYPE) {
             throw typeNotAllowed(`Apps can create only ${APP_MESSAGE_TYPE}`);
         }
@@ -324,71 +367,171 @@ export class NotificationDriver extends PuterDriver {
                 );
             }
         }
+        const handle = to === undefined ? undefined : parseNotifyTarget(to);
         const message = parseAppMessage(fields);
         assertValueFits(value);
 
-        if (!(await this.#withinAppMessageLimits(actor.user.id, appUid))) {
-            throw new HttpError(429, 'Too many notifications from this app.', {
-                legacyCode: 'too_many_requests',
-            });
+        if (handle === undefined) {
+            const uid = await this.#sendAppMessage(
+                actor.user.id,
+                appUid,
+                message,
+            );
+            return this.#readBack(uid, actor.user.id);
         }
+        try {
+            const recipient =
+                await this.services.kvShare.resolveNotifyRecipient(
+                    actor,
+                    handle,
+                );
+            await this.#sendAppMessage(
+                recipient.recipientUserId,
+                recipient.appUid,
+                message,
+            );
+        } catch (err) {
+            // Which limit refused would say how much the recipient is sent.
+            if (err instanceof HttpError && err.statusCode === 429)
+                throw tooManySharedNotifications();
+            throw err;
+        }
+        // Even a uid would say whether the recipient's last one was replaced.
+        return {};
+    }
+
+    /**
+     * A message with a `group` replaces the newest one in that group unless it
+     * was shown or dismissed, which spends a minute slot but no day slot.
+     * Limits are keyed on the recipient, who need not be the actor.
+     */
+    async #sendAppMessage(
+        recipientId: number,
+        appUid: string,
+        message: AppMessage,
+    ): Promise<string> {
+        const send = () =>
+            this.#replaceOrWriteAppMessage(recipientId, appUid, message);
+        if (!message.group) return send();
+        // One send per group at a time, so a burst into an empty group writes
+        // one row that the rest replace. A lock that is busy past the wait or
+        // unreachable still sends: the race costs a second row and its day slot.
+        return withRedisLock(
+            this.clients.redis,
+            `notif:app-message:group:${recipientId}:${appUid}:${message.group}`,
+            send,
+            {
+                ttlMs: GROUP_LOCK_MS,
+                attempts: GROUP_LOCK_ATTEMPTS,
+                retryMs: GROUP_LOCK_RETRY_MS,
+                onUnavailable: 'run',
+                onBusy: send,
+            },
+        );
+    }
+
+    async #replaceOrWriteAppMessage(
+        recipientId: number,
+        appUid: string,
+        message: AppMessage,
+    ): Promise<string> {
+        // Primary: a lagging replica would turn a replacement into a new
+        // notification, which spends a day slot.
+        const open = message.group
+            ? await this.stores.notification.getUnseenByGroup(
+                  recipientId,
+                  appUid,
+                  message.group,
+                  { primary: true },
+              )
+            : null;
+        await this.#spendAppMessageLimits(
+            recipientId,
+            appUid,
+            open ? ['minute'] : ['minute', 'day'],
+        );
 
         message.app = appMessageSender(
             appUid,
             await this.stores.app.getByUid(appUid),
         );
 
-        return this.#write(actor, message, {
+        if (open) {
+            const uid = String(open.uid);
+            if (
+                await this.services.notification.notifyUpdate(
+                    uid,
+                    recipientId,
+                    message,
+                    { type: APP_MESSAGE_TYPE, replace: true },
+                )
+            ) {
+                return uid;
+            }
+            // Shown or dismissed since the lookup, so this one is new after all.
+            await this.#spendAppMessageLimits(recipientId, appUid, ['day']);
+        }
+
+        return this.#write(recipientId, message, {
             type: APP_MESSAGE_TYPE,
             appUid,
             silent: false,
+            group: message.group ?? null,
         });
     }
 
     /**
-     * Both windows are read before either is spent, so a refusal costs none.
+     * Every window named is read before any is spent, so a refusal costs none.
      * The minute window is spent first: it is the one most likely to run out
      * between the read and the spend, and a refusal there leaves the day
      * alone.
      */
-    async #withinAppMessageLimits(
+    async #spendAppMessageLimits(
         userId: number,
         appUid: string,
-    ): Promise<boolean> {
+        spend: readonly AppMessageWindow[],
+    ): Promise<void> {
         const configured = this.config.notificationAppMessageLimits ?? {};
-        const all: Array<[string, number, number]> = [
-            [
+        const all: Record<AppMessageWindow, [string, number, number]> = {
+            minute: [
                 `notif:app-message:minute:${userId}:${appUid}`,
                 configured.perMinute ?? APP_MESSAGE_RATE_LIMITS.perMinute,
                 MINUTE_MS,
             ],
-            [
+            day: [
                 `notif:app-message:day:${userId}:${appUid}`,
                 configured.perDay ?? APP_MESSAGE_RATE_LIMITS.perDay,
                 DAY_MS,
             ],
-        ];
-        const windows = all.filter(([, limit]) => limit > 0);
+        };
+        const windows = spend
+            .map((name) => all[name])
+            .filter(([, limit]) => limit > 0);
         for (const [key, limit, windowMs] of windows) {
-            if (!(await peekRateLimit(key, limit, windowMs))) return false;
+            if (!(await peekRateLimit(key, limit, windowMs))) {
+                throw tooManyAppMessages();
+            }
         }
         for (const [key, limit, windowMs] of windows) {
-            if (!(await checkRateLimit(key, limit, windowMs))) return false;
+            if (!(await checkRateLimit(key, limit, windowMs))) {
+                throw tooManyAppMessages();
+            }
         }
-        return true;
     }
 
+    /** Writes for `userId`, who need not be the actor, and names the row. */
     async #write(
-        actor: UserActor,
+        userId: number,
         value: Record<string, unknown>,
         opts: {
             type: NotificationTypeName;
             appUid: string | null;
             silent: boolean;
+            group?: string | null;
         },
-    ): Promise<unknown> {
+    ): Promise<string> {
         const uid = await this.services.notification.notify(
-            [actor.user.id],
+            [userId],
             value,
             opts,
         );
@@ -397,10 +540,17 @@ export class NotificationDriver extends PuterDriver {
                 legacyCode: 'internal_error',
             });
         }
-        // `notify` hands back only the uid; the primary has the rest.
+        return uid;
+    }
+
+    /** The service hands back only the uid; the primary has the rest. */
+    async #readBack(
+        uid: string,
+        userId: number,
+    ): Promise<Record<string, unknown> | null> {
         return this.#toClient(
             await this.stores.notification.getByUid(uid, {
-                userId: actor.user.id,
+                userId,
                 primary: true,
             }),
         );

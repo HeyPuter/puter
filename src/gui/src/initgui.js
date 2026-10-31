@@ -77,6 +77,7 @@ import {
 } from './helpers/parseSharedPath.js';
 import path from './lib/path.js';
 import { AntiCSRFService } from './services/AntiCSRFService.js';
+import { AppPushService } from './services/AppPushService.js';
 import { BroadcastService } from './services/BroadcastService.js';
 import { DebugService } from './services/DebugService.js';
 import { ExecService } from './services/ExecService.js';
@@ -1063,6 +1064,7 @@ const launch_services = async function (options) {
     register('ipc', new IPCService());
     register('exec', new ExecService());
     register('pip', new PictureInPictureService());
+    register('app-push', new AppPushService());
     register('debug', new DebugService());
     register('broadcast', new BroadcastService());
     register('theme', new ThemeService());

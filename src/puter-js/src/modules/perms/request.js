@@ -16,6 +16,7 @@ import {
     BACKGROUND_EVENTS_PERMISSION,
     emailPermission,
     fsPermission,
+    PUSH_NOTIFICATIONS_PERMISSION,
     subdomainsPermission,
 } from './lib/permissionStrings.js';
 import {
@@ -166,6 +167,15 @@ const RESOURCES = Object.assign(Object.create(null), {
         permissions: async ({ details }) => {
             assertKnownFields(details, []);
             return [BACKGROUND_EVENTS_PERMISSION];
+        },
+        check: async ({ permissions, holds }) => holds(permissions),
+        resolve: async (_query, held) => held,
+    },
+
+    pushNotifications: {
+        permissions: async ({ details }) => {
+            assertKnownFields(details, []);
+            return [PUSH_NOTIFICATIONS_PERMISSION];
         },
         check: async ({ permissions, holds }) => holds(permissions),
         resolve: async (_query, held) => held,
@@ -561,7 +571,7 @@ const entriesOf = (resource, details) => {
  */
 /**
  * @overload
- * @param {'backgroundEvents'} resource
+ * @param {'backgroundEvents' | 'pushNotifications'} resource
  * @returns {Promise<boolean>}
  */
 /**
@@ -655,7 +665,7 @@ export async function request(resource, details) {
  */
 /**
  * @overload
- * @param {'backgroundEvents'} resource
+ * @param {'backgroundEvents' | 'pushNotifications'} resource
  * @returns {Promise<boolean>}
  */
 /**

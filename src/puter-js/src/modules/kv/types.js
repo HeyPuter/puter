@@ -182,6 +182,8 @@
  * @property {KVShareAccess} [access] Defaults to `'read'`.
  * @property {string | null} [label] Plain text the holder is shown, up to 128 characters. Omit it to
  * keep the current label when sharing again, or pass `null` to clear it.
+ * @property {boolean} [notify] Whether you and the holder can send each other notifications through
+ * the share. Defaults to `false`. Omit it to keep the current setting when sharing again.
  * @property {string} [appUuid] The app whose data to share. Outside an app it can name any app, and
  * defaults to the app-less store. An app always shares its own data.
  */
@@ -196,6 +198,7 @@
  * @property {string | null} appUid The app whose data is shared, or `null` for the app-less store.
  * @property {string} holder The holder's username.
  * @property {string | null} label The label the holder is shown.
+ * @property {boolean} notify Whether you and the holder can notify each other through the share.
  * @property {number} createdAt When the share was made, in Unix seconds.
  */
 
@@ -207,6 +210,7 @@
  * @property {KVShareRecipient[]} recipients Who to share it with, 1 to 50 users.
  * @property {KVShareAccess} [access] Defaults to `'read'`.
  * @property {string | null} [label] As in `KVShareOptions`, the same for every recipient.
+ * @property {boolean} [notify] As in `KVShareOptions`, the same for every recipient.
  * @property {string} [appUuid] As in `KVShareOptions`.
  */
 
@@ -248,6 +252,7 @@
  * @property {string | null} holder The holder's username. A share is deleted with its holder's
  * account.
  * @property {string | null} label The label the holder is shown.
+ * @property {boolean} notify Whether you and the holder can notify each other through the share.
  * @property {number} createdAt When the share was made, in Unix seconds.
  * @property {number | null} revokedAt When the share stopped, in Unix seconds, or `null` while it's
  * live.
@@ -263,6 +268,7 @@
  * @property {KVShareAccess} access What you can do.
  * @property {string | null} appUid The app whose data it is, or `null` for the app-less store.
  * @property {string | null} label Plain text the owner set. Render it as text, never as HTML.
+ * @property {boolean} notify Whether you and the owner can notify each other through the share.
  * @property {number} createdAt When the share was made, in Unix seconds.
  */
 

@@ -11,6 +11,7 @@ export const Resource = Object.freeze({
     APP_DATA: 'appData',
     APP_ROOT_DIR: 'appRootDir',
     BACKGROUND_EVENTS: 'backgroundEvents',
+    PUSH_NOTIFICATIONS: 'pushNotifications',
     KV_SHARE: 'kvShare',
 });
 

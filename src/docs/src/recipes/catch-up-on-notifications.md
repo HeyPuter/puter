@@ -49,10 +49,14 @@ properly. The fields to use are:
 - `notification.title`, the text to show. The other fields in `notification`
   depend on the type.
 - `ts`, when it was created, in milliseconds since the epoch.
+- `replaced`, `true` when your app's notification replaced an earlier one in
+  its [group](/Notifications/notify/#groups). It keeps the earlier `id`, and its
+  `ts` is when it was replaced.
 
-Tell notifications apart by `id` only. The `seq` field is only a position within
-one page or one delivery, two notifications can share a `ts`, and the same
-notification's `ts` can differ between its live and fetched copies.
+Tell notifications apart by `id`, plus `ts` when `replaced` is set. The `seq`
+field is only a position within one page or one delivery, two notifications can
+share a `ts`, and the `ts` of a notification that wasn't replaced can differ
+between its live and fetched copies.
 
 ## Which Notifications Your App Sees
 
@@ -121,8 +125,9 @@ let cursor = saved.cursor;
 const seen = new Set(saved.seen);
 
 function showOnce (event) {
-    if (seen.has(event.id)) return;
-    seen.add(event.id);
+    const key = event.replaced ? `${event.id}@${event.ts}` : event.id;
+    if (seen.has(key)) return;
+    seen.add(key);
     showNotification(event);
 }
 
@@ -151,13 +156,19 @@ await catchUp();
 Subscribe first, then fetch. A notification created while `catchUp()` runs then
 reaches the handler. Because of that, a notification can arrive both live and
 from [`fetch()`](/Events/fetch/), and `showOnce()` drops the second copy by
-`id`.
+`id`. A replacement has the same `ts` on both copies, so `showOnce()` keys it
+on `id` and `ts` and shows each replacement once.
 
 The last page has no cursor, so the saved cursor stays on the page before it, and the
 next visit reads that page again. That is why the ids are saved along with the
 cursor. Only the newest ones can come back, so the last 200 are enough. On a
 first visit there is no saved cursor, so `cursor` is `undefined` and
 `catchUp()` shows every notification Puter still keeps.
+
+A read from the saved cursor also returns any notification replaced since,
+even one from before the cursor. A notification your app replaced while the
+page was closed comes back with `replaced` set and its new `ts`, and
+`showOnce()` shows it.
 
 A [gap](/recipes/watch-for-changes/#handle-gaps) means notifications were not
 delivered, and one also arrives after a reconnect. Calling `catchUp()` on a gap

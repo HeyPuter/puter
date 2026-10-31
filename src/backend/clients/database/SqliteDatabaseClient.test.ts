@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 93;
+const CURRENT_SCHEMA_VERSION = 95;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -673,11 +673,55 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
         });
     });
 
+    it('adds kv_share_handles.notify from 0099, off for every existing share', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'puter-sqlite-notify-'));
+        const path = join(dir, 'puter.sqlite');
+        try {
+            const before = new SqliteDatabaseClient(
+                sqliteConfig({ inMemory: false, path, targetVersion: 94 }),
+            );
+            await before.onServerStart();
+            await before.write(
+                'INSERT INTO `kv_share_handles` (`handle`, `owner_user_id`, ' +
+                    '`grantee_user_id`, `app_uid`, `key_prefix`, `permission`, ' +
+                    '`created_at`) VALUES (?, 1, 1, ?, ?, ?, 0)',
+                ['kvh-before-notify', 'os-global', 'a:', 'kv-share:x'],
+            );
+            before.onServerShutdown();
+
+            const after = new SqliteDatabaseClient(
+                sqliteConfig({ inMemory: false, path }),
+            );
+            await after.onServerStart();
+            await expect(
+                after.read(
+                    'SELECT `notify` FROM `kv_share_handles` WHERE `handle` = ?',
+                    ['kvh-before-notify'],
+                ),
+            ).resolves.toEqual([{ notify: 0 }]);
+            after.onServerShutdown();
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
     it('indexes notification.created_at for the retention sweep', async () => {
         const rows = await client.read('PRAGMA index_list(`notification`)');
         expect(rows.map((r) => String(r.name))).toContain(
             'idx_notification_created_at',
         );
+    });
+
+    it('indexes notification.replaced_at per mailbox slice for catch-up', async () => {
+        const columns = await client.read(
+            'PRAGMA index_info(`idx_notification_replaced`)',
+        );
+        expect(columns.map((c) => String(c.name))).toEqual([
+            'user_id',
+            'audience',
+            'app_uid',
+            'replaced_at',
+        ]);
     });
 
     it('leaves an already-migrated database untouched on a second boot', async () => {

@@ -26,7 +26,7 @@ puter.events.fetch(options)
 #### `options` (Object) (required)
 
 - `subject` (String) (required): What to read: `notif:app-user` (the ones belonging to the app you're running as), `notif:developer` (about your app, for its owner), or `notif:<appId>:<audience>`. Audiences are `account`, `developer` (about an app, sent to its owner), and `app-user` (about your data inside an app). Apps and websites never see `account` notifications: `notif:account` returns an empty page for them.
-- `cursor` (String): The `cursor` from the previous page. Leave it off to start from the oldest notification still kept.
+- `cursor` (String): The `cursor` from the previous page. Leave it off to start from the oldest notification still kept. A read from a cursor returns the notifications created after it, plus any notification [replaced](/Notifications/notify/#groups) since that page was read, even one from an earlier page.
 - `after` (String): The older name for `cursor`, still accepted. If both are given, `cursor` is used.
 - `limit` (Number): Events per page. Defaults to 50, max 200.
 
@@ -41,7 +41,7 @@ Each item is a notification event:
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `id` | String | The notification's uid. Live deliveries carry the same id, so you can drop duplicates. |
+| `id` | String | The notification's uid. Live deliveries carry the same id, so you can drop duplicates. A replacement keeps the id, so tell it apart by `replaced` and `ts`. |
 | `subject` | String | `notif:<appId or userId>:<audience>`: the part of the mailbox it belongs to. |
 | `op` | String | Always `post`. |
 | `uid` | String | The notification's uid. |
@@ -49,8 +49,9 @@ Each item is a notification event:
 | `audience` | String | `account`, `developer`, or `app-user`. |
 | `appUid` | String \| null | The app it's about, or `null` for platform notifications. |
 | `notification` | Object | The stored payload. It always has `type`, and every type except `kv.share.received` has a `title`. Other fields depend on `type` (below). |
+| `replaced` | Boolean | Present and `true` when the notification replaced an earlier one with the same `uid`, as an app's notification with a [`group`](/Notifications/notify/#groups) does. |
 | `self` | Boolean | Always `true`: a mailbox is your own. |
-| `ts` | Number | When it was created, in milliseconds since the epoch. |
+| `ts` | Number | When it was created, in milliseconds since the epoch. On a replacement, when it was replaced, and the same on its live and fetched copies. |
 | `seq` | Number | Position within the page. |
 
 Besides `type` and `title`, `notification` carries:
@@ -61,7 +62,7 @@ Besides `type` and `title`, `notification` carries:
 - `app.events.ended`: `reason` (`anchor_deleted`, `permission_revoked`, or `no_credit`); `anchor_deleted` and `permission_revoked` also add `subject`, `subjects` (up to 20) and `count`.
 - `app.events.suspended`: `handler` and `subscriptions`.
 - `app.message`: a notification your app sent with [`notify()`](/Notifications/notify/). It carries `priority`, `ttl` and `app` (`{ uid, name, icon }`, the app that sent it), plus `text`, `icon`, `target`, `data`, `group`, `channel` and `sensitive` when they were set. It arrives on `notif:app-user` of the app that sent it, and the Puter desktop doesn't show it. Outside that app, `notif:app-user` leaves it out.
-- `kv.share.received`: `handle`, `access`, `label`, and `createdAt` (in Unix seconds) of a key-value share another user made with you (see [`puter.kv.listShared()`](/KV/listShared/)). It arrives on `notif:app-user` in the app whose data was shared, and the Puter desktop doesn't show it. Outside that app, `notif:app-user` leaves it out. `notif:<appId>:app-user` returns it to the account itself and to that app, and not to other apps.
+- `kv.share.received`: `handle`, `access`, `label`, and `createdAt` (in Unix seconds) of a key-value share another user made with you with `notify` on, or turned `notify` on for (see [`puter.kv.share()`](/KV/share/#what-the-holder-sees)). It arrives on `notif:app-user` in the app whose data was shared, and the Puter desktop doesn't show it. Outside that app, `notif:app-user` leaves it out. `notif:<appId>:app-user` returns it to the account itself and to that app, and not to other apps.
 
 Other notifications can carry other fields, so read them defensively.
 

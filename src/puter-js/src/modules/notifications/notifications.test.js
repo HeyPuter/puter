@@ -154,6 +154,18 @@ describe('notify', () => {
         expect(call.puter).toBe(notifications.puter);
     });
 
+    it('resolves with nothing for a notification sent through a share', async () => {
+        mockDriverCall.mockResolvedValue({});
+        const result = await makeModule().notify({
+            title: 'Hi',
+            to: { handle: 'kvh-1' },
+        });
+        expect(result).toBeUndefined();
+        expect(mockDriverCall.mock.calls[0][0].args.object.value.to).toEqual({
+            handle: 'kvh-1',
+        });
+    });
+
     it('sends app.message whatever type the caller passes', async () => {
         mockDriverCall.mockResolvedValue({ uid: 'n-2' });
         await makeModule().notify({ title: 'Hi', type: 'share.received' });
@@ -340,6 +352,7 @@ describe('onNotification', () => {
                 channel: 'messages',
                 sensitive: false,
                 createdAt: 1234,
+                replaced: false,
                 app: { uid: 'app-1', name: 'Chat' },
             },
         ]);
@@ -409,6 +422,108 @@ describe('onNotification', () => {
         expect(seen).toEqual(['n-1', 'n-2', 'n-3']);
     });
 
+    it('hands a replacement over again, once per version', async () => {
+        const events = makeEvents({
+            pages: [
+                { items: [] },
+                {
+                    items: [
+                        event(
+                            'n-1',
+                            { title: 'two' },
+                            { replaced: true, ts: 2_000 },
+                        ),
+                    ],
+                },
+            ],
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+        await notifications.onNotification((n) =>
+            seen.push([n.uid, n.title, n.replaced, n.createdAt]),
+        );
+
+        const replacement = event(
+            'n-1',
+            { title: 'two' },
+            { replaced: true, ts: 2_000 },
+        );
+        events.state.push(event('n-1', { title: 'one' }));
+        events.state.push(replacement);
+        events.state.push(replacement);
+        events.state.push(event('n-1', { title: 'one' }));
+        events.state.push(
+            event('n-1', { title: 'stale' }, { replaced: true, ts: 1_500 }),
+        );
+        // The fetched copy of the same replacement, after a reconnect.
+        events.state.push({ op: 'gap', reason: 'reconnect' });
+        await flush();
+        events.state.push(
+            event('n-1', { title: 'three' }, { replaced: true, ts: 3_000 }),
+        );
+
+        expect(seen).toEqual([
+            ['n-1', 'one', false, 1_000],
+            ['n-1', 'two', true, 2_000],
+            ['n-1', 'three', true, 3_000],
+        ]);
+    });
+
+    it('hands a replacement over once when it arrives both ways', async () => {
+        let release;
+        const gate = new Promise((resolve) => {
+            release = resolve;
+        });
+        const replacement = event(
+            'n-1',
+            { title: 'two' },
+            { replaced: true, ts: 2_000 },
+        );
+        const events = makeEvents();
+        events.fetch = vi.fn(async () => {
+            await gate;
+            return { items: [replacement] };
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+
+        const started = notifications.onNotification((n) =>
+            seen.push([n.uid, n.replaced]),
+        );
+        await flush();
+        events.state.push(replacement);
+        release();
+        await started;
+
+        expect(seen).toEqual([['n-1', true]]);
+    });
+
+    it('with catchUp: false, hands over a replacement of what was there', async () => {
+        const events = makeEvents({
+            pages: [
+                { items: [event('n-1')] },
+                {
+                    items: [
+                        event(
+                            'n-1',
+                            { title: 'two' },
+                            { replaced: true, ts: 2_000 },
+                        ),
+                    ],
+                },
+            ],
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+        await notifications.onNotification((n) => seen.push([n.uid, n.title]), {
+            catchUp: false,
+        });
+        events.state.push({ op: 'gap', reason: 'reconnect' });
+        await flush();
+
+        expect(seen).toEqual([['n-1', 'two']]);
+    });
+
     it('reads what it missed after a reconnect, from the last cursor', async () => {
         const events = makeEvents({
             pages: [
@@ -436,6 +551,39 @@ describe('onNotification', () => {
             limit: 200,
             cursor: 'c-1',
         });
+    });
+
+    it('hands over a replacement from an earlier page after a reconnect, once', async () => {
+        const replacement = event(
+            'n-1',
+            { title: 'two' },
+            { replaced: true, ts: 2_000 },
+        );
+        const events = makeEvents({
+            pages: [
+                { items: [event('n-1'), event('n-2')], cursor: 'c-1' },
+                { items: [event('n-3')] },
+                // From the saved cursor: the last page again, plus the
+                // replacement of a notification on the page before it.
+                { items: [event('n-3'), replacement] },
+            ],
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+        await notifications.onNotification((n) => seen.push([n.uid, n.title]));
+
+        // Its live copy arrives first, so the fetched one is a repeat.
+        events.state.push(replacement);
+        events.state.push({ op: 'gap', reason: 'reconnect' });
+        await flush();
+
+        expect(seen).toEqual([
+            ['n-1', 'title n-1'],
+            ['n-2', 'title n-2'],
+            ['n-3', 'title n-3'],
+            ['n-1', 'two'],
+        ]);
+        expect(events.state.fetches.at(-1)).toMatchObject({ cursor: 'c-1' });
     });
 
     it('with catchUp: false, skips what was there but not what arrives', async () => {
@@ -983,11 +1131,11 @@ describe('receipts', () => {
 });
 
 describe('requestPermission and hasPermission', () => {
-    it('asks for notifications:push through puter.perms', async () => {
+    it('asks for the pushNotifications resource through puter.perms', async () => {
         const notifications = makeModule();
         expect(await notifications.requestPermission()).toBe(true);
         expect(notifications.puter.perms.request).toHaveBeenCalledWith(
-            'notifications:push',
+            'pushNotifications',
         );
     });
 
@@ -998,13 +1146,13 @@ describe('requestPermission and hasPermission', () => {
         expect(await notifications.requestPermission()).toBe(false);
     });
 
-    it('checks notifications:push without prompting', async () => {
+    it('checks the pushNotifications resource without prompting', async () => {
         const notifications = makeModule({
             perms: { request: vi.fn(), check: vi.fn(async () => false) },
         });
         expect(await notifications.hasPermission()).toBe(false);
         expect(notifications.puter.perms.check).toHaveBeenCalledWith(
-            'notifications:push',
+            'pushNotifications',
         );
         expect(notifications.puter.perms.request).not.toHaveBeenCalled();
     });
@@ -1025,6 +1173,40 @@ describe('enablePush', () => {
 
     it('resolves false where there is no desktop or popup to ask', async () => {
         expect(await makeModule({ ui: makeUI() }).enablePush()).toBe(false);
+    });
+});
+
+describe('disable inside the desktop', () => {
+    it('has the desktop revoke the app`s push permission', async () => {
+        const ui = { ...makeUI(), disablePush_: vi.fn(async () => true) };
+        expect(await makeModule({ ui }).disable()).toBe(true);
+        expect(ui.disablePush_).toHaveBeenCalledTimes(1);
+    });
+
+    it('resolves false from a desktop that can`t', async () => {
+        expect(await makeModule({ ui: makeUI() }).disable()).toBe(false);
+    });
+});
+
+describe('status inside the desktop', () => {
+    it('answers what the desktop says', async () => {
+        const ui = { ...makeUI(), pushStatus_: vi.fn(async () => 'on') };
+        expect(await makeModule({ ui }).status()).toBe('on');
+        expect(ui.pushStatus_).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+        ['a desktop that can`t answer', async () => null],
+        ['an answer it doesn`t know', async () => 'maybe'],
+        [
+            'a failed answer',
+            async () => {
+                throw new Error('ipc_handler_failed');
+            },
+        ],
+    ])('is unavailable for %s', async (_, pushStatus_) => {
+        const ui = { ...makeUI(), pushStatus_: vi.fn(pushStatus_) };
+        expect(await makeModule({ ui }).status()).toBe('unavailable');
     });
 });
 

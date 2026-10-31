@@ -12,6 +12,7 @@ const { fetch: fetchMissed } = await import('./fetch.js');
 const { list } = await import('./list.js');
 const { onPersistent } = await import('./onPersistent.js');
 const { unsubscribe } = await import('./unsubscribe.js');
+const { update } = await import('./update.js');
 
 const SUBJECT = 'fs:~/Documents';
 const HANDLER = ({ event, ctx }) => fetch(ctx.url, { body: event.path });
@@ -33,9 +34,14 @@ const makeModule = (fsRead) => {
             deregisterDurable (subId) {
                 this.deregistered.push(subId);
             },
+            updated: [],
+            updateDurableContext (subId, ctx) {
+                this.updated.push({ subId, ctx });
+            },
         },
         onPersistent,
         unsubscribe,
+        update,
         list,
         fetch: fetchMissed,
     };
@@ -338,6 +344,73 @@ describe('unsubscribe', () => {
 
         expect(error.code).toBe('subscription_does_not_exist');
         expect(module.channel.deregistered).toEqual(['app-1#a']);
+    });
+});
+
+describe('update', () => {
+    it('sends the subscription and its new context, and answers with the server`s row', async () => {
+        const view = { subId: 'app-1#a', contextKeys: ['url'] };
+        mockRequest.mockResolvedValue(view);
+        const module = makeModule();
+
+        const sub = await module.update('app-1#a', {
+            context: { url: 'https://ingest.example' },
+        });
+
+        expect(routeOf()).toBe('/events/subscriptions/update');
+        expect(bodyOf()).toEqual({
+            subId: 'app-1#a',
+            context: { url: 'https://ingest.example' },
+        });
+        expect(sub).toBe(view);
+        expect(module.channel.updated).toEqual([
+            { subId: 'app-1#a', ctx: { url: 'https://ingest.example' } },
+        ]);
+    });
+
+    it('sends null to clear it', async () => {
+        await makeModule().update('app-1#a', { context: null });
+        expect(bodyOf()).toEqual({ subId: 'app-1#a', context: null });
+    });
+
+    it('refuses a call with no context, or one over the cap, before the network', async () => {
+        for ( const options of [undefined, {}, { context: undefined }] ) {
+            const error = await rejects(() =>
+                makeModule().update('app-1#a', options),
+            );
+            expect(error.code).toBe('invalid_request');
+        }
+        const tooLarge = await rejects(() =>
+            makeModule().update('app-1#a', {
+                context: { blob: 'x'.repeat(5000) },
+            }),
+        );
+        expect(tooLarge.code).toBe('events_context_too_large');
+        expect(mockRequest).not.toHaveBeenCalled();
+    });
+
+    it('answers an empty id the way the server answers one it cannot find', async () => {
+        const error = await rejects(() =>
+            makeModule().update('', { context: {} }),
+        );
+        expect(error.code).toBe('subscription_does_not_exist');
+        expect(mockRequest).not.toHaveBeenCalled();
+    });
+
+    it('keeps this client`s context when the server refuses', async () => {
+        const module = makeModule();
+        mockRequest.mockRejectedValue(
+            Object.assign(new Error('No such subscription'), {
+                code: 'subscription_does_not_exist',
+            }),
+        );
+
+        const error = await rejects(() =>
+            module.update('app-1#a', { context: { a: 1 } }),
+        );
+
+        expect(error.code).toBe('subscription_does_not_exist');
+        expect(module.channel.updated).toEqual([]);
     });
 });
 

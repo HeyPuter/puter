@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createHash } from 'node:crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 
@@ -28,8 +29,50 @@ import { PuterStore } from '../types';
  *     type?: string;
  *     audience?: string;
  *     appUid?: string | null;
+ *     group?: string | null;
  * }} NotificationInsert
  */
+
+/**
+ * Fixed width and compared byte for byte on every engine, whatever `group`
+ * holds.
+ */
+const groupKey = (group) =>
+    group ? createHash('sha256').update(group, 'utf8').digest('hex') : null;
+
+const pageLimit = (limit) => {
+    const n = Number(limit);
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 50;
+};
+
+/**
+ * The WHERE terms that pick one mailbox slice. `appUid: null` is the rows about
+ * no app; `undefined` is every app.
+ *
+ * @param {number} userId
+ * @param {{
+ *     audience: string;
+ *     appUid?: string | null;
+ *     excludeTypes: readonly string[];
+ * }} scope
+ */
+const sliceWhere = (userId, { audience, appUid, excludeTypes }) => {
+    const where = ['`user_id` = ?', '`audience` = ?'];
+    const params = [userId, audience];
+    if (excludeTypes.length > 0) {
+        where.push(
+            `\`type\` NOT IN (${excludeTypes.map(() => '?').join(', ')})`,
+        );
+        params.push(...excludeTypes);
+    }
+    if (appUid === null) {
+        where.push('`app_uid` IS NULL');
+    } else if (appUid !== undefined) {
+        where.push('`app_uid` = ?');
+        params.push(appUid);
+    }
+    return { where, params };
+};
 
 export class NotificationStore extends PuterStore {
     // -- Reads --------------------------------------------------------
@@ -51,6 +94,31 @@ export class NotificationStore extends PuterStore {
             ? await this.clients.db.pread(sql, params)
             : await this.clients.db.read(sql, params);
         return this.#normalizeRow(rows[0]) ?? null;
+    }
+
+    /**
+     * The newest row `appUid` wrote for the user under `group`, or null when it
+     * was shown or acknowledged: an older row is never picked up in its place.
+     * Rows written without a group never match.
+     *
+     * @param {number} userId
+     * @param {string} appUid
+     * @param {string} group
+     * @param {{ primary?: boolean }} [opts]
+     */
+    async getUnseenByGroup(userId, appUid, group, { primary = false } = {}) {
+        const sql =
+            'SELECT * FROM `notification` WHERE `user_id` = ? AND `app_uid` = ? ' +
+            'AND `group_key` = ? ORDER BY `id` DESC LIMIT 1';
+        const params = [userId, appUid, groupKey(group)];
+        const rows = primary
+            ? await this.clients.db.pread(sql, params)
+            : await this.clients.db.read(sql, params);
+        const row = rows[0];
+        if (!row || (row.shown ?? row.acknowledged ?? null) !== null) {
+            return null;
+        }
+        return this.#normalizeRow(row);
     }
 
     /**
@@ -152,24 +220,14 @@ export class NotificationStore extends PuterStore {
         userId,
         { audience, appUid, after = null, limit = 50, excludeTypes = [] },
     ) {
-        const n = Number(limit);
-        const safeLimit = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 50;
+        const safeLimit = pageLimit(limit);
         if (safeLimit === 0) return [];
 
-        const where = ['`user_id` = ?', '`audience` = ?'];
-        const params = [userId, audience];
-        if (excludeTypes.length > 0) {
-            where.push(
-                `\`type\` NOT IN (${excludeTypes.map(() => '?').join(', ')})`,
-            );
-            params.push(...excludeTypes);
-        }
-        if (appUid === null) {
-            where.push('`app_uid` IS NULL');
-        } else if (appUid !== undefined) {
-            where.push('`app_uid` = ?');
-            params.push(appUid);
-        }
+        const { where, params } = sliceWhere(userId, {
+            audience,
+            appUid,
+            excludeTypes,
+        });
         if (after !== null && Number.isFinite(Number(after))) {
             where.push('`id` > ?');
             params.push(Math.floor(Number(after)));
@@ -179,6 +237,52 @@ export class NotificationStore extends PuterStore {
             `SELECT * FROM \`notification\`
              WHERE ${where.join(' AND ')}
              ORDER BY \`id\` ASC
+             LIMIT ?`,
+            [...params, safeLimit],
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
+    /**
+     * The rows of a mailbox slice up to id `upTo` that were replaced after
+     * `after`, in replacement order: what a client that read up to `upTo` has
+     * not seen since. Keyset on (`replaced_at`, `id`), so rows replaced in the
+     * same millisecond page without a repeat or a skip. Scoped like
+     * `listScoped`.
+     *
+     * @param {number} userId
+     * @param {{
+     *     audience: string;
+     *     appUid?: string | null;
+     *     upTo: number;
+     *     after: { replacedAt: number; id: number };
+     *     limit?: number;
+     *     excludeTypes?: readonly string[];
+     * }} opts
+     */
+    async listReplacedScoped(
+        userId,
+        { audience, appUid, upTo, after, limit = 50, excludeTypes = [] },
+    ) {
+        const safeLimit = pageLimit(limit);
+        if (safeLimit === 0) return [];
+
+        const { where, params } = sliceWhere(userId, {
+            audience,
+            appUid,
+            excludeTypes,
+        });
+        where.push(
+            '`id` <= ?',
+            '`replaced_at` >= ?',
+            '(`replaced_at` > ? OR `id` > ?)',
+        );
+        params.push(upTo, after.replacedAt, after.replacedAt, after.id);
+
+        const rows = await this.clients.db.read(
+            `SELECT * FROM \`notification\`
+             WHERE ${where.join(' AND ')}
+             ORDER BY \`replaced_at\` ASC, \`id\` ASC
              LIMIT ?`,
             [...params, safeLimit],
         );
@@ -199,6 +303,7 @@ export class NotificationStore extends PuterStore {
      * `type`, `audience` and `appUid` are the scope tuple; the registry in the
      * notification service is what decides which combinations are legal, and
      * the empty `type` written by a caller that names none reads as legacy.
+     * `group` is kept as a key `getUnseenByGroup` finds the row by.
      *
      * @param {NotificationInsert} args
      */
@@ -209,17 +314,19 @@ export class NotificationStore extends PuterStore {
         type = '',
         audience = 'account',
         appUid = null,
+        group = null,
     }) {
         if (!userId) throw new Error('create: userId is required');
         const db = this.clients.db;
         const serialized =
             typeof value === 'string' ? value : JSON.stringify(value ?? {});
         const createdAt = Math.floor(Date.now() / 1000);
+        const key = groupKey(group);
         const { insertId } = await db.write(
             'INSERT INTO `notification` (`uid`, `user_id`, `value`, `type`, ' +
-                '`audience`, `app_uid`, `created_at`) VALUES ' +
-                `(?, ?, ?, ?, ?, ?, ${db.timestampFromUnixSql()})${db.returningIdClause()}`,
-            [uid, userId, serialized, type, audience, appUid, createdAt],
+                '`audience`, `app_uid`, `group_key`, `created_at`) VALUES ' +
+                `(?, ?, ?, ?, ?, ?, ?, ${db.timestampFromUnixSql()})${db.returningIdClause()}`,
+            [uid, userId, serialized, type, audience, appUid, key, createdAt],
         );
         return this.#normalizeRow({
             id: Number(insertId),
@@ -232,6 +339,8 @@ export class NotificationStore extends PuterStore {
             app_uid: appUid,
             audience,
             type,
+            group_key: key,
+            replaced_at: null,
         });
     }
 
@@ -250,17 +359,38 @@ export class NotificationStore extends PuterStore {
      * with it, so changed wording goes out again on their next connect —
      * `#sendUnreads` only carries what was never shown.
      *
+     * `onlyUnseen` also skips a row already shown. `replacedAt`, in epoch ms,
+     * records the rewrite as a replacement and dates the row to it.
+     *
      * False when no such row exists, so callers can fall back to a fresh
      * notification instead of dropping what they were reporting.
      *
      * @param {string} uid @param {number} userId @param {unknown} value
+     * @param {{ onlyUnseen?: boolean; replacedAt?: number }} [opts]
      */
-    async updateValue(uid, userId, value) {
+    async updateValue(
+        uid,
+        userId,
+        value,
+        { onlyUnseen = false, replacedAt = undefined } = {},
+    ) {
+        const db = this.clients.db;
         const serialized =
             typeof value === 'string' ? value : JSON.stringify(value ?? {});
-        const result = await this.clients.db.write(
-            'UPDATE `notification` SET `value` = ?, `shown` = NULL WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
-            [serialized, uid, userId],
+        const set = ['`value` = ?', '`shown` = NULL'];
+        const params = [serialized];
+        if (replacedAt !== undefined) {
+            set.push(
+                `\`created_at\` = ${db.timestampFromUnixSql()}`,
+                '`replaced_at` = ?',
+            );
+            params.push(Math.floor(replacedAt / 1000), replacedAt);
+        }
+        const where = ['`uid` = ?', '`user_id` = ?', '`acknowledged` IS NULL'];
+        if (onlyUnseen) where.push('`shown` IS NULL');
+        const result = await db.write(
+            `UPDATE \`notification\` SET ${set.join(', ')} WHERE ${where.join(' AND ')}`,
+            [...params, uid, userId],
         );
         return result.anyRowsAffected;
     }

@@ -152,6 +152,8 @@ const NOTIF_TOKEN_PREFIX = 'n#';
  */
 export const KV_HANDLE_PREFIX = 'kvh-';
 
+const KV_HANDLE_SUBJECT_PREFIX = `kv:${KV_HANDLE_PREFIX}`;
+
 export const isKvHandleId = (value: string): boolean =>
     value.startsWith(KV_HANDLE_PREFIX) &&
     value.length > KV_HANDLE_PREFIX.length;
@@ -225,6 +227,9 @@ export const isNotifToken = (token: string): boolean =>
  * can sit in its app slot.
  */
 export const kvHandleFromSubject = (subject: string): string | null => {
+    // Asked of every KV delivery. A stored handle subject is rebuilt from the
+    // parsed handle, so anything else is turned away before the split.
+    if (!subject.startsWith(KV_HANDLE_SUBJECT_PREFIX)) return null;
     const parts = PermissionUtil.split(subject);
     if (parts[0] !== 'kv' || parts.length < 3) return null;
     return isKvHandleId(parts[1]) ? parts[1] : null;

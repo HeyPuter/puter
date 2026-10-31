@@ -500,6 +500,14 @@ let sidebar = [
                 path: '/Events/list',
             },
             {
+                title: '<code>update()</code>',
+                page_title: '<code>puter.events.update()</code>',
+                title_tag: 'puter.events.update()',
+                icon: '/assets/img/function.svg',
+                source: '/Events/update.md',
+                path: '/Events/update',
+            },
+            {
                 title: '<code>unsubscribe()</code>',
                 page_title: '<code>puter.events.unsubscribe()</code>',
                 title_tag: 'puter.events.unsubscribe()',
@@ -594,6 +602,14 @@ let sidebar = [
                 icon: '/assets/img/function.svg',
                 source: '/Notifications/disable.md',
                 path: '/Notifications/disable',
+            },
+            {
+                title: '<code>status()</code>',
+                page_title: '<code>puter.notifications.status()</code>',
+                title_tag: 'puter.notifications.status()',
+                icon: '/assets/img/function.svg',
+                source: '/Notifications/status.md',
+                path: '/Notifications/status',
             },
             {
                 title: "<code>on('click')</code>",

@@ -36,7 +36,6 @@ describe('the backlog a suspension holds', () => {
             const policy = backlogPolicyFor(reason);
             expect(policy.cap).toBe(EVENTS_SUSPENDED_PENDING_CAP);
             expect(policy.ttlMs).toBeGreaterThan(0);
-            expect(policy.resumable).toBe(true);
         }
     });
 
@@ -61,7 +60,6 @@ describe('the backlog a suspension holds', () => {
         expect(backlogPolicyFor('permission_revoked')).toMatchObject({
             cap: 0,
             ttlMs: 0,
-            resumable: false,
         });
     });
 

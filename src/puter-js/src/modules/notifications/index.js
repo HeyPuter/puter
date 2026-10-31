@@ -17,6 +17,7 @@ import {
 import { ReceiptLog } from './lib/receipts.js';
 import { toClick } from './lib/shapes.js';
 import {
+    currentWebPush,
     removeWebPush,
     syncWebPush,
     webPushSupported,
@@ -28,6 +29,7 @@ import { onNotification } from './onNotification.js';
 import { onPush, shownFrom } from './onPush.js';
 import { removeDevice } from './removeDevice.js';
 import { hasPermission, requestPermission } from './requestPermission.js';
+import { status } from './status.js';
 
 /** The desktop's broadcast for a click on one of this app's notifications. */
 export const CLICK_BROADCAST = 'notificationClick';
@@ -42,18 +44,19 @@ export const SUBSCRIPTION_CHANGED_MESSAGE = 'puter-push-subscription-changed';
 /** Query parameter `push-sw.js` adds to a page it opens for a tap. */
 export const CLICK_PARAM = 'puter.notification';
 
+/** Where a site's tabs tell each other that a user's opt-in changed. */
+const OPT_IN_CHANNEL = 'puter-push-opt-in';
+
 /** As long as `push-sw.js` gives a handler. */
 const HANDLER_TIMEOUT_MS = 5_000;
 /** How long an older `push-sw.js`, which never answers, is waited for. */
 const WORKER_SHOW_TIMEOUT_MS = 2_000;
-/**
- * Sync failures that are the server's or the user's standing choice, not a
- * fault.
- */
+/** Sync failures that are the server's or the user's choice, not a fault. */
 const QUIET_SYNC_ERRORS = new Set([
     'push_disabled',
     'push_revoked',
     'push_unavailable',
+    'push_verification_canceled',
     'too_many_requests',
 ]);
 
@@ -149,6 +152,7 @@ export class NotificationsModule extends EventListener {
     onNotification = onNotification;
     enable = enable;
     disable = disable;
+    status = status;
     onPush = onPush;
     requestPermission = requestPermission;
     hasPermission = hasPermission;
@@ -181,6 +185,20 @@ export class NotificationsModule extends EventListener {
      */
     #sourceWrites = new Map();
     #receipts = new ReceiptLog(() => this.#showsOwn());
+    /**
+     * Whether the signed-in user turned push on here, as last read or set. A
+     * page shows notifications itself only while it is.
+     */
+    #optedIn = false;
+    /** Bumped on every change, so a read that started before one is dropped. */
+    #optInVersion = 0;
+    /** @type {BroadcastChannel | null} */
+    #optInChannel = null;
+    /**
+     * Aborted by `disable()` and sign-out, so a confirmation still on its way
+     * doesn't register this browser after them.
+     */
+    #stopVerifying = new AbortController();
 
     /** @param {import('../../index.js').Puter} puter */
     constructor(puter) {
@@ -196,6 +214,7 @@ export class NotificationsModule extends EventListener {
             'onNotification',
             'enable',
             'disable',
+            'status',
             'onPush',
             'requestPermission',
             'hasPermission',
@@ -329,21 +348,48 @@ export class NotificationsModule extends EventListener {
 
     /**
      * `enable()` on a website or the GUI: registers this browser and, on a
-     * website, remembers that this user turned push on here.
+     * website, remembers that this user turned push on here. A website resolves
+     * once the server has the subscription and confirms it in the background; a
+     * failed confirmation is tried again on the next load.
      *
      * @param {{ url: string; scope?: string }} worker
      * @internal
      */
     async _enableWebPush(worker) {
         this.#useWorker(worker);
+        /** @type {() => void} */
+        let pending = () => {};
+        const sent = new Promise((resolve) => {
+            pending = () => resolve(undefined);
+        });
+        const signal = this.#stopVerifying.signal;
+        const syncing = syncWebPush(this.puter, {
+            worker,
+            onPending: pending,
+            signal,
+        });
         try {
-            await syncWebPush(this.puter, { worker });
+            // The GUI reads the registered device right after.
+            await (this.puter.env === 'gui'
+                ? syncing
+                : Promise.race([syncing, sent]));
         } catch (error) {
             if (error?.code === 'push_revoked') await this.#recordOptIn(false);
             throw error;
         }
+        // A disable() that ran meanwhile wins.
+        if (signal.aborted) {
+            throw new PuterJSError(
+                'Push notifications were turned off while they were being turned on',
+                'push_verification_canceled',
+            );
+        }
         this.#workerRegistered = true;
         await this.#recordOptIn(true);
+        void this.#finishSync(
+            syncing,
+            'could not confirm this browser for pushes',
+        );
     }
 
     /**
@@ -355,11 +401,35 @@ export class NotificationsModule extends EventListener {
      * @internal
      */
     async _disableWebPush(worker) {
+        this.#cancelVerification();
         try {
             return await removeWebPush(this.puter, { worker });
         } finally {
             if (this.puter.env === 'web') await this.#forgetOptIns();
         }
+    }
+
+    /**
+     * `status()` on a website or the GUI. On a website, a subscription counts
+     * only while the signed-in user's opt-in is recorded here.
+     *
+     * @param {{ url: string; scope?: string }} worker
+     * @returns {Promise<import('./types.js').PushStatus>}
+     * @internal
+     */
+    async _webPushStatus(worker) {
+        const permission = globalThis.Notification?.permission;
+        if (permission === 'denied') return 'blocked';
+        if (permission !== 'granted') return 'off';
+        let subscription = null;
+        try {
+            subscription = await currentWebPush({ worker });
+        } catch {
+            return 'off';
+        }
+        if (!subscription) return 'off';
+        if (this.puter.env !== 'web') return 'on';
+        return (await this.#readOptIn()) ? 'on' : 'off';
     }
 
     /**
@@ -372,6 +442,7 @@ export class NotificationsModule extends EventListener {
     async _forgetPush(authToken) {
         if (this.puter.env !== 'web') return;
         this.#syncs.clear();
+        this.#cancelVerification();
         try {
             if (authToken && webPushSupported()) {
                 await removeWebPush(this.puter, {
@@ -408,6 +479,7 @@ export class NotificationsModule extends EventListener {
     #showsOwn() {
         return (
             this.puter.env === 'web' &&
+            this.#optedIn &&
             this.#pushFeed !== null &&
             this.#pushHandlers.size > 0 &&
             this.#workerRegistered &&
@@ -425,42 +497,94 @@ export class NotificationsModule extends EventListener {
 
     async #recordOptIn(on) {
         if (this.puter.env !== 'web') return;
+        this.#setOptedIn(on);
         try {
             const uuid = await this.#userUuid();
             if (uuid) await setOptIn(uuid, on);
         } catch (error) {
             warnStorage(error);
         }
+        this.#optInChanged();
     }
 
     async #forgetOptIns() {
+        this.#setOptedIn(false);
         try {
             await forgetPushState();
         } catch (error) {
             warnStorage(error);
         }
+        this.#optInChanged();
     }
 
-    async #syncIfOptedIn(worker) {
-        let optedIn = false;
+    #setOptedIn(on) {
+        this.#optedIn = on;
+        this.#optInVersion++;
+    }
+
+    /** The signed-in user's opt-in, read from IndexedDB into `#optedIn`. */
+    async #readOptIn() {
+        this.#listenForOptInChanges();
+        const version = this.#optInVersion;
+        let on = false;
         try {
-            const uuid = await this.#userUuid();
-            optedIn = !!uuid && (await hasOptIn(uuid));
+            const uuid = needsSignIn(this.puter)
+                ? null
+                : await this.#userUuid();
+            on = !!uuid && (await hasOptIn(uuid));
         } catch (error) {
             warnStorage(error);
         }
-        if (!optedIn) return;
+        if (version === this.#optInVersion) this.#optedIn = on;
+        return on;
+    }
+
+    /** Other tabs of the site re-read the opt-in this one just wrote. */
+    #optInChanged() {
+        this.#listenForOptInChanges();
         try {
-            await syncWebPush(this.puter, { worker });
+            this.#optInChannel?.postMessage('changed');
+        } catch {
+            // A closed channel; the other tabs read it on their next sync.
+        }
+    }
+
+    #listenForOptInChanges() {
+        if (
+            this.#optInChannel ||
+            typeof globalThis.BroadcastChannel !== 'function'
+        )
+            return;
+        this.#optInChannel = new BroadcastChannel(OPT_IN_CHANNEL);
+        this.#optInChannel.onmessage = () => void this.#readOptIn();
+    }
+
+    async #syncIfOptedIn(worker) {
+        if (!(await this.#readOptIn())) return;
+        await this.#finishSync(
+            syncWebPush(this.puter, {
+                worker,
+                signal: this.#stopVerifying.signal,
+            }),
+            'could not keep the push subscription current',
+        );
+    }
+
+    /** Settles a sync nobody waits on; quiet about the expected failures. */
+    async #finishSync(syncing, what) {
+        try {
+            await syncing;
             this.#workerRegistered = true;
         } catch (error) {
             if (error?.code === 'push_revoked') await this.#recordOptIn(false);
             if (QUIET_SYNC_ERRORS.has(error?.code)) return;
-            this.#reportPush(
-                error,
-                'could not keep the push subscription current',
-            );
+            this.#reportPush(error, what);
         }
+    }
+
+    #cancelVerification() {
+        this.#stopVerifying.abort();
+        this.#stopVerifying = new AbortController();
     }
 
     /**
@@ -494,6 +618,7 @@ export class NotificationsModule extends EventListener {
             this.#restartOnAuthChange();
             return;
         }
+        if (this.puter.env === 'web') void this.#readOptIn();
         /** @type {Promise<{ off: () => Promise<void> } | null>} */
         const feed = (async () => {
             try {
@@ -582,7 +707,7 @@ export class NotificationsModule extends EventListener {
      * holds it back. Inside the Puter desktop, the desktop's banner shows it.
      */
     async #showIfAway(notification, result) {
-        if (this.puter.env !== 'web' || !pageAway()) return;
+        if (this.puter.env !== 'web' || !this.#optedIn || !pageAway()) return;
         if (globalThis.Notification?.permission !== 'granted') return;
         try {
             const worker = this.#worker ?? workerFor('web');

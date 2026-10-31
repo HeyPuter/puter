@@ -18,6 +18,7 @@
  */
 
 import type { Readable } from 'node:stream';
+import { Context, runInDerivedContext } from '../../core/context.js';
 import type { FSService } from '../fs/FSService.js';
 import { resolveHomeRegion } from '../fs/homeRegion.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
@@ -134,6 +135,17 @@ export interface InboxMessage {
 }
 
 /**
+ * Runs a mailbox write as a delivery to the owner rather than a write by
+ * whoever's request it is in, so filing is never the holder's own change
+ * (`self`), even for mail the owner sent to itself.
+ */
+const asDelivery = <T>(file: () => Promise<T>): Promise<T> =>
+    runInDerivedContext(() => {
+        Context.set('platformWrite', true);
+        return file();
+    });
+
+/**
  * File one message in the owner's inbox. Written into the owner's home region
  * rather than wherever the request landed, so the mailbox reads locally.
  */
@@ -144,22 +156,24 @@ export async function storeInboxMessage(
 ): Promise<FSEntry> {
     const day = message.day ?? mailDay();
     const name = message.name ?? mailObjectName(message.subject);
-    const { fsEntry } = await fs.write(
-        owner.id,
-        {
-            fileMetadata: {
-                path: `${mailFolderPath(owner.username, 'objects', day)}/${name}`,
-                size: message.size,
-                contentType: MAIL_CONTENT_TYPE,
-                createMissingParents: true,
-                overwrite: false,
-                dedupeName: false,
+    const { fsEntry } = await asDelivery(() =>
+        fs.write(
+            owner.id,
+            {
+                fileMetadata: {
+                    path: `${mailFolderPath(owner.username, 'objects', day)}/${name}`,
+                    size: message.size,
+                    contentType: MAIL_CONTENT_TYPE,
+                    createMissingParents: true,
+                    overwrite: false,
+                    dedupeName: false,
+                },
+                fileContent: message.content,
             },
-            fileContent: message.content,
-        },
-        undefined,
-        undefined,
-        resolveHomeRegion(owner),
+            undefined,
+            undefined,
+            resolveHomeRegion(owner),
+        ),
     );
     return fsEntry;
 }
@@ -174,17 +188,19 @@ export async function copyIntoInbox(
     owner: UserRow,
     message: { source: FSEntry; name: string; day?: string },
 ): Promise<FSEntry> {
-    const parent = await fs.mkdir(owner.id, {
-        path: mailFolderPath(
-            owner.username,
-            'objects',
-            message.day ?? mailDay(),
-        ),
-        createMissingParents: true,
-    });
-    return await fs.copy(owner.id, {
-        source: message.source,
-        destinationParent: parent,
-        newName: message.name,
+    return asDelivery(async () => {
+        const parent = await fs.mkdir(owner.id, {
+            path: mailFolderPath(
+                owner.username,
+                'objects',
+                message.day ?? mailDay(),
+            ),
+            createMissingParents: true,
+        });
+        return await fs.copy(owner.id, {
+            source: message.source,
+            destinationParent: parent,
+            newName: message.name,
+        });
     });
 }

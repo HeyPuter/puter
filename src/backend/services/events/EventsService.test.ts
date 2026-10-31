@@ -24,6 +24,7 @@ import {
     EVENTS_COALESCE_WINDOW_MS,
     EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
     EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+    EVENTS_KV_VALUE_DELIVERIES_PER_EVENT,
     EVENTS_KV_VALUE_MAX_BYTES,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SUBSCRIBE_LIMIT,
@@ -2437,20 +2438,20 @@ describe('delivering a kv change', () => {
         expect(ownerPlanActors).toEqual([]);
     });
 
-    it('omits values and gaps the 129th free-tier KV listener', async () => {
+    it('keeps values on the delivered free-tier KV listeners and gaps the 129th', async () => {
         vi.useFakeTimers();
         await seedKvSubscriptions(129, { includeValue: true });
 
-        await dispatchKv(['cart'], { values: ['re-read'] });
+        await dispatchKv(['cart'], { values: ['kept'] });
         await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
 
         const deliveries = sent.filter((one) => one.envelope.event.op === 'set');
         const gaps = sent.filter((one) => one.envelope.event.op === 'gap');
         expect(deliveries).toHaveLength(128);
         expect(gaps).toHaveLength(1);
-        expect(deliveries.every((one) => !('value' in one.envelope.event))).toBe(
-            true,
-        );
+        expect(
+            deliveries.every((one) => one.envelope.event.value === 'kept'),
+        ).toBe(true);
         expect(ownerPlanActors).toEqual([
             expect.objectContaining({
                 user: expect.objectContaining({
@@ -2475,9 +2476,10 @@ describe('delivering a kv change', () => {
         expect(sent).toHaveLength(
             EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
         );
-        expect(sent.every((one) => !('value' in one.envelope.event))).toBe(
-            true,
-        );
+        // Values ride on the first deliveries only.
+        expect(
+            sent.filter((one) => 'value' in one.envelope.event),
+        ).toHaveLength(EVENTS_KV_VALUE_DELIVERIES_PER_EVENT);
     });
 
     it('gaps the 513th paid-tier KV listener', async () => {
@@ -2513,7 +2515,7 @@ describe('delivering a kv change', () => {
         );
     });
 
-    it('omits a forwarded value when the KV filter evaluation stops early', async () => {
+    it('keeps a forwarded value on the deliveries made when the KV filter evaluation stops early', async () => {
         vi.useFakeTimers();
         await seedKvSubscriptions(128, { includeValue: true });
         await seedKvSubscriptions(
@@ -2543,9 +2545,111 @@ describe('delivering a kv change', () => {
 
         const deliveries = sent.filter((one) => one.envelope.event.op === 'set');
         expect(deliveries).toHaveLength(128);
-        expect(deliveries.every((one) => !('value' in one.envelope.event))).toBe(
-            true,
-        );
+        expect(
+            deliveries.every(
+                (one) => one.envelope.event.value === 'forwarded-re-read',
+            ),
+        ).toBe(true);
+    });
+
+    describe('shared by several holders', () => {
+        const valueOf = (subIdPart: string) =>
+            sent.filter(
+                (one) =>
+                    one.envelope.subId.includes(subIdPart) &&
+                    one.envelope.event.op === 'set',
+            );
+
+        it('serves the owner`s rows first and every holder before anyone`s second row', async () => {
+            vi.useFakeTimers();
+            ownerPlan = 'paid-plan';
+            const crowd = userId + 600;
+            const quiet = userId + 700;
+            await seedKvSubscriptions(
+                EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit + 50,
+                { includeValue: true, holderUserId: crowd, tag: 'crowd' },
+            );
+            await seedKvSubscriptions(1, {
+                includeValue: true,
+                holderUserId: quiet,
+                tag: 'quiet',
+            });
+            await seedKvSubscriptions(1, { includeValue: true, tag: 'owner' });
+
+            await dispatchKv(['cart'], { values: ['shared'] });
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+            const delivered = sent.filter(
+                (one) => one.envelope.event.op === 'set',
+            );
+            expect(delivered).toHaveLength(
+                EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.limit,
+            );
+            for (const tag of ['-owner-', '-quiet-']) {
+                expect(valueOf(tag)).toHaveLength(1);
+                expect(valueOf(tag)[0].envelope.event.value).toBe('shared');
+            }
+            expect(
+                delivered.filter((one) => 'value' in one.envelope.event),
+            ).toHaveLength(EVENTS_KV_VALUE_DELIVERIES_PER_EVENT);
+        });
+
+        it('keeps the owner first even past the filter-check limit', async () => {
+            vi.useFakeTimers();
+            const filters =
+                EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT.bySubscription[
+                    DEFAULT_FREE_SUBSCRIPTION
+                ];
+            await seedKvSubscriptions(filters, {
+                includeValue: true,
+                holderUserId: userId + 600,
+                match: 'elsewhere',
+                tag: 'crowd',
+            });
+            await seedKvSubscriptions(1, { includeValue: true, tag: 'owner' });
+
+            await dispatchKv(['cart'], { values: ['first'] });
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+            expect(valueOf('-owner-')).toHaveLength(1);
+            expect(valueOf('-owner-')[0].envelope.event.value).toBe('first');
+        });
+
+        it('starts each event`s turns at a different holder, so none is always past the cap', async () => {
+            vi.useFakeTimers();
+            const holders = 200;
+            for (let i = 0; i < holders; i++)
+                await seedKvSubscriptions(1, {
+                    holderUserId: userId + 1000 + i,
+                    tag: `holder${i}`,
+                });
+            const cap =
+                EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT.bySubscription[
+                    DEFAULT_FREE_SUBSCRIPTION
+                ];
+
+            const reached = new Set<string>();
+            const random = vi.spyOn(Math, 'random');
+            try {
+                for (const start of [0, cap / holders]) {
+                    random.mockReturnValue(start);
+                    sent.length = 0;
+                    await dispatchKv(['cart']);
+                    await vi.advanceTimersByTimeAsync(
+                        EVENTS_COALESCE_WINDOW_MS + 1,
+                    );
+                    const delivered = sent.filter(
+                        (one) => one.envelope.event.op === 'set',
+                    );
+                    expect(delivered).toHaveLength(cap);
+                    for (const one of delivered)
+                        reached.add(one.envelope.subId);
+                }
+            } finally {
+                random.mockRestore();
+            }
+            expect(reached.size).toBe(holders);
+        });
     });
 
     it('leaves another app`s namespace alone', async () => {
@@ -2999,6 +3103,7 @@ describe('cross-user kv handles', () => {
             keyPrefix: PREFIX,
             permission,
             label: null,
+            notify: false,
             createdAt: 0,
             revokedAt: null,
             revokedBy: null,
@@ -3070,8 +3175,19 @@ describe('cross-user kv handles', () => {
         expect(wire).not.toContain(`u${userId}`);
     });
 
+    /** The handle at `read`, the lowest level that carries values. */
+    const mintReadHandle = () =>
+        mintHandle({
+            permission: kvSharePermission(
+                `user-${userId}`,
+                OWN_APP,
+                PREFIX,
+                'read',
+            ),
+        });
+
     it('hands a guest the value when it asked, keyed relative to the handle', async () => {
-        mintHandle();
+        mintReadHandle();
         vi.useFakeTimers();
         const asking = (
             await service.subscribe(actorFor(guestId), socketId, {
@@ -3096,6 +3212,23 @@ describe('cross-user kv handles', () => {
         expect(byId.get(silent.subId)).not.toHaveProperty('value');
     });
 
+    it('holds the value back from a guest whose share is at watch', async () => {
+        mintHandle();
+        vi.useFakeTimers();
+        const { sub } = await service.subscribe(actorFor(guestId), socketId, {
+            subject: `kv:${handle}:*`,
+            includeValue: true,
+        });
+
+        await dispatchKv([`${PREFIX}title`], { values: ['hello'] });
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0].envelope.subId).toBe(sub.subId);
+        expect(sent[0].envelope.event).toMatchObject({ key: 'title' });
+        expect(sent[0].envelope.event).not.toHaveProperty('value');
+    });
+
     it('delivers every key under the granted region', async () => {
         mintHandle();
         vi.useFakeTimers();
@@ -3113,7 +3246,7 @@ describe('cross-user kv handles', () => {
     });
 
     it('withholds a private key from the grantee, value and all', async () => {
-        mintHandle();
+        mintReadHandle();
         vi.useFakeTimers();
         const { sub } = await service.subscribe(actorFor(guestId), socketId, {
             subject: `kv:${handle}:*`,

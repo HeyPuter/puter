@@ -455,13 +455,14 @@ Recipients can opt out of share email with the link in the email, and a deployme
 
 ### Notifications
 
-An app, its workers and the tokens it issues can send the user they act for an `app.message` notification. Each app has its own budget per user:
+An app, its workers and the tokens it issues can send the user they act for an `app.message` notification, or through a [KV share](/KV/share/) made with `notify: true`, the share's other side. Each app has its own budget per recipient:
 
 | Limit                             | Value                             | Scope             |
 | --------------------------------- | --------------------------------- | ----------------- |
-| `app.message` notifications       | 30/min, 300/day                   | Per user, per app |
+| `app.message` notifications       | 30/min, 1,000/day                 | Per user, per app |
 | Pushes                            | 12/min, 1,000/day                 | Per user, per app |
 | Pushes from a new or unlisted app | 6/min, 200/day                    | Per user, per app |
+| Notifications through a [KV share](/KV/share/) | 30/min, 500/day       | Per sender, recipient and app |
 | Browsers with pushes turned on    | 10 per app, 20 for Puter          | Per user          |
 | Turning pushes on in a browser    | 10/min                            | Per user          |
 | `title`                           | 120 characters                    |                   |
@@ -469,15 +470,15 @@ An app, its workers and the tokens it issues can send the user they act for an `
 | `icon` (an `https` URL)           | 2,048 characters                  |                   |
 | `target` (a path inside the app)  | 512 characters                    |                   |
 | `data`                            | 1 KiB, measured as JSON           |                   |
-| `group`                           | 64 characters                     |                   |
+| `group`                           | 128 characters                    |                   |
 | `channel`                         | 32 characters                     |                   |
 | `ttl`                             | 1 second to 1 day, default 1 hour |                   |
 
 `ttl` is how long a push provider keeps trying to reach an offline device, not how long the notification is kept. `sensitive`, `target`, `group` and `channel` are used by push delivery and by clients that show the notification. Every message carries the name of the app that sent it.
 
-Over the rate limit the call fails with `429 too_many_requests`, and a refused call counts against neither window. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
+The notification limits count notifications written. A notification that replaces the app's earlier one with the same `group` counts against the per-minute limit only, not the per-day limit. [`notify()`](/Notifications/notify/#groups) says when a notification replaces one. Over the rate limit the call fails with `429 too_many_requests`, and a refused call counts against neither window. Notifications one party of a KV share sends the other through its handle count against the recipient's `app.message` limits, and also toward the limit for that sender, recipient and app, across all their shares in that app. Over either one, the call fails with the same error, so the sender can't tell which limit it hit. A call through a share that the recipient's limits refuse still counts toward the share limit. Their pushes count against the recipient's push limits and are billed to the recipient. A value over any size limit, or with a field the format doesn't have, fails with `400 bad_request`. A deployment can change the rate limits with `notificationAppMessageLimits: { perMinute, perDay }`.
 
-A notification goes out as a push only when no open page of the app answers within 5 seconds that it's visible and focused, or that it shows the notification itself. The push limits count those pushes. An app gets the lower push limits while it's younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower limits. Over a push limit the call still succeeds and the notification still reaches the app live. It just isn't pushed. Pushes are billed to the user who receives them. See [What pushes cost](#what-pushes-cost). Turning pushes on in another browser past an app's 10 removes that app's least recently seen one.
+A notification goes out as a push only when no open page of the app answers within 5 seconds that it's visible and focused, or that it shows the notification itself. The push limits count only pushes sent, and a replacement that goes out as a push counts like any other. An app gets the lower push limits while it's younger than 30 days or not approved for listing. A website using Puter.js starts out unlisted, so it gets the lower limits. Over a push limit the call still succeeds and the notification still reaches the app live. It just isn't pushed. Pushes are billed to the user who receives them. See [What pushes cost](#what-pushes-cost). Turning pushes on in another browser past an app's 10 removes that app's least recently seen one.
 
 ### Teams
 
@@ -526,6 +527,7 @@ See [Events](/Events/) for an overview, [`onLocal()`](/Events/subjects/#gaps) fo
 - Session subscriptions through a share handle also count toward the limit per connection. The limit through one handle counts the holder's subscriptions in one region, including ones on connections that dropped and haven't been cleaned up yet. The owner's own subscriptions through the handle don't count.
 - Anonymous accounts get `events_durable_requires_account` for persistent subscriptions and `events_kv_handle_requires_account` for share handles.
 - Unsubscribing or revoking frees a slot immediately. Revoked handles don't count. They stay in [`puter.kv.listSharedByMe()`](/KV/listSharedByMe/) for 30 days after they stop, and are then deleted.
+- A persistent subscription [suspended](/Events/onPersistent/#suspended-subscriptions) with `permission_revoked` doesn't count toward the persistent subscription limits, since it never resumes. One suspended for any other reason still counts.
 - A [`puter.kv.share()`](/KV/share/) call with several recipients is refused as a whole with `events_kv_handle_limit_reached` when its new shares would go over the all-apps or per-app limit. Sharing a prefix again with a user who already has it takes no slot. The limit per holder applies to each recipient on its own, and a recipient over it gets the error on their own item.
 - A share handle minted without naming an app counts only toward the all-apps limit.
 - A share's key prefix has a length limit that depends on the app's uid and the access level. For an app uid of the usual form, `app-` and a uuid, the prefix without its trailing `:` can be at most 168 characters for `watch`, 163 for `read`, and 162 for `write`. In the store that belongs to no app, it can be at most 199, 194, and 193. A longer prefix is refused with `invalid_kv_share_prefix`.
@@ -544,9 +546,10 @@ Counted per event, per region:
 
 - KV limits follow the plan of the **key's owner**, not the writer's or the subscribers'. If the owner's plan can't be looked up, the free numbers apply. A server with no metering uses the paid numbers.
 - They count subscriptions, not people. A user with three tabs open counts three times.
+- Subscriptions are counted with those of the owner of the key or file first, then the other users' subscriptions taking turns, one per user per round. Each change starts the turns at a different user. So one user with many subscriptions can't use up the limits for everyone else.
 - Past the limit, the next subscriptions get a [gap marker](/Events/subjects/#gaps) instead of the event (up to the same number again), and any after that get nothing. With 1,100 subscriptions on a paid owner's key: 512 get the event, 512 get a gap, 76 get nothing.
 - The region that handles the write delivers to every persistent subscription plus its own connected clients. Other regions deliver only to their own connected clients. So persistent subscriptions share one budget per event, while session subscriptions spread across regions can reach more in total.
-- `includeValue` values are left out of every delivery for a change when more than **128** subscriptions match it (whatever the owner's plan), when the filter-check limit stops the count early, or when the value is over **16 KB**.
+- `includeValue` values go out on the first **128** deliveries of a change that asked for them, in the order above and whatever the owner's plan. Later deliveries carry the key without the value, and so does every delivery when the value is over **16 KB**.
 
 #### Call budgets
 
@@ -556,7 +559,8 @@ Counted per event, per region:
 | `unsubscribe`                                     | 600/min  | Per user, all apps |
 | Acknowledgements                                  | 600/min  | Per user, all apps |
 | Share-handle mint / revoke                        | 60/min   | Per user, all apps |
-| Recipients of `kv.share()`                        | 300/min, 2,000/hour | Per user, all apps |
+| New recipients of `kv.share()`                    | 300/min, 2,000/hour | Per user, all apps |
+| Recipients named in `kv.share()`                  | 1,200/min | Per user, all apps |
 | `kv.share.received` notifications                 | 5/hour   | Per owner and holder |
 | Handler publish / remove                          | 60/min   | Per user, all apps |
 | Subscription and share-handle listings (combined) | 120/min  | Per user, per app  |
@@ -566,9 +570,9 @@ Counted per event, per region:
 
 Over any of these: `too_many_requests`, except `kv.share.received` notifications: a share past that limit is still made, and the holder isn't notified about it. Listing pages hold up to 200 items.
 
-A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients. Each one counts toward the recipient budget, and the call counts once toward the mint budget. When the recipients don't all fit in the recipient budget, the whole call fails with `too_many_requests`, and the part that did fit still counts. A `fetch()` page defaults to 50 events and holds up to 200.
+A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients, and each one counts toward the named-recipient limit. A recipient who doesn't already have the share also counts toward the new-recipient limit, including a username that doesn't exist and a user the share is refused for. The call counts once toward the mint limit when it makes a share, changes one, or has any recipient who counts as new. A call where every recipient already has the share at the same access level and label counts only toward the named-recipient limit. When the recipients don't all fit in a limit, the whole call fails with `too_many_requests`, and the part that did fit still counts. A `fetch()` page defaults to 50 events and holds up to 200.
 
-Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one.
+Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one. Changing a subscription's context with [`puter.events.update()`](/Events/update/) counts toward the `subscribe` limit.
 
 #### Delivery
 
@@ -603,6 +607,8 @@ Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one
 
 Failures count as in a row until the handler takes a delivery or an hour passes without another failure; either resets the count to zero.
 
+Only the handler's own failures count, including a run past the 30-second timeout. A run in the events worker that Puter couldn't start or finish, or that threw after a Puter API call from `user` got a `5xx`, a `429`, or a network error, is retried on the same delay schedule and doesn't count. When Puter's answer names a longer wait (`Retry-After`), the retry waits that long, up to 5 minutes. Puter's own failures never suspend a subscription, and the events it holds while retrying stay within the backlog limits above.
+
 Over the deploy limit, deliveries stay queued and retry after the hour rolls over.
 
 #### Handler chains
@@ -622,6 +628,7 @@ Over the deploy limit, deliveries stay queued and retry after the hour rolls ove
 | Backlog kept                       | 100 deliveries |
 | How long the backlog is kept       | 24 hours for `handler_not_found` and `failures`; 1 hour for `no_credit`; dropped immediately for `permission_revoked` |
 | Suspended subscription deleted after | 30 days |
+| Subscriptions suspended with `permission_revoked` kept | 500 per account. Past that, subscribing again deletes the oldest ones. |
 
 When a kept backlog expires, it's replaced by one gap marker (`suspended_backlog_expired`).
 
@@ -647,7 +654,7 @@ Deliveries are billed to the account holding the subscription:
 
 µ¢ is a microcent (a millionth of a cent). Deliveries for `queue` subscriptions bill on the `single` line, and every other delivery, session subscriptions included, bills at the broadcast rate. Handler runs bill separately as worker usage.
 
-Free: idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, deliveries with no client connected to receive them and no handler run, and gap markers.
+Free: idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, deliveries with no client connected to receive them and no handler run, `queue` deliveries still waiting to reach a client or a handler, retries (a `queue` event bills once however many attempts it takes), and gap markers.
 
 When the holder's balance runs out, deliveries stop and persistent subscriptions are suspended with `no_credit`, and the holder is notified. The backlog is kept for 1 hour. Topping up resumes them within a few minutes.
 

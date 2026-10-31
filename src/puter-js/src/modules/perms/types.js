@@ -26,6 +26,7 @@
  *     | 'appData'
  *     | 'appRootDir'
  *     | 'backgroundEvents'
+ *     | 'pushNotifications'
  *     | 'kvShare'
  *     | 'permission'} PermsResource
  */
@@ -108,8 +109,8 @@
  * at once go under a single prompt.
  *
  * @deprecated Use the resource the string names: `'fs'`, `'email'`, `'apps'`,
- *   `'subdomains'`, `'appData'`, `'appRootDir'`, `'backgroundEvents'`, or
- *   `'kvShare'`.
+ *   `'subdomains'`, `'appData'`, `'appRootDir'`, `'backgroundEvents'`,
+ *   `'pushNotifications'`, or `'kvShare'`.
  *
  * @typedef {Object} PermsPermissionRequest
  * @property {string} [permission] - One permission string.
@@ -136,7 +137,7 @@
  * One batch entry: the resource, with its own details in the same object, so
  * one array can carry entries that each take different fields.
  *
- * @typedef {{ resource: 'email' | 'backgroundEvents' }
+ * @typedef {{ resource: 'email' | 'backgroundEvents' | 'pushNotifications' }
  *     | ({ resource: 'fs' } & PermsFsRequest)
  *     | ({ resource: 'folder' } & PermsFolderRequest)
  *     | ({ resource: 'kvShare' } & PermsKvShareRequest)

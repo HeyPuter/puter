@@ -49,6 +49,8 @@ type Layers = ConstructorParameters<typeof EventsWorkerDeployer>[0];
 const makeLayers = (owners: Record<string, Owner | null>) => {
     const redis = new MockRedis.Cluster(['redis://localhost:7001']);
     const created: string[] = [];
+    /** Apps whose handler sources were read, once per read. */
+    const sourceReads: string[] = [];
     const layers = {
         config: {
             events: { workerRuntime: true, internalSecret: 'sekret' },
@@ -60,16 +62,20 @@ const makeLayers = (owners: Record<string, Owner | null>) => {
         clients: { redis },
         stores: {
             eventHandler: {
-                allForApp: async (appUid: string) => [
-                    {
-                        appUid,
-                        name: 'h',
-                        source: 'async () => {}',
-                        sourceHash: SOURCE_HASH,
-                        createdAt: 0,
-                        updatedAt: 0,
-                    },
-                ],
+                setForApp: async () => [{ name: 'h', sourceHash: SOURCE_HASH }],
+                allForApp: async (appUid: string) => {
+                    sourceReads.push(appUid);
+                    return [
+                        {
+                            appUid,
+                            name: 'h',
+                            source: 'async () => {}',
+                            sourceHash: SOURCE_HASH,
+                            createdAt: 0,
+                            updatedAt: 0,
+                        },
+                    ];
+                },
             },
             app: {
                 getByUid: async (appUid: string) => {
@@ -104,7 +110,12 @@ const makeLayers = (owners: Record<string, Owner | null>) => {
             },
         },
     };
-    return { layers: layers as unknown as Layers, created, redis };
+    return {
+        layers: layers as unknown as Layers,
+        created,
+        redis,
+        sourceReads,
+    };
 };
 
 describe('EventsWorkerDeployer.ensure', () => {
@@ -127,8 +138,10 @@ describe('EventsWorkerDeployer.ensure', () => {
         expect(b).toBe('no-owner');
     });
 
-    it('refuses once the app has deployed past the hourly cap', async () => {
-        const { layers, redis } = makeLayers({ 'app-c': { ownerUserId: 3 } });
+    it('refuses once the app has deployed past the hourly cap, before reading or building any source', async () => {
+        const { layers, redis, sourceReads, created } = makeLayers({
+            'app-c': { ownerUserId: 3 },
+        });
         const deployer = new EventsWorkerDeployer(layers);
         const hour = new Date().toISOString().slice(0, 13);
         await redis.set(
@@ -137,6 +150,24 @@ describe('EventsWorkerDeployer.ensure', () => {
         );
 
         expect(await deployer.ensure('app-c', SCRIPT)).toBe('throttled');
+        expect(sourceReads).toEqual([]);
+        expect(created).toEqual([]);
+    });
+
+    it('answers a stale script without spending the hourly cap', async () => {
+        const { layers, redis, sourceReads } = makeLayers({
+            'app-e': { ownerUserId: 5 },
+        });
+        const deployer = new EventsWorkerDeployer(layers);
+        const stale = eventsWorkerScript(
+            handlerSetHash([{ name: 'h', sourceHash: 'b'.repeat(64) }]),
+            '',
+        );
+
+        expect(await deployer.ensure('app-e', stale)).toBe('stale');
+        expect(sourceReads).toEqual([]);
+        const hour = new Date().toISOString().slice(0, 13);
+        expect(await redis.get(`ev:deploys:{app-e}:${hour}`)).toBeNull();
     });
 
     it('deploys normally under the cap', async () => {

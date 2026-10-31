@@ -240,16 +240,17 @@ export const unknownKvShareHandle = (handle: string): HttpError =>
         legacyCode: 'subject_does_not_exist',
     });
 
+/** Whether the grant holds, or `null` when the check failed and can't say. */
 export const kvSharedRegionAuthorized = async (
     actor: Actor,
     permission: string,
     deps: KvSharedRegionDeps,
-): Promise<boolean> => {
+): Promise<boolean | null> => {
     if (!deps.enabled) return false;
     try {
         return await deps.checkPermission(actor, permission);
     } catch {
-        return false;
+        return null;
     }
 };
 

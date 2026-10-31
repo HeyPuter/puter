@@ -144,6 +144,7 @@ export type {
     PuterEvent,
     PuterKvEvent,
     PuterNotifEvent,
+    UpdatePersistentOptions,
 } from './types/modules/events/types.js';
 export type { EventSubscription } from './types/modules/events/lib/subscription.js';
 export type { EventHandlers } from './types/modules/events/lib/handlers.js';
@@ -239,6 +240,7 @@ export type {
     NotificationHandler,
     NotificationInput,
     NotificationListener,
+    NotificationRecipient,
     NotificationSender,
     OnNotificationOptions,
     OnPushOptions,
@@ -246,6 +248,8 @@ export type {
     PushHandler,
     PushPlatform,
     PushShown,
+    PushStatus,
+    ShareNotificationInput,
 } from './types/modules/notifications/types.js';
 
 // -- puter.os --

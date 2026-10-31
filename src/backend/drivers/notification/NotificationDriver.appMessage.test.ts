@@ -145,6 +145,18 @@ const captureBus = async (
     return seen;
 };
 
+const DAY_MS = 24 * 60 * 60_000;
+
+/** Exactly `count` slots of a window are spent. */
+const expectSpent = async (
+    key: string,
+    windowMs: number,
+    count: number,
+): Promise<void> => {
+    expect(await peekRateLimit(key, count, windowMs)).toBe(false);
+    expect(await peekRateLimit(key, count + 1, windowMs)).toBe(true);
+};
+
 const bootServer = (config: Partial<IConfig>) => {
     const state = {
         server: null as unknown as PuterServer,
@@ -503,6 +515,176 @@ describe('app.message with live delivery over the socket wire', () => {
     });
 });
 
+describe('app.message groups', () => {
+    const state = bootServer({
+        notificationAppMessageLimits: { perMinute: 5, perDay: 4 },
+    });
+
+    const setup = async () => {
+        const holder = await makeUser(state.server);
+        const app = await makeApp(state.server, holder.user.id!);
+        const send = async (fields: Record<string, unknown> = {}) =>
+            (await withActor(asApp(holder, app), () =>
+                state.driver.create(message(fields)),
+            )) as Record<string, unknown>;
+        const rows = () =>
+            state.server.stores.notification.listByUserId(holder.user.id!, {});
+        return {
+            holder,
+            app,
+            send,
+            rows,
+            minuteKey: `notif:app-message:minute:${holder.user.id}:${app.uid}`,
+            dayKey: `notif:app-message:day:${holder.user.id}:${app.uid}`,
+        };
+    };
+
+    it('replaces the unseen message with the same group, spending no day slot', async () => {
+        const { holder, app, send, rows, minuteKey, dayKey } = await setup();
+        const first = await send({ title: 'One', group: 'chat-1' });
+
+        let second: Record<string, unknown> = {};
+        const written = await captureBus(
+            state.server,
+            'notif.written',
+            async () => {
+                second = await send({
+                    title: 'Two',
+                    text: 'Hi',
+                    group: 'chat-1',
+                });
+            },
+        );
+
+        expect(second.uid).toBe(first.uid);
+        expect(second.value).toMatchObject({ title: 'Two', text: 'Hi' });
+        expect(await rows()).toEqual([
+            expect.objectContaining({
+                uid: first.uid,
+                value: expect.objectContaining({ title: 'Two' }),
+            }),
+        ]);
+        expect(written).toEqual([
+            expect.objectContaining({
+                userId: holder.user.id,
+                uid: first.uid,
+                appUid: app.uid,
+                updated: true,
+            }),
+        ]);
+        await expectSpent(minuteKey, 60_000, 2);
+        await expectSpent(dayKey, DAY_MS, 1);
+    });
+
+    it('starts a new message once the last one was shown or dismissed', async () => {
+        const { holder, app, send, rows, dayKey } = await setup();
+        const asTheApp = asApp(holder, app);
+
+        const first = await send({ group: 'chat-1' });
+        await withActor(asTheApp, () =>
+            state.driver.mark_shown({ uid: first.uid }),
+        );
+        const second = await send({ group: 'chat-1' });
+        expect(second.uid).not.toBe(first.uid);
+
+        await withActor(asTheApp, () =>
+            state.driver.mark_acknowledged({ uid: second.uid }),
+        );
+        const third = await send({ group: 'chat-1' });
+        expect(third.uid).not.toBe(second.uid);
+
+        expect(await rows()).toHaveLength(3);
+        await expectSpent(dayKey, DAY_MS, 3);
+    });
+
+    it('keeps messages with no group, or another group, apart', async () => {
+        const { send, rows } = await setup();
+        const uids = [
+            (await send()).uid,
+            (await send()).uid,
+            (await send({ group: 'a' })).uid,
+            (await send({ group: 'b' })).uid,
+        ];
+        expect(new Set(uids).size).toBe(4);
+        expect(await rows()).toHaveLength(4);
+    });
+
+    it('still spends the minute window on a replacement', async () => {
+        const { send, rows, dayKey } = await setup();
+        for (let i = 0; i < 5; i++) await send({ group: 'chat-1' });
+        await expect(send({ group: 'chat-1' })).rejects.toMatchObject({
+            statusCode: 429,
+            legacyCode: 'too_many_requests',
+        });
+        expect(await rows()).toHaveLength(1);
+        await expectSpent(dayKey, DAY_MS, 1);
+    });
+
+    it('replaces with the day window spent', async () => {
+        const { send, rows } = await setup();
+        const grouped = await send({ group: 'chat-1' });
+        for (let i = 0; i < 3; i++) await send();
+        await expect(send()).rejects.toMatchObject({ statusCode: 429 });
+
+        const replaced = await send({ title: 'Later', group: 'chat-1' });
+        expect(replaced.uid).toBe(grouped.uid);
+        expect(await rows()).toHaveLength(4);
+    });
+
+    it('writes a new message when the old one is shown before the replace lands', async () => {
+        const { holder, app, send, rows, minuteKey, dayKey } = await setup();
+        const first = await send({ group: 'chat-1' });
+
+        charges.held.add(minuteKey);
+        const pending = send({ title: 'Raced', group: 'chat-1' });
+        let second: Record<string, unknown>;
+        try {
+            await until(() => charges.waiting.length === 1);
+            await withActor(asApp(holder, app), () =>
+                state.driver.mark_shown({ uid: first.uid }),
+            );
+        } finally {
+            charges.held.clear();
+            charges.waiting.shift()?.();
+            second = await pending;
+        }
+
+        expect(second.uid).not.toBe(first.uid);
+        expect(await rows()).toHaveLength(2);
+        await expectSpent(dayKey, DAY_MS, 2);
+    });
+
+    it('folds concurrent messages to an empty group into one, spending one day slot', async () => {
+        const { send, rows, minuteKey, dayKey } = await setup();
+        const sent = await Promise.all(
+            Array.from({ length: 4 }, (_, i) =>
+                send({ title: `Message ${i}`, group: 'chat-1' }),
+            ),
+        );
+
+        expect(new Set(sent.map((s) => s.uid)).size).toBe(1);
+        expect(await rows()).toHaveLength(1);
+        await expectSpent(minuteKey, 60_000, 4);
+        await expectSpent(dayKey, DAY_MS, 1);
+    });
+
+    it('still sends when the group stays locked past the wait', async () => {
+        const { holder, app, send, rows, dayKey } = await setup();
+        await state.server.clients.redis.set(
+            `notif:app-message:group:${holder.user.id}:${app.uid}:chat-1`,
+            'stalled-sender',
+            'PX',
+            60_000,
+        );
+
+        const sent = await send({ group: 'chat-1' });
+        expect(await rows()).toEqual([
+            expect.objectContaining({ uid: sent.uid }),
+        ]);
+        await expectSpent(dayKey, DAY_MS, 1);
+    });
+});
+
 describe('app.message with the events fold-in on', () => {
     const state = bootServer({
         events: { enabled: true, notificationsFoldIn: true },
@@ -539,6 +721,34 @@ describe('app.message with the events fold-in on', () => {
                 appUid: app.uid,
             }),
         ).toBe(`notif:${app.uid}:app-user`);
+    });
+
+    it('dispatches a replacement again under the same uid', async () => {
+        const holder = await makeUser(state.server);
+        const app = await makeApp(state.server, holder.user.id!);
+        const first = (await withActor(asApp(holder, app), () =>
+            state.driver.create(message({ group: 'g' })),
+        )) as Record<string, unknown>;
+
+        const created = await captureBus(state.server, 'notif.created', () =>
+            withActor(asApp(holder, app), () =>
+                state.driver.create(message({ title: 'Again', group: 'g' })),
+            ),
+        );
+        expect(created).toEqual([
+            expect.objectContaining({
+                uid: first.uid,
+                appUid: app.uid,
+                audience: 'app-user',
+                value: expect.objectContaining({ title: 'Again' }),
+                replaced: true,
+            }),
+        ]);
+        const row = await state.server.stores.notification.getByUid(
+            first.uid as string,
+            { userId: holder.user.id, primary: true },
+        );
+        expect(Number(row.replaced_at)).toBe(created[0].createdAt);
     });
 
     it('limits each app per user per day, without spending the minute', async () => {

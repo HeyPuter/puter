@@ -507,7 +507,7 @@ const makeRegion = (
     region.events.worker = {
         invoke: async (invocation: WorkerInvocation) => {
             region.invoked.push(invocation);
-            return workerOutcome;
+            return { outcome: workerOutcome };
         },
     };
     region.forward.onServerStart();

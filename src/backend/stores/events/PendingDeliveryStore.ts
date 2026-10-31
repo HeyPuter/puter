@@ -23,6 +23,7 @@ import {
     EVENTS_FAILURE_COUNTER_TTL_MS,
     EVENTS_PENDING_DELIVERIES_PER_SUBSCRIPTION,
     EVENTS_REGION_PENDING_CEILING,
+    EVENTS_RETRY_MAX_MS,
     EVENTS_SOCKET_LEASE_MS,
     deliveryBackoffMs,
 } from '../../controllers/events/limits.js';
@@ -510,17 +511,22 @@ export class PendingDeliveryStore extends PuterStore {
      * Count one failed handler attempt and hold the delivery until its wait is
      * over. The lease is the hold: a score in the future is what `claim` reads
      * as "in flight", so pushing it out paces the retry with no second
-     * mechanism to keep in step.
+     * mechanism to keep in step. `minWaitMs` stretches the wait up to the
+     * backoff ceiling, for an answer that said how long to stay away.
      */
     async deferAfterFailure(
         subId: string,
         entryId: string,
+        minWaitMs = 0,
     ): Promise<DeferredDelivery> {
         const entry = parseEntry(
             await this.clients.redis.hget(entriesKey(subId), entryId),
         );
         const attempts = (entry?.handlerAttempts ?? 0) + 1;
-        const retryInMs = deliveryBackoffMs(attempts);
+        const retryInMs = Math.max(
+            deliveryBackoffMs(attempts),
+            Math.min(minWaitMs, EVENTS_RETRY_MAX_MS),
+        );
 
         const write = this.clients.redis.pipeline();
         if (entry)

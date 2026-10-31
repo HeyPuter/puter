@@ -27,7 +27,7 @@ export const APP_MESSAGE_TEXT_MAX = 240;
 export const APP_MESSAGE_ICON_MAX = 2048;
 export const APP_MESSAGE_TARGET_MAX = 512;
 export const APP_MESSAGE_DATA_MAX_BYTES = 1024;
-export const APP_MESSAGE_GROUP_MAX = 64;
+export const APP_MESSAGE_GROUP_MAX = 128;
 export const APP_MESSAGE_CHANNEL_MAX = 32;
 export const APP_MESSAGE_TTL_MAX_SECONDS = 24 * 60 * 60;
 export const APP_MESSAGE_TTL_DEFAULT_SECONDS = 60 * 60;
@@ -35,7 +35,7 @@ export const APP_MESSAGE_TTL_DEFAULT_SECONDS = 60 * 60;
 /** Creates one app may make for one user, per window. */
 export const APP_MESSAGE_RATE_LIMITS = {
     perMinute: 30,
-    perDay: 300,
+    perDay: 1000,
 } as const;
 
 export type AppMessagePriority = 'normal';
@@ -102,7 +102,7 @@ const FIELDS = new Set([
     'ttl',
 ]);
 
-const GROUP_PATTERN = /^[A-Za-z0-9._:-]+$/u;
+const GROUP_PATTERN = /^[A-Za-z0-9._:@-]+$/u;
 const CHANNEL_PATTERN = /^[a-z0-9-]+$/u;
 // Anything outside printable ASCII, or a backslash, in a target.
 const TARGET_DISALLOWED = /[^\u0021-\u007e]|\\/u;
@@ -281,7 +281,7 @@ export const parseAppMessage = (input: Record<string, unknown>): AppMessage => {
         'group',
         APP_MESSAGE_GROUP_MAX,
         GROUP_PATTERN,
-        'letters, digits and . _ : -',
+        'letters, digits and . _ : @ -',
     );
     if (group !== undefined) message.group = group;
     const channel = parsePattern(

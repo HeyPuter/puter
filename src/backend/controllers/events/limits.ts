@@ -138,6 +138,13 @@ export const EVENTS_DURABLE_SUBSCRIPTIONS_MAX =
 export const SUSPENDED_ROW_TTL_DAYS = 30;
 
 /**
+ * Subscriptions stopped by a revoked grant that one account keeps for `list`.
+ * They hold no quota slot, so past this the oldest are deleted when the account
+ * subscribes again, keeping its rows bounded.
+ */
+export const EVENTS_REVOKED_SUBSCRIPTIONS_KEPT = 500;
+
+/**
  * Subscribe calls per minute, per user.
  *
  * Resolves a path and takes a write, so a loop over subscribes is a write loop.
@@ -216,16 +223,34 @@ export const EVENTS_KV_HANDLES_PER_APP = tiered(10_000, 2_000, 0);
 export const EVENTS_KV_HANDLES_PER_HOLDER = 256;
 
 /**
- * Recipients one account may share with, per minute and per hour. A batch
- * spends one per recipient, on top of the per-call mint budget.
+ * Recipients one account may share with, per minute and per hour. A call spends
+ * one per recipient that doesn't already hold the share, on top of the per-call
+ * mint budget.
  */
 export const KV_SHARE_GRANT_LIMITS = [
     userWindow('kvShare:grants:minute', 300),
     userWindow('kvShare:grants:hour', 2_000, 60 * 60_000),
 ] as const;
 
+/**
+ * Recipients one account may name in share calls per minute, existing shares
+ * included. Each one is looked up before the call knows whether it changes
+ * anything, so a client that shares again on every load is bounded here.
+ */
+export const KV_SHARE_LOOKUP_LIMIT = userWindow('kvShare:lookups', 1_200);
+
 /** Recipients one `POST /kv/shares` call may name. */
 export const KV_SHARE_BATCH_MAX = 50;
+
+/**
+ * Notifications one party of a share may send the other through share handles,
+ * per minute and per day, in one app. Keeps one share from spending the
+ * recipient's whole notification allowance.
+ */
+export const KV_SHARE_NOTIFY_LIMITS = [
+    userWindow('kvShare:notify:minute', 30),
+    userWindow('kvShare:notify:day', 500, 24 * 60 * 60_000),
+] as const;
 
 // -- Handler surface -------------------------------------------------
 
@@ -323,8 +348,11 @@ export const EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT = tiered(512, 128, 128);
  */
 export const EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT = tiered(2048, 512, 512);
 
-/** Omit all inline KV values when the matched audience exceeds this count. */
-export const EVENTS_KV_VALUE_OMIT_MATCHED_SUBSCRIPTIONS = 128;
+/**
+ * Deliveries of one key-value change that carry its value inline, in the order
+ * the fan-out serves them. Later ones carry the key alone.
+ */
+export const EVENTS_KV_VALUE_DELIVERIES_PER_EVENT = 128;
 
 /**
  * Largest inline KV value in serialized bytes. Larger values are omitted;
@@ -416,7 +444,9 @@ export const EVENTS_REGION_PENDING_CEILING = 1_000_000;
 // a handler that answers "no" is not. Retrying on a fixed cadence turns one
 // broken deploy into a permanent load on whatever is failing, so the wait
 // doubles per attempt up to a ceiling, and a run of failures stops the
-// subscription rather than retrying it forever.
+// subscription rather than retrying it forever. A run Puter could not start or
+// finish backs off the same way but is not the handler's failure, so it never
+// counts toward that run.
 
 /** Wait before the first retry of a delivery a handler could not take. */
 export const EVENTS_RETRY_BASE_MS = 2_000;
@@ -425,7 +455,7 @@ export const EVENTS_RETRY_BASE_MS = 2_000;
 export const EVENTS_RETRY_MAX_MS = 5 * 60 * 1000;
 
 /**
- * Failures in a row before a subscription is suspended. Counted per
+ * Handler failures in a row before a subscription is suspended. Counted per
  * subscription and reset by the first delivery a handler takes, so an
  * occasional failure never accumulates into one.
  */

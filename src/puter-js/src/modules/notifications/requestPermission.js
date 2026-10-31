@@ -1,5 +1,5 @@
-/** The permission that lets an app's notifications go out as pushes. */
-export const PUSH_PERMISSION = 'notifications:push';
+/** The `puter.perms` resource that lets an app's notifications go out as pushes. */
+export const PUSH_RESOURCE = 'pushNotifications';
 
 /**
  * Asks the user to let this app send pushes. Resolves whether it may.
@@ -8,7 +8,7 @@ export const PUSH_PERMISSION = 'notifications:push';
  * @returns {Promise<boolean>}
  */
 export async function requestPermission() {
-    return (await this.puter.perms.request(PUSH_PERMISSION)) === true;
+    return (await this.puter.perms.request(PUSH_RESOURCE)) === true;
 }
 
 /**
@@ -18,5 +18,5 @@ export async function requestPermission() {
  * @returns {Promise<boolean>}
  */
 export async function hasPermission() {
-    return (await this.puter.perms.check(PUSH_PERMISSION)) === true;
+    return (await this.puter.perms.check(PUSH_RESOURCE)) === true;
 }
