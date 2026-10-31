@@ -84,7 +84,7 @@ vi.mock('@aws-sdk/client-polly', async () => {
 
 let server: PuterServer;
 let priceFetch: MockInstance<typeof fetch>;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -180,7 +180,7 @@ beforeEach(() => {
     pollyCtor.mockReset();
     priceFetch = vi.fn(servePriceLists());
     vi.stubGlobal('fetch', priceFetch);
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -314,7 +314,7 @@ describe('AWSPollyTTSProvider.synthesize test_mode', () => {
             url: 'https://puter-sample-data.puter.site/tts_example.mp3',
             content_type: 'audio',
         });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(pollySendMock).not.toHaveBeenCalled();
     });
 });
@@ -349,7 +349,7 @@ describe('AWSPollyTTSProvider.synthesize argument validation', () => {
 describe('AWSPollyTTSProvider.synthesize credit gate', () => {
     it('throws 402 BEFORE hitting Polly when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         sendDispatch();
 
         await expect(
@@ -481,7 +481,7 @@ describe('AWSPollyTTSProvider.synthesize metering', () => {
         expect(cost).toBe(expectedCost);
     });
 
-    it('asks for hasEnoughCredits with the same total it later meters', async () => {
+    it('reserves the same total it later meters', async () => {
         const provider = makeProvider();
         sendDispatch();
 
@@ -495,7 +495,7 @@ describe('AWSPollyTTSProvider.synthesize metering', () => {
         );
 
         const expectedCost = AWS_POLLY_COSTS['generative'] * text.length;
-        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(expectedCost);
+        expect(admitSpy.mock.calls[0]![1]).toBe(expectedCost);
     });
 });
 
@@ -599,7 +599,7 @@ describe('AWSPollyTTSProvider published pricing', () => {
             engine: 'generative',
         });
 
-        expect(hasCreditsSpy.mock.calls.map((c) => c[1])).toEqual([
+        expect(admitSpy.mock.calls.map((c) => c[1])).toEqual([
             1700 * 5,
             3000 * 5,
         ]);
@@ -648,7 +648,7 @@ describe('AWSPollyTTSProvider published pricing', () => {
         await readStreamResult(result);
 
         expect(refreshedNeural).toBe(19);
-        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(1700 * 5);
+        expect(admitSpy.mock.calls[0]![1]).toBe(1700 * 5);
         expect(incrementUsageSpy.mock.calls[0]![3]).toBe(1700 * 5);
     });
 

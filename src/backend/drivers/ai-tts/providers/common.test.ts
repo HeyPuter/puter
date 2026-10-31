@@ -86,8 +86,10 @@ describe('meterPerCharacter', () => {
 
     it('holds and then meters exactly text length × price', async () => {
         const check = vi
-            .spyOn(server.services.metering, 'hasEnoughCredits')
-            .mockResolvedValue(true);
+            .spyOn(server.services.metering, 'reserveCreditsIfAffordable')
+            .mockImplementation((who, amount, opts) =>
+                server.services.metering.reserveCredits(who, amount, opts),
+            );
         const record = vi.spyOn(server.services.metering, 'incrementUsage');
 
         await drain(
@@ -101,7 +103,7 @@ describe('meterPerCharacter', () => {
             ),
         );
 
-        expect(check).toHaveBeenCalledWith(actor, 7500);
+        expect(check).toHaveBeenCalledWith(actor, 7500, undefined);
         expect(record).toHaveBeenCalledWith(
             actor,
             'openai:tts-1:character',
@@ -118,8 +120,10 @@ describe('meterPerCharacter', () => {
     it('meters nothing when the upstream breaks before any audio', async () => {
         vi.spyOn(
             server.services.metering,
-            'hasEnoughCredits',
-        ).mockResolvedValue(true);
+            'reserveCreditsIfAffordable',
+        ).mockImplementation((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
+        );
         const record = vi.spyOn(server.services.metering, 'incrementUsage');
 
         await drain(
@@ -139,8 +143,10 @@ describe('meterPerCharacter', () => {
     it('meters the full text once audio has started, even if the upstream then breaks', async () => {
         vi.spyOn(
             server.services.metering,
-            'hasEnoughCredits',
-        ).mockResolvedValue(true);
+            'reserveCreditsIfAffordable',
+        ).mockImplementation((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
+        );
         const record = vi.spyOn(server.services.metering, 'incrementUsage');
 
         await drain(
@@ -165,8 +171,10 @@ describe('meterPerCharacter', () => {
     it('meters the full text when the caller hangs up before any audio', async () => {
         vi.spyOn(
             server.services.metering,
-            'hasEnoughCredits',
-        ).mockResolvedValue(true);
+            'reserveCreditsIfAffordable',
+        ).mockImplementation((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
+        );
         const record = vi.spyOn(server.services.metering, 'incrementUsage');
 
         const result = await meterPerCharacter(
@@ -192,8 +200,10 @@ describe('meterPerCharacter', () => {
     it('meters nothing when synthesis fails', async () => {
         vi.spyOn(
             server.services.metering,
-            'hasEnoughCredits',
-        ).mockResolvedValue(true);
+            'reserveCreditsIfAffordable',
+        ).mockImplementation((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
+        );
         const record = vi.spyOn(server.services.metering, 'incrementUsage');
         const boom = new Error('vendor down');
 
@@ -213,8 +223,8 @@ describe('meterPerCharacter', () => {
     it('refuses with a 402 before synthesizing when unaffordable', async () => {
         vi.spyOn(
             server.services.metering,
-            'hasEnoughCredits',
-        ).mockResolvedValue(false);
+            'reserveCreditsIfAffordable',
+        ).mockResolvedValue(null);
         const synthesize = vi.fn(audio);
 
         await expect(

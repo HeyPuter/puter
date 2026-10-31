@@ -698,6 +698,8 @@ export class MeteringService extends PuterService {
                 actorAddons,
                 totalBatchCost,
             );
+            // Before any hold this usage stands for is released.
+            await this.stores.creditHold.bump(userId);
 
             this.maybeAlertOveruse({
                 actor,
@@ -1545,7 +1547,74 @@ export class MeteringService extends PuterService {
             opts.ttlMs,
         );
         if (!member) return NO_CREDIT_HOLD;
+        return this.#holdHandle(userId, member, opts.ttlMs);
+    }
 
+    /**
+     * Commit part of an actor's budget only if it fits beside what their other
+     * operations hold; null when it doesn't. The check and the hold are one
+     * step in the cache, and a usage write or release that lands after the
+     * balance read sends the reservation back to read it again. When the cache
+     * can't answer, the balance alone decides and nothing is held.
+     */
+    async reserveCreditsIfAffordable(
+        actor: Actor,
+        amount: number,
+        opts: { ttlMs?: number } = {},
+    ): Promise<CreditHold | null> {
+        const userId = actor?.user?.uuid;
+        if (
+            !userId ||
+            isSystemActor(actor) ||
+            !Number.isFinite(amount) ||
+            !(amount > 0)
+        ) {
+            // Nothing to hold; the plain check decides, as it always has.
+            return (await this.hasEnoughCredits(actor, amount))
+                ? NO_CREDIT_HOLD
+                : null;
+        }
+
+        for (let attempt = 1; ; attempt++) {
+            // The last attempt skips the version check rather than refuse an
+            // actor whose balance keeps moving; it still can't overlap
+            // another reservation.
+            const version =
+                attempt < MeteringService.RESERVE_ATTEMPTS
+                    ? await this.stores.creditHold.version(userId)
+                    : '';
+            // Read after the version, so a write it misses bumps the version.
+            const { remaining } = await this.getAllowedUsage(actor, {
+                exact: true,
+            });
+            const budget = remaining || 0;
+            const result =
+                version === null
+                    ? ({ outcome: 'unavailable' } as const)
+                    : await this.stores.creditHold.reserve(
+                          userId,
+                          amount,
+                          budget,
+                          version,
+                          opts.ttlMs,
+                      );
+            switch (result.outcome) {
+                case 'accepted':
+                    return this.#holdHandle(userId, result.member, opts.ttlMs);
+                case 'insufficient':
+                    return null;
+                case 'unavailable':
+                    return budget >= amount ? NO_CREDIT_HOLD : null;
+                case 'stale':
+                    continue;
+            }
+        }
+    }
+
+    /** Reservations tried before the version check is skipped. */
+    private static readonly RESERVE_ATTEMPTS = 4;
+
+    #holdHandle(userId: string, member: string, ttlMs?: number): CreditHold {
         let released = false;
         return {
             release: async () => {
@@ -1555,11 +1624,7 @@ export class MeteringService extends PuterService {
             },
             extend: async () => {
                 if (released) return;
-                await this.stores.creditHold.refresh(
-                    userId,
-                    member,
-                    opts.ttlMs,
-                );
+                await this.stores.creditHold.refresh(userId, member, ttlMs);
             },
         };
     }
@@ -1571,14 +1636,23 @@ export class MeteringService extends PuterService {
         return this.stores.creditHold.outstanding(userId);
     }
 
-    async getAllowedUsage(actor: Actor): Promise<{
+    /**
+     * `exact` reads purchased credit consistently, for a spend decision that
+     * has to see the consumption a write just recorded.
+     */
+    async getAllowedUsage(
+        actor: Actor,
+        { exact = false }: { exact?: boolean } = {},
+    ): Promise<{
         remaining: number;
         monthUsageAllowance: number;
         addons: UsageAddons;
     }> {
         const [userSubscription, addons, totals] = await Promise.all([
             this.getActorSubscription(actor),
-            this.#addonsForSettle(actor),
+            exact
+                ? this.getActorAddons(actor, { consistentRead: true })
+                : this.#addonsForSettle(actor),
             this.currentMonthTotals(actor),
         ]);
 

@@ -699,9 +699,9 @@ describe('TTSDriver cost factor', () => {
             server.services.metering,
             'incrementUsage',
         );
-        const hasCreditsSpy = vi.spyOn(
+        const admitSpy = vi.spyOn(
             server.services.metering,
-            'hasEnoughCredits',
+            'reserveCreditsIfAffordable',
         );
         const metered = () =>
             incrementUsageSpy.mock.calls.map(([, , , cost]) => cost!);
@@ -725,7 +725,7 @@ describe('TTSDriver cost factor', () => {
         const [base, factored] = metered();
         expect(base).toBeGreaterThan(0);
         expect(factored).toBe(Math.round(base! * 2));
-        const held = hasCreditsSpy.mock.calls.map(([, amount]) => amount);
+        const held = admitSpy.mock.calls.map(([, amount]) => amount);
         expect(held).toEqual([base, Math.round(base! * 2)]);
     });
 });

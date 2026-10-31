@@ -97,7 +97,7 @@ vi.mock('../../inputImage.js', async (orig) => ({
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let batchIncrementUsagesSpy: MockInstance<
     MeteringService['batchIncrementUsages']
 >;
@@ -126,7 +126,7 @@ beforeEach(() => {
     editMock.mockReset();
     fetchImageAsBase64Mock.mockReset();
     openAICtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
         'batchIncrementUsages',
@@ -195,7 +195,7 @@ describe('OpenAiImageProvider.generate test_mode', () => {
         expect(result).toBe(
             'https://puter-sample-data.puter.site/image_example.png',
         );
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateMock).not.toHaveBeenCalled();
     });
 });
@@ -237,7 +237,7 @@ describe('OpenAiImageProvider.generate argument validation', () => {
 describe('OpenAiImageProvider.generate credit gate', () => {
     it('throws 402 BEFORE hitting OpenAI when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         await expect(
             withTestActor(() =>
                 provider.generate({
@@ -273,7 +273,7 @@ describe('OpenAiImageProvider.generate credit gate', () => {
             actor,
         );
 
-        const [, estimate] = hasCreditsSpy.mock.calls[0]!;
+        const [, estimate] = admitSpy.mock.calls[0]!;
         expect(estimate).toBeGreaterThan(0);
         expect(heldDuringCall).toBe(Math.ceil(estimate));
         // The hold stays until the usage write lands.
@@ -677,8 +677,8 @@ describe('OpenAiImageProvider gpt-image-2.5 models', () => {
         );
 
         // Latent factor 48 vs 24 at the medium tier.
-        const gptImage2Estimate = hasCreditsSpy.mock.calls[0]![1];
-        const gptImage25Estimate = hasCreditsSpy.mock.calls[1]![1];
+        const gptImage2Estimate = admitSpy.mock.calls[0]![1];
+        const gptImage25Estimate = admitSpy.mock.calls[1]![1];
         expect(gptImage25Estimate).toBeLessThan(gptImage2Estimate);
     });
 
@@ -703,8 +703,8 @@ describe('OpenAiImageProvider gpt-image-2.5 models', () => {
             }),
         );
 
-        const highEstimate = hasCreditsSpy.mock.calls[0]![1];
-        const maxEstimate = hasCreditsSpy.mock.calls[1]![1];
+        const highEstimate = admitSpy.mock.calls[0]![1];
+        const maxEstimate = admitSpy.mock.calls[1]![1];
         expect(maxEstimate).toBeGreaterThan(highEstimate);
     });
 });
