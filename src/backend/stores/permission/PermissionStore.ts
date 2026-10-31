@@ -55,6 +55,12 @@ const AUDIT_PAGE_SIZE = 50;
 const MAX_AUDIT_PAGE_SIZE = 200;
 /** Flat-entry prefix scans one subtree revoke keeps in flight. */
 export const FLAT_PERM_SCAN_CONCURRENCY = 4;
+
+/**
+ * Grants one exact-match delete names, so a large subtree stays well under
+ * every engine's limit on bound parameters.
+ */
+export const U2U_EXACT_DELETE_CHUNK = 500;
 /** Flat entries one page of a deleted holder's purge lists, and the pages. */
 const HELD_FLAT_PURGE_PAGE = 500;
 const HELD_FLAT_PURGE_MAX_PAGES = 200;
@@ -746,15 +752,21 @@ export class PermissionStore extends PuterStore {
             .map((row) => String(row.permission))
             .filter((held) => roots.some((root) => inSubtree(held, root)));
         if (removed.length > 0) {
-            const { scope, params: exact } = this.#issuerHolderScope(
-                holderUserId,
-                issuerUserId,
-                removed,
-            );
-            await this.clients.db.write(
-                `DELETE FROM \`user_to_user_permissions\` WHERE ${scope}`,
-                exact,
-            );
+            for (
+                let start = 0;
+                start < removed.length;
+                start += U2U_EXACT_DELETE_CHUNK
+            ) {
+                const { scope, params: exact } = this.#issuerHolderScope(
+                    holderUserId,
+                    issuerUserId,
+                    removed.slice(start, start + U2U_EXACT_DELETE_CHUNK),
+                );
+                await this.clients.db.write(
+                    `DELETE FROM \`user_to_user_permissions\` WHERE ${scope}`,
+                    exact,
+                );
+            }
             await this.tombstoneCacheKeys([this.#u2uCacheKey(holderUserId)]);
         }
 
