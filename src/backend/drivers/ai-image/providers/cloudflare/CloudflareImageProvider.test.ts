@@ -73,7 +73,7 @@ let server: PuterServer;
 let globalFetchSpy: MockInstance<typeof fetch>;
 let fetchSpy: Mock<typeof fetch>;
 let modelSearchFetch: Mock<typeof fetch>;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let batchIncrementUsagesSpy: MockInstance<
     MeteringService['batchIncrementUsages']
 >;
@@ -123,7 +123,7 @@ beforeEach(() => {
                 ? modelSearchFetch(input, init)
                 : fetchSpy(input, init),
         );
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
         'batchIncrementUsages',
@@ -188,7 +188,7 @@ describe('CloudflareImageProvider.generate test_mode', () => {
         expect(result).toBe(
             'https://puter-sample-data.puter.site/image_example.png',
         );
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 });
@@ -210,7 +210,7 @@ describe('CloudflareImageProvider.generate argument validation', () => {
 describe('CloudflareImageProvider.generate credit gate', () => {
     it('throws 402 BEFORE hitting Cloudflare when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
 
         await expect(
             withTestActor(() => provider.generate({ prompt: 'hi' })),
@@ -240,7 +240,7 @@ describe('CloudflareImageProvider.generate credit gate', () => {
             actor,
         );
 
-        const [, estimate] = hasCreditsSpy.mock.calls[0]!;
+        const [, estimate] = admitSpy.mock.calls[0]!;
         expect(estimate).toBeGreaterThan(0);
         expect(heldDuringCall).toBe(Math.ceil(estimate));
         // The hold stays until the usage write lands.
@@ -708,7 +708,7 @@ describe('Cloudflare legacy image option', () => {
                 legacyCode: 'bad_request',
             });
             expect(fetchSpy).not.toHaveBeenCalled();
-            expect(hasCreditsSpy).not.toHaveBeenCalled();
+            expect(admitSpy).not.toHaveBeenCalled();
         },
     );
 
@@ -726,7 +726,7 @@ describe('Cloudflare legacy image option', () => {
             message: 'Invalid input image (empty or not base64)',
         });
         expect(fetchSpy).not.toHaveBeenCalled();
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
     });
 });
 
@@ -823,12 +823,12 @@ describe('Cloudflare priced legacy models', () => {
             imageSize: { kind: 'pixels', w: 512, h: 512 },
         }));
         expect(JSON.parse(fetchSpy.mock.calls[0]![1]!.body as string)).toMatchObject({ image: [1, 2, 3], mask: [4, 5, 6], num_steps: 20, width: 512, height: 512 });
-        expect(hasCreditsSpy).toHaveBeenCalledWith(expect.anything(), 0);
+        expect(admitSpy).toHaveBeenCalledWith(expect.anything(), 0, undefined);
     });
 
     it('rejects missing inpainting inputs before credit checks', async () => {
         await expect(withTestActor(() => makeProvider().generate({ model: '@cf/runwayml/stable-diffusion-v1-5-inpainting', prompt: 'A cup' }))).rejects.toMatchObject({ statusCode: 400 });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 
@@ -844,7 +844,7 @@ describe('Cloudflare priced legacy models', () => {
     it('charges Lucid at the price returned by the model API', async () => {
         fetchSpy.mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }));
         await withTestActor(() => makeProvider().generate({ model: '@cf/leonardo/lucid-origin', prompt: 'A cup', imageSize: { kind: 'pixels', w: 512, h: 512 }, steps: 1 }));
-        expect(hasCreditsSpy).toHaveBeenCalledWith(expect.anything(), 713200);
+        expect(admitSpy).toHaveBeenCalledWith(expect.anything(), 713200, undefined);
     });
 });
 
@@ -897,9 +897,10 @@ describe('Cloudflare model-search pricing', () => {
         await runPhoenix(provider);
 
         expect(listed?.costs).toEqual({ tile_512: 1_000_000, step: 20_200 });
-        expect(hasCreditsSpy).toHaveBeenCalledWith(
+        expect(admitSpy).toHaveBeenCalledWith(
             expect.anything(),
             4 * 1_000_000 + 10 * 20_200,
+            undefined,
         );
         expect(batchIncrementUsagesSpy.mock.calls[0]![1]).toEqual([
             expect.objectContaining({
@@ -930,9 +931,10 @@ describe('Cloudflare model-search pricing', () => {
         await runPhoenix(makeProvider());
 
         expect(modelSearchFetch).not.toHaveBeenCalled();
-        expect(hasCreditsSpy).toHaveBeenCalledWith(
+        expect(admitSpy).toHaveBeenCalledWith(
             expect.anything(),
             4 * 583_000 + 10 * 11_000,
+            undefined,
         );
     });
 
@@ -955,7 +957,7 @@ describe('Cloudflare model-search pricing', () => {
         await refresh;
         await runPhoenix(provider);
 
-        expect(hasCreditsSpy.mock.calls.map(([, cost]) => cost)).toEqual([
+        expect(admitSpy.mock.calls.map(([, cost]) => cost)).toEqual([
             2_442_000, 4_202_000,
         ]);
     });
@@ -977,9 +979,10 @@ describe('Cloudflare model-search pricing', () => {
         await runPhoenix(provider);
 
         expect(modelSearchFetch).toHaveBeenCalledTimes(2);
-        expect(hasCreditsSpy).toHaveBeenCalledWith(
+        expect(admitSpy).toHaveBeenCalledWith(
             expect.anything(),
             4_202_000,
+            undefined,
         );
     });
 
@@ -1015,7 +1018,7 @@ describe('Cloudflare model-search pricing', () => {
                     steps: 10,
                 } as never),
             );
-            return hasCreditsSpy.mock.lastCall![1];
+            return admitSpy.mock.lastCall![1];
         };
         const settle = () => new Promise((resolve) => setImmediate(resolve));
         const OLD = { tile_512: 583_000, step: 11_000 };
@@ -1069,9 +1072,10 @@ describe('Cloudflare model-search pricing', () => {
             }),
         );
         expect(modelSearchFetch).toHaveBeenCalledOnce();
-        expect(hasCreditsSpy).toHaveBeenCalledWith(
+        expect(admitSpy).toHaveBeenCalledWith(
             expect.anything(),
             4 * 5280 + 4 * 10560,
+            undefined,
         );
     });
 

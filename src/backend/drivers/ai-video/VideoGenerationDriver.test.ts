@@ -94,7 +94,7 @@ vi.mock('../../util/secureHttp.js', async (importOriginal) => ({
 
 let server: PuterServer;
 let driver: VideoGenerationDriver;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 
 beforeAll(async () => {
     server = await setupTestServer({
@@ -122,8 +122,10 @@ beforeEach(() => {
     togetherVideosCreateMock.mockReset();
     togetherVideosRetrieveMock.mockReset();
     secureFetchMock.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
-    hasCreditsSpy.mockResolvedValue(true);
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
+    admitSpy.mockImplementation((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
+        );
     vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
         100_000_000_000,
     );

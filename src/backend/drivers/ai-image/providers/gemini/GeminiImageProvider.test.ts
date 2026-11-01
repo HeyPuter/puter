@@ -82,7 +82,7 @@ vi.mock('../../inputImage.js', async (orig) => ({
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 let batchIncrementUsagesSpy: MockInstance<
     MeteringService['batchIncrementUsages']
@@ -111,7 +111,7 @@ beforeEach(() => {
     generateContentMock.mockReset();
     toBase64DataUriMock.mockReset();
     googleAICtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
@@ -167,7 +167,7 @@ describe('GeminiImageProvider.generate test_mode', () => {
         expect(result).toBe(
             'https://puter-sample-data.puter.site/image_example.png',
         );
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateContentMock).not.toHaveBeenCalled();
     });
 });
@@ -219,7 +219,7 @@ describe('GeminiImageProvider.generate argument validation', () => {
                 legacyCode: 'bad_request',
                 message: expect.stringContaining('Unsupported quality tier'),
             });
-            expect(hasCreditsSpy).not.toHaveBeenCalled();
+            expect(admitSpy).not.toHaveBeenCalled();
             expect(generateContentMock).not.toHaveBeenCalled();
         },
     );
@@ -427,7 +427,7 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
 
     it('throws 402 BEFORE hitting Gemini when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
 
         await expect(
             withTestActor(() =>
@@ -466,7 +466,7 @@ describe('GeminiImageProvider.generate Flash path (generateContent)', () => {
             actor,
         );
 
-        const [, estimate] = hasCreditsSpy.mock.calls[0]!;
+        const [, estimate] = admitSpy.mock.calls[0]!;
         expect(estimate).toBeGreaterThan(0);
         expect(heldDuringCall).toBe(Math.ceil(estimate));
         // The hold stays until the usage write lands.
@@ -643,7 +643,7 @@ describe('Gemini Nano Banana image generation', () => {
         const request = generateContentMock.mock.calls[0][0];
         expect(request.config.imageConfig.imageSize).toBe('1K');
         // Input + 1120 image tokens at $30/1M + 1000 text tokens at $7.50/1M.
-        expect(hasCreditsSpy).toHaveBeenCalledWith(expect.anything(), 4_194_450);
+        expect(admitSpy).toHaveBeenCalledWith(expect.anything(), 4_194_450, undefined);
         expect(batchIncrementUsagesSpy).toHaveBeenCalledWith(
             expect.anything(),
             expect.arrayContaining([

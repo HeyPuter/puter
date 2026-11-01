@@ -61,7 +61,7 @@ const INTERACTIONS_URL =
 
 let server: PuterServer;
 let fetchSpy: MockInstance<typeof fetch>;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let batchIncrementUsagesSpy: MockInstance<
     MeteringService['batchIncrementUsages']
 >;
@@ -183,13 +183,16 @@ const payingUser = () =>
 /** Spies on the credit holds taken, recording the amount and each release. */
 const trackHolds = () => {
     const metering = server.services.metering;
-    const realReserve = metering.reserveCredits.bind(metering);
+    const realReserve = Object.getPrototypeOf(
+        metering,
+    ).reserveCreditsIfAffordable.bind(metering) as typeof metering.reserveCreditsIfAffordable;
     const held: number[] = [];
     const released = vi.fn();
-    vi.spyOn(metering, 'reserveCredits').mockImplementation(
+    vi.spyOn(metering, 'reserveCreditsIfAffordable').mockImplementation(
         async (actor, amount, opts) => {
             held.push(amount);
             const hold = await realReserve(actor, amount, opts);
+            if (!hold) return null;
             return {
                 ...hold,
                 release: async () => {
@@ -214,7 +217,7 @@ beforeEach(() => {
         .mockRejectedValue(new Error('unexpected fetch')) as MockInstance<
         typeof fetch
     >;
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
         'batchIncrementUsages',
@@ -332,7 +335,7 @@ describe('GeminiTTSProvider.synthesize test_mode', () => {
             url: 'https://puter-sample-data.puter.site/tts_example.mp3',
             content_type: 'audio',
         });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 });
@@ -406,7 +409,7 @@ describe('GeminiTTSProvider.synthesize argument validation', () => {
             legacyCode: 'input_too_large',
             fields: { key: 'text', max: 3000 },
         });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 
@@ -434,7 +437,7 @@ describe('GeminiTTSProvider.synthesize argument validation', () => {
             legacyCode: 'input_too_large',
             fields: { key: 'instructions', max: 3000 },
         });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 });
@@ -443,7 +446,7 @@ describe('GeminiTTSProvider.synthesize argument validation', () => {
 
 describe('GeminiTTSProvider.synthesize credit gate', () => {
     it('throws 402 before calling Gemini when the actor lacks credits', async () => {
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         await expect(
             withTestActor(() => makeProvider().synthesize({ text: 'hi' })),
         ).rejects.toMatchObject({ statusCode: 402 });
@@ -473,9 +476,10 @@ describe('GeminiTTSProvider.synthesize credit gate', () => {
                         actor,
                     ),
                 ).rejects.toMatchObject({ statusCode: 402 });
-                expect(hasCreditsSpy).toHaveBeenCalledWith(
+                expect(admitSpy).toHaveBeenCalledWith(
                     actor,
                     FLASH_RESERVATION,
+                    undefined,
                 );
                 expect(fetchSpy).not.toHaveBeenCalled();
                 expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
@@ -1365,9 +1369,10 @@ describe('GeminiTTSProvider.synthesize scheduled rates', () => {
                 server.clients.event.off('ai.cost.factor.*', factor);
             }
 
-            expect(hasCreditsSpy).toHaveBeenCalledWith(
+            expect(admitSpy).toHaveBeenCalledWith(
                 expect.anything(),
                 reserved * 1.5,
+                undefined,
             );
             expect(held).toEqual([reserved * 1.5]);
             expect(metered(':input').costOverride).toBe(7 * inputRate * 1.5);

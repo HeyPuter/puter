@@ -742,7 +742,10 @@ describe('ImageGenerationDriver.generate provider routing', () => {
             }),
         );
 
-        const reserveSpy = vi.spyOn(server.services.metering, 'reserveCredits');
+        const reserveSpy = vi.spyOn(
+            server.services.metering,
+            'reserveCreditsIfAffordable',
+        );
         const usageSpy = vi.spyOn(
             server.services.metering,
             'batchIncrementUsages',
@@ -836,7 +839,7 @@ describe('ImageGenerationDriver.generate provider routing', () => {
             });
             const reserveSpy = vi.spyOn(
                 server.services.metering,
-                'reserveCredits',
+                'reserveCreditsIfAffordable',
             );
 
             // Cloudflare answers the scheduled refresh with new rates at once;
@@ -1146,8 +1149,8 @@ describe('ImageGenerationDriver.generate Puter file inputs', () => {
         );
 
     beforeEach(() => {
-        vi.spyOn(server.services.metering, 'hasEnoughCredits').mockResolvedValue(
-            true,
+        vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable').mockImplementation((who, amount, opts) =>
+            server.services.metering.reserveCredits(who, amount, opts),
         );
     });
 
@@ -1649,7 +1652,10 @@ it.each([undefined, null, '', '  ', 42, {}])(
 
 describe('ImageGenerationDriver cost factor', () => {
     it('holds and meters at the AI cost factor', async () => {
-        const reserveSpy = vi.spyOn(server.services.metering, 'reserveCredits');
+        const reserveSpy = vi.spyOn(
+            server.services.metering,
+            'reserveCreditsIfAffordable',
+        );
         const usageSpy = vi.spyOn(
             server.services.metering,
             'batchIncrementUsages',

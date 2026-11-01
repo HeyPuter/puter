@@ -57,7 +57,7 @@ import { ELEVENLABS_TTS_COSTS } from './costs.js';
 
 let server: PuterServer;
 let fetchSpy: MockInstance<typeof fetch>;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -88,7 +88,7 @@ const audioResponse = (body = 'audio-bytes', contentType = 'audio/mpeg') =>
 
 beforeEach(() => {
     fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -283,7 +283,7 @@ describe('ElevenLabsTTSProvider.synthesize test_mode', () => {
             url: 'https://puter-sample-data.puter.site/tts_example.mp3',
             content_type: 'audio',
         });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(fetchSpy).not.toHaveBeenCalled();
     });
 });
@@ -323,7 +323,7 @@ describe('ElevenLabsTTSProvider.synthesize argument validation', () => {
         });
 
         expect(fetchSpy).not.toHaveBeenCalled();
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(incrementUsageSpy).not.toHaveBeenCalled();
     });
 
@@ -358,7 +358,7 @@ describe('ElevenLabsTTSProvider.synthesize argument validation', () => {
 describe('ElevenLabsTTSProvider.synthesize credit gate', () => {
     it('throws 402 BEFORE hitting ElevenLabs when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
 
         await expect(
             withTestActor(() => provider.synthesize({ text: 'hi' })),
@@ -510,7 +510,7 @@ describe('ElevenLabsTTSProvider.synthesize request shape', () => {
                 fields: { key, got: value },
             });
             expect(fetchSpy).not.toHaveBeenCalled();
-            expect(hasCreditsSpy).not.toHaveBeenCalled();
+            expect(admitSpy).not.toHaveBeenCalled();
             expect(incrementUsageSpy).not.toHaveBeenCalled();
         },
     );
@@ -893,7 +893,7 @@ describe('ElevenLabsTTSProvider.synthesize metering', () => {
         expect(cost).toBe(expectedCost);
     });
 
-    it('asks for hasEnoughCredits with the same total it later meters', async () => {
+    it('reserves the same total it later meters', async () => {
         const provider = makeProvider();
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
@@ -904,7 +904,7 @@ describe('ElevenLabsTTSProvider.synthesize metering', () => {
 
         const expectedCost =
             ELEVENLABS_TTS_COSTS['eleven_multilingual_v2'] * text.length;
-        expect(hasCreditsSpy.mock.calls[0]![1]).toBe(expectedCost);
+        expect(admitSpy.mock.calls[0]![1]).toBe(expectedCost);
     });
 });
 

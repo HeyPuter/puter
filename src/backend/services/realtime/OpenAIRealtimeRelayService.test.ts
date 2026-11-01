@@ -1298,7 +1298,7 @@ describe('OpenAIRealtimeRelayService relay', () => {
     it('reports an unexpected setup failure as internal_error and 1011', async () => {
         vi.spyOn(
             server.services.metering,
-            'hasEnoughCredits',
+            'reserveCreditsIfAffordable',
         ).mockRejectedValueOnce(new Error('metering down'));
         const c = open(`${relayUrl}?auth_token=${user.token}`);
         expect(await c.waitFor('error')).toMatchObject({
@@ -1373,6 +1373,102 @@ describe('OpenAIRealtimeRelayService relay', () => {
         await vi.waitFor(async () =>
             expect(await metering.getOutstandingHolds(actor)).toBe(0),
         );
+    });
+
+    it('admits one of two simultaneous responses a constrained balance covers once, and bills both', async () => {
+        const users = await Promise.all(
+            ['realtime-race', 'realtime-race-other'].map((username) =>
+                createTestUser(server, {
+                    username,
+                    password: `${username}-password`,
+                }),
+            ),
+        );
+        const actors = await Promise.all(
+            users.map(
+                async (u) =>
+                    ({
+                        user: await server.stores.user.getByUsername(
+                            u.username,
+                        ),
+                    }) as never,
+            ),
+        );
+        const metering = server.services.metering;
+        // Room for one response's hold, not two.
+        const paid = vi.mocked(metering.getActorSubscription);
+        const plan = paid.getMockImplementation()!;
+        paid.mockImplementation(async (actor) => ({
+            ...(await plan(actor)),
+            monthUsageAllowance: Math.floor(MINI_HOLD * 1.5),
+        }));
+        const recorded = vi.spyOn(metering, 'batchIncrementUsages');
+        const url = (token: string) =>
+            `${relayUrl}?model=gpt-realtime-mini&auth_token=${token}`;
+        const [first, second] = [
+            open(url(users[0].token)),
+            open(url(users[0].token)),
+        ];
+        await Promise.all(
+            [first, second].map((c) => c.waitFor('session.created')),
+        );
+
+        for (const c of [first, second]) {
+            c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        }
+        await Promise.all(
+            [first, second].map((c) => c.waitFor('response.created')),
+        );
+        await vi.waitFor(() =>
+            expect(
+                [first, second].filter((c) =>
+                    c.events.some(
+                        (e) =>
+                            e.type === 'error' &&
+                            (e.error as { code: string }).code ===
+                                'insufficient_funds',
+                    ),
+                ),
+            ).toHaveLength(1),
+        );
+        const loser = [first, second].find((c) =>
+            c.events.some((e) => e.type === 'error'),
+        )!;
+        const winner = loser === first ? second : first;
+        expect((await loser.closed).code).toBe(1008);
+        expect(await metering.getOutstandingHolds(actors[0])).toBe(MINI_HOLD);
+
+        // Another account's balance is its own.
+        const other = open(url(users[1].token));
+        await other.waitFor('session.created');
+        other.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await other.waitFor('response.created');
+        await vi.waitFor(async () =>
+            expect(await metering.getOutstandingHolds(actors[1])).toBe(
+                MINI_HOLD,
+            ),
+        );
+        expect(other.events.some((e) => e.type === 'error')).toBe(false);
+
+        // The loser's response was cancelled and billed for what it made;
+        // the winner's is billed once it ends. No hold outlives its usage.
+        winner.ws.close();
+        other.ws.close();
+        await vi.waitFor(async () => {
+            const billed = recorded.mock.calls.filter(
+                ([actor, rows]) =>
+                    (actor as { user: { uuid: string } }).user.uuid ===
+                        (actors[0] as { user: { uuid: string } }).user.uuid &&
+                    rows.some(
+                        (r) =>
+                            r.usageType ===
+                            'openai:gpt-realtime-mini:realtime:audio_output',
+                    ),
+            );
+            expect(billed).toHaveLength(2);
+            expect(await metering.getOutstandingHolds(actors[0])).toBe(0);
+            expect(await metering.getOutstandingHolds(actors[1])).toBe(0);
+        });
     });
 
     it("refuses a session the account can't cover one response of", async () => {

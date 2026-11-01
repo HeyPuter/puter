@@ -85,7 +85,7 @@ vi.mock('openai', () => {
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let batchIncrementUsagesSpy: MockInstance<
     MeteringService['batchIncrementUsages']
 >;
@@ -115,7 +115,7 @@ beforeEach(() => {
     openAICtor.mockReset();
     axiosGetMock.mockReset();
     axiosGetMock.mockRejectedValue(new Error('Catalog unavailable'));
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
         'batchIncrementUsages',
@@ -182,7 +182,7 @@ describe('XAIImageProvider.generate test_mode', () => {
         expect(result).toBe(
             'https://puter-sample-data.puter.site/image_example.png',
         );
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateMock).not.toHaveBeenCalled();
         expect(batchIncrementUsagesSpy).not.toHaveBeenCalled();
     });
@@ -231,7 +231,7 @@ describe('XAIImageProvider.generate argument validation', () => {
 describe('XAIImageProvider.generate credit gate', () => {
     it('throws 402 BEFORE hitting xAI when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
 
         await expect(
             withTestActor(() =>
@@ -718,7 +718,7 @@ describe('XAIImageProvider quality and reference limits', () => {
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(postMock).not.toHaveBeenCalled();
     });
 });
@@ -746,7 +746,7 @@ describe('xAI option validation', () => {
                 makeProvider().generate({ prompt: 'hi', ...options } as never),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateMock).not.toHaveBeenCalled();
     });
 });

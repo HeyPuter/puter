@@ -72,7 +72,7 @@ vi.mock('openai', () => {
 // -- Test harness ----------------------------------------------------
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let admitSpy: MockInstance<MeteringService['reserveCreditsIfAffordable']>;
 let batchIncrementUsagesSpy: MockInstance<
     MeteringService['batchIncrementUsages']
 >;
@@ -107,7 +107,7 @@ const makeProvider = (
 beforeEach(() => {
     generateMock.mockReset();
     openAICtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+    admitSpy = vi.spyOn(server.services.metering, 'reserveCreditsIfAffordable');
     batchIncrementUsagesSpy = vi.spyOn(
         server.services.metering,
         'batchIncrementUsages',
@@ -177,7 +177,7 @@ describe('BytePlusImageProvider.generate gates', () => {
         expect(result).toBe(
             'https://puter-sample-data.puter.site/image_example.png',
         );
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(admitSpy).not.toHaveBeenCalled();
         expect(generateMock).not.toHaveBeenCalled();
     });
 
@@ -196,7 +196,7 @@ describe('BytePlusImageProvider.generate gates', () => {
     });
 
     it('throws 402 BEFORE hitting ModelArk when the actor lacks credits', async () => {
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        admitSpy.mockResolvedValueOnce(null);
         await expect(
             withTestActor(() => makeProvider().generate({ prompt: 'hi' })),
         ).rejects.toMatchObject({ statusCode: 402 });
@@ -713,7 +713,7 @@ it.each([
             }),
         ),
     ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
-    expect(hasCreditsSpy).not.toHaveBeenCalled();
+    expect(admitSpy).not.toHaveBeenCalled();
     expect(generateMock).not.toHaveBeenCalled();
 });
 
