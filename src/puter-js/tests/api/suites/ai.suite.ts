@@ -1789,6 +1789,21 @@ export default suite('ai', {
         }
     },
 
+    'convo rejects interruption readiness through its Promise': async (t) => {
+        const conversation = await t.puter.ai.convo({ output: ['text'] });
+        try {
+            const prepared = conversation.interrupt();
+            t.assert.equal(typeof prepared.then, 'function');
+            await t.assert.rejects(() => prepared);
+            conversation.close();
+            const closed = conversation.interrupt();
+            t.assert.equal(typeof closed.then, 'function');
+            await t.assert.rejects(() => closed);
+        } finally {
+            conversation.close();
+        }
+    },
+
     'convo is the realtime SDK entry point': async (t) => {
         t.assert.equal('assistant' in t.puter.ai, false);
         t.assert.equal('conversation' in t.puter.ai, false);

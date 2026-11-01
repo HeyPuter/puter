@@ -33,14 +33,14 @@ const owner = () => ({
     env: 'nodejs',
 });
 const conversations = new Set();
-const make = (options = {}) => {
-    const c = new Conversation(owner(), options);
+const make = (options = {}, puter = owner()) => {
+    const c = new Conversation(puter, options);
     conversations.add(c);
     return c;
 };
 const socket = () => FakeWebSocket.instances.at(-1);
-const connected = async (options = {}) => {
-    const c = make(options);
+const connected = async (options = {}, puter = owner()) => {
+    const c = make(options, puter);
     const ready = c.connect();
     socket().deliver({ type: 'session.created', session: {} });
     await Promise.resolve();
@@ -78,6 +78,193 @@ describe('interrupt readiness', () => {
             });
         },
     );
+});
+
+describe('initial recovery', () => {
+    it('resolves the original connect after a transient failure', async () => {
+        vi.useFakeTimers();
+        const c = make();
+        const ready = c.connect();
+        socket().close(1012, 'restart');
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(FakeWebSocket.instances).toHaveLength(2);
+        socket().deliver({ type: 'session.created', session: {} });
+        await Promise.resolve();
+        socket().deliver({ type: 'session.updated', session: {} });
+        await ready;
+        expect(c.state).toBe('connected');
+    });
+
+    it.each(['upstream_error', 'internal_error', 'rate_limit_exceeded'])(
+        'retries an initial %s refusal followed by policy close',
+        async (code) => {
+            fakeTime();
+            const c = make();
+            const ready = c.connect();
+            socket().deliver({ type: 'error', error: { code } });
+            socket().close(1008, code);
+            await vi.advanceTimersByTimeAsync(1_000);
+            expect(FakeWebSocket.instances).toHaveLength(2);
+            socket().deliver({ type: 'session.created', session: {} });
+            await Promise.resolve();
+            socket().deliver({ type: 'session.updated', session: {} });
+            await ready;
+            expect(c.state).toBe('connected');
+        },
+    );
+
+    it('stops at a terminal credential failure after a transient initial close', async () => {
+        fakeTime();
+        const c = make();
+        const closed = vi.fn();
+        c.on('close', closed);
+        const rejected = expect(c.connect()).rejects.toMatchObject({
+            code: 'invalid_api_key',
+        });
+        socket().close(1012, 'restart');
+        await vi.advanceTimersByTimeAsync(1_000);
+        socket().deliver({ type: 'error', error: { code: 'invalid_api_key' } });
+        await rejected;
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(c.state).toBe('closed');
+        expect(closed).toHaveBeenCalledOnce();
+        expect(closed.mock.calls[0][0].code).not.toBe(1012);
+        expect(FakeWebSocket.instances).toHaveLength(2);
+    });
+
+    it('cancels an initial retry when closed', async () => {
+        vi.useFakeTimers();
+        const c = make();
+        const result = expect(c.connect()).rejects.toMatchObject({
+            code: 'session_closed',
+        });
+        socket().close(1012, 'restart');
+        await Promise.resolve();
+        c.close();
+        await vi.runAllTimersAsync();
+        await result;
+        expect(FakeWebSocket.instances).toHaveLength(1);
+    });
+});
+
+describe('bounded overlapping handovers', () => {
+    it('hands over idle conversations as slots become available at the twenty-session cap', async () => {
+        fakeTime();
+        const puter = owner();
+        const active = [];
+        const originals = [];
+        for (let i = 0; i < 11; i++) {
+            active.push(await connected({}, puter));
+            originals.push(socket());
+        }
+        for (const ws of originals)
+            ws.deliver({ type: 'puter.reconnect', reason: 'restart' });
+        await vi.advanceTimersByTimeAsync(SPREAD);
+        const probes = FakeWebSocket.instances.slice(11);
+        expect(probes).toHaveLength(11);
+        expect(
+            probes.every(
+                (ws) =>
+                    new URL(ws.url).searchParams.get('purpose') === 'handover',
+            ),
+        ).toBe(true);
+        for (const ws of probes.slice(0, 9))
+            ws.deliver({ type: 'session.created', session: {} });
+        for (const ws of probes.slice(9))
+            ws.deliver({
+                type: 'error',
+                error: { code: 'rate_limit_exceeded' },
+            });
+        await vi.advanceTimersByTimeAsync(0);
+        for (const ws of probes.slice(0, 9))
+            ws.deliver({ type: 'session.updated', session: {} });
+        await vi.advanceTimersByTimeAsync(1_001);
+        const retries = FakeWebSocket.instances.slice(22);
+        expect(retries).toHaveLength(2);
+        for (const ws of retries)
+            ws.deliver({ type: 'session.created', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        for (const ws of retries)
+            ws.deliver({ type: 'session.updated', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(active.every((c) => c.state === 'connected')).toBe(true);
+        expect(originals.every((ws) => ws.readyState === 3)).toBe(true);
+        expect(FakeWebSocket.instances).toHaveLength(24);
+    });
+
+    it('bounds a stalled probe by the elapsed budget while preserving the original', async () => {
+        const c = await connected();
+        fakeTime();
+        const original = socket();
+        original.deliver({ type: 'puter.reconnect', reason: 'restart' });
+        await vi.advanceTimersByTimeAsync(31_000);
+        expect(c.state).toBe('connected');
+        expect(original.readyState).toBe(1);
+        expect(
+            FakeWebSocket.instances.slice(1).every((ws) => ws.readyState === 3),
+        ).toBe(true);
+        const count = FakeWebSocket.instances.length;
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(FakeWebSocket.instances).toHaveLength(count);
+    });
+
+    it('keeps busy originals and reserves capacity for dropped connections', async () => {
+        vi.useFakeTimers();
+        const puter = owner();
+        const originals = [];
+        for (let i = 0; i < 11; i++) {
+            await connected({}, puter);
+            const ws = socket();
+            originals.push(ws);
+            ws.deliver({ type: 'response.created', response: { id: `r${i}` } });
+            ws.deliver({ type: 'puter.reconnect', reason: 'restart' });
+        }
+        for (let step = 0; step < 35; step++) {
+            await vi.advanceTimersByTimeAsync(1_000);
+            for (const probe of FakeWebSocket.instances.filter(
+                (ws) => !originals.includes(ws) && ws.readyState < 2,
+            )) {
+                probe.deliver({
+                    type: 'error',
+                    error: { code: 'rate_limit_exceeded' },
+                });
+            }
+        }
+        const probes = FakeWebSocket.instances.length - originals.length;
+        expect(probes).toBeLessThanOrEqual(20);
+        expect(originals.every((ws) => ws.readyState === 1)).toBe(true);
+        for (const ws of originals) ws.close(1012, 'restart');
+        await vi.advanceTimersByTimeAsync(2_000);
+        const recoveries = FakeWebSocket.instances.slice(11 + probes);
+        expect(recoveries).toHaveLength(11);
+        expect(
+            recoveries.every(
+                (ws) => !new URL(ws.url).searchParams.has('purpose'),
+            ),
+        ).toBe(true);
+        for (const ws of recoveries)
+            ws.deliver({ type: 'session.created', session: {} });
+        await Promise.resolve();
+        for (const ws of recoveries)
+            ws.deliver({ type: 'session.updated', session: {} });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(FakeWebSocket.instances.length).toBeLessThanOrEqual(60);
+    });
+});
+
+describe('normal close policy', () => {
+    it('keeps a normal initial provider close terminal', async () => {
+        vi.useFakeTimers();
+        const c = make();
+        const result = expect(c.connect()).rejects.toMatchObject({
+            code: 'session_closed',
+        });
+        socket().close(1000, 'done');
+        await result;
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(FakeWebSocket.instances).toHaveLength(1);
+        expect(c.state).toBe('closed');
+    });
 });
 
 describe('conversation preparation', () => {
@@ -179,7 +366,7 @@ describe('Conversation lifecycle', () => {
         // Longer than the server's own 15-second setup budget.
         await vi.advanceTimersByTimeAsync(15_000);
         expect(c.state).toBe('connecting');
-        await vi.advanceTimersByTimeAsync(5_000);
+        await vi.advanceTimersByTimeAsync(300_000);
         await result;
         expect(c.state).toBe('closed');
         expect(vi.getTimerCount()).toBe(0);
@@ -1517,6 +1704,27 @@ describe('restart notice', () => {
 });
 
 describe('context replay after a reconnect', () => {
+    it.each(['x'.repeat(49 * 1024), '😀'.repeat(13 * 1024)])(
+        'reports omitted context once and remains usable',
+        async (text) => {
+            const c = await connected();
+            fakeTime();
+            const error = vi.fn();
+            c.on('error', error);
+            socket().deliver(userText('old', 'tiny'));
+            socket().deliver(userText('large', text));
+            socket().close(1006);
+            await answerReconnect();
+            expect(replayed()).toEqual([]);
+            expect(error).toHaveBeenCalledTimes(1);
+            expect(error.mock.calls[0][0]).toMatchObject({
+                code: 'context_restore_failed',
+            });
+            expect(c.state).toBe('connected');
+            expect(() => c.sendText('continue')).not.toThrow();
+        },
+    );
+
     it('restores finished items in order, before ready, after a dropped connection', async () => {
         const c = await connected();
         fakeTime();
