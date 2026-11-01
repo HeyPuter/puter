@@ -341,6 +341,13 @@ describe('notify({ sendAt })', () => {
         expect(await codeOf(notify(token, { sendAt: T0 }))).toBe(
             'events_durable_requires_account',
         );
+        // The same when it would go now: sendAt is refused, not ignored.
+        expect(await codeOf(notify(token, { sendAt: T0 - 2 * MIN }))).toBe(
+            'events_durable_requires_account',
+        );
+        expect(await mailbox(app.uid)).toEqual([]);
+        // Without sendAt the token notifies as before.
+        expect(await codeOf(notify(token, {}))).toBe(undefined);
     });
 
     it('counts against the sender`s pending one-shot cap per app', async () => {
@@ -885,6 +892,302 @@ describe('a delayed send that can`t go', () => {
         expect((await rowOf(row.uid)).endReason).toBe('dropped');
     });
 });
+
+describe('a delayed send whose row an immediate send replaced', () => {
+    const textOf = (row: Record<string, unknown>) => valueOf(row).text;
+    const sendsUnder = (appUid: string, key: string) =>
+        writtenFor(appUid).filter((event) => event.sendId === key);
+
+    it('delivers nothing under its key when the replacement came before its delivery', async () => {
+        const app = await h.makeApp();
+        const open = (await notify(asApp(app), { group: 'g' })) as {
+            uid: string;
+        };
+        const row = await sendLater(app, { group: 'g', text: 'later' });
+        const deliver = store().deliverDeferred.bind(store());
+        vi.spyOn(store(), 'deliverDeferred').mockImplementationOnce(
+            async (...args) => {
+                const won = await deliver(...args);
+                await notify(asApp(app), { group: 'g', text: 'newer' });
+                return won;
+            },
+        );
+        await fireAt(DUE);
+
+        const key = sendKeyOf(row.uid, T0);
+        const rows = await mailbox(app.uid);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ uid: open.uid, send_key: null });
+        expect(textOf(rows[0])).toBe('newer');
+        await settle();
+        expect(sendsUnder(app.uid, key)).toEqual([]);
+        expect(writtenFor(app.uid).at(-1)).toMatchObject({
+            uid: open.uid,
+            updated: true,
+            value: expect.objectContaining({ text: 'newer' }),
+        });
+        expect((await rowOf(row.uid)).endReason).toBe('delivered');
+    });
+
+    it('delivers nothing again under its key when the replacement came before its recovery', async () => {
+        const app = await h.makeApp();
+        await notify(asApp(app), { group: 'g' });
+        const row = await sendLater(app, { group: 'g', text: 'later' });
+        vi.spyOn(store(), 'finishDeferred').mockRejectedValueOnce(
+            new Error('crashed after the delivery'),
+        );
+        await fireAt(DUE);
+        await notify(asApp(app), { group: 'g', text: 'newer' });
+        await fireAt(DUE + SCHEDULE_LEASE_MS);
+
+        const key = sendKeyOf(row.uid, T0);
+        await settle();
+        const sends = sendsUnder(app.uid, key);
+        expect(sends).toHaveLength(1);
+        expect(sends[0].value).toMatchObject({ text: 'later' });
+        expect(textOf((await mailbox(app.uid))[0])).toBe('newer');
+        expect((await rowOf(row.uid)).endReason).toBe('delivered');
+    });
+});
+
+describe('a delayed send recovered long after its delivery', () => {
+    it('is finished without delivering again once a day has passed', async () => {
+        const app = await h.makeApp();
+        const row = await sendLater(app);
+        vi.spyOn(store(), 'finishDeferred').mockRejectedValueOnce(
+            new Error('crashed after the delivery'),
+        );
+        await fireAt(DUE);
+        const warn = vi.mocked(console.warn);
+        warn.mockClear();
+        await fireAt(DUE + 25 * 60 * MIN);
+
+        const key = sendKeyOf(row.uid, T0);
+        await settle();
+        expect(
+            writtenFor(app.uid).filter((e) => e.sendId === key),
+        ).toHaveLength(1);
+        expect(await rowOf(row.uid)).toMatchObject({
+            state: 'done',
+            endReason: 'delivered',
+        });
+        expect(warn).toHaveBeenCalledWith(
+            expect.stringContaining('over a day ago'),
+            row.uid,
+        );
+    });
+});
+
+/**
+ * A second attempt taking a send over while the first one's transaction is
+ * open. Needs a database that runs two writers at once with row locks; sqlite
+ * serialises writers, so this runs on postgres only.
+ */
+describe.runIf(process.env.PUTER_TEST_DB_ENGINE === 'postgres')(
+    'a delayed send taken over while a transaction is open',
+    () => {
+        /**
+         * Hold the first statement matching `match` on its connection, before
+         * or after it runs, until released.
+         */
+        const holdStatement = (match: RegExp, when: 'before' | 'after') => {
+            const client = db() as unknown as {
+                query: (
+                    target: unknown,
+                    sql: string,
+                    params?: unknown[],
+                ) => Promise<unknown>;
+            };
+            const original = client.query.bind(client);
+            let reached!: () => void;
+            let release!: () => void;
+            const atBarrier = new Promise<void>((r) => (reached = r));
+            const released = new Promise<void>((r) => (release = r));
+            let held = false;
+            vi.spyOn(client as never, 'query' as never).mockImplementation(
+                (async (target: unknown, sql: string, params?: unknown[]) => {
+                    if (held || !match.test(sql))
+                        return original(target, sql, params);
+                    held = true;
+                    if (when === 'before') {
+                        reached();
+                        await released;
+                        return original(target, sql, params);
+                    }
+                    const result = await original(target, sql, params);
+                    reached();
+                    await released;
+                    return result;
+                }) as never,
+            );
+            return { atBarrier, release };
+        };
+
+        const DELIVERED = /SET `state` = 'delivered'/;
+        const REPLACE = /`replaced_at` = \?, `send_key` = \? WHERE/;
+
+        /** Whether `promise` is still pending after `ms`. */
+        const stillPending = async (promise: Promise<unknown>, ms: number) =>
+            (await Promise.race([
+                promise.then(() => 'settled'),
+                new Promise((r) => setTimeout(() => r('pending'), ms)),
+            ])) === 'pending';
+
+        const lapsedClaim = async (row: ScheduleRow) => {
+            const token = uuidv4();
+            await store().claimDeferred(
+                row.id,
+                schedules().namespace,
+                token,
+                120_000,
+            );
+            await db().write(
+                'UPDATE `event_schedules` SET `send_until` = 0 WHERE `id` = ?',
+                [row.id],
+            );
+            return token;
+        };
+
+        const entries = (
+            row: ScheduleRow,
+            token: string,
+            sendKey: string,
+            title: string,
+        ) =>
+            notifications().sendEntries(
+                {
+                    sendKey,
+                    userId: h.userId,
+                    value: { type: 'app.message', title },
+                    type: 'app.message',
+                    audience: 'app-user',
+                    appUid: row.appUid,
+                    at: Date.now(),
+                },
+                store().deliveredGuard(row.id, token),
+            );
+
+        it('a takeover waits on the open transaction, then finds it delivered', async () => {
+            const app = await h.makeApp();
+            const row = await sendLater(app);
+            h.setClock(DUE);
+            const stale = await lapsedClaim(row);
+            const key = sendKeyOf(row.uid, T0);
+            const gate = holdStatement(DELIVERED, 'after');
+            const first = store().deliverDeferred(
+                row.id,
+                stale,
+                entries(row, stale, key, 'first'),
+            );
+            await gate.atBarrier;
+
+            const second = action()(runOf(row));
+            expect(await stillPending(second, 500)).toBe(true);
+            gate.release();
+            expect(await first).toBe(true);
+            expect((await second).type).toBe('finished');
+
+            const rows = await mailbox(app.uid);
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toMatchObject({ uid: key, send_key: key });
+            await settle();
+            expect(
+                writtenFor(app.uid).filter((e) => e.sendId === key),
+            ).toHaveLength(1);
+            expect((await rowOf(row.uid)).endReason).toBe('delivered');
+        });
+
+        it('a transaction that opened before a takeover writes nothing', async () => {
+            const app = await h.makeApp();
+            const row = await sendLater(app);
+            h.setClock(DUE);
+            const stale = await lapsedClaim(row);
+            const otherKey = uuidv4();
+            const gate = holdStatement(DELIVERED, 'before');
+            const first = store().deliverDeferred(
+                row.id,
+                stale,
+                entries(row, stale, otherKey, 'stale'),
+            );
+            await gate.atBarrier;
+
+            expect((await action()(runOf(row))).type).toBe('finished');
+            gate.release();
+            expect(await first).toBe(false);
+
+            expect(await notifications().getBySendKey(otherKey)).toBeNull();
+            expect(await mailbox(app.uid)).toHaveLength(1);
+            expect((await rowOf(row.uid)).endReason).toBe('delivered');
+        });
+
+        it('an immediate replacement waiting on the open transaction lands after it, without the key', async () => {
+            const app = await h.makeApp();
+            const open = (await notify(asApp(app), { group: 'g' })) as {
+                uid: string;
+            };
+            const row = await sendLater(app, { group: 'g', text: 'later' });
+            h.setClock(DUE);
+            const gate = holdStatement(REPLACE, 'after');
+            const deferred = action()(runOf(row));
+            await gate.atBarrier;
+
+            const immediate = notify(asApp(app), {
+                group: 'g',
+                text: 'newer',
+            });
+            // Past the group lock's wait, then blocked on the row.
+            expect(await stillPending(immediate, 2_500)).toBe(true);
+            gate.release();
+            expect((await deferred).type).toBe('finished');
+            await immediate;
+
+            const key = sendKeyOf(row.uid, T0);
+            const rows = await mailbox(app.uid);
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toMatchObject({ uid: open.uid, send_key: null });
+            expect(valueOf(rows[0]).text).toBe('newer');
+            await settle();
+            // Whichever read came first, the key never carried the newer text.
+            for (const event of writtenFor(app.uid).filter(
+                (e) => e.sendId === key,
+            ))
+                expect(event.value).toMatchObject({ text: 'later' });
+        });
+
+        it('an immediate replacement that lands first is replaced by the delayed send', async () => {
+            const app = await h.makeApp();
+            const open = (await notify(asApp(app), { group: 'g' })) as {
+                uid: string;
+            };
+            const row = await sendLater(app, { group: 'g', text: 'later' });
+            h.setClock(DUE);
+            const gate = holdStatement(DELIVERED, 'after');
+            const deferred = action()(runOf(row));
+            await gate.atBarrier;
+
+            // The group lock is held by the delayed send; it goes after the wait.
+            await notify(asApp(app), { group: 'g', text: 'newer' });
+            gate.release();
+            expect((await deferred).type).toBe('finished');
+
+            const key = sendKeyOf(row.uid, T0);
+            const rows = await mailbox(app.uid);
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toMatchObject({ uid: open.uid, send_key: key });
+            expect(valueOf(rows[0]).text).toBe('later');
+            await settle();
+            expect(writtenFor(app.uid).filter((e) => e.sendId === key)).toEqual(
+                [
+                    expect.objectContaining({
+                        uid: open.uid,
+                        updated: true,
+                        value: expect.objectContaining({ text: 'later' }),
+                    }),
+                ],
+            );
+        });
+    },
+);
 
 describe('cancelling a delayed send', () => {
     it('removes one still waiting, which then never sends', async () => {
