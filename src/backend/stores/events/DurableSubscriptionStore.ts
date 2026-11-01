@@ -212,6 +212,22 @@ const quotaRefusal = (
  * after its own insert. Its row is already gone again; `bump` still has to be
  * published, because another region may have cached the row in between.
  */
+/**
+ * What a reap deleted, and the generation it bumped per owner. The caller
+ * publishes the bumps, since the reap only invalidates this region.
+ */
+export interface ReapResult {
+    rows: DurableSubscription[];
+    bumps: GenerationBump[];
+}
+
+/** A created row; `reaped` holds the bumps of terminal rows it trimmed. */
+export interface DurableCreated {
+    row: DurableSubscription;
+    bump: GenerationBump;
+    reaped: GenerationBump[];
+}
+
 export class DurableQuotaRaceLost extends HttpError {
     readonly bump: GenerationBump | null;
 
@@ -292,9 +308,7 @@ export class DurableSubscriptionStore extends PuterStore {
      * returning. The generation bump is what tells every other region, and the
      * caller broadcasts it.
      */
-    async create(
-        input: DurableSubscriptionInput,
-    ): Promise<{ row: DurableSubscription; bump: GenerationBump }> {
+    async create(input: DurableSubscriptionInput): Promise<DurableCreated> {
         this.#assertContext(input.context);
         assertColumnWidths(EVENT_SUBSCRIPTION_WIDTHS, {
             token: input.token,
@@ -368,18 +382,20 @@ export class DurableSubscriptionStore extends PuterStore {
         );
         const lost = quotaRefusal(input, held, 1);
         if (lost) throw new DurableQuotaRaceLost(lost, await this.remove(row));
-        if (held.terminal > EVENTS_REVOKED_SUBSCRIPTIONS_KEPT)
-            await this.#dropOldestTerminal(
-                input.holderUserId,
-                held.terminal - EVENTS_REVOKED_SUBSCRIPTIONS_KEPT,
-            );
+        const reaped =
+            held.terminal > EVENTS_REVOKED_SUBSCRIPTIONS_KEPT
+                ? await this.#dropOldestTerminal(
+                      input.holderUserId,
+                      held.terminal - EVENTS_REVOKED_SUBSCRIPTIONS_KEPT,
+                  )
+                : [];
 
         // Write-through, and over the whole owner rather than the one row: it
         // costs the same indexed read as a warm would, on a path rate-limited
         // to a few calls a minute, and it leaves this region needing nothing
         // from the table before it can deliver.
         await this.#rebuildRegion(row.ownerUserId);
-        return { row, bump: await this.#bump(row.ownerUserId) };
+        return { row, bump: await this.#bump(row.ownerUserId), reaped };
     }
 
     /**
@@ -573,7 +589,7 @@ export class DurableSubscriptionStore extends PuterStore {
      * Reap rows past their expiry, dropping each from the cache so the region
      * stops delivering against it without waiting for a rebuild.
      */
-    async sweepExpired(batchSize: number): Promise<number> {
+    async sweepExpired(batchSize: number): Promise<ReapResult> {
         return this.#reap(await this.#listExpired(nowSeconds(), batchSize));
     }
 
@@ -582,7 +598,10 @@ export class DurableSubscriptionStore extends PuterStore {
      * never resumes is a row kept only so its holder can see why it stopped,
      * and that answer has a shelf life.
      */
-    async sweepSuspended(cutoff: number, batchSize: number): Promise<number> {
+    async sweepSuspended(
+        cutoff: number,
+        batchSize: number,
+    ): Promise<ReapResult> {
         return this.#reap(await this.#listSuspendedBefore(cutoff, batchSize));
     }
 
@@ -846,20 +865,21 @@ export class DurableSubscriptionStore extends PuterStore {
      * What app deletion reaps: `#reap` already purges the backlog, drops the
      * cache and bumps a generation per owner, so this is the whole of it.
      */
-    async reapForApp(appUid: string, batchSize: number): Promise<number> {
+    async reapForApp(appUid: string, batchSize: number): Promise<ReapResult> {
         return this.#reap(await this.#listForApp(appUid, batchSize));
     }
 
     // -- Internals ---------------------------------------------------
 
     /**
-     * Delete a holder's oldest rows suspended for good, past what `list` keeps.
-     * Best-effort: the next subscribe tries again.
+     * Delete a holder's oldest rows suspended for good, past what `list` keeps,
+     * and return the reap's bumps. Best-effort: the next subscribe tries
+     * again.
      */
     async #dropOldestTerminal(
         holderUserId: number,
         count: number,
-    ): Promise<void> {
+    ): Promise<GenerationBump[]> {
         try {
             const rows = await this.clients.db.pread(
                 `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
@@ -867,9 +887,10 @@ export class DurableSubscriptionStore extends PuterStore {
                     'ORDER BY `suspended_at`, `id` LIMIT ?',
                 [holderUserId, ...TERMINAL_SUSPENDED_REASONS, count],
             );
-            await this.#reap(rows.map(toRow));
+            return (await this.#reap(rows.map(toRow))).bumps;
         } catch (err) {
             console.warn('[events] could not drop old revoked rows', err);
+            return [];
         }
     }
 
@@ -952,9 +973,12 @@ export class DurableSubscriptionStore extends PuterStore {
         return rows.map(toRow);
     }
 
-    /** Delete a batch and leave no region delivering against any of it. */
-    async #reap(rows: readonly DurableSubscription[]): Promise<number> {
-        if (rows.length === 0) return 0;
+    /**
+     * Delete a batch and stop this region delivering against any of it. Other
+     * regions stop once the caller publishes the returned bumps.
+     */
+    async #reap(rows: readonly DurableSubscription[]): Promise<ReapResult> {
+        if (rows.length === 0) return { rows: [], bumps: [] };
 
         await this.clients.db.write(
             `DELETE FROM \`${TABLE}\` WHERE \`sub_id\` IN ` +
@@ -965,11 +989,17 @@ export class DurableSubscriptionStore extends PuterStore {
         await this.stores.eventSubscription.dropDurables(rows);
         for (const row of rows) {
             // Whatever was still owed to a row that no longer exists.
-            await this.stores.pendingDelivery.purge(row.subId).catch(() => {});
+            try {
+                await this.stores.pendingDelivery.purge(row.subId);
+            } catch {
+                // The pending sweep purges it once it finds the row gone.
+            }
         }
+        const bumps: GenerationBump[] = [];
         const owners = new Set(rows.map((row) => row.ownerUserId));
-        for (const ownerUserId of owners) await this.#bump(ownerUserId);
-        return rows.length;
+        for (const ownerUserId of owners)
+            bumps.push(await this.#bump(ownerUserId));
+        return { rows: [...rows], bumps };
     }
 
     #assertContext(context: string | null): void {

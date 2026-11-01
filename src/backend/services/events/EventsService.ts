@@ -56,7 +56,9 @@ import {
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import type {
+    DurableCreated,
     ReanchorInput,
+    ReapResult,
     SuspendedReason,
 } from '../../stores/events/DurableSubscriptionStore.js';
 import type { LiveKvShareHandle } from '../../stores/events/KvShareHandleStore.js';
@@ -1886,7 +1888,7 @@ export class EventsService extends PuterService {
         if (includeValue) assertValueDeliverable(rawSubject);
         const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
 
-        let created: { row: DurableSubscription; bump: GenerationBump };
+        let created: DurableCreated;
         try {
             created = await this.stores.durableSubscription.create({
                 holderUserId,
@@ -1913,8 +1915,11 @@ export class EventsService extends PuterService {
                 this.#publishGeneration(err.bump, true);
             throw err;
         }
-        const { row, bump } = created;
+        const { row, bump, reaped } = created;
         this.#publishGeneration(bump, true);
+        for (const trimmed of reaped)
+            if (trimmed.userId !== bump.userId)
+                this.#publishGeneration(trimmed, true);
 
         return { sub: toDurableView(row) };
     }
@@ -2667,15 +2672,13 @@ export class EventsService extends PuterService {
         );
     }
 
-    /**
-     * Drop rows past their expiry, in batches, and report how many went. Every
-     * node sweeps; the delete is idempotent, so two overlapping costs a few
-     * empty batches rather than correctness.
-     */
-    async sweepExpired(): Promise<number> {
+    /** Drop rows past their expiry, in batches, and report how many went. */
+    async sweepExpired(signal?: AbortSignal): Promise<number> {
         if (!this.enabled) return 0;
-        return this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.sweepExpired(batchSize),
+        return this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.sweepExpired(batchSize),
+            signal,
         );
     }
 
@@ -2684,13 +2687,18 @@ export class EventsService extends PuterService {
      * revoked subscription never resumes, so the row survives only as the
      * answer its holder gets from `list` when they ask why it stopped.
      */
-    async sweepSuspended(): Promise<number> {
+    async sweepSuspended(signal?: AbortSignal): Promise<number> {
         if (!this.enabled) return 0;
         const cutoff =
             Math.floor(Date.now() / 1000) -
             SUSPENDED_ROW_TTL_DAYS * 24 * 60 * 60;
-        return this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.sweepSuspended(cutoff, batchSize),
+        return this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.sweepSuspended(
+                    cutoff,
+                    batchSize,
+                ),
+            signal,
         );
     }
 
@@ -2783,14 +2791,20 @@ export class EventsService extends PuterService {
         return resumed;
     }
 
+    /**
+     * Reap in batches until a short one, publishing each batch's bumps so every
+     * region stops delivering against what went.
+     */
     async #sweepInBatches(
-        pass: (batchSize: number) => Promise<number>,
+        pass: (batchSize: number) => Promise<ReapResult>,
+        signal?: AbortSignal,
     ): Promise<number> {
         let removed = 0;
-        for (let i = 0; i < EXPIRY_MAX_BATCHES; i++) {
-            const batch = await pass(EXPIRY_BATCH_SIZE);
-            removed += batch;
-            if (batch < EXPIRY_BATCH_SIZE) break;
+        for (let i = 0; i < EXPIRY_MAX_BATCHES && !signal?.aborted; i++) {
+            const { rows, bumps } = await pass(EXPIRY_BATCH_SIZE);
+            for (const bump of bumps) this.#publishGeneration(bump, true);
+            removed += rows.length;
+            if (rows.length < EXPIRY_BATCH_SIZE) break;
         }
         return removed;
     }

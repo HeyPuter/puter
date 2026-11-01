@@ -155,6 +155,7 @@ beforeEach(() => {
                     return {
                         row,
                         bump: { userId: input.ownerUserId, generation: 1 },
+                        reaped: [],
                     };
                 },
                 listSuspendedPage: async (reason: string, afterId: number) =>
