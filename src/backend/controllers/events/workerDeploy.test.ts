@@ -25,8 +25,13 @@
 
 import MockRedis from 'ioredis-mock';
 import { describe, expect, it } from 'vitest';
+import type { EventsInvokeCall } from '../../clients/events/EventsWorkerInvokerClient.js';
 import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
-import { EventsWorkerDeployer } from './workerDeploy.js';
+import {
+    EventsWorkerDeployer,
+    LocalEventsInvokeTransport,
+    type EventsDeployOutcome,
+} from './workerDeploy.js';
 import { eventsWorkerScript } from '../../services/events/workerRuntime.js';
 import { handlerSetHash } from '../../services/events/workerSource.js';
 import type { IConfig } from '../../types.js';
@@ -174,5 +179,153 @@ describe('EventsWorkerDeployer.ensure', () => {
         const { layers } = makeLayers({ 'app-d': { ownerUserId: 4 } });
         const deployer = new EventsWorkerDeployer(layers);
         expect(await deployer.ensure('app-d', SCRIPT)).toBe('deployed');
+    });
+});
+
+/** A server's schedules with a deploy gate that records and can refuse. */
+const withGate = (
+    layers: Layers,
+    refuse: (capped: boolean) => boolean = () => false,
+) => {
+    const gated: Array<{ script: string; capped: boolean }> = [];
+    const gate = {
+        gateDeploy: async (
+            script: string,
+            options: { capped: boolean },
+            deploy: () => Promise<EventsDeployOutcome>,
+        ): Promise<EventsDeployOutcome> => {
+            gated.push({ script, capped: options.capped });
+            return refuse(options.capped) ? 'busy' : deploy();
+        },
+    };
+    const deployer = new EventsWorkerDeployer({
+        ...layers,
+        services: { ...layers.services, schedules: gate },
+    } as unknown as Layers);
+    return { deployer, gated };
+};
+
+describe('the schedules` deploy gate', () => {
+    it('is skipped without schedules, or with schedules that have no gate', async () => {
+        const { layers, created } = makeLayers({ 'app-x': { ownerUserId: 1 } });
+        await expect(
+            new EventsWorkerDeployer(layers).ensure('app-x', SCRIPT, {
+                lane: 'schedule',
+            }),
+        ).resolves.toBe('deployed');
+        const gateless = new EventsWorkerDeployer({
+            ...layers,
+            services: { ...layers.services, schedules: {} },
+        } as unknown as Layers);
+        await expect(
+            gateless.ensure('app-x', SCRIPT, { lane: 'schedule' }),
+        ).resolves.toBe('deployed');
+        expect(created).toEqual([SCRIPT, SCRIPT]);
+    });
+
+    it('takes every deploy, capped only for a schedule run', async () => {
+        const { layers, created } = makeLayers({ 'app-x': { ownerUserId: 1 } });
+        const { deployer, gated } = withGate(layers);
+
+        await expect(deployer.ensure('app-x', SCRIPT)).resolves.toBe(
+            'deployed',
+        );
+        await expect(
+            deployer.ensure('app-x', SCRIPT, { lane: 'schedule' }),
+        ).resolves.toBe('deployed');
+        expect(gated).toEqual([
+            { script: SCRIPT, capped: false },
+            { script: SCRIPT, capped: true },
+        ]);
+        expect(created).toEqual([SCRIPT, SCRIPT]);
+    });
+
+    it('answers a refused schedule run busy, and a delivery still deploys', async () => {
+        const { layers, created } = makeLayers({ 'app-x': { ownerUserId: 1 } });
+        const { deployer } = withGate(layers, (capped) => capped);
+
+        await expect(
+            deployer.ensure('app-x', SCRIPT, { lane: 'schedule' }),
+        ).resolves.toBe('busy');
+        await expect(deployer.ensure('app-x', SCRIPT)).resolves.toBe(
+            'deployed',
+        );
+        expect(created).toEqual([SCRIPT]);
+    });
+
+    it('lets deliveries that join a schedule run`s refused deploy deploy once', async () => {
+        const { layers, created } = makeLayers({ 'app-x': { ownerUserId: 1 } });
+        const { deployer, gated } = withGate(layers, (capped) => capped);
+
+        const scheduled = deployer.ensure('app-x', SCRIPT, {
+            lane: 'schedule',
+        });
+        const deliveries = [
+            deployer.ensure('app-x', SCRIPT),
+            deployer.ensure('app-x', SCRIPT),
+        ];
+        await expect(scheduled).resolves.toBe('busy');
+        await expect(Promise.all(deliveries)).resolves.toEqual([
+            'deployed',
+            'deployed',
+        ]);
+        expect(created).toEqual([SCRIPT]);
+        expect(gated.map((g) => g.capped)).toEqual([true, false]);
+    });
+
+    it('lets a schedule run join a delivery`s deploy in flight', async () => {
+        const { layers, created } = makeLayers({ 'app-x': { ownerUserId: 1 } });
+        const { deployer, gated } = withGate(layers, (capped) => capped);
+
+        const delivery = deployer.ensure('app-x', SCRIPT);
+        const scheduled = deployer.ensure('app-x', SCRIPT, {
+            lane: 'schedule',
+        });
+        await expect(Promise.all([delivery, scheduled])).resolves.toEqual([
+            'deployed',
+            'deployed',
+        ]);
+        expect(gated).toEqual([{ script: SCRIPT, capped: false }]);
+        expect(created).toEqual([SCRIPT]);
+    });
+});
+
+describe('LocalEventsInvokeTransport', () => {
+    it('renders each request as it goes out, after a cold deploy', async () => {
+        const bodies: string[] = [];
+        let resident = false;
+        const transport = new LocalEventsInvokeTransport(
+            {
+                localworkerservice: {
+                    dispatchEventsWorker: async (request: Request) => {
+                        bodies.push(await request.text());
+                        if (!resident) return null;
+                        return new Response(null, {
+                            status: 200,
+                            headers: { 'x-puter-events-handled': '1' },
+                        });
+                    },
+                },
+            } as never,
+            {
+                ensure: async () => {
+                    resident = true;
+                    return 'deployed';
+                },
+            } as unknown as EventsWorkerDeployer,
+        );
+        let renders = 0;
+        const call: EventsInvokeCall = {
+            script: SCRIPT,
+            appUid: 'app-x',
+            key: 'k',
+            body: '{"n":0}',
+            timeoutMs: 5000,
+            render: () => `{"n":${++renders}}`,
+        };
+        await expect(transport.send(call)).resolves.toMatchObject({
+            status: 200,
+        });
+        expect(bodies).toEqual(['{"n":1}', '{"n":2}']);
     });
 });

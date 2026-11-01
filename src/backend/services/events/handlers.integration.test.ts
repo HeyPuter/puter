@@ -220,7 +220,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
     await env.server.clients.db.write('DELETE FROM `event_handlers`', []);
-    for (const row of await durable().listActiveForHolder(userId, null))
+    for (const row of (await durable().listActiveForHolderPage(userId, null, 0))
+        .rows)
         await durable().remove(row);
     await env.server.clients.db.write('DELETE FROM `event_subscriptions`', []);
     await env.server.stores.eventSubscription.rebuildDurable(userId, []);
@@ -777,7 +778,9 @@ describe('binding a subscription to a handler', () => {
 
         expect(refused.status).toBe(404);
         expect(refused.body.code).toBe('events_handler_not_found');
-        expect(await durable().listActiveForHolder(userId, appUid)).toEqual([]);
+        expect(
+            (await durable().listActiveForHolderPage(userId, appUid, 0)).rows,
+        ).toEqual([]);
     });
 
     it('binds an inline body whose hash is what is published', async () => {
@@ -805,7 +808,9 @@ describe('binding a subscription to a handler', () => {
 
         expect(refused.status).toBe(409);
         expect(refused.body.code).toBe('events_handler_hash_mismatch');
-        expect(await durable().listActiveForHolder(userId, appUid)).toEqual([]);
+        expect(
+            (await durable().listActiveForHolderPage(userId, appUid, 0)).rows,
+        ).toEqual([]);
     });
 
     it('still needs a name for a subscription owed to one consumer', async () => {

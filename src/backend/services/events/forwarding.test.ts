@@ -79,6 +79,14 @@ vi.mock(import('@opentelemetry/api'), async (importOriginal) => ({
                     metricCalls.push({ name, value, attributes });
                 },
             }),
+            createHistogram: (name: string) => ({
+                record: (
+                    value: number,
+                    attributes: Record<string, unknown> = {},
+                ) => {
+                    metricCalls.push({ name, value, attributes });
+                },
+            }),
         }),
     },
 }));

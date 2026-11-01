@@ -73,6 +73,13 @@ export const HANDLER_SET_CACHE_TTL_SECONDS = 30;
 const handlerSetCacheKey = (appUid: string): string =>
     `eventHandlers:set:${appUid}`;
 
+/**
+ * The same set as read from the replica, kept apart so a lagging read can never
+ * stand in for the primary's answer on the delivery path.
+ */
+const replicaSetCacheKey = (appUid: string): string =>
+    `${handlerSetCacheKey(appUid)}:r`;
+
 // -- Shapes -----------------------------------------------------------
 
 /** A row in `event_handlers`, as the rest of the system sees it. */
@@ -337,13 +344,16 @@ export class EventHandlerStore extends PuterStore {
      */
     async setForApp(
         appUid: string,
+        options: { replica?: boolean } = {},
     ): Promise<Pick<EventHandler, 'name' | 'sourceHash'>[]> {
-        const rows = await this.clients.db.pread(
+        const sql =
             'SELECT `name`, `source_hash` ' +
-                `FROM \`${TABLE}\` WHERE \`app_uid\` = ? ` +
-                'ORDER BY `name` LIMIT ?',
-            [appUid, EVENTS_HANDLERS_PER_APP],
-        );
+            `FROM \`${TABLE}\` WHERE \`app_uid\` = ? ` +
+            'ORDER BY `name` LIMIT ?';
+        const params = [appUid, EVENTS_HANDLERS_PER_APP];
+        const rows = options.replica
+            ? await this.clients.db.read(sql, params)
+            : await this.clients.db.pread(sql, params);
         return rows.map((row) => ({
             name: String(row.name),
             sourceHash: String(row.source_hash),
@@ -354,12 +364,19 @@ export class EventHandlerStore extends PuterStore {
      * `setForApp` for the delivery path, which asks once per invocation. Cached
      * for up to {@link HANDLER_SET_CACHE_TTL_SECONDS}, and dropped everywhere by
      * every write here. An empty set is not cached: it fails the delivery, and
-     * must not outlast the publish that fills it.
+     * must not outlast the publish that fills it. Schedule runs read a miss
+     * from the replica (`missRead: 'replica'`), since they come by the clock
+     * rather than after a write, and cache it under a key of their own. Called
+     * by extensions.
      */
     async cachedSetForApp(
         appUid: string,
+        options: { missRead?: 'primary' | 'replica' } = {},
     ): Promise<Pick<EventHandler, 'name' | 'sourceHash'>[]> {
-        const key = handlerSetCacheKey(appUid);
+        const replica = options.missRead === 'replica';
+        const key = replica
+            ? replicaSetCacheKey(appUid)
+            : handlerSetCacheKey(appUid);
         try {
             const cached = JSON.parse(
                 (await this.clients.redis.get(key)) ?? 'null',
@@ -370,7 +387,7 @@ export class EventHandlerStore extends PuterStore {
             // Read the table instead.
         }
 
-        const set = await this.setForApp(appUid);
+        const set = await this.setForApp(appUid, { replica });
         if (set.length > 0) {
             try {
                 await this.clients.redis.set(
@@ -616,7 +633,7 @@ export class EventHandlerStore extends PuterStore {
     /** Drop the delivery path's cached set here and on every peer. */
     async #forgetSet(appUid: string): Promise<void> {
         await this.publishCacheKeys({
-            keys: [handlerSetCacheKey(appUid)],
+            keys: [handlerSetCacheKey(appUid), replicaSetCacheKey(appUid)],
             broadcast: true,
         });
     }

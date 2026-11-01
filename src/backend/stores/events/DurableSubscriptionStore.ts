@@ -23,7 +23,9 @@ import {
     EVENTS_REVOKED_SUBSCRIPTIONS_KEPT,
     type TieredQuota,
 } from '../../controllers/events/limits.js';
+import type { BatchEntry } from '../../clients/database/DatabaseClient.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import type { SqlGuard } from '../../core/schedules.js';
 import type { DeliveryClass } from '../../services/events/registry.js';
 import type { FsOp } from '../../services/events/subjects.js';
 import {
@@ -37,7 +39,13 @@ import {
     EVENT_SUBSCRIPTION_WIDTHS,
 } from './columnWidths.js';
 import type { GenerationBump } from './EventSubscriptionStore.js';
-import type { DurableSubscription, SubscriptionPermission } from './types.js';
+import {
+    isScheduleRow,
+    SCHEDULE_TOKEN_PREFIX,
+    scheduleToken,
+    type DurableSubscription,
+    type SubscriptionPermission,
+} from './types.js';
 
 /**
  * Subscriptions that outlive the connection that made them.
@@ -65,6 +73,9 @@ export const DURABLE_CONTEXT_MAX_BYTES = 4096;
 /** Default page size for the holder listing, and its ceiling. */
 export const DURABLE_LIST_DEFAULT_LIMIT = 50;
 export const DURABLE_LIST_LIMIT_CAP = 200;
+
+/** Rows one page of a holder-wide settle takes. */
+export const HOLDER_SETTLE_BATCH = 500;
 
 /**
  * Rows one handler-lifecycle pass takes. A removal suspends its dependents in
@@ -99,6 +110,15 @@ export interface DurableSubscriptionInput {
      * leave an account holding more rows than the design allows.
      */
     limits?: TieredQuota;
+}
+
+/**
+ * What a reap deleted, and the generation it bumped per owner. The caller
+ * publishes the bumps, since the reap only invalidates this region.
+ */
+export interface DurableReap {
+    rows: DurableSubscription[];
+    bumps: GenerationBump[];
 }
 
 /** One keyset page of rows, and where the next page starts. */
@@ -148,6 +168,13 @@ const TERMINAL_CLAUSE =
     '(`suspended_at` IS NOT NULL AND `suspended_reason` IN (' +
     `${TERMINAL_SUSPENDED_REASONS.map(() => '?').join(', ')}))`;
 
+/**
+ * Leaves out the rows schedules own: they have their own caps and listing, and
+ * never enter the dispatch cache. Binds {@link SCHEDULE_TOKEN_PATTERN}.
+ */
+const NOT_SCHEDULE_CLAUSE = '`token` NOT LIKE ?';
+const SCHEDULE_TOKEN_PATTERN = `${SCHEDULE_TOKEN_PREFIX}%`;
+
 /** Where a row is moving to when its anchor is deleted under it. */
 export interface ReanchorInput {
     token: string;
@@ -166,6 +193,12 @@ const contextTooLarge = (): HttpError =>
         `Subscription context may not exceed ${DURABLE_CONTEXT_MAX_BYTES} bytes`,
         { legacyCode: 'events_context_too_large' },
     );
+
+export const assertDurableContext = (context: string | null): void => {
+    if (context === null) return;
+    if (Buffer.byteLength(context, 'utf8') > DURABLE_CONTEXT_MAX_BYTES)
+        throw contextTooLarge();
+};
 
 const quotaReached = (limit: number, scope: 'account' | 'app'): HttpError =>
     new HttpError(
@@ -208,18 +241,12 @@ const quotaRefusal = (
 };
 
 /**
- * What a reap deleted, and the generation it bumped per owner. The caller
- * publishes the bumps, since the reap only invalidates this region.
+ * A created row; `reaped` holds the bumps of terminal rows it trimmed. A
+ * schedule's row is never cached, so it comes back with no bump.
  */
-export interface ReapResult {
-    rows: DurableSubscription[];
-    bumps: GenerationBump[];
-}
-
-/** A created row; `reaped` holds the bumps of terminal rows it trimmed. */
 export interface DurableCreated {
     row: DurableSubscription;
-    bump: GenerationBump;
+    bump: GenerationBump | null;
     reaped: GenerationBump[];
 }
 
@@ -307,9 +334,13 @@ export class DurableSubscriptionStore extends PuterStore {
      * Insert one subscription and put it in this region's cache before
      * returning. The generation bump is what tells every other region, and the
      * caller broadcasts it.
+     *
+     * A schedule's row skips the durable quotas and the cache, so it comes back
+     * with no bump: its caps are the schedule store's.
      */
     async create(input: DurableSubscriptionInput): Promise<DurableCreated> {
-        this.#assertContext(input.context);
+        assertDurableContext(input.context);
+        const forSchedule = isScheduleRow(input);
         assertColumnWidths(EVENT_SUBSCRIPTION_WIDTHS, {
             token: input.token,
             appUid: input.appUid,
@@ -321,12 +352,14 @@ export class DurableSubscriptionStore extends PuterStore {
             permission: input.permission,
         });
 
-        const refusal = quotaRefusal(
-            input,
-            await this.countForHolder(input.holderUserId, input.appUid),
-            0,
-        );
-        if (refusal) throw refusal;
+        if (!forSchedule) {
+            const refusal = quotaRefusal(
+                input,
+                await this.countForHolder(input.holderUserId, input.appUid),
+                0,
+            );
+            if (refusal) throw refusal;
+        }
 
         const row: DurableSubscription = {
             durable: true,
@@ -372,6 +405,7 @@ export class DurableSubscriptionStore extends PuterStore {
             expires_at: row.expiresAt,
             created_at: row.createdAt,
         });
+        if (forSchedule) return { row, bump: null, reaped: [] };
 
         // Concurrent creates can all pass the count above. Counted again with
         // this row in it, each one past the cap takes itself back out — at
@@ -455,8 +489,9 @@ export class DurableSubscriptionStore extends PuterStore {
                 });
         }
 
-        await this.stores.eventSubscription.dropDurables(suspended);
-        const owners = new Set(suspended.map((row) => row.ownerUserId));
+        const cached = suspended.filter((row) => !isScheduleRow(row));
+        await this.stores.eventSubscription.dropDurables(cached);
+        const owners = new Set(cached.map((row) => row.ownerUserId));
         const bumps = await Promise.all(
             [...owners].map((owner) => this.#bump(owner)),
         );
@@ -484,6 +519,7 @@ export class DurableSubscriptionStore extends PuterStore {
         // owner from the first row it is given.
         const byOwner = new Map<number, DurableSubscription[]>();
         for (const row of rows) {
+            if (isScheduleRow(row)) continue;
             const live: DurableSubscription = {
                 ...row,
                 suspendedAt: null,
@@ -557,7 +593,7 @@ export class DurableSubscriptionStore extends PuterStore {
         row: DurableSubscription,
         context: string | null,
     ): Promise<{ row: DurableSubscription; bump: GenerationBump } | null> {
-        this.#assertContext(context);
+        assertDurableContext(context);
         const written = await this.clients.db.write(
             `UPDATE \`${TABLE}\` SET \`context\` = ? WHERE \`sub_id\` = ?`,
             [context, row.subId],
@@ -589,7 +625,7 @@ export class DurableSubscriptionStore extends PuterStore {
      * Reap rows past their expiry, dropping each from the cache so the region
      * stops delivering against it without waiting for a rebuild.
      */
-    async sweepExpired(batchSize: number): Promise<ReapResult> {
+    async sweepExpired(batchSize: number): Promise<DurableReap> {
         return this.#reap(await this.#listExpired(nowSeconds(), batchSize));
     }
 
@@ -601,7 +637,7 @@ export class DurableSubscriptionStore extends PuterStore {
     async sweepSuspended(
         cutoff: number,
         batchSize: number,
-    ): Promise<ReapResult> {
+    ): Promise<DurableReap> {
         return this.#reap(await this.#listSuspendedBefore(cutoff, batchSize));
     }
 
@@ -641,8 +677,16 @@ export class DurableSubscriptionStore extends PuterStore {
 
         // The scope half of the predicate is what the total counts over; the
         // cursor half only positions one page inside it.
-        const scope = ['`holder_user_id` = ?', this.#unexpiredClause()];
-        const scopeParams: unknown[] = [holderUserId, nowSeconds()];
+        const scope = [
+            '`holder_user_id` = ?',
+            this.#unexpiredClause(),
+            NOT_SCHEDULE_CLAUSE,
+        ];
+        const scopeParams: unknown[] = [
+            holderUserId,
+            nowSeconds(),
+            SCHEDULE_TOKEN_PATTERN,
+        ];
         if (options.appUid !== undefined && options.appUid !== null) {
             scope.push('`app_uid` = ?');
             scopeParams.push(options.appUid);
@@ -694,7 +738,8 @@ export class DurableSubscriptionStore extends PuterStore {
                 `SUM(CASE WHEN ${TERMINAL_CLAUSE} THEN 0 ` +
                 'WHEN `app_uid` = ? THEN 1 ELSE 0 END) AS `for_app`, ' +
                 `SUM(CASE WHEN ${TERMINAL_CLAUSE} THEN 1 ELSE 0 END) AS \`terminal\` ` +
-                `FROM \`${TABLE}\` WHERE \`holder_user_id\` = ? AND ${this.#unexpiredClause()}`,
+                `FROM \`${TABLE}\` WHERE \`holder_user_id\` = ? AND ${this.#unexpiredClause()} ` +
+                `AND ${NOT_SCHEDULE_CLAUSE}`,
             [
                 ...terminal,
                 ...terminal,
@@ -702,6 +747,7 @@ export class DurableSubscriptionStore extends PuterStore {
                 ...terminal,
                 holderUserId,
                 nowSeconds(),
+                SCHEDULE_TOKEN_PATTERN,
             ],
         );
         return {
@@ -712,22 +758,24 @@ export class DurableSubscriptionStore extends PuterStore {
     }
 
     /**
-     * The holder's live rows, which is what a revocation has to consider. Same
-     * index the listing and the quota use — passing `appUid` narrows to one
-     * app's rows, which is what a grant made to that app can have authorized.
+     * The holder's live rows, which is what a revocation has to consider, one
+     * keyset page at a time. Same index the listing and the quota use — passing
+     * `appUid` narrows to one app's rows, which is what a grant made to that
+     * app can have authorized. Schedule rows are included: a holder can hold
+     * far more of them than the durable quota allows, which is why this pages.
      *
      * `includeSuspended` also returns rows out of service for a reason that
      * lifts. A revocation needs them: those reasons hold a backlog, and a row
      * skipped here comes back in service on the next resume and hands it over.
-     *
-     * Bounded by the per-account quota, so the whole set fits one read. Rows
-     * suspended for good hold no slot, so they are left out.
+     * Rows suspended for good are left out.
      */
-    async listActiveForHolder(
+    async listActiveForHolderPage(
         holderUserId: number,
         appUid: string | null,
+        afterId: number,
+        batchSize: number = HOLDER_SETTLE_BATCH,
         opts: { includeSuspended?: boolean } = {},
-    ): Promise<DurableSubscription[]> {
+    ): Promise<DurablePage> {
         const where = [
             '`holder_user_id` = ?',
             opts.includeSuspended
@@ -744,12 +792,9 @@ export class DurableSubscriptionStore extends PuterStore {
             where.push('`app_uid` = ?');
             params.push(appUid);
         }
-        const rows = await this.clients.db.pread(
-            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
-                `WHERE ${where.join(' AND ')} ORDER BY \`id\` LIMIT ?`,
-            [...params, EVENTS_DURABLE_SUBSCRIPTIONS_MAX],
-        );
-        return rows.map(toRow);
+        return this.#page(where, params, afterId, batchSize, {
+            primary: true,
+        });
     }
 
     /**
@@ -787,25 +832,27 @@ export class DurableSubscriptionStore extends PuterStore {
 
     /**
      * One holder's rows suspended for a given reason — what a resume condition
-     * that belongs to the account rather than to a handler releases.
+     * that belongs to the account rather than to a handler releases — one
+     * keyset page at a time.
      */
-    async listSuspendedForHolder(
+    async listSuspendedForHolderPage(
         holderUserId: number,
         reason: SuspendedReason,
-    ): Promise<DurableSubscription[]> {
-        const rows = await this.clients.db.pread(
-            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
-                'WHERE `holder_user_id` = ? AND `suspended_at` IS NOT NULL ' +
-                `AND \`suspended_reason\` = ? AND ${this.#unexpiredClause()} ` +
-                'ORDER BY `id` LIMIT ?',
+        afterId: number,
+        batchSize: number = HOLDER_SETTLE_BATCH,
+    ): Promise<DurablePage> {
+        return this.#page(
             [
-                holderUserId,
-                reason,
-                nowSeconds(),
-                EVENTS_DURABLE_SUBSCRIPTIONS_MAX,
+                '`holder_user_id` = ?',
+                '`suspended_at` IS NOT NULL',
+                '`suspended_reason` = ?',
+                this.#unexpiredClause(),
             ],
+            [holderUserId, reason, nowSeconds()],
+            afterId,
+            batchSize,
+            { primary: true },
         );
-        return rows.map(toRow);
     }
 
     /**
@@ -838,8 +885,8 @@ export class DurableSubscriptionStore extends PuterStore {
         const rows = await this.clients.db.pread(
             `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
                 'WHERE `owner_user_id` = ? AND `suspended_at` IS NULL AND ' +
-                `${this.#unexpiredClause()}`,
-            [ownerUserId, nowSeconds()],
+                `${this.#unexpiredClause()} AND ${NOT_SCHEDULE_CLAUSE}`,
+            [ownerUserId, nowSeconds(), SCHEDULE_TOKEN_PATTERN],
         );
         return rows.map(toRow);
     }
@@ -865,8 +912,66 @@ export class DurableSubscriptionStore extends PuterStore {
      * What app deletion reaps: `#reap` already purges the backlog, drops the
      * cache and bumps a generation per owner, so this is the whole of it.
      */
-    async reapForApp(appUid: string, batchSize: number): Promise<ReapResult> {
+    async reapForApp(appUid: string, batchSize: number): Promise<DurableReap> {
         return this.#reap(await this.#listForApp(appUid, batchSize));
+    }
+
+    /**
+     * Delete the row a schedule owns, whether or not the schedule ever recorded
+     * its id: a create that crashed between the two inserts leaves one it
+     * didn't. Never cached, so there is nothing to drop or bump. Called by
+     * extensions.
+     */
+    async removeScheduleSubscription(scheduleUid: string): Promise<boolean> {
+        const written = await this.clients.db.write(
+            `DELETE FROM \`${TABLE}\` WHERE \`token\` = ?`,
+            [scheduleToken(scheduleUid)],
+        );
+        return written.anyRowsAffected;
+    }
+
+    // Statements and fragments for the schedules' own transactions and reads,
+    // so no SQL outside this store names the table. Called by extensions.
+
+    /**
+     * Delete the row a schedule owns, only while `guard` holds: for a batch
+     * that ends the schedule in the same transaction.
+     */
+    scheduleSubscriptionDeleteEntry(
+        scheduleUid: string,
+        guard: SqlGuard,
+    ): BatchEntry {
+        return {
+            statement:
+                `DELETE FROM \`${TABLE}\` WHERE \`token\` = ? ` +
+                `AND EXISTS (SELECT 1 FROM \`${guard.table}\` WHERE ${guard.where})`,
+            values: [scheduleToken(scheduleUid), ...guard.values],
+        };
+    }
+
+    /**
+     * A `LEFT JOIN` of the row a schedule owns, as `alias`, on `subIdColumn`,
+     * and the columns it selects: `sub_row_id`, `sub_suspended_at`,
+     * `sub_suspended_reason`, `sub_handler_name` and `sub_context`.
+     */
+    scheduleSubscriptionJoin(
+        alias: string,
+        subIdColumn: string,
+    ): { columns: string; join: string } {
+        return {
+            columns:
+                `${alias}.\`id\` AS \`sub_row_id\`, ` +
+                `${alias}.\`suspended_at\` AS \`sub_suspended_at\`, ` +
+                `${alias}.\`suspended_reason\` AS \`sub_suspended_reason\`, ` +
+                `${alias}.\`handler_name\` AS \`sub_handler_name\`, ` +
+                `${alias}.\`context\` AS \`sub_context\``,
+            join: `LEFT JOIN \`${TABLE}\` ${alias} ON ${alias}.\`sub_id\` = ${subIdColumn}`,
+        };
+    }
+
+    /** A condition true when no subscription row has the id `subIdExpr`. */
+    scheduleSubscriptionAbsent(subIdExpr: string): string {
+        return `NOT EXISTS (SELECT 1 FROM \`${TABLE}\` e WHERE e.\`sub_id\` = ${subIdExpr})`;
     }
 
     // -- Internals ---------------------------------------------------
@@ -884,8 +989,14 @@ export class DurableSubscriptionStore extends PuterStore {
             const rows = await this.clients.db.pread(
                 `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
                     `WHERE \`holder_user_id\` = ? AND ${TERMINAL_CLAUSE} ` +
+                    `AND ${NOT_SCHEDULE_CLAUSE} ` +
                     'ORDER BY `suspended_at`, `id` LIMIT ?',
-                [holderUserId, ...TERMINAL_SUSPENDED_REASONS, count],
+                [
+                    holderUserId,
+                    ...TERMINAL_SUSPENDED_REASONS,
+                    SCHEDULE_TOKEN_PATTERN,
+                    count,
+                ],
             );
             return (await this.#reap(rows.map(toRow))).bumps;
         } catch (err) {
@@ -912,15 +1023,23 @@ export class DurableSubscriptionStore extends PuterStore {
         return rows.map(toRow);
     }
 
-    /** One page of a whole-table scan, ordered and positioned by primary key. */
+    /**
+     * One keyset page, ordered and positioned by primary key. The replica
+     * unless `primary`, which settles need: a lagging read would skip a row
+     * just created.
+     */
     async #page(
         where: string[],
         params: unknown[],
         afterId: number,
         batchSize: number,
+        opts: { primary?: boolean } = {},
     ): Promise<DurablePage> {
         const limit = Math.max(1, Math.floor(batchSize));
-        const rows = await this.clients.db.read(
+        const read = opts.primary
+            ? this.clients.db.pread.bind(this.clients.db)
+            : this.clients.db.read.bind(this.clients.db);
+        const rows = await read(
             `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
                 `WHERE ${[...where, '`id` > ?'].join(' AND ')} ` +
                 'ORDER BY `id` LIMIT ?',
@@ -975,9 +1094,10 @@ export class DurableSubscriptionStore extends PuterStore {
 
     /**
      * Delete a batch and stop this region delivering against any of it. Other
-     * regions stop once the caller publishes the returned bumps.
+     * regions stop once the caller publishes the returned bumps; the deleted
+     * rows come back so the caller can end the schedules among them.
      */
-    async #reap(rows: readonly DurableSubscription[]): Promise<ReapResult> {
+    async #reap(rows: readonly DurableSubscription[]): Promise<DurableReap> {
         if (rows.length === 0) return { rows: [], bumps: [] };
 
         await this.clients.db.write(
@@ -986,8 +1106,9 @@ export class DurableSubscriptionStore extends PuterStore {
             rows.map((row) => row.subId),
         );
 
-        await this.stores.eventSubscription.dropDurables(rows);
-        for (const row of rows) {
+        const cached = rows.filter((row) => !isScheduleRow(row));
+        await this.stores.eventSubscription.dropDurables(cached);
+        for (const row of cached) {
             // Whatever was still owed to a row that no longer exists.
             try {
                 await this.stores.pendingDelivery.purge(row.subId);
@@ -995,17 +1116,11 @@ export class DurableSubscriptionStore extends PuterStore {
                 // The pending sweep purges it once it finds the row gone.
             }
         }
+        const owners = new Set(cached.map((row) => row.ownerUserId));
         const bumps: GenerationBump[] = [];
-        const owners = new Set(rows.map((row) => row.ownerUserId));
         for (const ownerUserId of owners)
             bumps.push(await this.#bump(ownerUserId));
         return { rows: [...rows], bumps };
-    }
-
-    #assertContext(context: string | null): void {
-        if (context === null) return;
-        if (Buffer.byteLength(context, 'utf8') > DURABLE_CONTEXT_MAX_BYTES)
-            throw contextTooLarge();
     }
 
     async #bump(ownerUserId: number): Promise<GenerationBump> {

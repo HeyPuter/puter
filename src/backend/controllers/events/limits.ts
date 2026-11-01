@@ -53,7 +53,12 @@ export interface TieredLimit {
     bySubscription: Record<string, number>;
 }
 
-const tiered = (paid: number, free: number, temp: number): TieredLimit => ({
+/** Paid, free and temporary caps as a {@link TieredLimit}. Called by extensions. */
+export const tiered = (
+    paid: number,
+    free: number,
+    temp: number,
+): TieredLimit => ({
     limit: paid,
     bySubscription: {
         [DEFAULT_FREE_SUBSCRIPTION]: free,
