@@ -152,6 +152,8 @@ export const setupTestServer = async (
             database: testDatabaseDefault(),
             dynamo: { inMemory: true, bootstrapTables: true },
             redis: { useMock: true },
+            // Suites run system jobs themselves, not on the poll timer.
+            jobs: { enabled: false },
             s3: { localConfig: { inMemory: true } },
             no_default_user: true,
             no_devwatch: true,

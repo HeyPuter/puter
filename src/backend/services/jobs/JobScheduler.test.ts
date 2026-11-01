@@ -73,19 +73,21 @@ describe('JobScheduler', () => {
         nearPrimaryRegion,
         redis,
         domain = 'puter.test',
+        enabled,
     }: {
         namespace?: string;
         region?: string;
         nearPrimaryRegion?: string;
         redis?: InstanceType<typeof MockRedis>;
         domain?: string;
+        enabled?: boolean;
     } = {}) => {
         const config = {
             port: 0,
             extensions: [],
             domain,
             serverId: `node-${schedulers.length}`,
-            jobs: { namespace, nearPrimaryRegion },
+            jobs: { namespace, nearPrimaryRegion, enabled },
         } as IConfig;
         const clients = (
             redis ? { ...server.clients, redis } : server.clients
@@ -263,6 +265,41 @@ describe('JobScheduler', () => {
         expect(vi.getTimerCount()).toBeGreaterThan(baseline);
         scheduler.onServerPrepareShutdown();
         expect(vi.getTimerCount()).toBe(baseline);
+    });
+
+    it('arms no poll on a node with jobs turned off, though poll() still runs them', async () => {
+        vi.useFakeTimers({
+            toFake: [
+                'setInterval',
+                'setTimeout',
+                'clearInterval',
+                'clearTimeout',
+            ],
+        });
+        const baseline = vi.getTimerCount();
+        const namespace = freshNamespace();
+        const scheduler = node({ namespace, enabled: false });
+        let runs = 0;
+        scheduler.onServerStart();
+        scheduler.register('job.off', {
+            every: HOUR,
+            scope: 'fleet',
+            run: async () => {
+                runs += 1;
+            },
+        });
+        expect(vi.getTimerCount()).toBe(baseline);
+        vi.useRealTimers();
+
+        await server.stores.scheduledJob.register(
+            namespace,
+            'job.off',
+            0,
+            Date.now(),
+        );
+        await setNextRunAt(namespace, 'job.off', 0);
+        await scheduler.poll();
+        expect(runs).toBe(1);
     });
 
     it('registers idempotently across instances, never resetting the cadence', async () => {

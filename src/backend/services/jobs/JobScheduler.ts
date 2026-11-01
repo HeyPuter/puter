@@ -238,6 +238,7 @@ export class JobScheduler extends PuterService {
 
     #arm(): void {
         if (this.#timer || this.#stopping) return;
+        if (this.config.jobs?.enabled === false) return;
         const tick = () => {
             const delay = setTimeout(() => {
                 this.#pollDelays.delete(delay);

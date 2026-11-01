@@ -1301,10 +1301,13 @@ interface IConfigOptional {
      *   primary database. Jobs registered `nearPrimary` run there, and other
      *   regions claim them only once they are 5 minutes overdue. Unset means
      *   every region claims at due time.
+     * - `enabled` — `false` keeps this node from polling for jobs; the rest of
+     *   the fleet still runs them. Test servers turn it off.
      */
     jobs?: {
         namespace?: string;
         nearPrimaryRegion?: string;
+        enabled?: boolean;
     };
 
     /**
