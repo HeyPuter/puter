@@ -458,11 +458,28 @@ export const realtimeAuthKey = (token: string): string =>
 export const realtimeConnectKey = (token: string): string =>
     `realtime:connect:${tokenHash(token)}`;
 
-/** `buf` with provider organization IDs removed, or `buf` itself. */
-const redactOrgIds = (buf: Buffer): Buffer => {
-    const text = buf.toString('utf8');
-    const redacted = text.replace(ORG_ID, 'org-redacted');
-    return redacted === text ? buf : Buffer.from(redacted);
+/**
+ * Redacts supported provider diagnostics without rewriting conversation
+ * content.
+ */
+const redactDiagnostics = (event: RealtimeEvent, buf: Buffer): Buffer => {
+    const record = event as unknown as Record<string, unknown>;
+    let diagnostic: unknown;
+    if (
+        event.type === 'error' ||
+        event.type === 'conversation.item.input_audio_transcription.failed'
+    ) {
+        diagnostic = record.error;
+    } else if (event.type === 'response.done' && isRecord(record.response)) {
+        const details = record.response.status_details;
+        if (isRecord(details)) diagnostic = details.error;
+    }
+    if (!isRecord(diagnostic) || typeof diagnostic.message !== 'string')
+        return buf;
+    const message = diagnostic.message.replace(ORG_ID, 'org-redacted');
+    if (message === diagnostic.message) return buf;
+    diagnostic.message = message;
+    return Buffer.from(JSON.stringify(event));
 };
 
 /** An error event in OpenAI's realtime shape. */
@@ -1297,7 +1314,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             if (closed || client.readyState !== WebSocket.OPEN) return;
             // Rate limits describe Puter's provider account, not the caller's.
             if (event.type === 'rate_limits.updated') return;
-            const out = event.type === 'error' ? redactOrgIds(buf) : buf;
+            const out = redactDiagnostics(event, buf);
             if (
                 client.bufferedAmount + out.length >
                 HIGH_WATER_BYTES + MAX_UPSTREAM_MESSAGE_BYTES
@@ -1350,7 +1367,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             if (settleTimer) clearTimeout(settleTimer);
             session.close(
                 code === 1005 || code === 1006 ? 1011 : code,
-                reason.toString().slice(0, 120),
+                reason.toString().replace(ORG_ID, 'org-redacted').slice(0, 120),
             );
             const holds = [...responseHolds.values()];
             responseHolds.clear();

@@ -11,7 +11,10 @@ Direct clients are documented in the [Realtime WebSocket API reference](../../..
 
 The relay forwards native OpenAI JSON events unchanged after validating the
 event envelope, except that `rate_limits.updated` (Puter's provider account) is
-dropped and provider organization IDs are removed from error messages. An event must be an object with a nonempty string `type` of at
+dropped and provider organization IDs are removed from diagnostic messages in
+`error`, `response.done.status_details.error`, and
+`conversation.item.input_audio_transcription.failed.error`, and from provider
+close reasons. Conversation content is preserved. An event must be an object with a nonempty string `type` of at
 most 128 characters. Binary messages and malformed envelopes close the session.
 Usage fields consumed by metering are validated before use. Event field order
 does not affect billing.
