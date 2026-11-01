@@ -10,6 +10,29 @@ const toError = (error) => {
 };
 
 /**
+ * What the server answers a create with: the written notification, or the send
+ * it stored for later.
+ *
+ * @typedef {{
+ *     uid?: unknown;
+ *     scheduled?: import('./types.js').ScheduledNotification;
+ * }} CreateAnswer
+ */
+
+/**
+ * @overload
+ * @param {(
+ *     | import('./types.js').NotificationInput
+ *     | import('./types.js').ShareNotificationInput
+ * ) &
+ *     import('./types.js').DelayedNotificationOptions} notification
+ * @returns {Promise<
+ *     import('./types.js').ScheduledNotification | string | void
+ * >}
+ *   The stored send. When `sendAt` is within 5 seconds or past, the notification
+ *   is sent at once and this resolves as it would without it.
+ */
+/**
  * @overload
  * @param {import('./types.js').NotificationInput & { to?: undefined }} notification
  * @returns {Promise<string>} The notification's uid; on a replacement, the uid
@@ -23,12 +46,18 @@ const toError = (error) => {
  */
 /**
  * Sends the user this app runs for a notification, or with `to` the other party
- * of a KV share. Only an app can send one.
+ * of a KV share. Only an app can send one. With `sendAt` it is stored and sent
+ * then; `cancel()` takes it back before it goes.
  *
  * @this {import('./index.js').NotificationsModule}
- * @param {import('./types.js').NotificationInput
- *     | import('./types.js').ShareNotificationInput} notification
- * @returns {Promise<string | void>}
+ * @param {(
+ *     | import('./types.js').NotificationInput
+ *     | import('./types.js').ShareNotificationInput
+ * ) &
+ *     Partial<import('./types.js').DelayedNotificationOptions>} notification
+ * @returns {Promise<
+ *     import('./types.js').ScheduledNotification | string | void
+ * >}
  */
 export async function notify(notification) {
     if (
@@ -54,10 +83,11 @@ export async function notify(notification) {
         if (field !== undefined) value[key] = field;
     }
     value.type = APP_MESSAGE_TYPE;
+    if (value.sendAt instanceof Date) value.sendAt = value.sendAt.toISOString();
 
     let created;
     try {
-        created = /** @type {{ uid?: unknown } | null} */ (
+        created = /** @type {CreateAnswer | null} */ (
             await driverCall({
                 puter: this.puter,
                 iface: 'puter-notifications',
@@ -70,6 +100,10 @@ export async function notify(notification) {
         throw toError(error);
     }
 
+    if (created?.scheduled) {
+        const { scheduleId, sendAt } = created.scheduled;
+        return { scheduleId, sendAt };
+    }
     // A notification to someone else answers with nothing about it.
     if (value.to !== undefined) return;
     if (typeof created?.uid !== 'string') {

@@ -243,6 +243,7 @@ export type { PSocket, PTLSSocket } from './types/modules/networking/PSocket.js'
 // -- puter.notifications --
 export type {
     AppNotification,
+    DelayedNotificationOptions,
     NotificationClick,
     NotificationHandler,
     NotificationInput,
@@ -256,6 +257,7 @@ export type {
     PushPlatform,
     PushShown,
     PushStatus,
+    ScheduledNotification,
     ShareNotificationInput,
 } from './types/modules/notifications/types.js';
 

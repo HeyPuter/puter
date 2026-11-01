@@ -220,6 +220,72 @@ describe('notify', () => {
         const error = await rejects(() => makeModule().notify({ title: 'Hi' }));
         expect(error.code).toBe('notifications_failed');
     });
+
+    it('stores a send for later and resolves with its schedule', async () => {
+        mockDriverCall.mockResolvedValue({
+            scheduled: { scheduleId: 'sched-1', sendAt: 1_800_000_000_000 },
+        });
+        const result = await makeModule().notify({
+            title: 'Hi',
+            sendAt: new Date(1_800_000_000_000),
+        });
+        expect(result).toEqual({
+            scheduleId: 'sched-1',
+            sendAt: 1_800_000_000_000,
+        });
+        expect(mockDriverCall.mock.calls[0][0].args.object.value.sendAt).toBe(
+            '2027-01-15T08:00:00.000Z',
+        );
+    });
+
+    it('resolves with the schedule of a later send through a share too', async () => {
+        mockDriverCall.mockResolvedValue({
+            scheduled: { scheduleId: 'sched-2', sendAt: 5_000 },
+        });
+        const result = await makeModule().notify({
+            title: 'Hi',
+            to: { handle: 'kvh-1' },
+            sendAt: 5_000,
+        });
+        expect(result).toEqual({ scheduleId: 'sched-2', sendAt: 5_000 });
+    });
+
+    it('resolves as an immediate send when the server sent it at once', async () => {
+        mockDriverCall.mockResolvedValue({ uid: 'n-3' });
+        expect(
+            await makeModule().notify({ title: 'Hi', sendAt: Date.now() }),
+        ).toBe('n-3');
+    });
+});
+
+describe('cancel', () => {
+    it('removes the stored send through the schedule surface', async () => {
+        const removeSchedule = vi.fn(async () => {});
+        const notifications = makeModule({
+            events: { ...makeEvents(), removeSchedule },
+        });
+        const { cancel } = notifications;
+        await expect(cancel('sched-1')).resolves.toBeUndefined();
+        expect(removeSchedule).toHaveBeenCalledWith('sched-1');
+    });
+
+    it('passes a refusal through', async () => {
+        const refusal = new PuterJSError(
+            'This delayed send has already started',
+            'events_schedule_sending',
+        );
+        const notifications = makeModule({
+            events: {
+                ...makeEvents(),
+                removeSchedule: vi.fn(async () => {
+                    throw refusal;
+                }),
+            },
+        });
+        expect(await rejects(() => notifications.cancel('sched-1'))).toBe(
+            refusal,
+        );
+    });
 });
 
 describe("on('click')", () => {

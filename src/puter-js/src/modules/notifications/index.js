@@ -1,6 +1,7 @@
 import EventListener from '../../lib/EventListener.js';
 import { PuterJSError } from '../../lib/PuterJSError.js';
 import { needsSignIn } from '../events/lib/signIn.js';
+import { cancel } from './cancel.js';
 import { disable } from './disable.js';
 import { enable } from './enable.js';
 import { enablePush } from './enablePush.js';
@@ -149,6 +150,7 @@ const showThroughWorker = (registration, title, options) => {
 export class NotificationsModule extends EventListener {
     // Rebound in the constructor so destructured calls keep `this`.
     notify = notify;
+    cancel = cancel;
     onNotification = onNotification;
     enable = enable;
     disable = disable;
@@ -211,6 +213,7 @@ export class NotificationsModule extends EventListener {
         );
         for (const name of [
             'notify',
+            'cancel',
             'onNotification',
             'enable',
             'disable',

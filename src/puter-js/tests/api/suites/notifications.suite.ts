@@ -85,6 +85,7 @@ export default suite('notifications', {
             'status',
             'listDevices',
             'removeDevice',
+            'cancel',
         ] as const) {
             t.assert.equal(
                 typeof t.puter.notifications[method],
@@ -382,6 +383,63 @@ export default suite('notifications', {
             ),
             true,
         );
+    },
+
+    'stores a notification to send later, reads it as a schedule and cancels it': async (
+        t,
+    ) => {
+        const appUid = await makeApp(t);
+        const later = Date.now() + 60 * 60 * 1000;
+        const { scheduled, read, again } = await asApp(t, appUid, async () => {
+            const scheduled = await t.puter.notifications.notify({
+                title: unique('later'),
+                sendAt: new Date(later),
+            });
+            if (!scheduled || typeof scheduled !== 'object')
+                throw new Error('expected a scheduled send');
+            const read = await t.puter.events.getSchedule(
+                scheduled.scheduleId,
+            );
+            await t.puter.notifications.cancel(scheduled.scheduleId);
+            let again: unknown;
+            try {
+                await t.puter.notifications.cancel(scheduled.scheduleId);
+            } catch (error) {
+                again = error;
+            }
+            return { scheduled, read, again };
+        });
+        t.assert.equal(typeof scheduled.scheduleId, 'string');
+        t.assert.equal(scheduled.sendAt, Math.ceil(later / 1000) * 1000);
+        t.assert.equal(read.kind, 'deferred');
+        t.assert.equal(read.state, 'active');
+        t.assert.equal(read.appUid, appUid);
+        t.assert.equal(read.nextRunAt, scheduled.sendAt);
+        t.assert.equal(codeOf(again), 'events_schedule_not_found');
+    },
+
+    'sends at once when sendAt is now, and refuses one it can`t read': async (
+        t,
+    ) => {
+        const appUid = await makeApp(t);
+        const { now, refused } = await asApp(t, appUid, async () => {
+            const now = await t.puter.notifications.notify({
+                title: unique('now'),
+                sendAt: Date.now(),
+            });
+            let refused: unknown;
+            try {
+                await t.puter.notifications.notify({
+                    title: unique('never'),
+                    sendAt: '11/02/2026',
+                });
+            } catch (error) {
+                refused = error;
+            }
+            return { now, refused };
+        });
+        t.assert.equal(typeof now, 'string');
+        t.assert.equal(codeOf(refused), 'events_schedule_invalid');
     },
 
     'status resolves one of its four states without asking': async (t) => {

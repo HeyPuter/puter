@@ -385,8 +385,10 @@
  * @property {number} startAt The first allowed run. For `once`, its only run.
  * @property {number | null} endsAt The last allowed run, inclusive, from
  *   `expiresAt` or `maxRuns`. For `once`, its only run.
- * @property {'active' | 'suspended' | 'ended'} state `suspended` while it
- *   doesn't run but can resume, `ended` once it never runs again.
+ * @property {'active' | 'suspended' | 'sending' | 'ended'} state `suspended`
+ *   while it doesn't run but can resume, `sending` once a delayed
+ *   notification has started to go (it can't be cancelled then), `ended` once
+ *   it never runs again.
  * @property {string | null} suspendedReason Why it is suspended:
  *   `handler_not_found`, `failures` or `no_credit`.
  * @property {string | null} endReason Why it ended: `removed`, `ended` (its
@@ -394,7 +396,7 @@
  *   `holder_gone`, `app_gone`, `orphaned`, `delivered` or `dropped`.
  * @property {number | null} endedAt When it ended.
  * @property {number | null} nextRunAt The next slot of its definition, or
- *   `null` while suspended and once ended. A run starts within about a minute
+ *   `null` while suspended or sending, and once ended. A run starts within about a minute
  *   of it; a late or retried run for an earlier slot may fire first.
  * @property {number} createdAt When it was created.
  * @property {() => Promise<void>} [off] Removes the schedule. Present on the

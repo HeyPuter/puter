@@ -32,6 +32,25 @@
  */
 
 /**
+ * Sends a notification later instead of now.
+ *
+ * @typedef {Object} DelayedNotificationOptions
+ * @property {number | string | Date} sendAt When to send it: an ISO-8601 time
+ *   with a zone (or a plain date, read as UTC midnight), a `Date`, or
+ *   milliseconds since the epoch, rounded up to the next whole second. At most
+ *   366 days ahead. Within 5 seconds, or in the past, it is sent at once.
+ */
+
+/**
+ * A notification stored to be sent later.
+ *
+ * @typedef {Object} ScheduledNotification
+ * @property {string} scheduleId What `cancel()` and `puter.events.getSchedule()`
+ *   name.
+ * @property {number} sendAt When it goes, in milliseconds since the epoch.
+ */
+
+/**
  * Who a notification goes to, when it isn't the user the app runs for.
  *
  * @typedef {Object} NotificationRecipient
