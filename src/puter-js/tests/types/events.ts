@@ -32,4 +32,6 @@ export const onPuter = async (puter: Puter): Promise<void> => {
     await puter.events.removeSchedule(page.items[0].scheduleId);
     await puter.notifications.cancel(schedule.scheduleId);
     await puter.events.unsubscribe('sub-id');
+    // The handle onSchedule() returns always has off().
+    await schedule.off();
 };

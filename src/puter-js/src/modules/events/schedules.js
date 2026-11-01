@@ -47,7 +47,8 @@ const assertScheduleId = (scheduleId) => {
  *
  * @this {import('./index.js').EventsModule}
  * @param {OnScheduleOptions} options
- * @returns {Promise<Schedule>}
+ * @returns {Promise<Schedule & { off: () => Promise<void> }>} The schedule,
+ *   with `off()` to remove it.
  */
 export async function onSchedule (options) {
     const { puter } = this;
@@ -100,8 +101,8 @@ export async function onSchedule (options) {
     const schedule = /** @type {Schedule} */ (
         await request(puter, '/events/schedules', body)
     );
-    schedule.off = async () => this.removeSchedule(schedule.scheduleId);
-    return schedule;
+    const off = async () => this.removeSchedule(schedule.scheduleId);
+    return Object.assign(schedule, { off });
 }
 
 /**
