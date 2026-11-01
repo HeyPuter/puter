@@ -285,6 +285,18 @@ describe('AbstractDatabaseClient — SQL generation', () => {
         );
     });
 
+    it('reads the database clock as epoch milliseconds in each dialect', () => {
+        expect(sqlite().nowMsExpr()).toBe(
+            "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)",
+        );
+        expect(mysql().nowMsExpr()).toBe(
+            "(TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(6)) DIV 1000)",
+        );
+        expect(postgres().nowMsExpr()).toBe(
+            'CAST(EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS BIGINT)',
+        );
+    });
+
     it('describes a stored timestamp the way each driver reads it back', () => {
         const seconds = Date.UTC(2026, 9, 11, 8, 5, 9) / 1000;
         expect(sqlite().timestampValue(seconds)).toBe('2026-10-11 08:05:09');
