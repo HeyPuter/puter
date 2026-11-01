@@ -16,7 +16,6 @@ import {
 } from './clients/database/PostgresDatabaseClient';
 import type { PoolConfig } from 'pg';
 import { ADMIN_GROUP_UID } from './services/selfhosted/DefaultUserService';
-import type { JobRunContext } from './services/jobs/JobScheduler';
 import { FULL_API_ACCESS } from './services/permission/consts';
 import { WORKER_SUBDOMAIN_PREFIX } from './stores/subdomain/SubdomainStore.js';
 import { generateDefaultFsentries } from './util/userProvisioning';
@@ -468,23 +467,3 @@ export const inRequestScope = <T extends object>(controller: T): T =>
                 );
         },
     });
-
-/**
- * What a system job's `run` receives, for calling it directly: `saved` records
- * each `saveState`, and `abort` aborts the signal.
- */
-export const testJobContext = (
-    state: unknown = null,
-): JobRunContext & { saved: unknown[]; abort: () => void } => {
-    const controller = new AbortController();
-    const saved: unknown[] = [];
-    return {
-        signal: controller.signal,
-        state,
-        saveState: async (next) => {
-            saved.push(next);
-        },
-        saved,
-        abort: () => controller.abort(),
-    };
-};
