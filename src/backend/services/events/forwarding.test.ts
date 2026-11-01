@@ -441,6 +441,7 @@ const makeRegion = (
             ): Promise<{
                 row: DurableSubscription;
                 bump: { userId: number; generation: number };
+                reaped: [];
             }> => {
                 const row = durableRow({
                     holderUserId: input.holderUserId as number,
@@ -469,6 +470,7 @@ const makeRegion = (
                             row.ownerUserId,
                         ),
                     },
+                    reaped: [],
                 };
             },
         },

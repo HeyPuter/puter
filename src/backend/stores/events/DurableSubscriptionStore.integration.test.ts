@@ -565,7 +565,9 @@ describe('rows suspended for good', () => {
             },
         );
 
-        await durable().create(input());
+        const created = await durable().create(input());
+        // The trim's bump, for the caller to publish to the other regions.
+        expect(created.reaped.map((bump) => bump.userId)).toEqual([userId]);
 
         await expect(durable().countForHolder(userId)).resolves.toEqual({
             total: 1,
@@ -744,7 +746,7 @@ describe('the expiry sweep', () => {
         // one back to prove the sweep is what removes it.
         await cache().cacheDurable([expired.row]);
 
-        await expect(durable().sweepExpired(500)).resolves.toBe(1);
+        expect((await durable().sweepExpired(500)).rows).toHaveLength(1);
 
         await expect(durable().getBySubId(expired.row.subId)).resolves.toBeNull();
         await expect(cache().getForTokens(userId, [token()])).resolves.toEqual([
@@ -754,7 +756,7 @@ describe('the expiry sweep', () => {
 
     it('leaves a subscription with no expiry alone', async () => {
         await durable().create(input());
-        await expect(durable().sweepExpired(500)).resolves.toBe(0);
+        expect((await durable().sweepExpired(500)).rows).toHaveLength(0);
         await expect(durable().countForHolder(userId)).resolves.toMatchObject({
             total: 1,
         });
@@ -808,15 +810,17 @@ describe('reapForApp', () => {
         const untouched = await durable().create(input());
         const before = await cache().getGeneration(userId);
 
-        await expect(durable().reapForApp(appUid, 500)).resolves.toBe(1);
+        const reaped = await durable().reapForApp(appUid, 500);
+        expect(reaped.rows.map((row) => row.subId)).toEqual([mine.row.subId]);
 
         await expect(durable().getBySubId(mine.row.subId)).resolves.toBeNull();
         await expect(
             durable().getBySubId(untouched.row.subId),
         ).resolves.not.toBeNull();
-        await expect(cache().getGeneration(userId)).resolves.toBeGreaterThan(
-            before,
-        );
+        const after = await cache().getGeneration(userId);
+        expect(after).toBeGreaterThan(before);
+        // The bump the caller publishes to the other regions.
+        expect(reaped.bumps).toEqual([{ userId, generation: after }]);
     });
 
     it('never touches another app`s rows', async () => {
@@ -837,7 +841,7 @@ describe('reapForApp', () => {
     it('answers 0 for an app with nothing to reap', async () => {
         await expect(
             durable().reapForApp(`app-${uuidv4()}`, 500),
-        ).resolves.toBe(0);
+        ).resolves.toEqual({ rows: [], bumps: [] });
     });
 });
 

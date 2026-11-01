@@ -48,8 +48,9 @@ export type {
 } from './notificationTypes.js';
 export { canViewNotification } from './notificationAudience.js';
 
-/** How often the retention sweep runs. */
-const RETENTION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+const RETENTION_SWEEP_JOB = 'notifications.retention';
+const RETENTION_SWEEP_EVERY_MS = 60 * 60 * 1000;
+const RETENTION_SWEEP_LEASE_MS = 15 * 60 * 1000;
 /** Rows one delete takes. Small enough not to hold a lock anyone waits on. */
 const RETENTION_BATCH_SIZE = 500;
 /** Batches one sweep takes, so a large backlog drains over several passes. */
@@ -69,11 +70,20 @@ const UNREAD_REPLAY_LIMIT = 200;
 export class NotificationService extends PuterService {
     /** User.id → debounce timeout */
     #connectTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
-    #retentionSweep: ReturnType<typeof setInterval> | null = null;
     #adapter: NotificationSocketAdapter | null = null;
 
     override onServerStart(): void {
-        this.#armRetentionSweep();
+        if (this.#retentionDays() > 0) {
+            this.services.jobs.register(RETENTION_SWEEP_JOB, {
+                every: RETENTION_SWEEP_EVERY_MS,
+                scope: 'fleet',
+                nearPrimary: true,
+                leaseMs: RETENTION_SWEEP_LEASE_MS,
+                run: async ({ signal }) => {
+                    await this.sweepExpired(signal);
+                },
+            });
+        }
         this.#socket().attach();
 
         // When a user opens the GUI, send their pending unreads.
@@ -101,11 +111,6 @@ export class NotificationService extends PuterService {
                 );
             },
         );
-    }
-
-    override onServerPrepareShutdown(): void {
-        if (this.#retentionSweep) clearInterval(this.#retentionSweep);
-        this.#retentionSweep = null;
     }
 
     // -- Public API --------------------------------------------------
@@ -348,17 +353,15 @@ export class NotificationService extends PuterService {
      * Drop notifications past the retention window, in batches, and report how
      * many went. Deleting is all there is to it: nothing is pushed, because a
      * two-week-old row is not news, and a client listing again simply stops
-     * seeing it.
-     *
-     * Every node sweeps. Batches are small and the delete is idempotent, so two
-     * nodes overlapping costs a few empty batches, not correctness.
+     * seeing it. Stops between batches once `signal` aborts.
      */
-    async sweepExpired(): Promise<number> {
+    async sweepExpired(signal?: AbortSignal): Promise<number> {
         const days = this.#retentionDays();
         if (days <= 0) return 0;
 
         let removed = 0;
         for (let pass = 0; pass < RETENTION_MAX_BATCHES; pass++) {
+            if (signal?.aborted) break;
             const batch = await this.stores.notification.deleteCreatedBefore(
                 days,
                 RETENTION_BATCH_SIZE,
@@ -468,17 +471,6 @@ export class NotificationService extends PuterService {
     #retentionDays(): number {
         const configured = Number(this.config.notificationRetentionDays ?? 0);
         return Number.isFinite(configured) && configured > 0 ? configured : 0;
-    }
-
-    #armRetentionSweep(): void {
-        if (this.#retentionDays() <= 0) return;
-        const sweep = setInterval(() => {
-            void this.sweepExpired().catch((err) => {
-                console.warn('[notification] retention sweep failed', err);
-            });
-        }, RETENTION_SWEEP_INTERVAL_MS);
-        sweep.unref?.();
-        this.#retentionSweep = sweep;
     }
 
     /**

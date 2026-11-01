@@ -56,7 +56,9 @@ import {
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import type {
+    DurableCreated,
     ReanchorInput,
+    ReapResult,
     SuspendedReason,
 } from '../../stores/events/DurableSubscriptionStore.js';
 import type { LiveKvShareHandle } from '../../stores/events/KvShareHandleStore.js';
@@ -116,6 +118,7 @@ import {
     appSocketRoom,
     type SocketSpecifier,
 } from '../socket/SocketService.js';
+import { savedAfterId, type JobRunContext } from '../jobs/JobScheduler.js';
 import { PuterService } from '../types.js';
 import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import type { IConfig } from '../../types.js';
@@ -677,11 +680,11 @@ const ENDED_MESSAGES: Record<SubscriptionEndReason, string> = {
 
 // -- Expiry sweep -----------------------------------------------------
 
+/** Expired and long-suspended rows, then stranded worker sessions. */
+const EXPIRY_SWEEP_JOB = 'events.subscriptions.expirySweep';
 /** An expiry is a date, not a deadline, so hourly is close enough. */
-const EXPIRY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
-// The first pass lands within this long of boot, so a fleet that redeploys more
-// often than the interval still sweeps.
-const EXPIRY_SWEEP_INITIAL_DELAY_MS = 5 * 60 * 1000;
+const EXPIRY_SWEEP_EVERY_MS = 60 * 60 * 1000;
+const EXPIRY_SWEEP_LEASE_MS = 15 * 60 * 1000;
 /** Rows one delete takes. Small enough not to hold a lock anyone waits on. */
 const EXPIRY_BATCH_SIZE = 500;
 /** Batches one sweep takes, so a large backlog drains over several passes. */
@@ -695,15 +698,16 @@ const ENDED_SUBJECTS_LISTED = 20;
 /** Re-reads an unsubscribe takes to catch a row racing a reanchor. */
 const UNSUBSCRIBE_READS = 3;
 
-/**
- * Worker sessions one page of the stray-session sweep reads, and pages one pass
- * takes. Bounded low: the sweep is a safety net for sessions no API path could
- * reach any more, not a bulk cleanup, and it runs every hour.
- */
 /** A deleted account's apps settled at once. */
 const DELETED_ACCOUNT_SETTLE_CONCURRENCY = 4;
 /** Session rows ended at once when their handle stops standing. */
 const SESSION_END_CONCURRENCY = 4;
+/**
+ * Worker sessions one page of the stray-session sweep reads, and pages one pass
+ * takes. Bounded low: the sweep is a safety net for sessions no API path could
+ * reach any more, not a bulk cleanup; it runs every hour and resumes where the
+ * last pass stopped.
+ */
 const WORKER_SESSION_SWEEP_BATCH = 500;
 const WORKER_SESSION_SWEEP_MAX_PAGES = 2;
 
@@ -751,12 +755,14 @@ const METER_ACTOR_LIMIT = 5_000;
 const NO_CREDIT_SWEEP_BATCH = 500;
 const NO_CREDIT_SWEEP_MAX_BATCHES = 200;
 
+const NO_CREDIT_SWEEP_JOB = 'events.subscriptions.creditSweep';
 /**
  * How often suspensions waiting on a restored balance are re-checked. Well
  * inside the hour a `no_credit` backlog is held for, so a top-up gets the
  * subscription back before what it was owed expires.
  */
-const NO_CREDIT_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+const NO_CREDIT_SWEEP_EVERY_MS = 15 * 60 * 1000;
+const NO_CREDIT_SWEEP_LEASE_MS = 10 * 60 * 1000;
 
 /** The part of a socket this service uses, so tests need not build one. */
 export interface EventSocket {
@@ -1376,10 +1382,7 @@ export class EventsService extends PuterService {
     readonly #flushing = new Map<string, number>();
     /** Paces settles started by deliveries that found consent withdrawn. */
     readonly #consentSettles = new ConsentSettles();
-    #expirySweep: ReturnType<typeof setInterval> | null = null;
-    #expiryKick: ReturnType<typeof setTimeout> | null = null;
     #pendingSweep: ReturnType<typeof setInterval> | null = null;
-    #creditSweep: ReturnType<typeof setInterval> | null = null;
 
     /**
      * What runs an app's handler. Replaced at start-up by the invoker that
@@ -1524,20 +1527,13 @@ export class EventsService extends PuterService {
             });
         });
 
-        this.#armExpirySweep();
         this.#armPendingSweep();
-        this.#armCreditSweep();
+        if (this.enabled) this.#registerJobs();
     }
 
     override onServerPrepareShutdown(): void {
-        if (this.#expiryKick) clearTimeout(this.#expiryKick);
-        this.#expiryKick = null;
-        if (this.#expirySweep) clearInterval(this.#expirySweep);
-        this.#expirySweep = null;
         if (this.#pendingSweep) clearInterval(this.#pendingSweep);
         this.#pendingSweep = null;
-        if (this.#creditSweep) clearInterval(this.#creditSweep);
-        this.#creditSweep = null;
     }
 
     override onServerShutdown(): void {
@@ -1886,7 +1882,7 @@ export class EventsService extends PuterService {
         if (includeValue) assertValueDeliverable(rawSubject);
         const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
 
-        let created: { row: DurableSubscription; bump: GenerationBump };
+        let created: DurableCreated;
         try {
             created = await this.stores.durableSubscription.create({
                 holderUserId,
@@ -1913,8 +1909,11 @@ export class EventsService extends PuterService {
                 this.#publishGeneration(err.bump, true);
             throw err;
         }
-        const { row, bump } = created;
+        const { row, bump, reaped } = created;
         this.#publishGeneration(bump, true);
+        for (const trimmed of reaped)
+            if (trimmed.userId !== bump.userId)
+                this.#publishGeneration(trimmed, true);
 
         return { sub: toDurableView(row) };
     }
@@ -2667,15 +2666,13 @@ export class EventsService extends PuterService {
         );
     }
 
-    /**
-     * Drop rows past their expiry, in batches, and report how many went. Every
-     * node sweeps; the delete is idempotent, so two overlapping costs a few
-     * empty batches rather than correctness.
-     */
-    async sweepExpired(): Promise<number> {
+    /** Drop rows past their expiry, in batches, and report how many went. */
+    async sweepExpired(signal?: AbortSignal): Promise<number> {
         if (!this.enabled) return 0;
-        return this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.sweepExpired(batchSize),
+        return this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.sweepExpired(batchSize),
+            signal,
         );
     }
 
@@ -2684,13 +2681,18 @@ export class EventsService extends PuterService {
      * revoked subscription never resumes, so the row survives only as the
      * answer its holder gets from `list` when they ask why it stopped.
      */
-    async sweepSuspended(): Promise<number> {
+    async sweepSuspended(signal?: AbortSignal): Promise<number> {
         if (!this.enabled) return 0;
         const cutoff =
             Math.floor(Date.now() / 1000) -
             SUSPENDED_ROW_TTL_DAYS * 24 * 60 * 60;
-        return this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.sweepSuspended(cutoff, batchSize),
+        return this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.sweepSuspended(
+                    cutoff,
+                    batchSize,
+                ),
+            signal,
         );
     }
 
@@ -2701,20 +2703,26 @@ export class EventsService extends PuterService {
      * existed). Scoped to this one worker name; the same strand for
      * `WorkerDriver`-minted sessions is a separate finding, not covered here.
      */
-    async sweepStrandedWorkerSessions(): Promise<number> {
+    async sweepStrandedWorkerSessions({
+        signal,
+        state,
+        saveState,
+    }: JobRunContext): Promise<number> {
         if (!this.enabled) return 0;
 
         let revoked = 0;
-        let afterId = 0;
-        for (let page = 0; page < WORKER_SESSION_SWEEP_MAX_PAGES; page++) {
+        let afterId = savedAfterId(state);
+        let saved = afterId;
+        for (
+            let page = 0;
+            page < WORKER_SESSION_SWEEP_MAX_PAGES && !signal.aborted;
+            page++
+        ) {
             const rows = await this.stores.session.listWorkerSessions({
                 workerName: EVENTS_WORKER_SESSION_NAME,
                 afterId,
                 limit: WORKER_SESSION_SWEEP_BATCH,
             });
-            if (rows.length === 0) break;
-            afterId = rows[rows.length - 1].id;
-
             const appUids = [
                 ...new Set(rows.map((row) => row.appUid).filter(Boolean)),
             ] as string[];
@@ -2734,7 +2742,16 @@ export class EventsService extends PuterService {
                 }
             }
 
-            if (rows.length < WORKER_SESSION_SWEEP_BATCH) break;
+            // A short page is the end of the table; the next run wraps.
+            afterId =
+                rows.length < WORKER_SESSION_SWEEP_BATCH
+                    ? 0
+                    : rows[rows.length - 1].id;
+            if (afterId !== saved) {
+                await saveState(afterId === 0 ? null : { afterId });
+                saved = afterId;
+            }
+            if (afterId === 0) break;
         }
         return revoked;
     }
@@ -2744,13 +2761,25 @@ export class EventsService extends PuterService {
      * top-up is not something this service hears about, and coupling delivery
      * to the payment path would make one more thing that has to be told. The
      * cost of the delay is bounded by how long a `no_credit` backlog is held.
+     *
+     * Each run picks up where the last one stopped and wraps at the end of the
+     * table, so a backlog past one run's cap is still reached.
      */
-    async sweepNoCredit(): Promise<number> {
+    async sweepNoCredit({
+        signal,
+        state,
+        saveState,
+    }: JobRunContext): Promise<number> {
         if (!this.enabled || !this.services.metering) return 0;
 
         let resumed = 0;
-        let after = 0;
-        for (let pass = 0; pass < NO_CREDIT_SWEEP_MAX_BATCHES; pass++) {
+        let after = savedAfterId(state);
+        let saved = after;
+        for (
+            let pass = 0;
+            pass < NO_CREDIT_SWEEP_MAX_BATCHES && !signal.aborted;
+            pass++
+        ) {
             const page =
                 await this.stores.durableSubscription.listSuspendedPage(
                     'no_credit',
@@ -2759,6 +2788,8 @@ export class EventsService extends PuterService {
                 );
             const holders = new Set(page.rows.map((row) => row.holderUserId));
             for (const holderUserId of holders) {
+                // The page is redone next run.
+                if (signal.aborted) return resumed;
                 const actor = await this.#meterActor({
                     holderUserId,
                     appUid: null,
@@ -2777,20 +2808,30 @@ export class EventsService extends PuterService {
                 }
                 resumed += await this.resumeForCredit(holderUserId);
             }
-            if (page.nextId === null) break;
-            after = page.nextId;
+            after = page.nextId ?? 0;
+            if (after !== saved) {
+                await saveState(after === 0 ? null : { afterId: after });
+                saved = after;
+            }
+            if (after === 0) break;
         }
         return resumed;
     }
 
+    /**
+     * Reap in batches until a short one, publishing each batch's bumps so every
+     * region stops delivering against what went.
+     */
     async #sweepInBatches(
-        pass: (batchSize: number) => Promise<number>,
+        pass: (batchSize: number) => Promise<ReapResult>,
+        signal?: AbortSignal,
     ): Promise<number> {
         let removed = 0;
-        for (let i = 0; i < EXPIRY_MAX_BATCHES; i++) {
-            const batch = await pass(EXPIRY_BATCH_SIZE);
-            removed += batch;
-            if (batch < EXPIRY_BATCH_SIZE) break;
+        for (let i = 0; i < EXPIRY_MAX_BATCHES && !signal?.aborted; i++) {
+            const { rows, bumps } = await pass(EXPIRY_BATCH_SIZE);
+            for (const bump of bumps) this.#publishGeneration(bump, true);
+            removed += rows.length;
+            if (rows.length < EXPIRY_BATCH_SIZE) break;
         }
         return removed;
     }
@@ -6465,37 +6506,27 @@ export class EventsService extends PuterService {
         }
     }
 
-    #armExpirySweep(): void {
-        if (!this.enabled) return;
-        const run = () => {
-            void this.sweepExpired()
-                .then(() => this.sweepSuspended())
-                .then(() => this.sweepStrandedWorkerSessions())
-                .catch((err) => {
-                    console.warn('[events] expiry sweep failed', err);
-                });
-        };
-        // Jittered so a deploy does not have every node sweep at once.
-        const kick = setTimeout(
-            run,
-            EXPIRY_SWEEP_INITIAL_DELAY_MS * (0.5 + Math.random()),
-        );
-        kick.unref?.();
-        this.#expiryKick = kick;
-        const sweep = setInterval(run, EXPIRY_SWEEP_INTERVAL_MS);
-        sweep.unref?.();
-        this.#expirySweep = sweep;
-    }
-
-    #armCreditSweep(): void {
-        if (!this.enabled) return;
-        const sweep = setInterval(() => {
-            void this.sweepNoCredit().catch((err) => {
-                console.warn('[events] credit sweep failed', err);
-            });
-        }, NO_CREDIT_SWEEP_INTERVAL_MS);
-        sweep.unref?.();
-        this.#creditSweep = sweep;
+    /** The table sweeps, each run once per cadence across the fleet. */
+    #registerJobs(): void {
+        this.services.jobs.register(EXPIRY_SWEEP_JOB, {
+            every: EXPIRY_SWEEP_EVERY_MS,
+            scope: 'fleet',
+            nearPrimary: true,
+            leaseMs: EXPIRY_SWEEP_LEASE_MS,
+            run: async (ctx) => {
+                await this.sweepExpired(ctx.signal);
+                await this.sweepSuspended(ctx.signal);
+                await this.sweepStrandedWorkerSessions(ctx);
+            },
+        });
+        this.services.jobs.register(NO_CREDIT_SWEEP_JOB, {
+            every: NO_CREDIT_SWEEP_EVERY_MS,
+            scope: 'fleet',
+            leaseMs: NO_CREDIT_SWEEP_LEASE_MS,
+            run: async (ctx) => {
+                await this.sweepNoCredit(ctx);
+            },
+        });
     }
 
     #armPendingSweep(): void {

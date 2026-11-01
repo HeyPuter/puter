@@ -111,6 +111,11 @@ type UsageWriteResult = {
     detail?: FlatUsageDetail;
 };
 
+/** Compares fleet-wide spend against `maxGlobalUsagePerMinute`. */
+const GLOBAL_RATE_CHECK_JOB = 'metering.globalRateCheck';
+const GLOBAL_RATE_CHECK_EVERY_MS = 25 * 60 * 1000;
+const GLOBAL_RATE_CHECK_LEASE_MS = 5 * 60 * 1000;
+
 // -- Helpers ----------------------------------------------------------
 
 /**
@@ -284,7 +289,6 @@ export class MeteringService extends PuterService {
      */
     static APP_TOTALS_LIST_LIMIT = 4_000;
 
-    private rateCheckTimer: ReturnType<typeof setInterval> | null = null;
     private usageBufferTimer: ReturnType<typeof setInterval> | null = null;
     private extraPolicies: SubscriptionPolicy[] = [];
     private subscriptionResolvers: SubscriptionResolver[] = [];
@@ -415,15 +419,15 @@ export class MeteringService extends PuterService {
             },
         );
 
-        this.rateCheckTimer = setInterval(
-            () => {
-                this.checkRateOfChange().catch((e) => {
-                    console.error('[metering] rate-of-change check failed', e);
-                });
-            },
-            1000 * 60 * 25,
-        );
-        this.rateCheckTimer.unref?.();
+        const maxPerMinute = this.config.maxGlobalUsagePerMinute;
+        if (maxPerMinute && maxPerMinute > 0) {
+            this.services.jobs.register(GLOBAL_RATE_CHECK_JOB, {
+                every: GLOBAL_RATE_CHECK_EVERY_MS,
+                scope: 'fleet',
+                leaseMs: GLOBAL_RATE_CHECK_LEASE_MS,
+                run: () => this.checkRateOfChange(),
+            });
+        }
 
         const flushInterval =
             this.config.meteringUsageBufferFlushMs &&
@@ -454,10 +458,6 @@ export class MeteringService extends PuterService {
     }
 
     override async onServerShutdown(): Promise<void> {
-        if (this.rateCheckTimer) {
-            clearInterval(this.rateCheckTimer);
-            this.rateCheckTimer = null;
-        }
         if (this.usageBufferTimer) {
             clearInterval(this.usageBufferTimer);
             this.usageBufferTimer = null;
@@ -2947,8 +2947,6 @@ export class MeteringService extends PuterService {
             total: number;
             timestamp: number;
         } | null;
-
-        if (lastChange && now - lastChange.timestamp <= 14 * 60 * 1000) return;
 
         const globalUsage = await this.getGlobalUsage();
         const currTotal = globalUsage.total;
