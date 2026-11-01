@@ -158,7 +158,7 @@ const parseTime = (value: unknown, field: string): number | null => {
               ? parseIso(value)
               : Number.NaN;
     const rounded = ceilToSecond(ms);
-    if (!Number.isSafeInteger(rounded) || rounded < 0)
+    if (!Number.isSafeInteger(rounded) || ms < 0)
         throw scheduleInvalid(
             `${field} must be an ISO-8601 time with a zone, or whole epoch milliseconds`,
         );

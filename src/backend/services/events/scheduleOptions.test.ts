@@ -424,6 +424,7 @@ describe('time values', () => {
         ['epoch ms past what is stored exactly', 1e100],
         ['fractional epoch ms', at('2026-11-01T18:30:00Z') + 0.5],
         ['a negative time', -1000],
+        ['a negative time that rounds up to zero', -1],
     ])('refuses %s', async (_label, value) => {
         expect((await refusal({ every: '1h', expiresAt: value })).code).toBe(
             'events_schedule_invalid',
