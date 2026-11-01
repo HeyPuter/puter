@@ -210,7 +210,11 @@ describe('OpenAIRealtimeRelayService relay', () => {
 
     // Realtime is subscriber-only; the test user is on a paid plan with a $10
     // allowance unless a test says otherwise.
-    beforeEach(() => {
+    beforeEach(async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        user.token = (
+            await server.services.auth.createSessionToken(row!, {})
+        ).token;
         const metering = server.services.metering;
         const plan = metering.getActorSubscription.bind(metering);
         vi.spyOn(metering, 'getActorSubscription').mockImplementation(
