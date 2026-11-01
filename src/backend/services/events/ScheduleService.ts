@@ -280,9 +280,12 @@ export class ScheduleService extends PuterService {
         const holderUserId = actor.user?.id;
         if (holderUserId === undefined) throw disabled();
         assertResolvedActor(actor);
+        // A scoped token first, whoever issued it: an account-issued one has
+        // no app either, and must not read as the account.
+        if (isAccessTokenActor(actor) && !isAccountContext(actor))
+            throw scopedToken();
         const appUid = actor.effectiveApp?.uid;
         if (!appUid) throw appRequired();
-        if (isAccessTokenActor(actor)) throw scopedToken();
         // Before validation: a cron create can cost a scan.
         await spendUserWindow(EVENTS_SUBSCRIBE_LIMIT, holderUserId);
         if ((await this.services.events.hasBackgroundConsent(actor)) !== true)

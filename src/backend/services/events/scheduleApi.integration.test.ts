@@ -420,13 +420,17 @@ describe('what a create refuses', () => {
         expect(refused.body.code).toBe('events_schedule_app_required');
     });
 
-    it('refuses a scoped token, even one the app issued', async () => {
+    it('refuses a scoped token, whether the account or the app issued it', async () => {
         const appActor = (await server().services.auth.authenticate(app.token))
             .actor!;
-        const scoped = await scopedToken(appActor);
-        const refused = await createEvery(scoped);
-        expect(refused.status).toBe(403);
-        expect(refused.body.code).toBe('events_durable_requires_account');
+        for (const scoped of [
+            await scopedToken(session),
+            await scopedToken(appActor),
+        ]) {
+            const refused = await createEvery(scoped);
+            expect(refused.status).toBe(403);
+            expect(refused.body.code).toBe('events_durable_requires_account');
+        }
     });
 
     it('needs the holder`s background consent for the app', async () => {
