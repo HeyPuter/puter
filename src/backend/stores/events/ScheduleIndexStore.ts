@@ -208,10 +208,10 @@ return 1
 `;
 
 /**
- * KEYS: due, run, def, absent. ARGV: id, version ('' = the stored one), state,
- * defJson ('' = keep the stored one), score, owed. Returns 1 changed, 0 stale
- * or no-op, 2 membership repaired, 3 a live row met a tombstone at its
- * version.
+ * KEYS: due, run, def, absent. ARGV: id, version, state, defJson ('' = keep the
+ * stored one), score, owed, exact ('1' = only when the stored version is this
+ * one). Returns 1 changed, 0 stale or no-op, 2 membership repaired, 3 a live
+ * row met a tombstone at its version.
  */
 const APPLY_SCRIPT = `${PRELUDE}
 local id = ARGV[1]
@@ -224,14 +224,9 @@ if cur then
     sstate = s
     sjson = j
 end
+local v = tonumber(ARGV[2])
+if ARGV[7] == '1' and (not cur or sv ~= v) then return 0 end
 redis.call('HDEL', KEYS[4], id)
-local v
-if ARGV[2] == '' then
-    if not cur then return 0 end
-    v = sv
-else
-    v = tonumber(ARGV[2])
-end
 local function newRun()
     return { owed = ARGV[6], pinned = '', missed = '', attempts = '0',
         fails = '0', token = '', phase = '' }
@@ -440,6 +435,7 @@ interface ScheduleScripts {
         defJson: string,
         score: string,
         owed: string,
+        exact: string,
     ): Reply;
     schedForget(
         def: string,
@@ -544,8 +540,9 @@ export interface SchedulePop {
 /** One `schedApply`. */
 export interface ScheduleIndexChange {
     id: string;
-    /** `null` applies at the version the index already holds. */
-    version: number | null;
+    version: number;
+    /** Apply only while the index still holds exactly `version`. */
+    exact?: boolean;
     state: ScheduleIndexState;
     /** `null` keeps the stored def; ignored for `ended`. */
     def: ScheduleIndexDef | null;
@@ -862,13 +859,14 @@ export class ScheduleIndexStore extends PuterStore {
                         k.def,
                         k.absent,
                         c.id,
-                        c.version === null ? '' : int(c.version),
+                        int(c.version),
                         c.state,
                         c.state === 'ended' || c.def === null
                             ? ''
                             : JSON.stringify(c.def),
                         int(c.score),
                         c.owed === null ? '' : int(c.owed),
+                        c.exact ? '1' : '',
                     );
                 }
                 const replies = (await pipeline.exec()) ?? [];
@@ -918,6 +916,20 @@ export class ScheduleIndexStore extends PuterStore {
     }
 
     // -- Reads --------------------------------------------------------
+
+    /** The versions the index holds for these schedules, where it has one. */
+    async versionsOf(ids: readonly string[]): Promise<Map<string, number>> {
+        const versions = new Map<string, number>();
+        for (const id of ids) {
+            const raw = await this.clients.redis.hget(
+                this.#keysFor(id).def,
+                id,
+            );
+            const version = raw === null ? NaN : parseInt(raw, 10);
+            if (Number.isSafeInteger(version)) versions.set(id, version);
+        }
+        return versions;
+    }
 
     async getDef(id: string): Promise<ScheduleDefEntry | null> {
         const raw = await this.clients.redis.hget(this.#keysFor(id).def, id);
@@ -979,6 +991,36 @@ export class ScheduleIndexStore extends PuterStore {
 
     async setSyncCursor(updatedAt: number): Promise<void> {
         await this.clients.redis.set(this.#meta('sync'), int(updatedAt));
+    }
+
+    /** Where an unfinished incremental scan stopped, and what it had seen. */
+    async getSyncScan(): Promise<{
+        updatedAt: number;
+        id: number;
+        newest: number;
+    } | null> {
+        const raw = await this.clients.redis.get(this.#meta('syncScan'));
+        if (raw === null) return null;
+        try {
+            return JSON.parse(raw) as {
+                updatedAt: number;
+                id: number;
+                newest: number;
+            };
+        } catch {
+            return null;
+        }
+    }
+
+    async setSyncScan(
+        scan: { updatedAt: number; id: number; newest: number } | null,
+    ): Promise<void> {
+        if (scan === null) await this.clients.redis.del(this.#meta('syncScan'));
+        else
+            await this.clients.redis.set(
+                this.#meta('syncScan'),
+                JSON.stringify(scan),
+            );
     }
 
     async getFullCursor(): Promise<ScheduleFullDiffCursor | null> {

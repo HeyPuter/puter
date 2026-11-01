@@ -29,6 +29,7 @@ import {
     type PageResult,
 } from '../../util/pagination.js';
 import type { IConfig } from '../../types.js';
+import type { BatchEntry } from '../../clients/database/DatabaseClient.js';
 import { PuterStore } from '../types.js';
 import { assertColumnWidths, EVENT_SCHEDULE_WIDTHS } from './columnWidths.js';
 import {
@@ -87,6 +88,9 @@ export const SCHEDULE_LIST_LIMIT_CAP = 200;
 
 /** Ids one UPDATE names. */
 const WRITE_BATCH = 500;
+
+/** Rows one ending transaction takes. */
+const END_BATCH = 200;
 
 const TABLE = 'event_schedules';
 
@@ -481,28 +485,6 @@ export class ScheduleStore extends PuterStore {
     }
 
     /**
-     * End rows: soft-delete with a reason, bumping `version`. Rows already
-     * ended keep their first reason. Returns the rows as they now stand.
-     */
-    async finish(
-        ids: readonly number[],
-        endReason: ScheduleEndReason,
-    ): Promise<ScheduleRow[]> {
-        const now = Date.now();
-        for (const batch of chunks(ids, WRITE_BATCH)) {
-            await this.clients.db.write(
-                `UPDATE \`${TABLE}\` SET \`state\` = 'done', ` +
-                    '`end_reason` = ?, `deleted_at` = ?, ' +
-                    '`version` = `version` + 1, `updated_at` = ? ' +
-                    `WHERE \`id\` IN (${batch.map(() => '?').join(', ')}) ` +
-                    'AND `deleted_at` IS NULL',
-                [endReason, now, now, ...batch],
-            );
-        }
-        return this.#getByIds(ids);
-    }
-
-    /**
      * Record a change to the subscription rows schedules own: bump each
      * schedule's `version`, and end it when `end` is given. Runs after the
      * subscription change, so a replica that shows the new version also shows
@@ -512,14 +494,13 @@ export class ScheduleStore extends PuterStore {
         namespace: string,
         subIds: readonly string[],
         end: { reason: ScheduleEndReason } | null,
-    ): Promise<ScheduleRow[]> {
+    ): Promise<ScheduleSyncRow[]> {
         if (subIds.length === 0) return [];
         const now = Date.now();
         const set = end
             ? "`state` = 'done', `end_reason` = ?, `deleted_at` = ?, "
             : '';
         const setParams = end ? [end.reason, now] : [];
-        const rows: ScheduleRow[] = [];
         for (const batch of chunks(subIds, WRITE_BATCH)) {
             const inList = batch.map(() => '?').join(', ');
             await this.clients.db.write(
@@ -529,14 +510,91 @@ export class ScheduleStore extends PuterStore {
                     'AND `deleted_at` IS NULL',
                 [...setParams, now, namespace, ...batch],
             );
+        }
+        return this.syncRowsBySubIds(namespace, subIds);
+    }
+
+    /**
+     * Rows owning these subscription rows, with them, from the primary. One
+     * statement per batch, so each row's `version` and its subscription's state
+     * come from the same snapshot: what the index is given for that version is
+     * what the table held at it.
+     */
+    async syncRowsBySubIds(
+        namespace: string,
+        subIds: readonly string[],
+    ): Promise<ScheduleSyncRow[]> {
+        const rows: ScheduleSyncRow[] = [];
+        for (const batch of chunks(subIds, WRITE_BATCH)) {
             const read = await this.clients.db.pread(
-                `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
-                    `WHERE \`namespace\` = ? AND \`sub_id\` IN (${inList})`,
+                `${SYNC_SELECT} WHERE s.\`namespace\` = ? ` +
+                    `AND s.\`sub_id\` IN (${batch.map(() => '?').join(', ')})`,
                 [namespace, ...batch],
             );
-            rows.push(...read.map(toRow));
+            rows.push(...read.map(toSyncRow));
         }
         return rows;
+    }
+
+    /**
+     * End rows and delete the subscription rows they own, in one transaction
+     * per batch. With `ifVersion` set, a row ends only while it is still at it:
+     * a reconcile ends what a replica snapshot showed, which may be stale.
+     * `orphan` also requires the row to have no subscription row. A
+     * subscription row goes only once its schedule is ended. Returns the rows
+     * among these that are now ended.
+     */
+    async end(
+        targets: ReadonlyArray<{
+            id: number;
+            uid: string;
+            kind: ScheduleKind;
+            /** End it only while it is still at this version. */
+            ifVersion?: number;
+        }>,
+        endReason: ScheduleEndReason,
+        options: { orphan?: boolean } = {},
+    ): Promise<ScheduleRow[]> {
+        if (targets.length === 0) return [];
+        const now = Date.now();
+        const orphan = options.orphan
+            ? ' AND (`sub_id` IS NULL OR NOT EXISTS (SELECT 1 FROM `event_subscriptions` e ' +
+              `WHERE e.\`sub_id\` = \`${TABLE}\`.\`sub_id\`))`
+            : '';
+        for (const batch of chunks(targets, END_BATCH)) {
+            const entries: BatchEntry[] = [];
+            for (const target of batch) {
+                const fenced = target.ifVersion !== undefined;
+                entries.push({
+                    statement:
+                        `UPDATE \`${TABLE}\` SET \`state\` = 'done', ` +
+                        '`end_reason` = ?, `deleted_at` = ?, ' +
+                        '`version` = `version` + 1, `updated_at` = ? ' +
+                        'WHERE `id` = ? AND `deleted_at` IS NULL' +
+                        (fenced ? ' AND `version` = ?' : '') +
+                        orphan,
+                    values: [
+                        endReason,
+                        now,
+                        now,
+                        target.id,
+                        ...(fenced ? [target.ifVersion] : []),
+                    ],
+                });
+                if (target.kind !== 'deferred')
+                    entries.push({
+                        statement:
+                            'DELETE FROM `event_subscriptions` WHERE `token` = ? ' +
+                            `AND EXISTS (SELECT 1 FROM \`${TABLE}\` s ` +
+                            'WHERE s.`id` = ? AND s.`deleted_at` IS NOT NULL)',
+                        values: [scheduleToken(target.uid), target.id],
+                    });
+            }
+            await this.clients.db.batchWrite(entries);
+        }
+        return (await this.#getByIds(targets.map((t) => t.id))).filter(
+            (row) => row.deletedAt !== null,
+        );
     }
 
     /**
@@ -605,11 +663,12 @@ export class ScheduleStore extends PuterStore {
      * subscription row the crash left without its schedule pointing at it.
      */
     async endOrphan(row: ScheduleRow): Promise<ScheduleRow | null> {
-        const [ended] = await this.finish([row.id], 'orphaned');
-        await this.stores.durableSubscription.removeScheduleSubscription(
-            row.uid,
+        const [ended] = await this.end(
+            [{ ...row, ifVersion: row.version }],
+            'orphaned',
+            { orphan: true },
         );
-        return ended ?? null;
+        return ended?.endReason === 'orphaned' ? ended : null;
     }
 
     // -- Reads -------------------------------------------------------

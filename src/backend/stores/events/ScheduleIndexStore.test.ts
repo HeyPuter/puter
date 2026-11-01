@@ -446,24 +446,34 @@ describe('apply', () => {
             expect(await index.getScore('t')).toBe(T0 + 9000);
         });
 
-        it('applies at the stored version when none is given', async () => {
+        it('with `exact`, applies only at the version the caller saw', async () => {
             await applyOne(change('v', { version: 7 }));
+            const suspend = {
+                exact: true,
+                state: 'suspended:failures',
+                def: null,
+            };
             expect(
-                await applyOne(
-                    change('v', {
-                        version: null,
-                        state: 'suspended:failures',
-                        def: null,
-                    }),
-                ),
+                await applyOne(change('v', { version: 6, ...suspend })),
+            ).toBe(0);
+            expect(
+                await applyOne(change('v', { version: 8, ...suspend })),
+            ).toBe(0);
+            expect(
+                await applyOne(change('v', { version: 7, ...suspend })),
             ).toBe(1);
             expect(await index.getDef('v')).toMatchObject({
                 version: 7,
                 state: 'suspended:failures',
                 def: { appUid: 'app-1' },
             });
-            expect(await applyOne(change('w', { version: null }))).toBe(0);
+            expect(
+                await applyOne(change('w', { version: 1, exact: true })),
+            ).toBe(0);
             expect(await index.getDef('w')).toBeNull();
+            expect(await index.versionsOf(['v', 'w'])).toEqual(
+                new Map([['v', 7]]),
+            );
         });
     });
 });

@@ -262,6 +262,16 @@ export class AppStore extends PuterStore {
         return result;
     }
 
+    /** Cache-free existence check by uid against the primary. */
+    async uidExistsOnPrimary(uid) {
+        if (!uid) return false;
+        const rows = await this.clients.db.pread(
+            'SELECT `id` FROM `apps` WHERE `uid` = ? LIMIT 1',
+            [uid],
+        );
+        return rows.length > 0;
+    }
+
     /** Cache-free existence check against the primary. */
     async existsOnPrimary(appId) {
         if (appId === undefined || appId === null) return false;

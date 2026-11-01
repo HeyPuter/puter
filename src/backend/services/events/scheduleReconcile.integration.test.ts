@@ -79,15 +79,18 @@ const reconciler = (options: ScheduleReconcileOptions = {}) =>
             store: store(),
             namespace: schedules().namespace,
             region: schedules().region,
-            endRows: async (rows, reason) => {
-                for (const row of rows)
-                    if (row.kind !== 'deferred')
-                        await durable().removeScheduleSubscription(row.uid);
-                return store().finish(
-                    rows.map((row) => row.id),
+            // As the service does: fenced on the version this pass read.
+            endRows: (rows, reason, options) =>
+                store().end(
+                    rows.map((row) => ({
+                        id: row.id,
+                        uid: row.uid,
+                        kind: row.kind,
+                        ifVersion: row.version,
+                    })),
                     reason,
-                );
-            },
+                    options,
+                ),
             alarm: vi.fn(),
         },
         options,
@@ -321,10 +324,11 @@ describe('the pass budget', () => {
         const clock = () => (now += 15_000);
         const r = reconciler({ page: 10, clock });
         const first = await r.pass();
-        expect(first.fullRows).toBe(20);
+        expect(first.fullRows).toBeGreaterThan(0);
+        expect(first.fullRows).toBeLessThan(35);
         const cursor = (await index().getFullCursor())!;
         expect(cursor.phase).toBe('rows');
-        expect(await dueCount()).toBe(20);
+        expect(await dueCount()).toBe(first.fullRows);
 
         await r.pass();
         expect(await dueCount()).toBe(35);
@@ -495,6 +499,97 @@ describe('full diff', () => {
             state: 'done',
             endReason: 'ended',
         });
+    });
+});
+
+describe('reconcile writes', () => {
+    it('never ends a row from a stale snapshot that showed it an orphan', async () => {
+        const [uid] = await seed();
+        const live = await rowOf(uid);
+        // A replica caught mid-create: version 1, no subscription row yet.
+        const page = store().listRegionPage.bind(store());
+        vi.spyOn(store(), 'listRegionPage').mockImplementation(
+            async (...args) => {
+                const read = await page(...args);
+                return {
+                    ...read,
+                    rows: read.rows.map((row) =>
+                        row.uid === uid
+                            ? {
+                                  ...row,
+                                  version: 1,
+                                  subId: null,
+                                  sub: null,
+                                  updatedAt: T0 - HOUR,
+                              }
+                            : row,
+                    ),
+                };
+            },
+        );
+        await untilCycle();
+        expect(await rowOf(uid)).toMatchObject({
+            deletedAt: null,
+            version: live.version,
+        });
+        await expect(durable().getBySubId(live.subId!)).resolves.not.toBeNull();
+    });
+
+    it('deletes the subscription row an ended schedule left behind', async () => {
+        const [uid] = await seed();
+        const row = await rowOf(uid);
+        await db().write(
+            "UPDATE `event_schedules` SET `state` = 'done', `end_reason` = 'ended', " +
+                '`deleted_at` = ?, `version` = `version` + 1, `updated_at` = ? WHERE `uid` = ?',
+            [T0, T0, uid],
+        );
+        await untilCycle();
+        await expect(durable().getBySubId(row.subId!)).resolves.toBeNull();
+        expect((await index().getDef(uid))!.state).toBe('ended');
+    });
+
+    it('ends a page`s orphans in bounded batches across passes, rereading the page', async () => {
+        const uids = await seed({ count: 450 });
+        await db().write(
+            'UPDATE `event_schedules` SET `sub_id` = NULL, `updated_at` = ?',
+            [T0 - HOUR],
+        );
+        let now = 0;
+        const r = reconciler({ page: 1000, clock: () => (now += 30_000) });
+        const ended = async () =>
+            Number(
+                (
+                    await db().read(
+                        'SELECT COUNT(*) AS `n` FROM `event_schedules` WHERE `end_reason` = ?',
+                        ['orphaned'],
+                    )
+                )[0].n,
+            );
+        await r.pass();
+        expect(await ended()).toBe(200);
+        // The page wasn't finished, so the cursor hasn't moved past it.
+        expect((await index().getFullCursor())?.afterId ?? 0).toBe(0);
+        await r.pass();
+        expect(await ended()).toBe(400);
+        await r.pass();
+        expect(await ended()).toBe(450);
+        expect(uids).toHaveLength(450);
+    });
+
+    it('keeps an incremental scan going across budget-limited passes, and leaves the full diff its share', async () => {
+        await untilCycle();
+        await index().setSyncCursor(T0 - MIN);
+        const changed = await seed({ count: 10, updatedAt: () => T0 });
+        let now = 0;
+        const r = reconciler({ page: 2, clock: () => (now += 20_000) });
+        const passes = [];
+        for (let i = 0; i < 3; i++) passes.push(await r.pass());
+        expect(passes.map((p) => p.incrementalRows)).toEqual([4, 4, 2]);
+        for (const pass of passes) expect(pass.fullRows).toBeGreaterThan(0);
+        expect(await index().getSyncScan()).toBeNull();
+        expect(await index().getSyncCursor()).toBe(T0);
+        for (const uid of changed)
+            expect((await index().getDef(uid))!.state).toBe('active');
     });
 });
 

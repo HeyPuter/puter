@@ -43,6 +43,7 @@ import {
     type ScheduleEndReason,
     type ScheduleQuota,
     type ScheduleRow,
+    type ScheduleSyncRow,
 } from '../../stores/events/ScheduleStore.js';
 import type { ScheduleIndexChange } from '../../stores/events/ScheduleIndexStore.js';
 import {
@@ -61,8 +62,10 @@ import { rememberCron } from './scheduleCron.js';
 import {
     endedChange,
     indexDefFor,
+    liveChange,
     recoveredOwed,
     resumedChange,
+    rowStateOf,
     slotDefOf,
 } from './scheduleIndex.js';
 import {
@@ -294,6 +297,11 @@ export class ScheduleService extends PuterService {
         )
             throw notFound();
 
+        // What the index holds before the change, so a fallback can't land
+        // on a newer one.
+        const observed = (
+            await this.stores.scheduleIndex.versionsOf([row.uid])
+        ).get(row.uid);
         let ended: ScheduleRow | undefined;
         try {
             if (row.kind === 'deferred') {
@@ -302,23 +310,20 @@ export class ScheduleService extends PuterService {
                     'removed',
                 );
                 if (!ended) throw sending();
-            } else {
-                await this.stores.durableSubscription.removeScheduleSubscription(
-                    row.uid,
-                );
-                [ended] = await this.stores.schedule.finish(
-                    [row.id],
-                    'removed',
-                );
-            }
+            } else [ended] = await this.#endRows([row], 'removed');
         } catch (err) {
-            // Stop it firing anyway; the reconcile finds the live row under
-            // the tombstone and finishes the soft delete.
-            if (!isHttpError(err))
+            // Stop it firing anyway, at the version the index held. The
+            // reconcile finds the live row under the tombstone and finishes
+            // the soft delete. Best effort: only this region's index is
+            // reached, and only one that held the schedule.
+            if (!isHttpError(err) && observed !== undefined)
                 await this.#distribute([
                     {
-                        region: row.region,
-                        change: endedChange(row.uid, null),
+                        region: this.region,
+                        change: {
+                            ...endedChange(row.uid, observed),
+                            exact: true,
+                        },
                     },
                 ]);
             throw err;
@@ -347,7 +352,17 @@ export class ScheduleService extends PuterService {
         const owned = rows.filter(isScheduleRow);
         if (owned.length === 0) return [];
         const end = endFor(change);
-        let updated: ScheduleRow[] | null = null;
+        let observed = new Map<string, number>();
+        if (this.enabled) {
+            try {
+                observed = await this.stores.scheduleIndex.versionsOf(
+                    owned.map(scheduleUidOf),
+                );
+            } catch {
+                // Then there is no fallback to fence.
+            }
+        }
+        let updated: ScheduleSyncRow[] | null = null;
         for (let attempt = 1; attempt <= 2 && updated === null; attempt++) {
             try {
                 updated = await this.stores.schedule.applySubscriptionChange(
@@ -366,8 +381,14 @@ export class ScheduleService extends PuterService {
         }
         if (!this.enabled) return updated ?? [];
         try {
-            if (updated) await this.#indexChanged(updated, owned, change);
-            else await this.#indexAtCurrentVersion(owned, change, end !== null);
+            if (updated) await this.#indexChanged(updated, change);
+            else
+                await this.#indexAtObservedVersion(
+                    owned,
+                    change,
+                    end !== null,
+                    observed,
+                );
         } catch (err) {
             console.warn('[events] could not update the schedule index', err);
         }
@@ -489,7 +510,8 @@ export class ScheduleService extends PuterService {
             store: this.stores.schedule,
             namespace: this.namespace,
             region: this.region,
-            endRows: (rows, reason) => this.#endRows(rows, reason),
+            endRows: (rows, reason, options) =>
+                this.#endRows(rows, reason, { ...options, fenced: true }),
             alarm: (id, message, details) => this.#alarm(id, message, details),
         });
         return this.#reconciler;
@@ -501,29 +523,35 @@ export class ScheduleService extends PuterService {
             events: this.services.events,
             actions: this.actions,
             finishRun: async (id, entryVersion, def) => {
-                const [row] = await this.stores.schedule.finish(
-                    [def.rowId],
+                const [row] = await this.stores.schedule.end(
+                    [{ id: def.rowId, uid: id, kind: def.kind }],
                     'ended',
-                );
-                await this.stores.durableSubscription.removeScheduleSubscription(
-                    id,
                 );
                 return row ? row.version : entryVersion + 1;
             },
             endOrphan: async (id, entryVersion, def) => {
-                const row = await this.stores.schedule.getReplica(
-                    this.namespace,
-                    id,
-                );
+                // The replica first; a miss is confirmed on the primary, so a
+                // lagging replica never ends a schedule.
+                const row =
+                    (await this.stores.schedule.getReplica(
+                        this.namespace,
+                        id,
+                    )) ?? (await this.stores.schedule.get(this.namespace, id));
                 if (!row) return entryVersion + 1;
                 if (row.deletedAt !== null)
                     return Math.max(row.version, entryVersion);
                 const holder = await this.stores.user.getById(def.holderUserId);
+                const app =
+                    holder !== null &&
+                    ((await this.stores.app.getByUid(def.appUid)) !== null ||
+                        (await this.stores.app.uidExistsOnPrimary(def.appUid)));
+                // Both are there after all: nothing to end.
+                if (holder && app) return null;
                 const [ended] = await this.#endRows(
                     [row],
                     holder ? 'app_gone' : 'holder_gone',
                 );
-                return ended ? ended.version : row.version + 1;
+                return ended ? ended.version : null;
             },
             alarm: (id, message, details) => this.#alarm(id, message, details),
         };
@@ -539,60 +567,74 @@ export class ScheduleService extends PuterService {
         });
     }
 
-    /** End rows in SQL, the subscription rows they own included. */
-    async #endRows(
+    /**
+     * End rows in SQL with the subscription rows they own, together. `fenced`
+     * ends each only while it is at the version given with it.
+     */
+    #endRows(
         rows: readonly ScheduleRow[],
         reason: ScheduleEndReason,
+        options: { fenced?: boolean; orphan?: boolean } = {},
     ): Promise<ScheduleRow[]> {
-        if (rows.length === 0) return [];
-        for (const row of rows)
-            if (row.kind !== 'deferred')
-                await this.stores.durableSubscription.removeScheduleSubscription(
-                    row.uid,
-                );
-        return this.stores.schedule.finish(
-            rows.map((row) => row.id),
+        return this.stores.schedule.end(
+            rows.map((row) => ({
+                id: row.id,
+                uid: row.uid,
+                kind: row.kind,
+                ...(options.fenced ? { ifVersion: row.version } : {}),
+            })),
             reason,
+            { orphan: options.orphan },
         );
     }
 
-    /** Index the rows a lifecycle change left, as they now stand. */
+    /**
+     * Index the rows a lifecycle change left, as they now stand: each row's
+     * state is read from its subscription row in the same statement as its
+     * version, so a change that lost a race to a later one hands the index what
+     * the later one did, never its own stale state at the newer version.
+     */
     async #indexChanged(
-        rows: readonly ScheduleRow[],
-        subs: readonly DurableSubscription[],
+        rows: readonly ScheduleSyncRow[],
         change: ScheduleSubscriptionChange,
     ): Promise<void> {
-        const subById = new Map(subs.map((sub) => [sub.subId, sub]));
         const now = Date.now();
         const items: IndexItem[] = [];
         const finishing: ScheduleRow[] = [];
         for (const row of rows) {
-            const sub = subById.get(row.subId ?? '') ?? null;
-            if (row.deletedAt !== null) {
+            const state = rowStateOf(row);
+            if (state.kind === 'ended') {
                 items.push({
                     region: row.region,
                     change: endedChange(row.uid, row.version),
                 });
-            } else if (change.type === 'suspended') {
-                const def = indexDefFor(row, sub);
+                continue;
+            }
+            // Left to the reconcile.
+            if (state.kind !== 'live') continue;
+            if (state.state !== 'active') {
+                const def = indexDefFor(row, row.sub);
                 items.push({
                     region: row.region,
                     change: {
                         id: row.uid,
                         version: row.version,
-                        state: `suspended:${change.reason}`,
+                        state: state.state,
                         def,
                         score: 0,
                         owed: recoveredOwed(def, now),
                     },
                 });
-            } else if (change.type === 'resumed') {
-                const resumed = resumedChange(row, sub, now);
-                if (resumed)
-                    items.push({ region: row.region, change: resumed });
-                // It ended while parked: nothing is left to fire.
-                else finishing.push(row);
+                continue;
             }
+            const resumed =
+                resumedChange(row, row.sub, now) ??
+                (change.type === 'resumed'
+                    ? null
+                    : liveChange(row, row.sub, 'active', now));
+            if (resumed) items.push({ region: row.region, change: resumed });
+            // It ended while parked: nothing is left to fire.
+            else finishing.push(row);
         }
         for (const ended of await this.#endRows(finishing, 'ended'))
             items.push({
@@ -603,14 +645,17 @@ export class ScheduleService extends PuterService {
     }
 
     /**
-     * The hook's SQL step failed: change the index anyway, at the version it
-     * holds. The equal-version apply takes a state change, and the reconcile
-     * brings the table in line later.
+     * The hook's SQL step failed: change this region's index anyway, but only
+     * where it still holds the version seen before the change, so a newer
+     * change that did land is never overwritten. A resume with no slot left
+     * ends the schedule rather than putting it back. The reconcile brings the
+     * table in line later.
      */
-    async #indexAtCurrentVersion(
+    async #indexAtObservedVersion(
         subs: readonly DurableSubscription[],
         change: ScheduleSubscriptionChange,
         ends: boolean,
+        observed: ReadonlyMap<string, number>,
     ): Promise<void> {
         let rows: ScheduleRow[] = [];
         try {
@@ -619,32 +664,41 @@ export class ScheduleService extends PuterService {
                 subs.map((sub) => sub.subId),
             );
         } catch {
-            // Applied here only, which is right for this region's schedules.
+            // A resume then has nothing to compute its slot from.
         }
         const byUid = new Map(rows.map((row) => [row.uid, row]));
         const now = Date.now();
-        const state = ends
-            ? 'ended'
-            : change.type === 'suspended'
-              ? `suspended:${change.reason}`
-              : 'active';
-        const items = subs.map((sub): IndexItem => {
-            const uid = sub.token.slice(SCHEDULE_TOKEN_PREFIX.length);
-            const row = byUid.get(uid);
-            const resumed =
-                state === 'active' && row ? resumedChange(row, sub, now) : null;
-            return {
-                region: row?.region ?? this.region,
+        const items: IndexItem[] = [];
+        for (const sub of subs) {
+            const uid = scheduleUidOf(sub);
+            const version = observed.get(uid);
+            if (version === undefined) continue;
+            let state = ends
+                ? 'ended'
+                : change.type === 'suspended'
+                  ? `suspended:${change.reason}`
+                  : 'active';
+            let score = 0;
+            if (state === 'active') {
+                const row = byUid.get(uid);
+                if (!row) continue;
+                const resumed = resumedChange(row, sub, now);
+                if (resumed) score = resumed.score;
+                else state = 'ended';
+            }
+            items.push({
+                region: this.region,
                 change: {
                     id: uid,
-                    version: null,
+                    version,
+                    exact: true,
                     state,
                     def: null,
-                    score: resumed?.score ?? now,
+                    score,
                     owed: null,
                 },
-            };
-        });
+            });
+        }
         await this.#distribute(items);
     }
 
@@ -737,6 +791,9 @@ interface IndexItem {
     change: ScheduleIndexChange;
 }
 
+const scheduleUidOf = (sub: { token: string }): string =>
+    sub.token.slice(SCHEDULE_TOKEN_PREFIX.length);
+
 const jittered = (ms: number): number => ms * (0.8 + Math.random() * 0.4);
 
 const isIndexChange = (value: unknown): value is ScheduleIndexChange => {
@@ -744,7 +801,8 @@ const isIndexChange = (value: unknown): value is ScheduleIndexChange => {
     const c = value as Record<string, unknown>;
     return (
         typeof c.id === 'string' &&
-        (c.version === null || Number.isSafeInteger(c.version)) &&
+        Number.isSafeInteger(c.version) &&
+        (c.exact === undefined || typeof c.exact === 'boolean') &&
         typeof c.state === 'string' &&
         /^(active|ended|suspended:[a-z_]+)$/.test(c.state) &&
         (c.def === null || typeof c.def === 'object') &&

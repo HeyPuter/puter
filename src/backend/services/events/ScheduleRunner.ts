@@ -74,6 +74,8 @@ const REFILL_DELAY_MS = 100;
 /** A tick lands within this share of `SCHEDULE_TICK_MS` either side. */
 const TICK_JITTER = 0.2;
 
+/** How long a run waits when who it runs as couldn't be settled. */
+const NO_IDENTITY_DEFER_MS = 60_000;
 /** How long a run waits for consent a settle may be about to withdraw. */
 const NO_CONSENT_DEFER_MS = 60_000;
 /** How long a run waits for another deploy of its script, or a free slot. */
@@ -118,12 +120,15 @@ export interface ScheduleRunnerHost {
         entryVersion: number,
         def: ScheduleIndexDef,
     ): Promise<number>;
-    /** End a schedule whose holder or app is gone; the version to end it at. */
+    /**
+     * End a schedule whose holder or app is gone; the version to end it at.
+     * `null` when both turn out to be there, so it is not to be ended.
+     */
     endOrphan(
         id: string,
         entryVersion: number,
         def: ScheduleIndexDef,
-    ): Promise<number>;
+    ): Promise<number | null>;
     alarm(id: string, message: string, details: Record<string, unknown>): void;
 }
 
@@ -625,14 +630,32 @@ export class ScheduleRunner {
         return true;
     }
 
-    /** The holder or the app is gone: end the schedule, once. */
+    /**
+     * The holder or the app looked gone: end the schedule, once. When that
+     * can't be established, or turns out wrong, the run waits instead.
+     */
     async #orphaned(item: PoppedSchedule): Promise<void> {
+        let version: number | null;
+        try {
+            version = await this.#host.endOrphan(
+                item.id,
+                item.def.version,
+                item.def.def!,
+            );
+        } catch (err) {
+            console.warn('[events] could not check a schedule`s holder', err);
+            version = null;
+        }
+        if (version === null) {
+            scheduleFire.add(1, { result: 'identity-unsure' });
+            await this.#host.index.defer(
+                item.id,
+                item.token,
+                NO_IDENTITY_DEFER_MS,
+            );
+            return;
+        }
         scheduleFire.add(1, { result: 'orphaned' });
-        const version = await this.#host.endOrphan(
-            item.id,
-            item.def.version,
-            item.def.def!,
-        );
         await this.#host.index.apply([endedChange(item.id, version)]);
     }
 

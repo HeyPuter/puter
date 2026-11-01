@@ -18,7 +18,6 @@
  */
 
 import { EVENTS_SCHEDULE_TOMBSTONE_TTL_MS } from '../../controllers/events/limits.js';
-import { TERMINAL_SUSPENDED_REASONS } from '../../stores/events/DurableSubscriptionStore.js';
 import {
     SCHEDULE_PARTITIONS,
     parseDefEntry,
@@ -34,7 +33,7 @@ import {
     type ScheduleSyncRow,
 } from '../../stores/events/ScheduleStore.js';
 import { scheduleReconcile } from './metrics.js';
-import { endedChange, liveChange } from './scheduleIndex.js';
+import { endedChange, liveChange, rowStateOf } from './scheduleIndex.js';
 
 /**
  * Keeps the region's due index in step with the schedule table, reading only
@@ -62,6 +61,12 @@ export const RECONCILE_PAGE = 5000;
 export const FULL_DIFF_ABSENT_MIN_MS = 600_000;
 const RECONCILE_LOCK_TTL_MS = 55_000;
 const SWEEP_SCAN_COUNT = 500;
+
+/** Of each pass, what the incremental step leaves for the full diff. */
+const FULL_DIFF_RESERVE_MS = 10_000;
+
+/** Rows one ending transaction takes, with the pass budget checked between. */
+const END_BATCH = 200;
 
 /** Index changes one pass may find missing before it raises the drift alarm. */
 const DRIFT_ALARM_THRESHOLD = 100;
@@ -94,10 +99,15 @@ export interface ScheduleReconcileHost {
     store: ScheduleStore;
     namespace: string;
     region: string;
-    /** End rows in SQL, subscription rows included; the rows as ended. */
+    /**
+     * End rows in SQL, subscription rows included, each only while it is still
+     * at the version this pass read; `orphan` also needs it to have no
+     * subscription row. Returns the rows now ended.
+     */
     endRows(
         rows: readonly ScheduleRow[],
         reason: ScheduleEndReason,
+        options: { orphan?: boolean },
     ): Promise<ScheduleRow[]>;
     alarm(id: string, message: string, details: Record<string, unknown>): void;
 }
@@ -169,7 +179,8 @@ export class ScheduleReconciler {
             cycleCompleted: false,
             drift: emptyDrift(),
         };
-        if (built) await this.#incremental(deadline, report);
+        if (built)
+            await this.#incremental(deadline - FULL_DIFF_RESERVE_MS, report);
         await this.#fullDiff(deadline, built, report);
 
         for (const [kind, count] of Object.entries(report.drift))
@@ -184,29 +195,41 @@ export class ScheduleReconciler {
         return report;
     }
 
+    /**
+     * Rows changed since the cursor. A scan that runs out of time leaves its
+     * position, and the next pass carries on from there rather than starting
+     * over inside the overlap. Each pass reads at least one page.
+     */
     async #incremental(
         deadline: number,
         report: ScheduleReconcileReport,
     ): Promise<void> {
         const { index, store, namespace, region } = this.#host;
         const synced = (await index.getSyncCursor())!;
-        let cursor = { updatedAt: synced - RECONCILE_OVERLAP_MS, id: 0 };
-        let newest = synced;
-        while (this.#clock() < deadline) {
+        const resumed = await index.getSyncScan();
+        let cursor = resumed
+            ? { updatedAt: resumed.updatedAt, id: resumed.id }
+            : { updatedAt: synced - RECONCILE_OVERLAP_MS, id: 0 };
+        let newest = resumed ? resumed.newest : synced;
+        for (let pages = 0; pages === 0 || this.#clock() < deadline; pages++) {
             const { rows, last, more } = await store.changedSince(
                 namespace,
                 region,
                 cursor,
                 this.#page,
             );
-            await this.#applyRows(rows, report, true);
+            if (!(await this.#applyRows(rows, report, true, deadline))) return;
             report.incrementalRows += rows.length;
             if (last) {
                 cursor = last;
                 newest = Math.max(newest, last.updatedAt);
-                await index.setSyncCursor(newest);
             }
-            if (!more) return;
+            if (!more) {
+                await index.setSyncCursor(newest);
+                await index.setSyncScan(null);
+                return;
+            }
+            await index.setSyncScan({ ...cursor, newest });
         }
     }
 
@@ -225,7 +248,12 @@ export class ScheduleReconciler {
         };
         // Steady state takes about a page per pass; a rebuild runs to the budget.
         let room = built ? this.#page : Number.POSITIVE_INFINITY;
-        while (room > 0 && this.#clock() < deadline) {
+        // At least one step a pass, so the full diff always moves.
+        for (
+            let steps = 0;
+            room > 0 && (steps === 0 || this.#clock() < deadline);
+            steps++
+        ) {
             if (cursor.phase === 'rows') {
                 const { rows, nextId } = await store.listRegionPage(
                     namespace,
@@ -233,7 +261,9 @@ export class ScheduleReconciler {
                     cursor.afterId,
                     this.#page,
                 );
-                await this.#applyRows(rows, report, built);
+                // A page whose ends ran out of time is read again next pass.
+                if (!(await this.#applyRows(rows, report, built, deadline)))
+                    return;
                 report.fullRows += rows.length;
                 room -= Math.max(rows.length, 1);
                 cursor =
@@ -283,57 +313,46 @@ export class ScheduleReconciler {
     /**
      * Bring the index in line with these rows. Rows this pass ends in SQL (an
      * orphan, a schedule with nothing left to fire, a lost soft delete) are the
-     * reconcile's own lifecycle writes, once per row.
+     * reconcile's own lifecycle writes, once per row, in bounded batches with
+     * the deadline checked between them. `false` when it stopped short.
      */
     async #applyRows(
         rows: readonly ScheduleSyncRow[],
         report: ScheduleReconcileReport,
         countApplied: boolean,
-    ): Promise<void> {
-        if (rows.length === 0) return;
+        deadline: number,
+    ): Promise<boolean> {
+        if (rows.length === 0) return true;
         const { index } = this.#host;
         const now = await index.now();
         const wallNow = Date.now();
         const changes: ScheduleIndexChange[] = [];
-        const ending: Array<{
-            rows: ScheduleRow[];
-            reason: ScheduleEndReason;
-        }> = [
-            { rows: [], reason: 'orphaned' },
-            { rows: [], reason: 'ended' },
-            { rows: [], reason: 'permission_revoked' },
-        ];
-        const [orphans, finishing, revoked] = ending;
+        const orphans: ScheduleRow[] = [];
+        const finishing: ScheduleRow[] = [];
+        const revoked: ScheduleRow[] = [];
+        // Ended rows whose subscription row a failed write left behind.
+        const leftovers: ScheduleRow[] = [];
 
         for (const row of rows) {
-            if (row.deletedAt !== null || row.state === 'done') {
+            const state = rowStateOf(row);
+            if (state.kind === 'ended') {
                 changes.push(endedChange(row.uid, row.version));
-                continue;
+                if (
+                    row.kind !== 'deferred' &&
+                    row.sub !== null &&
+                    row.sub.suspendedAt === null
+                )
+                    leftovers.push(row);
+            } else if (state.kind === 'pending') {
+                // A create still under way has no subscription row yet; the
+                // create indexes it, or the orphan rule ends it.
+                if (isScheduleOrphan(row, wallNow)) orphans.push(row);
+            } else if (state.kind === 'revoked') revoked.push(row);
+            else {
+                const change = liveChange(row, row.sub, state.state, now);
+                if (change) changes.push(change);
+                else finishing.push(row);
             }
-            let state = 'active';
-            if (row.kind !== 'deferred') {
-                // A row whose create is still under way has no subscription
-                // row yet; the create indexes it, or the orphan rule ends it.
-                if (row.sub === null) {
-                    if (isScheduleOrphan(row, wallNow)) orphans.rows.push(row);
-                    continue;
-                }
-                if (row.sub.suspendedAt !== null) {
-                    const reason = row.sub.suspendedReason ?? '';
-                    if (
-                        (
-                            TERMINAL_SUSPENDED_REASONS as readonly string[]
-                        ).includes(reason)
-                    ) {
-                        revoked.rows.push(row);
-                        continue;
-                    }
-                    state = `suspended:${reason}`;
-                }
-            }
-            const change = liveChange(row, row.sub, state, now);
-            if (change) changes.push(change);
-            else finishing.rows.push(row);
         }
 
         const results = await index.apply(changes);
@@ -348,19 +367,38 @@ export class ScheduleReconciler {
                 if (row) overTombstone.push(row);
             }
         });
-        // The index decided these ended and the SQL step was lost.
-        ending.push({ rows: overTombstone, reason: 'removed' });
 
-        const ended: ScheduleIndexChange[] = [];
-        for (const { rows: group, reason } of ending) {
-            if (group.length === 0) continue;
-            const done = await this.#host.endRows(group, reason);
-            if (reason === 'orphaned') report.drift.orphaned += done.length;
-            else if (reason !== 'removed') report.drift.finished += done.length;
-            for (const row of done)
-                ended.push(endedChange(row.uid, row.version));
+        const ending: Array<{
+            rows: ScheduleRow[];
+            reason: ScheduleEndReason;
+            drift?: ScheduleDriftKind;
+        }> = [
+            { rows: orphans, reason: 'orphaned', drift: 'orphaned' },
+            { rows: finishing, reason: 'ended', drift: 'finished' },
+            { rows: revoked, reason: 'permission_revoked', drift: 'finished' },
+            // The index decided these ended and the SQL step was lost.
+            { rows: overTombstone, reason: 'removed' },
+            { rows: leftovers, reason: 'ended' },
+        ];
+        for (const { rows: group, reason, drift } of ending) {
+            for (let at = 0; at < group.length; at += END_BATCH) {
+                if (this.#clock() >= deadline) return false;
+                const done = await this.#host.endRows(
+                    group.slice(at, at + END_BATCH),
+                    reason,
+                    { orphan: reason === 'orphaned' },
+                );
+                if (drift)
+                    report.drift[drift] += done.filter(
+                        (row) => row.endReason === reason,
+                    ).length;
+                if (done.length > 0)
+                    await index.apply(
+                        done.map((row) => endedChange(row.uid, row.version)),
+                    );
+            }
         }
-        if (ended.length > 0) await index.apply(ended);
+        return true;
     }
 
     /**

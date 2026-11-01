@@ -21,7 +21,11 @@ import type {
     ScheduleIndexChange,
     ScheduleIndexDef,
 } from '../../stores/events/ScheduleIndexStore.js';
-import type { ScheduleRow } from '../../stores/events/ScheduleStore.js';
+import { TERMINAL_SUSPENDED_REASONS } from '../../stores/events/DurableSubscriptionStore.js';
+import type {
+    ScheduleRow,
+    ScheduleSyncRow,
+} from '../../stores/events/ScheduleStore.js';
 import {
     firstSlotAtOrAfter,
     recoverOwed,
@@ -118,9 +122,9 @@ export const liveChange = (
 };
 
 /**
- * A resumed entry: due at the next slot at or after `now`, keeping the `owed`
- * the index already holds, so the first run reports what was skipped. `null`
- * when the schedule ended while it was parked.
+ * A resumed entry: due at the first slot at or after `now` (plus its spread),
+ * keeping the `owed` the index already holds, so the first run reports what was
+ * skipped. `null` when the schedule ended while it was parked.
  */
 export const resumedChange = (
     row: ScheduleRow,
@@ -128,7 +132,7 @@ export const resumedChange = (
     now: number,
 ): ScheduleIndexChange | null => {
     const def = indexDefFor(row, sub);
-    const next = firstSlotAtOrAfter(slotDefOf(def), now - def.offsetMs);
+    const next = firstSlotAtOrAfter(slotDefOf(def), now);
     if (next === null) return null;
     return {
         id: row.uid,
@@ -138,4 +142,29 @@ export const resumedChange = (
         score: next + def.offsetMs,
         owed: recoveredOwed(def, now) ?? next,
     };
+};
+
+/**
+ * What a row and its subscription row, read together, say the index should
+ * hold: ended, live in a state, `pending` (a create still under way, or an
+ * orphan, which has no subscription row), or `revoked` (suspended for good,
+ * which ends the schedule).
+ */
+export type ScheduleRowState =
+    | { kind: 'ended' }
+    | { kind: 'live'; state: string }
+    | { kind: 'pending' }
+    | { kind: 'revoked' };
+
+export const rowStateOf = (row: ScheduleSyncRow): ScheduleRowState => {
+    if (row.deletedAt !== null || row.state === 'done')
+        return { kind: 'ended' };
+    // A delayed send is live while it waits, is being sent, or was delivered.
+    if (row.kind === 'deferred') return { kind: 'live', state: 'active' };
+    if (row.sub === null) return { kind: 'pending' };
+    if (row.sub.suspendedAt === null) return { kind: 'live', state: 'active' };
+    const reason = row.sub.suspendedReason ?? '';
+    if ((TERMINAL_SUSPENDED_REASONS as readonly string[]).includes(reason))
+        return { kind: 'revoked' };
+    return { kind: 'live', state: `suspended:${reason}` };
 };

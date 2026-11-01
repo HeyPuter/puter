@@ -529,6 +529,21 @@ describe('lifecycle during a run', () => {
         expect(await index.getScore('rm')).toBeNull();
     });
 
+    it('a holder or app that turns out to be there, or can`t be checked, defers', async () => {
+        await seed('q1');
+        await seed('q2');
+        actor = null;
+        host.endOrphan.mockImplementation(async (id: string) => {
+            if (id === 'q1') return null;
+            throw new Error('primary down');
+        });
+        await tickAll();
+        for (const id of ['q1', 'q2']) {
+            expect((await index.getDef(id))!.state).toBe('active');
+            expect(await index.getScore(id)).toBe(T0 + 60_000);
+        }
+    });
+
     it('a holder or app gone ends the schedule, once', async () => {
         await seed('o');
         actor = null;

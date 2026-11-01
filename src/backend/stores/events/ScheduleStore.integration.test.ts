@@ -330,7 +330,7 @@ describe('caps', () => {
     it('sums the budget over live recurring rows only', async () => {
         const live = await store().create(input({ ratePerHour: 1000 }));
         const ended = await store().create(input({ ratePerHour: 4000 }));
-        await store().finish([ended.id], 'removed');
+        await store().end([ended], 'removed');
         const usage = await store().usageForHolder(userId, appUid);
         expect(usage.rate).toEqual({ total: 1000, forApp: 1000 });
         expect(usage.recurring.total).toBe(1);
@@ -376,7 +376,7 @@ describe('versions', () => {
         expect(suspended.version).toBe(3);
         expect(suspended.deletedAt).toBeNull();
 
-        const [ended] = await store().finish([row.id], 'removed');
+        const [ended] = await store().end([row], 'removed');
         expect(ended).toMatchObject({
             version: 4,
             state: 'done',
@@ -387,7 +387,7 @@ describe('versions', () => {
 
     it('keeps the first end reason of a row already ended', async () => {
         const row = await store().create(input());
-        await store().finish([row.id], 'removed');
+        await store().end([row], 'removed');
         const [again] = await store().applySubscriptionChange(
             NS,
             [row.subId!],
@@ -478,7 +478,7 @@ describe('reading changes for a reconcile', () => {
 
     it('includes ended rows, which a reconcile turns into tombstones', async () => {
         const row = await store().create(input());
-        await store().finish([row.id], 'removed');
+        await store().end([row], 'removed');
         const changed = await store().changedSince(
             NS,
             REGION,
@@ -587,7 +587,7 @@ describe('listing a holder`s schedules', () => {
 
     it('shows an ended schedule for a week, with why it ended', async () => {
         const row = await store().create(input());
-        await store().finish([row.id], 'app_deleted');
+        await store().end([row], 'app_deleted');
         const listed = await store().listForHolder(NS, userId, { appUid });
         expect(listed.items).toEqual([
             expect.objectContaining({ uid: row.uid, endReason: 'app_deleted' }),
