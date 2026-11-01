@@ -261,6 +261,21 @@ const scans = new BoundedTtlMap<string, ScanStats>({
     ttlMs: SCAN_CACHE_TTL_MS,
 });
 
+let scanHold: Promise<void> | null = null;
+
+/** Tests only: scans that hold a gate slot wait until the returned release. */
+export const holdCronScans = (): (() => void) => {
+    let release!: () => void;
+    const hold = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+    scanHold = hold;
+    return () => {
+        if (scanHold === hold) scanHold = null;
+        release();
+    };
+};
+
 /** At most a few scans at once, a short queue behind them, `busy` past it. */
 const scanGate = (() => {
     let running = 0;
@@ -270,6 +285,7 @@ const scanGate = (() => {
         else if (waiting.length >= EVENTS_SCHEDULE_SCAN_QUEUE) throw busy();
         else await new Promise<void>((resolve) => waiting.push(resolve));
         try {
+            if (scanHold) await scanHold;
             return await work();
         } finally {
             // A waiter takes the slot over rather than releasing it.

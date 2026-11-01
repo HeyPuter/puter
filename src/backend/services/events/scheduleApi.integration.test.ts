@@ -25,6 +25,7 @@
 
 import {
     afterAll,
+    afterEach,
     beforeAll,
     beforeEach,
     describe,
@@ -51,7 +52,7 @@ import { hashContent } from '../../stores/events/EventHandlerStore.js';
 import type { RouteRateLimit } from '../../core/http/types.js';
 import { actorPlanId } from '../metering/enforcement.js';
 import { FULL_API_ACCESS } from '../permission/consts.js';
-import { cronFirstAtOrAfter, scanCron } from './scheduleCron.js';
+import { cronFirstAtOrAfter, holdCronScans, scanCron } from './scheduleCron.js';
 import { spreadOffsetMs } from './scheduleSlots.js';
 import {
     bootScheduleHarness,
@@ -506,33 +507,41 @@ describe('what a create refuses', () => {
         expect(refused.body.code).toBe('events_schedule_budget');
     });
 
-    it('answers busy while too many cron checks are queued', async () => {
-        // Each scan yields to the event loop every 500 runs; holding those
-        // yields keeps the gate full until the refusal has been seen. `nth`
-        // skips the result cache and makes every scan walk past one yield.
-        vi.useFakeTimers({ toFake: ['setImmediate'] });
-        const from = Date.now();
-        const fills = Array.from(
-            {
-                length:
-                    EVENTS_SCHEDULE_SCAN_CONCURRENCY +
-                    EVENTS_SCHEDULE_SCAN_QUEUE,
-            },
-            () => scanCron('* * * * *', 'UTC', from, { nth: 600 }),
-        );
-        try {
+    describe('with the cron scan gate full', () => {
+        let release: (() => void) | null = null;
+        let fills: Promise<unknown>[] = [];
+
+        afterEach(async () => {
+            release?.();
+            release = null;
+            await Promise.allSettled(fills);
+            fills = [];
+        });
+
+        it('answers busy while too many cron checks are queued', async () => {
+            // `nth` skips the result cache, so every fill takes a slot or a
+            // queue place and waits on the hold.
+            release = holdCronScans();
+            const from = Date.now();
+            fills = Array.from(
+                {
+                    length:
+                        EVENTS_SCHEDULE_SCAN_CONCURRENCY +
+                        EVENTS_SCHEDULE_SCAN_QUEUE,
+                },
+                () => scanCron('* * * * *', 'UTC', from, { nth: 600 }),
+            );
             const refused = await create(app.token, {
                 cron: '17 */3 * * *',
                 handlerName: SCHEDULE_TEST_HANDLER,
             });
             expect(refused.status).toBe(503);
             expect(refused.body.code).toBe('events_schedule_busy');
-        } finally {
-            await vi.runAllTimersAsync();
-            vi.useRealTimers();
+
+            release();
             const settled = await Promise.allSettled(fills);
             expect(settled.every((r) => r.status === 'fulfilled')).toBe(true);
-        }
+        }, 30_000);
     });
 });
 
