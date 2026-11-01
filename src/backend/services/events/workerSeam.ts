@@ -21,6 +21,7 @@ import type {
     EventsWorkerInvokerClient,
     WorkerInvokeOptions,
 } from '../../clients/events/EventsWorkerInvokerClient.js';
+import type { Actor } from '../../core/actor.js';
 import type { DeliverableEvent } from './registry.js';
 
 /**
@@ -61,6 +62,8 @@ export interface WorkerInvocation {
     context: string | null;
     /** Handler runs behind `event`; the token this run is handed is one deeper. */
     handlerDepth: number;
+    /** The holder acting as the app, when the caller resolved it already. */
+    actor?: Actor;
 }
 
 /**

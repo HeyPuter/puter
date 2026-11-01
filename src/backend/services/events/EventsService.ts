@@ -5748,14 +5748,16 @@ export class EventsService extends PuterService {
         const { appUid } = invocation;
         if (!appUid) return { refused: 'no-identity' };
 
-        const actor = await resolveGrantActor(
-            {
-                holderUserId: invocation.holderUserId,
-                appUid,
-                permission: SUBSCRIBE_MODE,
-            },
-            this.#aclDeps(),
-        );
+        const actor =
+            invocation.actor ??
+            (await resolveGrantActor(
+                {
+                    holderUserId: invocation.holderUserId,
+                    appUid,
+                    permission: SUBSCRIBE_MODE,
+                },
+                this.#aclDeps(),
+            ));
         if (!actor) return { refused: 'no-identity' };
 
         // Asked again here: nothing else on the delivery path reads it, the

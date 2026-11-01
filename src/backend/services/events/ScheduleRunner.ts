@@ -432,6 +432,7 @@ export class ScheduleRunner {
                     event,
                     context: def.context,
                     handlerDepth: def.handlerDepth,
+                    actor,
                 },
                 {
                     stampEvent: (sent) => ({
