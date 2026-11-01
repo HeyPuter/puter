@@ -69,6 +69,9 @@ export const SCHEDULE_FINALIZE_RETRY_MS = 60_000;
 /** One in-flight run per connection the schedule invoker lane holds. */
 export const SCHEDULE_IN_FLIGHT_PER_NODE = SCHEDULE_INVOKE_CONNECTIONS;
 
+/** Runs that finish this close together share one refill. */
+const REFILL_DELAY_MS = 100;
+
 /** A tick lands within this share of `SCHEDULE_TICK_MS` either side. */
 const TICK_JITTER = 0.2;
 
@@ -188,6 +191,9 @@ export class ScheduleRunner {
     #timer: ReturnType<typeof setTimeout> | null = null;
     #stopped = true;
     #ticking: Promise<void> | null = null;
+    /** The last visit left due members behind for want of room. */
+    #backlogged = false;
+    #kick: ReturnType<typeof setTimeout> | null = null;
 
     constructor(host: ScheduleRunnerHost, options: ScheduleRunnerOptions = {}) {
         this.#host = host;
@@ -210,6 +216,8 @@ export class ScheduleRunner {
         this.#stopped = true;
         if (this.#timer) clearTimeout(this.#timer);
         this.#timer = null;
+        if (this.#kick) clearTimeout(this.#kick);
+        this.#kick = null;
     }
 
     /** Wait for every attempt already started. */
@@ -246,24 +254,44 @@ export class ScheduleRunner {
     }
 
     async #visit(): Promise<void> {
+        this.#backlogged = false;
         const start = Math.floor(Math.random() * SCHEDULE_PARTITIONS);
         for (let i = 0; i < SCHEDULE_PARTITIONS; i++) {
             const room = this.#cap - this.#running.size;
-            if (room <= 0) return;
+            if (room <= 0) {
+                this.#backlogged = true;
+                return;
+            }
             const partition = (start + i) % SCHEDULE_PARTITIONS;
+            const limit = Math.min(this.#popLimit, room);
             let popped;
             try {
                 popped = await this.#host.index.pop(
                     partition,
-                    Math.min(this.#popLimit, room),
+                    limit,
                     SCHEDULE_LEASE_MS,
                 );
             } catch (err) {
                 console.warn('[events] schedule pop failed', err);
                 continue;
             }
+            if (popped.items.length >= limit) this.#backlogged = true;
             for (const item of popped.items) this.#launch(item, popped.nowMs);
         }
+    }
+
+    /**
+     * Visit again as soon as a run frees room, while the last visit left due
+     * members behind. Without it a node would refill only once per tick, and
+     * its throughput would be its cap per tick rather than per handler run.
+     */
+    #refill(): void {
+        if (this.#stopped || !this.#backlogged || this.#kick) return;
+        this.#kick = setTimeout(() => {
+            this.#kick = null;
+            void this.tick();
+        }, REFILL_DELAY_MS);
+        this.#kick.unref?.();
     }
 
     #launch(item: PoppedSchedule, nowMs: number): void {
@@ -277,9 +305,10 @@ export class ScheduleRunner {
             }
         })();
         // Tracked as the promise that settles after it leaves the set.
-        const tracked: Promise<void> = run.finally(() =>
-            this.#running.delete(tracked),
-        );
+        const tracked: Promise<void> = run.finally(() => {
+            this.#running.delete(tracked);
+            this.#refill();
+        });
         this.#running.add(tracked);
     }
 
