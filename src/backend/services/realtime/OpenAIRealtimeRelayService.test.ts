@@ -3,7 +3,7 @@ import {
     type IncomingMessage,
     type Server as HttpServer,
 } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { connect, type AddressInfo, type Socket } from 'node:net';
 import { PassThrough } from 'node:stream';
 import {
     afterAll,
@@ -16,6 +16,7 @@ import {
     vi,
 } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
+import { makeActor } from '../../core/actor.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { withAiCostFactorHook } from '../../drivers/integrationTestUtil';
 import type { IConfig } from '../../types';
@@ -199,6 +200,10 @@ describe('OpenAIRealtimeRelayService relay', () => {
     let upstream: WebSocketServer;
     let user: TestUserCredentials;
     let relayUrl: string;
+    let paidPolicy: NonNullable<
+        ReturnType<PuterServer['services']['metering']['getRegisteredPolicy']>
+    >;
+    let planId = 'test_paid';
     const upstreamRequests: IncomingMessage[] = [];
     const upstreamEvents: {
         type: string;
@@ -216,13 +221,12 @@ describe('OpenAIRealtimeRelayService relay', () => {
             await server.services.auth.createSessionToken(row!, {})
         ).token;
         const metering = server.services.metering;
+        planId = 'test_paid';
+        paidPolicy.monthUsageAllowance = 1_000_000_000;
+        metering.invalidateActorSubscription(row!.uuid);
         const plan = metering.getActorSubscription.bind(metering);
-        vi.spyOn(metering, 'getActorSubscription').mockImplementation(
-            async (actor) => ({
-                ...(await plan(actor)),
-                id: 'test_paid',
-                monthUsageAllowance: 1_000_000_000,
-            }),
+        vi.spyOn(metering, 'getActorSubscription').mockImplementation((actor) =>
+            plan(actor),
         );
     });
 
@@ -473,6 +477,20 @@ describe('OpenAIRealtimeRelayService relay', () => {
             username: 'realtime-user',
             password: 'realtime-user-password',
         });
+        const userRow = await server.stores.user.getByUsername(user.username);
+        paidPolicy = {
+            ...(await server.services.metering.getActorSubscription(
+                makeActor({ user: userRow! }),
+            )),
+            id: 'test_paid',
+            monthUsageAllowance: 1_000_000_000,
+            free: false,
+            noAllowance: false,
+        };
+        server.services.metering.registerPolicy(paidPolicy);
+        server.services.metering.registerSubscriptionResolver(
+            async () => planId,
+        );
         relayUrl = `ws://api.puter.localhost:${port}${REALTIME_PATH}`;
     }, 60_000);
 
@@ -482,8 +500,12 @@ describe('OpenAIRealtimeRelayService relay', () => {
     }, 60_000);
 
     /** Open a client and collect every event until it closes. */
-    const open = (url: string, protocols?: string[]) => {
-        const ws = new WebSocket(url, protocols);
+    const open = (
+        url: string,
+        protocols?: string[],
+        headers?: Record<string, string>,
+    ) => {
+        const ws = new WebSocket(url, protocols, { headers });
         clients.add(ws);
         ws.once('close', () => clients.delete(ws));
         const events: Record<string, unknown>[] = [];
@@ -496,7 +518,10 @@ describe('OpenAIRealtimeRelayService relay', () => {
             vi.waitFor(
                 () => {
                     const e = events.find((x) => x.type === type);
-                    if (!e) throw new Error(`no ${type} yet`);
+                    if (!e)
+                        throw new Error(
+                            `no ${type} yet: ${JSON.stringify(events)}`,
+                        );
                     return e;
                 },
                 { timeout: 5_000 },
@@ -1073,7 +1098,9 @@ describe('OpenAIRealtimeRelayService relay', () => {
     });
 
     it('refuses accounts without a subscription', async () => {
-        // The test user's own plan is a free one.
+        planId = 'user_free';
+        const row = await server.stores.user.getByUsername(user.username);
+        server.services.metering.invalidateActorSubscription(row!.uuid);
         vi.mocked(server.services.metering.getActorSubscription).mockRestore();
         const c = open(`${relayUrl}?auth_token=${user.token}`);
         expect(await c.waitFor('error')).toMatchObject({
@@ -1099,13 +1126,15 @@ describe('OpenAIRealtimeRelayService relay', () => {
             const metering = server.services.metering;
             const resolvers = (metering as unknown as Resolvers)
                 .subscriptionResolvers;
-            resolvers.splice(resolvers.indexOf(failing), 1);
+            const index = resolvers.indexOf(failing);
+            if (index >= 0) resolvers.splice(index, 1);
             // The fallback stays cached for its window otherwise.
             const u = await server.stores.user.getByUsername(user.username);
             metering.invalidateActorSubscription(u!.uuid);
         });
 
         it('asks the client to retry instead of reporting no subscription', async () => {
+            planId = 'user_free';
             const u = await server.stores.user.getByUsername(user.username);
             vi.mocked(
                 server.services.metering.getActorSubscription,
@@ -1233,6 +1262,252 @@ describe('OpenAIRealtimeRelayService relay', () => {
             ],
         ]);
         ws.close();
+    });
+
+    it('applies the IP gate before opening an upstream connection', async () => {
+        const before = upstreamRequests.length;
+        const deny = (_key: string, data: { allow: boolean }) => {
+            data.allow = false;
+        };
+        server.clients.event.on('ip.validate', deny);
+        try {
+            const c = open(`${relayUrl}?auth_token=${user.token}`);
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'permission_denied' },
+            });
+            await c.closed;
+            expect(upstreamRequests).toHaveLength(before);
+        } finally {
+            server.clients.event.off('ip.validate', deny);
+        }
+    });
+
+    it('does not allocate credential limiter buckets for many unique invalid signatures', async () => {
+        const before = upstreamRequests.length;
+        const auth = vi.spyOn(server.services.auth, 'authenticate');
+        const redis = vi.spyOn(server.clients.redis, 'multi');
+        const relay = new OpenAIRealtimeRelayService(
+            { domain: 'puter.localhost', trust_proxy: 'loopback' } as IConfig,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        const http = createServer();
+        relay.attachHttpServer(http);
+        await new Promise<void>((resolve) =>
+            http.listen(0, '127.0.0.1', resolve),
+        );
+        try {
+            for (let i = 0; i < 64; i++) {
+                const c = open(
+                    `ws://127.0.0.1:${(http.address() as AddressInfo).port}${REALTIME_PATH}?auth_token=invalid-${i}`,
+                    undefined,
+                    {
+                        host: 'api.puter.localhost',
+                        'x-forwarded-for': `203.0.113.${i + 1}`,
+                    },
+                );
+                expect(await c.waitFor('error')).toMatchObject({
+                    error: { code: 'invalid_api_key' },
+                });
+                await c.closed;
+            }
+            expect(auth).not.toHaveBeenCalled();
+            expect(redis).not.toHaveBeenCalled();
+            expect(upstreamRequests).toHaveLength(before);
+        } finally {
+            await relay.onServerPrepareShutdown();
+            await new Promise<void>((resolve) => http.close(() => resolve()));
+        }
+    });
+
+    it('uses non-touching authentication on connection and recheck', async () => {
+        const auth = vi.spyOn(server.services.auth, 'authenticate');
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        kv.del(realtimeAuthKey(user.token));
+        await server.services.openaiRealtime.recheckSessions();
+        expect(auth.mock.calls.length).toBeGreaterThanOrEqual(2);
+        expect(auth.mock.calls.every(([, ctx]) => ctx?.touch === false)).toBe(
+            true,
+        );
+        c.ws.close();
+    });
+
+    it.each([
+        [false, '203.0.113.9, 10.0.0.1', '127.0.0.1'],
+        [['loopback', '10.0.0.0/8'], '203.0.113.9, 10.0.0.1', '203.0.113.9'],
+        [['loopback'], '203.0.113.9, 198.51.100.5', '198.51.100.5'],
+    ])(
+        'resolves forwarded chains using trust policy %j',
+        async (trustProxy, forwarded, expected) => {
+            const relay = new OpenAIRealtimeRelayService(
+                {
+                    domain: 'puter.localhost',
+                    trust_proxy: trustProxy,
+                } as IConfig,
+                server.clients,
+                server.stores,
+                server.services,
+            );
+            const http = createServer();
+            relay.attachHttpServer(http);
+            await new Promise<void>((resolve) =>
+                http.listen(0, '127.0.0.1', resolve),
+            );
+            let seen = '';
+            const deny = (
+                _key: string,
+                data: { allow: boolean; ip: string },
+            ) => {
+                seen = data.ip;
+                data.allow = false;
+            };
+            server.clients.event.on('ip.validate', deny);
+            try {
+                const ws = new WebSocket(
+                    `ws://127.0.0.1:${(http.address() as AddressInfo).port}${REALTIME_PATH}`,
+                    {
+                        headers: {
+                            host: 'api.puter.localhost',
+                            'x-forwarded-for': forwarded as string,
+                        },
+                    },
+                );
+                ws.on('error', () => {});
+                await new Promise((resolve) => ws.once('close', resolve));
+                expect(seen).toBe(expected);
+            } finally {
+                server.clients.event.off('ip.validate', deny);
+                await relay.onServerPrepareShutdown();
+                await new Promise<void>((resolve) =>
+                    http.close(() => resolve()),
+                );
+            }
+        },
+    );
+
+    it.each([undefined, '', 'not-a-jwt', 'x'.repeat(8193)])(
+        'rejects missing or malformed credentials before upstream admission',
+        async (token) => {
+            const before = upstreamRequests.length;
+            const c = open(
+                token === undefined
+                    ? relayUrl
+                    : `${relayUrl}?auth_token=${token}`,
+            );
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'invalid_api_key' },
+            });
+            await c.closed;
+            expect(upstreamRequests).toHaveLength(before);
+        },
+    );
+
+    it('reports a distributed limiter outage as retryable without authenticating or connecting upstream', async () => {
+        const before = upstreamRequests.length;
+        const auth = vi.spyOn(server.services.auth, 'authenticate');
+        vi.spyOn(server.clients.redis, 'multi').mockImplementationOnce(() => {
+            throw new Error('limiter unavailable');
+        });
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'internal_error' },
+        });
+        expect((await c.closed).code).toBe(1011);
+        expect(auth).not.toHaveBeenCalled();
+        expect(upstreamRequests).toHaveLength(before);
+    });
+
+    it('keeps recovery attempt capacity after the shared handover budget is exhausted', async () => {
+        const holder = await createTestUser(server, {
+            username: 'handover-attempts',
+            password: 'handover-attempts-password',
+        });
+        for (let i = 0; i < 20; i++)
+            await checkRateLimit(
+                `${realtimeConnectKey(holder.token)}:handover`,
+                20,
+                60_000,
+            );
+        const probe = open(
+            `${relayUrl}?auth_token=${holder.token}&purpose=handover`,
+        );
+        expect(await probe.waitFor('error')).toMatchObject({
+            error: { code: 'rate_limit_exceeded' },
+        });
+        await probe.closed;
+        const recovery = open(`${relayUrl}?auth_token=${holder.token}`);
+        await recovery.waitFor('session.created');
+        expect(
+            await checkRateLimit(realtimeConnectKey(holder.token), 2, 60_000),
+        ).toBe(true);
+        recovery.ws.close();
+    });
+    it('bounds unverified socket allocation while rejected clients withhold close acknowledgments', async () => {
+        const relay = new OpenAIRealtimeRelayService(
+            { domain: 'puter.localhost', trust_proxy: 'loopback' } as IConfig,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        const http = createServer();
+        relay.attachHttpServer(http);
+        await new Promise<void>((resolve) =>
+            http.listen(0, '127.0.0.1', resolve),
+        );
+        const raw = new Set<Socket>();
+        const accepted: WebSocket[] = [];
+        const upgrade = WebSocketServer.prototype.handleUpgrade;
+        vi.spyOn(WebSocketServer.prototype, 'handleUpgrade').mockImplementation(
+            function (this: WebSocketServer, req, socket, head, done) {
+                upgrade.call(this, req, socket, head, (ws, request) => {
+                    accepted.push(ws);
+                    done(ws, request);
+                });
+            },
+        );
+        const request = (index: number) =>
+            new Promise<string>((resolve, reject) => {
+                const socket = connect(
+                    (http.address() as AddressInfo).port,
+                    '127.0.0.1',
+                );
+                raw.add(socket);
+                socket.on('error', () => {});
+                socket.once('error', reject);
+                socket.once('data', (data) => resolve(data.toString()));
+                socket.once('connect', () =>
+                    socket.write(
+                        [
+                            `GET ${REALTIME_PATH}?auth_token=invalid-${index} HTTP/1.1`,
+                            'Host: api.puter.localhost',
+                            'Connection: Upgrade',
+                            'Upgrade: websocket',
+                            'Sec-WebSocket-Version: 13',
+                            'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+                            `X-Forwarded-For: 203.0.113.${index + 1}`,
+                            '',
+                            '',
+                        ].join('\r\n'),
+                    ),
+                );
+            });
+        try {
+            for (let i = 0; i < 64; i++)
+                expect(await request(i)).toMatch(/^HTTP\/1\.1 101/);
+            await vi.waitFor(() =>
+                expect(
+                    accepted.every((ws) => ws.readyState === WebSocket.CLOSING),
+                ).toBe(true),
+            );
+            expect(await request(64)).toMatch(/^HTTP\/1\.1 503/);
+            expect(accepted).toHaveLength(64);
+        } finally {
+            for (const socket of raw) socket.destroy();
+            await relay.onServerPrepareShutdown();
+            await new Promise<void>((resolve) => http.close(() => resolve()));
+        }
     });
 
     it('closes a session whose credential stops authenticating', async () => {

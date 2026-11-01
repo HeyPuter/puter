@@ -30,6 +30,8 @@ Browser WebSocket clients pass `realtime` and `openai-insecure-api-key.<PUTER_TO
 
 The socket can open before authentication and provider setup finish. Listen for errors and closure immediately. Wait for `session.created`, send your session settings, then wait for `session.updated` before submitting a turn.
 
+To open a replacement while another connection remains healthy, set the optional `purpose=handover` query parameter. These attempts share a smaller per-credential budget, checked before the general connection-attempt budget. Initial connections and dropped-connection recovery use the URL without this parameter. The limits are listed in [rate limits and quotas](/rate-limits-and-quotas/).
+
 ## Text example
 
 Install the `ws` package and set `PUTER_TOKEN` to your Puter token. Run this example as a Node.js ES module:
@@ -109,7 +111,7 @@ A new connection starts an empty conversation. To keep context, add earlier item
 
 ## Errors, billing, and limits
 
-API errors arrive as `{ "type": "error", "error": { "code": "...", "message": "..." } }`. Handle socket errors and close frames too. Invalid, missing, or revoked credentials use `invalid_api_key`. If Puter can't check a credential or the account's plan, the error is `internal_error` and the session closes with 1011, so try again after a short, randomized delay. Other relay codes include `model_not_found`, `insufficient_funds`, `subscription_required`, `rate_limit_exceeded`, `invalid_event`, `connection_timeout`, `provider_unavailable`, `upstream_error`, and `server_restarting`.
+API errors arrive as `{ "type": "error", "error": { "code": "...", "message": "..." } }`. Handle socket errors and close frames too. Invalid, missing, or revoked credentials use `invalid_api_key`. If Puter can't check a credential or the account's plan, the error is `internal_error` and the session closes with 1011, so try again after a short, randomized delay. Other relay codes include `permission_denied`, `model_not_found`, `insufficient_funds`, `subscription_required`, `rate_limit_exceeded`, `invalid_event`, `connection_timeout`, `provider_unavailable`, `upstream_error`, and `server_restarting`.
 
 Policy failures generally close with 1008, oversized client messages with 1009, upstream or setup failures with 1011, server restarts with 1012, and temporary server overload with 1013. Reconnect after 1011, 1012, or 1013. Authentication and model failures can arrive after the WebSocket handshake succeeds.
 
