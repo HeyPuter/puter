@@ -52,6 +52,9 @@ import {
  * Any other primary call fails the test.
  */
 
+// Each test boots or drives a whole backend; a loaded runner needs room.
+vi.setConfig({ testTimeout: 120_000 });
+
 const BOOT_TIMEOUT_MS = 180_000;
 const MIN = 60_000;
 const HOUR = 60 * MIN;

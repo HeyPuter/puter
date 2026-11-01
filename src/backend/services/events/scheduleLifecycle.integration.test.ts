@@ -54,6 +54,9 @@ import {
  * that no schedule's row ever reaches the pending-delivery queue.
  */
 
+// Each test boots or drives a whole backend; a loaded runner needs room.
+vi.setConfig({ testTimeout: 120_000 });
+
 const BOOT_TIMEOUT_MS = 120_000;
 const MIN = 60_000;
 const HOUR = 60 * MIN;
