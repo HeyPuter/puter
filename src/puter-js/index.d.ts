@@ -139,11 +139,16 @@ export type {
     HandlerSummary,
     OnLocalOptions,
     OnPersistentOptions,
+    OnScheduleOptions,
     PersistentSubscription,
     PublishedHandler,
     PuterEvent,
     PuterKvEvent,
     PuterNotifEvent,
+    PuterScheduleEvent,
+    Schedule,
+    ScheduleErrorCode,
+    ScheduleListOptions,
     UpdatePersistentOptions,
 } from './types/modules/events/types.js';
 export type { EventSubscription } from './types/modules/events/lib/subscription.js';

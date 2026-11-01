@@ -154,8 +154,9 @@
  * handler body run unchanged here and in the app's events worker.
  *
  * @typedef {Object} EventDelivery
- * @property {PuterEvent | PuterKvEvent | EventGapMarker} event The delivered
- *   event, or a gap marker in place of events that were dropped.
+ * @property {PuterEvent | PuterKvEvent | EventGapMarker | PuterScheduleEvent} event
+ *   The delivered event, or a gap marker in place of events that were
+ *   dropped. A handler a schedule runs gets a {@link PuterScheduleEvent}.
  * @property {Readonly<Record<string, unknown>>} [ctx] The `context` the
  *   subscription was created with, frozen. Present only for a persistent
  *   subscription; a session subscription carries none.
@@ -284,6 +285,127 @@
  * @property {() => Promise<void>} [off] Ends the subscription: stops running
  *   its handler here and unsubscribes it. Present on the subscription
  *   `onPersistent()` returns, not on one a listing reports.
+ */
+
+/**
+ * What a handler a schedule runs gets as `event`. Runs are at least once: a
+ * retry, or a run that outlives its timeout, can run one slot twice, with the
+ * same `id`. Skip work already done for an `id`.
+ *
+ * @typedef {Object} PuterScheduleEvent
+ * @property {string} subject `schedule:<scheduleId>`.
+ * @property {'tick'} op Always `'tick'`.
+ * @property {string} id `<scheduleId>:<scheduledFor>`, the same on every
+ *   attempt at one run.
+ * @property {string} scheduleId The schedule this run belongs to.
+ * @property {number} scheduledFor When this run was due, in milliseconds since
+ *   the epoch.
+ * @property {number} firedAt When this attempt was sent to the handler, in
+ *   milliseconds since the epoch.
+ * @property {number} missed Runs skipped since the last one that ran, such as
+ *   while the schedule was suspended. Only this run happens for them.
+ * @property {true} [missedCapped] Present when `missed` stopped counting at
+ *   its cap of 1,000.
+ * @property {number} attempt Attempts at this run, this one included.
+ */
+
+/**
+ * Options for {@link import('./schedules.js').onSchedule}. Give exactly one
+ * of `every`, `cron` or `at`. Times are an ISO-8601 string with a zone (or a
+ * plain date, read as UTC midnight), a `Date`, or milliseconds since the
+ * epoch, and are rounded up to the next whole second.
+ *
+ * @typedef {Object} OnScheduleOptions
+ * @property {number | string} [every] Run at this interval: milliseconds, or
+ *   a duration like `'30m'`, `'6h'` or `'1d'` (`s`, `m`, `h`, `d`, `w`). A
+ *   whole number of seconds, at least the plan's minimum, at most 366 days.
+ * @property {string} [cron] Run on a 5-field cron expression, or a nickname
+ *   such as `'@daily'`. Standard fields only.
+ * @property {string} [tz] The IANA time zone `cron` runs in. Defaults to
+ *   `'UTC'`. Only with `cron`.
+ * @property {number | string | Date} [at] Run once, at this time. At least 1
+ *   second and at most 366 days ahead.
+ * @property {number | string | Date} [startAt] For `every`, the first run;
+ *   without it, the first run is one interval after create. A past `startAt`
+ *   aligns the runs to it, starting at the next one. For `cron`, the earliest
+ *   run.
+ * @property {number | string | Date} [expiresAt] The last time the schedule may
+ *   run, inclusive.
+ * @property {number} [maxRuns] Stop after this many runs (1 to 100,000). With
+ *   `expiresAt` too, the earlier end wins.
+ * @property {string} handlerName The published handler each run calls.
+ * @property {Function | string | { file: string }} [handler] The handler
+ *   source this schedule was written against. Sent as a hash: the schedule is
+ *   refused unless it matches what is published under `handlerName`. It never
+ *   runs in this client.
+ * @property {string} [handlerHash] The SHA-256 hex digest of that source, in
+ *   place of `handler`.
+ * @property {Record<string, unknown>} [context] Values the handler needs,
+ *   evaluated **now** and delivered as a frozen `ctx` on every run. Capped at
+ *   4 KB serialized, and can't be changed after create.
+ */
+
+/**
+ * A schedule, as its holder sees it. Times are milliseconds since the epoch.
+ * `context` values are never returned, only which keys it sets and a hash.
+ *
+ * @typedef {Object} Schedule
+ * @property {string} scheduleId The schedule's id, and what
+ *   `removeSchedule()` and `getSchedule()` name.
+ * @property {'recurring' | 'once' | 'deferred'} kind `recurring` for `every`
+ *   and `cron`, `once` for `at`, `deferred` for a delayed notification.
+ * @property {string} appUid The app that created it.
+ * @property {string | null} handlerName The handler each run calls, or `null`
+ *   once the schedule has ended.
+ * @property {string[] | null} contextKeys Key names of its context, or `null`
+ *   when it has none or has ended.
+ * @property {string | null} contextHash Hash of its context.
+ * @property {number | null} every The interval of an `every` schedule, in
+ *   milliseconds.
+ * @property {string | null} cron The cron expression of a `cron` schedule.
+ * @property {string} tz The time zone `cron` runs in; `'UTC'` otherwise.
+ * @property {number} startAt The first allowed run. For `once`, its only run.
+ * @property {number | null} endsAt The last allowed run, inclusive, from
+ *   `expiresAt` or `maxRuns`. For `once`, its only run.
+ * @property {'active' | 'suspended' | 'ended'} state `suspended` while it
+ *   doesn't run but can resume, `ended` once it never runs again.
+ * @property {string | null} suspendedReason Why it is suspended:
+ *   `handler_not_found`, `failures` or `no_credit`.
+ * @property {string | null} endReason Why it ended: `removed`, `ended` (its
+ *   last run is done), `app_deleted`, `uninstalled`, `permission_revoked`,
+ *   `holder_gone`, `app_gone`, `orphaned`, `delivered` or `dropped`.
+ * @property {number | null} endedAt When it ended.
+ * @property {number | null} nextRunAt When its next run is due, or `null`
+ *   while suspended and once ended. A run starts within about a minute of it.
+ * @property {number} createdAt When it was created.
+ * @property {() => Promise<void>} [off] Removes the schedule. Present on the
+ *   schedule `onSchedule()` returns, not on one a listing reports.
+ */
+
+/**
+ * Options for {@link import('./schedules.js').listSchedules}.
+ *
+ * @typedef {Object} ScheduleListOptions
+ * @property {number} [limit] Schedules per page. Defaults to 50, capped at 200.
+ * @property {string | null} [cursor] The `cursor` from the previous page.
+ *   Absent or `null` starts from the first page.
+ * @property {boolean} [includeTotal] Adds `total`, the count across every page.
+ */
+
+/**
+ * Error codes the schedule methods reject with, besides the shared events
+ * codes such as `events_disabled` and `too_many_requests`.
+ *
+ * @typedef {'events_schedule_invalid'
+ *   | 'events_schedule_never_fires'
+ *   | 'events_schedule_too_frequent'
+ *   | 'events_schedule_immutable'
+ *   | 'events_schedule_app_required'
+ *   | 'events_schedule_limit'
+ *   | 'events_schedule_budget'
+ *   | 'events_schedule_not_found'
+ *   | 'events_schedule_sending'
+ *   | 'events_schedule_busy'} ScheduleErrorCode
  */
 
 /**

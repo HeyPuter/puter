@@ -6,6 +6,12 @@ import { fetch } from './fetch.js';
 import { list } from './list.js';
 import { onLocal } from './onLocal.js';
 import { onPersistent } from './onPersistent.js';
+import {
+    getSchedule,
+    listSchedules,
+    onSchedule,
+    removeSchedule,
+} from './schedules.js';
 import { unsubscribe } from './unsubscribe.js';
 import { update } from './update.js';
 
@@ -24,6 +30,8 @@ import { update } from './update.js';
  * `fetch()` is the other half: what happened while nothing was listening, read
  * from the subject's own store a page at a time.
  *
+ * `onSchedule()` runs a published handler on a timer rather than on a change.
+ *
  * A published handler set stands up an **events worker** per app —
  * `puter.events.workers` is where an owner sees and destroys them.
  *
@@ -41,6 +49,10 @@ export class EventsModule extends PuterModule {
     update = update;
     list = list;
     fetch = fetch;
+    onSchedule = onSchedule;
+    listSchedules = listSchedules;
+    getSchedule = getSchedule;
+    removeSchedule = removeSchedule;
 
     /** @param {Puter} puter */
     constructor (puter) {
@@ -68,6 +80,10 @@ export class EventsModule extends PuterModule {
             'update',
             'list',
             'fetch',
+            'onSchedule',
+            'listSchedules',
+            'getSchedule',
+            'removeSchedule',
         ] ) {
             methods[name] = methods[name].bind(this);
         }
