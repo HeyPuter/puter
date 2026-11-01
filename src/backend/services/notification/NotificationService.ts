@@ -176,25 +176,17 @@ export class NotificationService extends PuterService {
                 }
 
                 if (!opts.silent) {
-                    // Listeners get their own copy; the socket sends `payload`.
-                    this.clients.event.emit(
-                        'notif.written',
+                    await this.emitWritten(
                         {
                             userId,
                             uid,
                             type: registered.type,
                             audience: registered.audience,
                             appUid,
-                            value: structuredClone(payload),
-                            sendId: uuidv4(),
+                            value: payload,
                         },
-                        {},
+                        { sendId: uuidv4() },
                     );
-                    await this.#push(userId, uid, payload, {
-                        type: registered.type,
-                        audience: registered.audience,
-                        appUid,
-                    });
                 }
                 return uid;
             }),
@@ -241,8 +233,55 @@ export class NotificationService extends PuterService {
         if (!updated) return false;
         if (opts.silent) return true;
 
-        const desktop = inAccountMailbox(registered.type);
-        if (desktop) {
+        const row = await this.stores.notification.getByUid(uid, { userId });
+        const app = notification.app as { uid?: unknown } | undefined;
+        const appUid =
+            row?.app_uid ?? (typeof app?.uid === 'string' ? app.uid : null);
+        await this.emitWritten(
+            {
+                userId,
+                uid,
+                type: registered.type,
+                audience: registered.audience,
+                appUid,
+                value: payload,
+                updated: true,
+                replacedAt,
+            },
+            { sendId: uuidv4() },
+        );
+        return true;
+    }
+
+    /**
+     * Deliver a notification already written: `notif.written` for listeners,
+     * then the live copy. `sendId` names this one send; a delayed send passes
+     * the same one each time it delivers, so a listener can tell a repeat. An
+     * `updated` row is an earlier notification rewritten in place, and
+     * `replacedAt` marks it a replacement. `handlerDepth` is the depth the
+     * write was made at, when no actor in context carries it.
+     */
+    async emitWritten(
+        written: {
+            userId: number;
+            uid: string;
+            type: string;
+            audience: string;
+            appUid: string | null;
+            value: Record<string, unknown>;
+            updated?: boolean;
+            replacedAt?: number;
+        },
+        opts: { sendId: string; handlerDepth?: number },
+    ): Promise<void> {
+        const { userId, uid, value: payload, updated } = written;
+        const scope = {
+            type: written.type,
+            audience: written.audience,
+            appUid: written.appUid,
+        };
+        const desktop = inAccountMailbox(scope.type);
+        if (updated && desktop) {
             // Same uid as the original: the client replaces what it is already
             // showing rather than stacking another copy. It goes straight to
             // the wire rather than through dispatch — the row was already
@@ -251,40 +290,30 @@ export class NotificationService extends PuterService {
             this.#socket().message(userId, uid, payload);
             this.#markDelivered(uid, userId);
         }
-        const row = await this.stores.notification.getByUid(uid, { userId });
-        const app = notification.app as { uid?: unknown } | undefined;
-        const appUid =
-            row?.app_uid ?? (typeof app?.uid === 'string' ? app.uid : null);
+        // Listeners get their own copy; the socket sends `payload`.
         this.clients.event.emit(
             'notif.written',
             {
                 userId,
                 uid,
-                type: registered.type,
-                audience: registered.audience,
-                appUid,
+                ...scope,
                 value: structuredClone(payload),
-                updated: true,
-                sendId: uuidv4(),
+                ...(updated ? { updated: true as const } : {}),
+                sendId: opts.sendId,
             },
             {},
         );
-        // A type kept off the desktop has dispatch as its only live path, so
-        // the rewrite goes out there again, under the same uid.
-        if (!desktop) {
+        // A rewrite of a type kept off the desktop has dispatch as its only
+        // live path, so it goes out there again, under the same uid.
+        if (!updated || !desktop)
             await this.#push(
                 userId,
                 uid,
                 payload,
-                {
-                    type: registered.type,
-                    audience: registered.audience,
-                    appUid,
-                },
-                replacedAt,
+                scope,
+                written.replacedAt,
+                opts.handlerDepth,
             );
-        }
-        return true;
     }
 
     /**
@@ -411,6 +440,7 @@ export class NotificationService extends PuterService {
         payload: Record<string, unknown>,
         scope: { type: string; audience: string; appUid: string | null },
         replacedAt?: number,
+        depth?: number,
     ): Promise<void> {
         const desktop = inAccountMailbox(scope.type);
         if (!notificationsFoldInEnabled(this.config)) {
@@ -430,9 +460,8 @@ export class NotificationService extends PuterService {
             return;
         }
 
-        const handlerDepth = handlerDepthOf(
-            Context.get('actor') as Actor | undefined,
-        );
+        const handlerDepth =
+            depth ?? handlerDepthOf(Context.get('actor') as Actor | undefined);
         this.clients.event.emit(
             'notif.created',
             {
