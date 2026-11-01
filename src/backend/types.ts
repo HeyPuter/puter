@@ -1292,6 +1292,22 @@ interface IConfigOptional {
     };
 
     /**
+     * System jobs (`services.jobs`).
+     *
+     * - `namespace` — keys this deployment's rows in `scheduled_jobs`, so
+     *   deployments sharing one database never run each other's jobs. Defaults
+     *   to `domain`.
+     * - `nearPrimaryRegion` — the region id (the broadcast peer id) nearest the
+     *   primary database. Jobs registered `nearPrimary` run there, and other
+     *   regions claim them only once they are 5 minutes overdue. Unset means
+     *   every region claims at due time.
+     */
+    jobs?: {
+        namespace?: string;
+        nearPrimaryRegion?: string;
+    };
+
+    /**
      * Key-value sharing beyond watching.
      *
      * - `shareHandles` — whether a share handle may carry `read` or `write`
