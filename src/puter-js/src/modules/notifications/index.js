@@ -150,6 +150,7 @@ const showThroughWorker = (registration, title, options) => {
 export class NotificationsModule extends EventListener {
     // Rebound in the constructor so destructured calls keep `this`.
     notify = notify;
+    /** @type {OmitThisParameter<typeof cancel>} */
     cancel = cancel;
     onNotification = onNotification;
     enable = enable;

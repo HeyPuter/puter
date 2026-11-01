@@ -3,6 +3,7 @@
 import type {
     EventHandler,
     OnScheduleOptions,
+    Puter,
     ScheduleHandler,
 } from '../../index.js';
 
@@ -20,4 +21,15 @@ export const options: OnScheduleOptions = {
     startAt: new Date(),
     handlerName: 'digest',
     handler: scheduled,
+};
+
+// The schedule verbs, unsubscribing, and cancelling a stored notification,
+// called on `puter`.
+export const onPuter = async (puter: Puter): Promise<void> => {
+    const schedule = await puter.events.onSchedule(options);
+    await puter.events.getSchedule(schedule.scheduleId);
+    const page = await puter.events.listSchedules({ limit: 10 });
+    await puter.events.removeSchedule(page.items[0].scheduleId);
+    await puter.notifications.cancel(schedule.scheduleId);
+    await puter.events.unsubscribe('sub-id');
 };

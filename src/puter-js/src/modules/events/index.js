@@ -43,15 +43,23 @@ export class EventsModule extends PuterModule {
     // The fields hold the unbound functions so they keep their full types
     // (`bind` erases overloads); the constructor rebinds them so destructured
     // calls (`const { onLocal } = puter.events`) work.
+    // A field typed without `this` keeps `puter.events.x()` compiling: its
+    // `this` names this class, which the public type omits members of.
     onLocal = onLocal;
+    /** @type {OmitThisParameter<typeof onPersistent>} */
     onPersistent = onPersistent;
+    /** @type {OmitThisParameter<typeof unsubscribe>} */
     unsubscribe = unsubscribe;
     update = update;
     list = list;
     fetch = fetch;
+    /** @type {OmitThisParameter<typeof onSchedule>} */
     onSchedule = onSchedule;
+    /** @type {OmitThisParameter<typeof listSchedules>} */
     listSchedules = listSchedules;
+    /** @type {OmitThisParameter<typeof getSchedule>} */
     getSchedule = getSchedule;
+    /** @type {OmitThisParameter<typeof removeSchedule>} */
     removeSchedule = removeSchedule;
 
     /** @param {Puter} puter */
