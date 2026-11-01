@@ -111,7 +111,12 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 | Upstream handshake timeout | 10 seconds | Close 1011. |
 | Heartbeat interval | 30 seconds | A missing pong terminates the connection on the next heartbeat. |
 | Credential cache and recheck | Cache 60 seconds, sweep every 15 seconds, at most 16 checks in parallel | Invalid credentials close with 1008. A check that fails at connection gets `internal_error` and closes with 1011. A failed recheck keeps the session and tries again on the next sweep. Overlapping sweeps are skipped. |
-| Session attempts per credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
+| Session attempts per signature-verified credential | 60 per minute | Error `rate_limit_exceeded`, close 1008. |
+| Pre-auth attempts | 120 per client IP and 600 per node per minute | Local memory admission runs before the WebSocket handshake and signature verification. Exceeding either rate returns HTTP 429. Client IP follows the configured proxy trust policy. The shared memory limiter caps its state at 10,000 keys with a 1-hour retention floor and a 60-second sweep. |
+| Unauthenticated upgrade sockets, including closing sockets | 64 per node | Further upgrades receive HTTP 503. The slot is retained until successful admission or transport closure. |
+| Authentication setups in progress | 64 per node | Further upgrades receive HTTP 503. |
+| Presented credential | 8192 UTF-8 bytes | Longer or malformed credentials receive `invalid_api_key`. Unverified credentials allocate no distributed credential limiter state. Limiter lookup failures close with `internal_error` and 1011. |
+| Replacement attempts marked `purpose=handover` | 20 per credential per minute | This shared limit is checked before the general 60-attempt limit. A refused probe consumes no general attempt. Initial and dropped-session recovery attempts retain their general budget. |
 | Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. A response whose usage never arrives because the provider connection closed first is billed the full hold. |
 | Restart notice (`puter.reconnect`) | At most once a minute per session | Repeated announcements within the minute aren't sent. |
 | In-flight response drain at shutdown | 5 seconds | Close 1012. |

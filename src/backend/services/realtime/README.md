@@ -68,7 +68,17 @@ Each response holds a fixed amount of the account's budget
 until its usage is recorded, so concurrent sessions can't overdraw it; a session
 opens only if one hold fits. Input transcription is priced at the costlier of
 the transcription models in force at commit and at completion. Session attempts
-are limited per credential before authentication runs.
+are limited per credential after signature verification. Local, bounded IP and
+node admission limits protect signature verification and authentication lookups.
+Upgrades use Express's configured proxy trust policy and the `ip.validate` gate.
+Authentication uses `touch: false` on both initial connection and rechecks, so
+opening or maintaining a realtime socket does not update session activity metadata.
+
+Text, transcripts and raw audio are forwarded without new content logging.
+The relay does not invoke `ai.prompt.validate`. A realtime adapter needs the host
+listeners' chat payload and denial contracts before that hook can safely apply
+to instructions and conversation text. Raw audio and generated transcripts need
+separate policy decisions.
 
 Credential checks run in batches of at most 16 with no overlapping sweeps.
 When the drain starts, open sessions get a `puter.reconnect` event and new
