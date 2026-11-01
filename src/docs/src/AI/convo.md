@@ -46,7 +46,7 @@ The conversation exposes these properties and methods.
 | `sendText(text)` | Adds a user message and requests a response. Text must be nonempty and at most 8192 characters. |
 | `appendAudio(pcm)` | Appends an `Int16Array` containing PCM16, 24 kHz mono audio. A chunk contains at most 12000 samples. |
 | `commitAudio()` | Commits buffered audio and requests a response. Requires turn detection to be off, through `turnDetection: false` or a native session update. The provider requires at least 100 ms of buffered audio. |
-| `interrupt(position?)` | Stops built-in playback immediately and waits for cancellation and playback-history synchronization. A reply requested but not yet started is cancelled as soon as it starts. Custom players provide `{ itemId, contentIndex, playedMs }`. An idle call resolves immediately. |
+| `interrupt(position?)` | Stops built-in playback immediately and waits for cancellation and playback-history synchronization. A reply requested but not yet started is cancelled as soon as it starts. Custom players provide `{ itemId, contentIndex, playedMs }`. An idle call resolves immediately. Readiness failures reject the returned Promise with `session_not_ready` or `session_closed`. |
 | `send(event)` | Sends a native OpenAI JSON event. |
 | `on(type, handler)` | Registers a listener and returns an unsubscribe function. Use `'*'` to receive every native and convenience event. |
 | `off(type, handler)` | Removes a listener. |
