@@ -1032,6 +1032,62 @@ describe('SessionStore', () => {
             expect(rows).toHaveLength(1);
         });
 
+        it('a failed first insert rejects every racer, and the next call starts afresh', async () => {
+            const user = await makeUser();
+            const appUid = `app-${uuidv4()}`;
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const write = vi
+                .spyOn(server.clients.db, 'write')
+                .mockImplementationOnce(async () => {
+                    throw new Error('primary down');
+                });
+            const racers = Array.from({ length: 3 }, () =>
+                target.getOrCreateWorker(user.id, { appUid, workerName }),
+            );
+            for (const racer of racers)
+                await expect(racer).rejects.toThrow('primary down');
+            write.mockRestore();
+            const row = await target.getOrCreateWorker(user.id, {
+                appUid,
+                workerName,
+            });
+            expect(row.kind).toBe('worker');
+        });
+
+        it('lookups for different apps do not wait on each other', async () => {
+            const user = await makeUser();
+            const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const db = server.clients.db;
+            const original = db.write.bind(db);
+            let release!: () => void;
+            const held = new Promise<void>((resolve) => (release = resolve));
+            // The first app's insert hangs until released.
+            const write = vi
+                .spyOn(db, 'write')
+                .mockImplementationOnce(async (...args) => {
+                    await held;
+                    return original(...(args as [string, unknown[]]));
+                });
+            const slow = target.getOrCreateWorker(user.id, {
+                appUid: `app-${uuidv4()}`,
+                workerName,
+            });
+            const other = await Promise.race([
+                target.getOrCreateWorker(user.id, {
+                    appUid: `app-${uuidv4()}`,
+                    workerName,
+                }),
+                new Promise((resolve) =>
+                    setTimeout(() => resolve('stuck'), 1500),
+                ),
+            ]);
+            expect(other).not.toBe('stuck');
+            release();
+            const slowRow = await slow;
+            expect(slowRow.uuid).not.toBe((other as { uuid: string }).uuid);
+            write.mockRestore();
+        });
+
         it('returns null when called with falsy inputs', async () => {
             expect(
                 await target.getOrCreateWorker(null, { workerName: 'wk' }),
