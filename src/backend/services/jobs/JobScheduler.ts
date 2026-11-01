@@ -18,31 +18,33 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type {
-    JobNextRun,
-    ScheduledJobSummary,
-} from '../../stores/jobs/ScheduledJobStore.js';
 import { withRedisLock } from '../../util/redisLock.js';
 import { deliveryBackoffMs } from '../../util/retryBackoff.js';
 import { PuterService } from '../types';
+import {
+    JobLeaseLostError,
+    asError,
+    lostLease,
+    parseState,
+    runOutcome,
+    serializeState,
+    type RegisteredJob,
+    type RunLease,
+} from './jobRun.js';
+
+export { JobLeaseLostError } from './jobRun.js';
 
 /** How often each node looks for due jobs. */
 const JOB_POLL_MS = 30_000;
 /** Each poll waits up to this long first, so nodes don't all claim at once. */
 const JOB_POLL_JITTER_MS = 5_000;
-/** How overdue a `nearPrimary` job must be before other regions may claim it. */
-export const JOB_NEAR_PRIMARY_GRACE_MS = 5 * 60_000;
 const JOB_DEFAULT_LEASE_MS = 15 * 60_000;
 /** Consecutive failures that raise `scheduled_job_failing`. */
 const JOB_FAILING_ALARM_AT = 3;
-const JOB_OVERDUE_MIN_MS = 10 * 60_000;
-const JOB_STATE_MAX_BYTES = 64 * 1024;
-const JOB_ERROR_MAX_CHARS = 1024;
-const JOB_FIRST_RUN_JITTER_MAX_MS = 60_000;
 const JOB_SHUTDOWN_WAIT_MS = 10_000;
 /**
- * Job names and namespaces: what `scheduled_jobs` stores (ASCII, 128) and
- * without `:`, so a (namespace, name) pair maps to exactly one Redis key.
+ * Job names and namespaces: ASCII, at most 128, and without `:`, so a
+ * (namespace, name) pair maps to exactly one set of Redis keys.
  */
 const JOB_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 
@@ -58,7 +60,10 @@ if op == 'del' then return redis.call('del', KEYS[1]) end
 return -1
 `;
 
-/** `fleet` runs once per cadence across every region; `region` once per region. */
+/**
+ * `region` runs once per cadence per region. `fleet` means once across every
+ * region where `services.jobs` supports it; this default runs it per region.
+ */
 export type JobScope = 'fleet' | 'region';
 
 export interface JobRunContext {
@@ -78,14 +83,14 @@ export interface JobDefinition {
     every: number;
     scope: JobScope;
     /**
-     * Prefer the region nearest the primary database
-     * (`jobs.nearPrimaryRegion`).
+     * Prefer the region nearest the primary database, for a `fleet` job. The
+     * default scheduler ignores it.
      */
     nearPrimary?: boolean;
     /**
-     * How long a run holds the job: between renewals for `fleet`, in total for
-     * `region` (at most `every`). Default 15 min, capped at `every` for
-     * `region`.
+     * How long a run holds the job, in total on the region path (at most
+     * `every`). Default 15 min, capped at `every` for `region`; a `fleet` job
+     * run per region is capped at `every` too.
      */
     leaseMs?: number;
     run: (ctx: JobRunContext) => Promise<void>;
@@ -101,24 +106,6 @@ export const savedAfterId = (state: unknown): number => {
         : 0;
 };
 
-/** The run no longer holds its job; another node may already be running it. */
-export class JobLeaseLostError extends Error {}
-
-type RegisteredJob = Required<JobDefinition>;
-
-type RunOutcome = 'success' | 'failure' | 'interrupted';
-
-/** What a run holds the job by. Its deadline is measured from before the claim. */
-interface RunLease {
-    controller: AbortController;
-    /**
-     * Renews if little lease is left; false (and aborted) if the run can't
-     * start.
-     */
-    ready: () => Promise<boolean>;
-    close: () => void;
-}
-
 interface RegionKeys {
     lock: string;
     gate: string;
@@ -126,14 +113,13 @@ interface RegionKeys {
 }
 
 /**
- * Runs our own recurring backend work once per cadence: once across every node
- * sharing the database (`fleet`, a lease row in `scheduled_jobs`), or once per
- * region (`region`, a Redis lock). Nothing polls until a job is registered.
+ * Runs our own recurring backend work once per cadence per region, under a
+ * Redis lock. `fleet` jobs take the same path here; an extension registered as
+ * `services.jobs` can run them fleet-wide by overriding `pollFleet`. Nothing
+ * polls until a job is registered.
  */
 export class JobScheduler extends PuterService {
     #jobs = new Map<string, RegisteredJob>();
-    /** Fleet jobs whose row this process has inserted (or found). */
-    #rowsReady = new Set<string>();
     #running = new Map<string, Promise<void>>();
     #leases = new Set<RunLease>();
     #started = false;
@@ -144,9 +130,9 @@ export class JobScheduler extends PuterService {
     #namespace: string | null = null;
 
     /**
-     * Keys this deployment's jobs, so deployments sharing a database stay
-     * apart. One the table or Redis keys can't hold falls back to `default`, so
-     * a domain with a port doesn't stop the server booting.
+     * Keys this deployment's jobs, so deployments sharing Redis stay apart. One
+     * the keys can't hold falls back to `default`, so a domain with a port
+     * doesn't stop the server booting.
      */
     get namespace(): string {
         if (this.#namespace !== null) return this.#namespace;
@@ -250,16 +236,15 @@ export class JobScheduler extends PuterService {
                 fleet.push(name);
                 continue;
             }
-            region.push(this.#track(name, () => this.#tryRegion(name, job)));
+            region.push(this.track(name, () => this.#tryRegion(name, job)));
         }
-        await Promise.all([this.#pollFleet(fleet), ...region]);
+        await Promise.all([this.pollFleet(fleet), ...region]);
     }
 
     #arm(): void {
         if (this.#timer || this.#stopping) return;
         if (this.config.jobs?.enabled === false) {
-            // The overdue alarm runs inside the poll, so a fleet with every
-            // node off would be silent without this.
+            // Nothing alarms on a job that never runs, so say it here.
             if (!this.#warnedOff) {
                 console.warn(
                     '[jobs] polling is off on this node (jobs.enabled: false); other nodes must run the jobs',
@@ -288,301 +273,6 @@ export class JobScheduler extends PuterService {
         } catch (err) {
             console.error('[jobs] poll failed', err);
         }
-    }
-
-    /** Runs `work` as `name`'s only run in this process. */
-    #track(name: string, work: () => Promise<void>): Promise<void> {
-        const run = (async () => {
-            try {
-                await work();
-            } catch (err) {
-                console.error(`[jobs] ${name} errored`, err);
-            } finally {
-                this.#running.delete(name);
-            }
-        })();
-        this.#running.set(name, run);
-        return run;
-    }
-
-    // -- Fleet scope --------------------------------------------------
-
-    async #pollFleet(names: string[]): Promise<void> {
-        if (names.length === 0) return;
-        if (!(await this.#ensureRows(names))) return;
-
-        let listed: { jobs: ScheduledJobSummary[]; dbNowMs: number | null };
-        try {
-            listed = await this.stores.scheduledJob.listForNamespace(
-                this.namespace,
-                names,
-            );
-        } catch (err) {
-            console.warn('[jobs] could not read scheduled_jobs', err);
-            return;
-        }
-        const now = listed.dbNowMs ?? Date.now();
-
-        const runs: Promise<void>[] = [];
-        for (const row of listed.jobs) {
-            const job = this.#jobs.get(row.name);
-            if (!job || this.#running.has(row.name)) continue;
-            if (row.leaseUntil !== null && row.leaseUntil >= now) continue;
-            this.#checkOverdue(row, job, now);
-            if (row.nextRunAt + this.#graceMs(job) > now) continue;
-            runs.push(
-                this.#track(row.name, () => this.#runFleet(row.name, job)),
-            );
-        }
-        await Promise.all(runs);
-    }
-
-    /**
-     * Insert rows for newly registered fleet jobs. False when the table is
-     * unusable.
-     */
-    async #ensureRows(names: string[]): Promise<boolean> {
-        const missing = names.filter((name) => !this.#rowsReady.has(name));
-        if (missing.length === 0) return true;
-        try {
-            await Promise.all(
-                missing.map((name) => {
-                    const every = this.#jobs.get(name)!.every;
-                    const jitter = Math.floor(
-                        Math.random() *
-                            Math.min(every * 0.05, JOB_FIRST_RUN_JITTER_MAX_MS),
-                    );
-                    return this.stores.scheduledJob.register(
-                        this.namespace,
-                        name,
-                        jitter,
-                        Date.now(),
-                    );
-                }),
-            );
-        } catch (err) {
-            this.clients.alarm.create(
-                'scheduled_jobs_unavailable',
-                'scheduled_jobs is unavailable; fleet jobs are not running',
-                { namespace: this.namespace, error: asError(err) },
-                'critical',
-                { dedup: true },
-            );
-            return false;
-        }
-        for (const name of missing) this.#rowsReady.add(name);
-        return true;
-    }
-
-    /** Extra wait before this region may claim `job`. */
-    #graceMs(job: RegisteredJob): number {
-        const nearPrimaryRegion = this.config.jobs?.nearPrimaryRegion;
-        if (!job.nearPrimary || !nearPrimaryRegion) return 0;
-        return this.services.broadcast.regionId === nearPrimaryRegion
-            ? 0
-            : JOB_NEAR_PRIMARY_GRACE_MS;
-    }
-
-    #checkOverdue(
-        row: ScheduledJobSummary,
-        job: RegisteredJob,
-        now: number,
-    ): void {
-        const overdueMs = now - row.nextRunAt;
-        if (overdueMs <= Math.max(2 * job.every, JOB_OVERDUE_MIN_MS)) return;
-        this.clients.alarm.create(
-            `scheduled_job_overdue:${this.namespace}:${row.name}`,
-            `System job ${row.name} is overdue`,
-            { namespace: this.namespace, name: row.name, overdueMs },
-            'warning',
-            { dedup: true },
-        );
-    }
-
-    async #runFleet(name: string, job: RegisteredJob): Promise<void> {
-        const store = this.stores.scheduledJob;
-        const namespace = this.namespace;
-        const token = randomUUID();
-        // Before the claim, so the claim's own I/O counts against the lease.
-        const startedAt = performance.now();
-        const claimed = await store.claim(namespace, name, {
-            token,
-            owner: this.#owner(),
-            leaseMs: job.leaseMs,
-            graceMs: this.#graceMs(job),
-            updatedAt: Date.now(),
-        });
-        if (!claimed) return;
-
-        const lease = this.#fleetLease(name, token, job.leaseMs, startedAt);
-        const { signal } = lease.controller;
-        let lastRunAt: number | null = null;
-        let failures = 0;
-        let error: unknown = null;
-        try {
-            const row = await store.readClaimed(namespace, name);
-            if (!row) throw new Error('job row is gone');
-            lastRunAt = row.dbNowMs;
-            failures = row.failures;
-            if (await lease.ready()) {
-                await job.run({
-                    signal,
-                    state: parseState(row.state),
-                    saveState: async (state) => {
-                        const saved = await store.saveState(
-                            namespace,
-                            name,
-                            token,
-                            serializeState(state),
-                            Date.now(),
-                        );
-                        if (!saved) lostLease(lease, name);
-                    },
-                });
-            }
-        } catch (err) {
-            error = err;
-        } finally {
-            lease.close();
-        }
-        // Without the row there is nothing to record; the lease lapses.
-        if (lastRunAt === null) throw error;
-
-        const outcome = runOutcome(signal, error);
-        let next: JobNextRun = { kind: 'unchanged' };
-        let lastError: string | null = null;
-        if (outcome === 'success') {
-            next = { kind: 'cadence', every: job.every };
-            failures = 0;
-        } else if (outcome === 'failure') {
-            failures += 1;
-            next = {
-                kind: 'after',
-                delayMs: Math.min(job.every, deliveryBackoffMs(failures)),
-            };
-            lastError = errorText(error);
-        } else {
-            // Due again at once, for whichever node gets to it.
-            lastError = `interrupted: ${errorText(signal.reason)}`;
-        }
-
-        const recorded = await store.finish(namespace, name, token, {
-            next,
-            lastRunAt,
-            lastDurationMs: Math.round(performance.now() - startedAt),
-            lastError,
-            failures,
-            updatedAt: Date.now(),
-        });
-        if (!recorded) {
-            console.warn(`[jobs] ${name} lost its lease before finishing`);
-            return;
-        }
-        if (outcome === 'failure') this.#reportFailure(name, failures, error);
-    }
-
-    /**
-     * The row's lease is `leaseMs` from the claim, which started at `from`.
-     * Renewals go out every `leaseMs / 3`; the run aborts if none has succeeded
-     * within `leaseMs / 2` of when it was sent, or one fails or finds the lease
-     * gone.
-     */
-    #fleetLease(
-        name: string,
-        token: string,
-        leaseMs: number,
-        from: number,
-    ): RunLease {
-        const controller = new AbortController();
-        let deadline = from + leaseMs / 2;
-        let closed = false;
-        let watchdog: ReturnType<typeof setTimeout> | undefined;
-        let renewTimer: ReturnType<typeof setTimeout> | undefined;
-        let renewing: Promise<void> | null = null;
-        const abort = (reason: string, cause?: unknown) => {
-            if (controller.signal.aborted) return;
-            controller.abort(new JobLeaseLostError(reason, { cause }));
-        };
-
-        const schedule = () => {
-            clearTimeout(watchdog);
-            clearTimeout(renewTimer);
-            if (closed || controller.signal.aborted) return;
-            const now = performance.now();
-            watchdog = setTimeout(
-                () => abort('lease renewal overdue'),
-                Math.max(0, deadline - now),
-            );
-            renewTimer = setTimeout(
-                () => void renew(),
-                Math.max(0, deadline - leaseMs / 6 - now),
-            );
-        };
-
-        const renew = (): Promise<void> => {
-            renewing ??= (async () => {
-                const sentAt = performance.now();
-                try {
-                    const renewed = await this.stores.scheduledJob.renew(
-                        this.namespace,
-                        name,
-                        token,
-                        leaseMs,
-                        Date.now(),
-                    );
-                    // A renewal answering after the run closed can't re-arm.
-                    if (closed || controller.signal.aborted) return;
-                    if (!renewed) {
-                        abort('lease lost');
-                        return;
-                    }
-                    deadline = Math.max(deadline, sentAt + leaseMs / 2);
-                    schedule();
-                } catch (err) {
-                    abort('lease renewal failed', err);
-                } finally {
-                    renewing = null;
-                }
-            })();
-            return renewing;
-        };
-
-        const lease: RunLease = {
-            controller,
-            ready: async () => {
-                // Past the deadline the lease may already be someone else's.
-                if (performance.now() >= deadline) {
-                    abort('lease renewal overdue');
-                } else if (deadline - performance.now() < leaseMs / 6) {
-                    await renew();
-                }
-                if (
-                    !closed &&
-                    !controller.signal.aborted &&
-                    deadline - performance.now() >= leaseMs / 6
-                ) {
-                    return true;
-                }
-                abort('too little lease left to start');
-                return false;
-            },
-            close: () => {
-                closed = true;
-                clearTimeout(watchdog);
-                clearTimeout(renewTimer);
-                this.#leases.delete(lease);
-            },
-        };
-        this.#openLease(lease);
-        if (performance.now() >= deadline) abort('lease renewal overdue');
-        schedule();
-        return lease;
-    }
-
-    #owner(): string {
-        const region = this.services.broadcast.regionId;
-        const server = this.config.serverId ?? 'local';
-        return `${region}:${server}:${process.pid}`.slice(0, 128);
     }
 
     // -- Region scope -------------------------------------------------
@@ -669,7 +359,7 @@ export class JobScheduler extends PuterService {
                 'pexpire',
                 Math.min(job.every, deliveryBackoffMs(failures)),
             );
-            this.#reportFailure(name, failures, error);
+            this.reportFailure(name, failures, error);
         } else {
             await write('del');
         }
@@ -705,10 +395,10 @@ export class JobScheduler extends PuterService {
             },
             close: () => {
                 clearTimeout(lapse);
-                this.#leases.delete(lease);
+                this.closeLease(lease);
             },
         };
-        this.#openLease(lease);
+        this.openLease(lease);
         return lease;
     }
 
@@ -734,13 +424,63 @@ export class JobScheduler extends PuterService {
         return Number(result);
     }
 
-    // -- Shared -------------------------------------------------------
+    // -- Hooks, also for extensions that replace `services.jobs` -------
+
+    /**
+     * Run `fleet` jobs registered here and not running in this process. The
+     * default holds each per region, its lease capped at `every`.
+     */
+    protected async pollFleet(names: string[]): Promise<void> {
+        await Promise.all(
+            names.map((name) => {
+                const job = this.definitionOf(name);
+                return this.track(name, () =>
+                    this.#tryRegion(name, {
+                        ...job,
+                        leaseMs: Math.min(job.leaseMs, job.every),
+                    }),
+                );
+            }),
+        );
+    }
+
+    /** Runs `work` as `name`'s only run in this process. */
+    protected track(name: string, work: () => Promise<void>): Promise<void> {
+        const run = (async () => {
+            try {
+                await work();
+            } catch (err) {
+                console.error(`[jobs] ${name} errored`, err);
+            } finally {
+                this.#running.delete(name);
+            }
+        })();
+        this.#running.set(name, run);
+        return run;
+    }
+
+    protected isRunning(name: string): boolean {
+        return this.#running.has(name);
+    }
+
+    protected definitionOf(name: string): RegisteredJob {
+        const job = this.#jobs.get(name);
+        if (!job) throw new Error(`job not registered: ${name}`);
+        return job;
+    }
+
+    /** Who runs a job here: region, server and process. */
+    protected owner(): string {
+        const region = this.services.broadcast.regionId;
+        const server = this.config.serverId ?? 'local';
+        return `${region}:${server}:${process.pid}`.slice(0, 128);
+    }
 
     /**
      * Track `lease` for shutdown; one opened while shutting down is aborted at
      * once.
      */
-    #openLease(lease: RunLease): void {
+    protected openLease(lease: RunLease): void {
         this.#leases.add(lease);
         if (this.#stopping) {
             lease.controller.abort(
@@ -749,7 +489,16 @@ export class JobScheduler extends PuterService {
         }
     }
 
-    #reportFailure(name: string, failures: number, error: unknown): void {
+    /** Stop tracking `lease`; its `close` calls this. */
+    protected closeLease(lease: RunLease): void {
+        this.#leases.delete(lease);
+    }
+
+    protected reportFailure(
+        name: string,
+        failures: number,
+        error: unknown,
+    ): void {
         console.error(`[jobs] ${name} failed (${failures} in a row)`, error);
         if (failures < JOB_FAILING_ALARM_AT) return;
         this.clients.alarm.create(
@@ -779,41 +528,3 @@ const regionKeys = (namespace: string, name: string): RegionKeys => {
         run: `jobs:${tag}:run`,
     };
 };
-
-const lostLease = (lease: RunLease, name: string): never => {
-    const lost = new JobLeaseLostError(`job ${name} lost its lease`);
-    lease.controller.abort(lost);
-    throw lost;
-};
-
-/** A run cut short by its signal is interrupted, whether or not it threw. */
-const runOutcome = (signal: AbortSignal, error: unknown): RunOutcome => {
-    if (signal.aborted) return 'interrupted';
-    return error === null ? 'success' : 'failure';
-};
-
-const parseState = (raw: string | null): unknown => {
-    if (raw === null) return null;
-    try {
-        return JSON.parse(raw);
-    } catch {
-        return null;
-    }
-};
-
-const serializeState = (state: unknown): string => {
-    const json = JSON.stringify(state ?? null);
-    if (Buffer.byteLength(json) > JOB_STATE_MAX_BYTES) {
-        throw new Error(`job state is over ${JOB_STATE_MAX_BYTES} bytes`);
-    }
-    return json;
-};
-
-const asError = (error: unknown): Error =>
-    error instanceof Error ? error : new Error(String(error));
-
-const errorText = (error: unknown): string =>
-    (error instanceof Error ? error.message : String(error)).slice(
-        0,
-        JOB_ERROR_MAX_CHARS,
-    );

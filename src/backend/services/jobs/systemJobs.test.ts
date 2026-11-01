@@ -18,9 +18,9 @@
  */
 
 /**
- * The backend's own periodic jobs as the scheduler runs them: what registers,
- * that each runs once across nodes sharing a database, and that a single
- * self-hosted node (sqlite, in-process Redis) runs every one of them.
+ * The backend's own periodic jobs on the default scheduler: what registers,
+ * that each runs once across nodes sharing Redis, and that a single self-hosted
+ * node (sqlite, in-process Redis) runs every one of them.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -146,26 +146,13 @@ afterAll(async () => {
     await server?.shutdown();
 });
 
-const db = () => server.clients.db;
+const keysOf = (namespace: string, name: string) => ({
+    lock: `jobs:{${namespace}:${name}}:lock`,
+    gate: `jobs:{${namespace}:${name}}:next`,
+    run: `jobs:{${namespace}:${name}}:run`,
+});
 
-const jobRow = async (namespace: string, name: string) => {
-    const [row] = await db().pread(
-        'SELECT * FROM `scheduled_jobs` WHERE `namespace` = ? AND `name` = ?',
-        [namespace, name],
-    );
-    return row;
-};
-
-/** Insert `name`'s row (if missing) and make it due now. */
-const makeDue = async (namespace: string, name: string) => {
-    await server.stores.scheduledJob.register(namespace, name, 0, Date.now());
-    await db().write(
-        'UPDATE `scheduled_jobs` SET `next_run_at` = 0 WHERE `namespace` = ? AND `name` = ?',
-        [namespace, name],
-    );
-};
-
-/** A node of its own in its own region, sharing the test database. */
+/** A node of its own in `region`, on the test server's Redis. */
 const node = (namespace: string, region: string): JobScheduler =>
     new JobScheduler(
         {
@@ -223,12 +210,10 @@ describe('system jobs', () => {
     });
 
     it.each(JOB_NAMES)(
-        'runs %s once across three nodes sharing the database',
+        'runs %s once across three nodes sharing Redis',
         async (name) => {
             const namespace = `ns-${randomUUID()}`;
-            const nodes = ['r1', 'r2', 'r3'].map((region) =>
-                node(namespace, region),
-            );
+            const nodes = ['n1', 'n2', 'n3'].map((id) => node(namespace, id));
             const job = registered.get(name)!;
             let runs = 0;
             for (const scheduler of nodes)
@@ -239,21 +224,24 @@ describe('system jobs', () => {
                         await job.run(ctx);
                     },
                 });
-            await makeDue(namespace, name);
 
+            await Promise.all(nodes.map((scheduler) => scheduler.poll()));
             await Promise.all(nodes.map((scheduler) => scheduler.poll()));
 
             expect(runs).toBe(1);
-            const row = await jobRow(namespace, name);
-            expect(row.last_error).toBeNull();
-            expect(Number(row.failures)).toBe(0);
-            expect(Number(row.next_run_at)).toBeGreaterThan(Date.now());
+            const redis = server.clients.redis;
+            const keys = keysOf(namespace, name);
+            // A failure would have cut the gate to a 2 s backoff.
+            expect(await redis.pttl(keys.gate)).toBeGreaterThan(
+                job.every - MINUTE,
+            );
+            expect(await redis.hget(keys.run, 'failures')).toBeNull();
         },
     );
 
-    it('runs every job on a single self-hosted node, with no regional gate', async () => {
+    it('runs every job on a single self-hosted node, without the old per-job gates', async () => {
         const jobs = server.services.jobs;
-        for (const name of JOB_NAMES) await makeDue(jobs.namespace, name);
+        const redis = server.clients.redis;
 
         await jobs.poll();
 
@@ -261,21 +249,19 @@ describe('system jobs', () => {
         await vi.waitFor(
             async () => {
                 for (const name of JOB_NAMES) {
-                    const row = await jobRow(jobs.namespace, name);
-                    expect(row.last_run_at, name).not.toBeNull();
-                    expect(row.last_error, name).toBeNull();
-                    expect(Number(row.next_run_at), name).toBeGreaterThan(
-                        Date.now(),
+                    const keys = keysOf(jobs.namespace, name);
+                    expect(await redis.exists(keys.gate), name).toBe(1);
+                    // Released once the run is over.
+                    expect(await redis.exists(keys.lock), name).toBe(0);
+                    expect(await redis.hget(keys.run, 'failures'), name).toBe(
+                        null,
                     );
                 }
             },
             { timeout: 10_000, interval: 100 },
         );
         await expect(
-            server.clients.redis.exists(
-                'sessions:purge:gate',
-                'kvShare:purge:gate',
-            ),
+            redis.exists('sessions:purge:gate', 'kvShare:purge:gate'),
         ).resolves.toBe(0);
     });
 });
