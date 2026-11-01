@@ -560,7 +560,14 @@ export class JobScheduler extends PuterService {
     async #tryRegion(name: string, job: RegisteredJob): Promise<void> {
         const redis = this.clients.redis;
         const keys = regionKeys(this.namespace, name);
-        if ((await redis.exists(keys.gate)) > 0) return;
+        let gated: number;
+        try {
+            gated = await redis.exists(keys.gate);
+        } catch {
+            // Redis is unreachable; the lock below would be busy anyway.
+            return;
+        }
+        if (gated > 0) return;
         // Before the lock, so acquiring it counts against `leaseMs`.
         const startedAt = performance.now();
         await withRedisLock(

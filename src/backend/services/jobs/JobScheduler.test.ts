@@ -295,6 +295,31 @@ describe('JobScheduler', () => {
 
     // -- Fleet scope --------------------------------------------------
 
+    it('polls an idle fleet job with one replica read and nothing else', async () => {
+        const namespace = freshNamespace();
+        const redis = new MockRedis({ port: 17107 });
+        const scheduler = node({ namespace, redis });
+        scheduler.register('job.idle', {
+            every: HOUR,
+            scope: 'fleet',
+            run: async () => {},
+        });
+        await scheduler.poll();
+        await setNextRunAt(namespace, 'job.idle', (await dbNow()) + HOUR);
+
+        const reads = vi.spyOn(db(), 'read');
+        const preads = vi.spyOn(db(), 'pread');
+        const writes = vi.spyOn(db(), 'write');
+        const redisCalls = ['exists', 'set', 'eval', 'hget'].map((command) =>
+            vi.spyOn(redis, command as 'exists'),
+        );
+        await scheduler.poll();
+        expect(reads).toHaveBeenCalledTimes(1);
+        expect(preads).not.toHaveBeenCalled();
+        expect(writes).not.toHaveBeenCalled();
+        for (const call of redisCalls) expect(call).not.toHaveBeenCalled();
+    });
+
     it('runs a due job exactly once across 10 racing nodes, 20 rounds in a row', async () => {
         const namespace = freshNamespace();
         const nodes = Array.from({ length: 10 }, () => node({ namespace }));
@@ -690,6 +715,40 @@ describe('JobScheduler', () => {
             await settle(scheduler.poll());
             expect(run).toHaveBeenCalledTimes(1);
         });
+
+        it('aborts a region run before its next batch once the lock lapses, and leaves it due at once', async () => {
+            const namespace = freshNamespace();
+            const redis = new MockRedis({ port: 17106 });
+            const scheduler = node({ namespace, redis });
+            const job = timedJob(10, 70);
+            scheduler.register('job.lapse', {
+                every: HOUR,
+                scope: 'region',
+                leaseMs,
+                run: job.run,
+            });
+            const lockedAt = performance.now();
+            await settle(scheduler.poll());
+
+            expect(job.seen.abortedAt! - lockedAt).toBe(leaseMs);
+            expect((job.seen.signal?.reason as Error).message).toMatch(
+                /lapsed/,
+            );
+            expect(job.seen.starts.length).toBeLessThan(10);
+            expect(job.seen.starts.every((t) => t < job.seen.abortedAt!)).toBe(
+                true,
+            );
+            // The gate is still this run's, so its last save went through;
+            // interrupted, the gate goes back and the job is due at once.
+            expect(job.seen.saveError).toBeNull();
+            const keys = {
+                gate: `jobs:{${namespace}:job.lapse}:next`,
+                run: `jobs:{${namespace}:job.lapse}:run`,
+            };
+            expect(await redis.exists(keys.gate)).toBe(0);
+            expect(await redis.hget(keys.run, 'state')).toBe('{"late":true}');
+            expect(await redis.hget(keys.run, 'failures')).toBeNull();
+        });
     });
 
     it('records the next run on the primary clock, whatever the node clock does mid-run', async () => {
@@ -1050,6 +1109,26 @@ describe('JobScheduler', () => {
             ),
         ).toBeNull();
         expect(await redis.pttl(gate)).toBeGreaterThan(HOUR - 60_000);
+    });
+
+    it('skips region jobs quietly while Redis is unreachable', async () => {
+        const namespace = freshNamespace();
+        const redis = new MockRedis({ port: 17108 });
+        const scheduler = node({ namespace, redis });
+        const run = vi.fn(async () => {});
+        scheduler.register('job.noRedis', {
+            every: HOUR,
+            scope: 'region',
+            run,
+        });
+        vi.spyOn(redis, 'exists').mockRejectedValue(
+            new Error('connection refused'),
+        );
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        await scheduler.poll();
+        expect(run).not.toHaveBeenCalled();
+        expect(errors).not.toHaveBeenCalled();
     });
 
     it('fences a region run that outlived its gate off its successor’s keys', async () => {
