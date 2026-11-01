@@ -402,6 +402,21 @@ export class AbstractDatabaseClient extends PuterClient {
     }
 
     /**
+     * The database's own clock as epoch milliseconds, so nodes whose clocks
+     * disagree still agree on it. The mysql form ignores the session time zone,
+     * so a DST change can't shift it.
+     */
+    nowMsExpr(): string {
+        return this.case({
+            sqlite: "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)",
+            postgres:
+                'CAST(EXTRACT(EPOCH FROM clock_timestamp()) * 1000 AS BIGINT)',
+            otherwise:
+                "(TIMESTAMPDIFF(MICROSECOND, '1970-01-01 00:00:00', UTC_TIMESTAMP(6)) DIV 1000)",
+        });
+    }
+
+    /**
      * What a read of a timestamp column holding `seconds` returns: sqlite gives
      * back the UTC text it stored, mysql2 and pg a `Date` read in node's time
      * zone (so this matches when node and the database session share one).
