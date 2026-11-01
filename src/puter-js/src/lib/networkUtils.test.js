@@ -613,6 +613,47 @@ describe('transient retry', () => {
         vi.useRealTimers();
     });
 
+    // A server without a feature answers 503 `events_disabled` every time.
+    it.each([
+        [{ code: 'events_disabled', message: 'Schedules are not available' }],
+        [{ error: { code: 'events_disabled', message: 'Not available' } }],
+    ])(
+        'answers a GET whose 503 is a structured events_disabled at once (%j)',
+        async (body) => {
+            const xhrs = installFakeXHR(
+                sequence(respond({ status: 503, body })),
+            );
+            const resp = await fetchUrl('https://api.example/x'); // GET
+            expect(resp.status).toBe(503);
+            expect(xhrs.length).toBe(1);
+            expect(JSON.stringify(await resp.json())).toContain(
+                'events_disabled',
+            );
+        },
+    );
+
+    it.each([
+        [{ status: 503, body: { code: 'service_unavailable' } }],
+        [
+            {
+                status: 503,
+                body: 'upstream unavailable',
+                contentType: 'text/plain',
+            },
+        ],
+        [{ status: 502, body: { code: 'events_disabled' } }],
+    ])('keeps retrying any other 502/503 (%j)', async (first) => {
+        vi.useFakeTimers();
+        const xhrs = installFakeXHR(
+            sequence(respond(first), respond({ status: 200, body: { ok: 1 } })),
+        );
+        const p = fetchUrl('https://api.example/x');
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect((await p).status).toBe(200);
+        expect(xhrs.length).toBe(2);
+        vi.useRealTimers();
+    });
+
     it('retry:false disables retry even for a GET', async () => {
         const xhrs = installFakeXHR(
             sequence(respond({ status: 503, body: {} })),

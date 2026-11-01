@@ -504,6 +504,16 @@ async function bodyForLog(xhr) {
 // can mean the request was half-applied upstream, so only a read replays.
 const RETRYABLE_STATUS = new Set([502, 503, 504]);
 
+// A 503 that names a feature this server doesn't have is final: asking again
+// gets the same answer.
+const FINAL_UNAVAILABLE_CODES = new Set(['events_disabled']);
+
+const isFinalUnavailable = (status, parsed) =>
+    status === 503 &&
+    [parsed?.code, parsed?.error?.code].some((code) =>
+        FINAL_UNAVAILABLE_CODES.has(code),
+    );
+
 // A rate/concurrency gate rejects in middleware, before the handler that would
 // have done the work — so nothing happened, and replaying is safe for a write
 // exactly as it is for a read. Treating this like the statuses above meant a
@@ -844,7 +854,19 @@ async function classifyRetry(outcome, ctx) {
     }
 
     // transient status — read-safe only, honors kill switch, fixed schedule.
-    if (RETRYABLE_STATUS.has(status)) return transientRetry(ctx);
+    if (RETRYABLE_STATUS.has(status)) {
+        if (status === 503 && ctx.retrySafe) {
+            if (outcome.parsed === undefined) {
+                try {
+                    outcome.parsed = await bodyJson(xhr);
+                } catch {
+                    outcome.parsed = null;
+                }
+            }
+            if (isFinalUnavailable(status, outcome.parsed)) return null;
+        }
+        return transientRetry(ctx);
+    }
 
     return null;
 }
