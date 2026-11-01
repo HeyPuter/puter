@@ -151,6 +151,8 @@ interface HeldLease {
  */
 class LagWatch {
     readonly #minutes = new Map<number, number[]>();
+    /** P95 of each whole minute, worked out once the minute is over. */
+    readonly #p95 = new Map<number, number>();
 
     /** Whether every one of the last few whole minutes ran over at p95. */
     record(lagMs: number, now: number): boolean {
@@ -160,25 +162,34 @@ class LagWatch {
             samples = [];
             this.#minutes.set(minute, samples);
             for (const key of this.#minutes.keys())
-                if (key < minute - LAG_ALARM_MINUTES) this.#minutes.delete(key);
+                if (key < minute - LAG_ALARM_MINUTES) {
+                    this.#minutes.delete(key);
+                    this.#p95.delete(key);
+                }
         }
         if (samples.length < LAG_SAMPLES_PER_MINUTE) samples.push(lagMs);
         else samples[Math.floor(Math.random() * samples.length)] = lagMs;
 
         for (let m = minute - LAG_ALARM_MINUTES; m < minute; m++) {
-            const window = this.#minutes.get(m);
-            if (!window || window.length === 0) return false;
-            const sorted = [...window].sort((a, b) => a - b);
-            const p95 =
-                sorted[
-                    Math.min(
-                        sorted.length - 1,
-                        Math.floor(sorted.length * 0.95),
-                    )
-                ];
-            if (p95 <= LAG_ALARM_MS) return false;
+            const p95 = this.#p95OfPast(m);
+            if (p95 === null || p95 <= LAG_ALARM_MS) return false;
         }
         return true;
+    }
+
+    /** The p95 of a minute that is over; its samples don't change again. */
+    #p95OfPast(minute: number): number | null {
+        const known = this.#p95.get(minute);
+        if (known !== undefined) return known;
+        const window = this.#minutes.get(minute);
+        if (!window || window.length === 0) return null;
+        const sorted = [...window].sort((a, b) => a - b);
+        const p95 =
+            sorted[
+                Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))
+            ];
+        this.#p95.set(minute, p95);
+        return p95;
     }
 }
 
