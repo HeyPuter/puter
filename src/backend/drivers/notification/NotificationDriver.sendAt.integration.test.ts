@@ -145,6 +145,10 @@ const mailbox = (appUid: string, userId = h.userId) =>
         [userId, appUid],
     );
 
+/** A row's value: JSON text on sqlite, parsed on the other engines. */
+const valueOf = (row: Record<string, unknown>) =>
+    typeof row.value === 'string' ? JSON.parse(row.value) : row.value;
+
 const writtenFor = (appUid: string) =>
     written.filter((event) => event.appUid === appUid);
 
@@ -408,7 +412,7 @@ describe('a delayed send coming due', () => {
             type: 'app.message',
             audience: 'app-user',
         });
-        expect(JSON.parse(String(rows[0].value))).toMatchObject({
+        expect(valueOf(rows[0])).toMatchObject({
             title: 'Hi',
             channel: 'later',
             type: 'app.message',
@@ -460,7 +464,7 @@ describe('a delayed send coming due', () => {
         expect(rows).toHaveLength(1);
         expect(rows[0]).toMatchObject({ uid: open.uid, send_key: key });
         expect(Number(rows[0].replaced_at)).toBeGreaterThan(0);
-        expect(JSON.parse(String(rows[0].value))).toMatchObject({
+        expect(valueOf(rows[0])).toMatchObject({
             text: 'newer',
         });
         await settle();
@@ -646,6 +650,7 @@ describe('a delayed send run more than once', () => {
                 endReason: 'delivered',
             });
             vi.restoreAllMocks();
+            freezeRedisClock();
             vi.spyOn(console, 'warn').mockImplementation(() => {});
         }
     });
@@ -841,9 +846,10 @@ describe('a delayed send that can`t go', () => {
     it('waits while its sender is suspended, and goes once they aren`t', async () => {
         const app = await h.makeApp();
         const row = await sendLater(app);
-        await db().write('UPDATE user SET suspended = 1 WHERE id = ?', [
-            h.userId,
-        ]);
+        await db().write(
+            `UPDATE \`user\` SET \`suspended\` = ${db().booleanLiteral(true)} WHERE \`id\` = ?`,
+            [h.userId],
+        );
         await server().stores.user.invalidateById(h.userId);
         try {
             await fireAt(DUE);
@@ -859,9 +865,10 @@ describe('a delayed send that can`t go', () => {
                 attempts: 0,
             });
         } finally {
-            await db().write('UPDATE user SET suspended = 0 WHERE id = ?', [
-                h.userId,
-            ]);
+            await db().write(
+                `UPDATE \`user\` SET \`suspended\` = ${db().booleanLiteral(false)} WHERE \`id\` = ?`,
+                [h.userId],
+            );
             await server().stores.user.invalidateById(h.userId);
         }
         await fireAt(DUE + EVENTS_SCHEDULE_SUSPENDED_HOLDER_DEFER_MS);
