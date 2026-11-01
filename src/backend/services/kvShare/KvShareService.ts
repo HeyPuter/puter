@@ -1745,11 +1745,13 @@ export class KvShareService extends PuterService {
      * The other party of a share, for a notification one party sends through
      * its handle from the app whose data it is. Every check runs before the
      * pair budget is spent. A handle that is unknown, retired, not the
-     * caller's, or seen from another app reads as absent.
+     * caller's, or seen from another app reads as absent. `spendBudget: false`
+     * checks without spending, for a send that is only being scheduled.
      */
     async resolveNotifyRecipient(
         actor: Actor,
         handle: unknown,
+        { spendBudget = true }: { spendBudget?: boolean } = {},
     ): Promise<KvShareNotifyTarget> {
         const named = typeof handle === 'string' ? handle : '';
         const senderId = actor.user?.id;
@@ -1782,7 +1784,8 @@ export class KvShareService extends PuterService {
         if (!checked?.holds) throw unknownKvShareHandle(named);
         if (checked.refuses) throw recipientNotAcceptingShares();
 
-        await this.#spendNotifyBudget(senderId, recipientId, share.appUid);
+        if (spendBudget)
+            await this.#spendNotifyBudget(senderId, recipientId, share.appUid);
         return {
             recipientUserId: recipientId,
             appUid: share.appUid,

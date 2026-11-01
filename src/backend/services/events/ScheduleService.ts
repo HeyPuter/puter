@@ -77,6 +77,7 @@ import {
     slotDefOf,
 } from './scheduleIndex.js';
 import {
+    parseSendAt,
     validateScheduleRequest,
     type ScheduleRequest,
     type ScheduleSpec,
@@ -118,6 +119,14 @@ export type ScheduleSubscriptionChange =
       }
     | { type: 'resumed' }
     | { type: 'ended'; endReason: ScheduleEndReason };
+
+/** A delayed send to store: the action that runs it, and when. */
+export interface DeferredSendRequest {
+    action: string;
+    /** JSON text the action reads back when it runs. */
+    payload: string;
+    sendAt: number;
+}
 
 /** A validated create, with who it is for and the caps it is held to. */
 export interface SchedulePlan extends ScheduleSpec {
@@ -183,11 +192,15 @@ export interface ScheduleView {
     startAt: number;
     /** Last allowed run, inclusive. */
     endsAt: number | null;
-    state: 'active' | 'suspended' | 'ended';
+    /** `sending` once a delayed send has started; it can't be cancelled then. */
+    state: 'active' | 'suspended' | 'sending' | 'ended';
     suspendedReason: string | null;
     endReason: string | null;
     endedAt: number | null;
-    /** The slot it runs for next; `null` while suspended and once ended. */
+    /**
+     * The slot it runs for next; `null` while suspended or sending, and once
+     * ended.
+     */
     nextRunAt: number | null;
     createdAt: number;
 }
@@ -219,6 +232,10 @@ const toScheduleView = (row: ScheduleSyncRow, now: number): ScheduleView => {
     const rowState = rowStateOf(row);
     const ended = rowState.kind === 'ended' || rowState.kind === 'revoked';
     const suspended = rowState.kind === 'live' && rowState.state !== 'active';
+    // A delayed send stays live while it sends, and once its mailbox row is
+    // written until its finish lands.
+    const sending =
+        !ended && (row.state === 'sending' || row.state === 'delivered');
     return {
         scheduleId: row.uid,
         kind: row.kind,
@@ -230,16 +247,31 @@ const toScheduleView = (row: ScheduleSyncRow, now: number): ScheduleView => {
         tz: row.tz,
         startAt: row.startAt,
         endsAt: row.endsAt,
-        state: ended ? 'ended' : suspended ? 'suspended' : 'active',
+        state: ended
+            ? 'ended'
+            : suspended
+              ? 'suspended'
+              : sending
+                ? 'sending'
+                : 'active',
         suspendedReason: suspended ? (row.sub?.suspendedReason ?? null) : null,
         endReason: ended
             ? (row.endReason ?? row.sub?.suspendedReason ?? null)
             : null,
         endedAt: row.deletedAt,
-        nextRunAt: ended || suspended ? null : nextRunOf(row, now),
+        nextRunAt: ended || suspended || sending ? null : nextRunOf(row, now),
         createdAt: row.createdAt,
     };
 };
+
+const quotaFor = (plan: string | null): ScheduleQuota => ({
+    recurringPerUser: limitFor(EVENTS_SCHEDULES_PER_USER, plan),
+    recurringPerApp: limitFor(EVENTS_SCHEDULES_PER_APP, plan),
+    oneShotsPerUser: limitFor(EVENTS_SCHEDULE_PENDING_ONESHOTS_PER_USER, plan),
+    oneShotsPerApp: limitFor(EVENTS_SCHEDULE_PENDING_ONESHOTS_PER_APP, plan),
+    budgetPerUser: limitFor(EVENTS_SCHEDULE_FIRE_BUDGET_PER_USER, plan),
+    budgetPerApp: limitFor(EVENTS_SCHEDULE_FIRE_BUDGET_PER_APP, plan),
+});
 
 const endFor = (
     change: ScheduleSubscriptionChange,
@@ -292,20 +324,7 @@ export class ScheduleService extends PuterService {
             throw backgroundConsentRequired();
 
         const plan = await actorPlanId(this.services.metering, actor);
-        const quota: ScheduleQuota = {
-            recurringPerUser: limitFor(EVENTS_SCHEDULES_PER_USER, plan),
-            recurringPerApp: limitFor(EVENTS_SCHEDULES_PER_APP, plan),
-            oneShotsPerUser: limitFor(
-                EVENTS_SCHEDULE_PENDING_ONESHOTS_PER_USER,
-                plan,
-            ),
-            oneShotsPerApp: limitFor(
-                EVENTS_SCHEDULE_PENDING_ONESHOTS_PER_APP,
-                plan,
-            ),
-            budgetPerUser: limitFor(EVENTS_SCHEDULE_FIRE_BUDGET_PER_USER, plan),
-            budgetPerApp: limitFor(EVENTS_SCHEDULE_FIRE_BUDGET_PER_APP, plan),
-        };
+        const quota = quotaFor(plan);
         if (quota.recurringPerUser === 0 && quota.oneShotsPerUser === 0)
             throw temporaryAccount();
 
@@ -377,6 +396,75 @@ export class ScheduleService extends PuterService {
                     },
                 },
             ]);
+        return row;
+    }
+
+    /**
+     * Read a delayed send's `sendAt`. Refused while schedules are off, even one
+     * that would go now, so a caller learns delayed sends aren't there.
+     */
+    parseSendAt(
+        value: unknown,
+        now: number = Date.now(),
+    ): { sendAt: number; immediate: boolean } {
+        if (!this.enabled) throw disabled();
+        return parseSendAt(value, now);
+    }
+
+    /**
+     * Store a delayed send for the caller's app, and index it. It counts
+     * against the sender's pending one-shot caps and needs no consent or
+     * handler. A scoped token is refused: it could neither list nor cancel it.
+     */
+    async createDeferred(
+        actor: Actor,
+        send: DeferredSendRequest,
+    ): Promise<ScheduleRow> {
+        if (!this.enabled) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
+        assertResolvedActor(actor);
+        if (isAccessTokenActor(actor) && !isAccountContext(actor))
+            throw scopedToken();
+        const appUid = actor.effectiveApp?.uid;
+        if (!appUid) throw appRequired();
+        const quota = quotaFor(
+            await actorPlanId(this.services.metering, actor),
+        );
+        if (quota.oneShotsPerUser === 0) throw temporaryAccount();
+
+        const row = await this.stores.schedule.create({
+            namespace: this.namespace,
+            region: this.region,
+            kind: 'deferred',
+            holderUserId,
+            appUid,
+            startAt: send.sendAt,
+            everyMs: null,
+            cron: null,
+            tz: 'UTC',
+            endsAt: send.sendAt,
+            ratePerHour: 0,
+            minGapMs: null,
+            handlerDepth: handlerDepthOf(actor),
+            action: send.action,
+            payload: send.payload,
+            quota,
+        });
+        const def = indexDefFor(row, null);
+        await this.#distribute([
+            {
+                region: row.region,
+                change: {
+                    id: row.uid,
+                    version: row.version,
+                    state: 'active',
+                    def,
+                    score: row.startAt + def.offsetMs,
+                    owed: row.startAt,
+                },
+            },
+        ]);
         return row;
     }
 

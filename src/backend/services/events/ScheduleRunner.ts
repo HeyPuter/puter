@@ -684,6 +684,7 @@ export class ScheduleRunner {
             outcome = await action({
                 scheduleId: id,
                 rowId: def.rowId,
+                version: item.def.version,
                 holderUserId: def.holderUserId,
                 appUid: def.appUid,
                 scheduledFor: slot,

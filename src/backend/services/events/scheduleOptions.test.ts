@@ -22,6 +22,7 @@ import { EVENTS_SCHEDULE_CRON_SCAN_RUNS } from '../../controllers/events/limits.
 import { DURABLE_CONTEXT_MAX_BYTES } from '../../stores/events/DurableSubscriptionStore.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import {
+    parseSendAt,
     validateScheduleRequest,
     type ScheduleRequest,
 } from './scheduleOptions.js';
@@ -429,5 +430,43 @@ describe('time values', () => {
         expect((await refusal({ every: '1h', expiresAt: value })).code).toBe(
             'events_schedule_invalid',
         );
+    });
+});
+
+describe('a delayed send`s sendAt', () => {
+    const code = (value: unknown): string | undefined => {
+        try {
+            parseSendAt(value, NOW);
+        } catch (err) {
+            if (isHttpError(err)) return err.legacyCode;
+            throw err;
+        }
+        return undefined;
+    };
+
+    it('goes now within 5 seconds, or in the past, and is delayed after', () => {
+        expect(parseSendAt(NOW + 4_750, NOW)).toEqual({
+            sendAt: NOW_UP + 4_000,
+            immediate: true,
+        });
+        expect(parseSendAt(NOW - 60_000, NOW).immediate).toBe(true);
+        expect(parseSendAt(NOW + 5_000, NOW)).toEqual({
+            sendAt: NOW_UP + 5_000,
+            immediate: false,
+        });
+    });
+
+    it('is read as `at` is, and at most 366 days ahead', () => {
+        expect(parseSendAt('2026-10-30T13:00:00+01:00', NOW).sendAt).toBe(
+            Date.parse('2026-10-30T12:00:00Z'),
+        );
+        for (const value of [
+            '2026-10-30T13:00:00',
+            -1,
+            1.5,
+            null,
+            NOW + 367 * 24 * 60 * 60 * 1000,
+        ])
+            expect(code(value)).toBe('events_schedule_invalid');
     });
 });

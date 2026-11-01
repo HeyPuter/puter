@@ -204,6 +204,25 @@ const assertNotTooFar = (at: number, now: number, what: string): void => {
         throw scheduleNeverFires(`${what} is more than 366 days away`);
 };
 
+/** A `sendAt` this close to now, or past, is sent now rather than delayed. */
+export const SEND_AT_IMMEDIATE_MS = 5_000;
+
+/**
+ * A delayed send's `sendAt`, read as `at` is: rounded up to a whole second and
+ * at most 366 days ahead. `immediate` when it is due within
+ * {@link SEND_AT_IMMEDIATE_MS}, the past included.
+ */
+export const parseSendAt = (
+    value: unknown,
+    now: number,
+): { sendAt: number; immediate: boolean } => {
+    const sendAt = parseTime(value, 'sendAt');
+    if (sendAt === null) throw scheduleInvalid('sendAt is required');
+    if (sendAt - now > EVENTS_SCHEDULE_MAX_AHEAD_MS)
+        throw scheduleInvalid('sendAt may not be more than 366 days away');
+    return { sendAt, immediate: sendAt <= now + SEND_AT_IMMEDIATE_MS };
+};
+
 // -- Validation -------------------------------------------------------
 
 /**

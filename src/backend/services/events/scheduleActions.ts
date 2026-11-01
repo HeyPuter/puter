@@ -26,6 +26,8 @@
 export interface ScheduleActionRun {
     scheduleId: string;
     rowId: number;
+    /** The version the index holds the schedule at. */
+    version: number;
     holderUserId: number;
     appUid: string;
     scheduledFor: number;
