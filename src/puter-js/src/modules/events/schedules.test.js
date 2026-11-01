@@ -85,6 +85,22 @@ describe('onSchedule', () => {
         );
     });
 
+    it('rejects an invalid Date for `at`, `startAt` or `expiresAt` before any request', async () => {
+        for ( const key of ['at', 'startAt', 'expiresAt'] ) {
+            const error = await rejects(() =>
+                makeModule().onSchedule({
+                    ...(key === 'at' ? {} : { every: '1h' }),
+                    [key]: new Date(NaN),
+                    handlerName: 'tick',
+                    handler: HANDLER,
+                }));
+            expect(error).toBeInstanceOf(PuterJSError);
+            expect(error.code).toBe('events_schedule_invalid');
+            expect(error.message).toContain(key);
+        }
+        expect(mockRequest).not.toHaveBeenCalled();
+    });
+
     it('hands back a handle whose off() removes the schedule', async () => {
         const module = makeModule();
         mockRequest.mockResolvedValueOnce({ scheduleId: SCHEDULE_ID });

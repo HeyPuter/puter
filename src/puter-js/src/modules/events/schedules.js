@@ -70,6 +70,15 @@ export async function onSchedule (options) {
             'events_handler_required',
         );
     }
+    for ( const key of ['at', 'startAt', 'expiresAt'] ) {
+        const value = options[key];
+        if ( value instanceof Date && ! Number.isFinite(value.getTime()) ) {
+            throw new PuterJSError(
+                `\`${key}\` is not a valid date`,
+                'events_schedule_invalid',
+            );
+        }
+    }
 
     const inline = handler === undefined || handler === null
         ? null
