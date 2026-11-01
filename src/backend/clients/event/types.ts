@@ -828,6 +828,12 @@ export type EventMap = {
     /** One access token was revoked; only its own connections should drop. */
     'auth.access-token.revoked': { token_uid: string };
 
+    /** Same-cluster eviction for raw realtime WebSockets. */
+    'pubsub.realtime.auth-revoked': {
+        sessionUids?: string[];
+        tokenUid?: string;
+    };
+
     /**
      * A grant was withdrawn, so whatever was standing on it has to be settled
      * rather than left to fail its next check.

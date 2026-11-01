@@ -16,6 +16,9 @@ import {
     vi,
 } from 'vitest';
 import WebSocket, { WebSocketServer } from 'ws';
+import { EventClient } from '../../clients/event/EventClient.js';
+import { BroadcastService } from '../broadcast/BroadcastService.js';
+import { FULL_API_ACCESS } from '../permission/consts.js';
 import { makeActor } from '../../core/actor.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { withAiCostFactorHook } from '../../drivers/integrationTestUtil';
@@ -1443,6 +1446,226 @@ describe('OpenAIRealtimeRelayService relay', () => {
             await checkRateLimit(realtimeConnectKey(holder.token), 2, 60_000),
         ).toBe(true);
         recovery.ws.close();
+    });
+
+    it('evicts a revoked session through the auth API and preserves another session', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const first = await server.services.auth.createSessionToken(row!, {});
+        const second = await server.services.auth.createSessionToken(row!, {});
+        const a = open(`${relayUrl}?auth_token=${first.token}`);
+        const b = open(`${relayUrl}?auth_token=${second.token}`);
+        await Promise.all([
+            a.waitFor('session.created'),
+            b.waitFor('session.created'),
+        ]);
+        await server.services.auth.revokeSession(first.session.uuid);
+        expect(await a.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        await a.closed;
+        expect(kv.get(realtimeAuthKey(first.token))).toBeUndefined();
+        b.ws.send(JSON.stringify({ type: 'still.valid' }));
+        await b.waitForEcho('still.valid');
+        b.ws.close();
+    });
+
+    it('detects a downgrade without a response or auth cache expiry', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        planId = 'user_free';
+        const row = await server.stores.user.getByUsername(user.username);
+        server.services.metering.invalidateActorSubscription(row!.uuid);
+        await server.services.openaiRealtime.recheckSessions();
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'subscription_required' },
+        });
+        await c.closed;
+    });
+
+    it('evicts only the access token revoked through the auth API', async () => {
+        const row = await server.stores.user.getByUsername(user.username);
+        const actor = makeActor({ user: row! });
+        const token = await server.services.auth.createAccessToken(actor, [
+            [FULL_API_ACCESS],
+        ]);
+        const a = open(`${relayUrl}?auth_token=${token}`);
+        const b = open(`${relayUrl}?auth_token=${user.token}`);
+        await Promise.all([
+            a.waitFor('session.created'),
+            b.waitFor('session.created'),
+        ]);
+        await server.services.auth.revokeAccessToken(actor, token);
+        expect(await a.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        await a.closed;
+        b.ws.send(JSON.stringify({ type: 'still.valid' }));
+        await b.waitForEcho('still.valid');
+        b.ws.close();
+    });
+
+    it('closes with a retryable error after a sustained verification outage', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        vi.spyOn(server.clients.redis, 'get').mockRejectedValue(
+            new Error('lookup down'),
+        );
+        vi.spyOn(server.clients.db, 'read').mockRejectedValue(
+            new Error('lookup down'),
+        );
+        vi.spyOn(server.clients.db, 'pread').mockRejectedValue(
+            new Error('lookup down'),
+        );
+        kv.del(realtimeAuthKey(user.token));
+        await server.services.openaiRealtime.recheckSessions();
+        expect(c.ws.readyState).toBe(WebSocket.OPEN);
+        const now = Date.now();
+        vi.spyOn(Date, 'now').mockReturnValue(now + 61_000);
+        await server.services.openaiRealtime.recheckSessions();
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'internal_error' },
+        });
+        expect((await c.closed).code).toBe(1011);
+    });
+
+    it('detects an auth revocation when its event is missed', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const identity = server.services.token.verify<{ session_uid: string }>(
+            'auth',
+            user.token,
+        );
+        const emit = server.clients.event.emit.bind(server.clients.event);
+        vi.spyOn(server.clients.event, 'emit').mockImplementation((...args) => {
+            if (args[0] !== 'outer.auth.sessions.revoked') return emit(...args);
+        });
+        await server.services.auth.revokeSession(identity.session_uid);
+        expect(c.ws.readyState).toBe(WebSocket.OPEN);
+        vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000);
+        await server.services.openaiRealtime.recheckSessions();
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'invalid_api_key' },
+        });
+        await c.closed;
+    });
+
+    it('detects a paid downgrade after a missed plan invalidation while free credit remains', async () => {
+        const holder = await createTestUser(server, {
+            username: 'missed-plan-event',
+            password: 'missed-plan-event-password',
+        });
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await c.waitFor('session.created');
+        planId = 'user_free';
+        vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000);
+        const row = await server.stores.user.getByUsername(holder.username);
+        expect(
+            await server.services.metering.getRemainingUsage({
+                user: row,
+            } as never),
+        ).toBeGreaterThan(0);
+        await server.services.openaiRealtime.recheckSessions();
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'subscription_required' },
+        });
+        await c.closed;
+    });
+
+    it('bounds an entitlement lookup outage without reporting invalid credentials', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const metering = server.services.metering;
+        const resolvers = (
+            metering as unknown as {
+                subscriptionResolvers: (() => Promise<string>)[];
+            }
+        ).subscriptionResolvers;
+        const fail = async (): Promise<string> => {
+            throw new Error('plan lookup down');
+        };
+        resolvers.unshift(fail);
+        const row = await server.stores.user.getByUsername(user.username);
+        metering.invalidateActorSubscription(row!.uuid);
+        try {
+            await server.services.openaiRealtime.recheckSessions();
+            expect(c.ws.readyState).toBe(WebSocket.OPEN);
+            vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000);
+            await server.services.openaiRealtime.recheckSessions();
+            expect(await c.waitFor('error')).toMatchObject({
+                error: { code: 'internal_error' },
+            });
+            expect((await c.closed).code).toBe(1011);
+        } finally {
+            resolvers.splice(resolvers.indexOf(fail), 1);
+            metering.invalidateActorSubscription(row!.uuid);
+        }
+    });
+
+    it('evicts a raw socket on a sibling node through the real cluster pubsub path', async () => {
+        const config = {
+            domain: 'puter.localhost',
+            realtime: {
+                upstreamUrl: `ws://127.0.0.1:${(upstream.address() as AddressInfo).port}`,
+            },
+            providers: { 'openai-completion': { apiKey: 'sk-test' } },
+            broadcast: {
+                peers: [],
+                webhook: {
+                    peerId: 'relay-sibling',
+                    secret: 'test-cluster-secret',
+                },
+            },
+        } as IConfig;
+        const event = new EventClient(config);
+        const remoteClients = { ...server.clients, event };
+        const broadcast = new BroadcastService(
+            config,
+            remoteClients,
+            server.stores,
+            server.services,
+        );
+        const relay = new OpenAIRealtimeRelayService(
+            config,
+            remoteClients,
+            server.stores,
+            server.services,
+        );
+        const http = createServer();
+        relay.attachHttpServer(http);
+        broadcast.onServerStart();
+        relay.onServerStart();
+        await new Promise<void>((resolve) =>
+            http.listen(0, '127.0.0.1', resolve),
+        );
+        const row = await server.stores.user.getByUsername(user.username);
+        const revoked = await server.services.auth.createSessionToken(row!, {});
+        const url = (token: string) =>
+            `ws://127.0.0.1:${(http.address() as AddressInfo).port}${REALTIME_PATH}?auth_token=${token}`;
+        const a = open(url(revoked.token), undefined, {
+            host: 'api.puter.localhost',
+        });
+        const b = open(url(user.token), undefined, {
+            host: 'api.puter.localhost',
+        });
+        try {
+            await Promise.all([
+                a.waitFor('session.created'),
+                b.waitFor('session.created'),
+            ]);
+            await server.services.auth.revokeSession(revoked.session.uuid);
+            expect(await a.waitFor('error')).toMatchObject({
+                error: { code: 'invalid_api_key' },
+            });
+            await a.closed;
+            b.ws.send(JSON.stringify({ type: 'sibling.valid' }));
+            await b.waitForEcho('sibling.valid');
+        } finally {
+            a.ws.terminate();
+            b.ws.terminate();
+            await relay.onServerPrepareShutdown();
+            await broadcast.onServerPrepareShutdown();
+            await new Promise<void>((resolve) => http.close(() => resolve()));
+        }
     });
     it('bounds unverified socket allocation while rejected clients withhold close acknowledgments', async () => {
         const relay = new OpenAIRealtimeRelayService(
