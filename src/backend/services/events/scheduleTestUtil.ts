@@ -75,7 +75,10 @@ export const HANDLED_OK: EventsInvokeAnswer = { status: 200, handled: true };
 
 export const bootScheduleHarness = async (
     events: Record<string, unknown> = {},
-    options: { localWorkers?: boolean } = {},
+    options: {
+        localWorkers?: boolean;
+        config?: Record<string, unknown>;
+    } = {},
 ): Promise<ScheduleHarness> => {
     const env = await setupPuterTestEnv({
         events: {
@@ -87,6 +90,7 @@ export const bootScheduleHarness = async (
         },
         ...(options.localWorkers ? { workers: { localServer: true } } : {}),
         unlimitedMetering: true,
+        ...options.config,
     } as unknown as IConfig);
     const server = env.server;
     server.services.schedule.onServerPrepareShutdown();
@@ -104,15 +108,14 @@ export const bootScheduleHarness = async (
         respond: async () => HANDLED_OK,
         runner: server.services.schedule.runner,
         async makeApp(ownerUserId = harness.userId) {
-            const uid = `app-${uuidv4()}`;
-            await server.clients.db.write(
-                'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
-                [uid, uid, uid, `https://${uid}.example/`, ownerUserId],
-            );
-            const [row] = await server.clients.db.read(
-                'SELECT `id` FROM `apps` WHERE `uid` = ?',
-                [uid],
-            );
+            // Through the store, so its caches see the app.
+            const name = `sched-${uuidv4()}`;
+            const created = (await server.stores.app.create(
+                { name, title: name, index_url: `https://${name}.example/` },
+                { ownerUserId },
+            )) as { uid: string; id: number };
+            const { uid } = created;
+            const row = { id: created.id };
             await server.services.permission.grantUserAppPermission(
                 makeActor({ user: userRow as never }),
                 uid,

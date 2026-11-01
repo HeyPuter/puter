@@ -49,7 +49,9 @@ import {
  * - E4 a lifecycle change (suspend, resume, a consent settle)
  * - E5 the finish of a one-shot or ended schedule
  *
- * Any other primary call fails the test.
+ * Any other primary call fails the test. The MySQL client also falls back to
+ * the primary inside `read()` when the replica itself is down (E6, a replica
+ * outage only); sqlite has no replica, so that path can't be exercised here.
  */
 
 // Each test boots or drives a whole backend; a loaded runner needs room.
@@ -225,6 +227,34 @@ describe('a recurring fire', () => {
         h.setClock(T0 + 26 * HOUR + 16_000);
         await server().services.metering.hasAnyUsageCached(actor);
         await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(untagged()).toEqual([]);
+        expect(calls).toEqual([]);
+    });
+
+    it('(c) a credit refresh on a metered plan issues no primary read or write', async () => {
+        h.setClock(T0 + 27 * HOUR);
+        const metering = server().services.metering;
+        const created = (await server().stores.user.create({
+            username: `metered${Math.floor(Math.random() * 1e9)}`,
+            uuid: crypto.randomUUID(),
+            password: null,
+            email: `metered${Date.now()}@example.com`,
+            requires_email_confirmation: false,
+        } as never)) as { id: number };
+        const user = (await server().stores.user.getById(created.id))!;
+        // Not the harness's unlimited plan: one with an allowance, so the
+        // refresh reads add-ons and this month's totals.
+        metering.registerSubscriptionResolver((who) =>
+            who.user?.uuid === user.uuid ? 'user_free' : null,
+        );
+        const actor = makeActor({ user: user as never });
+        const totals = vi.spyOn(metering, 'currentMonthTotals');
+        watchPrimary();
+        await metering.hasAnyUsageCached(actor);
+        h.setClock(T0 + 27 * HOUR + 16_000);
+        await metering.hasAnyUsageCached(actor);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(totals).toHaveBeenCalledTimes(2);
         expect(untagged()).toEqual([]);
         expect(calls).toEqual([]);
     });

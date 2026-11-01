@@ -33,7 +33,9 @@ import {
     EVENTS_WORKER_INVOCATION_LIMIT,
     deliveryBackoffMs,
 } from '../../controllers/events/limits.js';
+import { createHmac } from 'node:crypto';
 import { makeActor } from '../../core/actor.js';
+import { runWithContext } from '../../core/context.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { scheduleToken } from '../../stores/events/types.js';
@@ -60,6 +62,9 @@ vi.setConfig({ testTimeout: 120_000 });
 const BOOT_TIMEOUT_MS = 120_000;
 const MIN = 60_000;
 const HOUR = 60 * MIN;
+const PEER = 'region-b';
+const PEER_SECRET = 'region-b-webhook-secret';
+
 /** A whole hour, so slots and spread offsets land on exact times. */
 const T0 = Date.parse('2026-11-02T10:00:00Z');
 
@@ -126,7 +131,23 @@ const hourly = async (app: { uid: string }, over = {}) => {
 };
 
 beforeAll(async () => {
-    h = await bootScheduleHarness();
+    h = await bootScheduleHarness(
+        {},
+        {
+            config: {
+                broadcast: {
+                    peers: [
+                        {
+                            peerId: PEER,
+                            webhook_secret: PEER_SECRET,
+                            webhook_url: 'https://region-b.invalid',
+                            webhook: true,
+                        },
+                    ],
+                },
+            },
+        },
+    );
 }, BOOT_TIMEOUT_MS);
 
 afterAll(async () => {
@@ -220,7 +241,8 @@ describe('the lifecycle matrix', () => {
     it('1: a remove whose SQL step fails still stops the schedule, and the reconcile ends it', async () => {
         const app = await h.makeApp();
         const row = await hourly(app);
-        vi.spyOn(store(), 'finish').mockRejectedValueOnce(
+        // The transaction that ends the row and its subscription row fails.
+        vi.spyOn(db(), 'batchWrite').mockRejectedValueOnce(
             new Error('primary down'),
         );
         await expect(schedules().remove(app.actor, row.uid)).rejects.toThrow(
@@ -230,14 +252,15 @@ describe('the lifecycle matrix', () => {
             state: 'ended',
             version: 2,
         });
-        // Its subscription row went first, so the orphan rule ends it.
-        h.setClock(T0 + 10 * MIN);
+        expect(await durable().getBySubId(row.subId!)).not.toBeNull();
+        // The live row under the tombstone is the soft delete that was lost.
         for (let i = 0; i < 10; i++)
             if ((await schedules().reconcile()).cycleCompleted) break;
         expect(await rowOf(row.uid)).toMatchObject({
             state: 'done',
-            endReason: 'orphaned',
+            endReason: 'removed',
         });
+        expect(await durable().getBySubId(row.subId!)).toBeNull();
         expect((await defOf(row.uid))!.state).toBe('ended');
     });
 
@@ -285,22 +308,21 @@ describe('the lifecycle matrix', () => {
         await schedules().reconcile();
         expect((await defOf(deferred.uid))!.state).toBe('active');
 
-        await server().clients.event.emitAndWait(
-            'app.changed',
-            {
-                app_uid: app.uid,
-                action: 'deleted',
-                old_app: { owner_user_id: h.userId },
-            } as never,
-            {},
+        // The owner deletes the app the way the apps API does.
+        await runWithContext(
+            { actor: makeActor({ user: h.userRow as never }) },
+            () => server().drivers.apps.delete({ uid: app.uid }),
         );
-        for (const row of [recurring, once, deferred]) {
-            expect(await rowOf(row.uid)).toMatchObject({
-                state: 'done',
-                endReason: 'app_deleted',
-            });
-            expect((await defOf(row.uid))!.state).toBe('ended');
-        }
+        // `app.changed` is emitted without waiting for its listeners.
+        await vi.waitFor(async () => {
+            for (const row of [recurring, once, deferred]) {
+                expect(await rowOf(row.uid)).toMatchObject({
+                    state: 'done',
+                    endReason: 'app_deleted',
+                });
+                expect((await defOf(row.uid))!.state).toBe('ended');
+            }
+        });
         expectNoPendingDeliveryCalls([recurring.subId, once.subId]);
     });
 
@@ -347,10 +369,7 @@ describe('the lifecycle matrix', () => {
     });
 
     it('5: owner delete ends schedules of the owner`s apps', async () => {
-        // Not a fresh account: one deleted earlier in this file may hand its id on.
-        const owner = (await server().stores.user.getByUsername(
-            h.env.users.other.username,
-        ))!;
+        const owner = await freshUser();
         const app = await h.makeApp(owner.id);
         const row = await hourly(app);
         await server().services.userAccount.cascadeDelete(owner.id);
@@ -417,7 +436,10 @@ describe('the lifecycle matrix', () => {
             state: 'done',
             endReason: 'permission_revoked',
         });
-        expect((await defOf(row.uid))!.state).toBe('ended');
+        // The revoke's own settle may still be applying its end.
+        await vi.waitFor(async () =>
+            expect((await defOf(row.uid))!.state).toBe('ended'),
+        );
         expectNoPendingDeliveryCalls([row.subId]);
     });
 
@@ -505,20 +527,19 @@ describe('the lifecycle matrix', () => {
     it('11: no credit parks; credit sweep resumes', async () => {
         const app = await h.makeApp();
         const row = await hourly(app);
-        vi.spyOn(events(), 'chargeableForSchedule').mockImplementation(
-            async (_holder, _app, subId) => {
-                await events().suspendForNoCredit(subId);
-                return false;
-            },
-        );
+        // The balance runs out: what the metering service answers.
+        const credits = vi
+            .spyOn(server().services.metering, 'hasAnyUsageCached')
+            .mockResolvedValue(false);
         h.setClock(T0 + MIN);
         await h.fire();
         expect(h.sent).toHaveLength(0);
         expect((await defOf(row.uid))!.state).toBe('suspended:no_credit');
-        vi.mocked(events().chargeableForSchedule).mockRestore();
 
+        // A top-up, then the credit sweep the events service runs.
+        credits.mockResolvedValue(true);
         h.setClock(T0 + 90 * MIN);
-        await expect(events().resumeForCredit(h.userId)).resolves.toBe(1);
+        await expect(events().sweepNoCredit()).resolves.toBe(1);
         expect((await defOf(row.uid))!.state).toBe('active');
         const offset = (await defOf(row.uid))!.def!.offsetMs;
         expect(await index().getScore(row.uid)).toBe(T0 + 2 * HOUR + offset);
@@ -579,14 +600,17 @@ describe('the lifecycle matrix', () => {
         const app = await h.makeApp();
         const row = await hourly(app, { kind: 'once', everyMs: null });
         const offset = (await defOf(row.uid))!.def!.offsetMs;
-        const finish = vi
-            .spyOn(store(), 'finish')
-            .mockRejectedValueOnce(new Error('primary down'));
+        const finish = vi.spyOn(store(), 'end');
+        // The transaction ending the row and its subscription row fails once.
+        vi.spyOn(db(), 'batchWrite').mockRejectedValueOnce(
+            new Error('primary down'),
+        );
         h.setClock(T0 + offset);
         await h.fire();
         expect(h.sent).toHaveLength(1);
         expect(await runOf(row.uid)).toMatchObject({ phase: 'finalizing' });
         expect((await rowOf(row.uid)).deletedAt).toBeNull();
+        expect(await durable().getBySubId(row.subId!)).not.toBeNull();
 
         h.setClock(T0 + offset + SCHEDULE_FINALIZE_RETRY_MS);
         await h.fire();
@@ -597,6 +621,7 @@ describe('the lifecycle matrix', () => {
             state: 'done',
             endReason: 'ended',
         });
+        expect(await durable().getBySubId(row.subId!)).toBeNull();
         expect((await defOf(row.uid))!.state).toBe('ended');
         expectNoPendingDeliveryCalls([row.subId]);
     });
@@ -665,6 +690,246 @@ describe('the lifecycle matrix', () => {
         h.setClock(T0 + MIN + EVENTS_SCHEDULE_SUSPENDED_HOLDER_DEFER_MS);
         await h.fire();
         expect(h.sent).toHaveLength(1);
+        expectNoPendingDeliveryCalls([row.subId]);
+    });
+});
+
+describe('the lifecycle matrix, continued', () => {
+    it('18: an app owner gone suspended counts as the handler failing, and suspends', async () => {
+        const owner = (await server().stores.user.getByUsername(
+            h.env.users.admin.username,
+        ))!;
+        const app = await h.makeApp(owner.id);
+        const row = await hourly(app);
+        await db().write('UPDATE user SET suspended = 1 WHERE id = ?', [
+            owner.id,
+        ]);
+        await server().stores.user.invalidateById(owner.id);
+        try {
+            let now = T0 + MIN;
+            for (let i = 0; i < EVENTS_CONSECUTIVE_FAILURES; i++) {
+                h.setClock(now);
+                await h.fire();
+                now += HOUR;
+            }
+            // Nothing could be addressed, so nothing was sent.
+            expect(h.sent).toHaveLength(0);
+            await expect(
+                durable().getBySubId(row.subId!),
+            ).resolves.toMatchObject({ suspendedReason: 'failures' });
+            expect((await defOf(row.uid))!.state).toBe('suspended:failures');
+        } finally {
+            await db().write('UPDATE user SET suspended = 0 WHERE id = ?', [
+                owner.id,
+            ]);
+            await server().stores.user.invalidateById(owner.id);
+        }
+        expectNoPendingDeliveryCalls([row.subId]);
+    });
+});
+
+describe('lifecycle changes that race', () => {
+    it('a suspension whose read lands after a later resume hands the index the resume', async () => {
+        const app = await h.makeApp();
+        const row = await hourly(app);
+        const sub = (await durable().getBySubId(row.subId!))!;
+        const read = store().syncRowsBySubIds.bind(store());
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        let reads = 0;
+        vi.spyOn(store(), 'syncRowsBySubIds').mockImplementation(
+            async (...args) => {
+                if (reads++ === 0) await held;
+                return read(...args);
+            },
+        );
+        const suspension = events().suspendSubscriptions(
+            [sub],
+            'handler_not_found',
+        );
+        await vi.waitFor(() => expect(reads).toBe(1));
+        // The suspension's row and version changes have landed; a resume
+        // runs to completion before it reads them back.
+        const suspended = (await durable().getBySubId(row.subId!))!;
+        await events().resumeSubscriptions([suspended]);
+        release();
+        await suspension;
+
+        expect(await defOf(row.uid)).toMatchObject({
+            version: 4,
+            state: 'active',
+        });
+        await expect(durable().getBySubId(row.subId!)).resolves.toMatchObject({
+            suspendedAt: null,
+        });
+        expectNoPendingDeliveryCalls([row.subId]);
+    });
+
+    it('a hook whose SQL failed never overwrites a newer change in the index', async () => {
+        const app = await h.makeApp();
+        const row = await hourly(app);
+        const sub = (await durable().getBySubId(row.subId!))!;
+        const apply = store().applySubscriptionChange.bind(store());
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        let phase: 'first' | 'others' | 'failing' = 'first';
+        vi.spyOn(store(), 'applySubscriptionChange').mockImplementation(
+            async (...args) => {
+                if (phase === 'first') {
+                    phase = 'others';
+                    await held;
+                    phase = 'failing';
+                    throw new Error('primary down');
+                }
+                if (phase === 'failing') throw new Error('primary down');
+                return apply(...args);
+            },
+        );
+        const suspension = events().suspendSubscriptions(
+            [sub],
+            'handler_not_found',
+        );
+        await vi.waitFor(() => expect(phase).toBe('others'));
+        const suspended = (await durable().getBySubId(row.subId!))!;
+        await events().resumeSubscriptions([suspended]);
+        expect(await defOf(row.uid)).toMatchObject({
+            version: 3,
+            state: 'active',
+        });
+        release();
+        await suspension;
+        // It saw version 2; the index has moved on, so it leaves it alone.
+        expect(await defOf(row.uid)).toMatchObject({
+            version: 3,
+            state: 'active',
+        });
+    });
+
+    it('a resume whose SQL failed ends a schedule with no slot left, never puts it back', async () => {
+        const app = await h.makeApp();
+        const row = await hourly(app, { endsAt: T0 + HOUR });
+        const sub = (await durable().getBySubId(row.subId!))!;
+        await events().suspendSubscriptions([sub], 'handler_not_found');
+        expect((await defOf(row.uid))!.state).toBe(
+            'suspended:handler_not_found',
+        );
+        h.setClock(T0 + 3 * HOUR);
+        vi.spyOn(store(), 'applySubscriptionChange').mockRejectedValue(
+            new Error('primary down'),
+        );
+        const suspended = (await durable().getBySubId(row.subId!))!;
+        await events().resumeSubscriptions([suspended]);
+        expect(await defOf(row.uid)).toMatchObject({
+            version: 3,
+            state: 'ended',
+        });
+        expect(await index().getScore(row.uid)).toBeNull();
+    });
+});
+
+describe('a holder or app that looks gone', () => {
+    it('is checked on the primary before the schedule ends: a lagging read defers it', async () => {
+        const app = await h.makeApp();
+        const row = await hourly(app);
+        const getByUid = server().stores.app.getByUid.bind(server().stores.app);
+        // The replica hasn't caught up with the app row.
+        vi.spyOn(server().stores.app, 'getByUid').mockImplementation(
+            async (uid: string) => (uid === app.uid ? null : getByUid(uid)),
+        );
+        h.setClock(T0 + MIN);
+        await h.fire();
+        expect(h.sent).toHaveLength(0);
+        expect((await rowOf(row.uid)).deletedAt).toBeNull();
+        expect((await defOf(row.uid))!.state).toBe('active');
+        expect(await index().getScore(row.uid)).toBe(T0 + 2 * MIN);
+    });
+
+    it('defers when the primary can`t answer', async () => {
+        const app = await h.makeApp();
+        const row = await hourly(app);
+        vi.spyOn(server().stores.app, 'getByUid').mockResolvedValue(null);
+        vi.spyOn(server().stores.app, 'uidExistsOnPrimary').mockRejectedValue(
+            new Error('primary down'),
+        );
+        h.setClock(T0 + MIN);
+        await h.fire();
+        expect((await rowOf(row.uid)).deletedAt).toBeNull();
+        expect(await index().getScore(row.uid)).toBe(T0 + 2 * MIN);
+    });
+});
+
+describe('the peer route', () => {
+    const post = async (
+        body: unknown,
+        sign: { peer?: string; secret?: string } | null,
+    ) => {
+        const raw = JSON.stringify(body);
+        const headers: Record<string, string> = {
+            'content-type': 'application/json',
+        };
+        if (sign) {
+            const timestamp = String(Math.floor(Date.now() / 1000));
+            const nonce = String(Date.now() + Math.floor(Math.random() * 1e6));
+            headers['x-broadcast-peer-id'] = sign.peer ?? PEER;
+            headers['x-broadcast-timestamp'] = timestamp;
+            headers['x-broadcast-nonce'] = nonce;
+            headers['x-broadcast-signature'] = createHmac(
+                'sha256',
+                sign.secret ?? PEER_SECRET,
+            )
+                .update(`${timestamp}.${nonce}.${raw}`)
+                .digest('hex');
+        }
+        const response = await fetch(
+            new URL('/broadcast/events/schedules', h.env.apiOrigin),
+            { method: 'POST', headers, body: raw },
+        );
+        return { status: response.status, body: await response.json() };
+    };
+
+    it('applies a signed peer`s changes and refuses an unsigned, forged or foreign one', async () => {
+        const app = await h.makeApp();
+        const row = await hourly(app);
+        const live = (await defOf(row.uid))!;
+        const changes = [
+            {
+                id: row.uid,
+                version: 3,
+                state: 'suspended:failures',
+                def: live.def,
+                score: 0,
+                owed: T0,
+            },
+        ];
+        const namespace = schedules().namespace;
+
+        expect((await post({ namespace, changes }, null)).status).toBe(403);
+        expect(
+            (await post({ namespace, changes }, { secret: 'not-the-secret' }))
+                .status,
+        ).toBe(403);
+        expect(
+            (await post({ namespace: 'another-deployment', changes }, {})).body,
+        ).toMatchObject({ ok: true, applied: 0 });
+        expect((await defOf(row.uid))!.state).toBe('active');
+        // An unversioned change is refused too.
+        expect(
+            (
+                await post(
+                    { namespace, changes: [{ ...changes[0], version: null }] },
+                    {},
+                )
+            ).body,
+        ).toMatchObject({ applied: 0 });
+
+        expect((await post({ namespace, changes }, {})).body).toMatchObject({
+            ok: true,
+            applied: 1,
+        });
+        expect(await defOf(row.uid)).toMatchObject({
+            version: 3,
+            state: 'suspended:failures',
+        });
         expectNoPendingDeliveryCalls([row.subId]);
     });
 });
