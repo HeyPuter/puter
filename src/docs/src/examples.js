@@ -741,6 +741,12 @@ const examples = [
                 slug: 'notifications-notify',
                 source: '/playground/examples/notifications-notify.html',
             },
+            {
+                title: 'Send a Notification Later',
+                description: 'Store a notification to send at a set time, then cancel it, with the Puter.js Notifications API. Run it in the playground.',
+                slug: 'notifications-send-later',
+                source: '/playground/examples/notifications-send-later.html',
+            },
         ],
     },
     {

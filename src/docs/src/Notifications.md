@@ -32,6 +32,8 @@ A user gets at most 12 pushes a minute and 1,000 a day from each app. A new or u
 - `data`: a small JSON value handed back on click. Push providers can read it, so put IDs in it, not personal content.
 - `sensitive`: pushes, and the notification a page shows itself, show a generic line instead of the title and text. [`onNotification()`](/Notifications/onNotification/) still gets them in full.
 
+To send a notification at a set time instead of now, pass `sendAt` to [`notify()`](/Notifications/notify/#send-it-later). It goes out then, even when your app is closed.
+
 See [`notify()`](/Notifications/notify/) for every field, and [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications) for the size limits and how many notifications an app can send.
 
 ## Features
@@ -133,6 +135,7 @@ See [`notify()`](/Notifications/notify/) for every field, and [Rate Limits and Q
 ## Functions
 
 - **[`puter.notifications.notify()`](/Notifications/notify/)** - Send the user a notification
+- **[`puter.notifications.cancel()`](/Notifications/cancel/)** - Cancel a notification stored to send later
 - **[`puter.notifications.onNotification()`](/Notifications/onNotification/)** - Receive your app's notifications while it's open
 - **[`puter.notifications.onPush()`](/Notifications/onPush/)** - Handle your notifications for one key, in the page and as browser pushes
 - **[`puter.notifications.on('click')`](/Notifications/on/)** - React when the user clicks one of your notifications
@@ -151,6 +154,7 @@ For Puter's own apps, which manage where pushes go:
 ## Examples
 
 - [Send a Notification](/playground/notifications-notify/)
+- [Send a Notification Later](/playground/notifications-send-later/)
 - [Push notifications for a website](/Notifications/push/#a-minimal-page)
 
 ## Recipes

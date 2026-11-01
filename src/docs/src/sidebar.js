@@ -604,6 +604,14 @@ let sidebar = [
                 path: '/Notifications/notify',
             },
             {
+                title: '<code>cancel()</code>',
+                page_title: '<code>puter.notifications.cancel()</code>',
+                title_tag: 'puter.notifications.cancel()',
+                icon: '/assets/img/function.svg',
+                source: '/Notifications/cancel.md',
+                path: '/Notifications/cancel',
+            },
+            {
                 title: '<code>onNotification()</code>',
                 page_title: '<code>puter.notifications.onNotification()</code>',
                 title_tag: 'puter.notifications.onNotification()',

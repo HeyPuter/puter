@@ -138,7 +138,9 @@ A notification goes to the user the call runs for, or with `to: { handle }` to t
 
 - **The page**, with [`puter.notifications.notify()`](/Notifications/notify/) as above.
 - **A [Puter Worker](/Workers/)**, with `user.puter.notifications.notify()` in a route your page calls through [`puter.workers.exec()`](/Workers/exec/). It notifies the user who called the worker, from the app that called it.
-- **An [events handler](/Events/handlers/)**, with `user.notifications.notify()`. It notifies the user who holds the subscription, and it runs while your app is closed. Running a handler in the background needs the user's `events:background` permission, as [`onPersistent()`](/Events/onPersistent/) describes.
+- **An [events handler](/Events/handlers/)**, with `user.notifications.notify()`. It notifies the user who holds the subscription or [schedule](/Events/onSchedule/), and it runs while your app is closed. Running a handler in the background needs the user's `events:background` permission, as [`onPersistent()`](/Events/onPersistent/) describes.
+
+To send a notification at a set time, pass `sendAt` to [`notify()`](/Notifications/notify/#send-it-later). Puter stores it and sends it then, even with your app closed, and [`cancel()`](/Notifications/cancel/) takes it back until it goes out. It counts toward the push limits and is billed when it goes out, not when you store it. When sending it has to be retried, it still goes out as one push, billed once. To send something different each time, such as a daily summary, run a handler on a timer with [`puter.events.onSchedule()`](/Events/onSchedule/) and call `user.notifications.notify()` from it.
 
 An app that notifies from an events handler needs the user to allow both background events and pushes. Ask for both with [`puter.perms.request()`](/Perms/request/#batching), so the user answers one prompt:
 

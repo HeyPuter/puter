@@ -1,0 +1,20 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Send it in 30 minutes instead of now
+            const later = await puter.notifications.notify({
+                title: 'Your timer is done',
+                target: '/timers',
+                sendAt: Date.now() + 30 * 60 * 1000,
+            });
+            puter.print(`stored ${later.scheduleId}, goes out ${new Date(later.sendAt).toLocaleTimeString()}<br>`);
+
+            // (2) The user stopped the timer, so it shouldn't go out
+            await puter.notifications.cancel(later.scheduleId);
+            puter.print('cancelled<br>');
+        })();
+    </script>
+</body>
+</html>
