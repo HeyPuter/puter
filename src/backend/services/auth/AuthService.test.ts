@@ -4133,6 +4133,37 @@ describe('AuthService (integration)', () => {
             expect(ctx.saved).toEqual([null]);
         });
 
+        it('clears its own checkpoints once a walk completes, so the next run starts at zero', async () => {
+            const SPAN = 5000;
+            vi.spyOn(server.stores.session, 'maxId').mockResolvedValue(
+                SPAN * 11,
+            );
+            const ranges: number[] = [];
+            const purge = vi
+                .spyOn(server.stores.session, 'purgeEndedInRange')
+                .mockImplementation(async (afterId: number) => {
+                    ranges.push(afterId);
+                    return 0;
+                });
+            try {
+                const first = testJobContext();
+                await authService.purgeEndedSessions(first);
+                expect(ranges).toHaveLength(11);
+                // Checkpointed at ten ranges, then cleared at the end.
+                expect(first.saved).toEqual([{ afterId: SPAN * 10 }, null]);
+
+                ranges.length = 0;
+                await authService.purgeEndedSessions(
+                    testJobContext(first.saved.at(-1)),
+                );
+                expect(ranges[0]).toBe(0);
+                expect(ranges).toHaveLength(11);
+            } finally {
+                purge.mockRestore();
+                vi.restoreAllMocks();
+            }
+        });
+
         it('stops between ranges once aborted, and the next run resumes at the saved cursor', async () => {
             const SPAN = 5000;
             vi.spyOn(server.stores.session, 'maxId').mockResolvedValue(

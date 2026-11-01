@@ -332,6 +332,13 @@ describe('a suspension waiting on a balance', () => {
         expect(ctx.saved).toEqual([{ afterId: 1 }, { afterId: 2 }]);
     });
 
+    it('wraps a saved cursor past the end of a shrunken table back to the start', async () => {
+        rows.push(suspended());
+        const ctx = testJobContext({ afterId: 999 });
+        await expect(service.sweepNoCredit(ctx)).resolves.toBe(0);
+        expect(ctx.saved).toEqual([null]);
+    });
+
     it('writes no cursor while there is nothing to page through', async () => {
         const ctx = testJobContext();
         await expect(service.sweepNoCredit(ctx)).resolves.toBe(0);

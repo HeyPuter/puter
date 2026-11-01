@@ -217,7 +217,8 @@ export class AuthService extends PuterService {
                 setTimeout(resolve, SESSION_PURGE_PAUSE_MS),
             );
         }
-        if (state !== null) await saveState(null);
+        // Clears any checkpoint, this run's included, so next week starts at 0.
+        await saveState(null);
         return purged;
     }
 
