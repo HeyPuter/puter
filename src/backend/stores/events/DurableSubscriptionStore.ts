@@ -208,11 +208,6 @@ const quotaRefusal = (
 };
 
 /**
- * The quota refusal for a create that concurrent creates beat to the last slot
- * after its own insert. Its row is already gone again; `bump` still has to be
- * published, because another region may have cached the row in between.
- */
-/**
  * What a reap deleted, and the generation it bumped per owner. The caller
  * publishes the bumps, since the reap only invalidates this region.
  */
@@ -228,6 +223,11 @@ export interface DurableCreated {
     reaped: GenerationBump[];
 }
 
+/**
+ * The quota refusal for a create that concurrent creates beat to the last slot
+ * after its own insert. Its row is already gone again; `bump` still has to be
+ * published, because another region may have cached the row in between.
+ */
 export class DurableQuotaRaceLost extends HttpError {
     readonly bump: GenerationBump | null;
 
