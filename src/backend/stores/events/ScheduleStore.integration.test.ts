@@ -614,6 +614,38 @@ describe('deleting the holder', () => {
     });
 });
 
+describe('the reconcile read', () => {
+    it('starts its index range at the cursor rather than at the region`s first row', async () => {
+        // The plan is sqlite's; the indexes are the same on every engine.
+        if (db().engineName !== 'sqlite') return;
+        await store().create(input());
+        const read = vi.spyOn(db(), 'read');
+        let call: [string, unknown[]] | undefined;
+        try {
+            await store().changedSince(
+                NS,
+                REGION,
+                { updatedAt: 5_000, id: 0 },
+                10,
+            );
+            const found = read.mock.calls.find(([sql]) =>
+                /FROM `event_schedules` s LEFT JOIN/.test(String(sql)),
+            );
+            call = found && [String(found[0]), found[1] as unknown[]];
+        } finally {
+            read.mockRestore();
+        }
+        expect(call).toBeDefined();
+        const plan = await db().read(
+            `EXPLAIN QUERY PLAN ${call![0]}`,
+            call![1],
+        );
+        const detail = plan.map((row) => String(row.detail)).join('\n');
+        expect(detail).toMatch(/updated_at>/);
+        expect(detail).not.toMatch(/TEMP B-TREE/);
+    });
+});
+
 describe('the holder listing', () => {
     it('pages on an index rather than sorting the holder`s rows', async () => {
         // The plan is sqlite's; the indexes are the same on every engine.

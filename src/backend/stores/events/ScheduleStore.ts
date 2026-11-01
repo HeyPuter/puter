@@ -650,7 +650,8 @@ export class ScheduleStore extends PuterStore {
     /**
      * Rows of one region changed after `after`, oldest change first, with their
      * subscription rows. Replica. The cursor to resume from is the last row's:
-     * the largest `updated_at` actually returned, never a clock.
+     * the largest `updated_at` actually returned, never a clock. The `>=` bound
+     * is what the index range starts at; the keyset half refines it.
      */
     async changedSince(
         namespace: string,
@@ -665,11 +666,13 @@ export class ScheduleStore extends PuterStore {
         const size = Math.max(1, Math.floor(limit));
         const raw = await this.clients.db.read(
             `${SYNC_SELECT} WHERE s.\`namespace\` = ? AND s.\`region\` = ? ` +
+                'AND s.`updated_at` >= ? ' +
                 'AND (s.`updated_at` > ? OR (s.`updated_at` = ? AND s.`id` > ?)) ' +
                 'ORDER BY s.`updated_at`, s.`id` LIMIT ?',
             [
                 namespace,
                 region,
+                after.updatedAt,
                 after.updatedAt,
                 after.updatedAt,
                 after.id,
