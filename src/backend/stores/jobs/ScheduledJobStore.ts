@@ -44,8 +44,15 @@ export interface JobClaim {
     updatedAt: number;
 }
 
+/** When the job is due next, worked out on the primary's clock at finish. */
+export type JobNextRun =
+    /** The first slot of the current cadence after now. */
+    | { kind: 'cadence'; every: number }
+    | { kind: 'after'; delayMs: number }
+    | { kind: 'unchanged' };
+
 export interface JobFinish {
-    nextRunAt: number;
+    next: JobNextRun;
     lastRunAt: number;
     lastDurationMs: number;
     lastError: string | null;
@@ -198,13 +205,35 @@ export class ScheduledJobStore extends PuterStore {
         token: string,
         finish: JobFinish,
     ): Promise<boolean> {
-        const result = await this.clients.db.write(
-            'UPDATE `scheduled_jobs` SET `next_run_at` = ?, `lease_until` = NULL, ' +
+        const db = this.clients.db;
+        const now = db.nowMsExpr();
+        // Whole intervals: sqlite binds a JS number as REAL, so `/` alone would
+        // divide fractionally.
+        const intervals = db.case({
+            mysql: `(${now} - \`next_run_at\`) DIV ?`,
+            otherwise: `(${now} - \`next_run_at\`) / CAST(? AS BIGINT)`,
+        });
+        let nextSql = '';
+        const nextParams: number[] = [];
+        if (finish.next.kind === 'cadence') {
+            // Integer division truncates toward zero, so a slot still ahead
+            // is its own case.
+            nextSql =
+                `\`next_run_at\` = CASE WHEN ${now} < \`next_run_at\` THEN \`next_run_at\` + ? ` +
+                `ELSE \`next_run_at\` + (${intervals} + 1) * ? END, `;
+            const { every } = finish.next;
+            nextParams.push(every, every, every);
+        } else if (finish.next.kind === 'after') {
+            nextSql = `\`next_run_at\` = ${now} + ?, `;
+            nextParams.push(finish.next.delayMs);
+        }
+        const result = await db.write(
+            `UPDATE \`scheduled_jobs\` SET ${nextSql}\`lease_until\` = NULL, ` +
                 '`lease_token` = NULL, `lease_owner` = NULL, `last_run_at` = ?, ' +
                 '`last_duration_ms` = ?, `last_error` = ?, `failures` = ?, `updated_at` = ? ' +
                 'WHERE `namespace` = ? AND `name` = ? AND `lease_token` = ?',
             [
-                finish.nextRunAt,
+                ...nextParams,
                 finish.lastRunAt,
                 finish.lastDurationMs,
                 finish.lastError,

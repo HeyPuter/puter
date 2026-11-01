@@ -27,6 +27,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import type { JobNextRun } from './ScheduledJobStore.js';
 
 describe('ScheduledJobStore', () => {
     let server: PuterServer;
@@ -123,7 +124,7 @@ describe('ScheduledJobStore', () => {
         ).toBe(true);
 
         const finish = {
-            nextRunAt: 123,
+            next: { kind: 'unchanged' as const },
             lastRunAt: 100,
             lastDurationMs: 5,
             lastError: null,
@@ -144,8 +145,66 @@ describe('ScheduledJobStore', () => {
             lease_owner: null,
         });
         expect(done.lease_until).toBeNull();
-        expect(Number(done.next_run_at)).toBe(123);
+        expect(Number(done.next_run_at)).toBe(claimed!.nextRunAt);
         expect(Number(done.last_duration_ms)).toBe(5);
+    });
+
+    // A node's clock can be anywhere; only the primary's decides when a job is next due.
+    it('works out the next run on the primary clock when it finishes', async () => {
+        const namespace = `ns-${randomUUID()}`;
+        const every = 60 * 60_000;
+        const finish = (next: JobNextRun) => ({
+            next,
+            lastRunAt: 1,
+            lastDurationMs: 1,
+            lastError: null,
+            failures: 0,
+            updatedAt: 1,
+        });
+        const runOnce = async (
+            name: string,
+            prev: number,
+            next: JobNextRun,
+            graceMs = 0,
+        ) => {
+            await store().register(namespace, name, 0, Date.now());
+            await db().write(
+                'UPDATE `scheduled_jobs` SET `next_run_at` = ? WHERE `namespace` = ? AND `name` = ?',
+                [prev, namespace, name],
+            );
+            expect(
+                await store().claim(
+                    namespace,
+                    name,
+                    claimOf('t', 60_000, graceMs),
+                ),
+            ).toBe(true);
+            expect(
+                await store().finish(namespace, name, 't', finish(next)),
+            ).toBe(true);
+            return Number((await row(namespace, name)).next_run_at);
+        };
+
+        // 5.5 intervals overdue: the slot after now, on the same cadence.
+        let prev = (await dbNow()) - 5.5 * every;
+        expect(await runOnce('cadence', prev, { kind: 'cadence', every })).toBe(
+            prev + 6 * every,
+        );
+
+        // Finished before its own slot (a negative grace let it claim early):
+        // the slot after that one.
+        prev = (await dbNow()) + 30_000;
+        expect(
+            await runOnce('early', prev, { kind: 'cadence', every }, -60_000),
+        ).toBe(prev + every);
+
+        const before = await dbNow();
+        const after = await runOnce('backoff', 0, {
+            kind: 'after',
+            delayMs: 4_000,
+        });
+        expect(after).toBeGreaterThanOrEqual(before + 4_000);
+        expect(after).toBeLessThan((await dbNow()) + 4_000 + 1);
     });
 
     it('claims only past the grace and once the lease has lapsed', async () => {

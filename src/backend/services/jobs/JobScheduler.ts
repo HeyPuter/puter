@@ -18,12 +18,12 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { deliveryBackoffMs } from '../../controllers/events/limits.js';
 import type {
-    ClaimedJob,
+    JobNextRun,
     ScheduledJobSummary,
 } from '../../stores/jobs/ScheduledJobStore.js';
 import { withRedisLock } from '../../util/redisLock.js';
+import { deliveryBackoffMs } from '../../util/retryBackoff.js';
 import { PuterService } from '../types';
 
 /** How often each node looks for due jobs. */
@@ -40,7 +40,23 @@ const JOB_STATE_MAX_BYTES = 64 * 1024;
 const JOB_ERROR_MAX_CHARS = 1024;
 const JOB_FIRST_RUN_JITTER_MAX_MS = 60_000;
 const JOB_SHUTDOWN_WAIT_MS = 10_000;
-const JOB_NAME_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+/**
+ * Job names and namespaces: what `scheduled_jobs` stores (ASCII, 128) and
+ * without `:`, so a (namespace, name) pair maps to exactly one Redis key.
+ */
+const JOB_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+
+// Region writes apply only while the gate still holds this run's token.
+const REGION_FENCED_WRITE = `
+if redis.call('get', KEYS[1]) ~= ARGV[1] then return -1 end
+local op = ARGV[2]
+if op == 'hset' then return redis.call('hset', KEYS[2], ARGV[3], ARGV[4]) end
+if op == 'hdel' then return redis.call('hdel', KEYS[2], ARGV[3]) end
+if op == 'hincrby' then return redis.call('hincrby', KEYS[2], ARGV[3], 1) end
+if op == 'pexpire' then return redis.call('pexpire', KEYS[1], ARGV[3]) end
+if op == 'del' then return redis.call('del', KEYS[1]) end
+return -1
+`;
 
 /** `fleet` runs once per cadence across every region; `region` once per region. */
 export type JobScope = 'fleet' | 'region';
@@ -66,7 +82,11 @@ export interface JobDefinition {
      * (`jobs.nearPrimaryRegion`).
      */
     nearPrimary?: boolean;
-    /** How long a run holds the job between renewals. Default 15 min. */
+    /**
+     * How long a run holds the job: between renewals for `fleet`, in total for
+     * `region` (at most `every`). Default 15 min, capped at `every` for
+     * `region`.
+     */
     leaseMs?: number;
     run: (ctx: JobRunContext) => Promise<void>;
 }
@@ -78,6 +98,23 @@ type RegisteredJob = Required<JobDefinition>;
 
 type RunOutcome = 'success' | 'failure' | 'interrupted';
 
+/** What a run holds the job by. Its deadline is measured from before the claim. */
+interface RunLease {
+    controller: AbortController;
+    /**
+     * Renews if little lease is left; false (and aborted) if the run can't
+     * start.
+     */
+    ready: () => Promise<boolean>;
+    close: () => void;
+}
+
+interface RegionKeys {
+    lock: string;
+    gate: string;
+    run: string;
+}
+
 /**
  * Runs our own recurring backend work once per cadence: once across every node
  * sharing the database (`fleet`, a lease row in `scheduled_jobs`), or once per
@@ -88,7 +125,7 @@ export class JobScheduler extends PuterService {
     /** Fleet jobs whose row this process has inserted (or found). */
     #rowsReady = new Set<string>();
     #running = new Map<string, Promise<void>>();
-    #controllers = new Set<AbortController>();
+    #leases = new Set<RunLease>();
     #started = false;
     #stopping = false;
     #timer: ReturnType<typeof setInterval> | null = null;
@@ -103,25 +140,41 @@ export class JobScheduler extends PuterService {
     }
 
     register(name: string, definition: JobDefinition): void {
-        if (!JOB_NAME_PATTERN.test(name)) {
+        if (!JOB_ID_PATTERN.test(this.namespace)) {
+            throw new Error(
+                `invalid jobs namespace "${this.namespace}": 1-128 of A-Z a-z 0-9 . _ -`,
+            );
+        }
+        if (!JOB_ID_PATTERN.test(name)) {
             throw new Error(`invalid job name: ${name}`);
         }
         if (this.#jobs.has(name)) {
             throw new Error(`job already registered: ${name}`);
         }
-        const leaseMs = definition.leaseMs ?? JOB_DEFAULT_LEASE_MS;
-        if (!Number.isSafeInteger(definition.every) || definition.every <= 0) {
+        const { every, scope } = definition;
+        if (!Number.isSafeInteger(every) || every <= 0) {
             throw new Error(`job ${name}: every must be a positive integer`);
         }
+        if (scope !== 'fleet' && scope !== 'region') {
+            throw new Error(`job ${name}: unknown scope`);
+        }
+        const leaseMs =
+            definition.leaseMs ??
+            (scope === 'region'
+                ? Math.min(JOB_DEFAULT_LEASE_MS, every)
+                : JOB_DEFAULT_LEASE_MS);
         if (!Number.isSafeInteger(leaseMs) || leaseMs <= 0) {
             throw new Error(`job ${name}: leaseMs must be a positive integer`);
         }
-        if (definition.scope !== 'fleet' && definition.scope !== 'region') {
-            throw new Error(`job ${name}: unknown scope`);
+        // The gate that fences a region run lasts `every`.
+        if (scope === 'region' && leaseMs > every) {
+            throw new Error(
+                `job ${name}: a region job's leaseMs exceeds every`,
+            );
         }
         this.#jobs.set(name, {
-            every: definition.every,
-            scope: definition.scope,
+            every,
+            scope,
             nearPrimary: definition.nearPrimary ?? false,
             leaseMs,
             run: definition.run,
@@ -140,8 +193,11 @@ export class JobScheduler extends PuterService {
         this.#timer = null;
         for (const delay of this.#pollDelays) clearTimeout(delay);
         this.#pollDelays.clear();
-        for (const controller of this.#controllers) {
-            controller.abort(new JobLeaseLostError('server shutting down'));
+        for (const lease of [...this.#leases]) {
+            lease.controller.abort(
+                new JobLeaseLostError('server shutting down'),
+            );
+            lease.close();
         }
     }
 
@@ -317,6 +373,8 @@ export class JobScheduler extends PuterService {
         const store = this.stores.scheduledJob;
         const namespace = this.namespace;
         const token = randomUUID();
+        // Before the claim, so the claim's own I/O counts against the lease.
+        const startedAt = performance.now();
         const claimed = await store.claim(namespace, name, {
             token,
             owner: this.#owner(),
@@ -326,74 +384,62 @@ export class JobScheduler extends PuterService {
         });
         if (!claimed) return;
 
-        const controller = this.#newController();
-        const stopRenewal = this.#keepLease(
-            name,
-            token,
-            job.leaseMs,
-            controller,
-        );
-        const startedAt = Date.now();
-        let row: ClaimedJob | null = null;
-        // The primary's clock minus ours, so recorded times agree across nodes.
-        let offsetMs = 0;
+        const lease = this.#fleetLease(name, token, job.leaseMs, startedAt);
+        const { signal } = lease.controller;
+        let lastRunAt: number | null = null;
+        let failures = 0;
         let error: unknown = null;
         try {
-            row = await store.readClaimed(namespace, name);
+            const row = await store.readClaimed(namespace, name);
             if (!row) throw new Error('job row is gone');
-            offsetMs = row.dbNowMs - Date.now();
-            await job.run({
-                signal: controller.signal,
-                state: parseState(row.state),
-                saveState: async (state) => {
-                    const json = serializeState(state);
-                    const saved = await store.saveState(
-                        namespace,
-                        name,
-                        token,
-                        json,
-                        Date.now(),
-                    );
-                    if (!saved) {
-                        const lost = new JobLeaseLostError(
-                            `job ${name} lost its lease`,
+            lastRunAt = row.dbNowMs;
+            failures = row.failures;
+            if (await lease.ready()) {
+                await job.run({
+                    signal,
+                    state: parseState(row.state),
+                    saveState: async (state) => {
+                        const saved = await store.saveState(
+                            namespace,
+                            name,
+                            token,
+                            serializeState(state),
+                            Date.now(),
                         );
-                        controller.abort(lost);
-                        throw lost;
-                    }
-                },
-            });
+                        if (!saved) lostLease(lease, name);
+                    },
+                });
+            }
         } catch (err) {
             error = err;
         } finally {
-            stopRenewal();
-            this.#controllers.delete(controller);
+            lease.close();
         }
         // Without the row there is nothing to record; the lease lapses.
-        if (!row) throw error;
+        if (lastRunAt === null) throw error;
 
-        const finishedAt = Date.now() + offsetMs;
-        const outcome = runOutcome(controller.signal, error);
-        let nextRunAt = row.nextRunAt;
-        let failures = row.failures;
+        const outcome = runOutcome(signal, error);
+        let next: JobNextRun = { kind: 'unchanged' };
         let lastError: string | null = null;
         if (outcome === 'success') {
-            nextRunAt = nextCadenceSlot(row.nextRunAt, job.every, finishedAt);
+            next = { kind: 'cadence', every: job.every };
             failures = 0;
         } else if (outcome === 'failure') {
             failures += 1;
-            nextRunAt =
-                finishedAt + Math.min(job.every, deliveryBackoffMs(failures));
+            next = {
+                kind: 'after',
+                delayMs: Math.min(job.every, deliveryBackoffMs(failures)),
+            };
             lastError = errorText(error);
         } else {
             // Due again at once, for whichever node gets to it.
-            lastError = `interrupted: ${errorText(controller.signal.reason)}`;
+            lastError = `interrupted: ${errorText(signal.reason)}`;
         }
 
         const recorded = await store.finish(namespace, name, token, {
-            nextRunAt,
-            lastRunAt: startedAt + offsetMs,
-            lastDurationMs: Date.now() - startedAt,
+            next,
+            lastRunAt,
+            lastDurationMs: Math.round(performance.now() - startedAt),
             lastError,
             failures,
             updatedAt: Date.now(),
@@ -406,65 +452,101 @@ export class JobScheduler extends PuterService {
     }
 
     /**
-     * Renew every `leaseMs / 3`. A renewal that fails, finds the lease gone, or
-     * hasn't succeeded within `leaseMs / 2` aborts the run.
+     * The row's lease is `leaseMs` from the claim, which started at `from`.
+     * Renewals go out every `leaseMs / 3`; the run aborts if none has succeeded
+     * within `leaseMs / 2` of when it was sent, or one fails or finds the lease
+     * gone.
      */
-    #keepLease(
+    #fleetLease(
         name: string,
         token: string,
         leaseMs: number,
-        controller: AbortController,
-    ): () => void {
-        const overdue = () =>
-            controller.abort(new JobLeaseLostError('lease renewal overdue'));
-        let deadline = setTimeout(overdue, leaseMs / 2);
-        let inFlight = false;
-
-        const renew = async () => {
-            if (inFlight || controller.signal.aborted) return;
-            inFlight = true;
-            try {
-                const renewed = await this.stores.scheduledJob.renew(
-                    this.namespace,
-                    name,
-                    token,
-                    leaseMs,
-                    Date.now(),
-                );
-                if (!renewed) {
-                    controller.abort(new JobLeaseLostError('lease lost'));
-                } else if (!controller.signal.aborted) {
-                    clearTimeout(deadline);
-                    deadline = setTimeout(overdue, leaseMs / 2);
-                }
-            } catch (err) {
-                controller.abort(
-                    new JobLeaseLostError('lease renewal failed', {
-                        cause: err,
-                    }),
-                );
-            } finally {
-                inFlight = false;
-            }
-        };
-        const interval = setInterval(() => {
-            void renew();
-        }, leaseMs / 3);
-
-        return () => {
-            clearInterval(interval);
-            clearTimeout(deadline);
-        };
-    }
-
-    /** A run's controller, aborted on shutdown even if that already began. */
-    #newController(): AbortController {
+        from: number,
+    ): RunLease {
         const controller = new AbortController();
-        this.#controllers.add(controller);
-        if (this.#stopping) {
-            controller.abort(new JobLeaseLostError('server shutting down'));
-        }
-        return controller;
+        let deadline = from + leaseMs / 2;
+        let closed = false;
+        let watchdog: ReturnType<typeof setTimeout> | undefined;
+        let renewTimer: ReturnType<typeof setTimeout> | undefined;
+        let renewing: Promise<void> | null = null;
+        const abort = (reason: string, cause?: unknown) => {
+            if (controller.signal.aborted) return;
+            controller.abort(new JobLeaseLostError(reason, { cause }));
+        };
+
+        const schedule = () => {
+            clearTimeout(watchdog);
+            clearTimeout(renewTimer);
+            if (closed || controller.signal.aborted) return;
+            const now = performance.now();
+            watchdog = setTimeout(
+                () => abort('lease renewal overdue'),
+                Math.max(0, deadline - now),
+            );
+            renewTimer = setTimeout(
+                () => void renew(),
+                Math.max(0, deadline - leaseMs / 6 - now),
+            );
+        };
+
+        const renew = (): Promise<void> => {
+            renewing ??= (async () => {
+                const sentAt = performance.now();
+                try {
+                    const renewed = await this.stores.scheduledJob.renew(
+                        this.namespace,
+                        name,
+                        token,
+                        leaseMs,
+                        Date.now(),
+                    );
+                    // A renewal answering after the run closed can't re-arm.
+                    if (closed || controller.signal.aborted) return;
+                    if (!renewed) {
+                        abort('lease lost');
+                        return;
+                    }
+                    deadline = Math.max(deadline, sentAt + leaseMs / 2);
+                    schedule();
+                } catch (err) {
+                    abort('lease renewal failed', err);
+                } finally {
+                    renewing = null;
+                }
+            })();
+            return renewing;
+        };
+
+        const lease: RunLease = {
+            controller,
+            ready: async () => {
+                // Past the deadline the lease may already be someone else's.
+                if (performance.now() >= deadline) {
+                    abort('lease renewal overdue');
+                } else if (deadline - performance.now() < leaseMs / 6) {
+                    await renew();
+                }
+                if (
+                    !closed &&
+                    !controller.signal.aborted &&
+                    deadline - performance.now() >= leaseMs / 6
+                ) {
+                    return true;
+                }
+                abort('too little lease left to start');
+                return false;
+            },
+            close: () => {
+                closed = true;
+                clearTimeout(watchdog);
+                clearTimeout(renewTimer);
+                this.#leases.delete(lease);
+            },
+        };
+        this.#openLease(lease);
+        if (performance.now() >= deadline) abort('lease renewal overdue');
+        schedule();
+        return lease;
     }
 
     #owner(): string {
@@ -477,21 +559,24 @@ export class JobScheduler extends PuterService {
 
     async #tryRegion(name: string, job: RegisteredJob): Promise<void> {
         const redis = this.clients.redis;
-        const gateKey = `jobs:next:${this.namespace}:${name}`;
-        if ((await redis.exists(gateKey)) > 0) return;
+        const keys = regionKeys(this.namespace, name);
+        if ((await redis.exists(keys.gate)) > 0) return;
+        // Before the lock, so acquiring it counts against `leaseMs`.
+        const startedAt = performance.now();
         await withRedisLock(
             redis,
-            `jobs:region:${this.namespace}:${name}`,
+            keys.lock,
             async () => {
+                const token = randomUUID();
                 const gate = await redis.set(
-                    gateKey,
-                    '1',
+                    keys.gate,
+                    token,
                     'PX',
                     job.every,
                     'NX',
                 );
                 if (gate !== 'OK') return;
-                await this.#runRegion(name, job, gateKey);
+                await this.#runRegion(name, job, keys, token, startedAt);
             },
             {
                 ttlMs: job.leaseMs,
@@ -502,63 +587,130 @@ export class JobScheduler extends PuterService {
     }
 
     /**
-     * One run under the region lock. It doesn't renew, so the signal aborts
-     * when it lapses.
+     * One run under the region lock. The lock doesn't renew, so the signal
+     * aborts once it lapses, and every write is fenced on the gate's token.
      */
     async #runRegion(
         name: string,
         job: RegisteredJob,
-        gateKey: string,
+        keys: RegionKeys,
+        token: string,
+        startedAt: number,
     ): Promise<void> {
-        const redis = this.clients.redis;
-        const runKey = `jobs:run:${this.namespace}:${name}`;
-        const saved = await redis.hget(runKey, 'state');
-
-        const controller = this.#newController();
-        const lapse = setTimeout(
-            () => controller.abort(new JobLeaseLostError('region lock lapsed')),
-            job.leaseMs,
-        );
+        const lease = this.#regionLease(job.leaseMs, startedAt);
+        const { signal } = lease.controller;
+        const write = (op: string, ...args: (string | number)[]) =>
+            this.#regionWrite(keys, token, op, ...args);
         let error: unknown = null;
         try {
-            await job.run({
-                signal: controller.signal,
-                state: parseState(saved),
-                saveState: async (state) => {
-                    const json = serializeState(state);
-                    if (controller.signal.aborted) {
-                        throw new JobLeaseLostError(
-                            `job ${name} lost its lock`,
-                        );
-                    }
-                    await redis.hset(runKey, 'state', json);
-                },
-            });
+            const saved = await this.clients.redis.hget(keys.run, 'state');
+            if (await lease.ready()) {
+                await job.run({
+                    signal,
+                    state: parseState(saved),
+                    saveState: async (state) => {
+                        const json = serializeState(state);
+                        if ((await write('hset', 'state', json)) < 0) {
+                            lostLease(lease, name);
+                        }
+                    },
+                });
+            }
         } catch (err) {
             error = err;
         } finally {
-            clearTimeout(lapse);
-            this.#controllers.delete(controller);
+            lease.close();
         }
 
-        const outcome = runOutcome(controller.signal, error);
+        const outcome = runOutcome(signal, error);
         if (outcome === 'success') {
-            await redis.hdel(runKey, 'failures');
+            await write('hdel', 'failures');
         } else if (outcome === 'failure') {
-            const failures = await redis.hincrby(runKey, 'failures', 1);
-            await redis.set(
-                gateKey,
-                '1',
-                'PX',
+            const failures = await write('hincrby', 'failures');
+            if (failures < 0) return;
+            await write(
+                'pexpire',
                 Math.min(job.every, deliveryBackoffMs(failures)),
             );
             this.#reportFailure(name, failures, error);
         } else {
-            await redis.del(gateKey);
+            await write('del');
         }
     }
 
+    /**
+     * The lock lapses `leaseMs` after `from`; the run needs half of it left to
+     * start.
+     */
+    #regionLease(leaseMs: number, from: number): RunLease {
+        const controller = new AbortController();
+        const deadline = from + leaseMs;
+        const abort = (reason: string) => {
+            if (!controller.signal.aborted) {
+                controller.abort(new JobLeaseLostError(reason));
+            }
+        };
+        const lapse = setTimeout(
+            () => abort('region lock lapsed'),
+            Math.max(0, deadline - performance.now()),
+        );
+        const lease: RunLease = {
+            controller,
+            ready: async () => {
+                if (
+                    !controller.signal.aborted &&
+                    deadline - performance.now() >= leaseMs / 2
+                ) {
+                    return true;
+                }
+                abort('too little of the lock left to start');
+                return false;
+            },
+            close: () => {
+                clearTimeout(lapse);
+                this.#leases.delete(lease);
+            },
+        };
+        this.#openLease(lease);
+        return lease;
+    }
+
+    /**
+     * Run a write to the region keys if the gate still holds `token`; -1 if
+     * not.
+     */
+    async #regionWrite(
+        keys: RegionKeys,
+        token: string,
+        op: string,
+        ...args: (string | number)[]
+    ): Promise<number> {
+        const result = await this.clients.redis.eval(
+            REGION_FENCED_WRITE,
+            2,
+            keys.gate,
+            keys.run,
+            token,
+            op,
+            ...args,
+        );
+        return Number(result);
+    }
+
     // -- Shared -------------------------------------------------------
+
+    /**
+     * Track `lease` for shutdown; one opened while shutting down is aborted at
+     * once.
+     */
+    #openLease(lease: RunLease): void {
+        this.#leases.add(lease);
+        if (this.#stopping) {
+            lease.controller.abort(
+                new JobLeaseLostError('server shutting down'),
+            );
+        }
+    }
 
     #reportFailure(name: string, failures: number, error: unknown): void {
         console.error(`[jobs] ${name} failed (${failures} in a row)`, error);
@@ -578,9 +730,24 @@ export class JobScheduler extends PuterService {
     }
 }
 
-/** The first slot of `prev`'s cadence strictly after `after`. */
-const nextCadenceSlot = (prev: number, every: number, after: number): number =>
-    prev + Math.max(1, Math.floor((after - prev) / every) + 1) * every;
+/**
+ * One hash slot per job. Neither part may contain `:` (`JOB_ID_PATTERN`), so no
+ * two (namespace, name) pairs share keys.
+ */
+const regionKeys = (namespace: string, name: string): RegionKeys => {
+    const tag = `{${namespace}:${name}}`;
+    return {
+        lock: `jobs:${tag}:lock`,
+        gate: `jobs:${tag}:next`,
+        run: `jobs:${tag}:run`,
+    };
+};
+
+const lostLease = (lease: RunLease, name: string): never => {
+    const lost = new JobLeaseLostError(`job ${name} lost its lease`);
+    lease.controller.abort(lost);
+    throw lost;
+};
 
 /** A run cut short by its signal is interrupted, whether or not it threw. */
 const runOutcome = (signal: AbortSignal, error: unknown): RunOutcome => {

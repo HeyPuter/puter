@@ -23,6 +23,7 @@ import {
     afterAll,
     afterEach,
     beforeAll,
+    beforeEach,
     describe,
     expect,
     it,
@@ -185,10 +186,49 @@ describe('JobScheduler', () => {
                 run,
             }),
         ).toThrow(/leaseMs/);
+        // `:` would let two (namespace, name) pairs share Redis keys.
+        expect(() =>
+            scheduler.register('b:c', { every: 1000, scope: 'fleet', run }),
+        ).toThrow(/invalid job name/);
+        expect(() =>
+            scheduler.register('x'.repeat(129), {
+                every: 1000,
+                scope: 'fleet',
+                run,
+            }),
+        ).toThrow(/invalid job name/);
+        expect(() =>
+            scheduler.register('job.region', {
+                every: 1000,
+                scope: 'region',
+                leaseMs: 2000,
+                run,
+            }),
+        ).toThrow(/exceeds every/);
         scheduler.register('job', { every: 1000, scope: 'fleet', run });
         expect(() =>
             scheduler.register('job', { every: 1000, scope: 'fleet', run }),
         ).toThrow(/already registered/);
+    });
+
+    it('refuses to register under a namespace the table or Redis keys cannot hold', () => {
+        const run = async () => {};
+        for (const namespace of ['a:b', 'x'.repeat(129), 'spaced name']) {
+            expect(() =>
+                node({ namespace }).register('job', {
+                    every: 1000,
+                    scope: 'fleet',
+                    run,
+                }),
+            ).toThrow(/invalid jobs namespace/);
+        }
+        expect(() =>
+            node({ domain: 'localhost:4100' }).register('job', {
+                every: 1000,
+                scope: 'fleet',
+                run,
+            }),
+        ).toThrow(/invalid jobs namespace/);
     });
 
     it('does nothing at all while no job is registered', async () => {
@@ -379,49 +419,97 @@ describe('JobScheduler', () => {
         expect(Number(row.failures)).toBe(0);
     });
 
-    describe('fails closed when renewal does', () => {
+    describe('on a controlled clock', () => {
         const leaseMs = 300;
+        let baseline = 0;
 
-        const start = async (name: string) => {
+        beforeEach(() => {
+            vi.useFakeTimers({
+                toFake: [
+                    'setTimeout',
+                    'clearTimeout',
+                    'setInterval',
+                    'clearInterval',
+                    'performance',
+                ],
+            });
+            baseline = vi.getTimerCount();
+        });
+
+        /** Batches of `batchMs`, each started only while the signal is live. */
+        const timedJob = (batches: number, batchMs: number) => {
+            const seen = {
+                starts: [] as number[],
+                abortedAt: null as number | null,
+                signal: null as AbortSignal | null,
+                saveError: null as unknown,
+            };
+            const run = async ({ signal, saveState }: JobRunContext) => {
+                seen.signal = signal;
+                signal.addEventListener('abort', () => {
+                    seen.abortedAt = performance.now();
+                });
+                for (let i = 0; i < batches; i++) {
+                    if (signal.aborted) break;
+                    seen.starts.push(performance.now());
+                    await sleep(batchMs);
+                }
+                try {
+                    await saveState({ late: true });
+                } catch (err) {
+                    seen.saveError = err;
+                }
+            };
+            return { seen, run };
+        };
+
+        const start = async (name: string, batchMs = 70) => {
             const namespace = freshNamespace();
             const scheduler = node({ namespace });
-            const job = batchedJob(10, 100);
-            let saveError: unknown = null;
+            const job = timedJob(10, batchMs);
             await registerDue([scheduler], name, {
                 every: HOUR,
                 scope: 'fleet',
                 leaseMs,
-                run: async (ctx) => {
-                    await job.run(ctx);
-                    try {
-                        await ctx.saveState({ late: true });
-                    } catch (err) {
-                        saveError = err;
-                    }
-                },
+                run: job.run,
             });
-            return { namespace, scheduler, job, saveError: () => saveError };
+            return { namespace, scheduler, job };
         };
 
-        // The claim sets `lease_owner` too; a renewal only extends the lease.
+        // The claim sets `lease_owner` too, and the finish clears the lease;
+        // a renewal only extends it.
+        const isClaim = (sql: string) => sql.includes('`lease_owner` = ?');
         const isRenewal = (sql: string) =>
-            sql.startsWith('UPDATE `scheduled_jobs` SET `lease_until`') &&
-            !sql.includes('`lease_owner`');
+            sql.startsWith('UPDATE `scheduled_jobs` SET `lease_until` = ') &&
+            !isClaim(sql) &&
+            !sql.includes('`lease_until` = NULL');
 
-        it('aborts before the next batch when another run took the lease', async () => {
-            const { namespace, scheduler, job, saveError } =
-                await start('job.stolen');
+        /** Let the run play out, then check nothing it armed is left behind. */
+        const settle = async (running: Promise<void>) => {
+            await vi.advanceTimersByTimeAsync(2_000);
+            await running;
+            expect(vi.getTimerCount()).toBe(baseline);
+        };
+
+        it('starts the first batch well inside the lease, and aborts at the renewal after a theft', async () => {
+            const { namespace, scheduler, job } = await start('job.stolen');
+            const claimedAt = performance.now();
             const running = scheduler.poll();
-            await vi.waitFor(() => expect(job.seen.done).toBeGreaterThan(0));
+            await vi.advanceTimersByTimeAsync(50);
+            expect(job.seen.starts[0] - claimedAt).toBeLessThan(leaseMs / 2);
+
             await db().write(
                 'UPDATE `scheduled_jobs` SET `lease_token` = ? WHERE `namespace` = ?',
                 ['thief', namespace],
             );
-            await running;
+            await settle(running);
 
-            expect(job.seen.signal?.aborted).toBe(true);
-            expect(job.seen.done).toBeLessThan(10);
-            expect(saveError()).toBeInstanceOf(JobLeaseLostError);
+            // The first renewal goes out at leaseMs / 3 and finds the lease gone.
+            expect(job.seen.abortedAt! - claimedAt).toBe(leaseMs / 3);
+            expect(job.seen.starts.every((t) => t < job.seen.abortedAt!)).toBe(
+                true,
+            );
+            expect(job.seen.saveError).toBeInstanceOf(JobLeaseLostError);
             // The fenced finish and save wrote nothing over the new owner.
             const row = await jobRow(namespace, 'job.stolen');
             expect(row.lease_token).toBe('thief');
@@ -437,11 +525,14 @@ describe('JobScheduler', () => {
                 if (isRenewal(sql)) throw new Error('connection reset');
                 return write(sql, params);
             });
-            await scheduler.poll();
+            const claimedAt = performance.now();
+            await settle(scheduler.poll());
 
-            expect(job.seen.signal?.aborted).toBe(true);
+            expect(job.seen.abortedAt! - claimedAt).toBe(leaseMs / 3);
             expect(job.seen.signal?.reason).toBeInstanceOf(JobLeaseLostError);
-            expect(job.seen.done).toBeLessThan(10);
+            expect(job.seen.starts.every((t) => t < job.seen.abortedAt!)).toBe(
+                true,
+            );
             // Interrupted, not failed: due again at once, nothing counted.
             const row = await jobRow(namespace, 'job.renewThrows');
             expect(Number(row.next_run_at)).toBe(0);
@@ -450,40 +541,179 @@ describe('JobScheduler', () => {
             expect(row.last_error).toMatch(/^interrupted/);
         });
 
-        it('aborts when a renewal is slower than leaseMs / 2', async () => {
+        it('aborts at leaseMs / 2 when a renewal hangs, and the late answer re-arms nothing', async () => {
             const { scheduler, job } = await start('job.renewSlow');
             const write = db().write.bind(db());
+            let answerRenewal!: () => void;
             vi.spyOn(db(), 'write').mockImplementation(async (sql, params) => {
-                if (isRenewal(sql)) await sleep(leaseMs);
+                if (isRenewal(sql)) {
+                    await new Promise<void>((resolve) => {
+                        answerRenewal = resolve;
+                    });
+                }
                 return write(sql, params);
             });
-            await scheduler.poll();
+            const claimedAt = performance.now();
+            const running = scheduler.poll();
+            await vi.advanceTimersByTimeAsync(leaseMs);
 
-            expect(job.seen.signal?.aborted).toBe(true);
+            expect(job.seen.abortedAt! - claimedAt).toBe(leaseMs / 2);
             expect((job.seen.signal?.reason as Error).message).toMatch(
                 /overdue/,
             );
-            expect(job.seen.done).toBeLessThan(10);
+            expect(job.seen.starts.every((t) => t < job.seen.abortedAt!)).toBe(
+                true,
+            );
+            answerRenewal();
+            await settle(running);
         });
 
         it('aborts when the primary database is lost mid-run', async () => {
             const { namespace, scheduler, job } =
                 await start('job.primaryLost');
             const running = scheduler.poll();
-            await vi.waitFor(() => expect(job.seen.done).toBeGreaterThan(0));
+            await vi.advanceTimersByTimeAsync(50);
             const lost = () => Promise.reject(new Error('primary unreachable'));
             vi.spyOn(db(), 'write').mockImplementation(lost);
             vi.spyOn(db(), 'pread').mockImplementation(lost);
-            await running;
+            await settle(running);
             vi.restoreAllMocks();
 
-            expect(job.seen.signal?.aborted).toBe(true);
-            expect(job.seen.done).toBeLessThan(10);
+            expect(job.seen.abortedAt).not.toBeNull();
+            expect(job.seen.starts.every((t) => t < job.seen.abortedAt!)).toBe(
+                true,
+            );
             // Nothing recorded; the lease lapses on its own.
             expect(
                 (await jobRow(namespace, 'job.primaryLost')).lease_token,
             ).not.toBeNull();
         });
+
+        it('never starts a run once the claim itself used up half the lease', async () => {
+            const { namespace, scheduler, job } = await start('job.slowClaim');
+            const write = db().write.bind(db());
+            vi.spyOn(db(), 'write').mockImplementation(async (sql, params) => {
+                const result = await write(sql, params);
+                if (isClaim(sql)) await sleep(leaseMs / 2 + 10);
+                return result;
+            });
+            await settle(scheduler.poll());
+
+            expect(job.seen.signal).toBeNull();
+            const row = await jobRow(namespace, 'job.slowClaim');
+            expect(row.lease_token).toBeNull();
+            expect(Number(row.next_run_at)).toBe(0);
+            expect(Number(row.failures)).toBe(0);
+            expect(row.last_error).toMatch(/^interrupted/);
+        });
+
+        it('renews before starting when the claim and read left little lease', async () => {
+            const { scheduler, job } = await start('job.slowRead', 70);
+            const pread = db().pread.bind(db());
+            const write = db().write.bind(db());
+            const renewalsSent: number[] = [];
+            vi.spyOn(db(), 'write').mockImplementation(async (sql, params) => {
+                if (isRenewal(sql)) renewalsSent.push(performance.now());
+                return write(sql, params);
+            });
+            vi.spyOn(db(), 'pread').mockImplementation(async (sql, params) => {
+                const rows = await pread(sql, params);
+                if (sql.includes('SELECT `state`')) {
+                    await sleep(leaseMs * 0.4);
+                }
+                return rows;
+            });
+            await settle(scheduler.poll());
+
+            const first = job.seen.starts[0];
+            const renewedBefore = renewalsSent.filter((t) => t <= first);
+            expect(renewedBefore.length).toBeGreaterThan(0);
+            expect(first - renewedBefore.at(-1)!).toBeLessThan(leaseMs / 2);
+            expect(job.seen.starts).toHaveLength(10);
+            expect(job.seen.signal?.aborted).toBe(false);
+        });
+
+        it('clears a run’s timers at shutdown even while the run hangs', async () => {
+            const namespace = freshNamespace();
+            const scheduler = node({ namespace });
+            let release!: () => void;
+            await registerDue([scheduler], 'job.hang', {
+                every: HOUR,
+                scope: 'fleet',
+                leaseMs,
+                run: () =>
+                    new Promise<void>((resolve) => {
+                        release = resolve;
+                    }),
+            });
+            const running = scheduler.poll();
+            await vi.advanceTimersByTimeAsync(10);
+            expect(vi.getTimerCount()).toBeGreaterThan(baseline);
+
+            scheduler.onServerPrepareShutdown();
+            expect(vi.getTimerCount()).toBe(baseline);
+            release();
+            await settle(running);
+        });
+
+        it('never starts a region run once taking the lock used up half the lease', async () => {
+            const namespace = freshNamespace();
+            const redis = new MockRedis({ port: 17104 });
+            const scheduler = node({ namespace, redis });
+            const run = vi.fn(async () => {});
+            scheduler.register('job.slowLock', {
+                every: HOUR,
+                scope: 'region',
+                leaseMs,
+                run,
+            });
+            const set = redis.set.bind(redis) as (
+                ...args: unknown[]
+            ) => Promise<unknown>;
+            const slowLock = vi.spyOn(redis, 'set').mockImplementation((async (
+                ...args: unknown[]
+            ) => {
+                const result = await set(...args);
+                if (String(args[0]).endsWith(':lock')) {
+                    await sleep(leaseMs / 2 + 10);
+                }
+                return result;
+            }) as never);
+            await settle(scheduler.poll());
+
+            expect(run).not.toHaveBeenCalled();
+            // The gate went back, so the next poll runs it.
+            expect(
+                await redis.exists(`jobs:{${namespace}:job.slowLock}:next`),
+            ).toBe(0);
+            slowLock.mockRestore();
+            await settle(scheduler.poll());
+            expect(run).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    it('records the next run on the primary clock, whatever the node clock does mid-run', async () => {
+        const namespace = freshNamespace();
+        const scheduler = node({ namespace });
+        const realNow = Date.now;
+        await registerDue([scheduler], 'job.clockJump', {
+            every: HOUR,
+            scope: 'fleet',
+            run: async () => {
+                // The node's clock steps back an hour while the job runs.
+                vi.spyOn(Date, 'now').mockImplementation(
+                    () => realNow() - HOUR,
+                );
+                throw new Error('failed after the step');
+            },
+        });
+        await scheduler.poll();
+        vi.restoreAllMocks();
+
+        const row = await jobRow(namespace, 'job.clockJump');
+        // Backoff 2 s from the primary's finish, not an hour in the past.
+        expect(Number(row.next_run_at)).toBeGreaterThan(await dbNow());
+        expect(Number(row.last_duration_ms)).toBeGreaterThanOrEqual(0);
     });
 
     it('hands state saved by one run to the next run on another node', async () => {
@@ -774,10 +1004,10 @@ describe('JobScheduler', () => {
         await Promise.all(nodes.map((scheduler) => scheduler.poll()));
         expect(runs.sort()).toEqual(['a', 'b']);
         expect(
-            await redisA.pttl(`jobs:next:${namespace}:job.region`),
+            await redisA.pttl(`jobs:{${namespace}:job.region}:next`),
         ).toBeGreaterThan(HOUR - 60_000);
         // The region lock was released after the run.
-        expect(await redisA.exists(`jobs:region:${namespace}:job.region`)).toBe(
+        expect(await redisA.exists(`jobs:{${namespace}:job.region}:lock`)).toBe(
             0,
         );
     });
@@ -798,12 +1028,12 @@ describe('JobScheduler', () => {
                 if (fail) throw new Error('nope');
             },
         });
-        const gate = `jobs:next:${namespace}:job.regionFail`;
+        const gate = `jobs:{${namespace}:job.regionFail}:next`;
 
         await scheduler.poll();
         expect(
             await redis.hget(
-                `jobs:run:${namespace}:job.regionFail`,
+                `jobs:{${namespace}:job.regionFail}:run`,
                 'failures',
             ),
         ).toBe('1');
@@ -815,10 +1045,69 @@ describe('JobScheduler', () => {
         expect(seen).toEqual([null, { page: 1 }]);
         expect(
             await redis.hget(
-                `jobs:run:${namespace}:job.regionFail`,
+                `jobs:{${namespace}:job.regionFail}:run`,
                 'failures',
             ),
         ).toBeNull();
         expect(await redis.pttl(gate)).toBeGreaterThan(HOUR - 60_000);
+    });
+
+    it('fences a region run that outlived its gate off its successor’s keys', async () => {
+        const namespace = freshNamespace();
+        const redis = new MockRedis({ port: 17105 });
+        const [slow, next] = [
+            node({ namespace, redis }),
+            node({ namespace, redis }),
+        ];
+        const keys = {
+            gate: `jobs:{${namespace}:job.fenced}:next`,
+            run: `jobs:{${namespace}:job.fenced}:run`,
+        };
+        let release!: () => void;
+        let slowStarted = false;
+        let slowSaveError: unknown = null;
+        // Ignores its signal and outlives both its 200 ms lock and 400 ms gate.
+        slow.register('job.fenced', {
+            every: 400,
+            scope: 'region',
+            leaseMs: 200,
+            run: async ({ saveState }) => {
+                slowStarted = true;
+                await new Promise<void>((resolve) => {
+                    release = resolve;
+                });
+                try {
+                    await saveState({ by: 'slow' });
+                } catch (err) {
+                    slowSaveError = err;
+                }
+                throw new Error('slow run failed');
+            },
+        });
+        next.register('job.fenced', {
+            every: 400,
+            scope: 'region',
+            leaseMs: 200,
+            run: async ({ saveState }) => {
+                await saveState({ by: 'next' });
+            },
+        });
+
+        const slowRun = slow.poll();
+        await vi.waitFor(() => expect(slowStarted).toBe(true));
+        await sleep(450);
+        await next.poll();
+        const successorGate = await redis.get(keys.gate);
+        expect(successorGate).not.toBeNull();
+
+        release();
+        await slowRun;
+        expect(slowSaveError).toBeInstanceOf(JobLeaseLostError);
+        // Neither the slow run's state, its failure count, nor its cleanup
+        // touched what the successor holds.
+        expect(await redis.get(keys.gate)).toBe(successorGate);
+        expect(await redis.pttl(keys.gate)).toBeGreaterThan(0);
+        expect(await redis.hget(keys.run, 'state')).toBe('{"by":"next"}');
+        expect(await redis.hget(keys.run, 'failures')).toBeNull();
     });
 });
