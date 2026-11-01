@@ -37,6 +37,10 @@ import { HttpError } from './core/http/HttpError.ts';
 import { extension, extensionStore } from './extensions.ts';
 import { PuterServer } from './server.ts';
 import {
+    JobScheduler,
+    type JobDefinition,
+} from './services/jobs/JobScheduler.ts';
+import {
     allocateEphemeralPort,
     createTestUser,
     setupTestServer,
@@ -1536,6 +1540,42 @@ describe('PuterServer lifecycle hooks', () => {
             'shutdown:store',
             'shutdown:client',
         ]);
+    });
+});
+
+/**
+ * An extension may take over `services.jobs` (a fleet-wide scheduler). Core
+ * services register their jobs on it at start, so it must keep the built-in's
+ * first place in the layer.
+ */
+describe('PuterServer jobs replacement', () => {
+    it('lets an extension service registered as `jobs` replace the built-in and keep its first position', async () => {
+        const registered: string[] = [];
+        class ReplacementJobs extends JobScheduler {
+            override register(name: string, definition: JobDefinition) {
+                registered.push(name);
+                super.register(name, definition);
+            }
+        }
+        const started = vi.spyOn(JobScheduler.prototype, 'onServerStart');
+        extension.registerService('jobs', ReplacementJobs as never);
+        let server: PuterServer | undefined;
+        try {
+            server = await setupTestServer();
+            const { jobs } = server.services;
+            expect(jobs).toBeInstanceOf(ReplacementJobs);
+            expect(Object.keys(server.services)[0]).toBe('jobs');
+            expect(extension.import('service').jobs).toBeInstanceOf(
+                ReplacementJobs,
+            );
+            // Only the replacement gets lifecycle hooks.
+            expect(started.mock.contexts).toEqual([jobs]);
+            expect(registered).toContain('auth.sessions.purge');
+        } finally {
+            delete (extensionStore.services as Record<string, unknown>).jobs;
+            started.mockRestore();
+            await server?.shutdown();
+        }
     });
 });
 
