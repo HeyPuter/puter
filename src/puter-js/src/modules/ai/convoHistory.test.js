@@ -6,7 +6,9 @@ const user = (id, content) => ({
     item: { id, type: 'message', role: 'user', status: 'completed', content },
 });
 const texts = (history) =>
-    history.replay(40, 48 * 1024).map(({ item }) => item.content[0].text);
+    history
+        .replay(40, 48 * 1024)
+        .entries.map(({ item }) => item.content[0].text);
 
 describe('ConvoHistory', () => {
     it('cuts text without word breaks at the played share', () => {
@@ -60,7 +62,7 @@ describe('ConvoHistory', () => {
             history.observe(
                 user(`u${i}`, [{ type: 'input_text', text: `${i}` }]),
             );
-        expect(history.replay(100, Infinity)).toHaveLength(80);
+        expect(history.replay(100, Infinity).entries).toHaveLength(80);
         expect(texts(history).at(-1)).toBe('99');
     });
 
@@ -73,6 +75,25 @@ describe('ConvoHistory', () => {
         history.observe(user('u3', [{ type: 'input_text', text: 'new' }]));
         expect(texts(history)).toEqual(['new']);
     });
+
+    it.each(['x'.repeat(49 * 1024), '😀'.repeat(13 * 1024)])(
+        'reports an oversized newest item without truncating it',
+        (text) => {
+            const history = new ConvoHistory(() => false);
+            history.observe(
+                user('old', [{ type: 'input_text', text: 'tiny' }]),
+            );
+            history.observe(user('large', [{ type: 'input_text', text }]));
+            expect(history.replay(40, 48 * 1024)).toEqual({
+                entries: [],
+                omittedItems: 2,
+            });
+            expect(
+                history.replay(40, Infinity).entries.at(-1).item.content[0]
+                    .text,
+            ).toBe(text);
+        },
+    );
 
     it('waits on every unanswered call since the last user message', () => {
         const history = new ConvoHistory(() => false);
@@ -114,7 +135,7 @@ describe('ConvoHistory', () => {
     it('reports the new session copies of replayed items until they are done', () => {
         const history = new ConvoHistory(() => false);
         history.observe(user('old', [{ type: 'input_text', text: 'hi' }]));
-        history.replayed(history.replay(40, 48 * 1024));
+        history.replayed(history.replay(40, 48 * 1024).entries);
         const copy = user('new', [{ type: 'input_text', text: 'hi' }]);
         expect(history.observe(copy)).toBe(true);
         expect(
