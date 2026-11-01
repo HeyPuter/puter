@@ -36,7 +36,10 @@ import {
     DurableQuotaRaceLost,
     type DurableSubscriptionInput,
 } from '../../stores/events/DurableSubscriptionStore.js';
-import type { DurableSubscription } from '../../stores/events/types.js';
+import {
+    scheduleToken,
+    type DurableSubscription,
+} from '../../stores/events/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
@@ -65,6 +68,10 @@ let raceLost: boolean;
 let emitted: Array<{ key: string; data: unknown }>;
 /** Rows one credit-sweep page takes; null for the service's own batch. */
 let pageSize: number | null;
+/** Rows one holder page takes; null for all of them in one page. */
+let holderPageSize: number | null;
+/** What `services.schedules` hears about changed schedule rows. */
+let schedulesChanged: (rows: readonly DurableSubscription[]) => void;
 
 const anchorUid = (): string => `docs-${seq}`;
 const anchorPath = (): string => `/u${userId}/Documents`;
@@ -131,6 +138,8 @@ beforeEach(() => {
     raceLost = false;
     emitted = [];
     pageSize = null;
+    holderPageSize = null;
+    schedulesChanged = () => undefined;
 
     service = new EventsService(
         { events: { enabled: true } } as IConfig,
@@ -184,21 +193,27 @@ beforeEach(() => {
                         nextId: page.length < size ? null : page.at(-1)!.id,
                     };
                 },
+                // Keyset paging over `rows`, a row's id being its position + 1.
                 listSuspendedForHolderPage: async (
                     holderUserId: number,
                     reason: string,
                     afterId: number,
-                ) => ({
-                    rows:
-                        afterId === 0
-                            ? rows.filter(
-                                  (row) =>
-                                      row.holderUserId === holderUserId &&
-                                      row.suspendedReason === reason,
-                              )
-                            : [],
-                    nextId: null,
-                }),
+                ) => {
+                    const page = rows
+                        .map((row, i) => ({ row, id: i + 1 }))
+                        .filter(
+                            ({ row, id }) =>
+                                id > afterId &&
+                                row.holderUserId === holderUserId &&
+                                row.suspendedReason === reason,
+                        );
+                    const size = holderPageSize ?? page.length;
+                    const taken = page.slice(0, size);
+                    return {
+                        rows: taken.map(({ row }) => row),
+                        nextId: page.length > size ? taken.at(-1)!.id : null,
+                    };
+                },
                 resume: async (resuming: readonly DurableSubscription[]) => {
                     for (const row of resuming) {
                         resumed.push(row.subId);
@@ -268,6 +283,11 @@ beforeEach(() => {
                     solvent.has(Number(actor.user?.id ?? -1)),
                 getActorSubscription: async () => ({ id: plan }),
             },
+            schedules: {
+                onSubscriptionsChanged: async (
+                    changed: readonly DurableSubscription[],
+                ) => schedulesChanged(changed),
+            },
         } as never,
     );
 });
@@ -336,6 +356,33 @@ describe('a suspension waiting on a balance', () => {
 
         await service.sweepNoCredit(ctx);
         expect(ctx.saved).toEqual([{ afterId: 1 }, { afterId: 2 }]);
+    });
+
+    it('resumes no later holder page once its signal aborts inside a page`s hook, keeping the checkpoint', async () => {
+        // A full sweep page, so finishing it would move the checkpoint.
+        pageSize = 3;
+        holderPageSize = 1;
+        for (let i = 0; i < 3; i++)
+            rows.push(
+                durableRow({
+                    subId: `sched-${i}`,
+                    token: scheduleToken(`schedule-${seq}-${i}`),
+                    suspendedAt: Math.floor(Date.now() / 1000),
+                    suspendedReason: 'no_credit',
+                }),
+            );
+        const ctx = testJobContext();
+        const heard: string[][] = [];
+        schedulesChanged = (changed) => {
+            heard.push(changed.map((row) => row.subId));
+            ctx.abort();
+        };
+
+        await expect(service.sweepNoCredit(ctx)).resolves.toBe(1);
+        expect(resumed).toEqual(['sched-0']);
+        expect(heard).toEqual([['sched-0']]);
+        expect(rows[1].suspendedReason).toBe('no_credit');
+        expect(ctx.saved).toEqual([]);
     });
 
     it('wraps a saved cursor past the end of a shrunken table back to the start', async () => {

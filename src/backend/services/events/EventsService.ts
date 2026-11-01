@@ -2604,15 +2604,20 @@ export class EventsService extends PuterService {
     /**
      * Run `settle` over every page of a holder-wide read. Rows a page settles
      * may leave the set it pages over, so it walks by id rather than offset.
+     * Stops before the next page, or before settling one just read, once
+     * `signal` aborts.
      */
     async #eachHolderPage(
         page: (afterId: number) => Promise<DurablePage>,
         settle: (rows: DurableSubscription[]) => Promise<number>,
+        signal?: AbortSignal,
     ): Promise<number> {
         let settled = 0;
         let afterId = 0;
         for (;;) {
+            if (signal?.aborted) return settled;
             const { rows, nextId } = await page(afterId);
+            if (signal?.aborted) return settled;
             if (rows.length > 0) settled += await settle(rows);
             if (nextId === null) return settled;
             afterId = nextId;
@@ -2676,9 +2681,12 @@ export class EventsService extends PuterService {
     /**
      * Put back what a restored balance releases. The seam credit restoration
      * calls: one holder's rows, one pass, and nothing else has to know how a
-     * suspension is spelled.
+     * suspension is spelled. Stops between pages once `signal` aborts.
      */
-    async resumeForCredit(holderUserId: number): Promise<number> {
+    async resumeForCredit(
+        holderUserId: number,
+        signal?: AbortSignal,
+    ): Promise<number> {
         if (!this.enabled) return 0;
         return this.#eachHolderPage(
             (afterId) =>
@@ -2688,6 +2696,7 @@ export class EventsService extends PuterService {
                     afterId,
                 ),
             (rows) => this.resumeSubscriptions(rows),
+            signal,
         );
     }
 
@@ -2833,8 +2842,10 @@ export class EventsService extends PuterService {
                 } catch {
                     continue;
                 }
-                resumed += await this.resumeForCredit(holderUserId);
+                resumed += await this.resumeForCredit(holderUserId, signal);
             }
+            // Interrupted mid-page: keep the checkpoint so the page is redone.
+            if (signal.aborted) return resumed;
             after = page.nextId ?? 0;
             if (after !== saved) {
                 await saveState(after === 0 ? null : { afterId: after });
