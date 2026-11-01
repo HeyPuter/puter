@@ -291,6 +291,26 @@ describe('fenced scripts', () => {
     });
 });
 
+describe('versions', () => {
+    it('are read in one round trip per partition, absent members left out', async () => {
+        const ids = Array.from({ length: 200 }, (_, i) => `v-${i}`);
+        await index.apply(
+            ids.slice(0, 150).map((id, i) => change(id, { version: i + 1 })),
+        );
+        const hget = vi.spyOn(redis, 'hget');
+        const pipeline = vi.spyOn(redis, 'pipeline');
+        const versions = await index.versionsOf(ids);
+        expect(hget).not.toHaveBeenCalled();
+        expect(pipeline.mock.calls.length).toBeLessThanOrEqual(
+            SCHEDULE_PARTITIONS,
+        );
+        expect(versions.size).toBe(150);
+        expect(versions.get('v-0')).toBe(1);
+        expect(versions.get('v-149')).toBe(150);
+        expect(versions.has('v-199')).toBe(false);
+    });
+});
+
 describe('apply', () => {
     it('ignores an older version', async () => {
         await applyOne(change('o', { version: 5 }));

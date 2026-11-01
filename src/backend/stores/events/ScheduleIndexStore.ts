@@ -921,16 +921,30 @@ export class ScheduleIndexStore extends PuterStore {
 
     // -- Reads --------------------------------------------------------
 
-    /** The versions the index holds for these schedules, where it has one. */
+    /**
+     * The versions the index holds for these schedules, where it has one. One
+     * round trip per partition touched.
+     */
     async versionsOf(ids: readonly string[]): Promise<Map<string, number>> {
         const versions = new Map<string, number>();
+        const byPartition = new Map<number, string[]>();
         for (const id of ids) {
-            const raw = await this.clients.redis.hget(
-                this.#keysFor(id).def,
-                id,
-            );
-            const version = raw === null ? NaN : parseInt(raw, 10);
-            if (Number.isSafeInteger(version)) versions.set(id, version);
+            const p = schedulePartition(id);
+            const members = byPartition.get(p);
+            if (members) members.push(id);
+            else byPartition.set(p, [id]);
+        }
+        for (const [p, members] of byPartition) {
+            const key = this.keys(p).def;
+            const pipeline = this.clients.redis.pipeline();
+            for (const id of members) pipeline.hget(key, id);
+            const replies = (await pipeline.exec()) ?? [];
+            members.forEach((id, i) => {
+                const [err, raw] = replies[i] ?? [null, null];
+                if (err) throw err;
+                const version = raw === null ? NaN : parseInt(String(raw), 10);
+                if (Number.isSafeInteger(version)) versions.set(id, version);
+            });
         }
         return versions;
     }
