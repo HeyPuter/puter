@@ -9,6 +9,7 @@
                 target: '/timers',
                 sendAt: Date.now() + 30 * 60 * 1000,
             });
+            if (typeof later !== 'object' || !later) return;    // due now: sent at once
             puter.print(`stored ${later.scheduleId}, goes out ${new Date(later.sendAt).toLocaleTimeString()}<br>`);
 
             // (2) The user stopped the timer, so it shouldn't go out

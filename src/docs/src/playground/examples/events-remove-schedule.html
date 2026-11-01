@@ -7,6 +7,7 @@
                 title: 'Your trial ends tomorrow',
                 sendAt: Date.now() + 24 * 60 * 60 * 1000,
             });
+            if (typeof later !== 'object' || !later) return;    // due now: sent at once
 
             await puter.events.removeSchedule(later.scheduleId);
             puter.print('cancelled<br>');
