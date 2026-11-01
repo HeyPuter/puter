@@ -120,12 +120,22 @@ export type ScheduleSubscriptionChange =
     | { type: 'resumed' }
     | { type: 'ended'; endReason: ScheduleEndReason };
 
-/** A delayed send to store: the action that runs it, and when. */
+/** What a delayed send runs: its action, and the payload it reads back. */
 export interface DeferredSendRequest {
     action: string;
     /** JSON text the action reads back when it runs. */
     payload: string;
+}
+
+/** A caller cleared to supply `sendAt`, and when it asked for. */
+export interface DeferredSendPlan {
     sendAt: number;
+    /** Due within 5 seconds, or past: sent now rather than stored. */
+    immediate: boolean;
+    holderUserId: number;
+    appUid: string;
+    handlerDepth: number;
+    quota: ScheduleQuota;
 }
 
 /** A validated create, with who it is for and the caps it is held to. */
@@ -400,26 +410,15 @@ export class ScheduleService extends PuterService {
     }
 
     /**
-     * Read a delayed send's `sendAt`. Refused while schedules are off, even one
-     * that would go now, so a caller learns delayed sends aren't there.
+     * Check a caller supplying `sendAt` and read it. The gates hold whether it
+     * goes now or later: an app context, no scoped token or temporary account
+     * (neither could list or cancel a stored send), and schedules switched on.
      */
-    parseSendAt(
+    async prepareSendAt(
+        actor: Actor,
         value: unknown,
         now: number = Date.now(),
-    ): { sendAt: number; immediate: boolean } {
-        if (!this.enabled) throw disabled();
-        return parseSendAt(value, now);
-    }
-
-    /**
-     * Store a delayed send for the caller's app, and index it. It counts
-     * against the sender's pending one-shot caps and needs no consent or
-     * handler. A scoped token is refused: it could neither list nor cancel it.
-     */
-    async createDeferred(
-        actor: Actor,
-        send: DeferredSendRequest,
-    ): Promise<ScheduleRow> {
+    ): Promise<DeferredSendPlan> {
         if (!this.enabled) throw disabled();
         const holderUserId = actor.user?.id;
         if (holderUserId === undefined) throw disabled();
@@ -432,24 +431,42 @@ export class ScheduleService extends PuterService {
             await actorPlanId(this.services.metering, actor),
         );
         if (quota.oneShotsPerUser === 0) throw temporaryAccount();
+        return {
+            ...parseSendAt(value, now),
+            holderUserId,
+            appUid,
+            handlerDepth: handlerDepthOf(actor),
+            quota,
+        };
+    }
 
+    /**
+     * Store a delayed send {@link prepareSendAt} passed, and index it. It counts
+     * against the sender's pending one-shot caps and needs no consent or
+     * handler.
+     */
+    async createDeferred(
+        plan: DeferredSendPlan,
+        send: DeferredSendRequest,
+    ): Promise<ScheduleRow> {
+        if (!this.enabled) throw disabled();
         const row = await this.stores.schedule.create({
             namespace: this.namespace,
             region: this.region,
             kind: 'deferred',
-            holderUserId,
-            appUid,
-            startAt: send.sendAt,
+            holderUserId: plan.holderUserId,
+            appUid: plan.appUid,
+            startAt: plan.sendAt,
             everyMs: null,
             cron: null,
             tz: 'UTC',
-            endsAt: send.sendAt,
+            endsAt: plan.sendAt,
             ratePerHour: 0,
             minGapMs: null,
-            handlerDepth: handlerDepthOf(actor),
+            handlerDepth: plan.handlerDepth,
             action: send.action,
             payload: send.payload,
-            quota,
+            quota: plan.quota,
         });
         const def = indexDefFor(row, null);
         await this.#distribute([
