@@ -34,6 +34,7 @@ import {
 } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import {
+    deliveryBackoffMs,
     EVENTS_LIST_LIMIT,
     EVENTS_SCHEDULE_FIRE_BUDGET_PER_APP,
     EVENTS_SCHEDULE_SCAN_CONCURRENCY,
@@ -49,10 +50,14 @@ import { DURABLE_CONTEXT_MAX_BYTES } from '../../stores/events/DurableSubscripti
 import { hashContent } from '../../stores/events/EventHandlerStore.js';
 import type { RouteRateLimit } from '../../core/http/types.js';
 import { actorPlanId } from '../metering/enforcement.js';
+import { FULL_API_ACCESS } from '../permission/consts.js';
 import { cronFirstAtOrAfter, scanCron } from './scheduleCron.js';
 import { spreadOffsetMs } from './scheduleSlots.js';
 import {
     bootScheduleHarness,
+    freezeRedisClock,
+    HANDLED_OK,
+    handledAnswer,
     seedSchedules,
     SCHEDULE_TEST_HANDLER,
     type ScheduleHarness,
@@ -498,16 +503,18 @@ describe('what a create refuses', () => {
     });
 
     it('answers busy while too many cron checks are queued', async () => {
+        // Each scan yields to the event loop every 500 runs; holding those
+        // yields keeps the gate full until the refusal has been seen. `nth`
+        // skips the result cache and makes every scan walk past one yield.
+        vi.useFakeTimers({ toFake: ['setImmediate'] });
         const from = Date.now();
-        // `nth` skips the result cache, so each one walks; on a loaded runner
-        // the queue behind the gate takes seconds to drain.
         const fills = Array.from(
             {
                 length:
                     EVENTS_SCHEDULE_SCAN_CONCURRENCY +
                     EVENTS_SCHEDULE_SCAN_QUEUE,
             },
-            () => scanCron('*/2 * * * *', 'UTC', from, { nth: 10_000 }),
+            () => scanCron('* * * * *', 'UTC', from, { nth: 600 }),
         );
         try {
             const refused = await create(app.token, {
@@ -517,9 +524,12 @@ describe('what a create refuses', () => {
             expect(refused.status).toBe(503);
             expect(refused.body.code).toBe('events_schedule_busy');
         } finally {
-            await Promise.allSettled(fills);
+            await vi.runAllTimersAsync();
+            vi.useRealTimers();
+            const settled = await Promise.allSettled(fills);
+            expect(settled.every((r) => r.status === 'fulfilled')).toBe(true);
         }
-    }, 60_000);
+    });
 });
 
 describe('a plan`s schedules', () => {
@@ -636,41 +646,122 @@ describe('listing and reading schedules', () => {
         expect((await get(sessionToken, othersRow.uid)).status).toBe(404);
     });
 
-    it('shows a scoped token none of them', async () => {
+    it('shows a scoped token none of them, the account`s or the app`s', async () => {
         const created = (await createEvery(app.token)).body
             .scheduleId as string;
-        const scoped = await scopedToken(session);
+        const appActor = (await server().services.auth.authenticate(app.token))
+            .actor!;
 
-        const listed = await list(scoped);
-        expect(listed.status).toBe(200);
-        expect(listed.body.items).toEqual([]);
-        expect((await get(scoped, created)).status).toBe(404);
-        expect((await remove(scoped, created)).status).toBe(404);
+        for (const scoped of [
+            await scopedToken(session),
+            await scopedToken(appActor),
+        ]) {
+            const listed = await list(scoped);
+            expect(listed.status).toBe(200);
+            expect(listed.body).toEqual({ items: [] });
+            const totalled = await list(scoped, '?includeTotal=true');
+            expect(totalled.body).toEqual({ items: [], total: 0 });
+            expect((await get(scoped, created)).status).toBe(404);
+            const removed = await remove(scoped, created);
+            expect(removed.status).toBe(404);
+            expect(removed.body.code).toBe('events_schedule_not_found');
+        }
         expect((await get(app.token, created)).body.state).toBe('active');
+    });
+
+    it('treats a full-access token as the account', async () => {
+        const second = await makeApp();
+        const mine = (await createEvery(app.token)).body.scheduleId as string;
+        const theirs = (await createEvery(second.token)).body
+            .scheduleId as string;
+        const fullAccess = await server().services.auth.createAccessToken(
+            session,
+            [[FULL_API_ACCESS]],
+            { label: 'schedules-full' },
+        );
+
+        expect(idsOf(await list(fullAccess))).toEqual([mine, theirs]);
+        expect((await get(fullAccess, theirs)).status).toBe(200);
+        expect((await remove(fullAccess, theirs)).status).toBe(200);
+        // It is not an app, so it can't create one.
+        const refused = await createEvery(fullAccess);
+        expect(refused.status).toBe(403);
+        expect(refused.body.code).toBe('events_schedule_app_required');
+    });
+
+    it('keeps each app`s, worker`s and the account`s listing budgets apart', async () => {
+        const second = await makeApp();
+        const worker = await server().services.auth.createWorkerAppToken(
+            session,
+            app.uid,
+            'events:handlers',
+        );
+        const spend = async (bucket: string) => {
+            for (let i = 0; i < EVENTS_LIST_LIMIT.limit; i++)
+                await checkRateLimit(
+                    `${EVENTS_LIST_LIMIT.scope}:${bucket}`,
+                    EVENTS_LIST_LIMIT.limit,
+                    EVENTS_LIST_LIMIT.window,
+                );
+        };
+        const appBucket = `${userId}:${app.uid}`;
+        await spend(appBucket);
+        try {
+            const refused = await list(app.token);
+            expect(refused.status).toBe(429);
+            expect(refused.body.code).toBe('too_many_requests');
+            expect((await list(second.token)).status).toBe(200);
+            expect((await list(sessionToken)).status).toBe(200);
+            expect((await list(worker)).status).toBe(200);
+        } finally {
+            await server().clients.redis.del(
+                `rate:${EVENTS_LIST_LIMIT.scope}:${appBucket}`,
+            );
+        }
+    });
+
+    it('pages without duplicates or gaps while schedules come and go', async () => {
+        const before: string[] = [];
+        for (let i = 0; i < 5; i++)
+            before.push(
+                (await createEvery(app.token)).body.scheduleId as string,
+            );
+
+        const first = await list(app.token, '?limit=2');
+        const pages = [idsOf(first)];
+        let cursor = first.body.cursor as string | undefined;
+        // Between every page: one listed schedule removed, one created.
+        const added: string[] = [];
+        while (cursor) {
+            const [page] = await Promise.all([
+                list(
+                    app.token,
+                    `?limit=2&cursor=${encodeURIComponent(cursor)}`,
+                ),
+                remove(app.token, pages[0][0]),
+                (async () => {
+                    const made = await createEvery(app.token);
+                    if (made.status === 200)
+                        added.push(made.body.scheduleId as string);
+                })(),
+            ]);
+            expect(page.status).toBe(200);
+            pages.push(idsOf(page));
+            cursor = page.body.cursor as string | undefined;
+        }
+
+        const seen = pages.flat();
+        expect(new Set(seen).size).toBe(seen.length);
+        // Every schedule there before the walk is listed, removed or not.
+        for (const id of before) expect(seen).toContain(id);
+        // In creation order: the cursor never jumps back.
+        const order = [...before, ...added];
+        const positions = seen.map((id) => order.indexOf(id));
+        expect(positions).toEqual([...positions].sort((a, b) => a - b));
     });
 });
 
 describe('when a schedule runs next', () => {
-    it('moves to the next slot once a slot`s spread has passed', async () => {
-        vi.useFakeTimers({ toFake: ['Date'] });
-        try {
-            const created = (await createEvery(app.token)).body;
-            const id = created.scheduleId as string;
-            const first = created.nextRunAt as number;
-            const offset = spreadOffsetMs(id, 'recurring', HOUR);
-
-            vi.setSystemTime(first + offset);
-            expect((await get(app.token, id)).body.nextRunAt).toBe(first);
-
-            vi.setSystemTime(first + offset + 1);
-            expect((await get(app.token, id)).body.nextRunAt).toBe(
-                first + HOUR,
-            );
-        } finally {
-            vi.useRealTimers();
-        }
-    });
-
     it('says nothing while suspended, and why', async () => {
         const id = (await createEvery(app.token)).body.scheduleId as string;
         await server().services.events.suspendForNoCredit(await subIdOf(id));
@@ -714,6 +805,139 @@ describe('when a schedule runs next', () => {
     });
 });
 
+describe('`nextRunAt` against what the runner fires', () => {
+    // A Monday, well after any real clock this suite runs at.
+    const T0 = Date.UTC(2027, 0, 4);
+    const MIN = 60_000;
+
+    const view = (actor: Actor, id: string) =>
+        server().services.schedule.get(actor, id);
+
+    beforeEach(async () => {
+        const keys = await server().clients.redis.keys('sched:*');
+        if (keys.length > 0) await server().clients.redis.del(...keys);
+        freezeRedisClock();
+        harness.setClock(T0 - MIN);
+        harness.sent.length = 0;
+        harness.respond = async () => HANDLED_OK;
+    });
+
+    afterEach(async () => {
+        await harness.runner.drain();
+        vi.restoreAllMocks();
+        vi.useRealTimers();
+    });
+
+    it('is the next nominal slot; a delayed run of an earlier slot fires first', async () => {
+        const app = await harness.makeApp();
+        const row = await harness.createSchedule(app, {
+            startAt: T0,
+            everyMs: HOUR,
+        });
+        const offset = spreadOffsetMs(row.uid, 'recurring', HOUR);
+        expect((await view(app.actor, row.uid)).nextRunAt).toBe(T0);
+
+        // Ten minutes late: the view has moved on, the runner fires T0.
+        harness.setClock(T0 + 10 * MIN);
+        const late = await view(app.actor, row.uid);
+        expect(late.nextRunAt).toBe(T0 + HOUR);
+        await harness.fire();
+        expect(harness.sent.map((sent) => sent.event.scheduledFor)).toEqual([
+            T0,
+        ]);
+        expect(harness.sent[0].event.scheduledFor).toBeLessThan(
+            late.nextRunAt!,
+        );
+
+        // Then the slot the view named is the one that fires.
+        harness.setClock(T0 + HOUR + offset);
+        await harness.fire();
+        expect(harness.sent[1].event.scheduledFor).toBe(late.nextRunAt);
+    });
+
+    it('moves past a slot whose run is still being retried', async () => {
+        const app = await harness.makeApp();
+        const row = await harness.createSchedule(app, {
+            startAt: T0,
+            everyMs: HOUR,
+        });
+        const offset = spreadOffsetMs(row.uid, 'recurring', HOUR);
+        const answers = [500, 200];
+        harness.respond = async () => handledAnswer(answers.shift()!);
+
+        harness.setClock(T0 + offset);
+        expect((await view(app.actor, row.uid)).nextRunAt).toBe(T0);
+        await harness.fire();
+
+        harness.setClock(T0 + offset + deliveryBackoffMs(1) + 1000);
+        const retrying = await view(app.actor, row.uid);
+        expect(retrying).toMatchObject({
+            state: 'active',
+            nextRunAt: T0 + HOUR,
+        });
+        await harness.fire();
+        expect(harness.sent.map((sent) => sent.event)).toEqual([
+            expect.objectContaining({ scheduledFor: T0, attempt: 1 }),
+            expect.objectContaining({ scheduledFor: T0, attempt: 2 }),
+        ]);
+    });
+
+    it('names the last slot while it is still owed, then nothing once it ran', async () => {
+        const app = await harness.makeApp();
+        const row = await harness.createSchedule(app, {
+            startAt: T0,
+            everyMs: HOUR,
+            endsAt: T0,
+        });
+        const answers = [500, 200];
+        harness.respond = async () => handledAnswer(answers.shift()!);
+
+        harness.setClock(T0 + 10 * MIN);
+        expect(await view(app.actor, row.uid)).toMatchObject({
+            state: 'active',
+            nextRunAt: T0,
+        });
+        await harness.fire();
+        expect(harness.sent[0].event.scheduledFor).toBe(T0);
+
+        // Retrying the last slot: still owed.
+        const retryAt = T0 + 10 * MIN + deliveryBackoffMs(1) + 1000;
+        harness.setClock(retryAt);
+        expect(await view(app.actor, row.uid)).toMatchObject({
+            state: 'active',
+            nextRunAt: T0,
+        });
+        await harness.fire();
+        expect(harness.sent[1].event).toMatchObject({
+            scheduledFor: T0,
+            attempt: 2,
+        });
+
+        expect(await view(app.actor, row.uid)).toMatchObject({
+            state: 'ended',
+            endReason: 'ended',
+            nextRunAt: null,
+        });
+    });
+
+    it('names a one-shot`s time until it has run', async () => {
+        const app = await harness.makeApp();
+        const row = await harness.createSchedule(app, {
+            kind: 'once',
+            startAt: T0,
+            everyMs: null,
+        });
+        harness.setClock(T0 + 10 * MIN);
+        expect((await view(app.actor, row.uid)).nextRunAt).toBe(T0);
+        await harness.fire();
+        expect(harness.sent[0].event.scheduledFor).toBe(T0);
+        expect(await view(app.actor, row.uid)).toMatchObject({
+            state: 'ended',
+            nextRunAt: null,
+        });
+    });
+});
+
 describe('removing a schedule', () => {
     it('ends it, keeps it listed with why, and answers a second remove as absent', async () => {
         const id = (await createEvery(app.token)).body.scheduleId as string;
@@ -733,6 +957,23 @@ describe('removing a schedule', () => {
         const again = await remove(app.token, id);
         expect(again.status).toBe(404);
         expect(again.body.code).toBe('events_schedule_not_found');
+    });
+
+    it('answers another holder`s schedule as absent, and leaves it running', async () => {
+        const others = await harness.createSchedule(
+            { uid: app.uid },
+            { holderUserId: otherUserId },
+        );
+        for (const token of [app.token, sessionToken]) {
+            const refused = await remove(token, others.uid);
+            expect(refused.status).toBe(404);
+            expect(refused.body.code).toBe('events_schedule_not_found');
+        }
+        const row = await server().stores.schedule.get(
+            server().services.schedule.namespace,
+            others.uid,
+        );
+        expect(row!.deletedAt).toBeNull();
     });
 
     it('lets the account remove what an app left behind, but not another app', async () => {

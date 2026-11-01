@@ -87,7 +87,11 @@ import {
     type ScheduleReconcileReport,
 } from './scheduleReconcile.js';
 import { ScheduleRunner, type ScheduleRunnerHost } from './ScheduleRunner.js';
-import { firstSlotAtOrAfter, spreadOffsetMs } from './scheduleSlots.js';
+import {
+    firstSlotAtOrAfter,
+    latestSlotAtOrBefore,
+    spreadOffsetMs,
+} from './scheduleSlots.js';
 
 /**
  * Scheduled handlers: validating a create, and keeping schedule rows in step
@@ -195,13 +199,20 @@ export interface ScheduleListRequest {
 }
 
 /**
- * The slot a live schedule runs for next: the first whose spread hasn't passed,
- * never one before create. A one-shot's only slot until it has run.
+ * The next nominal slot of a live schedule's definition, from the clock alone:
+ * the first whose spread hasn't passed, never one before create. Past the end,
+ * the last slot, which is still owed until the run that finishes it. A late,
+ * backlogged or retrying run for an earlier slot may still fire first. A
+ * one-shot's only slot until it has run.
  */
 const nextRunOf = (row: ScheduleRow, now: number): number | null => {
     if (row.kind !== 'recurring') return row.startAt;
     const offsetMs = spreadOffsetMs(row.uid, row.kind, row.minGapMs);
-    return firstSlotAtOrAfter(row, Math.max(row.createdAt, now - offsetMs));
+    return (
+        firstSlotAtOrAfter(row, Math.max(row.createdAt, now - offsetMs)) ??
+        latestSlotAtOrBefore(row, now) ??
+        firstSlotAtOrAfter(row, row.createdAt)
+    );
 };
 
 const toScheduleView = (row: ScheduleSyncRow, now: number): ScheduleView => {
@@ -400,11 +411,13 @@ export class ScheduleService extends PuterService {
         const holderUserId = actor.user?.id;
         if (holderUserId === undefined) throw disabled();
         const app = actor.effectiveApp;
+        const none: PageResult<ScheduleView> = request.includeTotal
+            ? { items: [], total: 0 }
+            : { items: [] };
         // Unresolved is not "no app": that reading would hand an app the
         // account-wide view.
-        if (app === undefined) return { items: [] };
-        if (isAccessTokenActor(actor) && !isAccountContext(actor))
-            return { items: [] };
+        if (app === undefined) return none;
+        if (isAccessTokenActor(actor) && !isAccountContext(actor)) return none;
 
         const options: ScheduleListOptions = {
             appUid: app?.uid ?? null,
