@@ -1289,6 +1289,22 @@ interface IConfigOptional {
          * Rotating it rotates every key at the next deploy.
          */
         internalSecret?: string;
+        /**
+         * Scheduled handlers (`onSchedule`). Absent means off: nothing creates
+         * or runs a schedule. Rows already stored still follow their
+         * subscription's lifecycle.
+         */
+        schedules?: {
+            enabled?: boolean;
+        };
+    };
+
+    /**
+     * Background jobs. `namespace` keeps deployments that share a database
+     * apart (their scheduled rows and job state); defaults to `domain`.
+     */
+    jobs?: {
+        namespace?: string;
     };
 
     /**

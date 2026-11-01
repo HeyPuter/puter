@@ -31,6 +31,7 @@ import { BroadcastService } from './broadcast/BroadcastService';
 import { CacheReplicationService } from './cache/CacheReplicationService';
 import { EventForwardService } from './events/EventForwardService';
 import { EventsService } from './events/EventsService';
+import { ScheduleService } from './events/ScheduleService';
 import { AppFeedbackService } from './feedback/AppFeedbackService';
 import { FSService } from './fs/FSService';
 import { KvShareService } from './kvShare/KvShareService';
@@ -78,6 +79,7 @@ declare module './types' {
         socket: SocketService;
         kvShare: KvShareService;
         events: EventsService;
+        schedule: ScheduleService;
         eventForward: EventForwardService;
         notification: NotificationService;
         appFeedback: AppFeedbackService;
@@ -144,6 +146,9 @@ export const puterServices = {
     // Delivers through `socket` and resolves paths through `fs`, so it follows
     // both; `fs` reaches back for dispatch at call time only.
     events: EventsService,
+    // Validates schedule creates through `events`, and `events` reaches it at
+    // call time from the subscription lifecycle.
+    schedule: ScheduleService,
     notification: NotificationService,
     // Declared after `auth` (origin → app uid resolution happens through
     // AuthService.appUidFromOrigin).

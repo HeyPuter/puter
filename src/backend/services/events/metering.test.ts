@@ -99,7 +99,10 @@ const actorFor = (over: Partial<Actor> = {}): Actor =>
     }) as unknown as Actor;
 
 const appActor = (appUid: string): Actor =>
-    actorFor({ app: { uid: appUid, id: 1 }, effectiveApp: { uid: appUid, id: 1 } });
+    actorFor({
+        app: { uid: appUid, id: 1 },
+        effectiveApp: { uid: appUid, id: 1 },
+    });
 
 const anchorEntry = (): FSEntry =>
     ({
@@ -166,15 +169,21 @@ beforeEach(() => {
                               nextId: null,
                           }
                         : { rows: [], nextId: null },
-                listSuspendedForHolder: async (
+                listSuspendedForHolderPage: async (
                     holderUserId: number,
                     reason: string,
-                ) =>
-                    rows.filter(
-                        (row) =>
-                            row.holderUserId === holderUserId &&
-                            row.suspendedReason === reason,
-                    ),
+                    afterId: number,
+                ) => ({
+                    rows:
+                        afterId === 0
+                            ? rows.filter(
+                                  (row) =>
+                                      row.holderUserId === holderUserId &&
+                                      row.suspendedReason === reason,
+                              )
+                            : [],
+                    nextId: null,
+                }),
                 resume: async (resuming: readonly DurableSubscription[]) => {
                     for (const row of resuming) {
                         resumed.push(row.subId);
@@ -233,10 +242,7 @@ beforeEach(() => {
             // plan allows, not about who agreed to it.
             permission: { check: async () => true },
             metering: {
-                bufferIncrementUsages: (
-                    actor: Actor,
-                    usages: UsageInput[],
-                ) => {
+                bufferIncrementUsages: (actor: Actor, usages: UsageInput[]) => {
                     for (const usage of usages)
                         metered.push({
                             userUuid: actor.user?.uuid,
@@ -298,9 +304,10 @@ describe('what a plan lets an account subscribe to', () => {
         await subscribe(appActor(`app-${seq}`));
 
         expect(created[0].limits).toEqual({
-            perUser: EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER.bySubscription[
-                DEFAULT_FREE_SUBSCRIPTION
-            ],
+            perUser:
+                EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER.bySubscription[
+                    DEFAULT_FREE_SUBSCRIPTION
+                ],
             perApp: EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP.bySubscription[
                 DEFAULT_FREE_SUBSCRIPTION
             ],

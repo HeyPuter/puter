@@ -26,6 +26,7 @@ import { isHttpError } from '../../core/http/HttpError.js';
 import {
     assertColumnWidths,
     ENUM_COLUMNS,
+    EVENT_SCHEDULE_WIDTHS,
     EVENT_SUBSCRIPTION_WIDTHS,
     KV_SHARE_HANDLE_WIDTHS,
 } from './columnWidths.js';
@@ -59,6 +60,7 @@ const expectTooLarge = (run: () => void): void => {
 describe.each([
     ['EVENT_SUBSCRIPTION_WIDTHS', EVENT_SUBSCRIPTION_WIDTHS],
     ['KV_SHARE_HANDLE_WIDTHS', KV_SHARE_HANDLE_WIDTHS],
+    ['EVENT_SCHEDULE_WIDTHS', EVENT_SCHEDULE_WIDTHS],
 ] as const)('%s', (_label, widths) => {
     for (const [key, spec] of Object.entries(widths)) {
         it(`accepts \`${key}\` right at ${spec.max} characters`, () => {
@@ -188,6 +190,7 @@ describe('declared column widths, read from the mysql migrations', () => {
     it.each([
         ['event_subscriptions', EVENT_SUBSCRIPTION_WIDTHS],
         ['kv_share_handles', KV_SHARE_HANDLE_WIDTHS],
+        ['event_schedules', EVENT_SCHEDULE_WIDTHS],
     ] as const)(
         '%s: every guarded column matches its migration width',
         (table, widths) => {
@@ -200,6 +203,7 @@ describe('declared column widths, read from the mysql migrations', () => {
     it.each([
         ['event_subscriptions', EVENT_SUBSCRIPTION_WIDTHS],
         ['kv_share_handles', KV_SHARE_HANDLE_WIDTHS],
+        ['event_schedules', EVENT_SCHEDULE_WIDTHS],
     ] as const)(
         '%s: every declared char/varchar column is guarded or a known enum',
         (table, widths) => {

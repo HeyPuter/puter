@@ -58,7 +58,7 @@ const invalid = (message: string): HttpError =>
  * What every instance is built with. `timezone` is always set, `UTC` included,
  * and `domAndDow: false` is passed rather than left to croner's default.
  */
-export const cronOptions = (tz: string): CronOptions => ({
+const cronOptions = (tz: string): CronOptions => ({
     timezone: tz,
     paused: true,
     mode: '5-part',

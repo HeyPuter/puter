@@ -64,9 +64,11 @@ import {
     DurableQuotaRaceLost,
     HANDLER_SETTLE_BATCH,
     isSuspendedReason,
+    type DurablePage,
+    type DurableReap,
 } from '../../stores/events/DurableSubscriptionStore.js';
+import type { ScheduleEndReason } from '../../stores/events/ScheduleStore.js';
 import {
-    HANDLER_NAME_MAX_LENGTH,
     hashContent,
     type EventHandlerSummary,
     type EventsWorkerSummary,
@@ -84,6 +86,7 @@ import type {
     PendingShed,
 } from '../../stores/events/PendingDeliveryStore.js';
 import {
+    isScheduleRow,
     runsInWorker,
     type SubscriptionPermission,
 } from '../../stores/events/types.js';
@@ -171,6 +174,13 @@ import {
     type CompiledMatch,
 } from './matcher.js';
 import { MatcherCache } from './matcherCache.js';
+import type { ScheduleSubscriptionChange } from './ScheduleService.js';
+import {
+    badRequest,
+    parseContext,
+    parseHandlerHash,
+    parseHandlerName,
+} from './requestParsing.js';
 import {
     mergeNotifCatchUp,
     notifFetchCursor,
@@ -777,6 +787,24 @@ const unknownSubscription = (): HttpError =>
         legacyCode: 'subscription_does_not_exist',
     });
 
+/**
+ * A schedule's subscription row goes only with its schedule. Answered for the
+ * caller's own row only; anyone else's id still reads as absent.
+ */
+const scheduleSubscription = (): HttpError =>
+    new HttpError(
+        404,
+        'This subscription belongs to a schedule; remove it through /events/schedules/remove',
+        { legacyCode: 'events_schedule_not_found' },
+    );
+
+const scheduleImmutable = (): HttpError =>
+    new HttpError(
+        400,
+        "A schedule's context can't be changed; remove the schedule and create a new one",
+        { legacyCode: 'events_schedule_immutable' },
+    );
+
 const tooManyCalls = (): HttpError =>
     new HttpError(429, 'Too many subscription changes', {
         legacyCode: 'too_many_requests',
@@ -869,9 +897,6 @@ const handlerAppForbidden = (): HttpError =>
     new HttpError(403, 'Only the app owner may publish its handlers', {
         legacyCode: 'events_handler_forbidden',
     });
-
-const badRequest = (message: string, code: string): HttpError =>
-    new HttpError(400, message, { legacyCode: code });
 
 /**
  * A handler runs with nothing around it, so a name it neither binds nor gets
@@ -1298,45 +1323,12 @@ const parseDelivery = (request: DurableSubscribeRequest): DeliveryClass => {
     return queue === true || delivery === 'single' ? 'single' : 'broadcast';
 };
 
-const parseHandlerName = (value: unknown): string | null => {
-    if (value === undefined || value === null) return null;
-    if (typeof value !== 'string' || value.length === 0)
-        throw badRequest('handlerName must be a string', 'bad_request');
-    if (value.length > HANDLER_NAME_MAX_LENGTH)
-        throw badRequest(
-            `handlerName may not exceed ${HANDLER_NAME_MAX_LENGTH} characters`,
-            'bad_request',
-        );
-    return value;
-};
-
-/** Hex digest of the inline source a subscribe claims it is binding. */
-const parseHandlerHash = (value: unknown): string | null => {
-    if (value === undefined || value === null) return null;
-    if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value))
-        throw badRequest(
-            'handlerHash must be a sha-256 hex digest',
-            'bad_request',
-        );
-    return value;
-};
-
 /** An app uid a user session names, for a surface with no app of its own. */
 const parseAppUid = (value: unknown): string | null => {
     if (value === undefined || value === null || value === '') return null;
     if (typeof value !== 'string')
         throw badRequest('appUid must be a string', 'bad_request');
     return value;
-};
-
-/** Stored as JSON text; the byte cap is the store's to enforce. */
-const parseContext = (value: unknown): string | null => {
-    if (value === undefined || value === null) return null;
-    try {
-        return JSON.stringify(value);
-    } catch {
-        throw badRequest('context must be JSON-serializable', 'bad_request');
-    }
 };
 
 /** Unix seconds or an ISO-8601 string, and it has to be in the future. */
@@ -1880,7 +1872,7 @@ export class EventsService extends PuterService {
             throw backgroundConsentRequired();
 
         if (handlerName)
-            await this.#assertHandlerBinding(appUid, handlerName, handlerHash);
+            await this.assertHandlerBinding(appUid, handlerName, handlerHash);
 
         const rawSubject = String(request?.subject ?? '');
         if (includeValue) assertValueDeliverable(rawSubject);
@@ -1914,7 +1906,7 @@ export class EventsService extends PuterService {
             throw err;
         }
         const { row, bump } = created;
-        this.#publishGeneration(bump, true);
+        if (bump) this.#publishGeneration(bump, true);
 
         return { sub: toDurableView(row) };
     }
@@ -2147,6 +2139,7 @@ export class EventsService extends PuterService {
             !rowInActorScope(actor, row)
         )
             throw unknownSubscription();
+        if (isScheduleRow(row)) throw scheduleSubscription();
 
         const bump = await this.stores.durableSubscription.remove(row);
         // A concurrent duplicate of this same call already removed it.
@@ -2190,6 +2183,7 @@ export class EventsService extends PuterService {
             !rowInActorScope(actor, row)
         )
             throw unknownSubscription();
+        if (isScheduleRow(row)) throw scheduleImmutable();
         if (row.context === context) return { sub: toDurableView(row) };
 
         const updated = await this.stores.durableSubscription.updateContext(
@@ -2567,14 +2561,22 @@ export class EventsService extends PuterService {
     async #suspend(
         rows: readonly DurableSubscription[],
         reason: SuspendedReason,
-        opts: { override?: readonly SuspendedReason[] } = {},
+        opts: {
+            override?: readonly SuspendedReason[];
+            /** What a schedule ended by this records instead of `reason`. */
+            scheduleEndReason?: ScheduleEndReason;
+        } = {},
     ): Promise<DurableSubscription[]> {
         if (rows.length === 0) return [];
 
         const { suspended, bumps } =
-            await this.stores.durableSubscription.suspend(rows, reason, opts);
+            await this.stores.durableSubscription.suspend(rows, reason, {
+                override: opts.override,
+            });
         const policy = backlogPolicyFor(reason);
         for (const row of suspended) {
+            // A schedule's row never holds a backlog.
+            if (isScheduleRow(row)) continue;
             try {
                 if (policy.cap === 0)
                     await this.stores.pendingDelivery.purge(row.subId);
@@ -2598,7 +2600,42 @@ export class EventsService extends PuterService {
             this.#forget(row.subId);
         }
         for (const bump of bumps) this.#publishGeneration(bump, true);
+        await this.#schedulesChanged(suspended, {
+            type: 'suspended',
+            reason,
+            ...(opts.scheduleEndReason
+                ? { endReason: opts.scheduleEndReason }
+                : {}),
+        });
         return suspended;
+    }
+
+    /** Hand the schedules' rows among `rows` to the schedule lifecycle. */
+    async #schedulesChanged(
+        rows: readonly DurableSubscription[],
+        change: ScheduleSubscriptionChange,
+    ): Promise<void> {
+        const schedules = rows.filter(isScheduleRow);
+        if (schedules.length === 0) return;
+        await this.services.schedule.onSubscriptionsChanged(schedules, change);
+    }
+
+    /**
+     * Run `settle` over every page of a holder-wide read. Rows a page settles
+     * may leave the set it pages over, so it walks by id rather than offset.
+     */
+    async #eachHolderPage(
+        page: (afterId: number) => Promise<DurablePage>,
+        settle: (rows: DurableSubscription[]) => Promise<number>,
+    ): Promise<number> {
+        let settled = 0;
+        let afterId = 0;
+        for (;;) {
+            const { rows, nextId } = await page(afterId);
+            if (rows.length > 0) settled += await settle(rows);
+            if (nextId === null) return settled;
+            afterId = nextId;
+        }
     }
 
     /**
@@ -2619,6 +2656,8 @@ export class EventsService extends PuterService {
 
         const bumps = await this.stores.durableSubscription.resume(resuming);
         for (const row of resuming) {
+            // A schedule's row holds no backlog, and has no anchor to re-check.
+            if (isScheduleRow(row)) continue;
             try {
                 await this.stores.pendingDelivery.releaseHold(row.subId);
                 await this.#drain(row);
@@ -2631,6 +2670,7 @@ export class EventsService extends PuterService {
             }
         }
         for (const bump of bumps) this.#publishGeneration(bump, true);
+        await this.#schedulesChanged(resuming, { type: 'resumed' });
         return resuming.length;
     }
 
@@ -2659,11 +2699,14 @@ export class EventsService extends PuterService {
      */
     async resumeForCredit(holderUserId: number): Promise<number> {
         if (!this.enabled) return 0;
-        return this.resumeSubscriptions(
-            await this.stores.durableSubscription.listSuspendedForHolder(
-                holderUserId,
-                'no_credit',
-            ),
+        return this.#eachHolderPage(
+            (afterId) =>
+                this.stores.durableSubscription.listSuspendedForHolderPage(
+                    holderUserId,
+                    'no_credit',
+                    afterId,
+                ),
+            (rows) => this.resumeSubscriptions(rows),
         );
     }
 
@@ -2674,8 +2717,10 @@ export class EventsService extends PuterService {
      */
     async sweepExpired(): Promise<number> {
         if (!this.enabled) return 0;
-        return this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.sweepExpired(batchSize),
+        return this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.sweepExpired(batchSize),
+            'ended',
         );
     }
 
@@ -2689,8 +2734,13 @@ export class EventsService extends PuterService {
         const cutoff =
             Math.floor(Date.now() / 1000) -
             SUSPENDED_ROW_TTL_DAYS * 24 * 60 * 60;
-        return this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.sweepSuspended(cutoff, batchSize),
+        return this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.sweepSuspended(
+                    cutoff,
+                    batchSize,
+                ),
+            'ended',
         );
     }
 
@@ -2783,14 +2833,20 @@ export class EventsService extends PuterService {
         return resumed;
     }
 
+    /**
+     * Reap in batches until a short one, ending the schedules whose rows went
+     * with `endReason`.
+     */
     async #sweepInBatches(
-        pass: (batchSize: number) => Promise<number>,
+        pass: (batchSize: number) => Promise<DurableReap>,
+        endReason: ScheduleEndReason,
     ): Promise<number> {
         let removed = 0;
         for (let i = 0; i < EXPIRY_MAX_BATCHES; i++) {
-            const batch = await pass(EXPIRY_BATCH_SIZE);
-            removed += batch;
-            if (batch < EXPIRY_BATCH_SIZE) break;
+            const { rows } = await pass(EXPIRY_BATCH_SIZE);
+            removed += rows.length;
+            await this.#schedulesChanged(rows, { type: 'ended', endReason });
+            if (rows.length < EXPIRY_BATCH_SIZE) break;
         }
         return removed;
     }
@@ -3200,7 +3256,7 @@ export class EventsService extends PuterService {
      * different: sending a hash _is_ the binding claim, and there is nothing
      * for it to match.
      */
-    async #assertHandlerBinding(
+    async assertHandlerBinding(
         appUid: string | null,
         name: string,
         hash: string | null,
@@ -4529,23 +4585,42 @@ export class EventsService extends PuterService {
         // Suspended rows included: the three resumable reasons hold a backlog,
         // and one skipped here comes back in service on the next resume and
         // hands over everything queued after the revocation.
-        const held = await this.stores.durableSubscription.listActiveForHolder(
-            revocation.holderUserId,
-            revocation.appUid,
-            { includeSuspended: true },
-        );
-        const settling = await this.#leftSettling(held, revocation.permission);
-        if (settling.length === 0) return 0;
+        // Withdrawing an app's access wholesale is how it is uninstalled.
+        const scheduleEndReason =
+            revocation.permission === null ? 'uninstalled' : undefined;
+        return this.#eachHolderPage(
+            (afterId) =>
+                this.stores.durableSubscription.listActiveForHolderPage(
+                    revocation.holderUserId,
+                    revocation.appUid,
+                    afterId,
+                    undefined,
+                    { includeSuspended: true },
+                ),
+            async (held) => {
+                const settling = await this.#leftSettling(
+                    held,
+                    revocation.permission,
+                );
+                if (settling.length === 0) return 0;
 
-        // The `permission_revoked` arm of the shared policy purges the backlog
-        // at once: it holds the paths of a resource its holder has just lost
-        // the right to see, and keeping it for a resume that by design never
-        // comes turns a revocation into a delayed disclosure.
-        const suspended = await this.#suspend(settling, 'permission_revoked', {
-            override: RESUMABLE_REASONS,
-        });
-        await this.#notifyEnded(suspended, 'permission_revoked');
-        return suspended.length;
+                // The `permission_revoked` arm of the shared policy purges the
+                // backlog at once: it holds the paths of a resource its holder
+                // has just lost the right to see, and keeping it for a resume
+                // that by design never comes turns a revocation into a delayed
+                // disclosure.
+                const suspended = await this.#suspend(
+                    settling,
+                    'permission_revoked',
+                    {
+                        override: RESUMABLE_REASONS,
+                        ...(scheduleEndReason ? { scheduleEndReason } : {}),
+                    },
+                );
+                await this.#notifyEnded(suspended, 'permission_revoked');
+                return suspended.length;
+            },
+        );
     }
 
     /**
@@ -4578,23 +4653,32 @@ export class EventsService extends PuterService {
             );
         }
 
-        const held = await this.stores.durableSubscription.listActiveForHolder(
-            retired.userId,
-            null,
-            { includeSuspended: true },
-        );
         const handles = new Set(retired.handles);
-        const settling = held.filter((row) => {
-            const handle = kvHandleFromSubject(row.subject);
-            return handle !== null && handles.has(handle);
-        });
-        if (settling.length === 0) return sessions;
-
-        const suspended = await this.#suspend(settling, 'permission_revoked', {
-            override: RESUMABLE_REASONS,
-        });
-        await this.#notifyEnded(suspended, 'permission_revoked');
-        return sessions + suspended.length;
+        const durable = await this.#eachHolderPage(
+            (afterId) =>
+                this.stores.durableSubscription.listActiveForHolderPage(
+                    retired.userId,
+                    null,
+                    afterId,
+                    undefined,
+                    { includeSuspended: true },
+                ),
+            async (held) => {
+                const settling = held.filter((row) => {
+                    const handle = kvHandleFromSubject(row.subject);
+                    return handle !== null && handles.has(handle);
+                });
+                if (settling.length === 0) return 0;
+                const suspended = await this.#suspend(
+                    settling,
+                    'permission_revoked',
+                    { override: RESUMABLE_REASONS },
+                );
+                await this.#notifyEnded(suspended, 'permission_revoked');
+                return suspended.length;
+            },
+        );
+        return sessions + durable;
     }
 
     /** End this region's session rows made through these handles. */
@@ -4696,8 +4780,10 @@ export class EventsService extends PuterService {
 
         const holders =
             await this.stores.durableSubscription.listHolderIdsForApp(appUid);
-        await this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.reapForApp(appUid, batchSize),
+        await this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.reapForApp(appUid, batchSize),
+            'app_deleted',
         );
         await this.stores.eventHandler.deleteForApp(appUid);
         await this.#maybeAnnounceWorkerDestroy(appUid, ownerUserId);
@@ -4804,6 +4890,9 @@ export class EventsService extends PuterService {
         row: DurableSubscription,
         permission: string,
     ): boolean {
+        // A schedule stands only on the app's access and on consent, which a
+        // revocation of either settles before it gets here.
+        if (isScheduleRow(row)) return false;
         if (kvHandleFromSubject(row.subject) !== null)
             return kvShareGrantCovers(permission, row.permission);
         if (isKvToken(row.token))
@@ -4823,6 +4912,8 @@ export class EventsService extends PuterService {
         // On the token, like the families below it: the stored subject parses
         // only because a subscribe validated it, and a settle must not start
         // throwing on a row it cannot read.
+        if (isScheduleRow(row))
+            return (await resolveGrantActor(row, this.#aclDeps())) !== null;
         if (isNotifToken(row.token)) {
             const actor = await resolveGrantActor(row, this.#aclDeps());
             if (!actor?.user.uuid) return false;

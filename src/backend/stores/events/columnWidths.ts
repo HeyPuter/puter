@@ -47,11 +47,26 @@ export const KV_SHARE_HANDLE_WIDTHS = {
     permission: { column: 'permission', max: 1024 },
 } as const satisfies Record<string, ColumnWidth>;
 
+export const EVENT_SCHEDULE_WIDTHS = {
+    uid: { column: 'uid', max: 36 },
+    namespace: { column: 'namespace', max: 128 },
+    subId: { column: 'sub_id', max: 80 },
+    appUid: { column: 'app_uid', max: 40 },
+    region: { column: 'region', max: 64 },
+    cron: { column: 'cron', max: 128 },
+    tz: { column: 'tz', max: 64 },
+    action: { column: 'action', max: 64 },
+    sendToken: { column: 'send_token', max: 64 },
+} as const satisfies Record<string, ColumnWidth>;
+
 /** Columns on these tables held to a server-side enum rather than a width. */
 export const ENUM_COLUMNS: readonly string[] = [
     'delivery',
     'ops',
     'suspended_reason',
+    'kind',
+    'state',
+    'end_reason',
 ];
 
 const valueTooLong = (field: string, max: number): HttpError =>
