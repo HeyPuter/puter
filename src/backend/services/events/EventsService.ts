@@ -5881,7 +5881,7 @@ export class EventsService extends PuterService {
      */
     async invokeForSchedule(
         invocation: WorkerInvocation,
-        options: Pick<WorkerRunOptions, 'stampEvent' | 'gateDeploy'> = {},
+        options: Pick<WorkerRunOptions, 'stampEvent'> = {},
     ): Promise<ScheduleInvokeResult> {
         if (await this.#tooDeep(invocation)) return { outcome: 'too-deep' };
         // Something other than the worker invoker was put in its place.

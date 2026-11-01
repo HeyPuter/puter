@@ -137,7 +137,7 @@ export const SCHEDULE_INVOKE_CONNECTIONS = 64;
 /** Whose call this is, for the connection share it may take. */
 export type InvokeLane = 'delivery' | 'schedule';
 
-/** What a deploy gate answers when another deploy holds the way. */
+/** What a deploy answers when another deploy of the region holds the way. */
 export const DEPLOY_BUSY = 'busy';
 const INVOKE_KEEP_ALIVE_MS = 30_000;
 
@@ -194,6 +194,8 @@ export interface EventsInvokeAnswer {
     timedOut?: boolean;
     /** From a `retry-after` header in seconds. */
     retryAfterMs?: number;
+    /** A deploy this call needed was put off: another held the way. */
+    deployBusy?: boolean;
 }
 
 /**
@@ -231,15 +233,6 @@ export interface WorkerInvokeOptions {
     lane?: InvokeLane;
     /** Applied to the event as each attempt is sent. */
     stampEvent?: (event: unknown) => unknown;
-    /**
-     * Runs this backend's own deploy on a miss; answering {@link DEPLOY_BUSY}
-     * gives the call up as Puter's failure instead.
-     */
-    gateDeploy?: (
-        appUid: string,
-        script: string,
-        deploy: () => Promise<string>,
-    ) => Promise<string>;
 }
 
 const NO_TRANSPORT =
@@ -306,15 +299,10 @@ export class EventsWorkerInvokerClient extends PuterClient {
 
         let result = await send(false);
         if (this.#missHandler && selfDeployable(result)) {
-            const missHandler = this.#missHandler;
-            const deploy = () => missHandler(request.appUid, request.script);
-            const outcome = options.gateDeploy
-                ? await options.gateDeploy(
-                      request.appUid,
-                      request.script,
-                      deploy,
-                  )
-                : await deploy();
+            const outcome = await this.#missHandler(
+                request.appUid,
+                request.script,
+            );
             if (outcome !== 'deployed')
                 return {
                     outcome: 'unavailable',
@@ -334,6 +322,13 @@ export class EventsWorkerInvokerClient extends PuterClient {
         }
 
         const { status, handled, error, timedOut, retryAfterMs } = result;
+        if (result.deployBusy)
+            return {
+                outcome: 'unavailable',
+                status: null,
+                error,
+                deployBusy: true,
+            };
         // Past the timeout the handler was most likely still running, which
         // is its own doing; any other missing answer never reached it.
         if (status === null)

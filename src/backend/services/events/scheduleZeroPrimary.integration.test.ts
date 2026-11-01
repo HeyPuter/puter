@@ -243,10 +243,11 @@ describe('a recurring fire', () => {
             services: server().services,
             drivers: server().drivers,
         });
-        vi.spyOn(server().drivers.workers, 'create').mockResolvedValue({
-            success: true,
-        } as never);
-        const ensure = vi.spyOn(deployer, 'ensure');
+        const create = vi
+            .spyOn(server().drivers.workers, 'create')
+            .mockResolvedValue({
+                success: true,
+            } as never);
         server().services.events.useWorkerMissHandler((appUid, script) =>
             deployer.ensure(appUid, script),
         );
@@ -280,7 +281,7 @@ describe('a recurring fire', () => {
         expect(untagged()).toEqual([]);
         // One deploy, through the region gate; the setForApp and allForApp
         // reads are its own, not each fire's.
-        expect(ensure).toHaveBeenCalledTimes(1);
+        expect(create).toHaveBeenCalledTimes(1);
         expect(byTag('E3')).toBe(2);
         // The session is minted once, however many first fires race for it.
         expect(byTag('E2')).toBeLessThanOrEqual(1);

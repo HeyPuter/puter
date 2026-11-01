@@ -24,9 +24,14 @@
  */
 
 import MockRedis from 'ioredis-mock';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { ScheduleIndexStore } from '../../stores/events/ScheduleIndexStore.js';
+import type { EventsInvokeCall } from '../../clients/events/EventsWorkerInvokerClient.js';
 import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
-import { EventsWorkerDeployer } from './workerDeploy.js';
+import {
+    EventsWorkerDeployer,
+    LocalEventsInvokeTransport,
+} from './workerDeploy.js';
 import { eventsWorkerScript } from '../../services/events/workerRuntime.js';
 import { handlerSetHash } from '../../services/events/workerSource.js';
 import type { IConfig } from '../../types.js';
@@ -174,5 +179,97 @@ describe('EventsWorkerDeployer.ensure', () => {
         const { layers } = makeLayers({ 'app-d': { ownerUserId: 4 } });
         const deployer = new EventsWorkerDeployer(layers);
         expect(await deployer.ensure('app-d', SCRIPT)).toBe('deployed');
+    });
+});
+
+describe('deploys with schedules on', () => {
+    it('take one region lock per script: 20 nodes asking at once deploy once', async () => {
+        const { layers, created, redis } = makeLayers({
+            'app-x': { ownerUserId: 1 },
+        });
+        const config = {
+            ...layers.config,
+            events: {
+                ...layers.config.events,
+                enabled: true,
+                schedules: { enabled: true },
+            },
+            jobs: { namespace: 'deploy-gate' },
+        } as IConfig;
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        const create = layers.drivers.workers.create;
+        (layers.drivers.workers as { create: unknown }).create = async (
+            args: never,
+        ) => {
+            await held;
+            return create(args);
+        };
+        const index = new ScheduleIndexStore(
+            config,
+            { redis } as never,
+            {} as never,
+        );
+        // One deployer per node, so the per-process dedupe can't help.
+        const nodes = Array.from(
+            { length: 20 },
+            () =>
+                new EventsWorkerDeployer({
+                    ...layers,
+                    config,
+                    stores: { ...layers.stores, scheduleIndex: index },
+                } as unknown as Layers),
+        );
+        const outcomes = nodes.map((node) => node.ensure('app-x', SCRIPT));
+        await vi.waitFor(async () =>
+            expect(
+                await redis.exists(`sched:deploy-gate:deploy:{${SCRIPT}}`),
+            ).toBe(1),
+        );
+        release();
+        const results = await Promise.all(outcomes);
+        expect(results.filter((r) => r === 'deployed')).toHaveLength(1);
+        expect(results.filter((r) => r === 'busy')).toHaveLength(19);
+        expect(created).toEqual([SCRIPT]);
+    });
+});
+
+describe('LocalEventsInvokeTransport', () => {
+    it('renders each request as it goes out, after a cold deploy', async () => {
+        const bodies: string[] = [];
+        let resident = false;
+        const transport = new LocalEventsInvokeTransport(
+            {
+                localworkerservice: {
+                    dispatchEventsWorker: async (request: Request) => {
+                        bodies.push(await request.text());
+                        if (!resident) return null;
+                        return new Response(null, {
+                            status: 200,
+                            headers: { 'x-puter-events-handled': '1' },
+                        });
+                    },
+                },
+            } as never,
+            {
+                ensure: async () => {
+                    resident = true;
+                    return 'deployed';
+                },
+            } as unknown as EventsWorkerDeployer,
+        );
+        let renders = 0;
+        const call: EventsInvokeCall = {
+            script: SCRIPT,
+            appUid: 'app-x',
+            key: 'k',
+            body: '{"n":0}',
+            timeoutMs: 5000,
+            render: () => `{"n":${++renders}}`,
+        };
+        await expect(transport.send(call)).resolves.toMatchObject({
+            status: 200,
+        });
+        expect(bodies).toEqual(['{"n":1}', '{"n":2}']);
     });
 });

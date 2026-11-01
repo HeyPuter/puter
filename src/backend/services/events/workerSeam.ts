@@ -211,7 +211,6 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
             {
                 lane: options.lane,
                 stampEvent: options.stampEvent,
-                gateDeploy: options.gateDeploy,
             },
         );
         if (result.deployBusy) return { outcome: 'deploy-busy' };

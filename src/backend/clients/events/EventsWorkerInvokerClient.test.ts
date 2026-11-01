@@ -441,7 +441,7 @@ describe('EventsWorkerInvokerClient invoke options', () => {
         expect(JSON.parse(bodies[0]).event).toEqual({ sentAt: 1 });
     });
 
-    it('runs the deploy on a miss through the gate, and gives up when it is busy', async () => {
+    it('gives a call up as Puter`s when its deploy is put off for another', async () => {
         const headersSeen: Array<Record<string, string>> = [];
         const client = makeClient();
         client.setTransport(
@@ -449,23 +449,12 @@ describe('EventsWorkerInvokerClient invoke options', () => {
                 fetchImpl: missUntilDeployedFetch(headersSeen),
             }),
         );
-        const deploys: string[] = [];
-        client.setMissHandler(async (_appUid, script) => {
-            deploys.push(script);
-            return 'deployed';
+        client.setMissHandler(async () => 'busy');
+        await expect(client.invoke(REQUEST)).resolves.toMatchObject({
+            outcome: 'unavailable',
+            deployBusy: true,
         });
-
-        await expect(
-            client.invoke(REQUEST, { gateDeploy: async () => 'busy' }),
-        ).resolves.toMatchObject({ outcome: 'unavailable', deployBusy: true });
-        expect(deploys).toEqual([]);
-
-        await expect(
-            client.invoke(REQUEST, {
-                gateDeploy: (_appUid, _script, deploy) => deploy(),
-            }),
-        ).resolves.toMatchObject({ outcome: 'settled' });
-        expect(deploys).toEqual([REQUEST.script]);
+        expect(headersSeen).toHaveLength(1);
     });
 });
 

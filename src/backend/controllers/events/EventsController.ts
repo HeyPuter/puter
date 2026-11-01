@@ -425,10 +425,14 @@ export class EventsController extends PuterController {
             res.json({ deployed: true });
             return;
         }
-        // `failed` and `throttled` are worth another attempt: the rest say
-        // this script is not what the app's handlers currently are.
+        // `failed`, `throttled` and `busy` are worth another attempt: the rest
+        // say this script is not what the app's handlers currently are.
         res.status(
-            outcome === 'failed' || outcome === 'throttled' ? 502 : 404,
+            outcome === 'failed' ||
+                outcome === 'throttled' ||
+                outcome === 'busy'
+                ? 502
+                : 404,
         ).json({
             deployed: false,
             reason: outcome,

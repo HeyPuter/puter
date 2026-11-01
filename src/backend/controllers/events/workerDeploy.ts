@@ -47,7 +47,10 @@ import {
 } from '../../services/events/workerSource.js';
 import type { puterStores } from '../../stores/index.js';
 import type { IConfig, LayerInstances } from '../../types.js';
-import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
+import {
+    EVENTS_SCHEDULE_DEPLOYS_IN_FLIGHT,
+    EVENTS_WORKER_DEPLOYS_PER_HOUR,
+} from './limits.js';
 
 /**
  * Deploys an app's events worker from its published handlers.
@@ -61,7 +64,13 @@ import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
 
 /** Why a deploy could not happen, for the callers that answer differently. */
 export type EventsDeployOutcome =
-    'deployed' | 'stale' | 'no-handlers' | 'no-owner' | 'throttled' | 'failed';
+    | 'deployed'
+    | 'stale'
+    | 'no-handlers'
+    | 'no-owner'
+    | 'throttled'
+    | 'failed'
+    | 'busy';
 
 interface DeployLayers {
     config: IConfig;
@@ -76,6 +85,13 @@ interface DeployLayers {
  * counts.
  */
 const DEPLOY_THROTTLE_TTL_SECONDS = 2 * 60 * 60;
+
+/**
+ * How long one region's lock on a script's deploy lasts, unrenewed: past a
+ * deploy's usual few seconds, so a duplicate needs a very slow one.
+ */
+const DEPLOY_LOCK_TTL_MS = 60_000;
+const DEPLOY_SLOT_RENEW_MS = 20_000;
 
 interface DeployResult {
     success?: boolean;
@@ -108,11 +124,34 @@ export class EventsWorkerDeployer {
         const key = `${appUid}|${script}`;
         const existing = this.#inFlight.get(key);
         if (existing) return existing;
-        const started = this.#deploy(appUid, script).finally(() =>
+        const started = this.#gated(appUid, script).finally(() =>
             this.#inFlight.delete(key),
         );
         this.#inFlight.set(key, started);
         return started;
+    }
+
+    /**
+     * With schedules on, every deploy in the region, whichever path asked for
+     * it, holds the script's lock and one of the region's few deploy slots, so
+     * a burst of runs of an evicted script deploys it once. `busy` otherwise.
+     */
+    #gated(appUid: string, script: string): Promise<EventsDeployOutcome> {
+        const { config, stores } = this.#layers;
+        if (
+            config.events?.enabled !== true ||
+            config.events?.schedules?.enabled !== true
+        )
+            return this.#deploy(appUid, script);
+        return stores.scheduleIndex.withDeployGate(
+            script,
+            {
+                cap: EVENTS_SCHEDULE_DEPLOYS_IN_FLIGHT,
+                ttlMs: DEPLOY_LOCK_TTL_MS,
+                renewMs: DEPLOY_SLOT_RENEW_MS,
+            },
+            () => this.#deploy(appUid, script),
+        );
     }
 
     async #deploy(
@@ -299,6 +338,8 @@ export class LocalEventsInvokeTransport {
     }
 
     async send(call: EventsInvokeCall): Promise<EventsInvokeAnswer> {
+        // Built per attempt, so a send time stamped into the body is taken
+        // after a cold deploy rather than before it.
         const request = (): Request =>
             new Request(
                 `http://${call.script}.workers.puter.localhost${EVENTS_INVOKE_PATH}`,
@@ -308,7 +349,7 @@ export class LocalEventsInvokeTransport {
                         'content-type': 'application/json',
                         'x-puter-events-key': call.key,
                     },
-                    body: call.body,
+                    body: call.render ? call.render() : call.body,
                 },
             );
 
@@ -321,7 +362,11 @@ export class LocalEventsInvokeTransport {
                 call.script,
             );
             if (outcome !== 'deployed')
-                return { status: null, error: `deploy: ${outcome}` };
+                return {
+                    status: null,
+                    error: `deploy: ${outcome}`,
+                    ...(outcome === 'busy' ? { deployBusy: true } : {}),
+                };
 
             const retried = await this.#dispatch(request(), call.timeoutMs);
             if (retried === null)

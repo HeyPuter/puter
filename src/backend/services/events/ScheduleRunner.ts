@@ -21,7 +21,6 @@ import { SCHEDULE_INVOKE_CONNECTIONS } from '../../clients/events/EventsWorkerIn
 import {
     EVENTS_CONSECUTIVE_FAILURES,
     EVENTS_RETRY_MAX_MS,
-    EVENTS_SCHEDULE_DEPLOYS_IN_FLIGHT,
     EVENTS_SCHEDULE_INVOCATION_LIMIT,
     EVENTS_SCHEDULE_MISSED_CAP,
     EVENTS_SCHEDULE_SUSPENDED_HOLDER_DEFER_MS,
@@ -84,9 +83,6 @@ const NO_CREDIT_DEFER_MS = 60_000;
 /** A delayed send whose action isn't registered on this node waits this long. */
 const NO_ACTION_DEFER_MS = 60_000;
 
-const DEPLOY_LOCK_TTL_MS = 60_000;
-const DEPLOY_RENEW_MS = 20_000;
-
 /** Lag over this at p95, five minutes running, raises the lag alarm. */
 const LAG_ALARM_MS = 60_000;
 const LAG_ALARM_MINUTES = 5;
@@ -98,7 +94,7 @@ export interface ScheduleRunnerHost {
     events: {
         invokeForSchedule(
             invocation: WorkerInvocation,
-            options: Pick<WorkerRunOptions, 'stampEvent' | 'gateDeploy'>,
+            options: Pick<WorkerRunOptions, 'stampEvent'>,
         ): Promise<ScheduleInvokeResult>;
         resolveScheduleActor(
             holderUserId: number,
@@ -468,16 +464,6 @@ export class ScheduleRunner {
                         ...(sent as ScheduleEvent),
                         firedAt: Date.now(),
                     }),
-                    gateDeploy: (_appUid, script, deploy) =>
-                        index.withDeployGate(
-                            script,
-                            {
-                                cap: EVENTS_SCHEDULE_DEPLOYS_IN_FLIGHT,
-                                ttlMs: DEPLOY_LOCK_TTL_MS,
-                                renewMs: DEPLOY_RENEW_MS,
-                            },
-                            deploy,
-                        ),
                 },
             );
         } finally {
