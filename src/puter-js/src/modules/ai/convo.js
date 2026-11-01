@@ -24,6 +24,7 @@ import { ConvoHistory } from './convoHistory.js';
  *     timer: ReturnType<typeof setTimeout> | null;
  *     retry: ReturnType<typeof setTimeout> | null;
  *     failures: number;
+ *     startedAt: number;
  *     refused: boolean;
  *     probe: RealtimeSession | null;
  *     created: RealtimeServerEvent | null;
@@ -71,7 +72,7 @@ const RETRYABLE_ERRORS = new Set([
     'rate_limit_exceeded',
     'internal_error',
 ]);
-// Ten attempts over about a minute, long enough for a server restart.
+// Bound setup retries so a persistent outage eventually closes the conversation.
 const RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAY_MS = 500;
 const RECONNECT_MAX_DELAY_MS = 10_000;
@@ -91,6 +92,11 @@ const REPLACEMENT_SPREAD_MS = 3_000;
 // Acknowledgment timeout on a held replacement, whose socket may have died
 // with the connection it was meant to replace.
 const REPLACEMENT_ACK_MS = 3_000;
+/** @type {WeakMap<object, { token: string; attempts: number[] }>} */
+const handoverBudgets = new WeakMap();
+const MAX_HANDOVER_ATTEMPTS_PER_MINUTE = 20;
+const MAX_REPLACEMENT_ATTEMPTS = 3;
+const REPLACEMENT_BUDGET_MS = 30_000;
 const TRANSCRIPT_TIMEOUT_MS = 30_000;
 // Bounds for the idle check's bookkeeping.
 const MAX_OWED = 64;
@@ -272,6 +278,8 @@ export class Conversation extends RealtimeEvents {
     #connection = null;
     /** @type {{ type: 'close'; code: number; reason: string } | null} */
     #lastClose = null;
+    /** @type {string | undefined} */
+    #setupErrorCode;
     /**
      * @type {Set<{
      *     type: string;
@@ -408,7 +416,7 @@ export class Conversation extends RealtimeEvents {
         this.#state = 'connecting';
         this.#connection = (async () => {
             try {
-                await this.#open();
+                await this.#openInitial();
                 this.#state = 'connected';
                 this.emitRealtime({
                     type: 'ready',
@@ -430,6 +438,47 @@ export class Conversation extends RealtimeEvents {
         return this.#connection;
     }
 
+    /** @returns {Promise<void>} */
+    async #openInitial() {
+        const offlineUntil = Date.now() + OFFLINE_WAIT_MS;
+        for (let attempt = 0; attempt < RECONNECT_ATTEMPTS; attempt++) {
+            if (attempt) await this.#waitForRecovery(attempt - 1, offlineUntil);
+            if (this.#state === 'closed')
+                throw failure('session_closed', 'Conversation is closed');
+            try {
+                await this.#open();
+                return;
+            } catch (error) {
+                this.#endHandover();
+                this.#detach();
+                this.#resetTurnState();
+                this.#rejectPending(
+                    failure('connection_lost', 'Connection lost; reconnecting'),
+                );
+                if (
+                    this.#state === 'closed' ||
+                    !RETRYABLE_ERRORS.has(error?.code) ||
+                    attempt === RECONNECT_ATTEMPTS - 1
+                )
+                    throw error;
+            }
+        }
+    }
+
+    /**
+     * @param {number} attempt
+     * @param {number} offlineUntil
+     * @returns {Promise<void>}
+     */
+    async #waitForRecovery(attempt, offlineUntil) {
+        const delay = Math.min(
+            RECONNECT_DELAY_MS * 2 ** attempt,
+            RECONNECT_MAX_DELAY_MS,
+        );
+        await this.#pause(delay * (0.5 + Math.random()));
+        if (this.#state !== 'closed') await this.#whileOffline(offlineUntil);
+    }
+
     /**
      * Opens a socket, waits for the provider session and applies settings.
      *
@@ -443,6 +492,8 @@ export class Conversation extends RealtimeEvents {
      * @returns {Promise<void>}
      */
     async #open(reapply = false, prepared = null) {
+        this.#lastClose = null;
+        this.#setupErrorCode = undefined;
         if (prepared) {
             this.#session = prepared.session;
             this.#unsubscribe = this.#session.on('*', (event) =>
@@ -527,10 +578,14 @@ export class Conversation extends RealtimeEvents {
         this.#replayEvents.clear();
         this.#replayReported = false;
         this.#history.replayed([]);
-        const entries = this.#history.replay(
+        const { entries, omittedItems } = this.#history.replay(
             MAX_REPLAY_ITEMS,
             MAX_REPLAY_BYTES,
         );
+        if (omittedItems)
+            this.#replayFailed(
+                `${omittedItems} items omitted from the restore window`,
+            );
         if (!entries.length) return;
         const events = entries.map(({ item }) => ({
             type: 'conversation.item.create',
@@ -602,14 +657,7 @@ export class Conversation extends RealtimeEvents {
                 return;
             }
             if (!ready) {
-                const delay = Math.min(
-                    RECONNECT_DELAY_MS * 2 ** attempt,
-                    RECONNECT_MAX_DELAY_MS,
-                );
-                // Jittered so clients dropped together don't return together.
-                await this.#pause(delay * (0.5 + Math.random()));
-                if (this.#state === 'closed') return;
-                await this.#whileOffline(offlineUntil);
+                await this.#waitForRecovery(attempt, offlineUntil);
                 if (this.#state === 'closed') return;
             }
             try {
@@ -764,10 +812,27 @@ export class Conversation extends RealtimeEvents {
      * @returns {Promise<void>}
      */
     async #openReplacement(handover) {
+        if (Date.now() - handover.startedAt >= REPLACEMENT_BUDGET_MS) {
+            handover.refused = true;
+            return;
+        }
+        let budget = handoverBudgets.get(this.#puter);
+        if (!budget || budget.token !== this.#puter.authToken) {
+            budget = { token: this.#puter.authToken, attempts: [] };
+            handoverBudgets.set(this.#puter, budget);
+        }
+        budget.attempts = budget.attempts.filter(
+            (time) => time > Date.now() - 60_000,
+        );
+        if (budget.attempts.length >= MAX_HANDOVER_ATTEMPTS_PER_MINUTE) {
+            handover.refused = true;
+            return;
+        }
+        budget.attempts.push(Date.now());
         let session;
         try {
             session = new RealtimeSession(
-                createRealtimeSocket(this.#puter, this.model),
+                createRealtimeSocket(this.#puter, this.model, 'handover'),
             );
         } catch {
             return;
@@ -785,7 +850,10 @@ export class Conversation extends RealtimeEvents {
             };
             const timer = setTimeout(
                 () => done({ code: 'operation_timeout' }),
-                SESSION_TIMEOUT_MS,
+                Math.min(
+                    SESSION_TIMEOUT_MS,
+                    REPLACEMENT_BUDGET_MS - (Date.now() - handover.startedAt),
+                ),
             );
             const off = session.on('*', (event) => {
                 if (event.type === 'session.created') done({ created: event });
@@ -831,7 +899,11 @@ export class Conversation extends RealtimeEvents {
         handover.created = null;
         handover.stopProbe = null;
         if (session && session.socket.readyState < 2) session.close();
-        if (code && !RETRYABLE_ERRORS.has(code)) {
+        if (
+            (code && !RETRYABLE_ERRORS.has(code)) ||
+            handover.failures >= MAX_REPLACEMENT_ATTEMPTS - 1 ||
+            Date.now() - handover.startedAt >= REPLACEMENT_BUDGET_MS
+        ) {
             handover.refused = true;
             return;
         }
@@ -1303,7 +1375,9 @@ export class Conversation extends RealtimeEvents {
             // the conversation even mid-reconnect.
             if (
                 this.#state === 'connecting' &&
-                event.code !== CLOSE_MESSAGE_TOO_LARGE
+                (RECONNECT_CODES.has(event.code) ||
+                    (event.code !== 1000 &&
+                        RETRYABLE_ERRORS.has(this.#setupErrorCode)))
             ) {
                 // `connect()` or the reconnect loop handles the failure.
                 this.#rejectPending(
@@ -1320,6 +1394,8 @@ export class Conversation extends RealtimeEvents {
             return;
         }
         if (event.type === 'error') {
+            if (this.#state === 'connecting')
+                this.#setupErrorCode = event.error?.code;
             const entry = this.#replayEvents.get(event.error?.event_id);
             if (entry) {
                 this.#replayEvents.delete(event.error.event_id);
@@ -1338,6 +1414,7 @@ export class Conversation extends RealtimeEvents {
                 timer: null,
                 retry: null,
                 failures: 0,
+                startedAt: Date.now(),
                 refused: false,
                 probe: null,
                 created: null,
