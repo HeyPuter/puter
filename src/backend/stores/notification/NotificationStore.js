@@ -452,6 +452,9 @@ export class NotificationStore extends PuterStore {
      * `onlyUnseen` also skips a row already shown. `replacedAt`, in epoch ms,
      * records the rewrite as a replacement and dates the row to it.
      *
+     * `send_key` is cleared with it: the content is no longer what a delayed
+     * send wrote, so its recovery must not deliver it under that send's key.
+     *
      * False when no such row exists, so callers can fall back to a fresh
      * notification instead of dropping what they were reporting.
      *
@@ -467,7 +470,7 @@ export class NotificationStore extends PuterStore {
         const db = this.clients.db;
         const serialized =
             typeof value === 'string' ? value : JSON.stringify(value ?? {});
-        const set = ['`value` = ?', '`shown` = NULL'];
+        const set = ['`value` = ?', '`shown` = NULL', '`send_key` = NULL'];
         const params = [serialized];
         if (replacedAt !== undefined) {
             set.push(
