@@ -140,6 +140,7 @@ export class JobScheduler extends PuterService {
     #stopping = false;
     #timer: ReturnType<typeof setInterval> | null = null;
     #pollDelays = new Set<ReturnType<typeof setTimeout>>();
+    #warnedOff = false;
 
     /**
      * Keys this deployment's jobs, so deployments sharing a database stay
@@ -248,7 +249,17 @@ export class JobScheduler extends PuterService {
 
     #arm(): void {
         if (this.#timer || this.#stopping) return;
-        if (this.config.jobs?.enabled === false) return;
+        if (this.config.jobs?.enabled === false) {
+            // The overdue alarm runs inside the poll, so a fleet with every
+            // node off would be silent without this.
+            if (!this.#warnedOff) {
+                console.warn(
+                    '[jobs] polling is off on this node (jobs.enabled: false); other nodes must run the jobs',
+                );
+            }
+            this.#warnedOff = true;
+            return;
+        }
         const tick = () => {
             const delay = setTimeout(() => {
                 this.#pollDelays.delete(delay);

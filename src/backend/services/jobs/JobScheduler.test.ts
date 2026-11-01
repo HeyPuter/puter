@@ -279,6 +279,7 @@ describe('JobScheduler', () => {
         const baseline = vi.getTimerCount();
         const namespace = freshNamespace();
         const scheduler = node({ namespace, enabled: false });
+        const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
         let runs = 0;
         scheduler.onServerStart();
         scheduler.register('job.off', {
@@ -288,7 +289,18 @@ describe('JobScheduler', () => {
                 runs += 1;
             },
         });
+        scheduler.register('job.off.too', {
+            every: HOUR,
+            scope: 'fleet',
+            run: async () => undefined,
+        });
         expect(vi.getTimerCount()).toBe(baseline);
+        // Said once per node, not per job.
+        expect(
+            warned.mock.calls.filter(([line]) =>
+                String(line).includes('jobs.enabled'),
+            ),
+        ).toHaveLength(1);
         vi.useRealTimers();
 
         await server.stores.scheduledJob.register(
@@ -510,7 +522,7 @@ describe('JobScheduler', () => {
                 Error.stackTraceLimit = 30;
                 const stack = new Error().stack ?? '';
                 Error.stackTraceLimit = limit;
-                return stack.includes('services/jobs/JobScheduler.ts');
+                return /services[\\/]jobs[\\/]JobScheduler\.ts/.test(stack);
             };
             vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
                 fn: (...args: unknown[]) => void,
