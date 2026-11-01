@@ -102,7 +102,7 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 | Event type length | 1–128 characters | Invalid client envelopes receive `invalid_event` and close with 1008. Invalid upstream envelopes close with 1011. |
 | Client message rate | 100/s, burst 100 | Error `rate_limit_exceeded`, close 1008. Ping and pong frames count toward this allowance. |
 | Client upload rate | 128 KiB/s, burst 64 KiB | Reads pause to refill the budget. More than 64 KiB of overdraft closes with `rate_limit_exceeded`. |
-| Input pending session setup | 32 messages or 64 KiB | Error `rate_limit_exceeded`, close 1008. |
+| Client events waiting for forwarding | 32 messages or 64 KiB | Error `rate_limit_exceeded`, close 1008. |
 | Forwarding queue in either direction | Reads pause at 128 KiB. Admission stops above 192 KiB toward the provider and above 4 MiB plus 128 KiB toward the client. | A full queue closes with `rate_limit_exceeded`. |
 | Client that stops reading | 30 seconds of paused upstream reads | Close 1008. |
 | Pending usage records | 32 | Error `rate_limit_exceeded`, close 1013. Records already received are still billed. |
@@ -117,10 +117,16 @@ Realtime sessions ([`puter.ai.convo()`](/AI/convo/), `/puterai/openai/v1/realtim
 | Authentication setups in progress | 64 per node | Further upgrades receive HTTP 503. |
 | Presented credential | 8192 UTF-8 bytes | Longer or malformed credentials receive `invalid_api_key`. Unverified credentials allocate no distributed credential limiter state. Limiter lookup failures close with `internal_error` and 1011. |
 | Replacement attempts marked `purpose=handover` | 20 per credential per minute | This shared limit is checked before the general 60-attempt limit. A refused probe consumes no general attempt. Initial and dropped-session recovery attempts retain their general budget. |
+| Transcription reservation window | 64 items at 10,896,000 micro-cents each, before deployment cost factors. Each item budgets 8,000 audio input, 8,000 text input and 4,096 text output tokens at the highest known rates, or 160 seconds at the highest duration rate, whichever costs more | Enabling transcription reserves 697,344,000 micro-cents, or $6.97344, at the largest cost factor of the supported transcription models. Audio waits until this reservation succeeds. The reservation is a budget rather than a cap on reported usage. |
+| Pending transcription identity | 64 items | Exhausting the reserved window pauses client reads until its accepted items settle and another window can be reserved. Unexpected provider commits beyond the window close the connection and bill unresolved work conservatively. Unresolved item identities are retained. |
+| Transcription usage timeout | 30 seconds per committed item | Missing usage, transcription failure, or an upstream close bills 10,896,000 micro-cents per unresolved item before cost factors. A late or duplicate completion is ignored. |
+| Transcription reservation lifetime | 90 seconds, renewed on the 30-second heartbeat | Credit stays held until accepted usage is recorded. Unused reservation credit is released when the connection ends. |
+| Decoded audio per transcription reservation window | 81,920,000 bytes | Further audio receives `rate_limit_exceeded` and close 1013. The budget uses the smallest supported audio byte rate. |
+| Completed transcription identity history | 128 items | Recent duplicate commits are ignored. Pending identities have a separate lifetime. |
 | Credit held per response | 8,000 audio input and 4,096 audio output tokens at the session model's rates, held until the response's usage is recorded | A session opens only if the account can cover one hold. A response the account can't cover gets `insufficient_funds`, close 1008, and is billed for what it generated. A response whose usage never arrives because the provider connection closed first is billed the full hold. |
 | Restart notice (`puter.reconnect`) | At most once a minute per session | Repeated announcements within the minute aren't sent. |
 | In-flight response drain at shutdown | 5 seconds | Close 1012. |
-| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. A response that doesn't report its usage within the 5 seconds is billed the credit held for it. |
+| Billing a response after the client disconnects | 5 seconds | The response is cancelled and billed for what it generated, including one that was requested but starts only after the disconnect. Pending input transcriptions share this settlement window. Uncommitted audio is committed during settlement. Accepted work without final usage is billed conservatively. A response that does not report its usage within the 5 seconds is billed the credit held for it. |
 
 Send audio as a stream of small chunks. The message cap applies to text, configuration, tool output, and audio alike.
 
