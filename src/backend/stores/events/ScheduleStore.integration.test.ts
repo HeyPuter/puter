@@ -660,7 +660,9 @@ describe('the holder listing', () => {
             throw err;
         }
         const listings = read.mock.calls.filter(([sql]) =>
-            /FROM `event_schedules` WHERE `holder_user_id`/.test(String(sql)),
+            /FROM `event_schedules` s LEFT JOIN .* WHERE s\.`holder_user_id`/.test(
+                String(sql),
+            ),
         );
         read.mockRestore();
         expect(listings).toHaveLength(2);

@@ -25,6 +25,7 @@ import { bodyRecord } from '../../core/http/requestBody.js';
 import { DURABLE_LIST_LIMIT_CAP } from '../../stores/events/DurableSubscriptionStore.js';
 import { EVENTS_WORKERS_LIST_LIMIT_CAP } from '../../stores/events/EventHandlerStore.js';
 import { KV_HANDLE_LIST_LIMIT_CAP } from '../../stores/events/KvShareHandleStore.js';
+import { SCHEDULE_LIST_LIMIT_CAP } from '../../stores/events/ScheduleStore.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
 import { EVENTS_WORKER_PREFIX } from '../../services/events/workerRuntime.js';
@@ -167,6 +168,84 @@ export class EventsController extends PuterController {
         const actor = this.#requireActor(req);
         await this.services.events.unsubscribeDurable(actor, bodyRecord(req));
         res.json({});
+    }
+
+    // -- Schedules ---------------------------------------------------
+    //
+    // An app's handler run on a timer. Creating one needs an app context;
+    // listing, reading and removing are scoped the way the durable verbs are.
+    // The create and remove verbs spend the subscribe and unsubscribe budgets
+    // in the service, shared with those verbs.
+
+    /** POST /events/schedules — create a schedule for the calling app. */
+    @Post('/schedules', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async createSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(
+            await this.services.schedule.createFor(actor, bodyRecord(req)),
+        );
+    }
+
+    /** GET /events/schedules — the caller's schedules, one page at a time. */
+    @Get('/schedules', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+        rateLimit: EVENTS_LIST_LIMIT,
+    })
+    async listSchedules(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = (req.query ?? {}) as Record<string, unknown>;
+
+        const page = await this.services.schedule.list(actor, {
+            limit: normalizeLimit(query.limit, {
+                cap: SCHEDULE_LIST_LIMIT_CAP,
+            }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
+
+        res.json({
+            items: page.items,
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
+
+    /**
+     * POST /events/schedules/remove — end one schedule. An id the caller does
+     * not hold reads as absent.
+     */
+    @Post('/schedules/remove', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async removeSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        await this.services.schedule.remove(actor, bodyRecord(req).scheduleId);
+        res.json({});
+    }
+
+    /**
+     * GET /events/schedules/:scheduleId — one schedule, ended or not. An id the
+     * caller does not hold reads as absent.
+     */
+    @Get('/schedules/:scheduleId', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+        rateLimit: EVENTS_LIST_LIMIT,
+    })
+    async getSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(
+            await this.services.schedule.get(actor, req.params.scheduleId),
+        );
     }
 
     // -- Cross-user key-value handles --------------------------------

@@ -22,7 +22,9 @@ import type {
     WorkerInvokeOptions,
 } from '../../clients/events/EventsWorkerInvokerClient.js';
 import type { Actor } from '../../core/actor.js';
-import type { DeliverableEvent } from './registry.js';
+import type { DeliverableEvent, ScheduleEvent } from './registry.js';
+
+export type { ScheduleEvent } from './registry.js';
 
 /**
  * Where a delivery leaves the event system for the app's own code.
@@ -31,23 +33,6 @@ import type { DeliverableEvent } from './registry.js';
  * invoker reports the handler took it, so a handler that never ran cannot look
  * like one that succeeded.
  */
-
-/** What a schedule's handler is handed as `event`. */
-export interface ScheduleEvent {
-    subject: string;
-    op: 'tick';
-    /** `${scheduleId}:${scheduledFor}`: the same across retries of one slot. */
-    id: string;
-    scheduleId: string;
-    scheduledFor: number;
-    /** When the invocation was sent; stamped as it goes out. */
-    firedAt?: number;
-    /** Slots skipped since the last one that ran. */
-    missed: number;
-    missedCapped?: true;
-    /** Attempts at this slot, this one included. */
-    attempt: number;
-}
 
 /** One handler call, as the seam receives it. */
 export interface WorkerInvocation {

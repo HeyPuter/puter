@@ -18,9 +18,14 @@
  */
 
 import { HttpError } from '../../core/http/HttpError.js';
-import { HANDLER_NAME_MAX_LENGTH } from '../../stores/events/EventHandlerStore.js';
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
+import type { RouteRateLimit } from '../../core/http/types.js';
+import {
+    HANDLER_NAME_MAX_LENGTH,
+    hashContent,
+} from '../../stores/events/EventHandlerStore.js';
 
-/** Request fields shared by the subscription and schedule verbs. */
+/** Request and response pieces the subscription and schedule verbs share. */
 
 export const badRequest = (message: string, code: string): HttpError =>
     new HttpError(400, message, { legacyCode: code });
@@ -56,4 +61,42 @@ export const parseContext = (value: unknown): string | null => {
     } catch {
         throw badRequest('context must be JSON-serializable', 'bad_request');
     }
+};
+
+const tooManyCalls = (): HttpError =>
+    new HttpError(429, 'Too many subscription changes', {
+        legacyCode: 'too_many_requests',
+    });
+
+/** Spend one call from a per-user window, refusing past it. */
+export const spendUserWindow = async (
+    limit: RouteRateLimit,
+    userId: number,
+): Promise<void> => {
+    const ok = await checkRateLimit(
+        `${limit.scope}:${userId}`,
+        limit.limit,
+        limit.window,
+    );
+    if (!ok) throw tooManyCalls();
+};
+
+/**
+ * A stored context as a listing may describe it: which keys it sets, and a hash
+ * of the whole blob. Never the values: the column is where an API key lives.
+ */
+export const projectContext = (
+    context: string | null,
+): { contextKeys: string[] | null; contextHash: string | null } => {
+    if (context === null) return { contextKeys: null, contextHash: null };
+    let keys: string[] = [];
+    try {
+        const parsed: unknown = JSON.parse(context);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+            keys = Object.keys(parsed).sort();
+    } catch {
+        // Stored as JSON by the verbs, so this cannot normally happen; an
+        // unreadable blob still reports its hash rather than failing the list.
+    }
+    return { contextKeys: keys, contextHash: hashContent(context) };
 };

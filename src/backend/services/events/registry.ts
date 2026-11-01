@@ -20,6 +20,7 @@
 import type { EventKey, KvOp } from '../../clients/event/types.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { AclMode } from '../acl/ACLService.js';
+import { scheduleToken } from '../../stores/events/types.js';
 import type { NotificationAudience } from '../notification/notificationTypes.js';
 import { relativeTo } from './matcher.js';
 import {
@@ -357,6 +358,49 @@ const notifProject = (delivery: NotifDeliveryContext): ProjectedNotifEvent => ({
     self: delivery.self,
     ts: delivery.ts,
     seq: delivery.seq,
+});
+
+// -- Schedule ticks ---------------------------------------------------
+
+/**
+ * What a schedule's handler is handed as `event`. No bus event stands behind
+ * it, so it has no registry entry: the runner builds it from the slot it fires.
+ * Additive only, as for the other projections.
+ */
+export interface ScheduleEvent {
+    /** `schedule:<scheduleId>`. */
+    subject: string;
+    op: 'tick';
+    /** `${scheduleId}:${scheduledFor}`: the same across retries of one slot. */
+    id: string;
+    scheduleId: string;
+    /** The slot this run is for, in epoch ms. */
+    scheduledFor: number;
+    /** When the invocation was sent; stamped as it goes out. */
+    firedAt?: number;
+    /** Slots skipped since the last one that ran. */
+    missed: number;
+    /** Set when `missed` stopped counting at its cap. */
+    missedCapped?: true;
+    /** Attempts at this slot, this one included. */
+    attempt: number;
+}
+
+export const projectScheduleTick = (tick: {
+    scheduleId: string;
+    scheduledFor: number;
+    missed: number;
+    missedCapped: boolean;
+    attempt: number;
+}): ScheduleEvent => ({
+    subject: scheduleToken(tick.scheduleId),
+    op: 'tick',
+    id: `${tick.scheduleId}:${tick.scheduledFor}`,
+    scheduleId: tick.scheduleId,
+    scheduledFor: tick.scheduledFor,
+    missed: tick.missed,
+    ...(tick.missedCapped ? { missedCapped: true as const } : {}),
+    attempt: tick.attempt,
 });
 
 // -- Registry ---------------------------------------------------------

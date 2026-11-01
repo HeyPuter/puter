@@ -34,9 +34,9 @@ import {
     type ScheduleIndexDef,
     type ScheduleIndexStore,
 } from '../../stores/events/ScheduleIndexStore.js';
-import { scheduleToken } from '../../stores/events/types.js';
 import type { ScheduleInvokeResult } from './EventsService.js';
 import { scheduleFire, scheduleLag } from './metrics.js';
+import { projectScheduleTick } from './registry.js';
 import type { ScheduleActionRegistry } from './scheduleActions.js';
 import { rememberCron } from './scheduleCron.js';
 import { endedChange, slotDefOf } from './scheduleIndex.js';
@@ -451,16 +451,13 @@ export class ScheduleRunner {
             return;
         }
 
-        const event: ScheduleEvent = {
-            subject: scheduleToken(id),
-            op: 'tick',
-            id: `${id}:${slot}`,
+        const event = projectScheduleTick({
             scheduleId: id,
             scheduledFor: slot,
             missed,
-            ...(missedCapped ? { missedCapped: true as const } : {}),
+            missedCapped,
             attempt: prevRun.attempts + 1,
-        };
+        });
         const lease = this.#holdLease(id, token);
         let result: ScheduleInvokeResult;
         try {

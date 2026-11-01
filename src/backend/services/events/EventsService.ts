@@ -69,7 +69,6 @@ import {
 } from '../../stores/events/DurableSubscriptionStore.js';
 import type { ScheduleEndReason } from '../../stores/events/ScheduleStore.js';
 import {
-    hashContent,
     type EventHandlerSummary,
     type EventsWorkerSummary,
     type PublishOutcome,
@@ -180,6 +179,8 @@ import {
     parseContext,
     parseHandlerHash,
     parseHandlerName,
+    projectContext,
+    spendUserWindow,
 } from './requestParsing.js';
 import {
     mergeNotifCatchUp,
@@ -812,11 +813,6 @@ const scheduleImmutable = (): HttpError =>
         { legacyCode: 'events_schedule_immutable' },
     );
 
-const tooManyCalls = (): HttpError =>
-    new HttpError(429, 'Too many subscription changes', {
-        legacyCode: 'too_many_requests',
-    });
-
 const handlerRequired = (): HttpError =>
     new HttpError(400, 'A `queue` subscription needs a handlerName', {
         legacyCode: 'events_handler_required',
@@ -964,26 +960,6 @@ const toView = (sub: DispatchSubscription): SubscriptionView => {
         op: sub.op,
         includeValue: sub.includeValue === true,
     };
-};
-
-/**
- * The context as a listing may describe it: which keys it sets, and a hash of
- * the whole blob. Never the values — the column is where an API key lives.
- */
-const projectContext = (
-    context: string | null,
-): Pick<DurableSubscriptionView, 'contextKeys' | 'contextHash'> => {
-    if (context === null) return { contextKeys: null, contextHash: null };
-    let keys: string[] = [];
-    try {
-        const parsed: unknown = JSON.parse(context);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
-            keys = Object.keys(parsed).sort();
-    } catch {
-        // Stored by this service as JSON, so this cannot normally happen; an
-        // unreadable blob still reports its hash rather than failing the list.
-    }
-    return { contextKeys: keys, contextHash: hashContent(context) };
 };
 
 const toDurableView = (sub: DurableSubscription): DurableSubscriptionView => ({
@@ -2268,12 +2244,7 @@ export class EventsService extends PuterService {
         const entryId = String(request?.id ?? '');
         if (!subId || !entryId) throw unknownSubscription();
 
-        const ok = await checkRateLimit(
-            `${EVENTS_ACK_LIMIT.scope}:${holderUserId}`,
-            EVENTS_ACK_LIMIT.limit,
-            EVENTS_ACK_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
+        await spendUserWindow(EVENTS_ACK_LIMIT, holderUserId);
 
         const row = await this.stores.durableSubscription.getBySubId(subId);
         if (
@@ -2985,12 +2956,7 @@ export class EventsService extends PuterService {
     async #spendHandlerBudget(actor: Actor): Promise<void> {
         const userId = actor.user?.id;
         if (userId === undefined) throw disabled();
-        const ok = await checkRateLimit(
-            `${EVENTS_HANDLER_PUBLISH_LIMIT.scope}:${userId}`,
-            EVENTS_HANDLER_PUBLISH_LIMIT.limit,
-            EVENTS_HANDLER_PUBLISH_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
+        await spendUserWindow(EVENTS_HANDLER_PUBLISH_LIMIT, userId);
     }
 
     /**
@@ -6562,22 +6528,12 @@ export class EventsService extends PuterService {
         };
     }
 
-    async #spendCallBudget(userId: number): Promise<void> {
-        const ok = await checkRateLimit(
-            `${EVENTS_SUBSCRIBE_LIMIT.scope}:${userId}`,
-            EVENTS_SUBSCRIBE_LIMIT.limit,
-            EVENTS_SUBSCRIBE_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
+    #spendCallBudget(userId: number): Promise<void> {
+        return spendUserWindow(EVENTS_SUBSCRIBE_LIMIT, userId);
     }
 
-    async #spendUnsubscribeBudget(userId: number): Promise<void> {
-        const ok = await checkRateLimit(
-            `${EVENTS_UNSUBSCRIBE_LIMIT.scope}:${userId}`,
-            EVENTS_UNSUBSCRIBE_LIMIT.limit,
-            EVENTS_UNSUBSCRIBE_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
+    #spendUnsubscribeBudget(userId: number): Promise<void> {
+        return spendUserWindow(EVENTS_UNSUBSCRIBE_LIMIT, userId);
     }
 
     /**

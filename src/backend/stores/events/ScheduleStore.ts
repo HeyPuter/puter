@@ -724,17 +724,17 @@ export class ScheduleStore extends PuterStore {
     }
 
     /**
-     * One schedule by its public id, ended or not. Primary: "not found" is how
-     * a schedule that isn't the caller's is answered, and a lagging replica
-     * would give that answer for one just created.
+     * One schedule by its public id, ended or not, with its subscription row.
+     * Primary: "not found" is how a schedule that isn't the caller's is
+     * answered, and a lagging replica would give that answer for one just
+     * created.
      */
-    async get(namespace: string, uid: string): Promise<ScheduleRow | null> {
+    async get(namespace: string, uid: string): Promise<ScheduleSyncRow | null> {
         const [row] = await this.clients.db.pread(
-            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
-                'WHERE `uid` = ? AND `namespace` = ?',
+            `${SYNC_SELECT} WHERE s.\`uid\` = ? AND s.\`namespace\` = ?`,
             [uid, namespace],
         );
-        return row ? toRow(row) : null;
+        return row ? toSyncRow(row) : null;
     }
 
     /**
@@ -774,15 +774,15 @@ export class ScheduleStore extends PuterStore {
     }
 
     /**
-     * One holder's schedules, keyset-paginated on `id`: live ones, and ended
-     * ones still within their retention so the holder can see why they stopped.
-     * `appUid` confines it to one app's.
+     * One holder's schedules with their subscription rows, keyset-paginated on
+     * `id`: live ones, and ended ones still within their retention so the
+     * holder can see why they stopped. `appUid` confines it to one app's.
      */
     async listForHolder(
         namespace: string,
         holderUserId: number,
         options: ScheduleListOptions = {},
-    ): Promise<PageResult<ScheduleRow>> {
+    ): Promise<PageResult<ScheduleSyncRow>> {
         const limit = Math.min(
             Math.max(
                 1,
@@ -793,9 +793,9 @@ export class ScheduleStore extends PuterStore {
         const after = openIdCursor(options.cursor, this.config.jwt_secret_v2);
 
         const scope = [
-            '`holder_user_id` = ?',
-            '`namespace` = ?',
-            '(`deleted_at` IS NULL OR `deleted_at` > ?)',
+            's.`holder_user_id` = ?',
+            's.`namespace` = ?',
+            '(s.`deleted_at` IS NULL OR s.`deleted_at` > ?)',
         ];
         const scopeParams: unknown[] = [
             holderUserId,
@@ -803,29 +803,29 @@ export class ScheduleStore extends PuterStore {
             Date.now() - EVENTS_SCHEDULE_TOMBSTONE_TTL_MS,
         ];
         if (options.appUid !== undefined && options.appUid !== null) {
-            scope.push('`app_uid` = ?');
+            scope.push('s.`app_uid` = ?');
             scopeParams.push(options.appUid);
         }
         const where = [...scope];
         const params = [...scopeParams];
         if (after !== null) {
-            where.push('`id` > ?');
+            where.push('s.`id` > ?');
             params.push(after);
         }
 
         const rows = await this.clients.db.read(
-            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
-                `WHERE ${where.join(' AND ')} ORDER BY \`id\` LIMIT ?`,
+            `${SYNC_SELECT} WHERE ${where.join(' AND ')} ` +
+                'ORDER BY s.`id` LIMIT ?',
             [...params, limit + 1],
         );
         const page = keysetPage(rows, limit, this.config.jwt_secret_v2);
-        const result: PageResult<ScheduleRow> = {
-            items: page.rows.map(toRow),
+        const result: PageResult<ScheduleSyncRow> = {
+            items: page.rows.map(toSyncRow),
         };
         if (page.cursor) result.cursor = page.cursor;
         if (options.includeTotal) {
             const [count] = await this.clients.db.read(
-                `SELECT COUNT(*) AS \`total\` FROM \`${TABLE}\` ` +
+                `SELECT COUNT(*) AS \`total\` FROM \`${TABLE}\` s ` +
                     `WHERE ${scope.join(' AND ')}`,
                 scopeParams,
             );

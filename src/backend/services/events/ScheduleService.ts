@@ -18,6 +18,8 @@
  */
 
 import {
+    EVENTS_SUBSCRIBE_LIMIT,
+    EVENTS_UNSUBSCRIBE_LIMIT,
     EVENTS_SCHEDULE_FIRE_BUDGET_PER_APP,
     EVENTS_SCHEDULE_FIRE_BUDGET_PER_USER,
     EVENTS_SCHEDULE_MIN_INTERVAL_MS,
@@ -31,6 +33,7 @@ import {
     assertResolvedActor,
     handlerDepthOf,
     isAccessTokenActor,
+    isAccountContext,
     type Actor,
 } from '../../core/actor.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
@@ -41,6 +44,7 @@ import {
 import {
     scheduleNamespace,
     type ScheduleEndReason,
+    type ScheduleListOptions,
     type ScheduleQuota,
     type ScheduleRow,
     type ScheduleSyncRow,
@@ -50,13 +54,17 @@ import {
     isScheduleRow,
     SCHEDULE_TOKEN_PREFIX,
     type DurableSubscription,
+    type ScheduleKind,
 } from '../../stores/events/types.js';
+import type { PageResult } from '../../util/pagination.js';
 import { actorPlanId } from '../metering/enforcement.js';
 import { PuterService } from '../types.js';
 import {
     backgroundConsentRequired,
     EVENTS_BACKGROUND_PERMISSION,
+    rowInActorScope,
 } from './authorization.js';
+import { projectContext, spendUserWindow } from './requestParsing.js';
 import { ScheduleActionRegistry } from './scheduleActions.js';
 import { rememberCron } from './scheduleCron.js';
 import {
@@ -79,7 +87,7 @@ import {
     type ScheduleReconcileReport,
 } from './scheduleReconcile.js';
 import { ScheduleRunner, type ScheduleRunnerHost } from './ScheduleRunner.js';
-import { firstSlotAtOrAfter } from './scheduleSlots.js';
+import { firstSlotAtOrAfter, spreadOffsetMs } from './scheduleSlots.js';
 
 /**
  * Scheduled handlers: validating a create, and keeping schedule rows in step
@@ -147,6 +155,81 @@ const sending = (): HttpError =>
         legacyCode: 'events_schedule_sending',
     });
 
+/** Public schedule ids are v4 uuids; anything else is answered as absent. */
+const SCHEDULE_ID =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * A schedule as its holder sees it. Times are epoch ms. `context` values are
+ * never returned, as for a persistent subscription: only its keys and a hash.
+ */
+export interface ScheduleView {
+    scheduleId: string;
+    kind: ScheduleKind;
+    appUid: string;
+    /** `null` once ended: the handler binding goes with the schedule. */
+    handlerName: string | null;
+    contextKeys: string[] | null;
+    contextHash: string | null;
+    /** Interval of an `every` schedule. */
+    every: number | null;
+    cron: string | null;
+    tz: string;
+    /** First allowed run; a one-shot's only run. */
+    startAt: number;
+    /** Last allowed run, inclusive. */
+    endsAt: number | null;
+    state: 'active' | 'suspended' | 'ended';
+    suspendedReason: string | null;
+    endReason: string | null;
+    endedAt: number | null;
+    /** The slot it runs for next; `null` while suspended and once ended. */
+    nextRunAt: number | null;
+    createdAt: number;
+}
+
+export interface ScheduleListRequest {
+    limit?: number;
+    cursor?: string;
+    includeTotal?: boolean;
+}
+
+/**
+ * The slot a live schedule runs for next: the first whose spread hasn't passed,
+ * never one before create. A one-shot's only slot until it has run.
+ */
+const nextRunOf = (row: ScheduleRow, now: number): number | null => {
+    if (row.kind !== 'recurring') return row.startAt;
+    const offsetMs = spreadOffsetMs(row.uid, row.kind, row.minGapMs);
+    return firstSlotAtOrAfter(row, Math.max(row.createdAt, now - offsetMs));
+};
+
+const toScheduleView = (row: ScheduleSyncRow, now: number): ScheduleView => {
+    const rowState = rowStateOf(row);
+    const ended = rowState.kind === 'ended' || rowState.kind === 'revoked';
+    const suspended = rowState.kind === 'live' && rowState.state !== 'active';
+    return {
+        scheduleId: row.uid,
+        kind: row.kind,
+        appUid: row.appUid,
+        handlerName: row.sub?.handlerName ?? null,
+        ...projectContext(row.sub?.context ?? null),
+        every: row.everyMs,
+        cron: row.cron,
+        tz: row.tz,
+        startAt: row.startAt,
+        endsAt: row.endsAt,
+        state: ended ? 'ended' : suspended ? 'suspended' : 'active',
+        suspendedReason: suspended ? (row.sub?.suspendedReason ?? null) : null,
+        endReason: ended
+            ? (row.endReason ?? row.sub?.suspendedReason ?? null)
+            : null,
+        endedAt: row.deletedAt,
+        nextRunAt: ended || suspended ? null : nextRunOf(row, now),
+        createdAt: row.createdAt,
+    };
+};
+
 const endFor = (
     change: ScheduleSubscriptionChange,
 ): { reason: ScheduleEndReason } | null => {
@@ -189,6 +272,8 @@ export class ScheduleService extends PuterService {
         const appUid = actor.effectiveApp?.uid;
         if (!appUid) throw appRequired();
         if (isAccessTokenActor(actor)) throw scopedToken();
+        // Before validation: a cron create can cost a scan.
+        await spendUserWindow(EVENTS_SUBSCRIBE_LIMIT, holderUserId);
         if ((await this.services.events.hasBackgroundConsent(actor)) !== true)
             throw backgroundConsentRequired();
 
@@ -281,21 +366,88 @@ export class ScheduleService extends PuterService {
         return row;
     }
 
+    /** Validate, store and index one create, answered as its holder sees it. */
+    async createFor(
+        actor: Actor,
+        request: ScheduleRequest,
+    ): Promise<ScheduleView> {
+        const plan = await this.prepareCreate(actor, request);
+        const row = await this.create(plan);
+        return toScheduleView(
+            {
+                ...row,
+                sub: {
+                    suspendedAt: null,
+                    suspendedReason: null,
+                    handlerName: plan.handlerName,
+                    context: plan.context,
+                },
+            },
+            Date.now(),
+        );
+    }
+
+    /**
+     * The caller's schedules, ended ones within their retention included. An
+     * app sees its own; a session acting for the account sees every app's, so
+     * it can remove what an app left behind. A scoped token holds none.
+     */
+    async list(
+        actor: Actor,
+        request: ScheduleListRequest = {},
+    ): Promise<PageResult<ScheduleView>> {
+        if (!this.enabled) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
+        const app = actor.effectiveApp;
+        // Unresolved is not "no app": that reading would hand an app the
+        // account-wide view.
+        if (app === undefined) return { items: [] };
+        if (isAccessTokenActor(actor) && !isAccountContext(actor))
+            return { items: [] };
+
+        const options: ScheduleListOptions = {
+            appUid: app?.uid ?? null,
+            limit: request.limit,
+            cursor: request.cursor,
+            includeTotal: request.includeTotal,
+        };
+        const page = await this.stores.schedule.listForHolder(
+            this.namespace,
+            holderUserId,
+            options,
+        );
+        const now = Date.now();
+        return {
+            items: page.items.map((row) => toScheduleView(row, now)),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        };
+    }
+
+    /**
+     * One of the caller's schedules, ended or not; anyone else's reads as
+     * absent.
+     */
+    async get(actor: Actor, scheduleId: unknown): Promise<ScheduleView> {
+        if (!this.enabled) throw disabled();
+        return toScheduleView(
+            await this.#ownRow(actor, scheduleId),
+            Date.now(),
+        );
+    }
+
     /**
      * End one of the caller's schedules. Anyone else's, or one already ended,
      * reads as absent. A delayed send that has started can't be cancelled.
      */
-    async remove(actor: Actor, scheduleId: string): Promise<void> {
+    async remove(actor: Actor, scheduleId: unknown): Promise<void> {
         if (!this.enabled) throw disabled();
-        const row = await this.stores.schedule.get(this.namespace, scheduleId);
-        const appUid = actor.effectiveApp?.uid;
-        if (
-            !row ||
-            row.deletedAt !== null ||
-            row.holderUserId !== actor.user?.id ||
-            (appUid && row.appUid !== appUid)
-        )
-            throw notFound();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
+        await spendUserWindow(EVENTS_UNSUBSCRIBE_LIMIT, holderUserId);
+        const row = await this.#ownRow(actor, scheduleId);
+        if (row.deletedAt !== null) throw notFound();
 
         // What the index holds before the change, so a fallback can't land
         // on a newer one.
@@ -515,6 +667,24 @@ export class ScheduleService extends PuterService {
             alarm: (id, message, details) => this.#alarm(id, message, details),
         });
         return this.#reconciler;
+    }
+
+    /**
+     * A schedule the caller holds and may see: an app its own, the account any
+     * of its own. Everything else, including any id asked by a scoped token,
+     * reads as absent, so the answer is no oracle for ids.
+     */
+    async #ownRow(actor: Actor, scheduleId: unknown): Promise<ScheduleSyncRow> {
+        if (typeof scheduleId !== 'string' || !SCHEDULE_ID.test(scheduleId))
+            throw notFound();
+        const row = await this.stores.schedule.get(this.namespace, scheduleId);
+        if (
+            !row ||
+            row.holderUserId !== actor.user?.id ||
+            !rowInActorScope(actor, row)
+        )
+            throw notFound();
+        return row;
     }
 
     #runnerHost(): ScheduleRunnerHost {
