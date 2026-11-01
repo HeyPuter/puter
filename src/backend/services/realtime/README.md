@@ -84,6 +84,11 @@ Each committed item retains its model until completion, failure, or bounded
 settlement. Missing usage is billed the item's fixed budget. Overflow closes the
 connection without evicting existing pending identities.
 
+The post-record continuation check asks whether settled credit remains. It
+excludes outstanding holds and accepts fractional positive credit. Admission of
+new billable work continues to use the atomic hold path, which includes every
+outstanding reservation.
+
 Text, transcripts and raw audio are forwarded without new content logging.
 The relay does not invoke `ai.prompt.validate`. A realtime adapter needs the host
 listeners' chat payload and denial contracts before that hook can safely apply
@@ -93,9 +98,8 @@ separate policy decisions.
 Credential checks run in batches of at most 16 with no overlapping sweeps.
 Session and access-token revocation events close affected sockets and invalidate
 their auth cache entries. Subscription eligibility is checked independently of
-authentication and after subscription invalidations. A sustained verification
-outage gets a 60-second retry grace from the first failed lookup, then closes
-with a retryable internal error. Periodic checks remain the missed-event fallback.
+authentication and after subscription invalidations. A failed verification check after a 60-second
+retry grace from the first failed lookup closes with a retryable internal error. Periodic checks remain the missed-event fallback.
 When the drain starts, open sessions get a `puter.reconnect` event and new
 sessions receive `server_restarting` and close with 1012. Open sessions can
 finish an in-flight response for up to five seconds at shutdown, then close
