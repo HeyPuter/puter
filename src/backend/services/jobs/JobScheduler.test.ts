@@ -213,24 +213,25 @@ describe('JobScheduler', () => {
         ).toThrow(/already registered/);
     });
 
-    it('refuses to register under a namespace the table or Redis keys cannot hold', () => {
+    it('falls back to the default namespace, once and loudly, when the configured one cannot be held', () => {
         const run = async () => {};
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
         for (const namespace of ['a:b', 'x'.repeat(129), 'spaced name']) {
-            expect(() =>
-                node({ namespace }).register('job', {
-                    every: 1000,
-                    scope: 'fleet',
-                    run,
-                }),
-            ).toThrow(/invalid jobs namespace/);
+            const scheduler = node({ namespace });
+            scheduler.register('job.a', { every: 1000, scope: 'fleet', run });
+            expect(scheduler.namespace).toBe('default');
         }
-        expect(() =>
-            node({ domain: 'localhost:4100' }).register('job', {
-                every: 1000,
-                scope: 'fleet',
-                run,
-            }),
-        ).toThrow(/invalid jobs namespace/);
+        logged.mockClear();
+
+        // A self-host whose domain carries a port still boots.
+        const scheduler = node({ domain: 'localhost:4100' });
+        scheduler.register('job.a', { every: 1000, scope: 'fleet', run });
+        scheduler.register('job.b', { every: 1000, scope: 'fleet', run });
+        expect(scheduler.namespace).toBe('default');
+        expect(logged).toHaveBeenCalledTimes(1);
+        expect(String(logged.mock.calls[0][0])).toMatch(
+            /localhost:4100.*jobs\.namespace/,
+        );
     });
 
     it('does nothing at all while no job is registered', async () => {
@@ -1085,6 +1086,22 @@ describe('JobScheduler', () => {
         expect(
             node({ namespace: 'explicit', domain: 'example.test' }).namespace,
         ).toBe('explicit');
+    });
+
+    it('boots a server whose domain carries a port, registering its jobs under the default namespace', async () => {
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const portDomain = await setupTestServer({
+            domain: 'localhost:4100',
+        } as IConfig);
+        try {
+            expect(portDomain.services.jobs.namespace).toBe('default');
+            const namespaceErrors = logged.mock.calls.filter(([message]) =>
+                String(message).startsWith('[jobs] namespace'),
+            );
+            expect(namespaceErrors).toHaveLength(1);
+        } finally {
+            await portDomain.shutdown();
+        }
     });
 
     it('raises a critical alarm and runs no fleet job when the table is missing', async () => {

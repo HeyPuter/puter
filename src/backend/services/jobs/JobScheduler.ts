@@ -141,21 +141,29 @@ export class JobScheduler extends PuterService {
     #timer: ReturnType<typeof setInterval> | null = null;
     #pollDelays = new Set<ReturnType<typeof setTimeout>>();
     #warnedOff = false;
+    #namespace: string | null = null;
 
     /**
      * Keys this deployment's jobs, so deployments sharing a database stay
-     * apart.
+     * apart. One the table or Redis keys can't hold falls back to `default`, so
+     * a domain with a port doesn't stop the server booting.
      */
     get namespace(): string {
-        return this.config.jobs?.namespace ?? this.config.domain ?? 'default';
+        if (this.#namespace !== null) return this.#namespace;
+        const configured =
+            this.config.jobs?.namespace ?? this.config.domain ?? 'default';
+        if (JOB_ID_PATTERN.test(configured)) {
+            this.#namespace = configured;
+        } else {
+            console.error(
+                `[jobs] namespace "${configured}" (jobs.namespace, else domain) must match ${JOB_ID_PATTERN}; using "default". Set jobs.namespace to keep deployments sharing a database apart.`,
+            );
+            this.#namespace = 'default';
+        }
+        return this.#namespace;
     }
 
     register(name: string, definition: JobDefinition): void {
-        if (!JOB_ID_PATTERN.test(this.namespace)) {
-            throw new Error(
-                `invalid jobs namespace "${this.namespace}": 1-128 of A-Z a-z 0-9 . _ -`,
-            );
-        }
         if (!JOB_ID_PATTERN.test(name)) {
             throw new Error(`invalid job name: ${name}`);
         }
