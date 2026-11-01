@@ -238,7 +238,7 @@ export class ConvoHistory {
      *
      * @param {number} maxItems
      * @param {number} maxBytes
-     * @returns {ReplayEntry[]}
+     * @returns {{ entries: ReplayEntry[]; omittedItems: number }}
      */
     replay(maxItems, maxBytes) {
         /** @type {ReplayEntry[]} */
@@ -264,10 +264,17 @@ export class ConvoHistory {
                 .filter(({ item }) => item.type === 'function_call')
                 .map(({ item }) => item.call_id),
         );
-        return entries.filter(
+        const filtered = entries.filter(
             ({ item }) =>
                 item.type !== 'function_call_output' || calls.has(item.call_id),
         );
+        const restorable = this.#records.filter((record) =>
+            this.#replayItem(record),
+        ).length;
+        return {
+            entries: filtered,
+            omittedItems: restorable - filtered.length,
+        };
     }
 
     /**

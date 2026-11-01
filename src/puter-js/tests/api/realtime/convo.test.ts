@@ -33,6 +33,7 @@ describe('convo built SDK and browser media', () => {
         received: { type: string; item?: unknown }[];
     }[] = [];
     let ids = 0;
+    let upstreamRefusals = 0;
     beforeAll(async () => {
         upstream = new WebSocketServer({ port: 0 });
         upstream.on('connection', (socket) => {
@@ -41,6 +42,11 @@ describe('convo built SDK and browser media', () => {
                 received: [] as { type: string; item?: unknown }[],
             };
             connections.push(connection);
+            if (upstreamRefusals > 0) {
+                upstreamRefusals--;
+                socket.close(1012, 'restart');
+                return;
+            }
             socket.send(
                 JSON.stringify({ type: 'session.created', session: {} }),
             );
@@ -210,6 +216,22 @@ describe('convo built SDK and browser media', () => {
         await env?.shutdown();
         await new Promise<void>((resolve) => upstream?.close(() => resolve()));
     }, 60_000);
+
+    it('resolves the original built SDK connect after an initial provider restart', async () => {
+        upstreamRefusals = 1;
+        const before = connections.length;
+        const conversation = await puter.ai.convo({ output: ['text'] });
+        try {
+            const ready = conversation.connect();
+            expect(conversation.connect()).toBe(ready);
+            await ready;
+            expect(conversation.state).toBe('connected');
+            expect(connections.length - before).toBe(2);
+        } finally {
+            upstreamRefusals = 0;
+            conversation.close();
+        }
+    });
 
     it('prepares, configures, sends, interrupts and truncates using the built SDK', async () => {
         const conversation = await puter.ai.convo({

@@ -10,6 +10,7 @@ const MAX_SERVER_MESSAGE_BYTES = 4 * 1024 * 1024;
 /**
  * Close code for a server event over the limit; browsers only accept 1000 and
  * 3000-4999 from the client.
+ *
  * @internal
  */
 export const CLOSE_MESSAGE_TOO_LARGE = 4009;
@@ -29,6 +30,7 @@ const exceedsBytes = (data, limit) =>
 /**
  * One live realtime session. Events in both directions are OpenAI Realtime API
  * events, unchanged.
+ *
  * @internal
  */
 export class RealtimeSession extends RealtimeEvents {
@@ -77,13 +79,15 @@ export class RealtimeSession extends RealtimeEvents {
 /**
  * @param {import('../../index.js').Puter} puter
  * @param {string} [model]
+ * @param {'handover'} [purpose]
  * @returns {WebSocket}
  * @internal
  */
-export function createRealtimeSocket(puter, model) {
+export function createRealtimeSocket(puter, model, purpose) {
     const url = new URL(REALTIME_PATH, puter.APIOrigin);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     if (model) url.searchParams.set('model', model);
+    if (purpose) url.searchParams.set('purpose', purpose);
     return new WebSocket(url.toString(), [
         'realtime',
         `openai-insecure-api-key.${puter.authToken}`,
