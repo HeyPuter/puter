@@ -1783,6 +1783,134 @@ describe('OpenAIRealtimeRelayService relay', () => {
         },
     );
 
+    it('uses cached continuation without re-reading headroom or subtracting its own hold', async () => {
+        const holder = await createTestUser(server, {
+            username: 'continuation-fraction',
+            password: 'continuation-fraction-password',
+        });
+        paidPolicy.monthUsageAllowance = MINI_HOLD + 0.5;
+        const paid = vi.mocked(server.services.metering.getActorSubscription);
+        const plan = paid.getMockImplementation()!;
+        paid.mockImplementation(async (actor) => ({
+            ...(await plan(actor)),
+            monthUsageAllowance: MINI_HOLD + 0.5,
+        }));
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await c.waitFor('response.created');
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(MINI_HOLD),
+        );
+        const headroom = vi.spyOn(server.services.metering, 'hasEnoughCredits');
+        const redis = vi.spyOn(
+            server.clients.redis as typeof server.clients.redis & {
+                creditHoldSum(
+                    key: string,
+                    now: string,
+                ): Promise<[string, number]>;
+            },
+            'creditHoldSum',
+        );
+        const kvRead = vi.spyOn(server.stores.kv, 'get');
+        const dbRead = vi.spyOn(server.clients.db, 'read');
+        const dbPrimaryRead = vi.spyOn(server.clients.db, 'pread');
+        const readCached = server.services.metering.hasAnyUsageCached.bind(
+            server.services.metering,
+        );
+        const cached = vi
+            .spyOn(server.services.metering, 'hasAnyUsageCached')
+            .mockImplementation(async (actor) => {
+                const before = [
+                    redis.mock.calls.length,
+                    kvRead.mock.calls.length,
+                    dbRead.mock.calls.length + dbPrimaryRead.mock.calls.length,
+                ];
+                const result = await readCached(actor);
+                expect([
+                    redis.mock.calls.length - before[0],
+                    kvRead.mock.calls.length - before[1],
+                    dbRead.mock.calls.length +
+                        dbPrimaryRead.mock.calls.length -
+                        before[2],
+                ]).toEqual([0, 0, 0]);
+                return result;
+            });
+        providerEvent(c, {
+            type: 'response.done',
+            response: {
+                id: 'resp_hold',
+                usage: {
+                    input_token_details: { audio_tokens: 8000 },
+                    output_token_details: { audio_tokens: 4096 },
+                },
+            },
+        });
+        await c.waitFor('response.done');
+        await vi.waitFor(() => expect(cached).toHaveBeenCalled());
+        expect(headroom).not.toHaveBeenCalled();
+        expect(c.ws.readyState).toBe(WebSocket.OPEN);
+        const beforeHeadroom = [
+            redis.mock.calls.length,
+            kvRead.mock.calls.length,
+            dbRead.mock.calls.length + dbPrimaryRead.mock.calls.length,
+        ];
+        await server.services.metering.hasEnoughCredits(actor, 1);
+        const comparison = [
+            redis.mock.calls.length - beforeHeadroom[0],
+            kvRead.mock.calls.length - beforeHeadroom[1],
+            dbRead.mock.calls.length +
+                dbPrimaryRead.mock.calls.length -
+                beforeHeadroom[2],
+        ];
+        process.stdout.write(
+            `[realtime continuation I/O] Redis hold sum / KV get / SQL read: cached [0,0,0], headroom ${JSON.stringify(comparison)}\n`,
+        );
+        c.ws.close();
+    });
+
+    it('closes an exhausted account after recording and releases its response hold', async () => {
+        paidPolicy.monthUsageAllowance = MINI_HOLD;
+        const holder = await createTestUser(server, {
+            username: 'continuation-empty',
+            password: 'continuation-empty-password',
+        });
+        const row = await server.stores.user.getByUsername(holder.username);
+        const actor = { user: row } as never;
+        const c = open(`${relayUrl}?auth_token=${holder.token}`);
+        await c.waitFor('session.created');
+        c.ws.send(JSON.stringify({ type: 'hold.response' }));
+        await c.waitFor('response.created');
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(MINI_HOLD),
+        );
+        providerEvent(c, {
+            type: 'response.done',
+            response: {
+                id: 'resp_hold',
+                usage: {
+                    input_token_details: { audio_tokens: 8000 },
+                    output_token_details: { audio_tokens: 4096 },
+                },
+            },
+        });
+        expect(await c.waitFor('error')).toMatchObject({
+            error: { code: 'insufficient_funds' },
+        });
+        await c.closed;
+        await vi.waitFor(async () =>
+            expect(
+                await server.services.metering.getOutstandingHolds(actor),
+            ).toBe(0),
+        );
+    });
+
     it('preserves the oldest billing identity when pending capacity is exceeded', async () => {
         const holder = await createTestUser(server, {
             username: 'transcription-cap',
