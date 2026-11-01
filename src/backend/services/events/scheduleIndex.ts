@@ -65,6 +65,7 @@ export const indexDefFor = (
     handlerDepth: row.handlerDepth,
     offsetMs: spreadOffsetMs(row.uid, row.kind, row.minGapMs),
     action: row.action,
+    resumeEpoch: row.resumeEpoch,
 });
 
 export const slotDefOf = (def: ScheduleIndexDef): SlotDef => ({

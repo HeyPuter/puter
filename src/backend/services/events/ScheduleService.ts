@@ -642,6 +642,7 @@ export class ScheduleService extends PuterService {
                     this.namespace,
                     owned.map((row) => row.subId),
                     end,
+                    { resumed: change.type === 'resumed' },
                 );
             } catch (err) {
                 if (attempt === 2)

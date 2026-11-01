@@ -211,7 +211,9 @@ return 1
  * KEYS: due, run, def, absent. ARGV: id, version, state, defJson ('' = keep the
  * stored one), score, owed, exact ('1' = only when the stored version is this
  * one). Returns 1 changed, 0 stale or no-op, 2 membership repaired, 3 a live
- * row met a tombstone at its version, 4 a tombstone where there was nothing.
+ * row met a tombstone at its version, 4 a tombstone where there was nothing. An
+ * active def with a higher `resumeEpoch` than the stored one resets the run as
+ * a resume does, even when the suspension before it never arrived.
  */
 const APPLY_SCRIPT = `${PRELUDE}
 local id = ARGV[1]
@@ -274,13 +276,17 @@ if json == '' then
     if not cur or sstate == 'ended' then return 0 end
     json = sjson
 end
+local function epochOf(j)
+    return tonumber(j and string.match(j, '"resumeEpoch":(%d+)') or 0)
+end
+local resumed = cur and epochOf(json) > epochOf(sjson)
 redis.call('HSET', KEYS[3], id, fmt(v) .. '|' .. state .. '|' .. json)
 local r = readRun(KEYS[2], id)
 if state == 'active' then
     if not r then
         writeRun(KEYS[2], id, newRun())
         redis.call('ZADD', KEYS[1], ARGV[5], id)
-    elseif cur and sstate ~= 'active' then
+    elseif cur and (sstate ~= 'active' or resumed) then
         r.pinned = ''
         r.missed = ''
         r.token = ''
@@ -496,6 +502,8 @@ export interface ScheduleIndexDef {
     handlerDepth: number;
     offsetMs: number;
     action: string | null;
+    /** The row's `resume_epoch`; a higher one resets the run. */
+    resumeEpoch: number;
 }
 
 /** `active`, `suspended:<reason>` or `ended`. */

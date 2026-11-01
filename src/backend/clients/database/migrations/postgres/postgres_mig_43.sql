@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS event_schedules (
     send_until BIGINT DEFAULT NULL,
     end_reason VARCHAR(32) DEFAULT NULL,
     version BIGINT NOT NULL DEFAULT 1,
+    resume_epoch INTEGER NOT NULL DEFAULT 0,
     deleted_at BIGINT DEFAULT NULL,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL

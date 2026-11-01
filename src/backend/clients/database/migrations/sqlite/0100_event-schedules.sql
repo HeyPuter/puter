@@ -40,6 +40,7 @@
 --   - `state`        : `active`; `deferred` rows also `sending` and
 --                      `delivered`; `done` once finished.
 --   - `version`      : bumped by every UPDATE; orders changes to one row.
+--   - `resume_epoch` : bumped by every resume; a run reset follows it.
 --   - `deleted_at`   : soft delete, kept for a week so a listing shows why a
 --                      schedule ended (`end_reason`).
 --
@@ -70,6 +71,7 @@ CREATE TABLE IF NOT EXISTS `event_schedules` (
     "send_until" INTEGER DEFAULT NULL,
     "end_reason" TEXT DEFAULT NULL,
     "version" INTEGER NOT NULL DEFAULT 1,
+    "resume_epoch" INTEGER NOT NULL DEFAULT 0,
     "deleted_at" INTEGER DEFAULT NULL,
     "created_at" INTEGER NOT NULL,
     "updated_at" INTEGER NOT NULL

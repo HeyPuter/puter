@@ -69,6 +69,7 @@ const def = (over: Partial<ScheduleIndexDef> = {}): ScheduleIndexDef => ({
     handlerDepth: 0,
     offsetMs: 0,
     action: null,
+    resumeEpoch: 0,
     ...over,
 });
 
@@ -368,6 +369,39 @@ describe('apply', () => {
             token: '',
         });
         expect(await index.getScore('r')).toBe(T0 + 600_000);
+    });
+
+    it('resets a run on a resume that arrives before its suspension', async () => {
+        await applyOne(change('o'));
+        const { token } = (await popOne('o'))!;
+        await index.retry('o', token, 1000, T0 + 60_000, 1, false, 2, 4);
+        // v4 resumes (epoch 1); the v3 suspension before it comes late.
+        expect(
+            await applyOne(
+                change('o', {
+                    version: 4,
+                    def: def({ resumeEpoch: 1 }),
+                    score: T0 + 600_000,
+                }),
+            ),
+        ).toBe(1);
+        expect(
+            await applyOne(
+                change('o', { version: 3, state: 'suspended:failures' }),
+            ),
+        ).toBe(0);
+        expect(await index.getRun('o')).toMatchObject({
+            owed: T0,
+            pinned: null,
+            attempts: 0,
+            fails: 0,
+            token: '',
+        });
+        expect(await index.getScore('o')).toBe(T0 + 600_000);
+        expect(
+            await index.settle('o', token, T0, T0 + 60_000, T0 + 60_000, 0),
+        ).toBe(0);
+        expect(await index.getScore('o')).toBe(T0 + 600_000);
     });
 
     it('a higher active version leaves a leased member alone', async () => {

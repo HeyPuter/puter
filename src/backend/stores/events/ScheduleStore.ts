@@ -119,6 +119,8 @@ export interface ScheduleRow {
     sendUntil: number | null;
     endReason: ScheduleEndReason | null;
     version: number;
+    /** Bumped by every resume, so the index resets a run it missed one for. */
+    resumeEpoch: number;
     deletedAt: number | null;
     createdAt: number;
     updatedAt: number;
@@ -307,6 +309,7 @@ const toRow = (row: Record<string, unknown>): ScheduleRow => ({
     sendUntil: numberOrNull(row.send_until),
     endReason: stringOrNull(row.end_reason) as ScheduleEndReason | null,
     version: Number(row.version),
+    resumeEpoch: Number(row.resume_epoch ?? 0),
     deletedAt: numberOrNull(row.deleted_at),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
@@ -349,6 +352,7 @@ const COLUMNS = [
     'send_until',
     'end_reason',
     'version',
+    'resume_epoch',
     'deleted_at',
     'created_at',
     'updated_at',
@@ -501,20 +505,24 @@ export class ScheduleStore extends PuterStore {
 
     /**
      * Record a change to the subscription rows schedules own: bump each
-     * schedule's `version`, and end it when `end` is given. Runs after the
-     * subscription change, so a replica that shows the new version also shows
-     * the subscription state behind it. Returns the rows as they now stand.
+     * schedule's `version`, and end it when `end` is given. A resume also bumps
+     * `resume_epoch`. Runs after the subscription change, so a replica that
+     * shows the new version also shows the subscription state behind it.
+     * Returns the rows as they now stand.
      */
     async applySubscriptionChange(
         namespace: string,
         subIds: readonly string[],
         end: { reason: ScheduleEndReason } | null,
+        options: { resumed?: boolean } = {},
     ): Promise<ScheduleSyncRow[]> {
         if (subIds.length === 0) return [];
         const now = Date.now();
         const set = end
             ? "`state` = 'done', `end_reason` = ?, `deleted_at` = ?, "
-            : '';
+            : options.resumed
+              ? '`resume_epoch` = `resume_epoch` + 1, '
+              : '';
         const setParams = end ? [end.reason, now] : [];
         for (const batch of chunks(subIds, WRITE_BATCH)) {
             const inList = batch.map(() => '?').join(', ');

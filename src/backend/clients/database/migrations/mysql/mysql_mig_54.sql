@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS `event_schedules` (
     `send_until` bigint DEFAULT NULL,
     `end_reason` varchar(32) DEFAULT NULL,
     `version` bigint NOT NULL DEFAULT 1,
+    `resume_epoch` int NOT NULL DEFAULT 0,
     `deleted_at` bigint DEFAULT NULL,
     `created_at` bigint NOT NULL,
     `updated_at` bigint NOT NULL,

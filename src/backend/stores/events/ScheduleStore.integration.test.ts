@@ -385,6 +385,24 @@ describe('versions', () => {
         expect(ended.deletedAt).not.toBeNull();
     });
 
+    it('bumps the resume epoch on a resume only', async () => {
+        const row = await store().create(input());
+        expect(row.resumeEpoch).toBe(0);
+        const [suspended] = await store().applySubscriptionChange(
+            NS,
+            [row.subId!],
+            null,
+        );
+        expect(suspended.resumeEpoch).toBe(0);
+        const [resumed] = await store().applySubscriptionChange(
+            NS,
+            [row.subId!],
+            null,
+            { resumed: true },
+        );
+        expect(resumed).toMatchObject({ version: 4, resumeEpoch: 1 });
+    });
+
     it('keeps the first end reason of a row already ended', async () => {
         const row = await store().create(input());
         await store().end([row], 'removed');
