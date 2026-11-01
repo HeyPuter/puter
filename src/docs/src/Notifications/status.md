@@ -4,9 +4,9 @@ description: Check whether push notifications from your app reach the browser th
 platforms: [websites, apps]
 ---
 
-Whether your app's push notifications reach the browser the user is in right now. It never prompts and never changes anything, so call it on page load to decide whether to show your own "Turn on notifications" button, which calls [`enable()`](/Notifications/enable/).
+Whether your app's push notifications reach the browser the user is in right now. It never prompts, so call it on page load to decide whether to show your own "Turn on notifications" button, which calls [`enable()`](/Notifications/enable/).
 
-On a website, it's `'on'` when the user turned pushes on in this browser with [`enable()`](/Notifications/enable/), and this browser still holds the subscription. Pushes start once Puter confirms the browser, usually within seconds of [`enable()`](/Notifications/enable/) resolving. Inside the Puter desktop, it's `'on'` when pushes are on in this browser and your app holds the [`notifications:push`](/Notifications/requestPermission/) permission.
+On a website, it's `'on'` when the user turned pushes on in this browser with [`enable()`](/Notifications/enable/), and this browser still holds the subscription. It then checks that subscription with Puter, and it's `'off'` after the user removes this browser in Puter's settings or turns your app off there. Pushes start once Puter confirms the browser, usually within seconds of [`enable()`](/Notifications/enable/) resolving. Inside the Puter desktop, it's `'on'` when pushes are on in this browser and your app holds the [`notifications:push`](/Notifications/requestPermission/) permission.
 
 ## Syntax
 ```js
@@ -25,11 +25,11 @@ A `Promise` that resolves to one of these strings. It never rejects.
 | Value | Meaning |
 | --- | --- |
 | `'on'` | Pushes from your app reach this browser. |
-| `'off'` | They don't yet. Call [`enable()`](/Notifications/enable/) from a click to turn them on. |
+| `'off'` | They don't yet. Call [`enable()`](/Notifications/enable/) from a click to turn them on. After the user turned your app off in Puter, [`enable()`](/Notifications/enable/) rejects with `push_revoked`. |
 | `'blocked'` | The browser blocks notifications, for your site on a website or for Puter inside the desktop. The user unblocks them in the browser's site settings. |
 | `'unavailable'` | This browser or page can't receive pushes, such as a browser without Web Push, or the server has no push notification service. |
 
-On a website, the call doesn't ask the server, so it answers `'off'` on a server without a push notification service, and [`enable()`](/Notifications/enable/) then rejects with `push_unavailable`. It also answers `'off'` when nobody is signed in.
+On a website, it answers `'off'` on a server without a push notification service, and [`enable()`](/Notifications/enable/) then rejects with `push_unavailable`. It also answers `'off'` when nobody is signed in. If the check with Puter fails, it answers `'on'` from this browser's subscription alone.
 
 ## Examples
 

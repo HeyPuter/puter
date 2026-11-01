@@ -20,6 +20,7 @@ import {
     currentWebPush,
     removeWebPush,
     syncWebPush,
+    webPushState,
     webPushSupported,
     workerFor,
 } from './lib/webPush.js';
@@ -53,6 +54,7 @@ const HANDLER_TIMEOUT_MS = 5_000;
 const WORKER_SHOW_TIMEOUT_MS = 2_000;
 /** Sync failures that are the server's or the user's choice, not a fault. */
 const QUIET_SYNC_ERRORS = new Set([
+    'push_device_removed',
     'push_disabled',
     'push_revoked',
     'push_unavailable',
@@ -367,6 +369,7 @@ export class NotificationsModule extends EventListener {
             worker,
             onPending: pending,
             signal,
+            renewRemoved: true,
         });
         try {
             // The GUI reads the registered device right after.
@@ -374,7 +377,7 @@ export class NotificationsModule extends EventListener {
                 ? syncing
                 : Promise.race([syncing, sent]));
         } catch (error) {
-            if (error?.code === 'push_revoked') await this.#recordOptIn(false);
+            await this.#followRefusal(error, worker);
             throw error;
         }
         // A disable() that ran meanwhile wins.
@@ -388,6 +391,7 @@ export class NotificationsModule extends EventListener {
         await this.#recordOptIn(true);
         void this.#finishSync(
             syncing,
+            worker,
             'could not confirm this browser for pushes',
         );
     }
@@ -411,7 +415,8 @@ export class NotificationsModule extends EventListener {
 
     /**
      * `status()` on a website or the GUI. On a website, a subscription counts
-     * only while the signed-in user's opt-in is recorded here.
+     * only while the signed-in user's opt-in is recorded here. An `on` is
+     * checked with the server, and kept when the server can't tell.
      *
      * @param {{ url: string; scope?: string }} worker
      * @returns {Promise<import('./types.js').PushStatus>}
@@ -428,8 +433,18 @@ export class NotificationsModule extends EventListener {
             return 'off';
         }
         if (!subscription) return 'off';
-        if (this.puter.env !== 'web') return 'on';
-        return (await this.#readOptIn()) ? 'on' : 'off';
+        if (this.puter.env === 'web' && !(await this.#readOptIn()))
+            return 'off';
+        const state = await webPushState(this.puter, subscription.endpoint);
+        if (state === 'removed') {
+            await this.#dropRemoved(worker, subscription);
+            return 'off';
+        }
+        if (state === 'revoked') {
+            await this.#recordOptIn(false);
+            return 'off';
+        }
+        return 'on';
     }
 
     /**
@@ -566,20 +581,44 @@ export class NotificationsModule extends EventListener {
                 worker,
                 signal: this.#stopVerifying.signal,
             }),
+            worker,
             'could not keep the push subscription current',
         );
     }
 
     /** Settles a sync nobody waits on; quiet about the expected failures. */
-    async #finishSync(syncing, what) {
+    async #finishSync(syncing, worker, what) {
         try {
             await syncing;
             this.#workerRegistered = true;
         } catch (error) {
-            if (error?.code === 'push_revoked') await this.#recordOptIn(false);
+            await this.#followRefusal(error, worker);
             if (QUIET_SYNC_ERRORS.has(error?.code)) return;
             this.#reportPush(error, what);
         }
+    }
+
+    /** Pushes stay off here when the user turned them off in Puter. */
+    async #followRefusal(error, worker) {
+        if (error?.code === 'push_device_removed')
+            await this.#dropRemoved(worker);
+        else if (error?.code === 'push_revoked') await this.#recordOptIn(false);
+    }
+
+    /**
+     * The user removed this browser in Puter: ends its subscription here only,
+     * since the server already dropped it, and forgets the opt-in until
+     * `enable()`.
+     */
+    async #dropRemoved(worker, subscription = null) {
+        try {
+            await (
+                subscription ?? (await currentWebPush({ worker }))
+            )?.unsubscribe();
+        } catch {
+            // Already gone, or the browser can't tell.
+        }
+        await this.#recordOptIn(false);
     }
 
     #cancelVerification() {
