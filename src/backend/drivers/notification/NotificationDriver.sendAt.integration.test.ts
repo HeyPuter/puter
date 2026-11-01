@@ -248,7 +248,8 @@ describe('notify({ sendAt })', () => {
             state: 'active',
             subId: null,
         });
-        expect(JSON.parse(row.payload!)).toEqual({
+        const stored = (await store().getDeferred(row.id))!.row;
+        expect(JSON.parse(stored.payload!)).toEqual({
             message: {
                 title: 'Hi',
                 text: 'Later',
