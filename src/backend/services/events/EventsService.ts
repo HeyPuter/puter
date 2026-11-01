@@ -118,6 +118,7 @@ import {
     appSocketRoom,
     type SocketSpecifier,
 } from '../socket/SocketService.js';
+import { savedAfterId, type JobRunContext } from '../jobs/JobScheduler.js';
 import { PuterService } from '../types.js';
 import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import type { IConfig } from '../../types.js';
@@ -753,12 +754,14 @@ const METER_ACTOR_LIMIT = 5_000;
 const NO_CREDIT_SWEEP_BATCH = 500;
 const NO_CREDIT_SWEEP_MAX_BATCHES = 200;
 
+const NO_CREDIT_SWEEP_JOB = 'events.subscriptions.creditSweep';
 /**
  * How often suspensions waiting on a restored balance are re-checked. Well
  * inside the hour a `no_credit` backlog is held for, so a top-up gets the
  * subscription back before what it was owed expires.
  */
-const NO_CREDIT_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+const NO_CREDIT_SWEEP_EVERY_MS = 15 * 60 * 1000;
+const NO_CREDIT_SWEEP_LEASE_MS = 10 * 60 * 1000;
 
 /** The part of a socket this service uses, so tests need not build one. */
 export interface EventSocket {
@@ -1381,7 +1384,6 @@ export class EventsService extends PuterService {
     #expirySweep: ReturnType<typeof setInterval> | null = null;
     #expiryKick: ReturnType<typeof setTimeout> | null = null;
     #pendingSweep: ReturnType<typeof setInterval> | null = null;
-    #creditSweep: ReturnType<typeof setInterval> | null = null;
 
     /**
      * What runs an app's handler. Replaced at start-up by the invoker that
@@ -1528,7 +1530,15 @@ export class EventsService extends PuterService {
 
         this.#armExpirySweep();
         this.#armPendingSweep();
-        this.#armCreditSweep();
+        if (this.enabled)
+            this.services.jobs.register(NO_CREDIT_SWEEP_JOB, {
+                every: NO_CREDIT_SWEEP_EVERY_MS,
+                scope: 'fleet',
+                leaseMs: NO_CREDIT_SWEEP_LEASE_MS,
+                run: async (ctx) => {
+                    await this.sweepNoCredit(ctx);
+                },
+            });
     }
 
     override onServerPrepareShutdown(): void {
@@ -1538,8 +1548,6 @@ export class EventsService extends PuterService {
         this.#expirySweep = null;
         if (this.#pendingSweep) clearInterval(this.#pendingSweep);
         this.#pendingSweep = null;
-        if (this.#creditSweep) clearInterval(this.#creditSweep);
-        this.#creditSweep = null;
     }
 
     override onServerShutdown(): void {
@@ -2752,13 +2760,25 @@ export class EventsService extends PuterService {
      * top-up is not something this service hears about, and coupling delivery
      * to the payment path would make one more thing that has to be told. The
      * cost of the delay is bounded by how long a `no_credit` backlog is held.
+     *
+     * Each run picks up where the last one stopped and wraps at the end of the
+     * table, so a backlog past one run's cap is still reached.
      */
-    async sweepNoCredit(): Promise<number> {
+    async sweepNoCredit({
+        signal,
+        state,
+        saveState,
+    }: JobRunContext): Promise<number> {
         if (!this.enabled || !this.services.metering) return 0;
 
         let resumed = 0;
-        let after = 0;
-        for (let pass = 0; pass < NO_CREDIT_SWEEP_MAX_BATCHES; pass++) {
+        let after = savedAfterId(state);
+        let saved = after;
+        for (
+            let pass = 0;
+            pass < NO_CREDIT_SWEEP_MAX_BATCHES && !signal.aborted;
+            pass++
+        ) {
             const page =
                 await this.stores.durableSubscription.listSuspendedPage(
                     'no_credit',
@@ -2767,6 +2787,8 @@ export class EventsService extends PuterService {
                 );
             const holders = new Set(page.rows.map((row) => row.holderUserId));
             for (const holderUserId of holders) {
+                // The page is redone next run.
+                if (signal.aborted) return resumed;
                 const actor = await this.#meterActor({
                     holderUserId,
                     appUid: null,
@@ -2785,8 +2807,12 @@ export class EventsService extends PuterService {
                 }
                 resumed += await this.resumeForCredit(holderUserId);
             }
-            if (page.nextId === null) break;
-            after = page.nextId;
+            after = page.nextId ?? 0;
+            if (after !== saved) {
+                await saveState(after === 0 ? null : { afterId: after });
+                saved = after;
+            }
+            if (after === 0) break;
         }
         return resumed;
     }
@@ -6499,17 +6525,6 @@ export class EventsService extends PuterService {
         const sweep = setInterval(run, EXPIRY_SWEEP_INTERVAL_MS);
         sweep.unref?.();
         this.#expirySweep = sweep;
-    }
-
-    #armCreditSweep(): void {
-        if (!this.enabled) return;
-        const sweep = setInterval(() => {
-            void this.sweepNoCredit().catch((err) => {
-                console.warn('[events] credit sweep failed', err);
-            });
-        }, NO_CREDIT_SWEEP_INTERVAL_MS);
-        sweep.unref?.();
-        this.#creditSweep = sweep;
     }
 
     #armPendingSweep(): void {

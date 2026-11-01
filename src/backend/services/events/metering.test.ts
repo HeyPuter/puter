@@ -43,6 +43,7 @@ import {
     DEFAULT_TEMP_SUBSCRIPTION,
 } from '../metering/consts.js';
 import type { UsageInput } from '../metering/types.js';
+import { testJobContext } from '../jobs/jobsTestUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_COSTS } from './costs.js';
 import { EventsService } from './EventsService.js';
@@ -62,6 +63,8 @@ let solvent: Set<number>;
 /** Set to have the next create lose the last slot after its insert. */
 let raceLost: boolean;
 let emitted: Array<{ key: string; data: unknown }>;
+/** Rows one credit-sweep page takes; null for the service's own batch. */
+let pageSize: number | null;
 
 const anchorUid = (): string => `docs-${seq}`;
 const anchorPath = (): string => `/u${userId}/Documents`;
@@ -124,6 +127,7 @@ beforeEach(() => {
     solvent = new Set([userId]);
     raceLost = false;
     emitted = [];
+    pageSize = null;
 
     service = new EventsService(
         { events: { enabled: true } } as IConfig,
@@ -158,15 +162,25 @@ beforeEach(() => {
                         reaped: [],
                     };
                 },
-                listSuspendedPage: async (reason: string, afterId: number) =>
-                    afterId === 0
-                        ? {
-                              rows: rows.filter(
-                                  (row) => row.suspendedReason === reason,
-                              ),
-                              nextId: null,
-                          }
-                        : { rows: [], nextId: null },
+                // Keyset paging over `rows`, a row's id being its position + 1.
+                listSuspendedPage: async (
+                    reason: string,
+                    afterId: number,
+                    batchSize: number,
+                ) => {
+                    const size = pageSize ?? batchSize;
+                    const page = rows
+                        .map((row, i) => ({ row, id: i + 1 }))
+                        .filter(
+                            ({ row, id }) =>
+                                id > afterId && row.suspendedReason === reason,
+                        )
+                        .slice(0, size);
+                    return {
+                        rows: page.map(({ row }) => row),
+                        nextId: page.length < size ? null : page.at(-1)!.id,
+                    };
+                },
                 listSuspendedForHolder: async (
                     holderUserId: number,
                     reason: string,
@@ -259,21 +273,69 @@ describe('a suspension waiting on a balance', () => {
             suspendedReason: 'no_credit',
         });
 
-    it('comes back once the account has budget again', async () => {
+    it('comes back once the account has budget again, and every region hears it', async () => {
         const row = suspended();
         rows.push(row);
 
-        await expect(service.sweepNoCredit()).resolves.toBe(1);
+        await expect(service.sweepNoCredit(testJobContext())).resolves.toBe(1);
         expect(resumed).toEqual([row.subId]);
         expect(row.suspendedReason).toBeNull();
+        expect(emitted).toContainEqual({
+            key: 'outer.pubsub.events.generationBumped',
+            data: { userId, generation: 1, durable: true },
+        });
     });
 
     it('stays out of service while the account still has none', async () => {
         rows.push(suspended());
         solvent.clear();
 
-        await expect(service.sweepNoCredit()).resolves.toBe(0);
+        await expect(service.sweepNoCredit(testJobContext())).resolves.toBe(0);
         expect(resumed).toEqual([]);
+    });
+
+    it('reaches rows past one run`s page cap across runs, then wraps', async () => {
+        // One row per page, so a run's 200 pages stop at 200 rows.
+        pageSize = 1;
+        for (let i = 0; i < 450; i++) rows.push(suspended());
+        for (const [i, row] of rows.entries()) row.holderUserId = 10_000 + i;
+        // Only the last holder has a balance again.
+        solvent = new Set([10_000 + 449]);
+
+        const first = testJobContext();
+        await expect(service.sweepNoCredit(first)).resolves.toBe(0);
+        expect(first.saved.at(-1)).toEqual({ afterId: 200 });
+
+        const second = testJobContext(first.saved.at(-1));
+        await expect(service.sweepNoCredit(second)).resolves.toBe(0);
+        expect(second.saved.at(-1)).toEqual({ afterId: 400 });
+
+        const third = testJobContext(second.saved.at(-1));
+        await expect(service.sweepNoCredit(third)).resolves.toBe(1);
+        expect(resumed).toEqual([rows[449].subId]);
+        // The end of the table wraps the cursor back to the start.
+        expect(third.saved.at(-1)).toBeNull();
+    });
+
+    it('stops between pages once its signal aborts, keeping the last full page', async () => {
+        pageSize = 1;
+        for (let i = 0; i < 5; i++) rows.push(suspended());
+        for (const [i, row] of rows.entries()) row.holderUserId = 20_000 + i;
+        const ctx = testJobContext();
+        const save = ctx.saveState;
+        ctx.saveState = async (next) => {
+            await save(next);
+            if (ctx.saved.length === 2) ctx.abort();
+        };
+
+        await service.sweepNoCredit(ctx);
+        expect(ctx.saved).toEqual([{ afterId: 1 }, { afterId: 2 }]);
+    });
+
+    it('writes no cursor while there is nothing to page through', async () => {
+        const ctx = testJobContext();
+        await expect(service.sweepNoCredit(ctx)).resolves.toBe(0);
+        expect(ctx.saved).toEqual([]);
     });
 
     it('leaves a suspension it did not cause alone', async () => {
@@ -284,7 +346,7 @@ describe('a suspension waiting on a balance', () => {
             }),
         );
 
-        await expect(service.sweepNoCredit()).resolves.toBe(0);
+        await expect(service.sweepNoCredit(testJobContext())).resolves.toBe(0);
         expect(resumed).toEqual([]);
     });
 });

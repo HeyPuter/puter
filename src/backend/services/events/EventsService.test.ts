@@ -315,6 +315,7 @@ const buildService = (
             kvShareHandle: kvShareHandleStore,
         } as never,
         {
+            jobs: { register: vi.fn() },
             eventForward: {
                 // A deployment with no peers has nowhere to forward to, which
                 // is what every test here is.
