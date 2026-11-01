@@ -30,9 +30,11 @@ import {
 import {
     EVENTS_CONSECUTIVE_FAILURES,
     EVENTS_SCHEDULE_SUSPENDED_HOLDER_DEFER_MS,
+    EVENTS_WORKER_INVOCATION_LIMIT,
     deliveryBackoffMs,
 } from '../../controllers/events/limits.js';
 import { makeActor } from '../../core/actor.js';
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import { scheduleToken } from '../../stores/events/types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
@@ -677,6 +679,61 @@ describe('a lifecycle hook whose SQL step fails', () => {
         });
         expect(await index().getScore(row.uid)).toBeNull();
         expectNoPendingDeliveryCalls([row.subId]);
+    });
+});
+
+describe('the fire path', () => {
+    it('stamps firedAt when the invocation goes out after a deploy', async () => {
+        const app = await h.makeApp();
+        const row = await hourly(app);
+        const offset = (await defOf(row.uid))!.def!.offsetMs;
+        h.respond = async (call) =>
+            call.deployed
+                ? HANDLED_OK
+                : { status: null, dispatchReason: 'missing' };
+        events().useWorkerMissHandler(async () => {
+            // The deploy takes three seconds of clock.
+            h.setClock(Date.now() + 3000);
+            return 'deployed';
+        });
+        h.setClock(T0 + offset);
+        await h.fire();
+        expect(h.sent).toHaveLength(2);
+        expect(h.sent[0].event.firedAt).toBe(T0 + offset);
+        expect(h.sent[1].event.firedAt).toBe(T0 + offset + 3000);
+        expect(h.sent[1].event.id).toBe(h.sent[0].event.id);
+        expect(billed()).toBe(1);
+    });
+
+    it('spreads 100 hourly schedules of one app across the window, on the schedule lane only', async () => {
+        const app = await h.makeApp();
+        const uids = new Set<string>();
+        for (let i = 0; i < 100; i++) uids.add((await hourly(app)).uid);
+        const perSecond: number[] = [];
+        for (let s = 0; s <= 30; s++) {
+            const before = h.sent.length;
+            h.setClock(T0 + s * 1000);
+            await h.fire();
+            perSecond.push(h.sent.length - before);
+        }
+        expect(new Set(h.sent.map((sent) => sent.event.scheduleId))).toEqual(
+            uids,
+        );
+        // Deterministic offsets under 30 s: no second takes the whole burst.
+        expect(perSecond[30]).toBe(0);
+        expect(Math.max(...perSecond)).toBeLessThanOrEqual(15);
+        expect(h.sent.every((sent) => sent.call.lane === 'schedule')).toBe(
+            true,
+        );
+        // The delivery invocation limiter is never spent by schedules: its
+        // window still admits the first of a limit of one.
+        await expect(
+            checkRateLimit(
+                `${EVENTS_WORKER_INVOCATION_LIMIT.scope}:${h.userId}:${app.uid}`,
+                1,
+                EVENTS_WORKER_INVOCATION_LIMIT.window,
+            ),
+        ).resolves.toBe(true);
     });
 });
 

@@ -75,6 +75,7 @@ export const HANDLED_OK: EventsInvokeAnswer = { status: 200, handled: true };
 
 export const bootScheduleHarness = async (
     events: Record<string, unknown> = {},
+    options: { localWorkers?: boolean } = {},
 ): Promise<ScheduleHarness> => {
     const env = await setupPuterTestEnv({
         events: {
@@ -84,8 +85,9 @@ export const bootScheduleHarness = async (
             internalSecret: 'schedule-test-secret',
             ...events,
         },
+        ...(options.localWorkers ? { workers: { localServer: true } } : {}),
         unlimitedMetering: true,
-    } as IConfig);
+    } as unknown as IConfig);
     const server = env.server;
     server.services.schedule.onServerPrepareShutdown();
 
@@ -178,6 +180,8 @@ export const bootScheduleHarness = async (
         shutdown: () => env.shutdown(),
     };
 
+    // With local workers, invocations run in the in-process worker runtime.
+    if (options.localWorkers) return harness;
     server.services.events.useWorkerTransport({
         send: async (call) => {
             const body = JSON.parse(
