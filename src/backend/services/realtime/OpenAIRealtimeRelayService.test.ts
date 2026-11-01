@@ -305,6 +305,10 @@ describe('OpenAIRealtimeRelayService relay', () => {
                     return;
                 }
                 // Drops the connection, like a provider ending the session.
+                if (event.type === 'test.closeReason') {
+                    ws.close(1000, 'provider org-AbCdEf1234567890');
+                    return;
+                }
                 if (event.type === 'test.drop') {
                     ws.terminate();
                     return;
@@ -1589,6 +1593,54 @@ describe('OpenAIRealtimeRelayService relay', () => {
             false,
         );
         c.ws.close();
+    });
+
+    it.each([
+        ['error', { error: { message: 'org-AbCdEf1234567890' } }],
+        [
+            'response.done',
+            {
+                response: {
+                    status_details: {
+                        error: { message: 'org-AbCdEf1234567890' },
+                    },
+                },
+            },
+        ],
+        [
+            'conversation.item.input_audio_transcription.failed',
+            { error: { message: 'org-AbCdEf1234567890' } },
+        ],
+    ])('redacts only diagnostic messages in %s', async (type, fields) => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const event = { type, ...fields, content: 'org-AbCdEf1234567890' };
+        c.ws.send(
+            JSON.stringify({
+                type: 'test.upstream',
+                payload: JSON.stringify(event),
+            }),
+        );
+        const received = await c.waitFor(type);
+        expect(received).toEqual(
+            JSON.parse(
+                JSON.stringify(event).replace(
+                    '"message":"org-AbCdEf1234567890"',
+                    '"message":"org-redacted"',
+                ),
+            ),
+        );
+        c.ws.close();
+    });
+
+    it('redacts provider organization IDs in close diagnostics', async () => {
+        const c = open(`${relayUrl}?auth_token=${user.token}`);
+        await c.waitFor('session.created');
+        const close = new Promise<string>((resolve) =>
+            c.ws.once('close', (_code, reason) => resolve(reason.toString())),
+        );
+        c.ws.send(JSON.stringify({ type: 'test.closeReason' }));
+        expect(await close).toBe('provider org-redacted');
     });
 
     it('accepts a context replay burst right after full-size settings', async () => {
