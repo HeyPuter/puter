@@ -483,7 +483,14 @@ describe('JobScheduler', () => {
 
     describe('on a controlled clock', () => {
         const leaseMs = 300;
-        let baseline = 0;
+        /**
+         * Pending timeouts armed from JobScheduler.ts. The shared test server's
+         * own loops keep running on real intervals and may arm fake timers
+         * mid-test, so the global timer count says nothing about the
+         * scheduler.
+         */
+        let armed: Set<unknown>;
+        const schedulerTimers = () => armed.size;
 
         beforeEach(() => {
             vi.useFakeTimers({
@@ -495,7 +502,39 @@ describe('JobScheduler', () => {
                     'performance',
                 ],
             });
-            baseline = vi.getTimerCount();
+            armed = new Set();
+            const fakeSetTimeout = globalThis.setTimeout;
+            const fakeClearTimeout = globalThis.clearTimeout;
+            const fromScheduler = () => {
+                const limit = Error.stackTraceLimit;
+                Error.stackTraceLimit = 30;
+                const stack = new Error().stack ?? '';
+                Error.stackTraceLimit = limit;
+                return stack.includes('services/jobs/JobScheduler.ts');
+            };
+            vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+                fn: (...args: unknown[]) => void,
+                ms?: number,
+                ...rest: unknown[]
+            ) => {
+                if (!fromScheduler()) return fakeSetTimeout(fn, ms, ...rest);
+                const handle = fakeSetTimeout(
+                    (...args: unknown[]) => {
+                        armed.delete(handle);
+                        fn(...args);
+                    },
+                    ms,
+                    ...rest,
+                );
+                armed.add(handle);
+                return handle;
+            }) as never);
+            vi.spyOn(globalThis, 'clearTimeout').mockImplementation(((
+                handle: Parameters<typeof clearTimeout>[0],
+            ) => {
+                armed.delete(handle);
+                fakeClearTimeout(handle);
+            }) as never);
         });
 
         /** Batches of `batchMs`, each started only while the signal is live. */
@@ -550,7 +589,7 @@ describe('JobScheduler', () => {
         const settle = async (running: Promise<void>) => {
             await vi.advanceTimersByTimeAsync(2_000);
             await running;
-            expect(vi.getTimerCount()).toBe(baseline);
+            expect(schedulerTimers()).toBe(0);
         };
 
         it('starts the first batch well inside the lease, and aborts at the renewal after a theft', async () => {
@@ -710,10 +749,10 @@ describe('JobScheduler', () => {
             });
             const running = scheduler.poll();
             await vi.advanceTimersByTimeAsync(10);
-            expect(vi.getTimerCount()).toBeGreaterThan(baseline);
+            expect(schedulerTimers()).toBeGreaterThan(0);
 
             scheduler.onServerPrepareShutdown();
-            expect(vi.getTimerCount()).toBe(baseline);
+            expect(schedulerTimers()).toBe(0);
             release();
             await settle(running);
         });
