@@ -187,6 +187,16 @@ export interface ScheduleSyncCursor {
     id: number;
 }
 
+/**
+ * A condition on one schedule row that statements against another table embed
+ * as `EXISTS (SELECT 1 FROM <table> WHERE <where>)`, binding `values`.
+ */
+export interface ScheduleRowGuard {
+    table: string;
+    where: string;
+    values: unknown[];
+}
+
 export interface ScheduleListOptions {
     appUid?: string | null;
     limit?: number;
@@ -669,6 +679,115 @@ export class ScheduleStore extends PuterStore {
             { orphan: true },
         );
         return ended?.endReason === 'orphaned' ? ended : null;
+    }
+
+    // -- Delayed sends -----------------------------------------------
+
+    /**
+     * Claim a pending delayed send for one attempt, or take over a claim that
+     * lapsed. Expiry is on the primary's clock, so nodes whose clocks disagree
+     * still agree on it.
+     */
+    async claimDeferred(
+        id: number,
+        namespace: string,
+        token: string,
+        claimMs: number,
+    ): Promise<boolean> {
+        const now = this.clients.db.nowMsExpr();
+        const result = await this.clients.db.write(
+            `UPDATE \`${TABLE}\` SET \`state\` = 'sending', \`send_token\` = ?, ` +
+                `\`send_until\` = ${now} + ?, ` +
+                '`version` = `version` + 1, `updated_at` = ? ' +
+                "WHERE `id` = ? AND `namespace` = ? AND `kind` = 'deferred' " +
+                "AND `deleted_at` IS NULL AND (`state` = 'active' OR " +
+                `(\`state\` = 'sending' AND \`send_until\` < ${now}))`,
+            [token, claimMs, Date.now(), id, namespace],
+        );
+        return result.anyRowsAffected;
+    }
+
+    /** A delayed send's row, with the primary's clock read alongside it. */
+    async getDeferred(
+        id: number,
+    ): Promise<{ row: ScheduleRow; nowMs: number } | null> {
+        const [row] = await this.clients.db.pread(
+            `SELECT ${SELECT_COLUMNS}, ${this.clients.db.nowMsExpr()} AS \`now_ms\` ` +
+                `FROM \`${TABLE}\` WHERE \`id\` = ?`,
+            [id],
+        );
+        return row ? { row: toRow(row), nowMs: Number(row.now_ms) } : null;
+    }
+
+    /** Hand a claim back, so the send can be claimed again at once. */
+    async releaseDeferred(id: number, token: string): Promise<boolean> {
+        const result = await this.clients.db.write(
+            `UPDATE \`${TABLE}\` SET \`state\` = 'active', \`send_token\` = NULL, ` +
+                '`send_until` = NULL, `version` = `version` + 1, `updated_at` = ? ' +
+                "WHERE `id` = ? AND `send_token` = ? AND `state` = 'sending'",
+            [Date.now(), id, token],
+        );
+        return result.anyRowsAffected;
+    }
+
+    /**
+     * What a delayed send's mailbox statements are fenced on: the row marked
+     * delivered by this claim, in the same transaction.
+     */
+    deliveredGuard(id: number, token: string): ScheduleRowGuard {
+        return {
+            table: TABLE,
+            where: "`id` = ? AND `send_token` = ? AND `state` = 'delivered'",
+            values: [id, token],
+        };
+    }
+
+    /**
+     * Mark a claimed send delivered and write its mailbox row, in one
+     * transaction. The mailbox statements are fenced on {@link deliveredGuard},
+     * so a claim that was taken over writes nothing. Returns whether this claim
+     * now holds the row as delivered.
+     */
+    async deliverDeferred(
+        id: number,
+        token: string,
+        mailbox: readonly BatchEntry[],
+    ): Promise<boolean> {
+        await this.clients.db.batchWrite([
+            {
+                statement:
+                    `UPDATE \`${TABLE}\` SET \`state\` = 'delivered', ` +
+                    '`version` = `version` + 1, `updated_at` = ? ' +
+                    "WHERE `id` = ? AND `send_token` = ? AND `state` = 'sending'",
+                values: [Date.now(), id, token],
+            },
+            ...mailbox,
+        ]);
+        const [row] = await this.clients.db.pread(
+            `SELECT \`state\`, \`send_token\` FROM \`${TABLE}\` WHERE \`id\` = ?`,
+            [id],
+        );
+        return row?.state === 'delivered' && row.send_token === token;
+    }
+
+    /**
+     * End a delayed send its claim holds, sent or not. Returns the row as it
+     * now stands, which another claim may hold instead.
+     */
+    async finishDeferred(
+        id: number,
+        token: string,
+        endReason: 'delivered' | 'dropped',
+    ): Promise<ScheduleRow | null> {
+        const now = Date.now();
+        await this.clients.db.write(
+            `UPDATE \`${TABLE}\` SET \`state\` = 'done', \`end_reason\` = ?, ` +
+                '`deleted_at` = ?, `version` = `version` + 1, `updated_at` = ? ' +
+                'WHERE `id` = ? AND `send_token` = ? ' +
+                "AND `state` IN ('sending', 'delivered')",
+            [endReason, now, now, id, token],
+        );
+        return this.#getById(id);
     }
 
     // -- Reads -------------------------------------------------------

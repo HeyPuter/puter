@@ -676,3 +676,189 @@ describe('the holder listing', () => {
         }
     });
 });
+
+describe('a delayed send`s claim and write', () => {
+    const notifications = () => server.stores.notification;
+    const deferred = () =>
+        store().create(
+            input({
+                kind: 'deferred',
+                everyMs: null,
+                ratePerHour: 0,
+                minGapMs: null,
+                subscription: undefined,
+                action: 'notifications.appMessage',
+                payload: '{"message":{"title":"hi"}}',
+            }),
+        );
+    const send = (sendKey: string, over: Record<string, unknown> = {}) => ({
+        sendKey,
+        userId,
+        value: { type: 'app.message', title: 'hi' },
+        type: 'app.message',
+        audience: 'app-user',
+        appUid,
+        group: 'g',
+        at: Date.parse('2026-11-02T10:00:00Z'),
+        ...over,
+    });
+    const claim = (id: number, token: string) =>
+        store().claimDeferred(id, NS, token, 120_000);
+
+    it('claims once while a claim is live, and again once it lapses on the database clock', async () => {
+        const row = await deferred();
+        expect(await claim(row.id, 'a')).toBe(true);
+        expect(await claim(row.id, 'b')).toBe(false);
+
+        const held = await store().getDeferred(row.id);
+        expect(held!.row).toMatchObject({
+            state: 'sending',
+            sendToken: 'a',
+            version: row.version + 1,
+        });
+        // The expiry is the primary's clock plus the claim.
+        expect(held!.row.sendUntil! - held!.nowMs).toBeGreaterThan(110_000);
+        expect(held!.row.sendUntil! - held!.nowMs).toBeLessThanOrEqual(120_000);
+
+        await db().write(
+            'UPDATE `event_schedules` SET `send_until` = ? WHERE `id` = ?',
+            [held!.nowMs - 1, row.id],
+        );
+        expect(await claim(row.id, 'b')).toBe(true);
+        expect(await store().releaseDeferred(row.id, 'a')).toBe(false);
+        expect(await store().releaseDeferred(row.id, 'b')).toBe(true);
+        expect((await store().getDeferred(row.id))!.row).toMatchObject({
+            state: 'active',
+            sendToken: null,
+            sendUntil: null,
+        });
+    });
+
+    it('writes the mailbox row with the delivery, and only for the claim that holds it', async () => {
+        const row = await deferred();
+        await claim(row.id, 'a');
+        const key = uuidv4();
+
+        expect(
+            await store().deliverDeferred(
+                row.id,
+                'b',
+                notifications().sendEntries(
+                    send(key),
+                    store().deliveredGuard(row.id, 'b'),
+                ),
+            ),
+        ).toBe(false);
+        expect(await notifications().getBySendKey(key)).toBeNull();
+
+        expect(
+            await store().deliverDeferred(
+                row.id,
+                'a',
+                notifications().sendEntries(
+                    send(key),
+                    store().deliveredGuard(row.id, 'a'),
+                ),
+            ),
+        ).toBe(true);
+        expect(await notifications().getBySendKey(key)).toMatchObject({
+            uid: key,
+            user_id: userId,
+            app_uid: appUid,
+            type: 'app.message',
+            audience: 'app-user',
+            send_key: key,
+            value: { type: 'app.message', title: 'hi' },
+        });
+        expect(
+            await notifications().getUnseenByGroup(userId, appUid, 'g'),
+        ).toMatchObject({ uid: key });
+
+        // Run again, the slot writes nothing more.
+        await db().write(
+            "UPDATE `event_schedules` SET `state` = 'sending' WHERE `id` = ?",
+            [row.id],
+        );
+        await store().deliverDeferred(
+            row.id,
+            'a',
+            notifications().sendEntries(
+                send(key),
+                store().deliveredGuard(row.id, 'a'),
+            ),
+        );
+        await expect(
+            count(
+                'SELECT COUNT(*) AS n FROM `notification` WHERE `send_key` = ?',
+                [key],
+            ),
+        ).resolves.toBe(1);
+        await expect(
+            count('SELECT COUNT(*) AS n FROM `notification` WHERE `uid` = ?', [
+                key,
+            ]),
+        ).resolves.toBe(1);
+    });
+
+    it('replaces an open row in place, keeping its uid and taking the key', async () => {
+        const open = await notifications().create({
+            userId,
+            value: { type: 'app.message', title: 'first' },
+            type: 'app.message',
+            audience: 'app-user',
+            appUid,
+            group: 'g',
+        });
+        const row = await deferred();
+        await claim(row.id, 'a');
+        const key = uuidv4();
+        const at = Date.parse('2026-11-02T10:00:00Z');
+        expect(
+            await store().deliverDeferred(
+                row.id,
+                'a',
+                notifications().sendEntries(
+                    send(key, {
+                        value: { type: 'app.message', title: 'second' },
+                        replaceUid: open.uid,
+                        at,
+                    }),
+                    store().deliveredGuard(row.id, 'a'),
+                ),
+            ),
+        ).toBe(true);
+        const replaced = await notifications().getBySendKey(key);
+        expect(replaced).toMatchObject({
+            uid: open.uid,
+            send_key: key,
+            value: { title: 'second' },
+        });
+        expect(Number(replaced.replaced_at)).toBe(at);
+        await expect(
+            count(
+                'SELECT COUNT(*) AS n FROM `notification` WHERE `app_uid` = ?',
+                [appUid],
+            ),
+        ).resolves.toBe(1);
+    });
+
+    it('finishes only for the claim that holds it', async () => {
+        const row = await deferred();
+        await claim(row.id, 'a');
+        expect(
+            await store().finishDeferred(row.id, 'b', 'dropped'),
+        ).toMatchObject({ state: 'sending', deletedAt: null });
+        await store().deliverDeferred(row.id, 'a', []);
+        const finished = await store().finishDeferred(row.id, 'a', 'delivered');
+        expect(finished).toMatchObject({
+            state: 'done',
+            endReason: 'delivered',
+            deletedAt: expect.any(Number),
+        });
+        // Ended rows can't be claimed or cancelled.
+        expect(await claim(row.id, 'c')).toBe(false);
+        expect(await store().cancelDeferred([row.id], 'removed')).toEqual([
+            expect.objectContaining({ endReason: 'delivered' }),
+        ]);
+    });
+});

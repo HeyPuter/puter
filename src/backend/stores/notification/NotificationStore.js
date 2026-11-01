@@ -97,6 +97,19 @@ export class NotificationStore extends PuterStore {
     }
 
     /**
+     * The row a delayed send wrote or last replaced, from the primary.
+     *
+     * @param {string} sendKey
+     */
+    async getBySendKey(sendKey) {
+        const rows = await this.clients.db.pread(
+            'SELECT * FROM `notification` WHERE `send_key` = ? LIMIT 1',
+            [sendKey],
+        );
+        return this.#normalizeRow(rows[0]) ?? null;
+    }
+
+    /**
      * The newest row `appUid` wrote for the user under `group`, or null when it
      * was shown or acknowledged: an older row is never picked up in its place.
      * Rows written without a group never match.
@@ -341,6 +354,7 @@ export class NotificationStore extends PuterStore {
             type,
             group_key: key,
             replaced_at: null,
+            send_key: null,
         });
     }
 
@@ -352,6 +366,82 @@ export class NotificationStore extends PuterStore {
      */
     async insert(args) {
         return (await this.create(args)).uid;
+    }
+
+    /**
+     * The statements that write a delayed send's notification, for the caller's
+     * transaction. Each runs only while `guard` holds. With `replaceUid` the
+     * open row is replaced in place and takes `sendKey`; the insert, whose uid
+     * is `sendKey`, then runs only if that row was shown or dismissed in
+     * between.
+     *
+     * @param {{
+     *     sendKey: string;
+     *     userId: number;
+     *     value: unknown;
+     *     type: string;
+     *     audience: string;
+     *     appUid: string | null;
+     *     group?: string | null;
+     *     replaceUid?: string | null;
+     *     at: number;
+     * }} send
+     *   `at` is epoch ms, the row's time either way.
+     * @param {{ table: string; where: string; values: unknown[] }} guard
+     * @returns {{ statement: string; values: unknown[] }[]}
+     */
+    sendEntries(send, guard) {
+        const db = this.clients.db;
+        const serialized = JSON.stringify(send.value ?? {});
+        const seconds = Math.floor(send.at / 1000);
+        const fence = `SELECT 1 FROM \`${guard.table}\` WHERE ${guard.where}`;
+        const entries = [];
+        if (send.replaceUid) {
+            entries.push({
+                statement:
+                    'UPDATE `notification` SET `value` = ?, `shown` = NULL, ' +
+                    `\`created_at\` = ${db.timestampFromUnixSql()}, ` +
+                    '`replaced_at` = ?, `send_key` = ? WHERE `uid` = ? ' +
+                    'AND `user_id` = ? AND `shown` IS NULL ' +
+                    `AND \`acknowledged\` IS NULL AND EXISTS (${fence})`,
+                values: [
+                    serialized,
+                    seconds,
+                    send.at,
+                    send.sendKey,
+                    send.replaceUid,
+                    send.userId,
+                    ...guard.values,
+                ],
+            });
+        }
+        // Postgres can't type a bare parameter in a SELECT list.
+        const param = (type) =>
+            db.case({ postgres: `CAST(? AS ${type})`, otherwise: '?' });
+        entries.push({
+            statement:
+                'INSERT INTO `notification` (`uid`, `user_id`, `value`, `type`, ' +
+                '`audience`, `app_uid`, `group_key`, `created_at`, `send_key`) ' +
+                `SELECT ${param('TEXT')}, ${param('INTEGER')}, ${param('JSONB')}, ` +
+                `${param('TEXT')}, ${param('TEXT')}, ${param('TEXT')}, ` +
+                `${param('TEXT')}, ${db.timestampFromUnixSql()}, ${param('TEXT')} ` +
+                `FROM \`${guard.table}\` WHERE ${guard.where} AND NOT EXISTS ` +
+                '(SELECT 1 FROM `notification` WHERE `send_key` = ?)',
+            values: [
+                send.sendKey,
+                send.userId,
+                serialized,
+                send.type,
+                send.audience,
+                send.appUid,
+                groupKey(send.group),
+                seconds,
+                send.sendKey,
+                ...guard.values,
+                send.sendKey,
+            ],
+        });
+        return entries;
     }
 
     /**
