@@ -48,6 +48,8 @@ import {
  * - E3 a deploy after the worker was evicted
  * - E4 a lifecycle change (suspend, resume, a consent settle)
  * - E5 the finish of a one-shot or ended schedule
+ * - E7 a user lookup while a security change keeps the user out of the cache
+ *   (about 5 s)
  *
  * Any other primary call fails the test. The MySQL client also falls back to
  * the primary inside `read()` when the replica itself is down (E6, a replica
@@ -62,7 +64,7 @@ const MIN = 60_000;
 const HOUR = 60 * MIN;
 const T0 = Date.parse('2026-11-02T10:00:00Z');
 
-type Tag = 'E1' | 'E2' | 'E3' | 'E4' | 'E5';
+type Tag = 'E1' | 'E2' | 'E3' | 'E4' | 'E5' | 'E7';
 
 const TAGS: Array<[Tag, RegExp]> = [
     ['E1', /\bendOrphan\b/],
@@ -73,6 +75,7 @@ const TAGS: Array<[Tag, RegExp]> = [
         /suspendForFailures|suspendForNoCredit|resumeSubscriptions|applySubscriptionChange|settleLostConsent|suspendSubscriptions/,
     ],
     ['E5', /\bfinishRun\b/],
+    ['E7', /skipRead[^\n]*UserStore/],
 ];
 
 const PRIMARY = ['pread', 'write', 'insert', 'batchWrite'] as const;
@@ -356,6 +359,42 @@ describe('a recurring fire', () => {
         expect(untagged()).toEqual([]);
         expect((await index().getDef(uid))!.state).toBe('ended');
         expect(h.sent.filter((s) => s.event.scheduleId === uid)).toEqual([]);
+    });
+
+    it('(g) a holder security change: one primary read per fire for 5 s, then none', async () => {
+        // Warm caches and minted sessions, as in (a).
+        await seedRound(T0 + 40 * HOUR);
+        h.setClock(T0 + 40 * HOUR + 6000);
+        await fireAll();
+
+        const window = await seedRound(T0 + 40 * HOUR + 20_000);
+        h.setClock(T0 + 40 * HOUR + 24_000);
+        await server().stores.user.update(h.userId, {
+            requires_password_change: 0,
+        });
+        h.sent.length = 0;
+        calls = [];
+        watchPrimary();
+        await fireAll();
+        const inWindow = h.sent.filter((sent) =>
+            window.includes(sent.event.scheduleId),
+        ).length;
+        expect(inWindow).toBeGreaterThan(0);
+        expect(untagged()).toEqual([]);
+        expect(calls.every((call) => call.tag === 'E7')).toBe(true);
+        expect(byTag('E7')).toBeGreaterThan(0);
+        expect(byTag('E7')).toBeLessThanOrEqual(inWindow);
+
+        // Past the tombstone, the next round reads the primary not at all.
+        const after = await seedRound(T0 + 40 * HOUR + 40_000);
+        h.sent.length = 0;
+        calls = [];
+        h.setClock(T0 + 40 * HOUR + 46_000);
+        await fireAll();
+        expect(
+            h.sent.filter((sent) => after.includes(sent.event.scheduleId)),
+        ).not.toHaveLength(0);
+        expect(calls).toEqual([]);
     });
 
     it('(f) a suspend and resume cost only lifecycle writes', async () => {
