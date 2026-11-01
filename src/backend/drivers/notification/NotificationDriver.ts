@@ -60,6 +60,7 @@ import {
     resolveNotificationWrite,
     type NotificationTypeName,
 } from '../../services/notification/notificationTypes.js';
+import type { DeferredSendPlan } from '../../services/events/ScheduleService.js';
 import type { ScheduleRow } from '../../stores/events/ScheduleStore.js';
 import { withRedisLock } from '../../util/redisLock.js';
 import { PuterDriver } from '../types.js';
@@ -86,6 +87,11 @@ const SEND_CLAIM_MS = 120_000;
  * lapses.
  */
 const SEND_CLAIM_SLACK_MS = 1_000;
+/**
+ * How long after its delivery a send that crashed before its finish may still
+ * be delivered again. Past it the send is finished without delivering.
+ */
+const DELIVERED_REPLAY_MS = 24 * 60 * 60 * 1000;
 /** Answers that will be the same on every attempt: the send is dropped. */
 const DROPPED_STATUSES = new Set([400, 403, 404]);
 /** Delayed sends' keys are named under this. Never change it. */
@@ -437,14 +443,9 @@ export class NotificationDriver extends PuterDriver {
         const timing =
             sendAt === undefined || sendAt === null
                 ? null
-                : this.services.schedule.parseSendAt(sendAt);
+                : await this.services.schedule.prepareSendAt(actor, sendAt);
         if (timing && !timing.immediate)
-            return this.#scheduleAppMessage(
-                actor,
-                message,
-                handle,
-                timing.sendAt,
-            );
+            return this.#scheduleAppMessage(actor, message, handle, timing);
 
         if (handle === undefined) {
             const uid = await this.#sendAppMessage(
@@ -527,7 +528,7 @@ export class NotificationDriver extends PuterDriver {
         actor: UserActor,
         message: AppMessage,
         handle: string | undefined,
-        sendAt: number,
+        plan: DeferredSendPlan,
     ): Promise<{ scheduled: { scheduleId: string; sendAt: number } }> {
         if (handle !== undefined)
             await this.services.kvShare.resolveNotifyRecipient(actor, handle, {
@@ -535,10 +536,9 @@ export class NotificationDriver extends PuterDriver {
             });
         const payload: DelayedAppMessage =
             handle === undefined ? { message } : { message, to: handle };
-        const row = await this.services.schedule.createDeferred(actor, {
+        const row = await this.services.schedule.createDeferred(plan, {
             action: APP_MESSAGE_SEND_ACTION,
             payload: JSON.stringify(payload),
-            sendAt,
         });
         return { scheduled: { scheduleId: row.uid, sendAt: row.startAt } };
     }
@@ -768,13 +768,22 @@ export class NotificationDriver extends PuterDriver {
         const { row, nowMs } = current;
         if (row.deletedAt !== null || row.state === 'done')
             return { type: 'finished', version: row.version };
-        if (row.state === 'delivered' && row.sendToken !== null)
+        if (row.state === 'delivered' && row.sendToken !== null) {
+            // `updated_at` is the delivery's: nothing touches the row after it.
+            if (Date.now() - row.updatedAt > DELIVERED_REPLAY_MS) {
+                console.warn(
+                    '[notification] a delayed send delivered over a day ago is finished without delivering it again',
+                    run.scheduleId,
+                );
+                return this.#finishDelayedSend(run, row.sendToken, 'delivered');
+            }
             return this.#emitDelayedSend(
                 run,
                 sendKey,
                 row.sendToken,
                 row.handlerDepth,
             );
+        }
         const claimLeft =
             row.state === 'sending' && row.sendUntil !== null
                 ? row.sendUntil - nowMs
