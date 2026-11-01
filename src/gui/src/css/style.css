@@ -181,6 +181,20 @@ input[type=text], input[type=password], input[type=email], select {
     font-size: 14px;
 }
 
+@media (prefers-color-scheme: dark) {
+    input[type=text], input[type=password], input[type=email], select {
+        background-color: #2d2d2d;
+        border: 1px solid #555;
+        color: #e6e6e6;
+    }
+
+    input[type=text]::placeholder,
+    input[type=password]::placeholder,
+    input[type=email]::placeholder {
+        color: #999;
+    }
+}
+
 /* to prevent auto-zoom on input focus in mobile */
 .device-phone input[type=text], .device-phone input[type=password], .device-phone input[type=email], .device-phone select {
     font-size: 17px;
