@@ -19,6 +19,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { withRedisLock } from '../../util/redisLock.js';
+import { resolveJobsNamespace } from '../../util/jobsNamespace.js';
 import { deliveryBackoffMs } from '../../util/retryBackoff.js';
 import { PuterService } from '../types';
 import {
@@ -43,8 +44,8 @@ const JOB_DEFAULT_LEASE_MS = 15 * 60_000;
 const JOB_FAILING_ALARM_AT = 3;
 const JOB_SHUTDOWN_WAIT_MS = 10_000;
 /**
- * Job names and namespaces: ASCII, at most 128, and without `:`, so a
- * (namespace, name) pair maps to exactly one set of Redis keys.
+ * Job names: ASCII, at most 128, and without `:`, so a (namespace, name) pair
+ * maps to exactly one set of Redis keys (namespaces follow the same rule).
  */
 const JOB_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 
@@ -129,24 +130,9 @@ export class JobScheduler extends PuterService {
     #warnedOff = false;
     #namespace: string | null = null;
 
-    /**
-     * Keys this deployment's jobs, so deployments sharing Redis stay apart. One
-     * the keys can't hold falls back to `default`, so a domain with a port
-     * doesn't stop the server booting.
-     */
+    /** Keys this deployment's jobs, so deployments sharing Redis stay apart. */
     get namespace(): string {
-        if (this.#namespace !== null) return this.#namespace;
-        const configured =
-            this.config.jobs?.namespace ?? this.config.domain ?? 'default';
-        if (JOB_ID_PATTERN.test(configured)) {
-            this.#namespace = configured;
-        } else {
-            console.error(
-                `[jobs] namespace "${configured}" (jobs.namespace, else domain) must match ${JOB_ID_PATTERN}; using "default". Set jobs.namespace to keep deployments sharing a database apart.`,
-            );
-            this.#namespace = 'default';
-        }
-        return this.#namespace;
+        return (this.#namespace ??= resolveJobsNamespace(this.config));
     }
 
     register(name: string, definition: JobDefinition): void {

@@ -643,6 +643,21 @@ export interface IDevWatcherConfig {
 }
 
 /**
+ * System jobs config (`jobs`). An extension that runs jobs types its own keys
+ * by augmenting this interface.
+ *
+ * - `namespace` — keys this deployment's jobs and schedules, so deployments
+ *   sharing one database or Redis never run each other's. Defaults to `domain`;
+ *   one that can't be held falls back to `default` (`resolveJobsNamespace`).
+ * - `enabled` — `false` keeps this node from polling for jobs (logged at start);
+ *   the rest of the fleet still runs them. Test servers turn it off.
+ */
+export interface IJobsConfig {
+    namespace?: string;
+    enabled?: boolean;
+}
+
+/**
  * Root config. Only `port` and `extensions` are mandatory; they are added in
  * `IConfig` below. Every config field is declared here with a doc comment so
  * this is the one reference. Each setting has exactly one key, no aliases.
@@ -1291,25 +1306,8 @@ interface IConfigOptional {
         internalSecret?: string;
     };
 
-    /**
-     * System jobs (`services.jobs`).
-     *
-     * - `namespace` — keys this deployment's rows in `scheduled_jobs`, so
-     *   deployments sharing one database never run each other's jobs. Defaults
-     *   to `domain`.
-     * - `nearPrimaryRegion` — the region id (the broadcast peer id) nearest the
-     *   primary database. Jobs registered `nearPrimary` run there, and other
-     *   regions claim them only once they are 5 minutes overdue. Unset means
-     *   every region claims at due time.
-     * - `enabled` — `false` keeps this node from polling for jobs (logged at
-     *   start); the rest of the fleet still runs them. Test servers turn it
-     *   off.
-     */
-    jobs?: {
-        namespace?: string;
-        nearPrimaryRegion?: string;
-        enabled?: boolean;
-    };
+    /** System jobs (`services.jobs`); see {@link IJobsConfig}. */
+    jobs?: IJobsConfig;
 
     /**
      * Key-value sharing beyond watching.

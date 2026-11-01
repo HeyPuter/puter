@@ -537,7 +537,7 @@ describe('JobScheduler', () => {
     it('boots a server whose domain carries a port, registering its jobs under the default namespace', async () => {
         const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
         const portDomain = await setupTestServer({
-            domain: 'localhost:4100',
+            domain: 'localhost:4101',
         } as IConfig);
         try {
             expect(portDomain.services.jobs.namespace).toBe('default');
