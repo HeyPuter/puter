@@ -118,7 +118,7 @@ document.getElementById('enable').addEventListener('click', async () => {
 
 When nobody is signed in, [`enable()`](/Notifications/enable/) opens the Puter sign-in after the browser's prompt. Sign the user in first, from its own button, so the sign-in window isn't blocked as a popup.
 
-To turn pushes off in this browser again, call [`disable()`](/Notifications/disable/). Notifications still reach your app live while it's open. Page loads don't turn pushes back on after [`disable()`](/Notifications/disable/), after the user turns your app off in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/). Call [`enable()`](/Notifications/enable/) from a click to turn them on again. Signing out also removes this browser's registration for your app.
+To turn pushes off in this browser again, call [`disable()`](/Notifications/disable/). Notifications still reach your app live while it's open. Page loads don't turn pushes back on after [`disable()`](/Notifications/disable/), after the user turns your app off or removes this browser in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/). Call [`enable()`](/Notifications/enable/) from a click to turn them on again. Signing out also removes this browser's registration for your app.
 
 ## Sending a notification
 

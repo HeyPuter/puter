@@ -21,6 +21,13 @@ const RENEWABLE_SUBSCRIPTION_ERRORS = new Set([
     'push_subscription_invalid',
     'push_endpoint_revoked',
 ]);
+/** What the server says about a subscription. */
+const SUBSCRIPTION_STATES = new Set([
+    'active',
+    'removed',
+    'revoked',
+    'unknown',
+]);
 
 export const webPushSupported = (g = globalThis) =>
     typeof g.navigator?.serviceWorker?.register === 'function' &&
@@ -259,58 +266,19 @@ const currentSubscription = async (puter, registration, key) => {
 };
 
 /**
- * Subscribes this browser and registers it with the server. A new subscription
- * is confirmed by a push the worker hands back; a known one is only refreshed.
- * Needs notification permission already granted.
- *
- * @param {import('../../../index.js').Puter} puter
- * @param {{
- *     worker: { url: string; scope?: string };
- *     label?: string;
- *     nav?: Navigator;
- *     onPending?: () => void;
- *     signal?: AbortSignal;
- * }} options
- *   `onPending` runs once the server has the subscription and only its
- *   confirmation is left. Aborting `signal` stops waiting for that
- *   confirmation, with `push_verification_canceled`.
- * @returns {Promise<Record<string, unknown>>} The server's device record.
+ * Announces `subscription` and, for one the server doesn't have yet, waits for
+ * the confirmation push and verifies it.
  */
-export async function syncWebPush(
+const register = async (
     puter,
-    { worker, label, nav = globalThis.navigator, onPending, signal },
-) {
-    const { publicKey } = await request(puter, 'GET', '/push/web/key');
-    if (typeof publicKey !== 'string' || publicKey === '') {
-        throw new PuterJSError(
-            "Push notifications aren't available on this deployment",
-            'push_unavailable',
-        );
-    }
-    const key = fromBase64Url(publicKey);
-    const registration = await registerWorker(nav, worker, {
-        keepSiteWorker: puter.env !== 'gui',
-    });
-
-    let subscription =
-        (await currentSubscription(puter, registration, key)) ??
-        (await subscribeWith(registration, key));
-    await rememberPuterKey(publicKey);
-
+    nav,
+    subscription,
+    { label, onPending, signal },
+) => {
     // Listening first: the confirmation can arrive before the POST returns.
     const challenge = nextChallenge(nav, signal);
     try {
-        let result;
-        try {
-            result = await announce(puter, subscription, label);
-        } catch (error) {
-            if (!RENEWABLE_SUBSCRIPTION_ERRORS.has(error?.code)) throw error;
-            // A brand-new subscription the push service doesn't know yet, or an
-            // endpoint another account turned off here.
-            await subscription.unsubscribe();
-            subscription = await subscribeWith(registration, key);
-            result = await announce(puter, subscription, label);
-        }
+        const result = await announce(puter, subscription, label);
         if (result.status === 'active') return result.device;
         onPending?.();
         const answer = await challenge.promise;
@@ -332,6 +300,92 @@ export async function syncWebPush(
         return device;
     } finally {
         challenge.cancel();
+    }
+};
+
+/**
+ * Subscribes this browser and registers it with the server. A new subscription
+ * is confirmed by a push the worker hands back; a known one is only refreshed.
+ * Needs notification permission already granted.
+ *
+ * @param {import('../../../index.js').Puter} puter
+ * @param {{
+ *     worker: { url: string; scope?: string };
+ *     label?: string;
+ *     nav?: Navigator;
+ *     onPending?: () => void;
+ *     signal?: AbortSignal;
+ *     renewRemoved?: boolean;
+ * }} options
+ *   `onPending` runs once the server has the subscription and only its
+ *   confirmation is left. Aborting `signal` stops waiting for that
+ *   confirmation, with `push_verification_canceled`. `renewRemoved` replaces a
+ *   subscription the user removed in Puter instead of rejecting with
+ *   `push_device_removed`.
+ * @returns {Promise<Record<string, unknown>>} The server's device record.
+ */
+export async function syncWebPush(
+    puter,
+    {
+        worker,
+        label,
+        nav = globalThis.navigator,
+        onPending,
+        signal,
+        renewRemoved = false,
+    },
+) {
+    const { publicKey } = await request(puter, 'GET', '/push/web/key');
+    if (typeof publicKey !== 'string' || publicKey === '') {
+        throw new PuterJSError(
+            "Push notifications aren't available on this deployment",
+            'push_unavailable',
+        );
+    }
+    const key = fromBase64Url(publicKey);
+    const registration = await registerWorker(nav, worker, {
+        keepSiteWorker: puter.env !== 'gui',
+    });
+
+    let subscription =
+        (await currentSubscription(puter, registration, key)) ??
+        (await subscribeWith(registration, key));
+    await rememberPuterKey(publicKey);
+
+    const options = { label, onPending, signal };
+    try {
+        return await register(puter, nav, subscription, options);
+    } catch (error) {
+        const renewable =
+            RENEWABLE_SUBSCRIPTION_ERRORS.has(error?.code) ||
+            (renewRemoved && error?.code === 'push_device_removed');
+        if (!renewable || signal?.aborted) throw error;
+        // A brand-new subscription the push service doesn't know yet, an
+        // endpoint another account turned off here, or one the user removed.
+        await subscription.unsubscribe();
+        subscription = await subscribeWith(registration, key);
+        return await register(puter, nav, subscription, options);
+    }
+}
+
+/**
+ * The server's answer for this browser's subscription at `endpoint`, or null
+ * when it can't tell, as on a server without the route. Never throws.
+ *
+ * @returns {Promise<'active' | 'removed' | 'revoked' | 'unknown' | null>}
+ */
+export async function webPushState(puter, endpoint) {
+    try {
+        const { state } = await request(
+            puter,
+            'POST',
+            '/push/web/subscriptions/status',
+            { endpoint },
+            { interactiveReauth: false },
+        );
+        return SUBSCRIPTION_STATES.has(state) ? state : null;
+    } catch {
+        return null;
     }
 }
 

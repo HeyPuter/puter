@@ -473,6 +473,78 @@ describe('syncWebPush', () => {
             expect(mockRequest).toHaveBeenCalledTimes(3);
         },
     );
+
+    it('rejects push_device_removed and keeps the subscription unless told to renew it', async () => {
+        const removed = makeSubscription();
+        const nav = makeNav({ existing: removed });
+        server(() => {
+            throw new PuterJSError('removed', 'push_device_removed');
+        });
+        await expect(syncWebPush(puter, { worker, nav })).rejects.toMatchObject(
+            { code: 'push_device_removed' },
+        );
+        expect(removed.unsubscribe).not.toHaveBeenCalled();
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('replaces a subscription the user removed in Puter with renewRemoved, once', async () => {
+        const removed = makeSubscription(undefined, 'https://push.example/1');
+        const nav = makeNav({ existing: removed });
+        nav.pushManager.subscribe.mockResolvedValue(
+            makeSubscription(undefined, 'https://push.example/2'),
+        );
+        server((route, body) => {
+            if (body.subscription.endpoint === 'https://push.example/1')
+                throw new PuterJSError('removed', 'push_device_removed');
+            if (route === '/push/web/subscriptions') {
+                queueMicrotask(() =>
+                    nav.post({
+                        type: 'puter-push-challenge',
+                        challenge: 'c.sig',
+                    }),
+                );
+                return { status: 'pending' };
+            }
+            return { device: { uid: 'd6' } };
+        });
+        await expect(
+            syncWebPush(puter, { worker, nav, renewRemoved: true }),
+        ).resolves.toEqual({ uid: 'd6' });
+        expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+        expect(nav.pushManager.subscribe).toHaveBeenCalledTimes(1);
+    });
+
+    it('replaces a subscription the confirmation finds removed, with renewRemoved', async () => {
+        const first = makeSubscription(undefined, 'https://push.example/1');
+        const second = makeSubscription(undefined, 'https://push.example/2');
+        const nav = makeNav();
+        nav.pushManager.subscribe
+            .mockResolvedValueOnce(first)
+            .mockResolvedValueOnce(second);
+        server((route, body) => {
+            if (route === '/push/web/subscriptions') {
+                queueMicrotask(() =>
+                    nav.post({
+                        type: 'puter-push-challenge',
+                        challenge: 'c.sig',
+                    }),
+                );
+                return { status: 'pending' };
+            }
+            if (body.subscription.endpoint === 'https://push.example/1')
+                throw new PuterJSError('removed', 'push_device_removed');
+            return { device: { uid: 'd7' } };
+        });
+        await expect(
+            syncWebPush(puter, { worker, nav, renewRemoved: true }),
+        ).resolves.toEqual({ uid: 'd7' });
+        expect(first.unsubscribe).toHaveBeenCalledTimes(1);
+        expect(
+            mockRequest.mock.calls.filter(
+                ([, , route]) => route === '/push/web/subscriptions/verify',
+            ),
+        ).toHaveLength(2);
+    });
 });
 
 describe('removeWebPush', () => {
@@ -795,6 +867,39 @@ describe('onPush', () => {
             expect(error).not.toHaveBeenCalled();
             expect(store.has(OPT_IN)).toBe(code !== 'push_revoked');
             error.mockRestore();
+        });
+
+        it('ends a subscription the user removed in Puter, quietly, and keeps pushes off until enable()', async () => {
+            store.set(OPT_IN, true);
+            const removed = makeSubscription();
+            const nav = makeNav({ existing: removed });
+            withBrowser(nav);
+            server(() => {
+                throw new PuterJSError('removed', 'push_device_removed');
+            });
+            const error = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            const onError = vi.fn();
+            const { module } = makeModule();
+            await module.onPush('chat', () => {}, { onError });
+            await vi.waitFor(() => expect(store.has(OPT_IN)).toBe(false));
+            expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+            expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+            expect(
+                mockRequest.mock.calls.map(([, method]) => method),
+            ).not.toContain('DELETE');
+            expect(onError).not.toHaveBeenCalled();
+            expect(error).not.toHaveBeenCalled();
+            error.mockRestore();
+
+            nav.pushManager.getSubscription.mockResolvedValue(null);
+            await expect(module.status()).resolves.toBe('off');
+            mockRequest.mockClear();
+            const { module: reloaded } = makeModule();
+            await reloaded.onPush('chat', () => {});
+            await flush();
+            expect(mockRequest).not.toHaveBeenCalled();
         });
 
         it('reports any other failure as a sync failure', async () => {
@@ -1307,6 +1412,27 @@ describe('enable', () => {
     });
 });
 
+describe('enable after the user removed this browser in Puter', () => {
+    it('replaces the removed subscription and turns pushes back on', async () => {
+        const removed = makeSubscription(undefined, 'https://push.example/1');
+        const nav = makeNav({ existing: removed });
+        nav.pushManager.subscribe.mockResolvedValue(
+            makeSubscription(undefined, 'https://push.example/2'),
+        );
+        withBrowser(nav);
+        server((route, body) => {
+            if (body.subscription.endpoint === 'https://push.example/1')
+                throw new PuterJSError('removed', 'push_device_removed');
+            return { status: 'pending' };
+        });
+        const { module } = makeModule();
+        await expect(module.enable()).resolves.toBe(true);
+        expect(removed.unsubscribe).toHaveBeenCalledTimes(1);
+        expect(nav.pushManager.subscribe).toHaveBeenCalledTimes(1);
+        expect(store.get(OPT_IN)).toBe(true);
+    });
+});
+
 describe('status', () => {
     it('is unavailable where the browser has no Web Push, and outside a page', async () => {
         const { module } = makeModule();
@@ -1321,6 +1447,7 @@ describe('status', () => {
         withBrowser(makeNav({ existing: makeSubscription() }), 'denied');
         const { module } = makeModule();
         await expect(module.status()).resolves.toBe('blocked');
+        expect(mockRequest).not.toHaveBeenCalled();
     });
 
     it('is off before the browser is asked, without a subscription, or without the user`s opt-in', async () => {
@@ -1334,6 +1461,7 @@ describe('status', () => {
         store.delete(OPT_IN);
         withBrowser(makeNav({ existing: makeSubscription() }));
         await expect(makeModule().module.status()).resolves.toBe('off');
+        expect(mockRequest).not.toHaveBeenCalled();
     });
 
     it('is on with a subscription the user turned on here, and off after disable()', async () => {
@@ -1367,6 +1495,89 @@ describe('status', () => {
         const { module, host } = makeModule();
         host.authToken = null;
         await expect(module.status()).resolves.toBe('off');
+        expect(mockRequest).not.toHaveBeenCalled();
+    });
+
+    describe('checks an on with Puter', () => {
+        let subscription;
+        const answer = (reply) =>
+            mockRequest.mockImplementation(async (_p, _m, route) => {
+                if (route !== '/push/web/subscriptions/status')
+                    throw new Error(`unexpected ${route}`);
+                return await reply();
+            });
+
+        beforeEach(() => {
+            store.set(OPT_IN, true);
+            subscription = makeSubscription();
+            withBrowser(makeNav({ existing: subscription }));
+        });
+
+        it.each(['active', 'unknown'])(
+            'is on when Puter says %s',
+            async (state) => {
+                answer(() => ({ state }));
+                await expect(makeModule().module.status()).resolves.toBe('on');
+                expect(mockRequest).toHaveBeenCalledWith(
+                    expect.anything(),
+                    'POST',
+                    '/push/web/subscriptions/status',
+                    { endpoint: subscription.endpoint },
+                    { interactiveReauth: false },
+                );
+                expect(store.get(OPT_IN)).toBe(true);
+            },
+        );
+
+        it('is off once the user removed this browser, and ends the subscription here only', async () => {
+            answer(() => ({ state: 'removed' }));
+            await expect(makeModule().module.status()).resolves.toBe('off');
+            expect(subscription.unsubscribe).toHaveBeenCalledTimes(1);
+            expect(mockRequest).toHaveBeenCalledTimes(1);
+            expect(store.has(OPT_IN)).toBe(false);
+        });
+
+        it('is off once the user turned the app off in Puter, keeping the subscription', async () => {
+            answer(() => ({ state: 'revoked' }));
+            await expect(makeModule().module.status()).resolves.toBe('off');
+            expect(subscription.unsubscribe).not.toHaveBeenCalled();
+            expect(store.has(OPT_IN)).toBe(false);
+        });
+
+        it.each([
+            [
+                'an older server without the route',
+                () => {
+                    throw new PuterJSError('no', 'push_unavailable');
+                },
+            ],
+            [
+                'a network failure',
+                () => {
+                    throw new TypeError('Failed to fetch');
+                },
+            ],
+            ['a malformed reply', () => ({ state: 'sideways' })],
+            ['an empty reply', () => ({})],
+        ])('stays on after %s', async (_name, reply) => {
+            answer(reply);
+            await expect(makeModule().module.status()).resolves.toBe('on');
+            expect(subscription.unsubscribe).not.toHaveBeenCalled();
+            expect(store.get(OPT_IN)).toBe(true);
+        });
+
+        it('asks in the Puter GUI too', async () => {
+            store.delete(OPT_IN);
+            const nav = makeNav({
+                existing: subscription,
+                active: { scriptURL: `${ORIGIN}/sw.js` },
+            });
+            withBrowser(nav);
+            answer(() => ({ state: 'removed' }));
+            const { module } = makeModule({ env: 'gui' });
+            await expect(module.status()).resolves.toBe('off');
+            expect(subscription.unsubscribe).toHaveBeenCalledTimes(1);
+        });
     });
 });
 
