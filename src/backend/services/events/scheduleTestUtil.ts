@@ -74,7 +74,7 @@ export interface ScheduleHarness {
 export const HANDLED_OK: EventsInvokeAnswer = { status: 200, handled: true };
 
 export const bootScheduleHarness = async (
-    config: Record<string, unknown> = {},
+    events: Record<string, unknown> = {},
 ): Promise<ScheduleHarness> => {
     const env = await setupPuterTestEnv({
         events: {
@@ -82,9 +82,9 @@ export const bootScheduleHarness = async (
             schedules: { enabled: true },
             workerRuntime: true,
             internalSecret: 'schedule-test-secret',
+            ...events,
         },
         unlimitedMetering: true,
-        ...config,
     } as IConfig);
     const server = env.server;
     server.services.schedule.onServerPrepareShutdown();
