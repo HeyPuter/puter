@@ -49,7 +49,8 @@ traffic is not rate limited: OpenAI sends audio faster than real time, and
 backpressure bounds what a slow client can queue. Usage is priced as each event
 arrives, before any forwarding decision, and recorded serially off the
 forwarding path through the AI cost-factor hook. Pricing follows the model the
-session reports, falling back to the connection's; a client `session.update`
+session reports. A missing model uses the last known model, while an explicitly
+unpriced model closes the connection; a client `session.update`
 that changes the model is refused. So are `conversation.item.retrieve` and MCP
 tools in `session.update` or `response.create`, since a retrieved item or MCP
 output can exceed the upstream message cap.
@@ -73,6 +74,15 @@ node admission limits protect signature verification and authentication lookups.
 Upgrades use Express's configured proxy trust policy and the `ip.validate` gate.
 Authentication uses `touch: false` on both initial connection and rechecks, so
 opening or maintaining a realtime socket does not update session activity metadata.
+
+Input transcription takes a reservation before its configuration or audio is
+forwarded. One window covers 64 items at a conservative fixed budget per item.
+The account must cover the entire window, including the largest supported AI
+cost factor. Client reads pause when the window is consumed. Once its accepted
+items have been recorded, its hold is released and another window can be reserved.
+Each committed item retains its model until completion, failure, or bounded
+settlement. Missing usage is billed the item's fixed budget. Overflow closes the
+connection without evicting existing pending identities.
 
 Text, transcripts and raw audio are forwarded without new content logging.
 The relay does not invoke `ai.prompt.validate`. A realtime adapter needs the host
