@@ -1239,11 +1239,14 @@ describe('cancelling a delayed send', () => {
         await withActor(holderActor(), () =>
             server().drivers.apps.delete({ uid: app.uid }),
         );
-        await vi.waitFor(async () =>
-            expect(await rowOf(row.uid)).toMatchObject({
-                state: 'done',
-                endReason: 'app_deleted',
-            }),
+        // The listener pages and cancels after the delete; slow on pgmock.
+        await vi.waitFor(
+            async () =>
+                expect(await rowOf(row.uid)).toMatchObject({
+                    state: 'done',
+                    endReason: 'app_deleted',
+                }),
+            { timeout: 10_000 },
         );
     });
 });
