@@ -33,7 +33,7 @@ import {
     isAccessTokenActor,
     type Actor,
 } from '../../core/actor.js';
-import { HttpError } from '../../core/http/HttpError.js';
+import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import {
     TERMINAL_SUSPENDED_REASONS,
     type SuspendedReason,
@@ -295,17 +295,33 @@ export class ScheduleService extends PuterService {
             throw notFound();
 
         let ended: ScheduleRow | undefined;
-        if (row.kind === 'deferred') {
-            [ended] = await this.stores.schedule.cancelDeferred(
-                [row.id],
-                'removed',
-            );
-            if (!ended) throw sending();
-        } else {
-            await this.stores.durableSubscription.removeScheduleSubscription(
-                row.uid,
-            );
-            [ended] = await this.stores.schedule.finish([row.id], 'removed');
+        try {
+            if (row.kind === 'deferred') {
+                [ended] = await this.stores.schedule.cancelDeferred(
+                    [row.id],
+                    'removed',
+                );
+                if (!ended) throw sending();
+            } else {
+                await this.stores.durableSubscription.removeScheduleSubscription(
+                    row.uid,
+                );
+                [ended] = await this.stores.schedule.finish(
+                    [row.id],
+                    'removed',
+                );
+            }
+        } catch (err) {
+            // Stop it firing anyway; the reconcile finds the live row under
+            // the tombstone and finishes the soft delete.
+            if (!isHttpError(err))
+                await this.#distribute([
+                    {
+                        region: row.region,
+                        change: endedChange(row.uid, null),
+                    },
+                ]);
+            throw err;
         }
         if (ended)
             await this.#distribute([

@@ -214,6 +214,30 @@ describe('the lifecycle matrix', () => {
         expectNoPendingDeliveryCalls([row.subId]);
     });
 
+    it('1: a remove whose SQL step fails still stops the schedule, and the reconcile ends it', async () => {
+        const app = await h.makeApp();
+        const row = await hourly(app);
+        vi.spyOn(store(), 'finish').mockRejectedValueOnce(
+            new Error('primary down'),
+        );
+        await expect(schedules().remove(app.actor, row.uid)).rejects.toThrow(
+            'primary down',
+        );
+        expect(await defOf(row.uid)).toMatchObject({
+            state: 'ended',
+            version: 2,
+        });
+        // Its subscription row went first, so the orphan rule ends it.
+        h.setClock(T0 + 10 * MIN);
+        for (let i = 0; i < 10; i++)
+            if ((await schedules().reconcile()).cycleCompleted) break;
+        expect(await rowOf(row.uid)).toMatchObject({
+            state: 'done',
+            endReason: 'orphaned',
+        });
+        expect((await defOf(row.uid))!.state).toBe('ended');
+    });
+
     it('2: unsubscribe refuses schedule subs', async () => {
         const app = await h.makeApp();
         const row = await hourly(app);
