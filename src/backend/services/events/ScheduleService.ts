@@ -109,6 +109,9 @@ const DEFERRED_PAGE = 500;
 /** Gap between passes while the index is being rebuilt. */
 const REBUILD_PASS_GAP_MS = 1_000;
 
+/** How often a node warns that it could not cancel delayed sends. */
+const CANCEL_WARN_INTERVAL_MS = 60_000;
+
 /** What happened to a set of subscription rows. */
 export type ScheduleSubscriptionChange =
     | {
@@ -718,7 +721,7 @@ export class ScheduleService extends PuterService {
                     'uninstalled',
                 );
             } catch (err) {
-                console.warn('[events] could not cancel delayed sends', err);
+                this.#warnCancelFailure(err);
             }
         });
         this.clients.event.on('app.changed', async (_key, data) => {
@@ -758,6 +761,9 @@ export class ScheduleService extends PuterService {
     #reconciler: ScheduleReconciler | null = null;
     #reconcileTimer: ReturnType<typeof setTimeout> | null = null;
     #stopped = false;
+    #cancelFailures = 0;
+    #cancelError: unknown;
+    #cancelWarnedAt = Number.NEGATIVE_INFINITY;
 
     #armReconcile(delayMs: number): void {
         if (this.#stopped) return;
@@ -1071,8 +1077,28 @@ export class ScheduleService extends PuterService {
                 'app_deleted',
             );
         } catch (err) {
-            console.warn('[events] could not cancel delayed sends', err);
+            this.#warnCancelFailure(err);
         }
+    }
+
+    /**
+     * One warning a minute per node, however many cancels failed since. With
+     * schedules off and no `event_schedules` table yet, every uninstall, app
+     * delete and account delete would otherwise log one.
+     */
+    #warnCancelFailure(err: unknown): void {
+        this.#cancelFailures++;
+        this.#cancelError ??= err;
+        const now = Date.now();
+        if (now - this.#cancelWarnedAt < CANCEL_WARN_INTERVAL_MS) return;
+        console.warn(
+            '[events] could not cancel delayed sends',
+            this.#cancelFailures,
+            this.#cancelError,
+        );
+        this.#cancelWarnedAt = now;
+        this.#cancelFailures = 0;
+        this.#cancelError = undefined;
     }
 
     readonly actions = new ScheduleActionRegistry();

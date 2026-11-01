@@ -1303,6 +1303,49 @@ describe('cancelling a delayed send', () => {
         for (const app of [uninstalled, deleted, orphaned])
             expect(await mailbox(app.uid)).toEqual([]);
     });
+
+    it('warns once a minute per node, with a count, when cancelling fails', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const page = vi
+            .spyOn(store(), 'listDeferredForHolderApp')
+            .mockRejectedValue(new Error('no such table: event_schedules'));
+        const realNow = Date.now;
+        const now = vi.spyOn(Date, 'now');
+        const warnings = () =>
+            warn.mock.calls.filter(
+                ([message]) =>
+                    message === '[events] could not cancel delayed sends',
+            );
+        const uninstall = () =>
+            server().clients.event.emitAndWait(
+                'app.uninstalled',
+                {
+                    userId: Number(h.userRow.id),
+                    userUuid: String(h.userRow.uuid),
+                    appUid: `app-${uuidv4()}`,
+                    deleteData: false,
+                },
+                {},
+            );
+        try {
+            // Past any warning an earlier test left behind.
+            now.mockImplementation(() => realNow() + 61_000);
+            for (let i = 0; i < 3; i++) await uninstall();
+            expect(warnings()).toHaveLength(1);
+            expect(warnings()[0][1]).toBe(1);
+
+            now.mockImplementation(() => realNow() + 122_000);
+            await uninstall();
+            expect(warnings()).toHaveLength(2);
+            // The two it held back, and this one.
+            expect(warnings()[1][1]).toBe(3);
+            expect(warnings()[1][2]).toBeInstanceOf(Error);
+        } finally {
+            now.mockRestore();
+            page.mockRestore();
+            warn.mockRestore();
+        }
+    });
 });
 
 describe('a delayed send as a schedule', () => {
