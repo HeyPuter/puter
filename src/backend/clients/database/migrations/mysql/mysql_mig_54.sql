@@ -15,7 +15,7 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Schedule definitions. See sqlite/0101_event-schedules.sql for the columns.
+-- Schedule definitions. See sqlite/0100_event-schedules.sql for the columns.
 -- Idempotent: `CREATE TABLE IF NOT EXISTS` with the indexes inline, so a
 -- replay is a no-op.
 
@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS `event_schedules` (
     KEY `idx_event_schedules_ns_region_updated` (`namespace`, `region`, `updated_at`, `id`),
     KEY `idx_event_schedules_ns_region_id` (`namespace`, `region`, `id`),
     KEY `idx_event_schedules_holder` (`holder_user_id`, `app_uid`, `deleted_at`),
+    KEY `idx_event_schedules_holder_ns_id` (`holder_user_id`, `namespace`, `id`),
+    KEY `idx_event_schedules_holder_ns_app_id` (`holder_user_id`, `namespace`, `app_uid`, `id`),
     KEY `idx_event_schedules_sub` (`sub_id`),
     KEY `idx_event_schedules_app_kind` (`app_uid`, `kind`),
     KEY `idx_event_schedules_deleted` (`deleted_at`),

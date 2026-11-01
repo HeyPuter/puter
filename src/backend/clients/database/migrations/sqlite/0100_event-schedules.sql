@@ -86,9 +86,15 @@ CREATE INDEX IF NOT EXISTS `idx_event_schedules_ns_region_updated`
 CREATE INDEX IF NOT EXISTS `idx_event_schedules_ns_region_id`
     ON `event_schedules` (`namespace`, `region`, `id`);
 
--- Caps, listing and uninstall.
+-- Caps and uninstall.
 CREATE INDEX IF NOT EXISTS `idx_event_schedules_holder`
     ON `event_schedules` (`holder_user_id`, `app_uid`, `deleted_at`);
+
+-- A holder's listing, account-wide and for one app, in id order.
+CREATE INDEX IF NOT EXISTS `idx_event_schedules_holder_ns_id`
+    ON `event_schedules` (`holder_user_id`, `namespace`, `id`);
+CREATE INDEX IF NOT EXISTS `idx_event_schedules_holder_ns_app_id`
+    ON `event_schedules` (`holder_user_id`, `namespace`, `app_uid`, `id`);
 
 -- Lifecycle hooks, which start from a subscription row.
 CREATE INDEX IF NOT EXISTS `idx_event_schedules_sub`

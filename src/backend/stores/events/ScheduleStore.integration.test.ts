@@ -23,7 +23,15 @@
  * reconcile pages through.
  */
 
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { EVENTS_SCHEDULE_TOMBSTONE_TTL_MS } from '../../controllers/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
@@ -161,6 +169,40 @@ describe('creating a schedule', () => {
             context: '{"team":"design"}',
             expiresAt: null,
         });
+    });
+
+    it('inserts the schedule unlinked, then the subscription row, then links them', async () => {
+        const steps: string[] = [];
+        const realInsert = db().insert.bind(db());
+        const realWrite = db().write.bind(db());
+        const insert = vi
+            .spyOn(db(), 'insert')
+            .mockImplementation(async (table, data) => {
+                steps.push(
+                    table === 'event_schedules'
+                        ? `insert ${table} sub_id=${String(data.sub_id)}`
+                        : `insert ${table}`,
+                );
+                return realInsert(table, data);
+            });
+        const write = vi
+            .spyOn(db(), 'write')
+            .mockImplementation(async (sql, params) => {
+                if (/UPDATE `event_schedules` SET `sub_id`/.test(sql))
+                    steps.push('link event_schedules');
+                return realWrite(sql, params);
+            });
+        try {
+            await store().create(input());
+        } finally {
+            insert.mockRestore();
+            write.mockRestore();
+        }
+        expect(steps).toEqual([
+            'insert event_schedules sub_id=null',
+            'insert event_subscriptions',
+            'link event_schedules',
+        ]);
     });
 
     it('stores a `once` one-shot ending at its start, with no rate or gap', async () => {
@@ -569,5 +611,34 @@ describe('deleting the holder', () => {
         await db().write('DELETE FROM `user` WHERE `id` = ?', [holder]);
         await expect(scheduleRows()).resolves.toBe(0);
         await expect(scheduleSubRows()).resolves.toBe(0);
+    });
+});
+
+describe('the holder listing', () => {
+    it('pages on an index rather than sorting the holder`s rows', async () => {
+        // The plan is sqlite's; the indexes are the same on every engine.
+        if (db().engineName !== 'sqlite') return;
+        await store().create(input());
+        const read = vi.spyOn(db(), 'read');
+        try {
+            await store().listForHolder(NS, userId, { limit: 2 });
+            await store().listForHolder(NS, userId, { appUid, limit: 2 });
+        } catch (err) {
+            read.mockRestore();
+            throw err;
+        }
+        const listings = read.mock.calls.filter(([sql]) =>
+            /FROM `event_schedules` WHERE `holder_user_id`/.test(String(sql)),
+        );
+        read.mockRestore();
+        expect(listings).toHaveLength(2);
+        for (const [sql, params] of listings) {
+            const plan = await db().read(
+                `EXPLAIN QUERY PLAN ${String(sql)}`,
+                params as unknown[],
+            );
+            const detail = plan.map((row) => String(row.detail)).join('\n');
+            expect(detail).not.toMatch(/TEMP B-TREE/);
+        }
     });
 });
