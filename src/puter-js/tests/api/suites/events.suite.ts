@@ -1530,6 +1530,8 @@ export default suite('events', {
                 { every: '1h', handlerName: 'missing' },
                 'events_handler_not_found',
             ],
+            // An empty hash is a hash that doesn't match, not no hash.
+            [{ every: '1h', handlerHash: '' }, 'bad_request'],
         ];
         await asApp(t, appUid, async () => {
             for (const [options, code] of cases) {

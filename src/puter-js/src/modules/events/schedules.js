@@ -82,7 +82,8 @@ export async function onSchedule (options) {
         if ( options[key] !== undefined && options[key] !== null )
             body[key] = options[key];
     }
-    if ( handlerHash ) body.handlerHash = handlerHash;
+    if ( handlerHash !== undefined && handlerHash !== null )
+        body.handlerHash = handlerHash;
     // Serialized only to check it against the cap before the round trip.
     if ( serializeContext(options.context) !== undefined )
         body.context = options.context;

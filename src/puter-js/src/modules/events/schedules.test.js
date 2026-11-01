@@ -116,6 +116,14 @@ describe('onSchedule', () => {
         expect(bodyOf().handlerHash).toBe(handlerHash);
     });
 
+    it('forwards any handlerHash it is given, an empty one included, for the server to judge', async () => {
+        await makeModule().onSchedule({ every: '1h', handlerName: 'poll', handlerHash: '' });
+        await makeModule().onSchedule({ every: '1h', handlerName: 'poll', handlerHash: null });
+
+        expect(bodyOf(0)).toHaveProperty('handlerHash', '');
+        expect(bodyOf(1)).not.toHaveProperty('handlerHash');
+    });
+
     it('needs a handler name before it calls anything', async () => {
         const unnamed = await rejects(() => makeModule().onSchedule({ every: '1h' }));
         expect(unnamed.code).toBe('events_handler_required');

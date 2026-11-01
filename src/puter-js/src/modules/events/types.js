@@ -154,9 +154,8 @@
  * handler body run unchanged here and in the app's events worker.
  *
  * @typedef {Object} EventDelivery
- * @property {PuterEvent | PuterKvEvent | EventGapMarker | PuterScheduleEvent} event
- *   The delivered event, or a gap marker in place of events that were
- *   dropped. A handler a schedule runs gets a {@link PuterScheduleEvent}.
+ * @property {PuterEvent | PuterKvEvent | EventGapMarker} event The delivered
+ *   event, or a gap marker in place of events that were dropped.
  * @property {Readonly<Record<string, unknown>>} [ctx] The `context` the
  *   subscription was created with, frozen. Present only for a persistent
  *   subscription; a session subscription carries none.
@@ -310,6 +309,25 @@
  */
 
 /**
+ * What a handler a schedule runs is called with, in the app's events worker.
+ *
+ * @typedef {Object} ScheduleDelivery
+ * @property {PuterScheduleEvent} event The run.
+ * @property {Readonly<Record<string, unknown>>} [ctx] The `context` the
+ *   schedule was created with, frozen.
+ * @property {unknown} [user] A `puter` bound to the account holding the
+ *   schedule.
+ * @property {(input: unknown, init?: unknown) => Promise<unknown>} [fetch]
+ *   `puter.net.fetch` where it exists, the environment's `fetch` otherwise.
+ */
+
+/**
+ * A handler a schedule runs. Its return value is ignored.
+ *
+ * @typedef {(delivery: ScheduleDelivery) => unknown} ScheduleHandler
+ */
+
+/**
  * Options for {@link import('./schedules.js').onSchedule}. Give exactly one
  * of `every`, `cron` or `at`. Times are an ISO-8601 string with a zone (or a
  * plain date, read as UTC midnight), a `Date`, or milliseconds since the
@@ -334,7 +352,7 @@
  * @property {number} [maxRuns] Stop after this many runs (1 to 100,000). With
  *   `expiresAt` too, the earlier end wins.
  * @property {string} handlerName The published handler each run calls.
- * @property {Function | string | { file: string }} [handler] The handler
+ * @property {ScheduleHandler | string | { file: string }} [handler] The handler
  *   source this schedule was written against. Sent as a hash: the schedule is
  *   refused unless it matches what is published under `handlerName`. It never
  *   runs in this client.

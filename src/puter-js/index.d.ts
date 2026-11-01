@@ -147,7 +147,9 @@ export type {
     PuterNotifEvent,
     PuterScheduleEvent,
     Schedule,
+    ScheduleDelivery,
     ScheduleErrorCode,
+    ScheduleHandler,
     ScheduleListOptions,
     UpdatePersistentOptions,
 } from './types/modules/events/types.js';
