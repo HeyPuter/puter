@@ -448,11 +448,13 @@ export const EVENTS_REGION_PENDING_CEILING = 1_000_000;
 // finish backs off the same way but is not the handler's failure, so it never
 // counts toward that run.
 
-/** Wait before the first retry of a delivery a handler could not take. */
-export const EVENTS_RETRY_BASE_MS = 2_000;
-
-/** Longest wait between retries, however many have failed. */
-export const EVENTS_RETRY_MAX_MS = 5 * 60 * 1000;
+// Wait before the first retry of a delivery a handler could not take, the
+// longest wait, and the doubling between them. Shared with system jobs.
+export {
+    deliveryBackoffMs,
+    EVENTS_RETRY_BASE_MS,
+    EVENTS_RETRY_MAX_MS,
+} from '../../util/retryBackoff.js';
 
 /**
  * Handler failures in a row before a subscription is suspended. Counted per
@@ -467,13 +469,6 @@ export const EVENTS_CONSECUTIVE_FAILURES = 5;
  * a run that ended.
  */
 export const EVENTS_FAILURE_COUNTER_TTL_MS = 60 * 60 * 1000;
-
-/** How long to hold a delivery whose handler has failed `attempts` times. */
-export const deliveryBackoffMs = (attempts: number): number =>
-    Math.min(
-        EVENTS_RETRY_MAX_MS,
-        EVENTS_RETRY_BASE_MS * 2 ** Math.max(0, attempts - 1),
-    );
 
 // -- Suspended backlog -----------------------------------------------
 //
