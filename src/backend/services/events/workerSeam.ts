@@ -17,7 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { EventsWorkerInvokerClient } from '../../clients/events/EventsWorkerInvokerClient.js';
+import type {
+    EventsWorkerInvokerClient,
+    WorkerInvokeOptions,
+} from '../../clients/events/EventsWorkerInvokerClient.js';
 import type { DeliverableEvent } from './registry.js';
 
 /**
@@ -28,6 +31,23 @@ import type { DeliverableEvent } from './registry.js';
  * like one that succeeded.
  */
 
+/** What a schedule's handler is handed as `event`. */
+export interface ScheduleEvent {
+    subject: string;
+    op: 'tick';
+    /** `${scheduleId}:${scheduledFor}`: the same across retries of one slot. */
+    id: string;
+    scheduleId: string;
+    scheduledFor: number;
+    /** When the invocation was sent; stamped as it goes out. */
+    firedAt?: number;
+    /** Slots skipped since the last one that ran. */
+    missed: number;
+    missedCapped?: true;
+    /** Attempts at this slot, this one included. */
+    attempt: number;
+}
+
 /** One handler call, as the seam receives it. */
 export interface WorkerInvocation {
     subId: string;
@@ -36,7 +56,7 @@ export interface WorkerInvocation {
     /** The app whose handler runs, or null for an account-owned row. */
     appUid: string | null;
     handlerName: string | null;
-    event: DeliverableEvent;
+    event: DeliverableEvent | ScheduleEvent;
     /** The subscription's stored context, delivered to the handler as `ctx`. */
     context: string | null;
     /** Handler runs behind `event`; the token this run is handed is one deeper. */
@@ -65,13 +85,24 @@ export interface WorkerInvokerSeam {
 }
 
 /**
+ * Why no token could be minted: nobody to run as, no consent to, or the mint
+ * itself failed.
+ */
+export type MintRefusal = 'no-identity' | 'no-consent' | 'mint-failed';
+
+/**
  * Mints the subscriber's app-under-user token for one invocation. The
  * `events:background` consent is what authorizes it, not a narrower
  * credential.
  */
 export type SubscriberTokenMinter = (
     invocation: WorkerInvocation,
-) => Promise<string | null>;
+) => Promise<{ token: string } | { refused: MintRefusal }>;
+
+/** Where the handler set is read from when its cache misses. */
+export interface AddressOptions {
+    missRead?: 'primary' | 'replica';
+}
 
 /**
  * The script an app's handlers deploy as and its invocation key; null when the
@@ -79,7 +110,15 @@ export type SubscriberTokenMinter = (
  */
 export type EventsWorkerAddresser = (
     appUid: string,
+    options?: AddressOptions,
 ) => Promise<{ script: string; key: string } | null>;
+
+/** What one run came to, including why nothing was invoked. */
+export type WorkerRunResult =
+    WorkerInvocationResult | { outcome: MintRefusal | 'deploy-busy' };
+
+/** How {@link EventsWorkerInvoker.run} reaches the worker. */
+export type WorkerRunOptions = WorkerInvokeOptions & AddressOptions;
 
 /** How often the same script's retriable failures are logged. */
 const WARN_INTERVAL_MS = 60_000;
@@ -122,28 +161,57 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
     async invoke(
         invocation: WorkerInvocation,
     ): Promise<WorkerInvocationResult> {
+        const result = await this.run(invocation);
+        switch (result.outcome) {
+            // Nothing was attempted.
+            case 'no-identity':
+            case 'no-consent':
+            case 'mint-failed':
+                return { outcome: 'deferred' };
+            case 'deploy-busy':
+                return { outcome: 'unavailable' };
+            default:
+                return result;
+        }
+    }
+
+    /** {@link invoke}, saying why nothing was invoked. */
+    async run(
+        invocation: WorkerInvocation,
+        options: WorkerRunOptions = {},
+    ): Promise<WorkerRunResult> {
         const { appUid, handlerName } = invocation;
         if (!appUid || !handlerName) return { outcome: 'deferred' };
         if (!this.#available()) return { outcome: 'unavailable' };
 
-        const token = await this.#mintToken(invocation);
-        if (token === null) return { outcome: 'deferred' };
+        const minted = await this.#mintToken(invocation);
+        if ('refused' in minted) return { outcome: minted.refused };
 
         // Nowhere to send it: the app has no handlers or no owner to run them
         // as. Retrying cannot fix that, so the consecutive-failure rule is what
         // stops it.
-        const address = await this.#address(appUid);
+        const address = await this.#address(appUid, {
+            missRead: options.missRead,
+        });
         if (address === null) return { outcome: 'retriable' };
 
-        const result = await this.#client.invoke({
-            script: address.script,
-            key: address.key,
-            appUid,
-            handler: handlerName,
-            token,
-            event: invocation.event,
-            ctx: parseContext(invocation.context),
-        });
+        const result = await this.#client.invoke(
+            {
+                script: address.script,
+                key: address.key,
+                appUid,
+                handler: handlerName,
+                token: minted.token,
+                event: invocation.event,
+                ctx: parseContext(invocation.context),
+            },
+            {
+                lane: options.lane,
+                stampEvent: options.stampEvent,
+                gateDeploy: options.gateDeploy,
+            },
+        );
+        if (result.deployBusy) return { outcome: 'deploy-busy' };
         if (
             (result.outcome === 'retriable' ||
                 result.outcome === 'unavailable') &&

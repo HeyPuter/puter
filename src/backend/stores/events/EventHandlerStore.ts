@@ -337,13 +337,16 @@ export class EventHandlerStore extends PuterStore {
      */
     async setForApp(
         appUid: string,
+        options: { replica?: boolean } = {},
     ): Promise<Pick<EventHandler, 'name' | 'sourceHash'>[]> {
-        const rows = await this.clients.db.pread(
+        const sql =
             'SELECT `name`, `source_hash` ' +
-                `FROM \`${TABLE}\` WHERE \`app_uid\` = ? ` +
-                'ORDER BY `name` LIMIT ?',
-            [appUid, EVENTS_HANDLERS_PER_APP],
-        );
+            `FROM \`${TABLE}\` WHERE \`app_uid\` = ? ` +
+            'ORDER BY `name` LIMIT ?';
+        const params = [appUid, EVENTS_HANDLERS_PER_APP];
+        const rows = options.replica
+            ? await this.clients.db.read(sql, params)
+            : await this.clients.db.pread(sql, params);
         return rows.map((row) => ({
             name: String(row.name),
             sourceHash: String(row.source_hash),
@@ -354,10 +357,13 @@ export class EventHandlerStore extends PuterStore {
      * `setForApp` for the delivery path, which asks once per invocation. Cached
      * for up to {@link HANDLER_SET_CACHE_TTL_SECONDS}, and dropped everywhere by
      * every write here. An empty set is not cached: it fails the delivery, and
-     * must not outlast the publish that fills it.
+     * must not outlast the publish that fills it. Schedule runs read a miss
+     * from the replica (`missRead: 'replica'`), since they come by the clock
+     * rather than after a write.
      */
     async cachedSetForApp(
         appUid: string,
+        options: { missRead?: 'primary' | 'replica' } = {},
     ): Promise<Pick<EventHandler, 'name' | 'sourceHash'>[]> {
         const key = handlerSetCacheKey(appUid);
         try {
@@ -370,7 +376,9 @@ export class EventHandlerStore extends PuterStore {
             // Read the table instead.
         }
 
-        const set = await this.setForApp(appUid);
+        const set = await this.setForApp(appUid, {
+            replica: options.missRead === 'replica',
+        });
         if (set.length > 0) {
             try {
                 await this.clients.redis.set(

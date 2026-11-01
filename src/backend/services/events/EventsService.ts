@@ -255,10 +255,14 @@ import { scanHandlerSource } from '../../../puter-js/src/modules/events/lib/free
 import {
     EventsWorkerInvoker,
     RecordingWorkerInvoker,
+    type AddressOptions,
+    type MintRefusal,
     type WorkerInvocation,
     type WorkerInvocationOutcome,
     type WorkerInvocationResult,
     type WorkerInvokerSeam,
+    type WorkerRunOptions,
+    type WorkerRunResult,
 } from './workerSeam.js';
 
 /**
@@ -533,6 +537,9 @@ interface DeliveryMeter {
     /** Only a durable row has a state to suspend when the balance runs out. */
     durable: boolean;
 }
+
+/** What one schedule run came to, including why nothing ran. */
+export type ScheduleInvokeResult = WorkerRunResult | { outcome: 'too-deep' };
 
 /**
  * Why a subscription ended without its holder unsubscribing. Both are terminal:
@@ -1398,7 +1405,7 @@ export class EventsService extends PuterService {
             this.worker = new EventsWorkerInvoker(
                 this.clients.eventsWorkerInvoker,
                 (invocation) => this.#mintSubscriberToken(invocation),
-                (appUid) => this.#addressEventsWorker(appUid),
+                (appUid, options) => this.#addressEventsWorker(appUid, options),
                 () => workerRuntimeReady(this.config),
             );
 
@@ -5188,21 +5195,25 @@ export class EventsService extends PuterService {
         rows: readonly DurableSubscription[],
         reason: SubscriptionEndReason,
     ): Promise<void> {
+        // A schedule is news of its own: its holder knows it as a schedule,
+        // not as the subscription row behind it.
         const groups = new Map<string, DurableSubscription[]>();
         for (const row of rows) {
-            const key = `${row.holderUserId}|${row.appUid ?? ''}`;
+            const kind = isScheduleRow(row) ? 'schedule' : 'subscription';
+            const key = `${kind}|${row.holderUserId}|${row.appUid ?? ''}`;
             groups.set(key, [...(groups.get(key) ?? []), row]);
         }
         for (const group of groups.values()) {
             const [first] = group;
+            const noun = isScheduleRow(first) ? 'schedule' : 'subscription';
             try {
                 await this.services.notification.notify(
                     [first.holderUserId],
                     {
                         title:
                             group.length === 1
-                                ? 'A subscription ended'
-                                : `${group.length} subscriptions ended`,
+                                ? `A ${noun} ended`
+                                : `${group.length} ${noun}s ended`,
                         subject: first.subject,
                         subjects: group
                             .slice(0, ENDED_SUBJECTS_LISTED)
@@ -5733,9 +5744,9 @@ export class EventsService extends PuterService {
      */
     async #mintSubscriberToken(
         invocation: WorkerInvocation,
-    ): Promise<string | null> {
+    ): Promise<{ token: string } | { refused: MintRefusal }> {
         const { appUid } = invocation;
-        if (!appUid) return null;
+        if (!appUid) return { refused: 'no-identity' };
 
         const actor = await resolveGrantActor(
             {
@@ -5745,7 +5756,7 @@ export class EventsService extends PuterService {
             },
             this.#aclDeps(),
         );
-        if (!actor) return null;
+        if (!actor) return { refused: 'no-identity' };
 
         // Asked again here: nothing else on the delivery path reads it, the
         // settle that ends a revoked row is best-effort, and what is minted is
@@ -5756,26 +5767,28 @@ export class EventsService extends PuterService {
             // A no may be a withdrawal whose settle never ran or failed.
             // Without one the row stays in service, deferred forever.
             if (consent === false) this.#settleLostConsent(actor, appUid);
-            return null;
+            return { refused: 'no-consent' };
         }
 
         try {
-            return await this.services.auth.createWorkerAppToken(
-                actor,
-                appUid,
-                EVENTS_WORKER_SESSION_NAME,
-                {
-                    handlerDepth: invocation.handlerDepth + 1,
-                    expiresInSeconds: EVENTS_HANDLER_TOKEN_TTL_SECONDS,
-                },
-            );
+            return {
+                token: await this.services.auth.createWorkerAppToken(
+                    actor,
+                    appUid,
+                    EVENTS_WORKER_SESSION_NAME,
+                    {
+                        handlerDepth: invocation.handlerDepth + 1,
+                        expiresInSeconds: EVENTS_HANDLER_TOKEN_TTL_SECONDS,
+                    },
+                ),
+            };
         } catch (err) {
             console.warn(
                 '[events] could not mint a delivery token',
                 invocation.subId,
                 err,
             );
-            return null;
+            return { refused: 'mint-failed' };
         }
     }
 
@@ -5856,6 +5869,65 @@ export class EventsService extends PuterService {
         this.clients.eventsWorkerInvoker.setMissHandler(handler);
     }
 
+    // -- Schedules ---------------------------------------------------
+
+    /**
+     * Run one schedule's handler: the depth check, then mint, address and
+     * invoke on the schedule lane. Unlike a delivery it says why nothing ran,
+     * and never spends the delivery invocation limit; schedules have their
+     * own.
+     */
+    async invokeForSchedule(
+        invocation: WorkerInvocation,
+        options: Pick<WorkerRunOptions, 'stampEvent' | 'gateDeploy'> = {},
+    ): Promise<ScheduleInvokeResult> {
+        if (await this.#tooDeep(invocation)) return { outcome: 'too-deep' };
+        // Something other than the worker invoker was put in its place.
+        if (!(this.worker instanceof EventsWorkerInvoker))
+            return this.worker.invoke(invocation);
+        return this.worker.run(invocation, {
+            ...options,
+            lane: 'schedule',
+            missRead: 'replica',
+        });
+    }
+
+    /** Who a schedule runs as; `null` once its holder or app is gone. */
+    resolveScheduleActor(
+        holderUserId: number,
+        appUid: string,
+    ): Promise<Actor | null> {
+        return resolveGrantActor(
+            { holderUserId, appUid, permission: SUBSCRIBE_MODE },
+            this.#aclDeps(),
+        );
+    }
+
+    /**
+     * Whether a schedule's holder can pay for a run. One who can't has the
+     * schedule's row suspended, which parks the schedule, and is told once.
+     */
+    chargeableForSchedule(
+        holderUserId: number,
+        appUid: string,
+        subId: string,
+    ): Promise<boolean> {
+        return this.#chargeable(
+            { holderUserId, appUid, deliveryClass: 'single', durable: true },
+            subId,
+        );
+    }
+
+    /** Bill one schedule run, as one single delivery. */
+    meterScheduleRun(holderUserId: number, appUid: string): Promise<void> {
+        return this.#meterDelivery({
+            holderUserId,
+            appUid,
+            deliveryClass: 'single',
+            durable: true,
+        });
+    }
+
     /**
      * Where an app's handlers currently live: the script its published set
      * hashes to, and the key an invocation of it carries.
@@ -5868,11 +5940,15 @@ export class EventsService extends PuterService {
      */
     async #addressEventsWorker(
         appUid: string,
+        options: AddressOptions = {},
     ): Promise<{ script: string; key: string } | null> {
         if (!workerRuntimeReady(this.config)) return null;
         const secret = this.config.events!.internalSecret!;
 
-        const set = await this.stores.eventHandler.cachedSetForApp(appUid);
+        const set = await this.stores.eventHandler.cachedSetForApp(
+            appUid,
+            options,
+        );
         if (set.length === 0) return null;
 
         // A gone or suspended owner is nobody to deploy or bill this as, so

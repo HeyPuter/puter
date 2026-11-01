@@ -127,6 +127,18 @@ export const EVENTS_INVOKE_TIMEOUT_MS = 30_000;
  * that waits for a free one before its invoke timeout starts.
  */
 export const INVOKE_CONNECTIONS = 256;
+
+/**
+ * Of those, how many schedule runs may hold at once, so a burst of schedules
+ * can never take the connections event deliveries need.
+ */
+export const SCHEDULE_INVOKE_CONNECTIONS = 64;
+
+/** Whose call this is, for the connection share it may take. */
+export type InvokeLane = 'delivery' | 'schedule';
+
+/** What a deploy gate answers when another deploy holds the way. */
+export const DEPLOY_BUSY = 'busy';
 const INVOKE_KEEP_ALIVE_MS = 30_000;
 
 /**
@@ -161,6 +173,12 @@ export interface EventsInvokeCall {
     timeoutMs: number;
     /** Set on the retry after this backend deployed the script itself. */
     deployed?: boolean;
+    lane?: InvokeLane;
+    /**
+     * Builds `body` again at send time, for a transport that waits for a
+     * connection first, so a send time stamped into it is the real one.
+     */
+    render?: () => string;
 }
 
 /** What one attempt at delivering an invocation came back with. */
@@ -198,12 +216,30 @@ export type WorkerInvokeOutcome =
 
 export interface WorkerInvokeResult {
     outcome: WorkerInvokeOutcome;
+    /** A deploy on miss was put off because another one held the way. */
+    deployBusy?: boolean;
     /** The status the handler answered with, or `null` when it never did. */
     status: number | null;
     /** Why it could not answer, when nothing did. */
     error?: string;
     /** How long the answer asked to be left alone. */
     retryAfterMs?: number;
+}
+
+/** How one invocation is sent. */
+export interface WorkerInvokeOptions {
+    lane?: InvokeLane;
+    /** Applied to the event as each attempt is sent. */
+    stampEvent?: (event: unknown) => unknown;
+    /**
+     * Runs this backend's own deploy on a miss; answering {@link DEPLOY_BUSY}
+     * gives the call up as Puter's failure instead.
+     */
+    gateDeploy?: (
+        appUid: string,
+        script: string,
+        deploy: () => Promise<string>,
+    ) => Promise<string>;
 }
 
 const NO_TRANSPORT =
@@ -236,7 +272,10 @@ export class EventsWorkerInvokerClient extends PuterClient {
         this.#dispatcher = null;
     }
 
-    async invoke(request: WorkerInvokeRequest): Promise<WorkerInvokeResult> {
+    async invoke(
+        request: WorkerInvokeRequest,
+        options: WorkerInvokeOptions = {},
+    ): Promise<WorkerInvokeResult> {
         const transport = this.#pickTransport();
         if (!transport)
             return {
@@ -245,32 +284,45 @@ export class EventsWorkerInvokerClient extends PuterClient {
                 error: NO_TRANSPORT,
             };
 
-        const call: EventsInvokeCall = {
-            script: request.script,
-            appUid: request.appUid,
-            key: request.key,
-            body: JSON.stringify({
+        const { stampEvent } = options;
+        const render = (): string =>
+            JSON.stringify({
                 handler: request.handler,
-                event: request.event,
+                event: stampEvent ? stampEvent(request.event) : request.event,
                 ctx: request.ctx,
                 token: request.token,
-            }),
-            timeoutMs: this.#timeoutMs(),
-        };
+            });
+        const send = (deployed: boolean): Promise<EventsInvokeAnswer> =>
+            transport.send({
+                script: request.script,
+                appUid: request.appUid,
+                key: request.key,
+                body: render(),
+                timeoutMs: this.#timeoutMs(),
+                ...(deployed ? { deployed: true } : {}),
+                ...(options.lane ? { lane: options.lane } : {}),
+                ...(stampEvent ? { render } : {}),
+            });
 
-        let result = await transport.send(call);
+        let result = await send(false);
         if (this.#missHandler && selfDeployable(result)) {
-            const outcome = await this.#missHandler(
-                request.appUid,
-                request.script,
-            );
+            const missHandler = this.#missHandler;
+            const deploy = () => missHandler(request.appUid, request.script);
+            const outcome = options.gateDeploy
+                ? await options.gateDeploy(
+                      request.appUid,
+                      request.script,
+                      deploy,
+                  )
+                : await deploy();
             if (outcome !== 'deployed')
                 return {
                     outcome: 'unavailable',
                     status: null,
                     error: `deploy: ${outcome}`,
+                    ...(outcome === DEPLOY_BUSY ? { deployBusy: true } : {}),
                 };
-            result = await transport.send({ ...call, deployed: true });
+            result = await send(true);
         } else if (
             result.status === null &&
             result.dispatchReason &&
@@ -278,7 +330,7 @@ export class EventsWorkerInvokerClient extends PuterClient {
         ) {
             // No deploy to trigger — just give propagation the one retry
             // it usually needs, without spending an upload on it.
-            result = await transport.send({ ...call, deployed: true });
+            result = await send(true);
         }
 
         const { status, handled, error, timedOut, retryAfterMs } = result;
@@ -336,8 +388,10 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
     #agent: Agent | null = null;
     /** Calls holding a connection slot. */
     #active = 0;
-    /** Calls waiting for one, longest-waiting first. */
-    readonly #waiting = new Set<() => void>();
+    /** Of those, schedule runs. */
+    #scheduleActive = 0;
+    /** Calls waiting for one, longest-waiting first, with their lane. */
+    readonly #waiting = new Map<() => void, InvokeLane>();
 
     constructor(
         dispatcherUrl: string,
@@ -357,7 +411,10 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
     async send(call: EventsInvokeCall): Promise<EventsInvokeAnswer> {
         // No `timedOut`: the handler never got this call, so the wait is not
         // its failure.
-        if (!(await this.#acquire(call.timeoutMs * CONNECTION_WAIT_SHARE)))
+        const lane = call.lane ?? 'delivery';
+        if (
+            !(await this.#acquire(call.timeoutMs * CONNECTION_WAIT_SHARE, lane))
+        )
             return {
                 status: null,
                 error: 'no free connection to the events dispatcher',
@@ -376,7 +433,7 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                     'x-puter-events-key': call.key,
                     ...(call.deployed ? { [EVENTS_DEPLOYED_HEADER]: '1' } : {}),
                 },
-                body: call.body,
+                body: call.render ? call.render() : call.body,
                 signal: AbortSignal.timeout(call.timeoutMs),
                 dispatcher: this.#dispatcherFor(),
             });
@@ -400,14 +457,28 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
         } catch (err) {
             return failedAnswer(err);
         } finally {
-            this.#release();
+            this.#release(lane);
         }
     }
 
+    /** Whether a call on `lane` may take a connection now. */
+    #free(lane: InvokeLane): boolean {
+        return (
+            this.#active < INVOKE_CONNECTIONS &&
+            (lane !== 'schedule' ||
+                this.#scheduleActive < SCHEDULE_INVOKE_CONNECTIONS)
+        );
+    }
+
+    #take(lane: InvokeLane): void {
+        this.#active++;
+        if (lane === 'schedule') this.#scheduleActive++;
+    }
+
     /** A connection slot, or false once `waitMs` passes without one. */
-    #acquire(waitMs: number): Promise<boolean> {
-        if (this.#active < INVOKE_CONNECTIONS) {
-            this.#active++;
+    #acquire(waitMs: number, lane: InvokeLane): Promise<boolean> {
+        if (this.#free(lane)) {
+            this.#take(lane);
             return Promise.resolve(true);
         }
         return new Promise((resolve) => {
@@ -420,19 +491,24 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                 resolve(false);
             }, waitMs);
             timer.unref?.();
-            this.#waiting.add(granted);
+            this.#waiting.set(granted, lane);
         });
     }
 
-    /** Hand the slot to the longest waiter, or give it back. */
-    #release(): void {
-        const next = this.#waiting.values().next().value;
-        if (next) {
-            this.#waiting.delete(next);
-            next();
+    /**
+     * Give the slot back, then hand one to the longest waiter it can go to: a
+     * schedule waiter at a full schedule share doesn't hold up a delivery.
+     */
+    #release(lane: InvokeLane): void {
+        this.#active--;
+        if (lane === 'schedule') this.#scheduleActive--;
+        for (const [granted, waiting] of this.#waiting) {
+            if (!this.#free(waiting)) continue;
+            this.#waiting.delete(granted);
+            this.#take(waiting);
+            granted();
             return;
         }
-        this.#active--;
     }
 
     /** One pool per process, built on first use and closed with the server. */

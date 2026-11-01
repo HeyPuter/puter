@@ -437,6 +437,29 @@ describe('the set a delivery addresses', () => {
         }
     });
 
+    it('reads a miss from the replica when asked to, and caches it', async () => {
+        await handlers().publish({
+            appUid: cachedApp,
+            name: 'a',
+            source: SOURCE,
+        });
+        const pread = vi.spyOn(env.server.clients.db, 'pread');
+        const read = vi.spyOn(env.server.clients.db, 'read');
+        try {
+            const first = await handlers().cachedSetForApp(cachedApp, {
+                missRead: 'replica',
+            });
+            expect(first.map((h) => h.name)).toEqual(['a']);
+            expect(pread).not.toHaveBeenCalled();
+            expect(read).toHaveBeenCalledTimes(1);
+            await handlers().cachedSetForApp(cachedApp);
+            expect(pread).not.toHaveBeenCalled();
+        } finally {
+            pread.mockRestore();
+            read.mockRestore();
+        }
+    });
+
     it('follows every publish and removal', async () => {
         await handlers().publish({
             appUid: cachedApp,

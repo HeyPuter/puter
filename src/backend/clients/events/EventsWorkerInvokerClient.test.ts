@@ -34,6 +34,7 @@ import {
     EVENTS_HANDLED_HEADER,
     EventsWorkerInvokerClient,
     INVOKE_CONNECTIONS,
+    SCHEDULE_INVOKE_CONNECTIONS,
     outcomeForStatus,
     type WorkerInvokeRequest,
 } from './EventsWorkerInvokerClient.js';
@@ -73,10 +74,7 @@ const refusedFetch: FetchImpl = (async () => {
 }) as unknown as FetchImpl;
 
 /** A stub fetch that records the URL it was called with. */
-const capturingFetch = (
-    calls: string[],
-    status = 200,
-): FetchImpl =>
+const capturingFetch = (calls: string[], status = 200): FetchImpl =>
     (async (url: string) => {
         calls.push(url);
         return new Response(null, { status });
@@ -84,9 +82,13 @@ const capturingFetch = (
 
 describe('DispatcherInvokeTransport', () => {
     it('reports a handled 400 with no error — the handler`s own refusal', async () => {
-        const transport = new DispatcherInvokeTransport('http://dispatcher', 's', {
-            fetchImpl: stubFetch(400, { [EVENTS_HANDLED_HEADER]: '1' }),
-        });
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            {
+                fetchImpl: stubFetch(400, { [EVENTS_HANDLED_HEADER]: '1' }),
+            },
+        );
         expect(await transport.send(CALL)).toEqual({
             status: 400,
             handled: true,
@@ -94,9 +96,13 @@ describe('DispatcherInvokeTransport', () => {
     });
 
     it('reports an unmarked 404 with no dispatch-error header as unhandled', async () => {
-        const transport = new DispatcherInvokeTransport('http://dispatcher', 's', {
-            fetchImpl: stubFetch(404),
-        });
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            {
+                fetchImpl: stubFetch(404),
+            },
+        );
         expect(await transport.send(CALL)).toEqual({
             status: 404,
             handled: false,
@@ -104,9 +110,15 @@ describe('DispatcherInvokeTransport', () => {
     });
 
     it('turns a dispatch-error header into a null status with the reason', async () => {
-        const transport = new DispatcherInvokeTransport('http://dispatcher', 's', {
-            fetchImpl: stubFetch(502, { [EVENTS_DISPATCH_ERROR_HEADER]: 'deploy-failed' }),
-        });
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            {
+                fetchImpl: stubFetch(502, {
+                    [EVENTS_DISPATCH_ERROR_HEADER]: 'deploy-failed',
+                }),
+            },
+        );
         expect(await transport.send(CALL)).toEqual({
             status: null,
             error: 'dispatcher: deploy-failed (502)',
@@ -120,9 +132,13 @@ describe('DispatcherInvokeTransport', () => {
             headers.push(init?.headers as Record<string, string>);
             return new Response(null, { status: 200 });
         }) as unknown as FetchImpl;
-        const transport = new DispatcherInvokeTransport('http://dispatcher', 's', {
-            fetchImpl,
-        });
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            {
+                fetchImpl,
+            },
+        );
 
         await transport.send(CALL);
         await transport.send({ ...CALL, deployed: true });
@@ -132,9 +148,13 @@ describe('DispatcherInvokeTransport', () => {
     });
 
     it('reports a handled 200 as settled with no error', async () => {
-        const transport = new DispatcherInvokeTransport('http://dispatcher', 's', {
-            fetchImpl: stubFetch(200, { [EVENTS_HANDLED_HEADER]: '1' }),
-        });
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            {
+                fetchImpl: stubFetch(200, { [EVENTS_HANDLED_HEADER]: '1' }),
+            },
+        );
         expect(await transport.send(CALL)).toEqual({
             status: 200,
             handled: true,
@@ -142,9 +162,13 @@ describe('DispatcherInvokeTransport', () => {
     });
 
     it('passes a 429 through as-is', async () => {
-        const transport = new DispatcherInvokeTransport('http://dispatcher', 's', {
-            fetchImpl: stubFetch(429),
-        });
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            {
+                fetchImpl: stubFetch(429),
+            },
+        );
         expect(await transport.send(CALL)).toEqual({
             status: 429,
             handled: false,
@@ -152,18 +176,26 @@ describe('DispatcherInvokeTransport', () => {
     });
 
     it('answers null and says so when the request times out', async () => {
-        const transport = new DispatcherInvokeTransport('http://dispatcher', 's', {
-            fetchImpl: hangingFetch,
-        });
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            {
+                fetchImpl: hangingFetch,
+            },
+        );
         const result = await transport.send({ ...CALL, timeoutMs: 10 });
         expect(result.status).toBeNull();
         expect(result.timedOut).toBe(true);
     });
 
     it('answers null without a timeout when the request fails outright', async () => {
-        const transport = new DispatcherInvokeTransport('http://dispatcher', 's', {
-            fetchImpl: refusedFetch,
-        });
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            {
+                fetchImpl: refusedFetch,
+            },
+        );
         expect(await transport.send(CALL)).toEqual({
             status: null,
             error: 'fetch failed',
@@ -187,12 +219,16 @@ describe('DispatcherInvokeTransport', () => {
     });
 
     it('surfaces the runtime`s own error header alongside its status', async () => {
-        const transport = new DispatcherInvokeTransport('http://dispatcher', 's', {
-            fetchImpl: stubFetch(500, {
-                [EVENTS_HANDLED_HEADER]: '1',
-                [EVENTS_ERROR_HEADER]: 'handler-threw',
-            }),
-        });
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            {
+                fetchImpl: stubFetch(500, {
+                    [EVENTS_HANDLED_HEADER]: '1',
+                    [EVENTS_ERROR_HEADER]: 'handler-threw',
+                }),
+            },
+        );
         expect(await transport.send(CALL)).toEqual({
             status: 500,
             handled: true,
@@ -208,7 +244,9 @@ describe('DispatcherInvokeTransport', () => {
             { fetchImpl: capturingFetch(calls) },
         );
         await transport.send(CALL);
-        expect(calls).toEqual([`http://dispatcher/prefix${EVENTS_DISPATCH_PATH}`]);
+        expect(calls).toEqual([
+            `http://dispatcher/prefix${EVENTS_DISPATCH_PATH}`,
+        ]);
     });
 });
 
@@ -303,6 +341,134 @@ describe('DispatcherInvokeTransport with every connection busy', () => {
     });
 });
 
+describe('DispatcherInvokeTransport schedule lane', () => {
+    const heldFetch = () => {
+        const held: Array<{ answer: () => void; body: string }> = [];
+        const fetchImpl = ((_url: string, init: RequestInit) =>
+            new Promise((resolve) => {
+                held.push({
+                    body: String(init.body),
+                    answer: () =>
+                        resolve(
+                            new Response(null, {
+                                status: 200,
+                                headers: { [EVENTS_HANDLED_HEADER]: '1' },
+                            }),
+                        ),
+                });
+            })) as unknown as FetchImpl;
+        return { fetchImpl, held };
+    };
+
+    it('holds schedule runs to their share and keeps serving deliveries', async () => {
+        const { fetchImpl, held } = heldFetch();
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            { fetchImpl },
+        );
+        const scheduled = Array.from(
+            { length: SCHEDULE_INVOKE_CONNECTIONS + 5 },
+            () => transport.send({ ...CALL, lane: 'schedule' as const }),
+        );
+        await vi.waitFor(() =>
+            expect(held).toHaveLength(SCHEDULE_INVOKE_CONNECTIONS),
+        );
+        // A delivery waiting behind the schedule queue still gets a connection.
+        const delivery = transport.send(CALL);
+        await vi.waitFor(() =>
+            expect(held).toHaveLength(SCHEDULE_INVOKE_CONNECTIONS + 1),
+        );
+        held[SCHEDULE_INVOKE_CONNECTIONS].answer();
+        await expect(delivery).resolves.toMatchObject({ status: 200 });
+
+        // A schedule run's slot goes to the next schedule run waiting.
+        held[0].answer();
+        await vi.waitFor(() =>
+            expect(held).toHaveLength(SCHEDULE_INVOKE_CONNECTIONS + 2),
+        );
+        for (let i = 0; i < 4; i++) held[i + 1].answer();
+        await vi.waitFor(() =>
+            expect(held).toHaveLength(SCHEDULE_INVOKE_CONNECTIONS + 6),
+        );
+        for (const call of held) call.answer();
+        await Promise.all(scheduled);
+    });
+
+    it('builds the body after the connection wait, so a stamp is the send time', async () => {
+        const { fetchImpl, held } = heldFetch();
+        const transport = new DispatcherInvokeTransport(
+            'http://dispatcher',
+            's',
+            { fetchImpl },
+        );
+        const busy = Array.from({ length: SCHEDULE_INVOKE_CONNECTIONS }, () =>
+            transport.send({ ...CALL, lane: 'schedule' as const }),
+        );
+        await vi.waitFor(() =>
+            expect(held).toHaveLength(SCHEDULE_INVOKE_CONNECTIONS),
+        );
+        let renders = 0;
+        const stamped = transport.send({
+            ...CALL,
+            lane: 'schedule',
+            render: () => `{"n":${++renders}}`,
+        });
+        held[0].answer();
+        await vi.waitFor(() =>
+            expect(held).toHaveLength(SCHEDULE_INVOKE_CONNECTIONS + 1),
+        );
+        expect(held[SCHEDULE_INVOKE_CONNECTIONS].body).toBe('{"n":1}');
+        for (const call of held) call.answer();
+        await Promise.all([...busy, stamped]);
+    });
+});
+
+describe('EventsWorkerInvokerClient invoke options', () => {
+    it('stamps the event as each attempt goes out', async () => {
+        const bodies: string[] = [];
+        const client = makeClient();
+        client.setTransport({
+            send: async (call) => {
+                bodies.push(call.body);
+                return { status: 200, handled: true };
+            },
+        });
+        let n = 0;
+        await client.invoke(REQUEST, {
+            stampEvent: (event) => ({ ...(event as object), sentAt: ++n }),
+        });
+        expect(JSON.parse(bodies[0]).event).toEqual({ sentAt: 1 });
+    });
+
+    it('runs the deploy on a miss through the gate, and gives up when it is busy', async () => {
+        const headersSeen: Array<Record<string, string>> = [];
+        const client = makeClient();
+        client.setTransport(
+            new DispatcherInvokeTransport('http://dispatcher', 's', {
+                fetchImpl: missUntilDeployedFetch(headersSeen),
+            }),
+        );
+        const deploys: string[] = [];
+        client.setMissHandler(async (_appUid, script) => {
+            deploys.push(script);
+            return 'deployed';
+        });
+
+        await expect(
+            client.invoke(REQUEST, { gateDeploy: async () => 'busy' }),
+        ).resolves.toMatchObject({ outcome: 'unavailable', deployBusy: true });
+        expect(deploys).toEqual([]);
+
+        await expect(
+            client.invoke(REQUEST, {
+                gateDeploy: (_appUid, _script, deploy) => deploy(),
+            }),
+        ).resolves.toMatchObject({ outcome: 'settled' });
+        expect(deploys).toEqual([REQUEST.script]);
+    });
+});
+
 const REQUEST: WorkerInvokeRequest = {
     script: 'evw-test',
     appUid: 'app-test',
@@ -313,7 +479,8 @@ const REQUEST: WorkerInvokeRequest = {
     ctx: {},
 };
 
-const makeClient = () => new EventsWorkerInvokerClient({} as unknown as IConfig);
+const makeClient = () =>
+    new EventsWorkerInvokerClient({} as unknown as IConfig);
 
 /** Answers `missing` until it sees the deployed header, then settles. */
 const missUntilDeployedFetch = (
