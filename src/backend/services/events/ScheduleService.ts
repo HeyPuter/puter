@@ -702,8 +702,9 @@ export class ScheduleService extends PuterService {
     }
 
     override onServerStart(): void {
+        // Rows are shared, so these end them even with schedules off here; a
+        // region with them on would still send. The index side is gated.
         this.clients.event.on('app.uninstalled', async (_key, data) => {
-            if (!this.enabled) return;
             try {
                 await this.#endDeferred(
                     (afterId) =>
@@ -724,11 +725,10 @@ export class ScheduleService extends PuterService {
                 app_uid?: string;
                 action?: string;
             };
-            if (!this.enabled || action !== 'deleted' || !appUid) return;
+            if (action !== 'deleted' || !appUid) return;
             await this.#endDeferredForApp(appUid);
         });
         this.clients.event.on('user.delete', async (_key, data) => {
-            if (!this.enabled) return;
             for (const appUid of new Set(data?.appUids ?? []))
                 await this.#endDeferredForApp(appUid);
         });

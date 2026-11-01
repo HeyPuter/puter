@@ -1249,6 +1249,59 @@ describe('cancelling a delayed send', () => {
             { timeout: 10_000 },
         );
     });
+
+    it('is done on uninstall, app delete and owner delete handled with schedules off', async () => {
+        const owner = (await server().stores.user.getById(
+            Number(
+                (
+                    (await server().stores.user.create({
+                        username: `u${Date.now()}${Math.floor(Math.random() * 1e6)}`,
+                        uuid: uuidv4(),
+                        password: null,
+                        email: null,
+                        requires_email_confirmation: false,
+                    } as never)) as { id: number }
+                ).id,
+            ),
+        ))!;
+        const uninstalled = await h.makeApp();
+        const deleted = await h.makeApp();
+        const orphaned = await h.makeApp(owner.id);
+        const rows = [
+            [await sendLater(uninstalled), 'uninstalled'],
+            [await sendLater(deleted), 'app_deleted'],
+            [await sendLater(orphaned), 'app_deleted'],
+        ] as const;
+
+        const config = (schedules() as unknown as { config: IConfig })
+            .config as { events: { schedules: { enabled: boolean } } };
+        config.events.schedules.enabled = false;
+        try {
+            await server().services.auth.uninstallApp(
+                holderActor(),
+                uninstalled.uid,
+            );
+            await withActor(holderActor(), () =>
+                server().drivers.apps.delete({ uid: deleted.uid }),
+            );
+            await server().services.userAccount.cascadeDelete(owner.id);
+            for (const [row, endReason] of rows)
+                await vi.waitFor(
+                    async () =>
+                        expect(await rowOf(row.uid)).toMatchObject({
+                            state: 'done',
+                            endReason,
+                        }),
+                    { timeout: 10_000 },
+                );
+        } finally {
+            config.events.schedules.enabled = true;
+        }
+
+        await fireAt(DUE);
+        for (const app of [uninstalled, deleted, orphaned])
+            expect(await mailbox(app.uid)).toEqual([]);
+    });
 });
 
 describe('a delayed send as a schedule', () => {
