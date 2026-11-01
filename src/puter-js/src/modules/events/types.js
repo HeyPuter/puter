@@ -393,8 +393,9 @@
  *   last run is done), `app_deleted`, `uninstalled`, `permission_revoked`,
  *   `holder_gone`, `app_gone`, `orphaned`, `delivered` or `dropped`.
  * @property {number | null} endedAt When it ended.
- * @property {number | null} nextRunAt When its next run is due, or `null`
- *   while suspended and once ended. A run starts within about a minute of it.
+ * @property {number | null} nextRunAt The next slot of its definition, or
+ *   `null` while suspended and once ended. A run starts within about a minute
+ *   of it; a late or retried run for an earlier slot may fire first.
  * @property {number} createdAt When it was created.
  * @property {() => Promise<void>} [off] Removes the schedule. Present on the
  *   schedule `onSchedule()` returns, not on one a listing reports.
