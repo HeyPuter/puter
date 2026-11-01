@@ -346,7 +346,9 @@ describe('NotificationStore', () => {
         const uids = (rows) => rows.map((r) => r.uid).sort();
 
         expect(
-            uids(await store.listScoped(u.id, { audience: 'developer', appUid })),
+            uids(
+                await store.listScoped(u.id, { audience: 'developer', appUid }),
+            ),
         ).toEqual([mine.uid]);
         // `null` is the rows naming no app, not "any app".
         expect(
@@ -534,6 +536,29 @@ describe('NotificationStore', () => {
         ).toBe(false);
         // Without the flag a shown row is still open, as a share's fold needs.
         expect(await store.updateValue(n.uid, u.id, { v: 5 })).toBe(true);
+    });
+
+    it('clears send_key on a rewrite only with schedules on', async () => {
+        const n = await store.create({ userId: user.id, value: { v: 1 } });
+        const saved = store.config.events;
+        const write = vi.spyOn(server.clients.db, 'write');
+        const rewrite = async (events) => {
+            store.config.events = events;
+            write.mockClear();
+            await store.updateValue(n.uid, user.id, { v: 2 });
+            return write.mock.calls.find(([sql]) =>
+                sql.startsWith('UPDATE `notification` SET `value`'),
+            )[0];
+        };
+        try {
+            expect(await rewrite({ enabled: true })).not.toContain('send_key');
+            expect(
+                await rewrite({ enabled: true, schedules: { enabled: true } }),
+            ).toContain('`send_key` = NULL');
+        } finally {
+            store.config.events = saved;
+            write.mockRestore();
+        }
     });
 
     // -- retention -----------------------------------------------------
