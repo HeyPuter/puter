@@ -1630,6 +1630,9 @@ const ipc_listener = async (event, handled) => {
         }
 
         // set options
+        if ( typeof event.data.options === 'string' ) {
+            event.data.options = { defaultFont: event.data.options };
+        }
         event.data.options = event.data.options ?? {};
 
         // clear window_options for security reasons

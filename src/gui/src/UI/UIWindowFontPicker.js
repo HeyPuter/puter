@@ -41,7 +41,7 @@ const font_list = new Set([
 async function UIWindowFontPicker (options) {
     // set sensible defaults
     if ( arguments.length > 0 ) {
-        // if first argument is a string, then assume it is the default color
+        // if first argument is a string, then assume it is the default font
         if ( window.isString(arguments[0]) ) {
             options = {};
             options.default = arguments[0];
@@ -49,13 +49,17 @@ async function UIWindowFontPicker (options) {
     }
     options = options || {};
 
+    const defaultFont = options.defaultValue ?? options.defaultFont ?? options.default;
+    const isDefault = (font) => window.isString(defaultFont)
+        && font.toLowerCase() === defaultFont.trim().toLowerCase();
+
     return new Promise(async (resolve) => {
         let h = '';
         h += '<div>';
         h += '<div style="padding: 20px; border-bottom: 1px solid #ced7e1; width: 100%; box-sizing: border-box;">';
         h += '<div class="font-list" style="margin-bottom: 10px; height: 200px; overflow-y: scroll; background-color: white; padding: 0 10px;">';
         fontAvailable.forEach(element => {
-            h += `<p class="font-selector disable-user-select ${options.default === element ? 'font-selector-active' : ''}" style="font-family: '${html_encode(element)}';" data-font-family="${html_encode(element)}">${html_encode(element)}</p>`; // 👉️ one, two, three, four
+            h += `<p class="font-selector disable-user-select ${isDefault(element) ? 'font-selector-active' : ''}" style="font-family: '${html_encode(element)}';" data-font-family="${html_encode(element)}">${html_encode(element)}</p>`; // 👉️ one, two, three, four
         });
         h += '</div>';
 
@@ -89,10 +93,10 @@ async function UIWindowFontPicker (options) {
             on_close: () => {
                 resolve(false);
             },
-            onAppend: function (window) {
-                let active_font = $(window).find('.font-selector-active');
+            onAppend: function (win) {
+                let active_font = $(win).find('.font-selector-active');
                 if ( active_font.length > 0 ) {
-                    window.scrollParentToChild($(window).find('.font-list').get(0), active_font.get(0));
+                    window.scrollParentToChild($(win).find('.font-list').get(0), active_font.get(0));
                 }
             },
             window_class: 'window-login',
