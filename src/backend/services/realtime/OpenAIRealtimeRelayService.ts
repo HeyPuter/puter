@@ -36,6 +36,7 @@ import {
 } from '../../drivers/util/aiCostFactor.js';
 import { readProviderKey } from '../../drivers/util/providerRegistry.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
+import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { kv } from '../../util/kvSingleton.js';
 import {
     assertActorHasSubscription,
@@ -166,6 +167,14 @@ const RESPONSE_HOLD_INPUT_TOKENS = 8_000;
 const RESPONSE_HOLD_OUTPUT_TOKENS = 4_096;
 // Committed input items whose transcription hasn't completed.
 const MAX_PENDING_TRANSCRIPTIONS = 64;
+const TRANSCRIPTION_TIMEOUT_MS = 30_000;
+const TRANSCRIPTION_AUDIO_SECONDS = 160;
+const TRANSCRIPTION_TOKEN_BUDGET = [8_000 * 600, 8_000 * 250, 4_096 * 1000];
+const TRANSCRIPTION_HOLD = Math.max(
+    TRANSCRIPTION_TOKEN_BUDGET.reduce((sum, cost) => sum + cost, 0),
+    TRANSCRIPTION_AUDIO_SECONDS *
+        Math.max(...Object.values(TRANSCRIPTION_SECOND_PRICES)),
+);
 // Credentials are re-authenticated once their kv entry expires.
 const AUTH_RECHECK_SEC = 60;
 const AUTH_SWEEP_MS = 15_000;
@@ -326,6 +335,13 @@ export const realtimeUsageRows = (
         }));
 };
 
+const transcriptionBillingModel = (model: string | undefined): string =>
+    model &&
+    (Object.hasOwn(TRANSCRIPTION_TOKEN_PRICES, model) ||
+        Object.hasOwn(TRANSCRIPTION_SECOND_PRICES, model))
+        ? model
+        : 'unknown';
+
 /**
  * Usage rows for one completed input transcription. A model missing from the
  * tables is billed at the highest known rate, so it is never free.
@@ -337,12 +353,7 @@ export const realtimeTranscriptionRows = (
     if (!usage) return [];
     const n = (v: number | undefined) =>
         typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
-    const known =
-        model &&
-        (Object.hasOwn(TRANSCRIPTION_TOKEN_PRICES, model) ||
-            Object.hasOwn(TRANSCRIPTION_SECOND_PRICES, model))
-            ? model
-            : 'unknown';
+    const known = transcriptionBillingModel(model);
     const usageType = (kind: string) =>
         `openai:${known}:realtime:transcription_${kind}`;
     if (usage.type === 'duration') {
@@ -396,6 +407,16 @@ const unreportedResponseRows = (model: string, count: number): UsageInput[] => [
     },
 ];
 
+const unreportedTranscriptionRows = (
+    model: string | undefined,
+): UsageInput[] => [
+    {
+        usageType: `openai:${transcriptionBillingModel(model)}:realtime:transcription_unreported`,
+        usageAmount: 1,
+        costOverride: TRANSCRIPTION_HOLD,
+    },
+];
+
 /**
  * Why a client event is refused, or null. Retrieved items and MCP tool output
  * can exceed the upstream message cap.
@@ -444,17 +465,18 @@ const transcriptionModelOf = (session: unknown): string | undefined => {
 
 /**
  * The realtime model a session event reports, mapped onto the price table
- * (dated snapshots resolve to their alias). `fallback` when it reports none or
- * one we don't price.
+ * (dated snapshots resolve to their alias). Missing models use `fallback`;
+ * explicitly unpriced models are refused.
  */
 export const realtimeBillingModel = (
     session: unknown,
     fallback: string,
-): string => {
+): string | undefined => {
     const model = isRecord(session) ? session.model : undefined;
-    if (typeof model !== 'string') return fallback;
+    if (model === undefined) return fallback;
+    if (typeof model !== 'string') return undefined;
     const alias = model.replace(/-\d{4}-\d{2}-\d{2}$/, '');
-    return Object.hasOwn(REALTIME_MODELS, alias) ? alias : fallback;
+    return Object.hasOwn(REALTIME_MODELS, alias) ? alias : undefined;
 };
 
 const tokenHash = (token: string): string =>
@@ -810,7 +832,26 @@ export class OpenAIRealtimeRelayService extends PuterService {
         // Credit holds of responses whose usage isn't recorded yet.
         const responseHolds = new Map<string, Promise<CreditHold | null>>();
         // The transcription model in force when each input item was committed.
-        const committedModels = new Map<string, string | undefined>();
+        const pendingTranscriptions = new Map<
+            string,
+            {
+                model: string | undefined;
+                timer: ReturnType<typeof setTimeout>;
+                hold: CreditHold;
+            }
+        >();
+        let transcriptionPool: {
+            hold: CreditHold;
+            available: number;
+            outstanding: number;
+            audioBytes: number;
+        } | null = null;
+        let wantsTranscription = false;
+        let pumping = false;
+        let providerReady = false;
+        const finishedTranscriptions = new BoundedTtlMap<string, true>({
+            maxEntries: MAX_PENDING_TRANSCRIPTIONS * 2,
+        });
         let onIdle: (() => void) | null = null;
         let noticeAt = -Infinity;
         const model = url.searchParams.get('model') || DEFAULT_REALTIME_MODEL;
@@ -818,12 +859,16 @@ export class OpenAIRealtimeRelayService extends PuterService {
         let transcriptionModel: string | undefined;
 
         // Client reads stay paused while any reason holds.
-        const holds = new Set<'upstream' | 'budget'>();
-        const holdClient = (reason: 'upstream' | 'budget') => {
+        const holds = new Set<'upstream' | 'budget' | 'transcription'>();
+        const holdClient = (
+            reason: 'upstream' | 'budget' | 'transcription',
+        ) => {
             holds.add(reason);
             client.pause();
         };
-        const releaseClient = (reason: 'upstream' | 'budget') => {
+        const releaseClient = (
+            reason: 'upstream' | 'budget' | 'transcription',
+        ) => {
             if (holds.delete(reason) && holds.size === 0 && !closed) {
                 client.resume();
             }
@@ -848,12 +893,17 @@ export class OpenAIRealtimeRelayService extends PuterService {
             if (
                 !up ||
                 up.readyState !== WebSocket.OPEN ||
-                (inFlight === 0 && requested === 0)
+                (inFlight === 0 &&
+                    requested === 0 &&
+                    pendingTranscriptions.size === 0 &&
+                    !transcriptionPool?.audioBytes)
             ) {
                 endUpstream();
                 return;
             }
             if (up.isPaused) up.resume();
+            if (transcriptionPool?.audioBytes)
+                up.send(JSON.stringify({ type: 'input_audio_buffer.commit' }));
             settleTimer = setTimeout(endUpstream, SETTLE_MS);
             // A requested response is cancelled once it starts.
             if (inFlight === 0) return;
@@ -912,6 +962,13 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     client.close(code, reason);
                 }
                 settleUpstream();
+                if (
+                    !transcriptionPool?.audioBytes &&
+                    transcriptionPool?.outstanding === 0
+                ) {
+                    void transcriptionPool.hold.release();
+                    transcriptionPool = null;
+                }
             },
             // Called every HEARTBEAT_MS; a client that missed the last ping is
             // gone without a close frame.
@@ -922,6 +979,15 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 }
                 alive = false;
                 if (client.readyState === WebSocket.OPEN) client.ping();
+                void transcriptionPool?.hold
+                    .extend?.()
+                    .catch(() =>
+                        reject(
+                            'internal_error',
+                            'Could not renew transcription budget',
+                            1011,
+                        ),
+                    );
             },
             // Called every AUTH_SWEEP_MS; re-authenticates once the token's kv
             // entry has expired. A failed lookup is retried on the next sweep.
@@ -998,7 +1064,10 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 return rechecking;
             },
             drain: async () => {
-                if (inFlight > 0 && !closed) {
+                if (
+                    (inFlight > 0 || pendingTranscriptions.size > 0) &&
+                    !closed
+                ) {
                     await new Promise<void>((resolve) => {
                         const timer = setTimeout(resolve, DRAIN_RESPONSE_MS);
                         onIdle = () => {
@@ -1261,45 +1330,147 @@ export class OpenAIRealtimeRelayService extends PuterService {
                     );
                     if (inFlight === 0) {
                         onIdle?.();
-                        if (closed && requested === 0) endUpstream();
+                        if (
+                            closed &&
+                            requested === 0 &&
+                            pendingTranscriptions.size === 0 &&
+                            !transcriptionPool?.audioBytes
+                        )
+                            endUpstream();
                     }
                     break;
-                case 'input_audio_buffer.committed':
-                    if (typeof event.item_id !== 'string') break;
-                    committedModels.set(event.item_id, transcriptionModel);
-                    if (committedModels.size > MAX_PENDING_TRANSCRIPTIONS) {
-                        committedModels.delete(
-                            committedModels.keys().next().value!,
+                case 'input_audio_buffer.committed': {
+                    if (
+                        !transcriptionModel ||
+                        typeof event.item_id !== 'string' ||
+                        pendingTranscriptions.has(event.item_id) ||
+                        finishedTranscriptions.has(event.item_id)
+                    )
+                        break;
+                    const pool = transcriptionPool;
+                    if (!pool || pool.available === 0) {
+                        finishedTranscriptions.set(event.item_id, true);
+                        reject(
+                            'rate_limit_exceeded',
+                            'Transcription capacity exceeded',
+                            CLOSE_TRY_AGAIN_LATER,
                         );
+                        // Work beyond the admitted window has no reliable identity.
+                        meter([
+                            {
+                                usageType:
+                                    'openai:unknown:realtime:transcription_unreported',
+                                usageAmount: 1,
+                                costOverride: TRANSCRIPTION_HOLD,
+                            },
+                        ]);
+                        endUpstream();
+                        break;
                     }
+                    pool.available--;
+                    pool.outstanding++;
+                    let released = false;
+                    const hold: CreditHold = {
+                        release: async () => {
+                            if (released) return;
+                            released = true;
+                            pool.outstanding--;
+                            if (
+                                pool.outstanding === 0 &&
+                                (closed || pool.available === 0)
+                            ) {
+                                await pool.hold.release();
+                                if (transcriptionPool === pool)
+                                    transcriptionPool = null;
+                                releaseClient('transcription');
+                                void pumpPending();
+                            }
+                        },
+                    };
+                    const itemId = event.item_id;
+                    const timer = setTimeout(() => {
+                        const pending = pendingTranscriptions.get(itemId);
+                        if (!pending) return;
+                        pendingTranscriptions.delete(itemId);
+                        finishedTranscriptions.set(itemId, true);
+                        meter(
+                            unreportedTranscriptionRows(pending.model),
+                            Promise.resolve(pending.hold),
+                        );
+                        reject(
+                            'upstream_error',
+                            'Transcription usage timed out',
+                            1011,
+                        );
+                    }, TRANSCRIPTION_TIMEOUT_MS);
+                    pendingTranscriptions.set(itemId, {
+                        model: transcriptionModel,
+                        timer,
+                        hold,
+                    });
+                    if (pool.available === 0) holdClient('transcription');
                     break;
+                }
                 case 'session.created':
                 case 'session.updated':
                     transcriptionModel = transcriptionModelOf(event.session);
-                    billingModel = realtimeBillingModel(event.session, model);
-                    break;
-                case TRANSCRIPTION_DONE: {
-                    // Priced at the costlier of the models in force at commit
-                    // and now, whichever the provider used.
-                    const usage = event.usage ?? undefined;
-                    const itemId = event.item_id;
-                    const atCommit =
-                        typeof itemId === 'string' &&
-                        committedModels.has(itemId)
-                            ? committedModels.get(itemId)
-                            : transcriptionModel;
-                    if (typeof itemId === 'string') {
-                        committedModels.delete(itemId);
+                    {
+                        const nextModel = realtimeBillingModel(
+                            event.session,
+                            billingModel,
+                        );
+                        if (!nextModel) {
+                            billingModel = 'gpt-realtime-2.1';
+                            reject(
+                                'upstream_error',
+                                'Provider reported an unsupported model',
+                                1011,
+                            );
+                            endUpstream();
+                            break;
+                        }
+                        billingModel = nextModel;
                     }
-                    meter(
-                        costlierRows(
-                            realtimeTranscriptionRows(atCommit, usage),
-                            realtimeTranscriptionRows(
-                                transcriptionModel,
-                                usage,
-                            ),
-                        ),
-                    );
+                    if (event.type === 'session.created') {
+                        providerReady = true;
+                        if (setupTimer) clearTimeout(setupTimer);
+                        void pumpPending();
+                    }
+                    break;
+                case 'conversation.item.input_audio_transcription.failed':
+                case TRANSCRIPTION_DONE: {
+                    const itemId = event.item_id;
+                    if (typeof itemId !== 'string') break;
+                    const pending = pendingTranscriptions.get(itemId);
+                    if (!pending) break;
+                    pendingTranscriptions.delete(itemId);
+                    finishedTranscriptions.set(itemId, true);
+                    clearTimeout(pending.timer);
+                    const rows =
+                        event.type !== TRANSCRIPTION_DONE
+                            ? unreportedTranscriptionRows(pending.model)
+                            : event.usage
+                              ? costlierRows(
+                                    realtimeTranscriptionRows(
+                                        pending.model,
+                                        event.usage,
+                                    ),
+                                    realtimeTranscriptionRows(
+                                        transcriptionModel,
+                                        event.usage,
+                                    ),
+                                )
+                              : unreportedTranscriptionRows(pending.model);
+                    meter(rows, Promise.resolve(pending.hold));
+                    if (!pendingTranscriptions.size && inFlight === 0) {
+                        onIdle?.();
+                        if (
+                            closed &&
+                            requested === 0 &&
+                            !transcriptionPool?.audioBytes
+                        )
+                            endUpstream();
+                    }
                     break;
                 }
             }
@@ -1320,6 +1491,122 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 }
             });
             if (up.bufferedAmount >= HIGH_WATER_BYTES) holdClient('upstream');
+        };
+
+        const pumpPending = async () => {
+            if (
+                pumping ||
+                closed ||
+                !providerReady ||
+                upstream?.readyState !== WebSocket.OPEN
+            )
+                return;
+            pumping = true;
+            try {
+                while (pending.length && !closed) {
+                    const next = pending[0];
+                    const event = parseEvent(next.data as Buffer)!;
+                    const requestedModel =
+                        event.type === 'session.update'
+                            ? transcriptionModelOf(event.session)
+                            : undefined;
+                    if (requestedModel) wantsTranscription = true;
+                    if (
+                        (wantsTranscription || transcriptionModel) &&
+                        (event.type === 'input_audio_buffer.append' ||
+                            requestedModel)
+                    ) {
+                        if (transcriptionPool?.available === 0) break;
+                        if (!transcriptionPool) {
+                            const provisional = await planProvisional();
+                            const factors = await Promise.all(
+                                [
+                                    ...Object.keys(TRANSCRIPTION_TOKEN_PRICES),
+                                    ...Object.keys(TRANSCRIPTION_SECOND_PRICES),
+                                    'unknown',
+                                ].map((name) =>
+                                    this.#metering.costFactor(
+                                        actor!,
+                                        `openai:${name}`,
+                                    ),
+                                ),
+                            );
+                            const factor = Math.max(...factors);
+                            const tokenBudget =
+                                TRANSCRIPTION_TOKEN_BUDGET.reduce(
+                                    (sum, cost) =>
+                                        sum + Math.ceil(cost * factor),
+                                    0,
+                                );
+                            const hold =
+                                await this.services.metering.reserveCreditsIfAffordable(
+                                    actor!,
+                                    MAX_PENDING_TRANSCRIPTIONS *
+                                        Math.max(
+                                            tokenBudget,
+                                            Math.ceil(
+                                                TRANSCRIPTION_HOLD * factor,
+                                            ),
+                                        ),
+                                    { ttlMs: 90_000 },
+                                );
+                            if (!hold) {
+                                await refuse(
+                                    'insufficient_funds',
+                                    'No transcription budget left',
+                                    provisional,
+                                );
+                                break;
+                            }
+                            if (closed) {
+                                await hold.release();
+                                break;
+                            }
+                            transcriptionPool = {
+                                hold,
+                                available: MAX_PENDING_TRANSCRIPTIONS,
+                                outstanding: 0,
+                                audioBytes: 0,
+                            };
+                        }
+                        const audio = (event as unknown as { audio?: unknown })
+                            .audio;
+                        if (typeof audio === 'string') {
+                            // G.711 uses the fewest bytes per second of the supported input formats.
+                            transcriptionPool.audioBytes += Buffer.byteLength(
+                                audio,
+                                'base64',
+                            );
+                            if (
+                                transcriptionPool.audioBytes >
+                                8_000 *
+                                    TRANSCRIPTION_AUDIO_SECONDS *
+                                    MAX_PENDING_TRANSCRIPTIONS
+                            ) {
+                                reject(
+                                    'rate_limit_exceeded',
+                                    'Transcription audio budget exceeded',
+                                    CLOSE_TRY_AGAIN_LATER,
+                                );
+                                break;
+                            }
+                        }
+                    }
+                    if (closed) break;
+                    pending.shift();
+                    pendingBytes -= (next.data as Buffer).length;
+                    if (event.type === 'response.create') requested++;
+                    sendUpstream(next.data, next.isBinary);
+                }
+            } catch {
+                reject(
+                    'internal_error',
+                    'Could not reserve transcription budget',
+                    1011,
+                );
+            } finally {
+                pumping = false;
+            }
         };
 
         client.on('message', (data, isBinary) => {
@@ -1354,11 +1641,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
             spend(size);
             if (closed) return;
-            if (event.type === 'response.create') requested++;
-            if (upstream?.readyState === WebSocket.OPEN) {
-                sendUpstream(data, isBinary);
-                return;
-            }
+
             if (
                 pending.length >= MAX_PENDING_MESSAGES ||
                 pendingBytes + size > MAX_PENDING_BYTES
@@ -1371,6 +1654,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             }
             pending.push({ data, isBinary });
             pendingBytes += size;
+            void pumpPending();
         });
 
         if (!Object.hasOwn(REALTIME_MODELS, model)) {
@@ -1537,14 +1821,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
         const up = upstream;
 
         up.on('open', () => {
-            if (setupTimer) clearTimeout(setupTimer);
             if (closed) return;
-            for (const { data, isBinary } of pending) {
-                if (closed) break;
-                sendUpstream(data, isBinary);
-            }
-            pending.length = 0;
-            pendingBytes = 0;
+            void pumpPending();
         });
         up.on('message', (data, isBinary) => {
             const buf = data as Buffer;
@@ -1613,6 +1891,31 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 code === 1005 || code === 1006 ? 1011 : code,
                 reason.toString().replace(ORG_ID, 'org-redacted').slice(0, 120),
             );
+            const transcriptionRows: UsageInput[] = [];
+            const transcriptionHolds: Promise<CreditHold | null>[] = [];
+            for (const pending of pendingTranscriptions.values()) {
+                clearTimeout(pending.timer);
+                transcriptionRows.push(
+                    ...unreportedTranscriptionRows(pending.model),
+                );
+                transcriptionHolds.push(Promise.resolve(pending.hold));
+            }
+            meter(transcriptionRows, ...transcriptionHolds);
+            pendingTranscriptions.clear();
+            if (transcriptionPool?.outstanding === 0) {
+                if (
+                    transcriptionPool.audioBytes &&
+                    transcriptionPool.available === MAX_PENDING_TRANSCRIPTIONS
+                ) {
+                    meter(
+                        unreportedTranscriptionRows(transcriptionModel),
+                        Promise.resolve(transcriptionPool.hold),
+                    );
+                } else {
+                    void transcriptionPool.hold.release();
+                }
+                transcriptionPool = null;
+            }
             const holds = [...responseHolds.values()];
             responseHolds.clear();
             if (inFlight === 0) {
