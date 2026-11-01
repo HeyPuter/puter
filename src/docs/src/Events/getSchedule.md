@@ -50,9 +50,11 @@ The promise rejects with `{ message, code }`:
                 title: 'Stand-up in 10 minutes',
                 sendAt: Date.now() + 10 * 60 * 1000,
             });
+            if (typeof later !== 'object' || !later) return;    // due now: sent at once
 
             const schedule = await puter.events.getSchedule(later.scheduleId);
-            puter.print(`${schedule.state}, due ${new Date(schedule.nextRunAt).toLocaleTimeString()}<br>`);
+            const due = schedule.nextRunAt ? new Date(schedule.nextRunAt).toLocaleTimeString() : 'nothing due';
+            puter.print(`${schedule.state}, due ${due}<br>`);
 
             // Ended schedules can still be read
             await puter.notifications.cancel(later.scheduleId);

@@ -114,14 +114,20 @@ async function syncChanges ({ ctx, user, fetch }) {
     let hasMore = true;
 
     while (hasMore && Date.now() < stopAt) {
-        const res = await fetch(`${ctx.apiUrl}/changes?after=${encodeURIComponent(cursor)}`, {
-            headers: { Authorization: `Bearer ${ctx.apiKey}` },
-        });
+        let res;
+        try {
+            res = await fetch(`${ctx.apiUrl}/changes?after=${encodeURIComponent(cursor)}&limit=100`, {
+                headers: { Authorization: `Bearer ${ctx.apiKey}` },
+                signal: AbortSignal.timeout(5000),
+            });
+        } catch {
+            return;    // too slow or unreachable: the next run asks again
+        }
         if (!res.ok) return;
 
         const page = await res.json();
-        for (const item of page.items) {
-            await user.kv.set(`order:${item.id}`, item);
+        if (page.items.length > 0) {
+            await user.kv.set(page.items.map((item) => ({ key: `order:${item.id}`, value: item })));
         }
         cursor = page.next;
         hasMore = page.hasMore;
@@ -140,8 +146,12 @@ async function syncChanges ({ ctx, user, fetch }) {
 
 Publish the handler again after the change. A few details:
 
-- The loop stops starting new pages after 20 seconds, which leaves time to
-  save the last one inside the 30.
+- The loop stops starting new pages after 20 seconds. Each page is at most
+  100 items (`limit`, if the API takes one), its request gives up after 5
+  seconds, and its items are saved in one call, so the last page started
+  still fits inside the 30. Without those bounds, one slow request or a long
+  run of writes could use up the 30 seconds before the cursor is saved, and
+  every run would fail at the same page.
 - The extra run is a one-time schedule with the same handler and the same
   `context`, plus `followUp: true`. It continues from the saved cursor and
   ends on its own after it runs.
@@ -150,8 +160,13 @@ Publish the handler again after the change. A few details:
   one step deeper in a [handler chain](/Events/onPersistent/#handlers-that-trigger-handlers),
   so extra runs that each scheduled the next would stop after a few steps.
 - The extra run and a regular run can overlap. Both start from the saved
-  cursor, so they can fetch the same page twice, which the per-item keys
-  make harmless.
+  cursor, so they can fetch the same page twice, and whichever saves last
+  wins, even when the other got further. A cursor that moves back only means
+  pages are fetched again. An item the slower run saves can be older than the
+  one it replaces until a later run fetches it again. If that matters, keep the
+  API's `updatedAt` on each item and skip writing one older than what's stored;
+  the key-value store has no compare-and-set, so the handler has to tolerate
+  the rare overlap rather than prevent it.
 
 ## Full Code
 
@@ -167,14 +182,20 @@ async function syncChanges ({ ctx, user, fetch }) {
     let hasMore = true;
 
     while (hasMore && Date.now() < stopAt) {
-        const res = await fetch(`${ctx.apiUrl}/changes?after=${encodeURIComponent(cursor)}`, {
-            headers: { Authorization: `Bearer ${ctx.apiKey}` },
-        });
+        let res;
+        try {
+            res = await fetch(`${ctx.apiUrl}/changes?after=${encodeURIComponent(cursor)}&limit=100`, {
+                headers: { Authorization: `Bearer ${ctx.apiKey}` },
+                signal: AbortSignal.timeout(5000),
+            });
+        } catch {
+            return;    // too slow or unreachable: the next run asks again
+        }
         if (!res.ok) return;
 
         const page = await res.json();
-        for (const item of page.items) {
-            await user.kv.set(`order:${item.id}`, item);
+        if (page.items.length > 0) {
+            await user.kv.set(page.items.map((item) => ({ key: `order:${item.id}`, value: item })));
         }
         cursor = page.next;
         hasMore = page.hasMore;

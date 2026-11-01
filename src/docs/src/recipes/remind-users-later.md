@@ -34,7 +34,11 @@ The `sendAt` option takes a `Date`, an ISO-8601 string with a time zone such
 as `'2026-11-14T09:00:00-05:00'`, or milliseconds since the epoch. It can be
 up to 366 days ahead.
 
-The call resolves to `{ scheduleId, sendAt }`. Puter sends the notification
+The call resolves to `{ scheduleId, sendAt }`. A `sendAt` within 5 seconds,
+or already past, isn't stored: the notification goes out at once and the call
+resolves as it would without `sendAt`, with the notification's `uid` (a
+string). Check which one you got before keeping a `scheduleId`. Puter sends the
+stored notification
 within a few seconds of `sendAt`, as if your app called
 [`notify()`](/Notifications/notify/) then. It reaches every open page of your
 app, and goes out as a push when no page is open and the user turned pushes
@@ -55,6 +59,8 @@ async function remindLater (taskId, title, sendAt) {
         target: `/tasks/${taskId}`,
         sendAt,
     });
+    // A time within 5 seconds, or past, is sent at once: nothing to cancel.
+    if (typeof reminder !== 'object' || !reminder) return;
     await puter.kv.set(`reminder:${taskId}`, reminder.scheduleId);
 }
 ```
@@ -183,6 +189,8 @@ async function remindLater (taskId, title, sendAt) {
         target: `/tasks/${taskId}`,
         sendAt,
     });
+    // A time within 5 seconds, or past, is sent at once: nothing to cancel.
+    if (typeof reminder !== 'object' || !reminder) return;
     await puter.kv.set(`reminder:${taskId}`, reminder.scheduleId);
 }
 

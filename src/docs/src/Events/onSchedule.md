@@ -29,7 +29,7 @@ Give exactly one of `every`, `cron` or `at`.
 - `at` (Number | String | Date): Run once, at this [time](#times). It must be at least 1 second and at most 366 days ahead. A schedule with `at` takes no `startAt`, `expiresAt` or `maxRuns`.
 - `startAt` (Number | String | Date): For `every`, the first run. Without it, the first run is one interval after this call. A `startAt` in the past sets where the intervals line up, and the first run is the next one after this call. For example, `every: '1d'` with `startAt: '2026-01-01'` runs at midnight UTC every day. For `cron`, the earliest time the schedule may run. At most 366 days ahead.
 - `expiresAt` (Number | String | Date): The last time the schedule may run. A run due at exactly this time still runs.
-- `maxRuns` (Number): How many runs the schedule makes before it ends, from 1 to 100,000. With `expiresAt` too, the one that comes first ends the schedule.
+- `maxRuns` (Number): How many slots the schedule has, from 1 to 100,000: it ends at its `maxRuns`-th slot counted from the first. It counts slots, not runs that happened, so slots skipped while the schedule was behind or suspended (see [When a schedule runs](#when-a-schedule-runs)) still count, and the retries of one slot count once. With `expiresAt` too, the one that comes first ends the schedule.
 - `handlerName` (String) (required): The published handler each run calls.
 - `handler` (Function | String | Object): The handler source you wrote this schedule against, as a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Only its **hash** is sent. The schedule is created only if it matches what's published under `handlerName`. It never runs in this client.
 - `handlerHash` (String): The SHA-256 hex digest of the handler source, in place of `handler`.
@@ -92,13 +92,15 @@ The `tz` option takes an IANA name. A UTC offset such as `'+02:00'` is refused w
 When the clocks change:
 
 - An expression with one minute and one hour, such as `30 2 * * *`, runs once that day. When its time is skipped because the clocks go forward, it runs at the first minute after the gap (03:00 in New York). When its time happens twice because the clocks go back, it runs once.
-- An expression with a list, range, step or `*` in the hour field, such as `0,30 1 * * *` or `0 * * * *`, skips the runs that fall in the gap when the clocks go forward. When the clocks go back, it runs at each repeated time twice. Each of those runs has its own `scheduledFor` and `event.id`.
+- An expression with a list, range, step or `*` in the minute or hour field, such as `0,30 1 * * *` or `0 * * * *`, skips the runs that fall in the gap when the clocks go forward. When the clocks go back, it runs at each repeated time twice. Each of those runs has its own `scheduledFor` and `event.id`.
 
 ## How often a schedule can run
 
 A schedule can't run more often than your plan's **minimum interval**, which is 1 minute on a paid plan and 15 minutes on a free one. For `every`, the interval is what's checked. For `cron`, it's the smallest gap between two runs, checked over the next 10,000 runs or 400 days, whichever ends first. For example, `0-4 9 * * *` runs at 09:00, 09:01, 09:02, 09:03 and 09:04 each day. Those runs are 1 minute apart, so a free plan can't use it. A schedule under the minimum is refused with `events_schedule_too_frequent`.
 
 The plan also limits how many schedules the user can hold for your app and in total, and how many runs per hour all of them can add up to. Over those limits, the call fails with `events_schedule_limit` or `events_schedule_budget`. With `maxRuns` on a `cron` schedule, the last run has to fall inside those same 10,000 runs or 400 days, or the call fails with `events_schedule_invalid`. See [Rate Limits and Quotas](/rate-limits-and-quotas/#schedules) for the numbers.
+
+The plan's limits are checked when a schedule is created. A schedule keeps running if the user later moves to a plan with lower limits; schedules created after that are held to the new plan.
 
 ## When a schedule runs
 
@@ -281,7 +283,7 @@ const schedule = await puter.events.onSchedule({
     handlerName: 'sendDigest',
     context: { name: 'Ana' },
 });
-console.log(`next digest at ${new Date(schedule.nextRunAt).toString()}`);
+if (schedule.nextRunAt !== null) console.log(`next digest at ${new Date(schedule.nextRunAt).toString()}`);
 ```
 
 <strong class="example-title">Run once, an hour from now</strong>

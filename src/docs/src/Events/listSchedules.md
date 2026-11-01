@@ -66,6 +66,7 @@ The promise rejects with `{ message, code }`:
                 title: 'Time for a break',
                 sendAt: Date.now() + 60 * 60 * 1000,
             });
+            if (typeof later !== 'object' || !later) return;    // due now: sent at once
 
             // (2) Page through everything this app holds for the user
             let cursor = null;

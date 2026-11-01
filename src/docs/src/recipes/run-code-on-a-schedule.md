@@ -148,7 +148,7 @@ If two tabs open at the same moment, both might create a schedule. If
 remove the rest with
 [`puter.events.removeSchedule()`](/Events/removeSchedule/).
 
-## Send Each Summary Only Once
+## Skip Summaries Already Sent
 
 Puter runs each slot of a schedule at least once. A run that times out, or
 fails with a network error, is retried, and a retry can repeat work the first
@@ -176,6 +176,15 @@ async function sendSummary ({ event, user }) {
     await user.kv.set(sentKey, true, Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
 }
 ```
+
+This skips a retry of a run that already finished. It doesn't rule out every
+repeat: two attempts that overlap, such as a run still going past its 30
+seconds when its retry starts, can both pass the check, and a run that stops
+after sending but before saving the key sends again when it's retried. Here a
+repeat carries the same `group`, so it replaces the summary that's showing
+instead of adding a second one. For work that must happen exactly once, such as
+a payment, make the call itself safe to repeat, for example by passing
+`event.id` as the idempotency key of the service you call.
 
 Publish the handler again after the change. The schedules already created use
 the new code from their next run.

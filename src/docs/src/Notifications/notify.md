@@ -81,8 +81,9 @@ const later = await puter.notifications.notify({
     sendAt: '2026-11-14T09:00:00-05:00',
 });
 
-// The user upgraded, so it shouldn't go out
-await puter.notifications.cancel(later.scheduleId);
+// The user upgraded, so it shouldn't go out. A sendAt that's due now was
+// sent at once and resolved with its uid instead.
+if (typeof later === 'object' && later) await puter.notifications.cancel(later.scheduleId);
 ```
 
 A stored notification is a schedule of `kind: 'deferred'`. [`puter.events.getSchedule()`](/Events/getSchedule/) and [`puter.events.listSchedules()`](/Events/listSchedules/) show it, with `nextRunAt` set to its `sendAt` until it starts to go out. It needs no handler and no `events:background` permission.
@@ -94,11 +95,11 @@ When it's due:
 - If it can't go out because of a rate limit or a temporary error, it's retried, up to 5 attempts in all. After that it's dropped. A share that stopped, a recipient who blocked you, or an app or account that was deleted drops it right away.
 - While the sending account is suspended, it waits, and it's tried again every 15 minutes.
 
-It's written once, even when sending is retried. A retry doesn't write a second notification, and doesn't push it or bill it a second time. An open page of your app can receive it twice, with the same `uid`.
+It's written once, even when sending is retried. A retry doesn't write a second notification, and doesn't push it or bill it a second time. An open page of your app can receive it twice, with the same `uid`. A retry sends the live copy again only within 24 hours of the first; after that the send is finished without it.
 
 Once it has gone out, or been dropped, its schedule has `state: 'ended'` and an `endReason` of `delivered` or `dropped`, and it stays in [`puter.events.listSchedules()`](/Events/listSchedules/) for 7 days. While it's going out it's `sending`, and [`cancel()`](/Notifications/cancel/) rejects with `events_schedule_sending`.
 
-When the user uninstalls your app, the notifications it has waiting for them are cancelled. Deleting the app cancels all of them.
+When the user uninstalls your app, the notifications it has waiting for them are cancelled. Deleting the app, or the account that owns it, cancels all of them. This holds even on a server where sending later is turned off.
 
 The number of notifications and [`at` schedules](/Events/onSchedule/) your app can have waiting for each user is limited by the user's plan. See [Rate Limits and Quotas](/rate-limits-and-quotas/#schedules).
 

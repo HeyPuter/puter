@@ -659,10 +659,11 @@ These limits apply to [`onSchedule()`](/Events/onSchedule/) schedules, and to no
 A recurring schedule can run at most every **1 minute** on a paid plan and every **15 minutes** on a free one. For a `cron` schedule, that's the smallest gap between two of its runs.
 
 - Over a count: `events_schedule_limit`. Over the runs per hour: `events_schedule_budget`. Under the minimum interval: `events_schedule_too_frequent`. Anonymous accounts get `events_durable_requires_account`.
-- A recurring schedule's runs per hour are worked out when it's created. An `every` schedule counts 3,600 divided by its interval in seconds, so one that runs every minute counts 60 and one that runs every 15 minutes counts 4. A `cron` schedule counts the most runs it makes in any one hour, over its next 10,000 runs or 400 days. So a paid plan fits 30 schedules that run every minute in one app, and a free plan fits 10 that run every 15 minutes.
+- A recurring schedule's runs per hour are worked out when it's created. An `every` schedule counts 3,600 divided by its interval in seconds, rounded up to the next 0.001, so one that runs every minute counts 60, one that runs every 15 minutes counts 4, and one that runs every 7 minutes counts 8.572. A `cron` schedule counts the most runs it makes in any one hour, over its next 10,000 runs or 400 days. So a paid plan fits 30 schedules that run every minute in one app, and a free plan fits 10 that run every 15 minutes.
 - `at` schedules and stored notifications count only toward the waiting limits, until they run or are cancelled.
 - A suspended schedule still counts. Removing a schedule, or its last run finishing, frees its slot immediately.
 - Schedules don't count toward the persistent subscription limits.
+- These limits are checked when a schedule is created, against the plan the user has then. Schedules made before a change to a plan with lower limits keep running; new ones are held to the current plan.
 
 | Limit                                              | Value                                   | Scope              |
 | -------------------------------------------------- | --------------------------------------- | ------------------ |
