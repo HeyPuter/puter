@@ -108,6 +108,40 @@ export class BroadcastController extends PuterController {
         );
         res.status(200).json({ ok: true, ...reply });
     }
+
+    /**
+     * Schedule changes a region made for schedules this one owns, applied to
+     * this region's due index with the same version guard as a local change.
+     */
+    @Post('/events/schedules', { subdomain: '*' })
+    async schedules(req: Request, res: Response): Promise<void> {
+        const broadcast = this.services.broadcast as unknown as
+            BroadcastService | undefined;
+        if (!broadcast) {
+            res.status(503).json({
+                error: { message: 'Broadcast service not registered' },
+            });
+            return;
+        }
+
+        const verified = await broadcast.verifySignedRequest(
+            req.rawBody,
+            broadcastHeaders(req),
+        );
+        if (!verified.ok) {
+            res.status(verified.status ?? 400).json({
+                error: { message: verified.message ?? 'Bad request' },
+            });
+            return;
+        }
+        if (verified.info?.ignored) {
+            res.status(200).json({ ok: true, ...verified.info });
+            return;
+        }
+
+        const reply = await this.services.schedule.receivePeerChanges(req.body);
+        res.status(200).json({ ok: true, ...reply });
+    }
 }
 
 const broadcastHeaders = (req: Request) => {
