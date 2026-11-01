@@ -1008,6 +1008,7 @@ describe('SessionStore', () => {
             const user = await makeUser();
             const appUid = `app-${uuidv4()}`;
             const workerName = `wk-${Math.random().toString(36).slice(2, 8)}`;
+            const write = vi.spyOn(server.clients.db, 'write');
             const results = await Promise.all(
                 Array.from({ length: 10 }, () =>
                     target.getOrCreateWorker(user.id, { appUid, workerName }),
@@ -1015,6 +1016,13 @@ describe('SessionStore', () => {
             );
             const uuids = new Set(results.map((r: { uuid: string }) => r.uuid));
             expect(uuids.size).toBe(1);
+            // One process inserts once, however many ask at the same time.
+            expect(
+                write.mock.calls.filter(([sql]) =>
+                    String(sql).startsWith('INSERT INTO `sessions`'),
+                ),
+            ).toHaveLength(1);
+            write.mockRestore();
 
             // And only one row ever made it into the table.
             const rows = await server.clients.db.read(
@@ -1094,8 +1102,9 @@ describe('SessionStore', () => {
             const uuids = rows.map((row: { uuid: string }) => row.uuid);
             expect(uuids).toContain(a.uuid);
             expect(uuids).toContain(b.uuid);
-            expect(rows.every((row: { id: number }) => Number.isFinite(row.id)))
-                .toBe(true);
+            expect(
+                rows.every((row: { id: number }) => Number.isFinite(row.id)),
+            ).toBe(true);
         });
 
         it('does not return a revoked session', async () => {

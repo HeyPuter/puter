@@ -88,6 +88,8 @@ const predates = (row, notBefore) =>
     Number(row.created_at) < notBefore;
 
 export class SessionStore extends PuterStore {
+    /** Worker lookups under way, so a burst of first calls inserts once. */
+    #workerLookups = new Map();
     #lastSessionTouchMs = new Map();
     #lastUserTouchMs = new Map();
 
@@ -847,7 +849,21 @@ export class SessionStore extends PuterStore {
      */
     async getOrCreateWorker(userId, opts = {}) {
         if (!userId || !opts.workerName) return null;
+        const key = `${this.#cacheKeyWorker(
+            userId,
+            opts.appUid ?? null,
+            String(opts.workerName),
+        )}|${opts.notBefore ?? ''}`;
+        const running = this.#workerLookups.get(key);
+        if (running) return running;
+        const started = this.#getOrCreateWorker(userId, opts).finally(() =>
+            this.#workerLookups.delete(key),
+        );
+        this.#workerLookups.set(key, started);
+        return started;
+    }
 
+    async #getOrCreateWorker(userId, opts) {
         const existing = await this.getWorker(userId, opts);
         if (existing && !predates(existing, opts.notBefore ?? null)) {
             return existing;
