@@ -37,6 +37,7 @@
     "busboy": "^1.6.0",
     "compression": "^1.8.2",
     "cookie-parser": "^1.4.7",
+    "croner": "11.0.0",
     "dedent": "^1.5.3",
     "dynalite": "^4.0.0",
     "express": "^5.0.0",
