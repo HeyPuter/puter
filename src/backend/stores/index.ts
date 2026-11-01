@@ -32,7 +32,6 @@ import { NotificationStore } from './notification/NotificationStore.js';
 import { OIDCStore } from './oidc/OIDCStore.js';
 import { PermissionStore } from './permission/PermissionStore.js';
 import { S3ObjectStore } from './fs/S3ObjectStore.js';
-import { ScheduledJobStore } from './jobs/ScheduledJobStore.js';
 import { SessionStore } from './session/SessionStore.js';
 import { ShareStore } from './share/ShareStore.js';
 import { SubdomainStore } from './subdomain/SubdomainStore.js';
@@ -75,7 +74,6 @@ declare module './types.js' {
         kvShareHandle: KvShareHandleStore;
         pendingDelivery: PendingDeliveryStore;
         presence: PresenceStore;
-        scheduledJob: ScheduledJobStore;
     }
 }
 
@@ -120,6 +118,4 @@ export const puterStores = {
     kvShareHandle: KvShareHandleStore,
     // Writes presence rows through `kv`'s reserved-item path, so it follows it.
     presence: PresenceStore,
-    // Table only.
-    scheduledJob: ScheduledJobStore,
 } satisfies IPuterStoreRegistry;
