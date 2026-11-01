@@ -26,6 +26,7 @@ import { EventHandlerStore } from './events/EventHandlerStore.js';
 import { EventSubscriptionStore } from './events/EventSubscriptionStore.js';
 import { KvShareHandleStore } from './events/KvShareHandleStore.js';
 import { PendingDeliveryStore } from './events/PendingDeliveryStore.js';
+import { ScheduleIndexStore } from './events/ScheduleIndexStore.js';
 import { ScheduleStore } from './events/ScheduleStore.js';
 import { CreditHoldStore } from './metering/CreditHoldStore.js';
 import { MeteringBufferStore } from './metering/MeteringBufferStore.js';
@@ -72,6 +73,7 @@ declare module './types.js' {
         eventSubscription: EventSubscriptionStore;
         durableSubscription: DurableSubscriptionStore;
         schedule: ScheduleStore;
+        scheduleIndex: ScheduleIndexStore;
         eventHandler: EventHandlerStore;
         kvShareHandle: KvShareHandleStore;
         pendingDelivery: PendingDeliveryStore;
@@ -117,6 +119,8 @@ export const puterStores = {
     // Creates and deletes the subscription rows schedules own, so it follows
     // that store.
     schedule: ScheduleStore,
+    // Redis only.
+    scheduleIndex: ScheduleIndexStore,
     // Table only, and reads the subscription table for its dependent counts.
     eventHandler: EventHandlerStore,
     // Table only.

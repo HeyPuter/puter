@@ -28,6 +28,7 @@ import {
     openIdCursor,
     type PageResult,
 } from '../../util/pagination.js';
+import type { IConfig } from '../../types.js';
 import { PuterStore } from '../types.js';
 import { assertColumnWidths, EVENT_SCHEDULE_WIDTHS } from './columnWidths.js';
 import {
@@ -60,6 +61,22 @@ export type ScheduleEndReason =
     | 'orphaned'
     | 'delivered'
     | 'dropped';
+
+const NAMESPACE_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+
+/**
+ * The deployment namespace schedule rows, their Redis keys and their peer
+ * messages are scoped by, so deployments that share a database never adopt each
+ * other's schedules. Throws for a value that can't be a key segment.
+ */
+export const scheduleNamespace = (config: IConfig): string => {
+    const namespace = config.jobs?.namespace ?? config.domain ?? 'default';
+    if (!NAMESPACE_PATTERN.test(namespace))
+        throw new Error(
+            `schedule namespace must match ${NAMESPACE_PATTERN.source}: ${namespace}`,
+        );
+    return namespace;
+};
 
 /** A schedule row with no subscription row this old was left by a crash. */
 export const SCHEDULE_ORPHAN_AGE_MS = 10 * 60 * 1000;
@@ -523,6 +540,67 @@ export class ScheduleStore extends PuterStore {
     }
 
     /**
+     * End live `deferred` rows that are still waiting to send, by id. A row a
+     * runner has already claimed is left to finish its send. Returns those of
+     * the rows that are now ended, by this call or before it.
+     */
+    async cancelDeferred(
+        ids: readonly number[],
+        endReason: ScheduleEndReason,
+    ): Promise<ScheduleRow[]> {
+        if (ids.length === 0) return [];
+        const now = Date.now();
+        for (const batch of chunks(ids, WRITE_BATCH)) {
+            await this.clients.db.write(
+                `UPDATE \`${TABLE}\` SET \`state\` = 'done', ` +
+                    '`end_reason` = ?, `deleted_at` = ?, ' +
+                    '`version` = `version` + 1, `updated_at` = ? ' +
+                    `WHERE \`id\` IN (${batch.map(() => '?').join(', ')}) ` +
+                    "AND `kind` = 'deferred' AND `state` = 'active' " +
+                    'AND `deleted_at` IS NULL',
+                [endReason, now, now, ...batch],
+            );
+        }
+        return (await this.#getByIds(ids)).filter(
+            (row) => row.deletedAt !== null,
+        );
+    }
+
+    /**
+     * One page of an app's pending `deferred` rows, every namespace's, by id:
+     * an app deleted from the shared table is gone for all of them.
+     */
+    async listDeferredForApp(
+        appUid: string,
+        afterId: number,
+        limit: number,
+    ): Promise<number[]> {
+        const rows = await this.clients.db.pread(
+            `SELECT \`id\` FROM \`${TABLE}\` WHERE \`app_uid\` = ? ` +
+                "AND `kind` = 'deferred' AND `id` > ? AND `deleted_at` IS NULL " +
+                'ORDER BY `id` LIMIT ?',
+            [appUid, afterId, limit],
+        );
+        return rows.map((row) => Number(row.id));
+    }
+
+    /** One page of one holder's pending `deferred` rows for one app. */
+    async listDeferredForHolderApp(
+        holderUserId: number,
+        appUid: string,
+        afterId: number,
+        limit: number,
+    ): Promise<number[]> {
+        const rows = await this.clients.db.pread(
+            `SELECT \`id\` FROM \`${TABLE}\` WHERE \`holder_user_id\` = ? ` +
+                'AND `app_uid` = ? AND `deleted_at` IS NULL ' +
+                "AND `kind` = 'deferred' AND `id` > ? ORDER BY `id` LIMIT ?",
+            [holderUserId, appUid, afterId, limit],
+        );
+        return rows.map((row) => Number(row.id));
+    }
+
+    /**
      * End a row a crash left without its subscription row, and delete any
      * subscription row the crash left without its schedule pointing at it.
      */
@@ -535,6 +613,56 @@ export class ScheduleStore extends PuterStore {
     }
 
     // -- Reads -------------------------------------------------------
+
+    /**
+     * One schedule by its public id, from the replica: what the fire path
+     * re-reads when it finds a schedule's holder or app gone.
+     */
+    async getReplica(
+        namespace: string,
+        uid: string,
+    ): Promise<ScheduleRow | null> {
+        const [row] = await this.clients.db.read(
+            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                'WHERE `uid` = ? AND `namespace` = ?',
+            [uid, namespace],
+        );
+        return row ? toRow(row) : null;
+    }
+
+    /** The rows owning these subscription rows, from the replica. */
+    async listBySubIdsReplica(
+        namespace: string,
+        subIds: readonly string[],
+    ): Promise<ScheduleRow[]> {
+        const rows: ScheduleRow[] = [];
+        for (const batch of chunks(subIds, WRITE_BATCH)) {
+            const read = await this.clients.db.read(
+                `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                    `WHERE \`namespace\` = ? AND \`sub_id\` IN (${batch.map(() => '?').join(', ')})`,
+                [namespace, ...batch],
+            );
+            rows.push(...read.map(toRow));
+        }
+        return rows;
+    }
+
+    /** Which of these public ids the replica has rows for, ended or not. */
+    async existingUids(
+        namespace: string,
+        uids: readonly string[],
+    ): Promise<Set<string>> {
+        const found = new Set<string>();
+        for (const batch of chunks(uids, WRITE_BATCH)) {
+            const read = await this.clients.db.read(
+                `SELECT \`uid\` FROM \`${TABLE}\` WHERE \`namespace\` = ? ` +
+                    `AND \`uid\` IN (${batch.map(() => '?').join(', ')})`,
+                [namespace, ...batch],
+            );
+            for (const row of read) found.add(String(row.uid));
+        }
+        return found;
+    }
 
     /**
      * One schedule by its public id, ended or not. Primary: "not found" is how
