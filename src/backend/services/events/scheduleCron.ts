@@ -22,18 +22,27 @@ import {
     EVENTS_SCHEDULE_CRON_MAX_LENGTH,
     EVENTS_SCHEDULE_CRON_SCAN_MS,
     EVENTS_SCHEDULE_CRON_SCAN_RUNS,
+    EVENTS_SCHEDULE_SCAN_CONCURRENCY,
+    EVENTS_SCHEDULE_SCAN_QUEUE,
 } from '../../controllers/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 
 /**
  * Cron expressions for schedules: parsing, validation and walking runs in a
- * time zone. Every expression is 5 fields or a nickname, read in an IANA zone,
- * with day-of-month and day-of-week combined by OR as in Vixie cron.
+ * time zone. Every expression is 5 fields or a nickname in the standard
+ * grammar, read in an IANA zone, with day-of-month and day-of-week combined by
+ * OR as in Vixie cron.
+ *
+ * Across a DST change every lookup follows croner: an expression with one
+ * minute and one hour value runs once (shifted past a spring-forward gap, once
+ * in a fall-back overlap); a list, range or step that lands in the changing
+ * hour is skipped in the gap and runs twice in the overlap.
  */
 
-const HOUR_MS = 60 * 60 * 1000;
 const MINUTE_MS = 60 * 1000;
+const HOUR_MS = 60 * MINUTE_MS;
+const DAY_MS = 24 * HOUR_MS;
 
 /** A 5-field expression can't fire more often than this in any hour. */
 const MAX_RUNS_PER_HOUR = 60;
@@ -48,11 +57,35 @@ export const CRON_NICKNAMES: readonly string[] = [
     '@hourly',
 ];
 
-/** Instances kept, by (expression, zone). Paused instances hold no timer. */
-const CRON_CACHE_MAX_ENTRIES = 10_000;
+const MONTH_NAMES = /JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC/gi;
+const DAY_NAMES = /SUN|MON|TUE|WED|THU|FRI|SAT/gi;
+/** What a field may hold once names are taken out: no croner extensions. */
+const FIELD_SYNTAX = /^[0-9*,/-]+$/;
+
+/**
+ * Built instances, by (expression, zone). One costs tens of KB, so only
+ * schedules that exist are kept: {@link rememberCron} is called once a create
+ * succeeds or a schedule is run, never by validation.
+ */
+const CRON_CACHE_MAX_ENTRIES = 256;
+const CRON_CACHE_TTL_MS = 10 * 60 * 1000;
+
+/** Create-scan results, by (expression, zone, day the scan starts). */
+const SCAN_CACHE_MAX_ENTRIES = 1_000;
+const SCAN_CACHE_TTL_MS = DAY_MS;
+
+/** Runs a scan walks before letting other work run. */
+const SCAN_CHUNK_RUNS = 500;
 
 const invalid = (message: string): HttpError =>
     new HttpError(400, message, { legacyCode: 'events_schedule_invalid' });
+
+const busy = (): HttpError =>
+    new HttpError(
+        503,
+        'Too many schedules are being checked right now; try again shortly',
+        { legacyCode: 'events_schedule_busy' },
+    );
 
 /**
  * What every instance is built with. `timezone` is always set, `UTC` included,
@@ -65,18 +98,21 @@ const cronOptions = (tz: string): CronOptions => ({
     domAndDow: false,
 });
 
-const cache = new BoundedTtlMap<string, Cron>({
+const cronKey = (pattern: string, tz: string): string => `${tz} ${pattern}`;
+
+const crons = new BoundedTtlMap<string, Cron>({
     maxEntries: CRON_CACHE_MAX_ENTRIES,
+    ttlMs: CRON_CACHE_TTL_MS,
 });
 
-/** A built instance for a validated expression and zone. */
-export const cronFor = (pattern: string, tz: string): Cron => {
-    const key = `${tz} ${pattern}`;
-    const hit = cache.get(key);
-    if (hit) return hit;
-    const built = new Cron(pattern, cronOptions(tz));
-    cache.set(key, built);
-    return built;
+/** The kept instance for an expression, or a new one that isn't kept. */
+const cronFor = (pattern: string, tz: string): Cron =>
+    crons.get(cronKey(pattern, tz)) ?? new Cron(pattern, cronOptions(tz));
+
+/** Keep an instance for a schedule that exists, so its lookups reuse it. */
+export const rememberCron = (pattern: string, tz: string): void => {
+    const key = cronKey(pattern, tz);
+    if (!crons.has(key)) crons.set(key, new Cron(pattern, cronOptions(tz)));
 };
 
 /**
@@ -101,9 +137,22 @@ export const canonicalTimeZone = (value: unknown): string => {
 };
 
 /**
+ * Whether a 5-field expression uses only the standard grammar: numbers, `*`,
+ * `,`, `-`, `/`, and three-letter month and day names in their fields. croner's
+ * extensions (`L`, `W`, `#`, `?`, a `+` day-of-week) are refused; `+` would
+ * switch the day fields to AND.
+ */
+const standardFields = (fields: string[]): boolean =>
+    fields.every((field, i) => {
+        let bare = field;
+        if (i === 3) bare = bare.replace(MONTH_NAMES, '0');
+        if (i === 4) bare = bare.replace(DAY_NAMES, '0');
+        return FIELD_SYNTAX.test(bare);
+    });
+
+/**
  * A cron expression in the form it is stored: trimmed, single-spaced, and
- * checked to build. Refuses a seconds or year field (croner would read either),
- * and `?`, which croner fills in from the time the expression is parsed.
+ * checked to build.
  */
 export const parseCron = (value: unknown, tz: string): string => {
     if (typeof value !== 'string') throw invalid('cron must be a string');
@@ -116,10 +165,15 @@ export const parseCron = (value: unknown, tz: string): string => {
     if (pattern.startsWith('@')) {
         if (!CRON_NICKNAMES.includes(pattern.toLowerCase()))
             throw invalid(`Unknown cron nickname: ${pattern}`);
-    } else if (pattern.split(' ').length !== 5) {
-        throw invalid('cron must have exactly 5 fields');
+    } else {
+        const fields = pattern.split(' ');
+        if (fields.length !== 5)
+            throw invalid('cron must have exactly 5 fields');
+        if (!standardFields(fields))
+            throw invalid(
+                'cron may use only numbers, `*`, `,`, `-`, `/` and month and day names',
+            );
     }
-    if (pattern.includes('?')) throw invalid('cron may not use `?`');
     try {
         cronFor(pattern, tz);
     } catch (err) {
@@ -130,16 +184,20 @@ export const parseCron = (value: unknown, tz: string): string => {
     return pattern;
 };
 
+const firstOf = (cron: Cron, t: number): number | null => {
+    const from = Math.ceil(t / 1000) * 1000 - 1000;
+    return cron.nextRun(new Date(from))?.getTime() ?? null;
+};
+
+const after = (cron: Cron, at: number): number | null =>
+    cron.nextRun(new Date(at))?.getTime() ?? null;
+
 /** First run at or after `t`. Runs fall on whole minutes. */
 export const cronFirstAtOrAfter = (
     pattern: string,
     tz: string,
     t: number,
-): number | null => {
-    const from = Math.ceil(t / 1000) * 1000 - 1000;
-    const next = cronFor(pattern, tz).nextRun(new Date(from));
-    return next ? next.getTime() : null;
-};
+): number | null => firstOf(cronFor(pattern, tz), t);
 
 /**
  * Latest run at or before `t`, looking back at most
@@ -166,13 +224,13 @@ export const cronCount = (
     to: number,
     cap: number,
 ): { count: number; capped: boolean } => {
-    let count = 0;
-    let at = cronFirstAtOrAfter(pattern, tz, from);
     const cron = cronFor(pattern, tz);
+    let count = 0;
+    let at = firstOf(cron, from);
     while (at !== null && at < to) {
         if (count >= cap) return { count, capped: true };
         count++;
-        at = cron.nextRun(new Date(at))?.getTime() ?? null;
+        at = after(cron, at);
     }
     return { count, capped: false };
 };
@@ -181,7 +239,10 @@ export const cronCount = (
 export interface CronScan {
     /** First run at or after the scan start, or `null` if none in the scan. */
     first: number | null;
-    /** Smallest gap between consecutive runs seen, or `null` under two runs. */
+    /**
+     * Smallest gap between consecutive runs seen, or `null` under two runs.
+     * With `minIntervalMs`, the first gap under it, where the scan stopped.
+     */
     minGapMs: number | null;
     /** Most runs seen in any one-hour window. */
     peakPerHour: number;
@@ -189,27 +250,91 @@ export interface CronScan {
     nth: number | null;
 }
 
+interface ScanStats {
+    empty: boolean;
+    minGapMs: number | null;
+    peakPerHour: number;
+}
+
+const scans = new BoundedTtlMap<string, ScanStats>({
+    maxEntries: SCAN_CACHE_MAX_ENTRIES,
+    ttlMs: SCAN_CACHE_TTL_MS,
+});
+
+/** At most a few scans at once, a short queue behind them, `busy` past it. */
+const scanGate = (() => {
+    let running = 0;
+    const waiting: Array<() => void> = [];
+    return async <T>(work: () => Promise<T>): Promise<T> => {
+        if (running < EVENTS_SCHEDULE_SCAN_CONCURRENCY) running++;
+        else if (waiting.length >= EVENTS_SCHEDULE_SCAN_QUEUE) throw busy();
+        else await new Promise<void>((resolve) => waiting.push(resolve));
+        try {
+            return await work();
+        } finally {
+            // A waiter takes the slot over rather than releasing it.
+            const next = waiting.shift();
+            if (next) next();
+            else running--;
+        }
+    };
+})();
+
+const yieldTurn = (): Promise<void> =>
+    new Promise((resolve) => setImmediate(resolve));
+
 /**
  * Walk the runs from `from`, up to {@link EVENTS_SCHEDULE_CRON_SCAN_RUNS} runs
- * or {@link EVENTS_SCHEDULE_CRON_SCAN_MS}, whichever ends first. Stops early
- * once the gap and peak are at what 5 fields allow and `nth` (if asked) is
- * found: nothing later can change the answer.
+ * or {@link EVENTS_SCHEDULE_CRON_SCAN_MS}, whichever ends first.
+ *
+ * Stops early once the gap and peak are at what 5 fields allow and `nth` (if
+ * asked) is found, or at the first gap under `minIntervalMs`. A complete scan's
+ * gap and peak are kept for the day it started on, so a scan with no `nth`
+ * usually walks nothing. Scans run behind a per-process gate and yield between
+ * chunks.
  */
-export const scanCron = (
+export const scanCron = async (
     pattern: string,
     tz: string,
     from: number,
-    opts: { nth?: number } = {},
-): CronScan => {
+    opts: { nth?: number; minIntervalMs?: number } = {},
+): Promise<CronScan> => {
+    const key = `${cronKey(pattern, tz)} ${Math.floor(from / DAY_MS)}`;
+    const cached = opts.nth === undefined ? scans.get(key) : undefined;
+    if (cached)
+        return {
+            first: cached.empty ? null : cronFirstAtOrAfter(pattern, tz, from),
+            minGapMs: cached.minGapMs,
+            peakPerHour: cached.peakPerHour,
+            nth: null,
+        };
+    return scanGate(async () => {
+        const { result, complete } = await walk(pattern, tz, from, opts);
+        if (complete)
+            scans.set(key, {
+                empty: result.first === null,
+                minGapMs: result.minGapMs,
+                peakPerHour: result.peakPerHour,
+            });
+        return result;
+    });
+};
+
+const walk = async (
+    pattern: string,
+    tz: string,
+    from: number,
+    opts: { nth?: number; minIntervalMs?: number },
+): Promise<{ result: CronScan; complete: boolean }> => {
     const cron = cronFor(pattern, tz);
-    const first = cronFirstAtOrAfter(pattern, tz, from);
+    const first = firstOf(cron, from);
     const result: CronScan = {
         first,
         minGapMs: null,
         peakPerHour: 0,
         nth: null,
     };
-    if (first === null) return result;
+    if (first === null) return { result, complete: true };
 
     const until = from + EVENTS_SCHEDULE_CRON_SCAN_MS;
     const window: number[] = [];
@@ -220,6 +345,8 @@ export const scanCron = (
             const gap = at - prev;
             if (result.minGapMs === null || gap < result.minGapMs)
                 result.minGapMs = gap;
+            if (opts.minIntervalMs !== undefined && gap < opts.minIntervalMs)
+                return { result, complete: false };
         }
         window.push(at);
         while (window[0] <= at - HOUR_MS) window.shift();
@@ -232,9 +359,10 @@ export const scanCron = (
             result.peakPerHour >= MAX_RUNS_PER_HOUR &&
             (opts.nth === undefined || result.nth !== null);
         if (saturated || i >= EVENTS_SCHEDULE_CRON_SCAN_RUNS) break;
+        if (i % SCAN_CHUNK_RUNS === 0) await yieldTurn();
 
         prev = at;
-        at = cron.nextRun(new Date(at))?.getTime() ?? null;
+        at = after(cron, at);
     }
-    return result;
+    return { result, complete: true };
 };

@@ -22,12 +22,17 @@ import {
     EVENTS_SCHEDULE_CRON_MAX_LENGTH,
     EVENTS_SCHEDULE_CRON_SCAN_RUNS,
     EVENTS_SCHEDULE_MISSED_CAP,
+    EVENTS_SCHEDULE_SCAN_CONCURRENCY,
+    EVENTS_SCHEDULE_SCAN_QUEUE,
 } from '../../controllers/events/limits.js';
 import { isHttpError } from '../../core/http/HttpError.js';
 import {
     canonicalTimeZone,
     CRON_NICKNAMES,
+    cronFirstAtOrAfter,
+    cronLatestAtOrBefore,
     parseCron,
+    rememberCron,
     scanCron,
 } from './scheduleCron.js';
 import {
@@ -39,6 +44,7 @@ import {
 } from './scheduleSlots.js';
 
 const built = vi.hoisted(() => [] as Array<Record<string, unknown>>);
+const stepped = vi.hoisted(() => ({ nextRuns: 0 }));
 
 vi.mock('croner', async (importOriginal) => {
     const actual = await importOriginal<typeof import('croner')>();
@@ -46,6 +52,11 @@ vi.mock('croner', async (importOriginal) => {
         constructor(pattern: string, options: Record<string, unknown>) {
             built.push(options);
             super(pattern, options);
+        }
+
+        override nextRun(prev?: Date | string | null): Date | null {
+            stepped.nextRuns++;
+            return super.nextRun(prev);
         }
     }
     return { ...actual, Cron: RecordingCron };
@@ -97,6 +108,15 @@ describe('parsing a cron expression', () => {
         expect(parseCron('  0  9 * *   1-5 ', 'UTC')).toBe('0 9 * * 1-5');
     });
 
+    it('takes month and day names in their fields, in any case', () => {
+        expect(parseCron('0 0 * JAN-MAR mon-fri', 'UTC')).toBe(
+            '0 0 * JAN-MAR mon-fri',
+        );
+        expect(parseCron('*/15 9-17 1,15 * SUN', 'UTC')).toBe(
+            '*/15 9-17 1,15 * SUN',
+        );
+    });
+
     it('takes the standard nicknames', () => {
         for (const nickname of CRON_NICKNAMES)
             expect(parseCron(nickname, 'UTC')).toBe(nickname);
@@ -109,6 +129,15 @@ describe('parsing a cron expression', () => {
         ['a bare date', '2026-11-01T00:00:00Z'],
         ['an unknown nickname', '@reboot'],
         ['`?`, which reads the clock at parse time', '0 9 ? * *'],
+        [
+            'a `+` day of week, which would switch the days to AND',
+            '0 0 13 * +5',
+        ],
+        ['`L`', '0 0 L * *'],
+        ['`W`', '0 0 1W * *'],
+        ['`#`', '0 0 * * 5#2'],
+        ['a month name outside the month field', '0 0 JAN * *'],
+        ['a day name outside the day field', '0 MON * * *'],
         ['an out-of-range value', '0 25 * * *'],
         ['garbage', 'every day'],
         ['an empty string', '   '],
@@ -204,6 +233,55 @@ describe('cron slots', () => {
                 10,
             ).count,
         ).toBe(1);
+    });
+
+    it('runs a list in the repeated hour twice at fall back', () => {
+        // One minute and one hour value runs once; a list follows each
+        // occurrence of the local time, so both 01:00 and 01:30 repeat.
+        const d = def('0,30 1 * * *', 'America/New_York');
+        const day = [at('2026-11-01T04:00:00Z'), at('2026-11-02T05:00:00Z')];
+        expect(slots(d, day[0], 4)).toEqual([
+            '2026-11-01T05:00:00.000Z',
+            '2026-11-01T05:30:00.000Z',
+            '2026-11-01T06:00:00.000Z',
+            '2026-11-01T06:30:00.000Z',
+        ]);
+        expect(countSlots(d, day[0], day[1], 10).count).toBe(4);
+        expect(latestSlotAtOrBefore(d, at('2026-11-01T06:45:00Z'))).toBe(
+            at('2026-11-01T06:30:00Z'),
+        );
+        expect(latestSlotAtOrBefore(d, at('2026-11-01T05:45:00Z'))).toBe(
+            at('2026-11-01T05:30:00Z'),
+        );
+    });
+
+    it('skips a list in the missing hour at spring forward', () => {
+        const d = def('0,30 2 * * *', 'America/New_York');
+        expect(slots(d, at('2027-03-13T12:00:00Z'), 2)).toEqual([
+            '2027-03-15T06:00:00.000Z',
+            '2027-03-15T06:30:00.000Z',
+        ]);
+        expect(
+            countSlots(
+                d,
+                at('2027-03-14T05:00:00Z'),
+                at('2027-03-15T04:00:00Z'),
+                10,
+            ).count,
+        ).toBe(0);
+        expect(latestSlotAtOrBefore(d, at('2027-03-15T00:00:00Z'))).toBe(
+            at('2027-03-13T07:30:00Z'),
+        );
+    });
+
+    it('scans a list across both changes the same way', async () => {
+        const fallBack = await scanCron(
+            '0,30 1 * * *',
+            'America/New_York',
+            at('2026-10-31T12:00:00Z'),
+        );
+        expect(fallBack.minGapMs).toBe(30 * MIN);
+        expect(fallBack.peakPerHour).toBe(2);
     });
 
     it('follows DST in the southern hemisphere', () => {
@@ -319,30 +397,110 @@ describe('cron slots', () => {
 });
 
 describe('scanning a cron at create', () => {
-    it('finds the smallest gap between runs', () => {
-        expect(scanCron('0-4 9 * * *', 'UTC', NOW).minGapMs).toBe(MIN);
+    it('finds the smallest gap between runs', async () => {
+        expect((await scanCron('0-4 9 * * *', 'UTC', NOW)).minGapMs).toBe(MIN);
         // Spring forward makes one day 23 hours long.
-        expect(scanCron('0 9 * * *', 'America/New_York', NOW).minGapMs).toBe(
-            23 * HOUR,
+        expect(
+            (await scanCron('0 9 * * *', 'America/New_York', NOW)).minGapMs,
+        ).toBe(23 * HOUR);
+    });
+
+    it('finds the worst-case runs in any one hour', async () => {
+        expect((await scanCron('* * * * *', 'UTC', NOW)).peakPerHour).toBe(60);
+        expect((await scanCron('*/7 * * * *', 'UTC', NOW)).peakPerHour).toBe(9);
+        expect((await scanCron('0,59 * * * *', 'UTC', NOW)).peakPerHour).toBe(
+            2,
         );
+        expect((await scanCron('0 9 * * *', 'UTC', NOW)).peakPerHour).toBe(1);
     });
 
-    it('finds the worst-case runs in any one hour', () => {
-        expect(scanCron('* * * * *', 'UTC', NOW).peakPerHour).toBe(60);
-        expect(scanCron('*/7 * * * *', 'UTC', NOW).peakPerHour).toBe(9);
-        expect(scanCron('0,59 * * * *', 'UTC', NOW).peakPerHour).toBe(2);
-        expect(scanCron('0 9 * * *', 'UTC', NOW).peakPerHour).toBe(1);
-    });
-
-    it('stops at the run cap', () => {
-        const scan = scanCron('*/2 * * * *', 'UTC', NOW, {
+    it('stops at the run cap', async () => {
+        const scan = await scanCron('*/2 * * * *', 'UTC', NOW, {
             nth: EVENTS_SCHEDULE_CRON_SCAN_RUNS + 1,
         });
         expect(scan.nth).toBeNull();
         expect(
-            scanCron('*/2 * * * *', 'UTC', NOW, {
-                nth: EVENTS_SCHEDULE_CRON_SCAN_RUNS,
-            }).nth,
+            (
+                await scanCron('*/2 * * * *', 'UTC', NOW, {
+                    nth: EVENTS_SCHEDULE_CRON_SCAN_RUNS,
+                })
+            ).nth,
         ).toBe(NOW + (EVENTS_SCHEDULE_CRON_SCAN_RUNS - 1) * 2 * MIN);
+    });
+
+    it('stops at the first gap under the plan minimum', async () => {
+        stepped.nextRuns = 0;
+        const scan = await scanCron('*/3 * * * *', 'UTC', NOW, {
+            minIntervalMs: 15 * MIN,
+        });
+        expect(scan.minGapMs).toBe(3 * MIN);
+        expect(stepped.nextRuns).toBeLessThan(5);
+    });
+
+    it('reuses a complete scan started the same day', async () => {
+        const from = at('2026-12-01T03:00:00Z');
+        const first = await scanCron('*/4 * * * *', 'UTC', from);
+        stepped.nextRuns = 0;
+        const again = await scanCron('*/4 * * * *', 'UTC', from + HOUR + 1);
+        expect(stepped.nextRuns).toBe(1);
+        expect(again).toEqual({
+            first: from + HOUR + 4 * MIN,
+            minGapMs: first.minGapMs,
+            peakPerHour: first.peakPerHour,
+            nth: null,
+        });
+    });
+
+    it('never reuses a scan cut short by the plan minimum', async () => {
+        const from = at('2026-12-02T03:00:00Z');
+        await scanCron('*/5 * * * *', 'UTC', from, { minIntervalMs: HOUR });
+        const full = await scanCron('*/5 * * * *', 'UTC', from);
+        expect(full.peakPerHour).toBe(12);
+    });
+
+    it('refuses a scan past the queue as busy', async () => {
+        const from = at('2026-12-03T00:00:00Z');
+        const runs = Array.from(
+            {
+                length:
+                    EVENTS_SCHEDULE_SCAN_CONCURRENCY +
+                    EVENTS_SCHEDULE_SCAN_QUEUE +
+                    1,
+            },
+            // `nth` skips the result cache, so every one has to walk.
+            () => scanCron('0 0 * * *', 'UTC', from, { nth: 1 }),
+        );
+        const settled = await Promise.allSettled(runs);
+        const refused = settled.filter((r) => r.status === 'rejected');
+        expect(refused).toHaveLength(1);
+        const reason = (refused[0] as PromiseRejectedResult).reason;
+        expect(isHttpError(reason) && reason.statusCode).toBe(503);
+        expect(isHttpError(reason) && reason.legacyCode).toBe(
+            'events_schedule_busy',
+        );
+        // The gate is free again afterwards.
+        await expect(
+            scanCron('0 0 * * *', 'UTC', from, { nth: 1 }),
+        ).resolves.toMatchObject({ nth: from });
+    });
+});
+
+describe('the instance cache', () => {
+    it('keeps nothing for an expression that was only validated', async () => {
+        const pattern = '11 4 * * *';
+        parseCron(pattern, 'UTC');
+        await scanCron(pattern, 'UTC', NOW, { nth: 1 });
+        built.length = 0;
+        cronFirstAtOrAfter(pattern, 'UTC', NOW);
+        expect(built).toHaveLength(1);
+    });
+
+    it('reuses the instance of a schedule that exists', () => {
+        const pattern = '12 4 * * *';
+        rememberCron(pattern, 'UTC');
+        built.length = 0;
+        cronFirstAtOrAfter(pattern, 'UTC', NOW);
+        cronLatestAtOrBefore(pattern, 'UTC', NOW);
+        expect(built).toHaveLength(0);
     });
 });

@@ -571,6 +571,14 @@ export const EVENTS_SCHEDULE_MAX_AHEAD_MS = 366 * 24 * 60 * 60 * 1000;
 export const EVENTS_SCHEDULE_CRON_SCAN_RUNS = 10_000;
 export const EVENTS_SCHEDULE_CRON_SCAN_MS = 400 * 24 * 60 * 60 * 1000;
 
+/**
+ * Cron scans one process runs at once, and how many more may wait for a turn. A
+ * scan walks up to {@link EVENTS_SCHEDULE_CRON_SCAN_RUNS} runs in chunks; a
+ * create past the queue is refused with `events_schedule_busy`.
+ */
+export const EVENTS_SCHEDULE_SCAN_CONCURRENCY = 2;
+export const EVENTS_SCHEDULE_SCAN_QUEUE = 8;
+
 /** Longest cron expression accepted. */
 export const EVENTS_SCHEDULE_CRON_MAX_LENGTH = 128;
 

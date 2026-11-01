@@ -103,20 +103,66 @@ const EVERY_UNIT_MS: Record<string, number> = {
 const present = (value: unknown): boolean =>
     value !== undefined && value !== null;
 
-/** ISO-8601 or epoch ms, rounded up to the next whole second. */
+/**
+ * A date (`2026-11-01`, read as UTC midnight) or a date and time with `Z` or an
+ * offset. A time without a zone is refused: it would be read in whatever zone
+ * the server runs in.
+ */
+const ISO_TIME =
+    /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2}))?$/;
+
+/** Epoch ms of a strict ISO-8601 string, or `NaN`. Calendar overflow is refused. */
+const parseIso = (value: string): number => {
+    const match = ISO_TIME.exec(value);
+    if (!match) return Number.NaN;
+    const [, y, mo, d, h = '0', mi = '0', sec = '0', frac = '0', zone] = match;
+    const fields = [y, mo, d, h, mi, sec].map(Number);
+    const local = Date.UTC(
+        fields[0],
+        fields[1] - 1,
+        fields[2],
+        fields[3],
+        fields[4],
+        fields[5],
+        Number(frac.padEnd(3, '0')),
+    );
+    const back = new Date(local);
+    if (
+        back.getUTCFullYear() !== fields[0] ||
+        back.getUTCMonth() !== fields[1] - 1 ||
+        back.getUTCDate() !== fields[2] ||
+        back.getUTCHours() !== fields[3] ||
+        back.getUTCMinutes() !== fields[4] ||
+        back.getUTCSeconds() !== fields[5]
+    )
+        return Number.NaN;
+    if (zone === undefined || zone === 'Z') return local;
+    const sign = zone.startsWith('-') ? -1 : 1;
+    const [oh, om] = zone.slice(1).split(':').map(Number);
+    if (oh > 23 || om > 59) return Number.NaN;
+    return local - sign * (oh * 60 + om) * 60_000;
+};
+
+/**
+ * A strict ISO-8601 string or whole epoch ms, rounded up to the next whole
+ * second. Past `MAX_SAFE_INTEGER` no engine stores it exactly.
+ */
 const parseTime = (value: unknown, field: string): number | null => {
     if (!present(value)) return null;
     const ms =
         typeof value === 'number'
-            ? value
+            ? Number.isSafeInteger(value)
+                ? value
+                : Number.NaN
             : typeof value === 'string'
-              ? Date.parse(value)
+              ? parseIso(value)
               : Number.NaN;
-    if (!Number.isFinite(ms) || ms < 0)
+    const rounded = ceilToSecond(ms);
+    if (!Number.isSafeInteger(rounded) || rounded < 0)
         throw scheduleInvalid(
-            `${field} must be an ISO-8601 time or epoch milliseconds`,
+            `${field} must be an ISO-8601 time with a zone, or whole epoch milliseconds`,
         );
-    return ceilToSecond(ms);
+    return rounded;
 };
 
 /** Milliseconds, or `<n>(s|m|h|d|w)`; a whole number of seconds. */
@@ -164,10 +210,10 @@ const assertNotTooFar = (at: number, now: number, what: string): void => {
  * Validate a create and compute everything stored with it. `minIntervalMs` is
  * the caller's plan minimum, checked against the smallest gap between runs.
  */
-export const validateScheduleRequest = (
+export const validateScheduleRequest = async (
     request: ScheduleRequest,
     opts: { now: number; minIntervalMs: number },
-): ScheduleSpec => {
+): Promise<ScheduleSpec> => {
     const { now, minIntervalMs } = opts;
     const kinds = [request.every, request.cron, request.at].filter(present);
     if (kinds.length !== 1)
@@ -241,10 +287,14 @@ export const validateScheduleRequest = (
             tz,
             endsAt: null,
         };
-        const scan = scanCron(cron, tz, Math.max(now, def.startAt), {
+        const scan = await scanCron(cron, tz, Math.max(now, def.startAt), {
+            minIntervalMs,
             ...(maxRuns !== null ? { nth: maxRuns } : {}),
         });
         first = scan.first;
+        if (first === null)
+            throw scheduleNeverFires('This schedule never runs');
+        assertNotTooFar(first, now, 'The first run');
         // One run in the whole scan: its gap is at least the scan window.
         minGapMs = scan.minGapMs ?? EVENTS_SCHEDULE_CRON_SCAN_MS;
         if (minGapMs < minIntervalMs) throw scheduleTooFrequent(minIntervalMs);

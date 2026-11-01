@@ -167,7 +167,7 @@ export class ScheduleService extends PuterService {
         if (quota.recurringPerUser === 0 && quota.oneShotsPerUser === 0)
             throw temporaryAccount();
 
-        const spec = validateScheduleRequest(request, {
+        const spec = await validateScheduleRequest(request, {
             now,
             minIntervalMs: limitFor(EVENTS_SCHEDULE_MIN_INTERVAL_MS, plan),
         });
