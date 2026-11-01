@@ -279,6 +279,52 @@ describe('deploys with schedules on', () => {
             EVENTS_SCHEDULE_DEPLOYS_IN_FLIGHT,
         );
     });
+
+    it('let a delivery that joins a schedule run`s refused deploy deploy anyway', async () => {
+        const { layers, created, redis } = makeLayers({
+            'app-x': { ownerUserId: 1 },
+        });
+        const config = {
+            ...layers.config,
+            events: {
+                ...layers.config.events,
+                enabled: true,
+                schedules: { enabled: true },
+            },
+            jobs: { namespace: 'deploy-join' },
+        } as IConfig;
+        const index = new ScheduleIndexStore(
+            config,
+            { redis } as never,
+            {} as never,
+        );
+        const deployer = new EventsWorkerDeployer({
+            ...layers,
+            config,
+            stores: { ...layers.stores, scheduleIndex: index },
+        } as unknown as Layers);
+        const expiry = Date.now() + 60_000;
+        await redis.zadd(
+            'sched:deploy-join:deploys',
+            ...Array.from(
+                { length: EVENTS_SCHEDULE_DEPLOYS_IN_FLIGHT },
+                (_, i) => [expiry, `other-${i}`],
+            ).flat(),
+        );
+        const scheduled = deployer.ensure('app-x', SCRIPT, {
+            lane: 'schedule',
+        });
+        const deliveries = [
+            deployer.ensure('app-x', SCRIPT),
+            deployer.ensure('app-x', SCRIPT),
+        ];
+        await expect(scheduled).resolves.toBe('busy');
+        await expect(Promise.all(deliveries)).resolves.toEqual([
+            'deployed',
+            'deployed',
+        ]);
+        expect(created).toEqual([SCRIPT]);
+    });
 });
 
 describe('LocalEventsInvokeTransport', () => {

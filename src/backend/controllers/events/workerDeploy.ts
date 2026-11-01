@@ -99,6 +99,12 @@ const DEPLOY_THROTTLE_TTL_SECONDS = 2 * 60 * 60;
 const DEPLOY_LOCK_TTL_MS = 60_000;
 const DEPLOY_SLOT_RENEW_MS = 20_000;
 
+interface InFlightDeploy {
+    /** A schedule run's, which the region's deploy slots may refuse. */
+    capped: boolean;
+    promise: Promise<EventsDeployOutcome>;
+}
+
 interface DeployResult {
     success?: boolean;
     errors?: unknown[];
@@ -107,7 +113,7 @@ interface DeployResult {
 export class EventsWorkerDeployer {
     readonly #layers: DeployLayers;
     /** Collapses the burst of misses one cold app produces into one deploy. */
-    readonly #inFlight = new Map<string, Promise<EventsDeployOutcome>>();
+    readonly #inFlight = new Map<string, InFlightDeploy>();
 
     constructor(layers: DeployLayers) {
         this.#layers = layers;
@@ -132,13 +138,52 @@ export class EventsWorkerDeployer {
         options: EventsDeployOptions = {},
     ): Promise<EventsDeployOutcome> {
         const key = `${appUid}|${script}`;
+        const capped = options.lane === 'schedule';
         const existing = this.#inFlight.get(key);
-        if (existing) return existing;
-        const started = this.#gated(appUid, script, options).finally(() =>
-            this.#inFlight.delete(key),
+        if (!existing) return this.#start(key, appUid, script, options);
+        if (capped || !existing.capped) return existing.promise;
+        return this.#afterCapped(
+            existing.promise,
+            key,
+            appUid,
+            script,
+            options,
         );
-        this.#inFlight.set(key, started);
-        return started;
+    }
+
+    #start(
+        key: string,
+        appUid: string,
+        script: string,
+        options: EventsDeployOptions,
+    ): Promise<EventsDeployOutcome> {
+        const entry: InFlightDeploy = {
+            capped: options.lane === 'schedule',
+            promise: this.#gated(appUid, script, options).finally(() => {
+                if (this.#inFlight.get(key) === entry)
+                    this.#inFlight.delete(key);
+            }),
+        };
+        this.#inFlight.set(key, entry);
+        return entry.promise;
+    }
+
+    /**
+     * A delivery that joined a schedule run's deploy: `busy` means no deploy
+     * started, and a delivery is never refused a slot, so it asks again.
+     */
+    async #afterCapped(
+        capped: Promise<EventsDeployOutcome>,
+        key: string,
+        appUid: string,
+        script: string,
+        options: EventsDeployOptions,
+    ): Promise<EventsDeployOutcome> {
+        const outcome = await capped;
+        if (outcome !== 'busy') return outcome;
+        const current = this.#inFlight.get(key);
+        if (current && !current.capped) return current.promise;
+        return this.#start(key, appUid, script, options);
     }
 
     /**
