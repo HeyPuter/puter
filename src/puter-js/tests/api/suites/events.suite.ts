@@ -248,6 +248,24 @@ const readAllNotifications = async (
     return items;
 };
 
+/** A schedule handler that closes over nothing. */
+const SCHEDULE_HANDLER =
+    '({ event, ctx }) => { console.log(event.id, ctx.team); }';
+const HOUR_MS = 3_600_000;
+
+/**
+ * An app with `SCHEDULE_HANDLER` published as `digest` and consent to run it in
+ * the background, so the app can schedule it.
+ */
+const makeSchedulingApp = async (t: TestContext): Promise<string> => {
+    const appUid = await makeApp(t);
+    await t.puter.events.handlers.publish('digest', SCHEDULE_HANDLER, {
+        appUid,
+    });
+    await t.puter.perms.grantApp(appUid, 'events:background');
+    return appUid;
+};
+
 export default suite('events', {
     'exposes onLocal': async (t) => {
         t.assert.ok(t.puter.events, 'puter.events is registered');
@@ -1341,5 +1359,234 @@ export default suite('events', {
             t.puter.events.handlers.publish('ingestUpload', HANDLER),
         );
         t.assert.equal(codeOf(error), 'events_handler_app_required');
+    },
+
+    // -- Schedules ---------------------------------------------------
+
+    'exposes the schedule surface': async (t) => {
+        for (const method of [
+            'onSchedule',
+            'listSchedules',
+            'getSchedule',
+            'removeSchedule',
+        ] as const) {
+            t.assert.equal(
+                typeof t.puter.events[method],
+                'function',
+                `puter.events.${method} is a function`,
+            );
+        }
+    },
+
+    'schedules a handler every interval and ends it through its handle': async (
+        t,
+    ) => {
+        const appUid = await makeSchedulingApp(t);
+        const before = Date.now();
+        const { schedule, read } = await asApp(t, appUid, async () => {
+            const schedule = await t.puter.events.onSchedule({
+                every: '6h',
+                handlerName: 'digest',
+                context: { team: 'design' },
+            });
+            const read = await t.puter.events.getSchedule(schedule.scheduleId);
+            return { schedule, read };
+        });
+
+        t.assert.equal(typeof schedule.scheduleId, 'string');
+        t.assert.equal(schedule.kind, 'recurring');
+        t.assert.equal(schedule.appUid, appUid);
+        t.assert.equal(schedule.handlerName, 'digest');
+        t.assert.equal(schedule.every, 6 * HOUR_MS);
+        t.assert.equal(schedule.cron, null);
+        t.assert.equal(schedule.state, 'active');
+        t.assert.deepEqual(schedule.contextKeys, ['team']);
+        t.assert.equal(
+            (schedule as unknown as { context?: unknown }).context,
+            undefined,
+            'context values never come back',
+        );
+        t.assert.ok(
+            typeof schedule.nextRunAt === 'number' &&
+                schedule.nextRunAt >= before + 6 * HOUR_MS - 1000,
+            'the first run is one interval out',
+        );
+        t.assert.equal(typeof schedule.off, 'function');
+        t.assert.equal(read.nextRunAt, schedule.nextRunAt);
+        t.assert.equal(
+            (read as { off?: unknown }).off,
+            undefined,
+            'a read schedule carries no handle',
+        );
+
+        await asApp(t, appUid, () => schedule.off!());
+        const ended = await t.puter.events.getSchedule(schedule.scheduleId);
+        t.assert.equal(ended.state, 'ended');
+        t.assert.equal(ended.endReason, 'removed');
+        t.assert.equal(ended.nextRunAt, null);
+    },
+
+    'schedules a cron expression in a time zone': async (t) => {
+        const appUid = await makeSchedulingApp(t);
+        const schedule = await asApp(t, appUid, () =>
+            t.puter.events.onSchedule({
+                cron: '0 9 * * 1-5',
+                tz: 'America/New_York',
+                handlerName: 'digest',
+            }),
+        );
+
+        t.assert.equal(schedule.cron, '0 9 * * 1-5');
+        t.assert.equal(schedule.tz, 'America/New_York');
+        t.assert.equal(schedule.every, null);
+        const local = new Intl.DateTimeFormat('en-US', {
+            timeZone: 'America/New_York',
+            weekday: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+        }).format(new Date(schedule.nextRunAt!));
+        t.assert.ok(
+            /^(Mon|Tue|Wed|Thu|Fri) 09:00$/.test(local),
+            `next run ${local} is a weekday at 09:00 New York time`,
+        );
+        await t.puter.events.removeSchedule(schedule.scheduleId);
+    },
+
+    'schedules one run at a set time': async (t) => {
+        const appUid = await makeSchedulingApp(t);
+        const at = new Date(Date.now() + 24 * HOUR_MS + 250);
+        const schedule = await asApp(t, appUid, () =>
+            t.puter.events.onSchedule({ at, handlerName: 'digest' }),
+        );
+
+        const rounded = Math.ceil(at.getTime() / 1000) * 1000;
+        t.assert.equal(schedule.kind, 'once');
+        t.assert.equal(schedule.startAt, rounded);
+        t.assert.equal(schedule.endsAt, rounded);
+        t.assert.equal(schedule.nextRunAt, rounded);
+        await t.puter.events.removeSchedule(schedule.scheduleId);
+    },
+
+    'lists an app`s schedules a page at a time': async (t) => {
+        const appUid = await makeSchedulingApp(t);
+        const pages = await asApp(t, appUid, async () => {
+            const ids: string[] = [];
+            for (const every of ['1h', '2h', '3h'])
+                ids.push(
+                    (
+                        await t.puter.events.onSchedule({
+                            every,
+                            handlerName: 'digest',
+                        })
+                    ).scheduleId,
+                );
+            const first = await t.puter.events.listSchedules({
+                limit: 2,
+                includeTotal: true,
+            });
+            const second = await t.puter.events.listSchedules({
+                limit: 2,
+                cursor: first.cursor,
+            });
+            return { ids, first, second };
+        });
+
+        t.assert.deepEqual(
+            pages.first.items.map((s) => s.scheduleId),
+            pages.ids.slice(0, 2),
+        );
+        t.assert.equal(pages.first.total, 3);
+        t.assert.equal(typeof pages.first.cursor, 'string');
+        t.assert.deepEqual(
+            pages.second.items.map((s) => s.scheduleId),
+            pages.ids.slice(2),
+        );
+        t.assert.equal(pages.second.cursor, undefined);
+
+        // The account sees them too, and removes them.
+        for (const id of pages.ids) await t.puter.events.removeSchedule(id);
+    },
+
+    'answers a schedule it does not hold as absent': async (t) => {
+        const unknown = '2f7c1b6e-4d1a-4c55-9a8e-0e6f3c2b1a90';
+        for (const run of [
+            () => t.puter.events.getSchedule(unknown),
+            () => t.puter.events.removeSchedule(unknown),
+            () => t.puter.events.getSchedule('not-an-id'),
+        ]) {
+            const error = await t.assert.rejects(run);
+            t.assert.equal(codeOf(error), 'events_schedule_not_found');
+        }
+    },
+
+    'passes schedule refusals through with their codes': async (t) => {
+        const appUid = await makeSchedulingApp(t);
+        const cases: Array<[Record<string, unknown>, string]> = [
+            [{ every: '1h', cron: '0 * * * *' }, 'events_schedule_invalid'],
+            [{ cron: '0 0 30 2 *' }, 'events_schedule_never_fires'],
+            [{ every: '30s' }, 'events_schedule_too_frequent'],
+            [
+                { every: '1h', handlerName: 'missing' },
+                'events_handler_not_found',
+            ],
+        ];
+        await asApp(t, appUid, async () => {
+            for (const [options, code] of cases) {
+                const error = await t.assert.rejects(() =>
+                    t.puter.events.onSchedule({
+                        handlerName: 'digest',
+                        ...options,
+                    } as Parameters<typeof t.puter.events.onSchedule>[0]),
+                );
+                t.assert.equal(codeOf(error), code, JSON.stringify(options));
+            }
+        });
+
+        // The account itself has no app to run the handler of.
+        const account = await t.assert.rejects(() =>
+            t.puter.events.onSchedule({ every: '1h', handlerName: 'digest' }),
+        );
+        t.assert.equal(codeOf(account), 'events_schedule_app_required');
+    },
+
+    'needs the app to be allowed to run in the background': async (t) => {
+        const appUid = await makeApp(t);
+        await t.puter.events.handlers.publish('digest', SCHEDULE_HANDLER, {
+            appUid,
+        });
+        const error = await asApp(t, appUid, () =>
+            t.assert.rejects(() =>
+                t.puter.events.onSchedule({
+                    every: '1h',
+                    handlerName: 'digest',
+                }),
+            ),
+        );
+        t.assert.equal(codeOf(error), 'events_background_consent_required');
+    },
+
+    'checks an inline handler against what is published': async (t) => {
+        const appUid = await makeSchedulingApp(t);
+        const schedule = await asApp(t, appUid, () =>
+            t.puter.events.onSchedule({
+                every: '1h',
+                handlerName: 'digest',
+                handler: SCHEDULE_HANDLER,
+            }),
+        );
+        t.assert.equal(schedule.handlerName, 'digest');
+        await t.puter.events.removeSchedule(schedule.scheduleId);
+
+        const error = await asApp(t, appUid, () =>
+            t.assert.rejects(() =>
+                t.puter.events.onSchedule({
+                    every: '1h',
+                    handlerName: 'digest',
+                    handler: OTHER_HANDLER,
+                }),
+            ),
+        );
+        t.assert.equal(codeOf(error), 'events_handler_hash_mismatch');
     },
 });

@@ -28,6 +28,7 @@ import {
     lookupFsSubject,
     lookupKvSubject,
     lookupPublicSubject,
+    projectScheduleTick,
     type FsDeliveryContext,
     type FsPublicSubject,
     type KvDeliveryContext,
@@ -322,5 +323,54 @@ describe('registry typing', () => {
     it('exposes entries under the shared shape', () => {
         const subjects: readonly PublicSubject[] = PUBLIC_SUBJECTS;
         expect(subjects.length).toBeGreaterThan(0);
+    });
+});
+
+describe('the schedule tick', () => {
+    const tick = {
+        scheduleId: '2f7c1b6e-4d1a-4c55-9a8e-0e6f3c2b1a90',
+        scheduledFor: 1_798_761_600_000,
+        missed: 0,
+        missedCapped: false,
+        attempt: 1,
+    };
+
+    it('carries exactly the fields a handler is promised', () => {
+        const event = projectScheduleTick(tick);
+        expect(Object.keys(event).sort()).toEqual([
+            'attempt',
+            'id',
+            'missed',
+            'op',
+            'scheduleId',
+            'scheduledFor',
+            'subject',
+        ]);
+        expect(event).toEqual({
+            subject: `schedule:${tick.scheduleId}`,
+            op: 'tick',
+            id: `${tick.scheduleId}:${tick.scheduledFor}`,
+            scheduleId: tick.scheduleId,
+            scheduledFor: tick.scheduledFor,
+            missed: 0,
+            attempt: 1,
+        });
+    });
+
+    it('says when `missed` stopped counting, and only then', () => {
+        const capped = projectScheduleTick({
+            ...tick,
+            missed: 1000,
+            missedCapped: true,
+        });
+        expect(capped.missedCapped).toBe(true);
+        expect(capped.missed).toBe(1000);
+        expect('missedCapped' in projectScheduleTick(tick)).toBe(false);
+    });
+
+    it('keeps the id across attempts at one slot', () => {
+        expect(projectScheduleTick({ ...tick, attempt: 3 }).id).toBe(
+            projectScheduleTick(tick).id,
+        );
     });
 });
