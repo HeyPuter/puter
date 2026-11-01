@@ -39,6 +39,25 @@ export const runsInWorker = (row: {
 }): boolean => row.appUid !== null && !!row.handlerName;
 
 /**
+ * Token, and subject, of the subscription row a recurring or `once` schedule
+ * owns. Those rows carry the schedule's lifecycle (suspend, resume, reap) and
+ * are kept out of dispatch, the durable quotas and the durable listing.
+ */
+export const SCHEDULE_TOKEN_PREFIX = 'schedule:';
+
+export const scheduleToken = (scheduleUid: string): string =>
+    `${SCHEDULE_TOKEN_PREFIX}${scheduleUid}`;
+
+export const isScheduleRow = (row: { token: string }): boolean =>
+    row.token.startsWith(SCHEDULE_TOKEN_PREFIX);
+
+/**
+ * A schedule that keeps running, one that runs once, or a delayed notification
+ * (a one-shot that runs an action rather than a handler).
+ */
+export type ScheduleKind = 'recurring' | 'once' | 'deferred';
+
+/**
  * What a row's delivery re-check runs against. An access mode for a filesystem
  * row, which composes with its anchor uid; the whole grant string for a row on
  * a shared key-value region, where the grant is what a revoke names and there
