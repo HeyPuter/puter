@@ -346,7 +346,9 @@ describe('NotificationStore', () => {
         const uids = (rows) => rows.map((r) => r.uid).sort();
 
         expect(
-            uids(await store.listScoped(u.id, { audience: 'developer', appUid })),
+            uids(
+                await store.listScoped(u.id, { audience: 'developer', appUid }),
+            ),
         ).toEqual([mine.uid]);
         // `null` is the rows naming no app, not "any app".
         expect(

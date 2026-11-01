@@ -51,6 +51,14 @@ import {
     resolveNotificationWrite,
     type NotificationTypeName,
 } from '../../services/notification/notificationTypes.js';
+import {
+    schedulesUnavailable,
+    type DeferredAppMessage,
+    type DeferredSendPlan,
+    type ScheduleServiceContract,
+    type SqlGuard,
+} from '../../core/schedules.js';
+import type { BatchEntry } from '../../clients/database/DatabaseClient.js';
 import { withRedisLock } from '../../util/redisLock.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
@@ -66,6 +74,44 @@ const GROUP_LOCK_ATTEMPTS = 40;
 const GROUP_LOCK_RETRY_MS = 25;
 
 type AppMessageWindow = 'minute' | 'day';
+
+export type { SqlGuard };
+
+/** What a delayed app message's fire-time write needs from its row. */
+export interface DeferredWriteInput {
+    holderUserId: number;
+    appUid: string;
+    /** The stored {@link DeferredAppMessage}, as JSON text. */
+    payload: string | null;
+    /** The slot's key: the written row's uid or `send_key`, and its `sendId`. */
+    sendKey: string;
+    /** Aborted when the caller's claim is lost. */
+    signal: AbortSignal;
+}
+
+/**
+ * The caller's transaction the mailbox write commits in. Atomicity is the
+ * caller's to keep; the type can't enforce it.
+ */
+export interface DeferredWriteTx {
+    /**
+     * What every mailbox statement is fenced on: the caller's row marked
+     * delivered by this claim.
+     */
+    guard: SqlGuard;
+    /**
+     * Must be the whole delivery in one step: the caller's guarded transition
+     * of its row to delivered and `entries`, in that order, in one
+     * `batchWrite`, then a read of the row on the primary. True only when that
+     * read shows this claim holding the row as delivered. Splitting the
+     * transition from `entries` lets one slot write two rows.
+     */
+    commit(entries: readonly BatchEntry[]): Promise<boolean>;
+}
+
+/** How a delayed send's write stood when it stopped. */
+export type DeferredWriteOutcome =
+    'delivered' | 'dropped' | 'lost' | 'senderSuspended';
 
 /** The mailbox slice a call named, in the terms the query takes it. */
 interface MailboxScope {
@@ -122,6 +168,21 @@ const parseNotifyTarget = (to: unknown): string => {
         );
     }
     return target.handle;
+};
+
+/** A stored delayed message, or `null` for one that can't be read back. */
+const parseDelayedAppMessage = (
+    payload: string | null,
+): DeferredAppMessage | null => {
+    try {
+        const stored = JSON.parse(payload ?? 'null') as DeferredAppMessage;
+        if (typeof stored?.message?.title !== 'string') return null;
+        if (stored.to !== undefined && typeof stored.to !== 'string')
+            return null;
+        return stored;
+    } catch {
+        return null;
+    }
 };
 
 /** Whether a row belongs to the slice, as the same SQL scope selected it. */
@@ -354,7 +415,7 @@ export class NotificationDriver extends PuterDriver {
         object: Record<string, unknown>,
         value: Record<string, unknown>,
     ): Promise<unknown> {
-        const { type, to, ...fields } = value;
+        const { type, to, sendAt, ...fields } = value;
         if (type !== APP_MESSAGE_TYPE) {
             throw typeNotAllowed(`Apps can create only ${APP_MESSAGE_TYPE}`);
         }
@@ -370,6 +431,12 @@ export class NotificationDriver extends PuterDriver {
         const handle = to === undefined ? undefined : parseNotifyTarget(to);
         const message = parseAppMessage(fields);
         assertValueFits(value);
+        const timing =
+            sendAt === undefined || sendAt === null
+                ? null
+                : await this.#schedules().prepareSendAt(actor, sendAt);
+        if (timing && !timing.immediate)
+            return this.#scheduleAppMessage(actor, message, handle, timing);
 
         if (handle === undefined) {
             const uid = await this.#sendAppMessage(
@@ -410,12 +477,23 @@ export class NotificationDriver extends PuterDriver {
         appUid: string,
         message: AppMessage,
     ): Promise<string> {
-        const send = () =>
-            this.#replaceOrWriteAppMessage(recipientId, appUid, message);
+        return this.#oneSendPerGroup(recipientId, appUid, message, () =>
+            this.#replaceOrWriteAppMessage(recipientId, appUid, message),
+        );
+    }
+
+    /**
+     * One send per group at a time, so a burst into an empty group writes one
+     * row that the rest replace. A lock that is busy past the wait or
+     * unreachable still sends: the race costs a second row and its day slot.
+     */
+    #oneSendPerGroup<T>(
+        recipientId: number,
+        appUid: string,
+        message: AppMessage,
+        send: () => Promise<T>,
+    ): Promise<T> {
         if (!message.group) return send();
-        // One send per group at a time, so a burst into an empty group writes
-        // one row that the rest replace. A lock that is busy past the wait or
-        // unreachable still sends: the race costs a second row and its day slot.
         return withRedisLock(
             this.clients.redis,
             `notif:app-message:group:${recipientId}:${appUid}:${message.group}`,
@@ -428,6 +506,146 @@ export class NotificationDriver extends PuterDriver {
                 onBusy: send,
             },
         );
+    }
+
+    // -- Delayed sends -----------------------------------------------
+
+    #schedules(): ScheduleServiceContract {
+        const schedules = this.services.schedules;
+        if (!schedules) throw schedulesUnavailable();
+        return schedules;
+    }
+
+    /**
+     * Store an app's message to go out at `sendAt`. A recipient named through a
+     * share is checked now without spending its budget; every limit is spent
+     * when it goes, and the share is checked again then.
+     */
+    async #scheduleAppMessage(
+        actor: UserActor,
+        message: AppMessage,
+        handle: string | undefined,
+        plan: DeferredSendPlan,
+    ): Promise<{ scheduled: { scheduleId: string; sendAt: number } }> {
+        if (handle !== undefined)
+            await this.services.kvShare.resolveNotifyRecipient(actor, handle, {
+                spendBudget: false,
+            });
+        return {
+            scheduled: await this.#schedules().createDeferredAppMessage(
+                plan,
+                handle === undefined ? { message } : { message, to: handle },
+            ),
+        };
+    }
+
+    /**
+     * Check the sender and recipient as they stand now, spend the recipient's
+     * limits, and write the mailbox row through `tx`, fenced on its guard.
+     * Called by extensions. Refusals are the same `HttpError`s an immediate
+     * send throws.
+     */
+    async writeDeferredAppMessage(
+        input: DeferredWriteInput,
+        tx: DeferredWriteTx,
+    ): Promise<DeferredWriteOutcome> {
+        const { holderUserId, sendKey, signal } = input;
+        const sender = await this.services.events.resolveScheduleActor(
+            holderUserId,
+            input.appUid,
+        );
+        if (!sender) {
+            // A lagging replica can miss an app the primary has: retried.
+            const there =
+                (await this.stores.app.uidExistsOnPrimary(input.appUid)) &&
+                (await this.stores.user.getById(holderUserId)) !== null;
+            if (there) throw new Error('the sender could not be resolved');
+            return 'dropped';
+        }
+        if (sender.user?.suspended) return 'senderSuspended';
+        const stored = parseDelayedAppMessage(input.payload);
+        if (!stored) return 'dropped';
+        const { message } = stored;
+
+        let recipientId = holderUserId;
+        let appUid = input.appUid;
+        if (stored.to !== undefined) {
+            const recipient =
+                await this.services.kvShare.resolveNotifyRecipient(
+                    sender,
+                    stored.to,
+                );
+            recipientId = recipient.recipientUserId;
+            appUid = recipient.appUid;
+        }
+
+        return this.#oneSendPerGroup(recipientId, appUid, message, async () => {
+            // Primary, as for an immediate send.
+            const open = message.group
+                ? await this.stores.notification.getUnseenByGroup(
+                      recipientId,
+                      appUid,
+                      message.group,
+                      { primary: true },
+                  )
+                : null;
+            await this.#spendAppMessageLimits(
+                recipientId,
+                appUid,
+                open ? ['minute'] : ['minute', 'day'],
+            );
+            message.app = appMessageSender(
+                appUid,
+                await this.stores.app.getByUid(appUid),
+            );
+            // Another attempt may hold the lease now; hand the claim back.
+            if (signal.aborted) throw new Error('delayed send lost its lease');
+
+            const registered = resolveNotificationWrite(
+                APP_MESSAGE_TYPE,
+                appUid,
+            );
+            const delivered = await tx.commit(
+                this.stores.notification.sendEntries(
+                    {
+                        sendKey,
+                        userId: recipientId,
+                        value: { ...message, type: registered.type },
+                        type: registered.type,
+                        audience: registered.audience,
+                        appUid,
+                        group: message.group ?? null,
+                        replaceUid: open ? String(open.uid) : null,
+                        at: Date.now(),
+                    },
+                    tx.guard,
+                ),
+            );
+            if (!delivered) return 'lost';
+            if (open)
+                await this.#spendDayIfFresh(recipientId, appUid, open, sendKey);
+            return 'delivered';
+        });
+    }
+
+    /**
+     * A replacement that found its row shown since the lookup wrote a new one,
+     * which costs a day slot. Already written, so a full day is not a refusal.
+     */
+    async #spendDayIfFresh(
+        recipientId: number,
+        appUid: string,
+        open: Record<string, unknown>,
+        sendKey: string,
+    ): Promise<void> {
+        try {
+            const written =
+                await this.stores.notification.getBySendKey(sendKey);
+            if (written && written.uid !== open.uid)
+                await this.#spendAppMessageLimits(recipientId, appUid, ['day']);
+        } catch {
+            // The row is written; a slot not spent is the only loss.
+        }
     }
 
     async #replaceOrWriteAppMessage(
