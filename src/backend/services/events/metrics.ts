@@ -61,3 +61,28 @@ export const sessionForward = meter.createCounter('events.session.forward', {
     description:
         'Forwarded session events, by whether the receiver matched one',
 });
+
+/**
+ * How late a schedule member was popped: Redis time at the pop minus its due
+ * score. Feeds the `events_schedule_lag` alarm.
+ */
+export const scheduleLag = meter.createHistogram('events.schedules.lag_ms', {
+    description: 'Delay between a schedule member coming due and its pop',
+    unit: 'ms',
+});
+
+/** One schedule attempt, by `result` (an enum label). */
+export const scheduleFire = meter.createCounter('events.schedules.fire', {
+    description: 'Schedule attempts, by what they came to',
+});
+
+/**
+ * Index entries a reconcile pass changed, by `kind`: `applied` (a change the
+ * lifecycle hook had not delivered), `repaired`, `tombstoned`, `orphaned`,
+ * `finished` or `forgotten`. Anything but a trickle means hooks or peer
+ * messages are being lost.
+ */
+export const scheduleReconcile = meter.createCounter(
+    'events.schedules.reconcile',
+    { description: 'Due-index entries a schedule reconcile pass changed' },
+);
