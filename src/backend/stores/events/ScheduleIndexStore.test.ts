@@ -579,6 +579,40 @@ describe('deploy gate', () => {
         ).toBe('deployed');
         expect(await redis.zcard(semaphore)).toBe(0);
     });
+
+    it('an uncapped caller takes a slot past the cap, and capped callers see it', async () => {
+        const semaphore = `sched:idx${seq}:deploys`;
+        await redis.zadd(
+            semaphore,
+            T0 + 60_000,
+            'held-1',
+            T0 + 60_000,
+            'held-2',
+        );
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        const uncapped = index.withDeployGate(
+            'script-c',
+            { ...gate, cap: null },
+            async () => {
+                await held;
+                return 'deployed';
+            },
+        );
+        await vi.waitFor(async () =>
+            expect(await redis.zcard(semaphore)).toBe(3),
+        );
+        expect(
+            await index.withDeployGate(
+                'script-d',
+                gate,
+                async () => 'deployed',
+            ),
+        ).toBe('busy');
+        release();
+        expect(await uncapped).toBe('deployed');
+        expect(await redis.zcard(semaphore)).toBe(2);
+    });
 });
 
 it('reads the clock it scripts with', async () => {

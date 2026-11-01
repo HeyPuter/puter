@@ -459,8 +459,8 @@ export class EventsController extends PuterController {
             );
             return;
         }
-        this.services.events.useWorkerMissHandler((appUid, script) =>
-            deployer.ensure(appUid, script),
+        this.services.events.useWorkerMissHandler((appUid, script, options) =>
+            deployer.ensure(appUid, script, options),
         );
     }
 

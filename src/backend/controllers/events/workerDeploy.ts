@@ -29,6 +29,7 @@ import {
 import type {
     EventsInvokeAnswer,
     EventsInvokeCall,
+    InvokeLane,
 } from '../../clients/events/EventsWorkerInvokerClient.js';
 import {
     EVENTS_INVOKE_PATH,
@@ -71,6 +72,11 @@ export type EventsDeployOutcome =
     | 'throttled'
     | 'failed'
     | 'busy';
+
+/** Whose call asked for the deploy: a schedule run's is held to a share. */
+export interface EventsDeployOptions {
+    lane?: InvokeLane;
+}
 
 interface DeployLayers {
     config: IConfig;
@@ -120,11 +126,15 @@ export class EventsWorkerDeployer {
      * A request for anything else is `stale` — the set moved on, and the next
      * delivery resolves the new script rather than this one being revived.
      */
-    ensure(appUid: string, script: string): Promise<EventsDeployOutcome> {
+    ensure(
+        appUid: string,
+        script: string,
+        options: EventsDeployOptions = {},
+    ): Promise<EventsDeployOutcome> {
         const key = `${appUid}|${script}`;
         const existing = this.#inFlight.get(key);
         if (existing) return existing;
-        const started = this.#gated(appUid, script).finally(() =>
+        const started = this.#gated(appUid, script, options).finally(() =>
             this.#inFlight.delete(key),
         );
         this.#inFlight.set(key, started);
@@ -133,10 +143,16 @@ export class EventsWorkerDeployer {
 
     /**
      * With schedules on, every deploy in the region, whichever path asked for
-     * it, holds the script's lock and one of the region's few deploy slots, so
-     * a burst of runs of an evicted script deploys it once. `busy` otherwise.
+     * it, holds the script's lock, so a burst of runs of an evicted script
+     * deploys it once. The region's deploy slots bound schedule runs only: a
+     * delivery's deploy takes a slot but is never refused one, so schedules
+     * yield to deliveries and can't hold them up. `busy` otherwise.
      */
-    #gated(appUid: string, script: string): Promise<EventsDeployOutcome> {
+    #gated(
+        appUid: string,
+        script: string,
+        options: EventsDeployOptions,
+    ): Promise<EventsDeployOutcome> {
         const { config, stores } = this.#layers;
         if (
             config.events?.enabled !== true ||
@@ -146,7 +162,10 @@ export class EventsWorkerDeployer {
         return stores.scheduleIndex.withDeployGate(
             script,
             {
-                cap: EVENTS_SCHEDULE_DEPLOYS_IN_FLIGHT,
+                cap:
+                    options.lane === 'schedule'
+                        ? EVENTS_SCHEDULE_DEPLOYS_IN_FLIGHT
+                        : null,
                 ttlMs: DEPLOY_LOCK_TTL_MS,
                 renewMs: DEPLOY_SLOT_RENEW_MS,
             },
@@ -360,6 +379,7 @@ export class LocalEventsInvokeTransport {
             const outcome = await this.#deployer.ensure(
                 call.appUid,
                 call.script,
+                { lane: call.lane },
             );
             if (outcome !== 'deployed')
                 return {

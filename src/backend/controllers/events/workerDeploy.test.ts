@@ -27,7 +27,10 @@ import MockRedis from 'ioredis-mock';
 import { describe, expect, it, vi } from 'vitest';
 import { ScheduleIndexStore } from '../../stores/events/ScheduleIndexStore.js';
 import type { EventsInvokeCall } from '../../clients/events/EventsWorkerInvokerClient.js';
-import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
+import {
+    EVENTS_SCHEDULE_DEPLOYS_IN_FLIGHT,
+    EVENTS_WORKER_DEPLOYS_PER_HOUR,
+} from './limits.js';
 import {
     EventsWorkerDeployer,
     LocalEventsInvokeTransport,
@@ -231,6 +234,50 @@ describe('deploys with schedules on', () => {
         expect(results.filter((r) => r === 'deployed')).toHaveLength(1);
         expect(results.filter((r) => r === 'busy')).toHaveLength(19);
         expect(created).toEqual([SCRIPT]);
+    });
+
+    it('hold schedule runs to the region`s deploy slots, never a delivery', async () => {
+        const { layers, created, redis } = makeLayers({
+            'app-x': { ownerUserId: 1 },
+        });
+        const config = {
+            ...layers.config,
+            events: {
+                ...layers.config.events,
+                enabled: true,
+                schedules: { enabled: true },
+            },
+            jobs: { namespace: 'deploy-slots' },
+        } as IConfig;
+        const index = new ScheduleIndexStore(
+            config,
+            { redis } as never,
+            {} as never,
+        );
+        const deployer = new EventsWorkerDeployer({
+            ...layers,
+            config,
+            stores: { ...layers.stores, scheduleIndex: index },
+        } as unknown as Layers);
+        // Every slot is taken by other nodes' deploys.
+        const expiry = Date.now() + 60_000;
+        await redis.zadd(
+            'sched:deploy-slots:deploys',
+            ...Array.from(
+                { length: EVENTS_SCHEDULE_DEPLOYS_IN_FLIGHT },
+                (_, i) => [expiry, `other-${i}`],
+            ).flat(),
+        );
+        await expect(
+            deployer.ensure('app-x', SCRIPT, { lane: 'schedule' }),
+        ).resolves.toBe('busy');
+        await expect(deployer.ensure('app-x', SCRIPT)).resolves.toBe(
+            'deployed',
+        );
+        expect(created).toEqual([SCRIPT]);
+        expect(await redis.zcard('sched:deploy-slots:deploys')).toBe(
+            EVENTS_SCHEDULE_DEPLOYS_IN_FLIGHT,
+        );
     });
 });
 

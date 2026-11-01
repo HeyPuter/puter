@@ -112,10 +112,16 @@ const SELF_DEPLOYABLE_MISS_REASONS = new Set([
  */
 const ALREADY_DEPLOYED_MISS_REASONS = new Set(['deploy-timeout']);
 
+/** Whose call asked for the deploy, for the share of deploys it may take. */
+export interface WorkerMissOptions {
+    lane?: InvokeLane;
+}
+
 /** What a self-deploy attempt did, and to which app/script it applies. */
 export type WorkerMissHandler = (
     appUid: string,
     script: string,
+    options: WorkerMissOptions,
 ) => Promise<'deployed' | string>;
 
 /** How long a handler has to answer before the attempt is abandoned. */
@@ -302,6 +308,7 @@ export class EventsWorkerInvokerClient extends PuterClient {
             const outcome = await this.#missHandler(
                 request.appUid,
                 request.script,
+                { lane: options.lane },
             );
             if (outcome !== 'deployed')
                 return {

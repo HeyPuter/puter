@@ -456,6 +456,23 @@ describe('EventsWorkerInvokerClient invoke options', () => {
         });
         expect(headersSeen).toHaveLength(1);
     });
+
+    it('tells the miss handler whose call needs the deploy', async () => {
+        const lanes: unknown[] = [];
+        const client = makeClient();
+        client.setTransport(
+            new DispatcherInvokeTransport('http://dispatcher', 's', {
+                fetchImpl: missUntilDeployedFetch([]),
+            }),
+        );
+        client.setMissHandler(async (_appUid, _script, options) => {
+            lanes.push(options.lane);
+            return 'deployed';
+        });
+        await client.invoke(REQUEST, { lane: 'schedule' });
+        await client.invoke(REQUEST);
+        expect(lanes).toEqual(['schedule', undefined]);
+    });
 });
 
 const REQUEST: WorkerInvokeRequest = {

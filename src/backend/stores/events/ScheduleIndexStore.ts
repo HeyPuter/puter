@@ -345,11 +345,15 @@ if ttl < 1 then return 1 end
 return ttl
 `;
 
-/** KEYS: semaphore. ARGV: cap, ttlMs, token. Returns 1 when taken. */
+/**
+ * KEYS: semaphore. ARGV: cap ('' = take a slot whatever the count), ttlMs,
+ * token. Returns 1 when taken.
+ */
 const DEPLOY_ACQUIRE_SCRIPT = `${PRELUDE}
 local now = nowMs()
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', fmt(now))
-if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[1]) then return 0 end
+local cap = tonumber(ARGV[1])
+if cap and redis.call('ZCARD', KEYS[1]) >= cap then return 0 end
 redis.call('ZADD', KEYS[1], fmt(now + tonumber(ARGV[2])), ARGV[3])
 redis.call('PEXPIRE', KEYS[1], fmt(tonumber(ARGV[2]) * 2))
 return 1
@@ -1057,11 +1061,13 @@ export class ScheduleIndexStore extends PuterStore {
 
     /**
      * Run a deploy of `script` holding this region's lock on that script and
-     * one of its `cap` deploy slots. `'busy'` when either is taken.
+     * one of its deploy slots. `'busy'` when the lock is taken, or when `cap`
+     * slots are; a `null` cap takes a slot whatever the count, so the capped
+     * callers see this deploy without being able to hold it up.
      */
     async withDeployGate<T>(
         script: string,
-        options: { cap: number; ttlMs: number; renewMs: number },
+        options: { cap: number | null; ttlMs: number; renewMs: number },
         deploy: () => Promise<T>,
     ): Promise<T | 'busy'> {
         const semaphore = this.#meta('deploys');
@@ -1072,7 +1078,7 @@ export class ScheduleIndexStore extends PuterStore {
                 const token = randomUUID();
                 const taken = await this.#scripts().schedDeployAcquire(
                     semaphore,
-                    int(options.cap),
+                    options.cap === null ? '' : int(options.cap),
                     int(options.ttlMs),
                     token,
                 );
