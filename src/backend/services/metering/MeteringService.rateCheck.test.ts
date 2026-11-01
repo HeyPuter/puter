@@ -125,16 +125,16 @@ describe('MeteringService.checkRateOfChange', () => {
         });
     });
 
-    it('skips the shard read when the baseline is only 5 minutes old', async () => {
+    it('measures against a baseline of any age, since the job runs it once per cadence', async () => {
         const { svc, kv, alarmCreate } = makeService(
-            { maxGlobalUsagePerMinute: 100 },
+            { maxGlobalUsagePerMinute: 1e9 },
             { total: 0, timestamp: Date.now() - 5 * 60_000 },
         );
 
         await svc.checkRateOfChange();
 
-        expect(kv.get).toHaveBeenCalledTimes(1);
-        expect(kv.set).not.toHaveBeenCalled();
+        expect(kv.get).toHaveBeenCalledTimes(2);
+        expect(kv.set).toHaveBeenCalledTimes(1);
         expect(alarmCreate).not.toHaveBeenCalled();
     });
 });
