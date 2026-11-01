@@ -1101,7 +1101,11 @@ export class Conversation extends RealtimeEvents {
      * @returns {Promise<void>}
      */
     interrupt(position) {
-        this.assertConnected();
+        try {
+            this.assertConnected();
+        } catch (error) {
+            return Promise.reject(error);
+        }
         return this.#interrupt(position, 'manual');
     }
 

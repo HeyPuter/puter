@@ -61,6 +61,25 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
+describe('interrupt readiness', () => {
+    it.each(['prepared', 'closed', 'reconnecting'])(
+        'rejects in %s state',
+        async (state) => {
+            const c = state === 'reconnecting' ? await connected() : make();
+            if (state === 'closed') c.close();
+            if (state === 'reconnecting') socket().close(1012, 'restart');
+            let result;
+            expect(() => {
+                result = c.interrupt();
+            }).not.toThrow();
+            await expect(result).rejects.toMatchObject({
+                code:
+                    state === 'closed' ? 'session_closed' : 'session_not_ready',
+            });
+        },
+    );
+});
+
 describe('conversation preparation', () => {
     it.each([
         null,
