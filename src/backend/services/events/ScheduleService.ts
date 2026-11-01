@@ -50,6 +50,7 @@ import {
 import type { IConfig } from '../../types.js';
 import { actorPlanId } from '../metering/enforcement.js';
 import { PuterService } from '../types.js';
+import { backgroundConsentRequired } from './authorization.js';
 import {
     validateScheduleRequest,
     type ScheduleRequest,
@@ -133,8 +134,9 @@ export class ScheduleService extends PuterService {
 
     /**
      * Check a create against the caller and their plan, and compute what is
-     * stored. A schedule belongs to an app and runs its published handler, so
-     * an account-context caller or a scoped token is refused.
+     * stored. A schedule belongs to an app and runs its published handler with
+     * nobody present, so an account-context caller or a scoped token is
+     * refused, and the app needs the holder's background consent.
      */
     async prepareCreate(
         actor: Actor,
@@ -148,6 +150,8 @@ export class ScheduleService extends PuterService {
         const appUid = actor.effectiveApp?.uid;
         if (!appUid) throw appRequired();
         if (isAccessTokenActor(actor)) throw scopedToken();
+        if ((await this.services.events.hasBackgroundConsent(actor)) !== true)
+            throw backgroundConsentRequired();
 
         const plan = await actorPlanId(this.services.metering, actor);
         const quota: ScheduleQuota = {

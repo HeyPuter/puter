@@ -162,12 +162,20 @@ beforeEach(async () => {
 });
 
 describe('preparing a create', () => {
+    const consent = (uid: string) =>
+        env.server.services.permission.grantUserAppPermission(
+            makeActor({ user: userRow as never }),
+            uid,
+            EVENTS_BACKGROUND_PERMISSION,
+        );
+
     beforeEach(async () => {
         await env.server.stores.eventHandler.publish({
             appUid,
             name: 'tick',
             source: SOURCE,
         });
+        await consent(appUid);
     });
 
     it('validates, and resolves who it is for and the caps it is held to', async () => {
@@ -239,6 +247,34 @@ describe('preparing a create', () => {
                 }),
             ),
         ).resolves.toBe('events_durable_requires_account');
+    });
+
+    it('needs the holder`s background consent for the app', async () => {
+        const app = await makeApp();
+        await env.server.stores.eventHandler.publish({
+            appUid: app.uid,
+            name: 'tick',
+            source: SOURCE,
+        });
+        const actor = makeActor({
+            user: userRow as never,
+            app: { uid: app.uid, id: app.id },
+        });
+        await expect(
+            codeOf(
+                schedules().prepareCreate(actor, {
+                    every: '1h',
+                    handlerName: 'tick',
+                }),
+            ),
+        ).resolves.toBe('events_background_consent_required');
+        await consent(app.uid);
+        await expect(
+            schedules().prepareCreate(actor, {
+                every: '1h',
+                handlerName: 'tick',
+            }),
+        ).resolves.toMatchObject({ appUid: app.uid });
     });
 
     it('needs the handler to be published, with the source it names', async () => {

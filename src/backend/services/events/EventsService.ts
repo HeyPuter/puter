@@ -1867,7 +1867,7 @@ export class EventsService extends PuterService {
         // present is refused before anything about it is resolved or stored.
         if (
             runsInWorker({ appUid, handlerName }) &&
-            (await this.#hasBackgroundConsent(actor)) !== true
+            (await this.hasBackgroundConsent(actor)) !== true
         )
             throw backgroundConsentRequired();
 
@@ -3236,7 +3236,7 @@ export class EventsService extends PuterService {
      *
      * `null` when the check itself failed, which is not an answer either way.
      */
-    async #hasBackgroundConsent(actor: Actor): Promise<boolean | null> {
+    async hasBackgroundConsent(actor: Actor): Promise<boolean | null> {
         try {
             return await this.services.permission.check(
                 actor,
@@ -4832,7 +4832,7 @@ export class EventsService extends PuterService {
             const actor = await resolveGrantActor(row, deps);
             return (
                 actor !== null &&
-                (await this.#hasBackgroundConsent(actor)) === true
+                (await this.hasBackgroundConsent(actor)) === true
             );
         };
         const settling: DurableSubscription[] = [];
@@ -5751,7 +5751,7 @@ export class EventsService extends PuterService {
         // settle that ends a revoked row is best-effort, and what is minted is
         // the app's whole standing for this holder. The permission cache
         // answers it, so only a grant change costs a lookup.
-        const consent = await this.#hasBackgroundConsent(actor);
+        const consent = await this.hasBackgroundConsent(actor);
         if (consent !== true) {
             // A no may be a withdrawal whose settle never ran or failed.
             // Without one the row stays in service, deferred forever.
