@@ -91,6 +91,16 @@ export interface JobDefinition {
     run: (ctx: JobRunContext) => Promise<void>;
 }
 
+/** The `afterId` cursor a keyset-walking job saved in its state, or 0. */
+export const savedAfterId = (state: unknown): number => {
+    const afterId = (state as { afterId?: unknown } | null)?.afterId;
+    return typeof afterId === 'number' &&
+        Number.isSafeInteger(afterId) &&
+        afterId > 0
+        ? afterId
+        : 0;
+};
+
 /** The run no longer holds its job; another node may already be running it. */
 export class JobLeaseLostError extends Error {}
 

@@ -23,7 +23,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { makeActor, type Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
-import { setupTestServer } from '../../testUtil.js';
+import { setupTestServer, testJobContext } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import { EVENTS_WORKER_SESSION_NAME } from '../events/workerRuntime.js';
 import { FULL_API_ACCESS } from '../permission/consts.js';
@@ -4048,7 +4048,6 @@ describe('AuthService (integration)', () => {
     });
 
     describe('purgeEndedSessions', () => {
-        const GATE_KEY = 'sessions:purge:gate';
         const DAY = 24 * 60 * 60;
 
         const makeSession = async (
@@ -4077,8 +4076,15 @@ describe('AuthService (integration)', () => {
             return rows.length > 0;
         };
 
+        const idOf = async (uuid: string) => {
+            const [row] = await server.clients.db.read(
+                'SELECT `id` FROM `sessions` WHERE `uuid` = ?',
+                [uuid],
+            );
+            return Number(row.id);
+        };
+
         it('deletes rows ended past their retention and keeps the rest', async () => {
-            await server.clients.redis.del(GATE_KEY);
             const user = await makeUser();
             const id = user.id;
             const oldRevoked = await makeSession(id, 'asset', 'revoked_at', 31);
@@ -4100,7 +4106,7 @@ describe('AuthService (integration)', () => {
             const live = await makeSession(id, 'web');
 
             expect(
-                await authService.purgeEndedSessions(),
+                await authService.purgeEndedSessions(testJobContext()),
             ).toBeGreaterThanOrEqual(3);
 
             expect(await exists(oldRevoked)).toBe(false);
@@ -4112,34 +4118,53 @@ describe('AuthService (integration)', () => {
             expect(await exists(live)).toBe(true);
         });
 
-        it('skips while another run holds the gate', async () => {
-            await server.clients.redis.del(GATE_KEY);
-            await server.clients.redis.set(GATE_KEY, 'other-node');
+        it('starts from the saved cursor and clears it once the walk is done', async () => {
             const user = await makeUser();
-            const oldRevoked = await makeSession(
-                user.id,
-                'asset',
-                'revoked_at',
-                31,
-            );
+            const below = await makeSession(user.id, 'asset', 'revoked_at', 31);
+            const above = await makeSession(user.id, 'asset', 'revoked_at', 31);
+            const ctx = testJobContext({ afterId: await idOf(below) });
 
-            expect(await authService.purgeEndedSessions()).toBeNull();
-            expect(await exists(oldRevoked)).toBe(true);
-            await server.clients.redis.del(GATE_KEY);
+            expect(
+                await authService.purgeEndedSessions(ctx),
+            ).toBeGreaterThanOrEqual(1);
+            expect(await exists(below)).toBe(true);
+            expect(await exists(above)).toBe(false);
+            expect(ctx.saved).toEqual([null]);
         });
 
-        it('frees the gate when the walk fails', async () => {
-            await server.clients.redis.del(GATE_KEY);
-            const spy = vi
-                .spyOn(server.clients.db, 'read')
-                .mockRejectedValueOnce(new Error('db down'));
+        it('stops between ranges once aborted, and the next run resumes at the saved cursor', async () => {
+            const SPAN = 5000;
+            vi.spyOn(server.stores.session, 'maxId').mockResolvedValue(
+                SPAN * 30,
+            );
+            const ranges: number[] = [];
+            const first = testJobContext();
+            const purge = vi
+                .spyOn(server.stores.session, 'purgeEndedInRange')
+                .mockImplementation(async (afterId: number) => {
+                    ranges.push(afterId);
+                    // Aborted mid-walk, as a lost lease or a shutdown would.
+                    if (ranges.length === 12) first.abort();
+                    return 0;
+                });
             try {
-                await expect(authService.purgeEndedSessions()).rejects.toThrow(
-                    'db down',
-                );
-                expect(await server.clients.redis.get(GATE_KEY)).toBeNull();
+                await authService.purgeEndedSessions(first);
+                expect(ranges).toHaveLength(12);
+                // Saved every 10 ranges, and where it stopped.
+                expect(first.saved).toEqual([
+                    { afterId: SPAN * 10 },
+                    { afterId: SPAN * 12 },
+                ]);
+
+                ranges.length = 0;
+                const next = testJobContext(first.saved.at(-1));
+                await authService.purgeEndedSessions(next);
+                expect(ranges[0]).toBe(SPAN * 12);
+                expect(ranges.at(-1)).toBe(SPAN * 29);
+                expect(next.saved.at(-1)).toBeNull();
             } finally {
-                spy.mockRestore();
+                purge.mockRestore();
+                vi.restoreAllMocks();
             }
         });
     });
