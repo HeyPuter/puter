@@ -204,3 +204,101 @@ export const handledAnswer = (status: number): EventsInvokeAnswer => ({
     status,
     handled: true,
 });
+
+const SEED_CHUNK = 250;
+
+export interface ScheduleSeed {
+    namespace: string;
+    region: string;
+    holderUserId: number;
+    appUid: string;
+    count: number;
+    startAt: number;
+    everyMs: number;
+    createdAt: number;
+    /** `updated_at` of the i-th row; defaults to `createdAt`. */
+    updatedAt?: (i: number) => number;
+    /** A delayed send rather than a recurring schedule. */
+    deferred?: boolean;
+}
+
+/**
+ * Insert `count` live schedules and the subscription rows they own straight
+ * into the tables, many per statement, so a test can fill a region with tens of
+ * thousands. Returns their public ids.
+ */
+export const seedSchedules = async (
+    server: PuterTestEnv['server'],
+    seed: ScheduleSeed,
+): Promise<string[]> => {
+    const uids: string[] = [];
+    for (let at = 0; at < seed.count; at += SEED_CHUNK) {
+        const schedules: unknown[][] = [];
+        const subs: unknown[][] = [];
+        for (let i = at; i < Math.min(seed.count, at + SEED_CHUNK); i++) {
+            const uid = uuidv4();
+            uids.push(uid);
+            const subId = seed.deferred ? null : `${seed.appUid}#${uuidv4()}`;
+            const updatedAt = seed.updatedAt?.(i) ?? seed.createdAt;
+            schedules.push([
+                uid,
+                seed.namespace,
+                seed.deferred ? 'deferred' : 'recurring',
+                subId,
+                seed.holderUserId,
+                seed.appUid,
+                seed.region,
+                seed.startAt,
+                seed.deferred ? null : seed.everyMs,
+                seed.deferred ? seed.startAt : null,
+                seed.deferred ? 0 : Math.ceil(3_600_000_000 / seed.everyMs),
+                seed.deferred ? null : seed.everyMs,
+                seed.deferred ? 'test.send' : null,
+                seed.deferred ? '{}' : null,
+                seed.createdAt,
+                updatedAt,
+            ]);
+            if (subId)
+                subs.push([
+                    subId,
+                    `schedule:${uid}`,
+                    seed.holderUserId,
+                    seed.holderUserId,
+                    seed.appUid,
+                    `schedule:${uid}`,
+                    uid,
+                    '',
+                    'single',
+                    SCHEDULE_TEST_HANDLER,
+                    JSON.stringify(['socket', 'worker']),
+                    EVENTS_BACKGROUND_PERMISSION,
+                    Math.floor(seed.createdAt / 1000),
+                ]);
+        }
+        await server.clients.db.write(
+            'INSERT INTO `event_schedules` (`uid`, `namespace`, `kind`, `sub_id`, ' +
+                '`holder_user_id`, `app_uid`, `region`, `start_at`, `every_ms`, ' +
+                '`ends_at`, `rate_per_hour`, `min_gap_ms`, `action`, `payload`, ' +
+                '`version`, `created_at`, `updated_at`) VALUES ' +
+                schedules
+                    .map(
+                        () =>
+                            '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2, ?, ?)',
+                    )
+                    .join(', '),
+            schedules.flat(),
+        );
+        if (subs.length > 0)
+            await server.clients.db.write(
+                'INSERT INTO `event_subscriptions` (`sub_id`, `token`, ' +
+                    '`owner_user_id`, `holder_user_id`, `app_uid`, `subject`, ' +
+                    '`anchor_uid`, `anchor_path`, `delivery`, `handler_name`, ' +
+                    '`targets`, `permission`, `created_at`) VALUES ' +
+                    subs
+                        .map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+                        .join(', '),
+                subs.flat(),
+            );
+    }
+    return uids;
+};
