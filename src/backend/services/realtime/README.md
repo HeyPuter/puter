@@ -81,6 +81,11 @@ to instructions and conversation text. Raw audio and generated transcripts need
 separate policy decisions.
 
 Credential checks run in batches of at most 16 with no overlapping sweeps.
+Session and access-token revocation events close affected sockets and invalidate
+their auth cache entries. Subscription eligibility is checked independently of
+authentication and after subscription invalidations. A sustained verification
+outage gets a 60-second retry grace from the first failed lookup, then closes
+with a retryable internal error. Periodic checks remain the missed-event fallback.
 When the drain starts, open sessions get a `puter.reconnect` event and new
 sessions receive `server_restarting` and close with 1012. Open sessions can
 finish an in-flight response for up to five seconds at shutdown, then close
