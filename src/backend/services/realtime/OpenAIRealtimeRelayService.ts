@@ -536,6 +536,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
             if (url.pathname !== REALTIME_PATH) return;
             const host = (req.headers.host ?? '').split(':')[0].toLowerCase();
             if (!domain || host !== apiHost) {
+                // Node drops its socket error listener once a request upgrades.
+                socket.on('error', () => socket.destroy());
                 socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
                 return;
             }
@@ -786,6 +788,17 @@ export class OpenAIRealtimeRelayService extends PuterService {
             },
         };
         this.#sessions.add(session);
+        // Before any refusal: a frame can still error the socket while its close
+        // handshake runs, and an error without a listener ends the process.
+        client.on('close', (code) =>
+            session.close(code === 1005 || code === 1006 ? 1000 : code, ''),
+        );
+        client.on('error', (err: Error & { code?: string }) =>
+            session.close(
+                err.code === 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH' ? 1009 : 1011,
+                'client error',
+            ),
+        );
 
         const reject = (code: string, message: string, closeCode = 1008) => {
             if (client.readyState === WebSocket.OPEN) {
@@ -1088,15 +1101,6 @@ export class OpenAIRealtimeRelayService extends PuterService {
             pending.push({ data, isBinary });
             pendingBytes += size;
         });
-        client.on('close', (code) =>
-            session.close(code === 1005 || code === 1006 ? 1000 : code, ''),
-        );
-        client.on('error', (err: Error & { code?: string }) =>
-            session.close(
-                err.code === 'WS_ERR_UNSUPPORTED_MESSAGE_LENGTH' ? 1009 : 1011,
-                'client error',
-            ),
-        );
 
         if (!Object.hasOwn(REALTIME_MODELS, model)) {
             reject(
