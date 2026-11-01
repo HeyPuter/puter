@@ -233,6 +233,9 @@ export class NotificationService extends PuterService {
         if (!updated) return false;
         if (opts.silent) return true;
 
+        // Before the read, so the desktop copy updates even if it fails.
+        const desktop = inAccountMailbox(registered.type);
+        if (desktop) this.#sendRewrite(userId, uid, payload);
         const row = await this.stores.notification.getByUid(uid, { userId });
         const app = notification.app as { uid?: unknown } | undefined;
         const appUid =
@@ -248,7 +251,7 @@ export class NotificationService extends PuterService {
                 updated: true,
                 replacedAt,
             },
-            { sendId: uuidv4() },
+            { sendId: uuidv4(), rewriteSent: desktop },
         );
         return true;
     }
@@ -259,7 +262,8 @@ export class NotificationService extends PuterService {
      * the same one each time it delivers, so a listener can tell a repeat. An
      * `updated` row is an earlier notification rewritten in place, and
      * `replacedAt` marks it a replacement. `handlerDepth` is the depth the
-     * write was made at, when no actor in context carries it.
+     * write was made at, when no actor in context carries it. `rewriteSent`
+     * says the caller already sent a desktop rewrite.
      */
     async emitWritten(
         written: {
@@ -272,7 +276,7 @@ export class NotificationService extends PuterService {
             updated?: boolean;
             replacedAt?: number;
         },
-        opts: { sendId: string; handlerDepth?: number },
+        opts: { sendId: string; handlerDepth?: number; rewriteSent?: boolean },
     ): Promise<void> {
         const { userId, uid, value: payload, updated } = written;
         const scope = {
@@ -281,15 +285,8 @@ export class NotificationService extends PuterService {
             appUid: written.appUid,
         };
         const desktop = inAccountMailbox(scope.type);
-        if (updated && desktop) {
-            // Same uid as the original: the client replaces what it is already
-            // showing rather than stacking another copy. It goes straight to
-            // the wire rather than through dispatch — the row was already
-            // published, and republishing it under its own id is a duplicate
-            // to anything deduplicating on `event.id`.
-            this.#socket().message(userId, uid, payload);
-            this.#markDelivered(uid, userId);
-        }
+        if (updated && desktop && !opts.rewriteSent)
+            this.#sendRewrite(userId, uid, payload);
         // Listeners get their own copy; the socket sends `payload`.
         this.clients.event.emit(
             'notif.written',
@@ -314,6 +311,22 @@ export class NotificationService extends PuterService {
                 written.replacedAt,
                 opts.handlerDepth,
             );
+    }
+
+    /**
+     * Same uid as the original: the client replaces what it is already showing
+     * rather than stacking another copy. It goes straight to the wire rather
+     * than through dispatch — the row was already published, and republishing
+     * it under its own id is a duplicate to anything deduplicating on
+     * `event.id`.
+     */
+    #sendRewrite(
+        userId: number,
+        uid: string,
+        payload: Record<string, unknown>,
+    ): void {
+        this.#socket().message(userId, uid, payload);
+        this.#markDelivered(uid, userId);
     }
 
     /**

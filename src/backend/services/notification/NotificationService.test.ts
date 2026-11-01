@@ -395,6 +395,36 @@ describe('NotificationService.notifyUpdate', () => {
         written.stop();
     });
 
+    it('sends the desktop rewrite before reading the row back, so a failed read still updates it', async () => {
+        const user = await makeUser();
+        const uid = await notifications.notify(
+            [user.id],
+            { title: 'one share' },
+            { type: 'share.received' },
+        );
+        const pushed = collect('outer.gui.notif.message');
+        const read = vi
+            .spyOn(server.stores.notification, 'getByUid')
+            .mockRejectedValueOnce(new Error('replica down'));
+        try {
+            await expect(
+                notifications.notifyUpdate(
+                    uid,
+                    user.id,
+                    { title: 'two shares' },
+                    { type: 'share.received' },
+                ),
+            ).rejects.toThrow('replica down');
+            expect(pushed.seen).toHaveLength(1);
+            expect((pushed.seen[0] as NotifPush).response.notification).toEqual(
+                { title: 'two shares', type: 'share.received' },
+            );
+        } finally {
+            read.mockRestore();
+            pushed.stop();
+        }
+    });
+
     it('refuses to fold a type that does not group', async () => {
         const user = await makeUser();
         await expect(
