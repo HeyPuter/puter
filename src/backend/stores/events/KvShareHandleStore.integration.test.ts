@@ -326,7 +326,7 @@ describe('the notify flag', () => {
 });
 
 describe('live handles by owner and app', () => {
-    it('lists only the owner\'s live handles in that app, oldest first', async () => {
+    it("lists only the owner's live handles in that app, oldest first", async () => {
         const appUid = 'app-owner-listing';
         const first = await store().mint(
             input({ appUid, keyPrefix: 'owned-a:' }),
@@ -502,13 +502,11 @@ describe('the live cache across nodes', () => {
         expect(await store().getLive(row.handle)).toBeNull();
     });
 
-    it('drops an owner\'s cached rows when the owner is suspended, here and on other nodes', async () => {
+    it("drops an owner's cached rows when the owner is suspended, here and on other nodes", async () => {
         const row = await store().mint(
             input({ appUid: 'app-forget', keyPrefix: 'forget-owner:' }),
         );
-        expect((await store().getLive(row.handle))?.ownerSuspended).toBe(
-            false,
-        );
+        expect((await store().getLive(row.handle))?.ownerSuspended).toBe(false);
         const setSuspended = (value: number) =>
             env.server.clients.db.write(
                 'UPDATE `user` SET `suspended` = ? WHERE `id` = ?',
@@ -534,11 +532,7 @@ describe('the live cache across nodes', () => {
                     ([key]) => key === 'outer.pubsub.kv.share.forgetOwner',
                 ),
             ).toEqual([
-                [
-                    'outer.pubsub.kv.share.forgetOwner',
-                    { ownerUserId },
-                    {},
-                ],
+                ['outer.pubsub.kv.share.forgetOwner', { ownerUserId }, {}],
             ]);
 
             // Another node lifting the suspension reaches this one's cache.
@@ -557,13 +551,11 @@ describe('the live cache across nodes', () => {
         }
     });
 
-    it('drops an owner\'s cached rows when the user store suspends or unsuspends them', async () => {
+    it("drops an owner's cached rows when the user store suspends or unsuspends them", async () => {
         const row = await store().mint(
             input({ appUid: 'app-forget', keyPrefix: 'forget-store:' }),
         );
-        expect((await store().getLive(row.handle))?.ownerSuspended).toBe(
-            false,
-        );
+        expect((await store().getLive(row.handle))?.ownerSuspended).toBe(false);
         try {
             await env.server.stores.user.update(ownerUserId, {
                 suspended: true,
@@ -895,21 +887,27 @@ describe('retired handle retention', () => {
         expect(await exists(live)).toBe(true);
     });
 
-    it('purges once per day across nodes, keeping live and recent rows', async () => {
+    it('purges retired handles past the retention, keeping live and recent rows', async () => {
         const kvShare = env.server.services.kvShare;
-        await env.server.clients.redis.del('kvShare:purge:gate');
         const old = await retiredAt('purge-old:', now() - 31 * DAY);
         const recent = await retiredAt('purge-recent:', now() - 29 * DAY);
         const live = await retiredAt('purge-live:', null);
 
-        expect(await kvShare.purgeRevokedHandles()).toBeGreaterThanOrEqual(1);
+        expect(
+            await kvShare.purgeRevokedHandles(new AbortController().signal),
+        ).toBeGreaterThanOrEqual(1);
         expect(await exists(old)).toBe(false);
         expect(await exists(recent)).toBe(true);
         expect(await exists(live)).toBe(true);
+    });
 
-        // Another node checking the same day finds the gate held.
-        const again = await retiredAt('purge-again:', now() - 31 * DAY);
-        expect(await kvShare.purgeRevokedHandles()).toBeNull();
-        expect(await exists(again)).toBe(true);
+    it('stops purging between batches once its signal aborts', async () => {
+        const kvShare = env.server.services.kvShare;
+        const old = await retiredAt('purge-aborted:', now() - 31 * DAY);
+        const controller = new AbortController();
+        controller.abort();
+
+        expect(await kvShare.purgeRevokedHandles(controller.signal)).toBe(0);
+        expect(await exists(old)).toBe(true);
     });
 });
