@@ -895,6 +895,31 @@ describe('NotificationService.sweepExpired', () => {
         expect(await notifications.sweepExpired()).toBe(50);
     });
 
+    it('stops between batches once its signal aborts', async () => {
+        await notifications.sweepExpired();
+        const user = await makeUser();
+        await seedExpired(user.id, 1200);
+        const controller = new AbortController();
+        const deleteBatch = server.stores.notification.deleteCreatedBefore.bind(
+            server.stores.notification,
+        );
+        const spy = vi
+            .spyOn(server.stores.notification, 'deleteCreatedBefore')
+            .mockImplementation(async (days: number, limit: number) => {
+                const removed = await deleteBatch(days, limit);
+                controller.abort();
+                return removed;
+            });
+        try {
+            expect(await notifications.sweepExpired(controller.signal)).toBe(
+                500,
+            );
+        } finally {
+            spy.mockRestore();
+        }
+        expect(await notifications.sweepExpired()).toBe(700);
+    });
+
     it('sweeps nothing when no retention is configured', async () => {
         const unbounded = await setupTestServer({
             notificationRetentionDays: 0,
