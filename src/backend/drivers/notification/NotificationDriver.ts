@@ -624,7 +624,14 @@ export class NotificationDriver extends PuterDriver {
             row.holderUserId,
             row.appUid,
         );
-        if (!sender) return 'dropped';
+        if (!sender) {
+            // A lagging replica can miss an app the primary has: retried.
+            const there =
+                (await this.stores.app.uidExistsOnPrimary(row.appUid)) &&
+                (await this.stores.user.getById(row.holderUserId)) !== null;
+            if (there) throw new Error('the sender could not be resolved');
+            return 'dropped';
+        }
         if (sender.user?.suspended) return 'senderSuspended';
         const stored = parseDelayedAppMessage(row.payload);
         if (!stored) return 'dropped';

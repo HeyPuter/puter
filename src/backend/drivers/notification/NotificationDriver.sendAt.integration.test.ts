@@ -807,7 +807,21 @@ describe('a delayed send that can`t go', () => {
         expect(await mailbox(app.uid)).toEqual([]);
     });
 
-    it('is dropped when its sender is gone', async () => {
+    it('is dropped when its sender`s app is gone', async () => {
+        const app = await h.makeApp();
+        const row = await sendLater(app);
+        // Gone without the deletion that would have cancelled it.
+        await db().write('DELETE FROM `apps` WHERE `uid` = ?', [app.uid]);
+        await server().stores.app.invalidateByUid(app.uid);
+        await fireAt(DUE);
+        expect(await rowOf(row.uid)).toMatchObject({
+            state: 'done',
+            endReason: 'dropped',
+        });
+        expect(await mailbox(app.uid)).toEqual([]);
+    });
+
+    it('is retried, not dropped, when only a lagging read missed its sender', async () => {
         const app = await h.makeApp();
         const row = await sendLater(app);
         vi.spyOn(
@@ -816,10 +830,12 @@ describe('a delayed send that can`t go', () => {
         ).mockResolvedValueOnce(null);
         await fireAt(DUE);
         expect(await rowOf(row.uid)).toMatchObject({
-            state: 'done',
-            endReason: 'dropped',
+            state: 'active',
+            sendToken: null,
         });
-        expect(await mailbox(app.uid)).toEqual([]);
+        expect(await index().getRun(row.uid)).toMatchObject({ attempts: 1 });
+        await fireWhenDue(row.uid);
+        expect(await mailbox(app.uid)).toHaveLength(1);
     });
 
     it('waits while its sender is suspended, and goes once they aren`t', async () => {
