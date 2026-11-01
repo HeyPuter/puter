@@ -1946,8 +1946,16 @@ export class OpenAIRealtimeRelayService extends PuterService {
         onExhausted: () => void,
     ): Promise<void> {
         try {
-            await this.#metering.batchIncrementUsages(actor, rows);
-            if (!(await this.services.metering.hasEnoughCredits(actor, 1))) {
+            const recorded = await this.#metering.batchIncrementUsages(
+                actor,
+                rows,
+            );
+            // Continuation asks whether settled credit remains; new work still
+            // requires atomic admission including every outstanding hold.
+            if (
+                recorded.total > 0 &&
+                !(await this.services.metering.hasAnyUsageCached(actor))
+            ) {
                 onExhausted();
             }
         } catch (err) {

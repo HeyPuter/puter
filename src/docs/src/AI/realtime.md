@@ -120,3 +120,5 @@ The endpoint requires a paid Puter plan. Usage is charged after completed respon
 Input transcription reserves a whole window before its configuration or audio is forwarded. The reservation remains held while that window has unused capacity or unsettled items. When the window is consumed, audio waits until its items settle and another reservation succeeds. Failed transcriptions and items without final usage are charged a conservative fixed amount. The reservation amounts, timeout and audio budget are listed in [rate limits and quotas](/rate-limits-and-quotas/).
 
 Provider-reported realtime models must have a known price. A missing model uses the last known model. An explicitly unpriced model closes the connection with `upstream_error`.
+
+After recording usage, the connection can continue while settled credit is positive, including a fractional balance. Each new billable operation still needs its full reservation after accounting for other outstanding holds.
