@@ -73,6 +73,13 @@ export const HANDLER_SET_CACHE_TTL_SECONDS = 30;
 const handlerSetCacheKey = (appUid: string): string =>
     `eventHandlers:set:${appUid}`;
 
+/**
+ * The same set as read from the replica, kept apart so a lagging read can never
+ * stand in for the primary's answer on the delivery path.
+ */
+const replicaSetCacheKey = (appUid: string): string =>
+    `${handlerSetCacheKey(appUid)}:r`;
+
 // -- Shapes -----------------------------------------------------------
 
 /** A row in `event_handlers`, as the rest of the system sees it. */
@@ -359,13 +366,16 @@ export class EventHandlerStore extends PuterStore {
      * every write here. An empty set is not cached: it fails the delivery, and
      * must not outlast the publish that fills it. Schedule runs read a miss
      * from the replica (`missRead: 'replica'`), since they come by the clock
-     * rather than after a write.
+     * rather than after a write, and cache it under a key of their own.
      */
     async cachedSetForApp(
         appUid: string,
         options: { missRead?: 'primary' | 'replica' } = {},
     ): Promise<Pick<EventHandler, 'name' | 'sourceHash'>[]> {
-        const key = handlerSetCacheKey(appUid);
+        const replica = options.missRead === 'replica';
+        const key = replica
+            ? replicaSetCacheKey(appUid)
+            : handlerSetCacheKey(appUid);
         try {
             const cached = JSON.parse(
                 (await this.clients.redis.get(key)) ?? 'null',
@@ -376,9 +386,7 @@ export class EventHandlerStore extends PuterStore {
             // Read the table instead.
         }
 
-        const set = await this.setForApp(appUid, {
-            replica: options.missRead === 'replica',
-        });
+        const set = await this.setForApp(appUid, { replica });
         if (set.length > 0) {
             try {
                 await this.clients.redis.set(
@@ -624,7 +632,7 @@ export class EventHandlerStore extends PuterStore {
     /** Drop the delivery path's cached set here and on every peer. */
     async #forgetSet(appUid: string): Promise<void> {
         await this.publishCacheKeys({
-            keys: [handlerSetCacheKey(appUid)],
+            keys: [handlerSetCacheKey(appUid), replicaSetCacheKey(appUid)],
             broadcast: true,
         });
     }

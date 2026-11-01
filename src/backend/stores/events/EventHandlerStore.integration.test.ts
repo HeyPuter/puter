@@ -450,14 +450,60 @@ describe('the set a delivery addresses', () => {
                 missRead: 'replica',
             });
             expect(first.map((h) => h.name)).toEqual(['a']);
+            await handlers().cachedSetForApp(cachedApp, {
+                missRead: 'replica',
+            });
             expect(pread).not.toHaveBeenCalled();
             expect(read).toHaveBeenCalledTimes(1);
-            await handlers().cachedSetForApp(cachedApp);
-            expect(pread).not.toHaveBeenCalled();
         } finally {
             pread.mockRestore();
             read.mockRestore();
         }
+    });
+
+    it('never hands the delivery path a set a lagging replica read cached', async () => {
+        await handlers().publish({
+            appUid: cachedApp,
+            name: 'a',
+            source: SOURCE,
+        });
+        const fresh = 'async ({ event }) => event.path';
+        // The replica still has the old source when a schedule run reads it,
+        // right after a publish dropped the caches.
+        const stale = await handlers().setForApp(cachedApp);
+        await handlers().publish({
+            appUid: cachedApp,
+            name: 'a',
+            source: fresh,
+            replace: true,
+        });
+        const read = vi
+            .spyOn(env.server.clients.db, 'read')
+            .mockResolvedValueOnce(
+                stale.map((h) => ({ name: h.name, source_hash: h.sourceHash })),
+            );
+        try {
+            const viaReplica = await handlers().cachedSetForApp(cachedApp, {
+                missRead: 'replica',
+            });
+            expect(viaReplica[0].sourceHash).toBe(hashContent(SOURCE));
+        } finally {
+            read.mockRestore();
+        }
+        const delivery = await handlers().cachedSetForApp(cachedApp);
+        expect(delivery[0].sourceHash).toBe(hashContent(fresh));
+
+        // A publish drops the replica-read entry too.
+        await handlers().publish({
+            appUid: cachedApp,
+            name: 'a',
+            source: SOURCE,
+            replace: true,
+        });
+        const again = await handlers().cachedSetForApp(cachedApp, {
+            missRead: 'replica',
+        });
+        expect(again[0].sourceHash).toBe(hashContent(SOURCE));
     });
 
     it('follows every publish and removal', async () => {
@@ -518,7 +564,12 @@ describe('the set a delivery addresses', () => {
 
             expect(emit).toHaveBeenCalledWith(
                 'outer.cacheUpdate',
-                { cacheKey: [`eventHandlers:set:${cachedApp}`] },
+                {
+                    cacheKey: [
+                        `eventHandlers:set:${cachedApp}`,
+                        `eventHandlers:set:${cachedApp}:r`,
+                    ],
+                },
                 {},
             );
         } finally {
