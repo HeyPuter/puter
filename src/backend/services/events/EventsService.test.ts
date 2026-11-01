@@ -293,12 +293,14 @@ const buildService = (
     metered: MeteredLine[];
     forwarded: ForwardedCall[];
     eventBus: { on: ReturnType<typeof vi.fn>; emit: ReturnType<typeof vi.fn> };
+    jobs: { register: ReturnType<typeof vi.fn> };
 } => {
     const outbox: Array<{ socket?: string; envelope: DeliveryEnvelope }> = [];
     const counted: DeliveryEnvelope[] = [];
     const lines: MeteredLine[] = [];
     const forwardedCalls: ForwardedCall[] = [];
     const bus = { on: vi.fn(), emit: vi.fn() };
+    const jobs = { register: vi.fn() };
     const built = new EventsService(
         config,
         {
@@ -315,7 +317,7 @@ const buildService = (
             kvShareHandle: kvShareHandleStore,
         } as never,
         {
-            jobs: { register: vi.fn() },
+            jobs,
             eventForward: {
                 // A deployment with no peers has nowhere to forward to, which
                 // is what every test here is.
@@ -377,6 +379,7 @@ const buildService = (
         metered: lines,
         forwarded: forwardedCalls,
         eventBus: bus,
+        jobs,
     };
 };
 
@@ -563,6 +566,52 @@ describe('the feature switch', () => {
             (err: unknown) =>
                 isHttpError(err) && err.legacyCode === 'events_disabled',
         );
+    });
+
+    it('hands its table sweeps to the job scheduler and arms only the pending sweep itself', () => {
+        const intervals = vi.spyOn(globalThis, 'setInterval');
+        const timeouts = vi.spyOn(globalThis, 'setTimeout');
+        let jobs: { register: ReturnType<typeof vi.fn> };
+        try {
+            ({ jobs } = buildService({ events: { enabled: true } } as IConfig));
+            // The pending sweep is the region's queue, so every node runs it.
+            expect(intervals.mock.calls.map(([, ms]) => ms)).toEqual([10_000]);
+            expect(timeouts).not.toHaveBeenCalled();
+        } finally {
+            intervals.mockRestore();
+            timeouts.mockRestore();
+        }
+        expect(
+            jobs.register.mock.calls.map(([name, job]) => ({
+                name,
+                every: job.every,
+                scope: job.scope,
+                nearPrimary: job.nearPrimary ?? false,
+                leaseMs: job.leaseMs,
+            })),
+        ).toEqual([
+            {
+                name: 'events.subscriptions.expirySweep',
+                every: 60 * 60_000,
+                scope: 'fleet',
+                nearPrimary: true,
+                leaseMs: 15 * 60_000,
+            },
+            {
+                name: 'events.subscriptions.creditSweep',
+                every: 15 * 60_000,
+                scope: 'fleet',
+                nearPrimary: false,
+                leaseMs: 10 * 60_000,
+            },
+        ]);
+    });
+
+    it('registers no job when off', () => {
+        const { jobs } = buildService({
+            events: { enabled: false },
+        } as IConfig);
+        expect(jobs.register).not.toHaveBeenCalled();
     });
 
     it('spends nothing at all on a dispatch when off', async () => {

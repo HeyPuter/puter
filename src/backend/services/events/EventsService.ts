@@ -680,11 +680,11 @@ const ENDED_MESSAGES: Record<SubscriptionEndReason, string> = {
 
 // -- Expiry sweep -----------------------------------------------------
 
+/** Expired and long-suspended rows, then stranded worker sessions. */
+const EXPIRY_SWEEP_JOB = 'events.subscriptions.expirySweep';
 /** An expiry is a date, not a deadline, so hourly is close enough. */
-const EXPIRY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
-// The first pass lands within this long of boot, so a fleet that redeploys more
-// often than the interval still sweeps.
-const EXPIRY_SWEEP_INITIAL_DELAY_MS = 5 * 60 * 1000;
+const EXPIRY_SWEEP_EVERY_MS = 60 * 60 * 1000;
+const EXPIRY_SWEEP_LEASE_MS = 15 * 60 * 1000;
 /** Rows one delete takes. Small enough not to hold a lock anyone waits on. */
 const EXPIRY_BATCH_SIZE = 500;
 /** Batches one sweep takes, so a large backlog drains over several passes. */
@@ -698,15 +698,16 @@ const ENDED_SUBJECTS_LISTED = 20;
 /** Re-reads an unsubscribe takes to catch a row racing a reanchor. */
 const UNSUBSCRIBE_READS = 3;
 
-/**
- * Worker sessions one page of the stray-session sweep reads, and pages one pass
- * takes. Bounded low: the sweep is a safety net for sessions no API path could
- * reach any more, not a bulk cleanup, and it runs every hour.
- */
 /** A deleted account's apps settled at once. */
 const DELETED_ACCOUNT_SETTLE_CONCURRENCY = 4;
 /** Session rows ended at once when their handle stops standing. */
 const SESSION_END_CONCURRENCY = 4;
+/**
+ * Worker sessions one page of the stray-session sweep reads, and pages one pass
+ * takes. Bounded low: the sweep is a safety net for sessions no API path could
+ * reach any more, not a bulk cleanup; it runs every hour and resumes where the
+ * last pass stopped.
+ */
 const WORKER_SESSION_SWEEP_BATCH = 500;
 const WORKER_SESSION_SWEEP_MAX_PAGES = 2;
 
@@ -1381,8 +1382,6 @@ export class EventsService extends PuterService {
     readonly #flushing = new Map<string, number>();
     /** Paces settles started by deliveries that found consent withdrawn. */
     readonly #consentSettles = new ConsentSettles();
-    #expirySweep: ReturnType<typeof setInterval> | null = null;
-    #expiryKick: ReturnType<typeof setTimeout> | null = null;
     #pendingSweep: ReturnType<typeof setInterval> | null = null;
 
     /**
@@ -1528,24 +1527,11 @@ export class EventsService extends PuterService {
             });
         });
 
-        this.#armExpirySweep();
         this.#armPendingSweep();
-        if (this.enabled)
-            this.services.jobs.register(NO_CREDIT_SWEEP_JOB, {
-                every: NO_CREDIT_SWEEP_EVERY_MS,
-                scope: 'fleet',
-                leaseMs: NO_CREDIT_SWEEP_LEASE_MS,
-                run: async (ctx) => {
-                    await this.sweepNoCredit(ctx);
-                },
-            });
+        if (this.enabled) this.#registerJobs();
     }
 
     override onServerPrepareShutdown(): void {
-        if (this.#expiryKick) clearTimeout(this.#expiryKick);
-        this.#expiryKick = null;
-        if (this.#expirySweep) clearInterval(this.#expirySweep);
-        this.#expirySweep = null;
         if (this.#pendingSweep) clearInterval(this.#pendingSweep);
         this.#pendingSweep = null;
     }
@@ -2717,20 +2703,26 @@ export class EventsService extends PuterService {
      * existed). Scoped to this one worker name; the same strand for
      * `WorkerDriver`-minted sessions is a separate finding, not covered here.
      */
-    async sweepStrandedWorkerSessions(): Promise<number> {
+    async sweepStrandedWorkerSessions({
+        signal,
+        state,
+        saveState,
+    }: JobRunContext): Promise<number> {
         if (!this.enabled) return 0;
 
         let revoked = 0;
-        let afterId = 0;
-        for (let page = 0; page < WORKER_SESSION_SWEEP_MAX_PAGES; page++) {
+        let afterId = savedAfterId(state);
+        let saved = afterId;
+        for (
+            let page = 0;
+            page < WORKER_SESSION_SWEEP_MAX_PAGES && !signal.aborted;
+            page++
+        ) {
             const rows = await this.stores.session.listWorkerSessions({
                 workerName: EVENTS_WORKER_SESSION_NAME,
                 afterId,
                 limit: WORKER_SESSION_SWEEP_BATCH,
             });
-            if (rows.length === 0) break;
-            afterId = rows[rows.length - 1].id;
-
             const appUids = [
                 ...new Set(rows.map((row) => row.appUid).filter(Boolean)),
             ] as string[];
@@ -2750,7 +2742,16 @@ export class EventsService extends PuterService {
                 }
             }
 
-            if (rows.length < WORKER_SESSION_SWEEP_BATCH) break;
+            // A short page is the end of the table; the next run wraps.
+            afterId =
+                rows.length < WORKER_SESSION_SWEEP_BATCH
+                    ? 0
+                    : rows[rows.length - 1].id;
+            if (afterId !== saved) {
+                await saveState(afterId === 0 ? null : { afterId });
+                saved = afterId;
+            }
+            if (afterId === 0) break;
         }
         return revoked;
     }
@@ -6505,26 +6506,27 @@ export class EventsService extends PuterService {
         }
     }
 
-    #armExpirySweep(): void {
-        if (!this.enabled) return;
-        const run = () => {
-            void this.sweepExpired()
-                .then(() => this.sweepSuspended())
-                .then(() => this.sweepStrandedWorkerSessions())
-                .catch((err) => {
-                    console.warn('[events] expiry sweep failed', err);
-                });
-        };
-        // Jittered so a deploy does not have every node sweep at once.
-        const kick = setTimeout(
-            run,
-            EXPIRY_SWEEP_INITIAL_DELAY_MS * (0.5 + Math.random()),
-        );
-        kick.unref?.();
-        this.#expiryKick = kick;
-        const sweep = setInterval(run, EXPIRY_SWEEP_INTERVAL_MS);
-        sweep.unref?.();
-        this.#expirySweep = sweep;
+    /** The table sweeps, each run once per cadence across the fleet. */
+    #registerJobs(): void {
+        this.services.jobs.register(EXPIRY_SWEEP_JOB, {
+            every: EXPIRY_SWEEP_EVERY_MS,
+            scope: 'fleet',
+            nearPrimary: true,
+            leaseMs: EXPIRY_SWEEP_LEASE_MS,
+            run: async (ctx) => {
+                await this.sweepExpired(ctx.signal);
+                await this.sweepSuspended(ctx.signal);
+                await this.sweepStrandedWorkerSessions(ctx);
+            },
+        });
+        this.services.jobs.register(NO_CREDIT_SWEEP_JOB, {
+            every: NO_CREDIT_SWEEP_EVERY_MS,
+            scope: 'fleet',
+            leaseMs: NO_CREDIT_SWEEP_LEASE_MS,
+            run: async (ctx) => {
+                await this.sweepNoCredit(ctx);
+            },
+        });
     }
 
     #armPendingSweep(): void {
