@@ -437,6 +437,46 @@ describe('conversation helpers and limits', () => {
             expect.objectContaining({ code: 'queue_full' }),
         );
     });
+    it('keeps the conversation through server events larger than an upload', async () => {
+        const c = await connected();
+        const updates = [];
+        const items = [];
+        c.on('session.updated', (event) => updates.push(event));
+        c.on('*', (event) => {
+            if (event.type === 'conversation.item.done') items.push(event);
+        });
+        const instructions = 'x'.repeat(1024 * 1024);
+        socket().deliver({
+            type: 'session.updated',
+            session: { instructions },
+        });
+        socket().deliver({
+            type: 'conversation.item.done',
+            item: {
+                id: 'item_audio',
+                type: 'message',
+                role: 'assistant',
+                status: 'completed',
+                content: [
+                    {
+                        type: 'output_audio',
+                        audio: 'A'.repeat(3 * 1024 * 1024),
+                        transcript: 'Hello there',
+                    },
+                ],
+            },
+        });
+        expect(updates).toHaveLength(1);
+        expect(updates[0].session.instructions).toBe(instructions);
+        expect(items).toHaveLength(1);
+        expect(c.state).toBe('connected');
+        expect(() => c.sendText('hi')).not.toThrow();
+        // What the app sends keeps its own 64 KiB cap.
+        expect(() => c.send({ type: 'x', pad: 'x'.repeat(65536) })).toThrow(
+            expect.objectContaining({ code: 'input_too_large' }),
+        );
+    });
+
     it('rejects only the operation an error names', async () => {
         const c = await connected({ turnDetection: false });
         const update = c.configure({ instructions: 'changed' });
@@ -1249,6 +1289,23 @@ describe('restart notice', () => {
         expect(c.state).toBe('connected');
     });
 
+    it('stops opening replacements after one hits the size limit', async () => {
+        const c = await connected();
+        fakeTime();
+        const first = socket();
+        first.deliver(notice);
+        await vi.advanceTimersByTimeAsync(SPREAD);
+        socket().deliver({
+            type: 'session.created',
+            session: { instructions: 'x'.repeat(4 * 1024 * 1024) },
+        });
+        const sockets = FakeWebSocket.instances.length;
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(FakeWebSocket.instances).toHaveLength(sockets);
+        expect(c.state).toBe('connected');
+        expect(first.readyState).toBe(1);
+    });
+
     it('drops a held replacement that gets its own notice or an error', async () => {
         const c = await connected();
         fakeTime();
@@ -1977,6 +2034,26 @@ describe('reconnect retries', () => {
         await vi.advanceTimersByTimeAsync(10_000);
         expect(c.state).toBe('closed');
         expect(closed).toHaveBeenCalledOnce();
+        expect(FakeWebSocket.instances.length).toBe(attempts);
+    });
+
+    it('ends on an event over the size limit during a reconnect, without more attempts', async () => {
+        const c = await connected();
+        fakeTime();
+        const closed = vi.fn();
+        c.on('close', closed);
+        socket().close(1006);
+        await vi.advanceTimersByTimeAsync(500);
+        const attempts = FakeWebSocket.instances.length;
+        socket().deliver({
+            type: 'session.created',
+            session: { instructions: 'x'.repeat(4 * 1024 * 1024) },
+        });
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(c.state).toBe('closed');
+        expect(closed).toHaveBeenCalledExactlyOnceWith(
+            expect.objectContaining({ type: 'close', code: 4009 }),
+        );
         expect(FakeWebSocket.instances.length).toBe(attempts);
     });
 

@@ -129,6 +129,7 @@ The [`puter.ai.convo()`](/AI/convo/) SDK also applies these limits before sendin
 | PCM chunk | 12000 samples at 24 kHz, or 500 ms | Throws `input_too_large`. |
 | Native JSON traversal | Depth 16, 2048 visited values, 2048 array entries or object fields | Throws `input_too_large` before serialization. |
 | Outbound buffered data | 128 KiB for audio, 192 KiB for other events | Throws `queue_full`. The built-in microphone drops the chunk instead. |
+| Incoming server event | 4 MiB of UTF-8 | The conversation closes with code 4009 and doesn't reconnect. |
 | Pending acknowledgments | 8 | Rejects with `operation_in_progress`. |
 | Concurrent configuration updates | 1 | Rejects with `operation_in_progress`. |
 | Authentication and provider acknowledgment timeout | 10 seconds | Rejects preparation or the pending operation. |
