@@ -20,6 +20,8 @@
 import { createHash } from 'node:crypto';
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
+import express from 'express';
+import type { AnyTokenPayload } from '../auth/types.js';
 import WebSocket, { WebSocketServer, type RawData } from 'ws';
 import type { Actor } from '../../core/actor.js';
 import {
@@ -148,8 +150,13 @@ const HEARTBEAT_MS = 30_000;
 const UPSTREAM_HANDSHAKE_MS = 10_000;
 const SESSION_SETUP_MS = 15_000;
 const DEFAULT_MAX_PER_USER = 20;
-// Session attempts per credential, checked before authenticating.
+// Session attempts per signature-verified credential.
 const CONNECTS_PER_MINUTE = 60;
+const HANDOVER_CONNECTS_PER_MINUTE = 20;
+const PREAUTH_PER_IP = 120;
+const PREAUTH_PER_NODE = 600;
+const MAX_AUTHENTICATING = 64;
+const MAX_TOKEN_BYTES = 8192;
 // Each response holds this much audio, at the session model's rates, from the
 // account's budget until its usage is recorded.
 const RESPONSE_HOLD_INPUT_TOKENS = 8_000;
@@ -533,6 +540,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
     // One re-authentication per token at a time, shared by its sessions.
     #authChecks = new Map<string, Promise<Actor | null>>();
     #draining = false;
+    #authenticating = 0;
+    #pendingUpgrades = 0;
     #sweeping = false;
     attachHttpServer(server: HttpServer): void {
         this.#wss = new WebSocketServer({
@@ -546,6 +555,9 @@ export class OpenAIRealtimeRelayService extends PuterService {
             handleProtocols: (protocols) =>
                 protocols.has('realtime') ? 'realtime' : false,
         });
+        // Use Express itself so upgrades follow the ordinary HTTP trust policy.
+        const ipApp = express();
+        ipApp.set('trust proxy', this.config.trust_proxy ?? false);
         const domain = (this.config.domain ?? '').toLowerCase().trim();
         const apiHost = `api.${domain}`;
 
@@ -553,23 +565,101 @@ export class OpenAIRealtimeRelayService extends PuterService {
             if (!req.url?.startsWith(REALTIME_PATH)) return;
             const url = new URL(req.url, 'http://placeholder');
             if (url.pathname !== REALTIME_PATH) return;
+            socket.on('error', () => socket.destroy());
+            const refuseUpgrade = (
+                status:
+                    | '404 Not Found'
+                    | '429 Too Many Requests'
+                    | '503 Service Unavailable',
+            ) => {
+                socket.end(
+                    `HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`,
+                    () => socket.destroy(),
+                );
+            };
             const host = (req.headers.host ?? '').split(':')[0].toLowerCase();
             if (!domain || host !== apiHost) {
-                // Node drops its socket error listener once a request upgrades.
-                socket.on('error', () => socket.destroy());
-                socket.end('HTTP/1.1 404 Not Found\r\n\r\n');
+                refuseUpgrade('404 Not Found');
                 return;
             }
-            this.#wss!.handleUpgrade(req, socket, head, (client) => {
-                this.#runSession(client, req, url).catch((err: unknown) => {
-                    console.warn('[realtime] session setup failed', err);
-                    if (client.readyState !== WebSocket.OPEN) return;
-                    client.send(
-                        errorEvent('internal_error', 'Realtime setup failed'),
-                    );
-                    client.close(1011, 'internal error');
-                });
+            if (
+                this.#authenticating >= MAX_AUTHENTICATING ||
+                this.#pendingUpgrades >= MAX_AUTHENTICATING
+            ) {
+                refuseUpgrade('503 Service Unavailable');
+                return;
+            }
+            const ipRequest = Object.assign(Object.create(ipApp.request), {
+                headers: req.headers,
+                connection: req.socket,
+                socket: req.socket,
             });
+            const clientIp = ipRequest.ip as string;
+            this.#pendingUpgrades++;
+            let pendingUpgrade = true;
+            const releaseUpgrade = () => {
+                if (!pendingUpgrade) return;
+                pendingUpgrade = false;
+                this.#pendingUpgrades--;
+                socket.removeListener('close', releaseUpgrade);
+            };
+            socket.once('close', releaseUpgrade);
+            void (async () => {
+                try {
+                    if (
+                        !(await checkRateLimit(
+                            'realtime:preauth:node',
+                            PREAUTH_PER_NODE,
+                            60_000,
+                            'memory',
+                        )) ||
+                        !(await checkRateLimit(
+                            `realtime:preauth:ip:${clientIp}`,
+                            PREAUTH_PER_IP,
+                            60_000,
+                            'memory',
+                        ))
+                    ) {
+                        refuseUpgrade('429 Too Many Requests');
+                        return;
+                    }
+                    if (socket.destroyed) return;
+                    if (this.#authenticating >= MAX_AUTHENTICATING) {
+                        refuseUpgrade('503 Service Unavailable');
+                        return;
+                    }
+                    this.#wss!.handleUpgrade(req, socket, head, (client) => {
+                        this.#authenticating++;
+                        this.#runSession(
+                            client,
+                            req,
+                            url,
+                            clientIp,
+                            releaseUpgrade,
+                        )
+                            .catch((err: unknown) => {
+                                console.warn(
+                                    '[realtime] session setup failed',
+                                    err,
+                                );
+                                if (client.readyState !== WebSocket.OPEN)
+                                    return;
+                                client.send(
+                                    errorEvent(
+                                        'internal_error',
+                                        'Realtime setup failed',
+                                    ),
+                                );
+                                client.close(1011, 'internal error');
+                            })
+                            .finally(() => {
+                                this.#authenticating--;
+                            });
+                    });
+                } catch {
+                    refuseUpgrade('503 Service Unavailable');
+                }
+            })();
         });
 
         this.#heartbeatTimer = setInterval(() => {
@@ -654,6 +744,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
         client: WebSocket,
         req: IncomingMessage,
         url: URL,
+        clientIp: string,
+        onAdmitted: () => void,
     ): Promise<void> {
         // Buffer what the client sends while auth and the upstream handshake
         // run; OpenAI clients send `session.update` immediately on open.
@@ -774,7 +866,11 @@ export class OpenAIRealtimeRelayService extends PuterService {
                 if (kv.get(realtimeAuthKey(token)) !== undefined) return;
                 rechecking = true;
                 try {
-                    const next = await this.#authenticateCached(token, req);
+                    const next = await this.#authenticateCached(
+                        token,
+                        req,
+                        clientIp,
+                    );
                     if (closed) return;
                     if (!next || next.user?.uuid !== actor.user?.uuid) {
                         reject(
@@ -1174,12 +1270,44 @@ export class OpenAIRealtimeRelayService extends PuterService {
             return;
         }
 
+        const ipGate = { allow: true, ip: clientIp };
+        await this.clients.event.emitAndWait('ip.validate', ipGate, {});
+        if (closed) return;
+        if (!ipGate.allow) {
+            reject('permission_denied', 'Connection refused');
+            return;
+        }
+        try {
+            if (!token || Buffer.byteLength(token) > MAX_TOKEN_BYTES)
+                throw new Error('invalid token');
+            this.services.token.verify<AnyTokenPayload>('auth', token);
+        } catch {
+            reject('invalid_api_key', 'Authentication failed');
+            return;
+        }
         if (
-            token &&
+            url.searchParams.get('purpose') === 'handover' &&
             !(await checkRateLimit(
-                realtimeConnectKey(token),
+                `${realtimeConnectKey(token!)}:handover`,
+                HANDOVER_CONNECTS_PER_MINUTE,
+                60_000,
+                undefined,
+                { failOpen: false },
+            ))
+        ) {
+            reject(
+                'rate_limit_exceeded',
+                'Too many realtime handover attempts',
+            );
+            return;
+        }
+        if (
+            !(await checkRateLimit(
+                realtimeConnectKey(token!),
                 CONNECTS_PER_MINUTE,
                 60_000,
+                undefined,
+                { failOpen: false },
             ))
         ) {
             reject(
@@ -1190,7 +1318,9 @@ export class OpenAIRealtimeRelayService extends PuterService {
         }
         if (closed) return;
         try {
-            actor = token ? await this.#authenticateCached(token, req) : null;
+            actor = token
+                ? await this.#authenticateCached(token, req, clientIp)
+                : null;
         } catch (err) {
             // A lookup that failed says nothing about the credential.
             console.warn('[realtime] credential lookup failed', err);
@@ -1390,6 +1520,7 @@ export class OpenAIRealtimeRelayService extends PuterService {
             // The holds are released once this charge is recorded.
             meter(unreportedResponseRows(billingModel, inFlight), ...holds);
         });
+        onAdmitted();
     }
 
     async #record(
@@ -1415,19 +1546,25 @@ export class OpenAIRealtimeRelayService extends PuterService {
     #authenticateCached(
         token: string,
         req: IncomingMessage,
+        clientIp: string,
     ): Promise<Actor | null> {
         const key = realtimeAuthKey(token);
         let check = this.#authChecks.get(key);
         if (!check) {
             check = (async () => {
                 try {
-                    const actor = await this.#authenticate(token, req);
-                    if (actor) {
+                    const actor = await this.#authenticate(
+                        token,
+                        req,
+                        clientIp,
+                    );
+                    if (actor && this.#authChecks.get(key) === check) {
                         kv.set(key, actor.user!.uuid, { EX: AUTH_RECHECK_SEC });
                     }
                     return actor;
                 } finally {
-                    this.#authChecks.delete(key);
+                    if (this.#authChecks.get(key) === check)
+                        this.#authChecks.delete(key);
                 }
             })();
             this.#authChecks.set(key, check);
@@ -1438,10 +1575,12 @@ export class OpenAIRealtimeRelayService extends PuterService {
     async #authenticate(
         token: string,
         req: IncomingMessage,
+        clientIp: string,
     ): Promise<Actor | null> {
         const ua = req.headers['user-agent'];
         const result = await this.services.auth.authenticate(token, {
-            ip: req.socket.remoteAddress,
+            ip: clientIp,
+            touch: false,
             userAgent: typeof ua === 'string' ? ua : undefined,
         });
         if (result.blocked) return null;
