@@ -28,6 +28,7 @@ import {
 } from '../../controllers/events/limits.js';
 import type { Actor } from '../../core/actor.js';
 import {
+    SCHEDULE_PARTITIONS,
     ScheduleIndexStore,
     schedulePartition,
     type ScheduleIndexChange,
@@ -741,4 +742,24 @@ it('keeps partition keys of one schedule together', () => {
     expect(
         Object.values(index.keys(p)).every((k) => k.endsWith(`{sched:p${p}}`)),
     ).toBe(true);
+});
+
+describe('a Redis outage', () => {
+    it('warns about failed pops once a minute per node, with how many failed', async () => {
+        vi.spyOn(index, 'pop').mockRejectedValue(new Error('redis down'));
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const r = runner();
+        for (let i = 0; i < 10; i++) await tickAll(r);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn.mock.calls[0][1]).toBe(SCHEDULE_PARTITIONS);
+
+        setClock(T0 + 30_000);
+        await tickAll(r);
+        expect(warn).toHaveBeenCalledTimes(1);
+        setClock(T0 + 60_000);
+        await tickAll(r);
+        expect(warn).toHaveBeenCalledTimes(2);
+        // Everything since the last warning, from the ticks it held back.
+        expect(warn.mock.calls[1][1]).toBe(11 * SCHEDULE_PARTITIONS);
+    });
 });

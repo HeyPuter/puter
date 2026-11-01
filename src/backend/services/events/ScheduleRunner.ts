@@ -70,6 +70,8 @@ export const SCHEDULE_IN_FLIGHT_PER_NODE = SCHEDULE_INVOKE_CONNECTIONS;
 
 /** Runs that finish this close together share one refill. */
 const REFILL_DELAY_MS = 100;
+/** Failed pops are warned about at most this often per node. */
+const POP_WARN_INTERVAL_MS = 60_000;
 
 /** A tick lands within this share of `SCHEDULE_TICK_MS` either side. */
 const TICK_JITTER = 0.2;
@@ -206,6 +208,9 @@ export class ScheduleRunner {
     /** The last visit left due members behind for want of room. */
     #backlogged = false;
     #kick: ReturnType<typeof setTimeout> | null = null;
+    #popFailures = 0;
+    #popError: unknown;
+    #popWarnedAt = Number.NEGATIVE_INFINITY;
 
     constructor(host: ScheduleRunnerHost, options: ScheduleRunnerOptions = {}) {
         this.#host = host;
@@ -267,6 +272,18 @@ export class ScheduleRunner {
 
     async #visit(): Promise<void> {
         this.#backlogged = false;
+        const failed: { count: number; first?: unknown } = { count: 0 };
+        try {
+            await this.#visitPartitions(failed);
+        } finally {
+            this.#warnPopFailures(failed);
+        }
+    }
+
+    async #visitPartitions(failed: {
+        count: number;
+        first?: unknown;
+    }): Promise<void> {
         const start = Math.floor(Math.random() * SCHEDULE_PARTITIONS);
         for (let i = 0; i < SCHEDULE_PARTITIONS; i++) {
             const room = this.#cap - this.#running.size;
@@ -284,12 +301,29 @@ export class ScheduleRunner {
                     SCHEDULE_LEASE_MS,
                 );
             } catch (err) {
-                console.warn('[events] schedule pop failed', err);
+                if (failed.count++ === 0) failed.first = err;
                 continue;
             }
             if (popped.items.length >= limit) this.#backlogged = true;
             for (const item of popped.items) this.#launch(item, popped.nowMs);
         }
+    }
+
+    /** One warning a minute per node, however many pops failed since. */
+    #warnPopFailures(failed: { count: number; first?: unknown }): void {
+        if (failed.count === 0) return;
+        this.#popFailures += failed.count;
+        this.#popError ??= failed.first;
+        const now = Date.now();
+        if (now - this.#popWarnedAt < POP_WARN_INTERVAL_MS) return;
+        console.warn(
+            '[events] schedule pops failed',
+            this.#popFailures,
+            this.#popError,
+        );
+        this.#popWarnedAt = now;
+        this.#popFailures = 0;
+        this.#popError = undefined;
     }
 
     /**
