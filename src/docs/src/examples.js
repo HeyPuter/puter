@@ -683,6 +683,24 @@ const examples = [
                 source: '/playground/examples/events-unsubscribe.html',
             },
             {
+                title: 'List Schedules',
+                description: 'List the schedules and stored notifications an app holds for a user with the Puter.js Events API. Run and experiment with this example in the playground.',
+                slug: 'events-list-schedules',
+                source: '/playground/examples/events-list-schedules.html',
+            },
+            {
+                title: 'Read a Schedule',
+                description: 'Read one schedule and see when it runs next with the Puter.js Events API. Try it in the playground.',
+                slug: 'events-get-schedule',
+                source: '/playground/examples/events-get-schedule.html',
+            },
+            {
+                title: 'Remove a Schedule',
+                description: 'End a schedule with the Puter.js Events API, and see what removing it twice returns. Run it in the playground.',
+                slug: 'events-remove-schedule',
+                source: '/playground/examples/events-remove-schedule.html',
+            },
+            {
                 title: 'Catch Up on Notifications',
                 description: 'Page through notifications missed while your app was closed with the Puter.js Events API. Run it in the playground.',
                 slug: 'events-fetch',

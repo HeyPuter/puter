@@ -1,0 +1,28 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            // (1) Something to list: a notification to send in an hour
+            const later = await puter.notifications.notify({
+                title: 'Time for a break',
+                sendAt: Date.now() + 60 * 60 * 1000,
+            });
+
+            // (2) Page through everything this app holds for the user
+            let cursor = null;
+            do {
+                const page = await puter.events.listSchedules({ cursor, limit: 50 });
+                for (const schedule of page.items) {
+                    const next = schedule.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString() : 'nothing due';
+                    puter.print(`${schedule.kind} ${schedule.state}, next: ${next}<br>`);
+                }
+                cursor = page.cursor ?? null;
+            } while (cursor);
+
+            // (3) Cleanup
+            await puter.notifications.cancel(later.scheduleId);
+        })();
+    </script>
+</body>
+</html>

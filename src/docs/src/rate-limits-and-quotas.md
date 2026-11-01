@@ -572,7 +572,7 @@ Over any of these: `too_many_requests`, except `kv.share.received` notifications
 
 A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients, and each one counts toward the named-recipient limit. A recipient who doesn't already have the share also counts toward the new-recipient limit, including a username that doesn't exist and a user the share is refused for. The call counts once toward the mint limit when it makes a share, changes one, or has any recipient who counts as new. A call where every recipient already has the share at the same access level and label counts only toward the named-recipient limit. When the recipients don't all fit in a limit, the whole call fails with `too_many_requests`, and the part that did fit still counts. A `fetch()` page defaults to 50 events and holds up to 200.
 
-Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one. Changing a subscription's context with [`puter.events.update()`](/Events/update/) counts toward the `subscribe` limit.
+Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one. Changing a subscription's context with [`puter.events.update()`](/Events/update/) counts toward the `subscribe` limit. Creating a [schedule](#schedules) counts toward the `subscribe` limit, removing one toward `unsubscribe`, and listing or reading one toward the subscription listings.
 
 #### Delivery
 
@@ -643,6 +643,63 @@ When a kept backlog expires, it's replaced by one gap marker (`suspended_backlog
 
 Over a pattern limit: `invalid_subject_pattern`. Over the context limit: `events_context_too_large`.
 
+#### Schedules
+
+These limits apply to [`onSchedule()`](/Events/onSchedule/) schedules, and to notifications stored with [`notify()`](/Notifications/notify/#send-it-later) and `sendAt`.
+
+| Limit                                                        | Scope              | Paid   | Free  | Anonymous |
+| ------------------------------------------------------------ | ------------------ | ------ | ----- | --------- |
+| Recurring schedules (`every` and `cron`)                     | Per user, per app  | 100    | 10    | 0         |
+| Recurring schedules                                          | Per user, all apps | 1,000  | 50    | 0         |
+| `at` schedules and stored notifications waiting to go out    | Per user, per app  | 1,000  | 100   | 0         |
+| `at` schedules and stored notifications waiting to go out    | Per user, all apps | 5,000  | 300   | 0         |
+| Runs per hour of all recurring schedules added up            | Per user, per app  | 1,800  | 40    | 0         |
+| Runs per hour of all recurring schedules added up            | Per user, all apps | 18,000 | 120   | 0         |
+
+A recurring schedule can run at most every **1 minute** on a paid plan and every **15 minutes** on a free one. For a `cron` schedule, that's the smallest gap between two of its runs.
+
+- Over a count: `events_schedule_limit`. Over the runs per hour: `events_schedule_budget`. Under the minimum interval: `events_schedule_too_frequent`. Anonymous accounts get `events_durable_requires_account`.
+- A recurring schedule's runs per hour are worked out when it's created. An `every` schedule counts 3,600 divided by its interval in seconds, so one that runs every minute counts 60 and one that runs every 15 minutes counts 4. A `cron` schedule counts the most runs it makes in any one hour, over its next 10,000 runs or 400 days. So a paid plan fits 30 schedules that run every minute in one app, and a free plan fits 10 that run every 15 minutes.
+- `at` schedules and stored notifications count only toward the waiting limits, until they run or are cancelled.
+- A suspended schedule still counts. Removing a schedule, or its last run finishing, frees its slot immediately.
+- Schedules don't count toward the persistent subscription limits.
+
+| Limit                                              | Value                                   | Scope              |
+| -------------------------------------------------- | --------------------------------------- | ------------------ |
+| Schedule runs                                      | 200 per minute                          | Per user, per app  |
+| Time from a run's slot until it starts             | Usually within 60 seconds               | Per run            |
+| Spread after the slot, recurring                   | Up to 30 seconds, or a tenth of the smallest gap if that's less | Per schedule |
+| Spread after the slot, `at` and stored notifications | Up to 10 seconds                      | Per schedule       |
+| Run timeout                                        | 30 seconds                              | Per run            |
+| Retry delay                                        | 2 seconds, doubling, up to 5 minutes    | Per run            |
+| Failures in a row before suspension                | 5                                       | Per schedule       |
+| Wait while the user's account is suspended         | 15 minutes, then tried again            | Per run            |
+| `missed` count                                     | Up to 1,000                             | Per run            |
+| `maxRuns`                                          | 1 to 100,000                            | Per schedule       |
+| `every`, and how far ahead `at`, `startAt`, the first run and `sendAt` can be | 366 days     | Per schedule       |
+| Cron expression                                    | 128 characters                          | Per schedule       |
+| Runs checked when a `cron` schedule is created     | 10,000 runs or 400 days, whichever ends first | Per schedule |
+| `cron` schedules checked at once                   | 2, with 8 more waiting                  | Per server         |
+| `context`                                          | 4 KB                                    | Per schedule       |
+| Events worker deploys started by schedule runs     | 8 at once                               | Per region         |
+| Ended schedules kept in `listSchedules()`          | 7 days                                  | Per schedule       |
+| A stored notification sent within 5 seconds        | Sent right away instead                 | Per notification   |
+| Attempts to send a stored notification             | 5, then it's dropped                    | Per notification   |
+| A stored notification, as JSON                     | 16 KB                                   | Per notification   |
+
+- Over the schedule runs per minute, runs wait for the next minute. They don't fail and don't count as failures. This limit is separate from the 60 handler runs a minute for subscriptions, so neither one uses up the other.
+- A run that finds 8 deploys already started waits 5 seconds and tries again.
+- A `cron` create that finds 2 checks running and 8 waiting fails with `events_schedule_busy`. Try again in a moment.
+- A stored notification counts toward the [notification limits](#notifications) of its recipient when it goes out, not when it's stored.
+
+| Call                                                | Limit                                | Scope              |
+| --------------------------------------------------- | ------------------------------------ | ------------------ |
+| `onSchedule()`                                      | 60/min, shared with `subscribe`      | Per user, all apps |
+| `removeSchedule()` and `notifications.cancel()`     | 600/min, shared with `unsubscribe`   | Per user, all apps |
+| `listSchedules()` and `getSchedule()`               | 120/min, shared with the subscription listings | Per user, per app |
+
+A `listSchedules()` page holds 50 schedules by default, and up to 200. Over any of these call limits: `too_many_requests`. A create refused for its options, its handler or a missing permission still counts toward the `onSchedule()` limit, and removing a schedule that doesn't exist still counts toward the `removeSchedule()` limit.
+
 #### What events cost
 
 Deliveries are billed to the account holding the subscription:
@@ -654,9 +711,11 @@ Deliveries are billed to the account holding the subscription:
 
 µ¢ is a microcent (a millionth of a cent). Deliveries for `queue` subscriptions bill on the `single` line, and every other delivery, session subscriptions included, bills at the broadcast rate. Handler runs bill separately as worker usage.
 
-Free: idle subscriptions, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, deliveries with no client connected to receive them and no handler run, `queue` deliveries still waiting to reach a client or a handler, retries (a `queue` event bills once however many attempts it takes), and gap markers.
+Each [schedule](/Events/onSchedule/) run bills once on the `single` line, to the user holding the schedule, however many attempts it takes. That includes a run whose handler threw. A schedule that runs every minute costs about $0.04 a month on top of its handler's worker usage. A [stored notification](/Notifications/notify/#send-it-later) bills nothing until it goes out, and then only its push, as [What pushes cost](#what-pushes-cost) describes.
 
-When the holder's balance runs out, deliveries stop and persistent subscriptions are suspended with `no_credit`, and the holder is notified. The backlog is kept for 1 hour. Topping up resumes them within a few minutes.
+Free: idle subscriptions and schedules, skipped schedule runs (counted in `missed`), schedule runs stopped by the handler chain limit, events a filter excluded, writes merged by coalescing, deliveries stopped by a permission check, deliveries with no client connected to receive them and no handler run, `queue` deliveries still waiting to reach a client or a handler, retries (a `queue` event bills once however many attempts it takes), and gap markers.
+
+When the holder's balance runs out, deliveries stop and persistent subscriptions and schedules are suspended with `no_credit`, and the holder is notified. The backlog is kept for 1 hour. Topping up resumes them within a few minutes.
 
 #### What pushes cost
 

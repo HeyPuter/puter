@@ -183,6 +183,8 @@ A key-value change carries `key` instead of `uid` and `path`, and different ops:
 
 A notification carries the fields listed on [`fetch()`](/Events/fetch/#return-value).
 
+A [schedule](/Events/onSchedule/) has no subject you can subscribe to. Its runs carry `op: 'tick'` and the fields listed on [`onSchedule()`](/Events/onSchedule/#the-event).
+
 Events never say *who* made a change: on a shared folder, that would tell every subscriber who else has access.
 
 [`puter.kv.flush()`](/KV/flush/) delivers nothing, since the keys a flush can list aren't reliably the keys it removed.

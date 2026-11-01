@@ -1,12 +1,12 @@
 ---
 title: puter.events.handlers
-description: Publish, list and remove the named handlers a persistent subscription runs.
+description: Publish, list and remove the named handlers that persistent subscriptions and schedules run.
 platforms: [websites, apps, nodejs, workers]
 ---
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-A **handler** is a function your app publishes once, under a name, for persistent subscriptions to run. Nothing triggers a handler by name; it runs only when a subscription bound to it has a delivery.
+A **handler** is a function your app publishes once, under a name, for [persistent subscriptions](/Events/onPersistent/) and [schedules](/Events/onSchedule/) to run. Nothing triggers a handler by name. It runs only when a subscription bound to it has a delivery, or a schedule bound to it is due.
 
 Publishing is a **developer** operation: the account must own the app. An app token publishes into its own app; an account session names the app with `appUid`.
 
@@ -39,6 +39,17 @@ await puter.events.onPersistent({ subject: 'fs:~/inbox', handlerName: 'ingestUpl
 ```
 
 The check is strict on purpose: anything it can't resolve is refused now instead of failing on the first delivery.
+
+## What a handler is called with
+
+A handler gets one object. Which `event` it carries depends on what ran it:
+
+- **A subscription delivery** carries the change that happened, in the shape [Subjects and events](/Events/subjects/#the-event) describes, or a [gap marker](/Events/subjects/#gaps).
+- **A schedule run** carries `op: 'tick'`, the `scheduleId`, and the `scheduledFor` time the run is for, as [`onSchedule()`](/Events/onSchedule/#the-event) describes.
+
+The other bindings are the same for both: `ctx`, `user` and `fetch`, plus `ack` on a `queue` subscription. See [Where the handler runs](/Events/onPersistent/#where-the-handler-runs). One handler can serve both, and tell them apart by `event.op`.
+
+Schedule runs and `queue` deliveries are at-least-once. A retry, or a handler still running past its 30 seconds when the retry starts, can run the same event twice, and even at the same time. Both attempts have the same `event.id`, so record it once the work is done and skip IDs you've already handled.
 
 ## `publish()`
 
@@ -78,7 +89,7 @@ puter.events.handlers.list()
 puter.events.handlers.list(options)
 ```
 
-Resolves to `[{ name, hash, updatedAt, subscriptions }]` for every handler the app has published, sorted by name. `subscriptions` counts the subscriptions bound to that name, **including suspended ones**.
+Resolves to `[{ name, hash, updatedAt, subscriptions }]` for every handler the app has published, sorted by name. `subscriptions` counts the subscriptions and schedules bound to that name, **including suspended ones**.
 
 **Source is never returned.**
 
@@ -93,12 +104,12 @@ Resolves to `{ name, removed, suspended }`.
 
 | Situation | What happens |
 | --- | --- |
-| No subscriptions use the name | The handler is deleted. |
-| Subscriptions use it | The handler is deleted, and its subscriptions are *suspended* with `suspendedReason: 'handler_not_found'`, not deleted. The app's developer is notified. |
+| No subscriptions or schedules use the name | The handler is deleted. |
+| Subscriptions or schedules use it | The handler is deleted, and its subscriptions and schedules are *suspended* with `suspendedReason: 'handler_not_found'`, not deleted. The app's developer is notified. |
 
-**Publishing the name again resumes them**, with the same ids and context. This is how you recover from a bad deploy.
+**Publishing the name again resumes them**, with the same ids and context. This is how you recover from a bad deploy. A resumed schedule runs at its next slot, and doesn't make up the runs it missed.
 
-Renaming is publishing the new name and removing the old one. Subscriptions don't follow: users have to subscribe again, so their subscriptions never silently switch to different code.
+Renaming is publishing the new name and removing the old one. Subscriptions and schedules don't follow. Users have to subscribe again, so their subscriptions never silently switch to different code.
 
 An app's first published handler creates its [events worker](/Events/workers/), and removing the last one takes it down.
 

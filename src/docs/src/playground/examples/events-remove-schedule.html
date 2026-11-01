@@ -1,0 +1,23 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const later = await puter.notifications.notify({
+                title: 'Your trial ends tomorrow',
+                sendAt: Date.now() + 24 * 60 * 60 * 1000,
+            });
+
+            await puter.events.removeSchedule(later.scheduleId);
+            puter.print('cancelled<br>');
+
+            // Removing it twice is refused the same way an unknown id is
+            try {
+                await puter.events.removeSchedule(later.scheduleId);
+            } catch (error) {
+                puter.print(`second attempt: ${error.code}<br>`);
+            }
+        })();
+    </script>
+</body>
+</html>
