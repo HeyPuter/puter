@@ -506,3 +506,96 @@ export const EVENTS_NO_CREDIT_BACKLOG_TTL_MS = 60 * 60 * 1000;
  * it arrive as one event.
  */
 export const EVENTS_COALESCE_WINDOW_MS = 250;
+
+// -- Schedules -------------------------------------------------------
+//
+// A schedule runs an app's handler on a timer, with nobody's write behind it,
+// so its cost is bounded by count and by rate rather than by fan-out. Recurring
+// schedules and pending one-shots have separate caps: a one-shot fires once and
+// is gone, a recurring one keeps firing. The fire budget is the static half of
+// the rate bound, summed at create from each schedule's worst-case runs per
+// hour; the invocation limit is the runtime half.
+
+/** Recurring schedules one app may hold for one account. */
+export const EVENTS_SCHEDULES_PER_APP = tiered(100, 10, 0);
+
+/** Recurring schedules one account may hold, across every app. */
+export const EVENTS_SCHEDULES_PER_USER = tiered(1000, 50, 0);
+
+/** Pending one-shots (`at`, delayed notifications) one account may hold. */
+export const EVENTS_SCHEDULE_PENDING_ONESHOTS_PER_USER = tiered(5000, 300, 0);
+
+/** Pending one-shots one app may hold for one account. */
+export const EVENTS_SCHEDULE_PENDING_ONESHOTS_PER_APP = tiered(1000, 100, 0);
+
+/**
+ * Shortest interval a recurring schedule may run at, measured as the smallest
+ * gap between consecutive runs. A smaller number is the looser limit here.
+ */
+export const EVENTS_SCHEDULE_MIN_INTERVAL_MS = tiered(60_000, 900_000, 0);
+
+/**
+ * Worst-case runs per hour, times 1000, that one app's recurring schedules may
+ * add up to for one account. Paid is 30 a minute, free about 0.7.
+ */
+export const EVENTS_SCHEDULE_FIRE_BUDGET_PER_APP = tiered(1_800_000, 40_000, 0);
+
+/** The same sum across every app of one account: 300 a minute paid, 2 free. */
+export const EVENTS_SCHEDULE_FIRE_BUDGET_PER_USER = tiered(
+    18_000_000,
+    120_000,
+    0,
+);
+
+/**
+ * Schedule runs per (holder, app) in one fixed window, on every plan, so the
+ * fire path never reads a plan. Separate from
+ * {@link EVENTS_WORKER_INVOCATION_LIMIT}: neither can starve the other.
+ */
+export const EVENTS_SCHEDULE_INVOCATION_LIMIT = {
+    limit: 200,
+    windowMs: 60_000,
+} as const;
+
+/** Largest `maxRuns` a schedule may set. */
+export const EVENTS_SCHEDULE_MAX_RUNS = 100_000;
+
+/** Furthest ahead a first run, `at` or `sendAt` may be. */
+export const EVENTS_SCHEDULE_MAX_AHEAD_MS = 366 * 24 * 60 * 60 * 1000;
+
+/**
+ * How far a cron expression is walked, in runs and in time, whichever ends
+ * first: at create to find its first run, smallest gap and peak rate, and when
+ * looking back for the latest run a rebuild has to recover.
+ */
+export const EVENTS_SCHEDULE_CRON_SCAN_RUNS = 10_000;
+export const EVENTS_SCHEDULE_CRON_SCAN_MS = 400 * 24 * 60 * 60 * 1000;
+
+/** Longest cron expression accepted. */
+export const EVENTS_SCHEDULE_CRON_MAX_LENGTH = 128;
+
+/** Most skipped runs one schedule event reports in `missed`. */
+export const EVENTS_SCHEDULE_MISSED_CAP = 1_000;
+
+/**
+ * How far past its slot a run may be spread, so schedules that share a slot
+ * don't all fire at once. Recurring schedules use the smaller of this and a
+ * tenth of their smallest gap.
+ */
+export const EVENTS_SCHEDULE_SPREAD_MAX_MS = 30_000;
+export const EVENTS_SCHEDULE_ONESHOT_SPREAD_MS = 10_000;
+
+/** How long a run is put off while its holder's account is suspended. */
+export const EVENTS_SCHEDULE_SUSPENDED_HOLDER_DEFER_MS = 15 * 60 * 1000;
+
+/** Attempts a delayed notification gets before it is dropped. */
+export const EVENTS_SCHEDULE_DEFERRED_MAX_ATTEMPTS = 5;
+
+/** Largest stored payload of a delayed notification. */
+export const EVENTS_SCHEDULE_PAYLOAD_MAX_BYTES = 16 * 1024;
+
+/** How long an ended schedule stays listable before it is purged. */
+export const EVENTS_SCHEDULE_TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Events worker deploys schedules may have in flight in one region. */
+export const EVENTS_SCHEDULE_DEPLOYS_IN_FLIGHT = 8;

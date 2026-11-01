@@ -38,6 +38,19 @@ import {
     EVENTS_KV_HANDLES_PER_USER,
     EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT,
     EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+    EVENTS_SCHEDULE_CRON_SCAN_MS,
+    EVENTS_SCHEDULE_FIRE_BUDGET_PER_APP,
+    EVENTS_SCHEDULE_FIRE_BUDGET_PER_USER,
+    EVENTS_SCHEDULE_INVOCATION_LIMIT,
+    EVENTS_SCHEDULE_MAX_AHEAD_MS,
+    EVENTS_SCHEDULE_MIN_INTERVAL_MS,
+    EVENTS_SCHEDULE_ONESHOT_SPREAD_MS,
+    EVENTS_SCHEDULE_PENDING_ONESHOTS_PER_APP,
+    EVENTS_SCHEDULE_PENDING_ONESHOTS_PER_USER,
+    EVENTS_SCHEDULE_SPREAD_MAX_MS,
+    EVENTS_SCHEDULE_TOMBSTONE_TTL_MS,
+    EVENTS_SCHEDULES_PER_APP,
+    EVENTS_SCHEDULES_PER_USER,
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_WORKER_INVOCATION_LIMIT,
     limitFor,
@@ -45,10 +58,22 @@ import {
 } from './limits.js';
 
 const tiers: Array<[string, TieredLimit]> = [
-    ['durable subscriptions per account', EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER],
+    [
+        'durable subscriptions per account',
+        EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER,
+    ],
     ['durable subscriptions per app', EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP],
     ['live share handles per account', EVENTS_KV_HANDLES_PER_USER],
     ['live share handles per app', EVENTS_KV_HANDLES_PER_APP],
+    ['recurring schedules per account', EVENTS_SCHEDULES_PER_USER],
+    ['recurring schedules per app', EVENTS_SCHEDULES_PER_APP],
+    [
+        'pending one-shots per account',
+        EVENTS_SCHEDULE_PENDING_ONESHOTS_PER_USER,
+    ],
+    ['pending one-shots per app', EVENTS_SCHEDULE_PENDING_ONESHOTS_PER_APP],
+    ['schedule fire budget per account', EVENTS_SCHEDULE_FIRE_BUDGET_PER_USER],
+    ['schedule fire budget per app', EVENTS_SCHEDULE_FIRE_BUDGET_PER_APP],
 ];
 
 describe('the tiered subscription quotas', () => {
@@ -105,9 +130,9 @@ describe('the tiered subscription quotas', () => {
     });
 
     it('holds an unrecognised plan to the paid base', () => {
-        expect(limitFor(EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER, 'some_plan')).toBe(
-            EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER.limit,
-        );
+        expect(
+            limitFor(EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER, 'some_plan'),
+        ).toBe(EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER.limit);
         expect(limitFor(EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER, null)).toBe(
             EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER.limit,
         );
@@ -131,9 +156,9 @@ describe('the delivery budgets', () => {
             expect(
                 limitFor(EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT, plan),
             ).toBe(matched);
-            expect(
-                limitFor(EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT, plan),
-            ).toBe(evaluated);
+            expect(limitFor(EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT, plan)).toBe(
+                evaluated,
+            );
             expect(evaluated).toBeGreaterThanOrEqual(matched);
         }
     });
@@ -167,5 +192,87 @@ describe('the delivery budgets', () => {
             expect(spec.scope).toBeTruthy();
             expect(spec.window).toBe(60_000);
         }
+    });
+});
+
+describe('the schedule limits', () => {
+    const plans = [
+        null,
+        DEFAULT_FREE_SUBSCRIPTION,
+        DEFAULT_TEMP_SUBSCRIPTION,
+        ORG_SEAT_FREE_SUBSCRIPTION,
+    ];
+
+    it('keeps what one app may take within what the account may hold', () => {
+        for (const plan of plans) {
+            for (const [perApp, perUser] of [
+                [EVENTS_SCHEDULES_PER_APP, EVENTS_SCHEDULES_PER_USER],
+                [
+                    EVENTS_SCHEDULE_PENDING_ONESHOTS_PER_APP,
+                    EVENTS_SCHEDULE_PENDING_ONESHOTS_PER_USER,
+                ],
+                [
+                    EVENTS_SCHEDULE_FIRE_BUDGET_PER_APP,
+                    EVENTS_SCHEDULE_FIRE_BUDGET_PER_USER,
+                ],
+            ]) {
+                expect(limitFor(perApp, plan)).toBeLessThanOrEqual(
+                    limitFor(perUser, plan),
+                );
+            }
+        }
+    });
+
+    it('gives a free plan a longer minimum interval than a paid one', () => {
+        expect(limitFor(EVENTS_SCHEDULE_MIN_INTERVAL_MS, null)).toBe(60_000);
+        expect(
+            limitFor(
+                EVENTS_SCHEDULE_MIN_INTERVAL_MS,
+                DEFAULT_FREE_SUBSCRIPTION,
+            ),
+        ).toBe(900_000);
+        expect(
+            limitFor(
+                EVENTS_SCHEDULE_MIN_INTERVAL_MS,
+                ORG_SEAT_FREE_SUBSCRIPTION,
+            ),
+        ).toBe(900_000);
+    });
+
+    it('lets the budget pay for every schedule an app may hold at the paid minimum', () => {
+        // A paid app at its cap of hourly schedules stays inside the budget.
+        const hourly = 1000;
+        expect(
+            limitFor(EVENTS_SCHEDULES_PER_APP, null) * hourly,
+        ).toBeLessThanOrEqual(
+            limitFor(EVENTS_SCHEDULE_FIRE_BUDGET_PER_APP, null),
+        );
+    });
+
+    it('keeps the spread inside the window a run is promised to start in', () => {
+        expect(EVENTS_SCHEDULE_SPREAD_MAX_MS).toBeLessThan(60_000);
+        expect(EVENTS_SCHEDULE_ONESHOT_SPREAD_MS).toBeLessThanOrEqual(
+            EVENTS_SCHEDULE_SPREAD_MAX_MS,
+        );
+    });
+
+    it('scans a cron far enough to see a first run as late as allowed', () => {
+        expect(EVENTS_SCHEDULE_CRON_SCAN_MS).toBeGreaterThan(
+            EVENTS_SCHEDULE_MAX_AHEAD_MS,
+        );
+    });
+
+    it('keeps the schedule runtime budget apart from the organic one', () => {
+        expect(EVENTS_SCHEDULE_INVOCATION_LIMIT).toEqual({
+            limit: 200,
+            windowMs: 60_000,
+        });
+        expect(EVENTS_SCHEDULE_INVOCATION_LIMIT.limit).toBeGreaterThan(
+            EVENTS_WORKER_INVOCATION_LIMIT.limit,
+        );
+    });
+
+    it('keeps ended schedules for a week', () => {
+        expect(EVENTS_SCHEDULE_TOMBSTONE_TTL_MS).toBe(7 * 24 * 60 * 60 * 1000);
     });
 });
