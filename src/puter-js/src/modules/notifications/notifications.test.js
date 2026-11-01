@@ -250,6 +250,15 @@ describe('notify', () => {
         expect(result).toEqual({ scheduleId: 'sched-2', sendAt: 5_000 });
     });
 
+    it('rejects an invalid Date before calling the server', async () => {
+        const error = await rejects(() =>
+            makeModule().notify({ title: 'Hi', sendAt: new Date(NaN) }),
+        );
+        expect(error).toBeInstanceOf(PuterJSError);
+        expect(error.code).toBe('events_schedule_invalid');
+        expect(mockDriverCall).not.toHaveBeenCalled();
+    });
+
     it('resolves as an immediate send when the server sent it at once', async () => {
         mockDriverCall.mockResolvedValue({ uid: 'n-3' });
         expect(

@@ -83,7 +83,15 @@ export async function notify(notification) {
         if (field !== undefined) value[key] = field;
     }
     value.type = APP_MESSAGE_TYPE;
-    if (value.sendAt instanceof Date) value.sendAt = value.sendAt.toISOString();
+    if (value.sendAt instanceof Date) {
+        if (!Number.isFinite(value.sendAt.getTime())) {
+            throw new PuterJSError(
+                '`sendAt` is not a valid date',
+                'events_schedule_invalid',
+            );
+        }
+        value.sendAt = value.sendAt.toISOString();
+    }
 
     let created;
     try {
