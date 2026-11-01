@@ -420,6 +420,284 @@ describe('MeteringBufferStore', () => {
             expect(await storedTotal(key)).toBe(0);
         });
 
+        /** Holds `method` on `target` until the returned release is called. */
+        const holdCalls = <T extends object>(on: T, method: keyof T) => {
+            let release: () => void = () => {};
+            const gate = new Promise<void>((r) => (release = r));
+            const real = (on[method] as (...a: unknown[]) => unknown).bind(on);
+            const spy = vi
+                .spyOn(on, method as never)
+                .mockImplementation((async (...args: unknown[]) => {
+                    await gate;
+                    return real(...args);
+                }) as never);
+            return { spy, release };
+        };
+        const readTotal = async () =>
+            ((await target.get({ key })).res as { total?: number } | null)
+                ?.total ?? 0;
+
+        it('counts usage a flush has claimed but not yet written onward', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            try {
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                expect(await readTotal()).toBe(10);
+                write.release();
+                await flushing;
+            } finally {
+                write.spy.mockRestore();
+            }
+            expect(await readTotal()).toBe(10);
+            expect(await storedTotal(key)).toBe(10);
+        });
+
+        it('counts usage written onward until its settle lands', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            await target.flushCycle();
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+            const redis = server.clients.redis as unknown as {
+                meterSettle: (...args: string[]) => Promise<number>;
+            };
+            const settle = holdCalls(redis, 'meterSettle');
+            try {
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(settle.spy).toHaveBeenCalled());
+                expect(await storedTotal(key)).toBe(15);
+                expect(await readTotal()).toBe(15);
+                settle.release();
+                await flushing;
+            } finally {
+                settle.spy.mockRestore();
+            }
+            expect(await readTotal()).toBe(15);
+        });
+
+        it('counts a claim in array reads too', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 4 } });
+            const write = holdCalls(kv, 'incr');
+            try {
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                const { res } = await target.get({ key: [key] });
+                expect((res as [{ total: number }])[0].total).toBe(4);
+                write.release();
+                await flushing;
+            } finally {
+                write.spy.mockRestore();
+            }
+        });
+
+        it('counts a claim in the running total incr returns', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            try {
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                const { res } = await target.incr({
+                    key,
+                    pathAndAmountMap: { total: 5 },
+                });
+                expect((res as { total: number }).total).toBe(15);
+                write.release();
+                await flushing;
+            } finally {
+                write.spy.mockRestore();
+            }
+        });
+
+        it('counts another flush’s claim in an exact read', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            try {
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                const { res } = await target.readExact({ key });
+                expect((res as { total: number }).total).toBe(10);
+                write.release();
+                await flushing;
+            } finally {
+                write.spy.mockRestore();
+            }
+            const { res } = await target.readExact({ key });
+            expect((res as { total: number }).total).toBe(10);
+        });
+
+        it('misses nothing in an exact read when a flush lands between its reads', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            const flushing = target.flushCycle();
+            await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+
+            // The store read sees the counter from before the flush's write;
+            // the flush then writes it and leaves its claim before any claim
+            // read that follows the store read.
+            let storeReadStarted = false;
+            let flushed!: Promise<void>;
+            const realGet = kv.get.bind(kv);
+            const get = vi.spyOn(kv, 'get').mockImplementation(async (args) => {
+                if (!args.consistentRead || args.key !== key) {
+                    return realGet(args);
+                }
+                if (storeReadStarted) return realGet(args);
+                storeReadStarted = true;
+                const before = await realGet(args);
+                write.release();
+                flushed = flushing.then(() => {});
+                await flushed;
+                return before;
+            });
+            const redis = server.clients.redis as unknown as {
+                meterRead: (...args: string[]) => Promise<unknown>;
+            };
+            const realRead = redis.meterRead.bind(redis);
+            const read = vi
+                .spyOn(redis, 'meterRead')
+                .mockImplementation(async (...args: string[]) => {
+                    if (storeReadStarted) {
+                        await vi.waitFor(() => expect(flushed).toBeDefined());
+                        await flushed;
+                    }
+                    return realRead(...args);
+                });
+            try {
+                const { res } = await target.readExact({ key });
+                expect((res as { total: number }).total).toBe(10);
+            } finally {
+                get.mockRestore();
+                read.mockRestore();
+                write.spy.mockRestore();
+                await flushing;
+            }
+            expect(await storedTotal(key)).toBe(10);
+        });
+
+        it('counts nothing twice in an exact read when a flush lands during its store read', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            const flushing = target.flushCycle();
+            await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+
+            // The claim was read with the amount still on it; the store read
+            // then sees it written.
+            let landed = false;
+            const realGet = kv.get.bind(kv);
+            const get = vi.spyOn(kv, 'get').mockImplementation(async (args) => {
+                if (args.consistentRead && args.key === key && !landed) {
+                    landed = true;
+                    write.release();
+                    await flushing;
+                }
+                return realGet(args);
+            });
+            try {
+                const { res } = await target.readExact({ key });
+                expect((res as { total: number }).total).toBe(10);
+            } finally {
+                get.mockRestore();
+                write.spy.mockRestore();
+                await flushing;
+            }
+        });
+
+        it('counts usage behind another flush’s claim in an exact read', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            const write = holdCalls(kv, 'incr');
+            try {
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                // Arrives while the claim is out, so it can't be flushed yet.
+                await target.incr({ key, pathAndAmountMap: { total: 5 } });
+                const { res } = await target.readExact({ key });
+                expect((res as { total: number }).total).toBe(15);
+                write.release();
+                await flushing;
+            } finally {
+                write.spy.mockRestore();
+            }
+        });
+
+        /**
+         * Lets a held flush finish during the first consistent store read of
+         * `key`, which then answers with what the store holds afterwards.
+         */
+        const landDuringStoreRead = (
+            release: () => void,
+            flushing: Promise<unknown>,
+        ) => {
+            let landed = false;
+            const realGet = kv.get.bind(kv);
+            return vi.spyOn(kv, 'get').mockImplementation(async (args) => {
+                const ours = Array.isArray(args.key)
+                    ? args.key.includes(key)
+                    : args.key === key;
+                if (args.consistentRead && ours && !landed) {
+                    landed = true;
+                    release();
+                    await flushing;
+                }
+                return realGet(args);
+            });
+        };
+
+        for (const shape of ['single', 'array'] as const) {
+            it(`counts nothing twice in ${shape === 'single' ? 'a single' : 'an array'} read without a base when a flush lands during it`, async () => {
+                await target.incr({ key, pathAndAmountMap: { total: 10 } });
+                // No cached base: the counter is new to the store.
+                await target.forgetBase(key);
+                const write = holdCalls(kv, 'incr');
+                const flushing = target.flushCycle();
+                await vi.waitFor(() => expect(write.spy).toHaveBeenCalled());
+                const get = landDuringStoreRead(write.release, flushing);
+                try {
+                    const { res } = await target.get({
+                        key: shape === 'single' ? key : [key],
+                    });
+                    const value = (
+                        shape === 'single' ? res : (res as unknown[])[0]
+                    ) as { total: number };
+                    expect(value.total).toBe(10);
+                } finally {
+                    get.mockRestore();
+                    write.spy.mockRestore();
+                    await flushing;
+                }
+            });
+        }
+
+        it('reads a written-through increment once the cache is back', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 10 } });
+            await target.flushCycle();
+            const redis = server.clients.redis as unknown as {
+                meterIncr: (...args: string[]) => Promise<unknown>;
+            };
+            const failing = vi
+                .spyOn(redis, 'meterIncr')
+                .mockRejectedValueOnce(new Error('cache down'));
+            const { res, exact } = await target.incr({
+                key,
+                pathAndAmountMap: { total: 5 },
+            });
+            failing.mockRestore();
+            expect(exact).toBe(true);
+            expect((res as { total: number }).total).toBe(15);
+            expect(await readTotal()).toBe(15);
+        });
+
+        it('reads the store consistently when no base is cached', async () => {
+            await kv.incr({ key, pathAndAmountMap: { total: 3 } });
+            const get = vi.spyOn(kv, 'get');
+            try {
+                expect(await readTotal()).toBe(3);
+                expect(get).toHaveBeenCalledWith(
+                    expect.objectContaining({ key, consistentRead: true }),
+                );
+            } finally {
+                get.mockRestore();
+            }
+        });
+
         it('reads an unknown counter as absent', async () => {
             const { res } = await target.get({ key });
             expect(res).toBeNull();
@@ -906,12 +1184,16 @@ describe('MeteringBufferStore', () => {
                 '1000000000',
             );
 
+            // Another deployment's write, which only a replacing settle would
+            // bring into the base.
+            await kv.incr({ key, pathAndAmountMap: { total: 1000 } });
             await target.incr({ key, pathAndAmountMap: { total: 5 } });
             await target.flushCycle();
 
-            expect(await storedTotal(key)).toBe(105);
+            expect(await storedTotal(key)).toBe(1105);
+            // The newer base keeps its view, plus what this flush wrote.
             expect(Number(await server.clients.redis.hget(base, 'total'))).toBe(
-                100,
+                105,
             );
         });
 
@@ -1438,6 +1720,30 @@ describe('MeteringBufferStore', () => {
             ).toEqual({});
         });
 
+        it('reads a re-driven write that already landed, with a warm base', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 100 } });
+            await target.flushCycle();
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+
+            const passThrough = kv.incr.bind(kv);
+            const lost = vi
+                .spyOn(kv, 'incr')
+                .mockImplementationOnce(
+                    async (...args: Parameters<typeof kv.incr>) => {
+                        await passThrough(...args);
+                        throw new Error('request timed out');
+                    },
+                );
+            await target.flushCycle();
+            lost.mockRestore();
+            await ageClaim();
+            await target.flushCycle();
+
+            expect(await storedTotal(key)).toBe(105);
+            const { res } = await target.get({ key });
+            expect((res as { total: number }).total).toBe(105);
+        });
+
         it('applies a re-driven write whose first copy never landed', async () => {
             await target.incr({ key, pathAndAmountMap: { total: 5 } });
             const boom = vi
@@ -1742,6 +2048,17 @@ describe('MeteringBufferStore', () => {
                     order.push('dropFromClaim');
                     return realHdel(...args);
                 });
+            // A written batch leaves the claim through this script.
+            const redis = server.clients.redis as unknown as {
+                meterApply: (...args: string[]) => Promise<number>;
+            };
+            const realApply = redis.meterApply.bind(redis);
+            const applySpy = vi
+                .spyOn(redis, 'meterApply')
+                .mockImplementation((...args: string[]) => {
+                    order.push('dropFromClaim');
+                    return realApply(...args);
+                });
             const alarmSpy = vi
                 .spyOn(server.clients.alarm, 'create')
                 .mockImplementation(() => {
@@ -1751,6 +2068,7 @@ describe('MeteringBufferStore', () => {
             await target.flushCycle();
             incrSpy.mockRestore();
             hdelSpy.mockRestore();
+            applySpy.mockRestore();
             alarmSpy.mockRestore();
 
             expect(order).toEqual(['dropFromClaim', 'alarm']);
@@ -1783,7 +2101,13 @@ describe('MeteringBufferStore', () => {
             // right up until the TTL takes the amounts with it.
             const tag = bucketTag(key);
             await server.clients.redis.del(`meter:dirty:{${tag}}`);
+            // Every few cycles a flush reconciles on its own; keep this one
+            // from doing so, whatever the earlier tests left the count at.
+            const scheduled = vi
+                .spyOn(target, 'reconcile')
+                .mockResolvedValue(undefined);
             expect(await target.flushCycle()).toBe(0);
+            scheduled.mockRestore();
             expect(await storedTotal(key)).toBe(0);
 
             const logged = vi
