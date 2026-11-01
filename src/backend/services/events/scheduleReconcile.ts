@@ -44,7 +44,8 @@ import { endedChange, liveChange, rowStateOf } from './scheduleIndex.js';
  *   covers replica lag and clock skew. The cursor is the largest `updated_at` a
  *   read returned, never a clock.
  * - Full diff: a keyset walk of every row of the region, a page or so per pass,
- *   then a sweep of the index for members the table no longer has. One missing
+ *   then a sweep of the index for members the table no longer has, then a purge
+ *   of rows ended past {@link EVENTS_SCHEDULE_TOMBSTONE_TTL_MS}. One missing
  *   member is dropped only when a later sweep, at least
  *   {@link FULL_DIFF_ABSENT_MIN_MS} on, still finds it missing.
  * - Rebuild: with no `built` marker the full diff runs back-to-back until a cycle
@@ -61,6 +62,7 @@ export const RECONCILE_PAGE = 5000;
 export const FULL_DIFF_ABSENT_MIN_MS = 600_000;
 const RECONCILE_LOCK_TTL_MS = 55_000;
 const SWEEP_SCAN_COUNT = 500;
+const PURGE_BATCH = 500;
 
 /** Of each pass, what the incremental step leaves for the full diff. */
 const FULL_DIFF_RESERVE_MS = 10_000;
@@ -89,6 +91,8 @@ export interface ScheduleReconcileReport {
     swept: number;
     /** Tombstones dropped past their retention. */
     expired: number;
+    /** Rows deleted past their retention. */
+    purged: number;
     cycleCompleted: boolean;
     drift: Record<ScheduleDriftKind, number>;
 }
@@ -158,6 +162,7 @@ export class ScheduleReconciler {
                 fullRows: 0,
                 swept: 0,
                 expired: 0,
+                purged: 0,
                 cycleCompleted: false,
                 drift: emptyDrift(),
             }
@@ -176,6 +181,7 @@ export class ScheduleReconciler {
             fullRows: 0,
             swept: 0,
             expired: 0,
+            purged: 0,
             cycleCompleted: false,
             drift: emptyDrift(),
         };
@@ -255,11 +261,14 @@ export class ScheduleReconciler {
             steps++
         ) {
             if (cursor.phase === 'rows') {
+                // A row past retention is the purge's; its tombstone may
+                // already be forgotten, and applying it would make a new one.
                 const { rows, nextId } = await store.listRegionPage(
                     namespace,
                     region,
                     cursor.afterId,
                     this.#page,
+                    (await index.now()) - EVENTS_SCHEDULE_TOMBSTONE_TTL_MS,
                 );
                 // A page whose ends ran out of time is read again next pass.
                 if (!(await this.#applyRows(rows, report, built, deadline)))
@@ -270,6 +279,19 @@ export class ScheduleReconciler {
                     nextId === null
                         ? { ...cursor, phase: 'sweep', partition: 0, scan: '0' }
                         : { ...cursor, afterId: nextId };
+            } else if (cursor.phase === 'purge') {
+                const purged = await store.purgeDeletedBefore(
+                    namespace,
+                    region,
+                    (await index.now()) - EVENTS_SCHEDULE_TOMBSTONE_TTL_MS,
+                    PURGE_BATCH,
+                );
+                report.purged += purged;
+                room -= Math.max(purged, 1);
+                if (purged < PURGE_BATCH) {
+                    await this.#completeCycle(cursor, built, report);
+                    return;
+                }
             } else {
                 const { cursor: scan, entries } = await index.scanDefs(
                     cursor.partition,
@@ -286,28 +308,32 @@ export class ScheduleReconciler {
                         partition: cursor.partition + 1,
                         scan: '0',
                     };
-                else {
-                    if (!built) {
-                        // Rows changed while the cycle ran have `updated_at`
-                        // past its start, so the incremental pass picks them up.
-                        await index.setSyncCursor(
-                            cursor.cycleStart - RECONCILE_OVERLAP_MS,
-                        );
-                        await index.markBuilt();
-                    }
-                    report.cycleCompleted = true;
-                    await index.setFullCursor({
-                        afterId: 0,
-                        cycleStart: await index.now(),
-                        phase: 'rows',
-                        partition: 0,
-                        scan: '0',
-                    });
-                    return;
-                }
+                else cursor = { ...cursor, phase: 'purge' };
             }
             await index.setFullCursor(cursor);
         }
+    }
+
+    async #completeCycle(
+        cursor: ScheduleFullDiffCursor,
+        built: boolean,
+        report: ScheduleReconcileReport,
+    ): Promise<void> {
+        const { index } = this.#host;
+        if (!built) {
+            // Rows changed while the cycle ran have `updated_at` past its
+            // start, so the incremental pass picks them up.
+            await index.setSyncCursor(cursor.cycleStart - RECONCILE_OVERLAP_MS);
+            await index.markBuilt();
+        }
+        report.cycleCompleted = true;
+        await index.setFullCursor({
+            afterId: 0,
+            cycleStart: await index.now(),
+            phase: 'rows',
+            partition: 0,
+            scan: '0',
+        });
     }
 
     /**

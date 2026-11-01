@@ -132,7 +132,10 @@ export interface ScheduleSubscriptionState {
     context: string | null;
 }
 
-/** A schedule row joined with its subscription row, `null` if it has none. */
+/**
+ * A schedule row joined with its subscription row, `null` if it has none.
+ * `payload` is not read with it and is always `null`.
+ */
 export interface ScheduleSyncRow extends ScheduleRow {
     sub: ScheduleSubscriptionState | null;
 }
@@ -353,9 +356,11 @@ const COLUMNS = [
 
 const SELECT_COLUMNS = COLUMNS.map((c) => `\`${c}\``).join(', ');
 
-/** Schedule columns plus its subscription row's, for the reconcile join. */
+/** Schedule columns but `payload`, plus its subscription row's. */
 const SYNC_SELECT =
-    `SELECT ${COLUMNS.map((c) => `s.\`${c}\``).join(', ')}, ` +
+    `SELECT ${COLUMNS.filter((c) => c !== 'payload')
+        .map((c) => `s.\`${c}\``)
+        .join(', ')}, ` +
     'sub.`id` AS `sub_row_id`, sub.`suspended_at` AS `sub_suspended_at`, ' +
     'sub.`suspended_reason` AS `sub_suspended_reason`, ' +
     'sub.`handler_name` AS `sub_handler_name`, sub.`context` AS `sub_context` ' +
@@ -995,26 +1000,54 @@ export class ScheduleStore extends PuterStore {
     }
 
     /**
-     * Every row of one region by id, ended ones included, with their
-     * subscription rows. Replica. What a full diff and a rebuild walk.
+     * Every row of one region by id, with their subscription rows, but those
+     * ended before `endedAfter`. Replica. What a full diff and a rebuild walk.
      */
     async listRegionPage(
         namespace: string,
         region: string,
         afterId: number,
         limit: number,
+        endedAfter: number,
     ): Promise<{ rows: ScheduleSyncRow[]; nextId: number | null }> {
         const size = Math.max(1, Math.floor(limit));
         const raw = await this.clients.db.read(
             `${SYNC_SELECT} WHERE s.\`namespace\` = ? AND s.\`region\` = ? ` +
-                'AND s.`id` > ? ORDER BY s.`id` LIMIT ?',
-            [namespace, region, afterId, size],
+                'AND s.`id` > ? AND (s.`deleted_at` IS NULL OR s.`deleted_at` >= ?) ' +
+                'ORDER BY s.`id` LIMIT ?',
+            [namespace, region, afterId, endedAfter, size],
         );
         const rows = raw.map(toSyncRow);
         return {
             rows,
             nextId: rows.length < size ? null : rows[rows.length - 1].id,
         };
+    }
+
+    /**
+     * Delete up to `limit` of one region's rows ended before `cutoffMs`. The
+     * ids are read from the replica and the delete checks the cutoff again.
+     * Returns how many ids were read, so a full batch means there may be more.
+     */
+    async purgeDeletedBefore(
+        namespace: string,
+        region: string,
+        cutoffMs: number,
+        limit: number,
+    ): Promise<number> {
+        const rows = await this.clients.db.read(
+            `SELECT \`id\` FROM \`${TABLE}\` WHERE \`deleted_at\` < ? ` +
+                'AND `namespace` = ? AND `region` = ? ORDER BY `deleted_at` LIMIT ?',
+            [cutoffMs, namespace, region, Math.max(1, Math.floor(limit))],
+        );
+        const ids = rows.map((row) => Number(row.id));
+        if (ids.length === 0) return 0;
+        await this.clients.db.write(
+            `DELETE FROM \`${TABLE}\` WHERE \`id\` IN (${ids.map(() => '?').join(', ')}) ` +
+                'AND `deleted_at` < ?',
+            [...ids, cutoffMs],
+        );
+        return ids.length;
     }
 
     // -- Internals ---------------------------------------------------

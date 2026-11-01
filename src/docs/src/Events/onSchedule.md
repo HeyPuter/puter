@@ -182,7 +182,7 @@ A schedule can stop running without being removed. It's then *suspended*, and [`
 
 A suspended schedule isn't billed. One that stays suspended for 30 days ends.
 
-An ended schedule never runs again. It has `state: 'ended'` and an `endReason`, and stays in [`listSchedules()`](/Events/listSchedules/) for 7 days:
+An ended schedule never runs again. It has `state: 'ended'` and an `endReason`, and stays in [`listSchedules()`](/Events/listSchedules/) for 7 days, after which it is deleted:
 
 | `endReason` | Cause |
 | --- | --- |

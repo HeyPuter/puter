@@ -469,7 +469,7 @@ describe('reading changes for a reconcile', () => {
             10,
         );
         expect(changed.rows.map((r) => r.id)).toEqual([mine.id]);
-        const page = await store().listRegionPage(NS, REGION, 0, 10);
+        const page = await store().listRegionPage(NS, REGION, 0, 10, 0);
         expect(page.rows.map((r) => r.id)).toEqual([mine.id]);
         await expect(
             store().get('other.example', mine.uid),
@@ -496,7 +496,7 @@ describe('reading changes for a reconcile', () => {
         const ids: number[] = [];
         for (let i = 0; i < 5; i++)
             ids.push((await store().create(input())).id);
-        const first = await store().listRegionPage(NS, REGION, 0, 3);
+        const first = await store().listRegionPage(NS, REGION, 0, 3, 0);
         expect(first.rows.map((r) => r.id)).toEqual(ids.slice(0, 3));
         expect(first.nextId).toBe(ids[2]);
         const second = await store().listRegionPage(
@@ -504,9 +504,104 @@ describe('reading changes for a reconcile', () => {
             REGION,
             first.nextId!,
             3,
+            0,
         );
         expect(second.rows.map((r) => r.id)).toEqual(ids.slice(3));
         expect(second.nextId).toBeNull();
+    });
+});
+
+describe('rows past their retention', () => {
+    const endAt = async (id: number, deletedAt: number) => {
+        await db().write(
+            "UPDATE `event_schedules` SET `state` = 'done', `end_reason` = 'removed', " +
+                '`deleted_at` = ? WHERE `id` = ?',
+            [deletedAt, id],
+        );
+    };
+    const cutoff = () => Date.now() - EVENTS_SCHEDULE_TOMBSTONE_TTL_MS;
+
+    it('are left out of a region page', async () => {
+        const live = await store().create(input());
+        const recent = await store().create(input());
+        const old = await store().create(input());
+        await endAt(recent.id, cutoff() + HOUR);
+        await endAt(old.id, cutoff() - HOUR);
+        const page = await store().listRegionPage(NS, REGION, 0, 10, cutoff());
+        expect(page.rows.map((r) => r.id)).toEqual([live.id, recent.id]);
+    });
+
+    it('are purged in batches, only in their namespace and region', async () => {
+        const old = cutoff() - HOUR;
+        for (let i = 0; i < 3; i++) {
+            const row = await store().create(input());
+            await endAt(row.id, old);
+        }
+        const recent = await store().create(input());
+        await endAt(recent.id, cutoff() + HOUR);
+        const live = await store().create(input());
+        const elsewhere: number[] = [];
+        for (const over of [
+            { namespace: 'other.example' },
+            { region: 'region-b' },
+        ]) {
+            const row = await store().create(input(over));
+            await endAt(row.id, old);
+            elsewhere.push(row.id);
+        }
+
+        expect(await store().purgeDeletedBefore(NS, REGION, cutoff(), 2)).toBe(
+            2,
+        );
+        expect(await scheduleRows()).toBe(5);
+        expect(await store().purgeDeletedBefore(NS, REGION, cutoff(), 2)).toBe(
+            1,
+        );
+        expect(await store().purgeDeletedBefore(NS, REGION, cutoff(), 2)).toBe(
+            0,
+        );
+        const left = await db().read(
+            'SELECT `id` FROM `event_schedules` ORDER BY `id`',
+            [],
+        );
+        expect(left.map((r) => Number(r.id))).toEqual([
+            recent.id,
+            live.id,
+            ...elsewhere,
+        ]);
+    });
+
+    it('are never read with their payload by a reconcile', async () => {
+        const row = await store().create(
+            input({
+                kind: 'deferred',
+                everyMs: null,
+                subscription: undefined,
+                action: 'test.send',
+                payload: '{"big":"x"}',
+            }),
+        );
+        const read = vi.spyOn(db(), 'read');
+        try {
+            const page = await store().listRegionPage(NS, REGION, 0, 10, 0);
+            const changed = await store().changedSince(
+                NS,
+                REGION,
+                { updatedAt: 0, id: 0 },
+                10,
+            );
+            for (const rows of [page.rows, changed.rows])
+                expect(rows).toEqual([
+                    expect.objectContaining({ id: row.id, payload: null }),
+                ]);
+            for (const [sql] of read.mock.calls)
+                expect(sql).not.toContain('payload');
+        } finally {
+            read.mockRestore();
+        }
+        expect(
+            JSON.parse((await store().getDeferred(row.id))!.row.payload!),
+        ).toEqual({ big: 'x' });
     });
 });
 
@@ -515,7 +610,8 @@ describe('orphans', () => {
         const row = await store().create(input());
         // What a crash between the two inserts leaves.
         await durable().removeScheduleSubscription(row.uid);
-        const [read] = (await store().listRegionPage(NS, REGION, 0, 10)).rows;
+        const [read] = (await store().listRegionPage(NS, REGION, 0, 10, 0))
+            .rows;
         expect(read.sub).toBeNull();
         expect(isScheduleOrphan(read, read.updatedAt + 60_000)).toBe(false);
         expect(
@@ -532,7 +628,8 @@ describe('orphans', () => {
             'UPDATE `event_schedules` SET `sub_id` = NULL WHERE `id` = ?',
             [row.id],
         );
-        const [read] = (await store().listRegionPage(NS, REGION, 0, 10)).rows;
+        const [read] = (await store().listRegionPage(NS, REGION, 0, 10, 0))
+            .rows;
         expect(read.sub).toBeNull();
         await store().endOrphan(read);
         await expect(scheduleSubRows()).resolves.toBe(0);
@@ -548,7 +645,8 @@ describe('orphans', () => {
                 payload: '{}',
             }),
         );
-        const [read] = (await store().listRegionPage(NS, REGION, 0, 10)).rows;
+        const [read] = (await store().listRegionPage(NS, REGION, 0, 10, 0))
+            .rows;
         expect(
             isScheduleOrphan(read, Date.now() + 2 * SCHEDULE_ORPHAN_AGE_MS),
         ).toBe(false);

@@ -403,6 +403,16 @@ describe('apply', () => {
         expect(await index.getRun('e')).toMatchObject({ owed: T0 });
     });
 
+    it('tells a tombstone over nothing apart from one over a live member', async () => {
+        expect(
+            await applyOne(change('n', { version: 3, state: 'ended' })),
+        ).toBe(4);
+        expect(await index.getDef('n')).toMatchObject({
+            version: 3,
+            state: 'ended',
+        });
+    });
+
     describe('at an equal version', () => {
         it('repairs a missing run and due membership without touching owed', async () => {
             await applyOne(change('m'));

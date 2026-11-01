@@ -211,7 +211,7 @@ return 1
  * KEYS: due, run, def, absent. ARGV: id, version, state, defJson ('' = keep the
  * stored one), score, owed, exact ('1' = only when the stored version is this
  * one). Returns 1 changed, 0 stale or no-op, 2 membership repaired, 3 a live
- * row met a tombstone at its version.
+ * row met a tombstone at its version, 4 a tombstone where there was nothing.
  */
 const APPLY_SCRIPT = `${PRELUDE}
 local id = ARGV[1]
@@ -266,6 +266,7 @@ if state == 'ended' then
     redis.call('HDEL', KEYS[2], id)
     redis.call('HSET', KEYS[3], id,
         fmt(v) .. '|ended|{"endedAt":' .. fmt(nowMs()) .. '}')
+    if not cur then return 4 end
     return 1
 end
 local json = ARGV[4]
@@ -555,16 +556,22 @@ export interface ScheduleIndexChange {
     owed: number | null;
 }
 
-/** 1 changed, 0 stale or no-op, 2 repaired, 3 tombstone over a live row. */
-export type ScheduleApplyResult = 0 | 1 | 2 | 3;
+/**
+ * 1 changed, 0 stale or no-op, 2 repaired, 3 tombstone over a live row, 4 a
+ * tombstone recorded where the index had nothing.
+ */
+export type ScheduleApplyResult = 0 | 1 | 2 | 3 | 4;
 
 /** Where the chunked full diff is. */
 export interface ScheduleFullDiffCursor {
     afterId: number;
     /** Redis time the current cycle started. */
     cycleStart: number;
-    /** Walking table rows, or sweeping index members after a wrap. */
-    phase: 'rows' | 'sweep';
+    /**
+     * Walking table rows, sweeping index members after a wrap, then purging
+     * rows ended past their retention.
+     */
+    phase: 'rows' | 'sweep' | 'purge';
     partition: number;
     scan: string;
 }

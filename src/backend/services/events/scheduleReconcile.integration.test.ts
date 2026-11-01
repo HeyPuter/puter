@@ -445,6 +445,49 @@ describe('full diff', () => {
         expect(await index().getDef(uid)).toBeNull();
     });
 
+    it('purges an ended schedule past retention, and never tombstones it again', async () => {
+        const [uid] = await seed();
+        const row = await rowOf(uid);
+        await store().end([row], 'removed');
+        await untilCycle();
+        expect((await index().getDef(uid))!.state).toBe('ended');
+
+        h.setClock(T0 + EVENTS_SCHEDULE_TOMBSTONE_TTL_MS + 1000);
+        const [report] = (await untilCycle()).slice(-1);
+        expect(report.purged).toBe(1);
+        expect(await store().get(schedules().namespace, uid)).toBeNull();
+        for (let cycle = 0; cycle < 3; cycle++) {
+            h.setClock(
+                T0 + EVENTS_SCHEDULE_TOMBSTONE_TTL_MS + (cycle + 2) * DAY,
+            );
+            await untilCycle();
+            expect(await index().getDef(uid)).toBeNull();
+        }
+    });
+
+    it('purges past retention in batches across passes, then completes the cycle', async () => {
+        const r = reconciler({ page: 600 });
+        await untilCycle(r);
+        await seed({ count: 1200 });
+        await db().write(
+            "UPDATE `event_schedules` SET `state` = 'done', `end_reason` = 'removed', " +
+                '`deleted_at` = ?',
+            [T0 - EVENTS_SCHEDULE_TOMBSTONE_TTL_MS - 1000],
+        );
+        await db().write('DELETE FROM `event_subscriptions`', []);
+
+        const reports = await untilCycle(r);
+        const purged = reports.map((report) => report.purged);
+        expect(purged.reduce((a, b) => a + b, 0)).toBe(1200);
+        expect(Math.max(...purged)).toBeLessThan(1200);
+        expect(reports.every((report) => report.fullRows === 0)).toBe(true);
+        const [{ n }] = await db().read(
+            'SELECT COUNT(*) AS `n` FROM `event_schedules`',
+            [],
+        );
+        expect(Number(n)).toBe(0);
+    });
+
     it('keeps delayed sends that are active, sending or delivered', async () => {
         const uids = await seed({
             count: 3,
@@ -619,6 +662,31 @@ it('raises the drift alarm when a pass finds many entries the hooks missed', asy
         expect.any(String),
         expect.objectContaining({ applied: 150 }),
     );
+});
+
+it('counts no drift for an ended row whose tombstone the index no longer has', async () => {
+    const uids = await seed({ count: 150 });
+    for (const uid of uids) await store().end([await rowOf(uid)], 'removed');
+    const alarm = vi.fn();
+    const r = new ScheduleReconciler({
+        index: index(),
+        store: store(),
+        namespace: schedules().namespace,
+        region: schedules().region,
+        endRows: async () => [],
+        alarm,
+    });
+    await untilCycle(r);
+    for (const uid of uids)
+        await server().clients.redis.hdel(
+            index().keys(schedulePartition(uid)).def,
+            uid,
+        );
+    const reports = await untilCycle(r);
+    expect(reports.every((report) => report.drift.applied === 0)).toBe(true);
+    expect(alarm).not.toHaveBeenCalled();
+    for (const uid of uids)
+        expect((await index().getDef(uid))!.state).toBe('ended');
 });
 
 it('runs one pass per region at a time', async () => {
