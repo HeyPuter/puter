@@ -1268,6 +1268,14 @@ interface IConfigOptional {
         kvHandles?: boolean;
         workerRuntime?: boolean;
         forwardSession?: boolean;
+        /**
+         * Scheduled handlers (`onSchedule`). Absent means off: nothing creates
+         * or runs a schedule. Rows already stored still follow their
+         * subscription's lifecycle.
+         */
+        schedules?: {
+            enabled?: boolean;
+        };
         /** How long a handler has to answer an invocation. Default 30 s. */
         invokeTimeoutMs?: number;
         /**
@@ -1289,22 +1297,26 @@ interface IConfigOptional {
          * Rotating it rotates every key at the next deploy.
          */
         internalSecret?: string;
-        /**
-         * Scheduled handlers (`onSchedule`). Absent means off: nothing creates
-         * or runs a schedule. Rows already stored still follow their
-         * subscription's lifecycle.
-         */
-        schedules?: {
-            enabled?: boolean;
-        };
     };
 
     /**
-     * Background jobs. `namespace` keeps deployments that share a database
-     * apart (their scheduled rows and job state); defaults to `domain`.
+     * System jobs (`services.jobs`).
+     *
+     * - `namespace` — keys this deployment's rows in `scheduled_jobs`, so
+     *   deployments sharing one database never run each other's jobs. Defaults
+     *   to `domain`.
+     * - `nearPrimaryRegion` — the region id (the broadcast peer id) nearest the
+     *   primary database. Jobs registered `nearPrimary` run there, and other
+     *   regions claim them only once they are 5 minutes overdue. Unset means
+     *   every region claims at due time.
+     * - `enabled` — `false` keeps this node from polling for jobs (logged at
+     *   start); the rest of the fleet still runs them. Test servers turn it
+     *   off.
      */
     jobs?: {
         namespace?: string;
+        nearPrimaryRegion?: string;
+        enabled?: boolean;
     };
 
     /**
