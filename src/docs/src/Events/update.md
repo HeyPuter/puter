@@ -36,6 +36,7 @@ It rejects with `{ message, code }`:
 | `code` | Meaning |
 | --- | --- |
 | `subscription_does_not_exist` | No such subscription, or it isn't this caller's. |
+| `events_schedule_immutable` | The subscription belongs to a [schedule](/Events/onSchedule/), whose `context` can't be changed. Remove the schedule and create a new one. |
 | `invalid_request` | `context` is missing. |
 | `events_context_too_large` | `context` is over 4 KB serialized. |
 | `events_context_invalid` | `context` can't be serialized as JSON. |
