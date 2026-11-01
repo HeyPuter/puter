@@ -37,7 +37,10 @@ import {
 import { readProviderKey } from '../../drivers/util/providerRegistry.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
 import { kv } from '../../util/kvSingleton.js';
-import { assertActorHasSubscription } from '../metering/enforcement.js';
+import {
+    assertActorHasSubscription,
+    subscriptionEnforcementEnabled,
+} from '../metering/enforcement.js';
 import type { CreditHold, UsageInput } from '../metering/types.js';
 import { decideSocketAuth } from '../socket/SocketService.js';
 import type { ServerDrainInfo } from '../../types.js';
@@ -532,6 +535,8 @@ export class OpenAIRealtimeRelayService extends PuterService {
         close: (code: number, reason: string) => void;
         heartbeat: () => void;
         recheck: () => Promise<void>;
+        revoke: (sessionUids?: ReadonlySet<string>, tokenUid?: string) => void;
+        planChanged: (userUuid: string) => void;
         drain: () => Promise<void>;
         notify: (closeInMs: number | undefined) => void;
     }>();
@@ -688,6 +693,35 @@ export class OpenAIRealtimeRelayService extends PuterService {
 
     /** A host extension can announce a restart before the drain starts. */
     override onServerStart(): void {
+        this.clients.event.on('outer.auth.sessions.revoked', (_key, data) => {
+            this.clients.event.emit(
+                'pubsub.realtime.auth-revoked',
+                { sessionUids: data.session_uids },
+                {},
+            );
+        });
+        this.clients.event.on('auth.access-token.revoked', (_key, data) => {
+            this.clients.event.emit(
+                'pubsub.realtime.auth-revoked',
+                { tokenUid: data.token_uid },
+                {},
+            );
+        });
+        // Raw WebSockets do not participate in socket.io's cluster adapter.
+        this.clients.event.on('pubsub.realtime.auth-revoked', (_key, data) => {
+            const revoked = data.sessionUids
+                ? new Set(data.sessionUids)
+                : undefined;
+            for (const session of this.#sessions)
+                session.revoke(revoked, data.tokenUid);
+        });
+        this.clients.event.on(
+            'outer.pubsub.metering.subscription-changed',
+            (_key, data) => {
+                for (const session of this.#sessions)
+                    session.planChanged(data.userUuid);
+            },
+        );
         this.clients.event.on('serverRestartAnnounced', (_key, data) =>
             this.#announceRestart(data?.closeInMs),
         );
@@ -762,7 +796,9 @@ export class OpenAIRealtimeRelayService extends PuterService {
         let settleTimer: ReturnType<typeof setTimeout> | null = null;
         const token = realtimeTokenFrom(req, url);
         let actor: Actor | null = null;
-        let rechecking = false;
+        let rechecking: Promise<void> | undefined;
+        let identity: AnyTokenPayload | undefined;
+        let verificationFailedAt: number | undefined;
         // Responses started upstream and not yet done. A response bills its
         // usage on `response.done`, so the upstream outlives the client until
         // then; one the upstream closes on first is billed its hold.
@@ -831,6 +867,34 @@ export class OpenAIRealtimeRelayService extends PuterService {
         };
 
         const session = {
+            revoke: (sessionUids?: ReadonlySet<string>, tokenUid?: string) => {
+                const sessionUid =
+                    identity?.session_uid ??
+                    (identity &&
+                    (identity.type === 'session' || identity.type === 'gui')
+                        ? identity.uuid
+                        : undefined);
+                const parentUid =
+                    identity?.type === 'app-under-user'
+                        ? identity.session
+                        : undefined;
+                if (!(
+                    sessionUids?.has(sessionUid ?? '') ||
+                    sessionUids?.has(parentUid ?? '') ||
+                    (tokenUid &&
+                        identity?.type === 'access-token' &&
+                        identity.token_uid === tokenUid)
+                ))
+                    return;
+                if (token) {
+                    kv.del(realtimeAuthKey(token));
+                    this.#authChecks.delete(realtimeAuthKey(token));
+                }
+                reject('invalid_api_key', 'Credentials are no longer valid');
+            },
+            planChanged: (userUuid: string) => {
+                if (actor?.user?.uuid === userUuid) void session.recheck();
+            },
             close: (code: number, reason: string) => {
                 if (closed) return;
                 closed = true;
@@ -861,30 +925,77 @@ export class OpenAIRealtimeRelayService extends PuterService {
             },
             // Called every AUTH_SWEEP_MS; re-authenticates once the token's kv
             // entry has expired. A failed lookup is retried on the next sweep.
-            recheck: async () => {
-                if (!actor || !token || closed || rechecking) return;
-                if (kv.get(realtimeAuthKey(token)) !== undefined) return;
-                rechecking = true;
-                try {
-                    const next = await this.#authenticateCached(
-                        token,
-                        req,
-                        clientIp,
-                    );
-                    if (closed) return;
-                    if (!next || next.user?.uuid !== actor.user?.uuid) {
-                        reject(
-                            'invalid_api_key',
-                            'Credentials are no longer valid',
-                        );
-                        return;
+            recheck: () => {
+                if (!actor || !token || closed) return Promise.resolve();
+                if (rechecking) return rechecking;
+                rechecking = (async () => {
+                    try {
+                        const next =
+                            kv.get(realtimeAuthKey(token)) !== undefined
+                                ? actor
+                                : await this.#authenticateCached(
+                                      token,
+                                      req,
+                                      clientIp,
+                                  );
+                        if (closed) return;
+                        if (!next || next.user?.uuid !== actor.user?.uuid) {
+                            reject(
+                                'invalid_api_key',
+                                'Credentials are no longer valid',
+                            );
+                            return;
+                        }
+                        actor = next;
+                        if (subscriptionEnforcementEnabled(this.config)) {
+                            if (await planProvisional())
+                                throw new Error('subscription unavailable');
+                            try {
+                                await assertActorHasSubscription(
+                                    this.services.metering,
+                                    actor,
+                                    true,
+                                    this.config,
+                                    {
+                                        events: this.clients.event,
+                                        surface: 'realtime.openai',
+                                    },
+                                );
+                            } catch (error) {
+                                if (
+                                    [402, 403].includes(
+                                        (error as { statusCode?: number })
+                                            .statusCode ?? 0,
+                                    ) &&
+                                    !(await planProvisional())
+                                ) {
+                                    reject(
+                                        'subscription_required',
+                                        'Realtime conversations require a subscription',
+                                    );
+                                    return;
+                                }
+                                throw error;
+                            }
+                        }
+                        verificationFailedAt = undefined;
+                    } catch {
+                        verificationFailedAt ??= Date.now();
+                        if (
+                            Date.now() - verificationFailedAt >=
+                            AUTH_RECHECK_SEC * 1000
+                        ) {
+                            reject(
+                                'internal_error',
+                                'Could not verify continued access',
+                                1011,
+                            );
+                        }
+                    } finally {
+                        rechecking = undefined;
                     }
-                    actor = next;
-                } catch (err) {
-                    console.warn('[realtime] credential recheck failed', err);
-                } finally {
-                    rechecking = false;
-                }
+                })();
+                return rechecking;
             },
             drain: async () => {
                 if (inFlight > 0 && !closed) {
@@ -1280,7 +1391,10 @@ export class OpenAIRealtimeRelayService extends PuterService {
         try {
             if (!token || Buffer.byteLength(token) > MAX_TOKEN_BYTES)
                 throw new Error('invalid token');
-            this.services.token.verify<AnyTokenPayload>('auth', token);
+            identity = this.services.token.verify<AnyTokenPayload>(
+                'auth',
+                token,
+            );
         } catch {
             reject('invalid_api_key', 'Authentication failed');
             return;
