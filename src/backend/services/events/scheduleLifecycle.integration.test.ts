@@ -737,6 +737,108 @@ describe('the fire path', () => {
     });
 });
 
+describe('a schedule owned by another region', () => {
+    it('gets its lifecycle changes by a signed peer message, which a foreign namespace can`t use', async () => {
+        const app = await h.makeApp();
+        const row = await store().create({
+            namespace: schedules().namespace,
+            region: 'region-b',
+            kind: 'recurring',
+            holderUserId: h.userId,
+            appUid: app.uid,
+            startAt: T0,
+            everyMs: HOUR,
+            cron: null,
+            tz: 'UTC',
+            endsAt: null,
+            ratePerHour: 1000,
+            minGapMs: HOUR,
+            handlerDepth: 0,
+            subscription: {
+                handlerName: SCHEDULE_TEST_HANDLER,
+                context: null,
+                permission: EVENTS_BACKGROUND_PERMISSION,
+            },
+            quota: {
+                recurringPerUser: 1e6,
+                recurringPerApp: 1e6,
+                oneShotsPerUser: 1e6,
+                oneShotsPerApp: 1e6,
+                budgetPerUser: 1e15,
+                budgetPerApp: 1e15,
+            },
+        });
+        const post = vi
+            .spyOn(server().services.broadcast, 'postToPeer')
+            .mockResolvedValue({ ok: true });
+        const sub = (await durable().getBySubId(row.subId!))!;
+        await events().suspendSubscriptions([sub], 'handler_not_found');
+
+        expect(post).toHaveBeenCalledTimes(1);
+        const [peer, path, payload] = post.mock.calls[0] as [
+            string,
+            string,
+            { namespace: string; changes: Array<Record<string, unknown>> },
+        ];
+        expect(peer).toBe('region-b');
+        expect(path).toBe('/broadcast/events/schedules');
+        expect(payload.namespace).toBe(schedules().namespace);
+        expect(payload.changes).toEqual([
+            expect.objectContaining({
+                id: row.uid,
+                version: 3,
+                state: 'suspended:handler_not_found',
+            }),
+        ]);
+        // Nothing of it lands in this region's index.
+        expect(await defOf(row.uid)).toBeNull();
+
+        // The owning region applies it; another deployment's message is dropped.
+        await expect(
+            schedules().receivePeerChanges({
+                namespace: 'another-deployment',
+                changes: payload.changes,
+            }),
+        ).resolves.toEqual({ applied: 0 });
+        await expect(schedules().receivePeerChanges(payload)).resolves.toEqual({
+            applied: 1,
+        });
+        expect(await defOf(row.uid)).toMatchObject({
+            version: 3,
+            state: 'suspended:handler_not_found',
+        });
+    });
+});
+
+describe('the holder`s notice', () => {
+    it('names an ended schedule as a schedule', async () => {
+        const app = await h.makeApp();
+        await hourly(app);
+        const notify = vi.spyOn(server().services.notification, 'notify');
+        await server().services.permission.revokeUserAppPermission(
+            makeActor({ user: h.userRow as never }),
+            app.uid,
+            EVENTS_BACKGROUND_PERMISSION,
+        );
+        await events().settleRevokedGrant({
+            holderUserId: h.userId,
+            appUid: app.uid,
+            permission: EVENTS_BACKGROUND_PERMISSION,
+        });
+        // The revoke settles off its own event; whichever settle wins notifies.
+        await vi.waitFor(() =>
+            expect(notify).toHaveBeenCalledWith(
+                [h.userId],
+                expect.objectContaining({
+                    title: 'A schedule ended',
+                    reason: 'permission_revoked',
+                }),
+                expect.objectContaining({ type: 'app.events.ended' }),
+            ),
+        );
+    });
+});
+
 /** A pending delayed send of `appUid`, indexed by a reconcile pass. */
 const createDeferred = async (appUid: string) => {
     const row = await store().create({

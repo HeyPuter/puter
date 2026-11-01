@@ -497,6 +497,38 @@ describe('lifecycle during a run', () => {
         expect(await index.getScore('l')).toBe(T0 + 10 * MIN);
     });
 
+    it('a removal mid-run refuses the settle, and the tombstone stands', async () => {
+        await seed('rm');
+        let release!: () => void;
+        const held = new Promise<void>((resolve) => (release = resolve));
+        answer = async () => {
+            await held;
+            return { outcome: 'settled' };
+        };
+        const r = runner();
+        await r.tick();
+        await untilInvoked(1);
+        await index.apply([
+            {
+                id: 'rm',
+                version: 3,
+                state: 'ended',
+                def: null,
+                score: 0,
+                owed: null,
+            },
+        ]);
+        release();
+        await r.drain();
+        expect(billed()).toBe(0);
+        expect(await index.getDef('rm')).toMatchObject({
+            state: 'ended',
+            version: 3,
+        });
+        expect(await index.getRun('rm')).toBeNull();
+        expect(await index.getScore('rm')).toBeNull();
+    });
+
     it('a holder or app gone ends the schedule, once', async () => {
         await seed('o');
         actor = null;

@@ -495,6 +495,34 @@ describe('full diff', () => {
     });
 });
 
+it('raises the drift alarm when a pass finds many entries the hooks missed', async () => {
+    const uids = await seed({ count: 150 });
+    const alarm = vi.fn();
+    const r = new ScheduleReconciler({
+        index: index(),
+        store: store(),
+        namespace: schedules().namespace,
+        region: schedules().region,
+        endRows: async () => [],
+        alarm,
+    });
+    await untilCycle(r);
+    expect(alarm).not.toHaveBeenCalled();
+    // The index loses them while the table keeps them: the next cycle puts
+    // them back, which the hooks should have kept from being needed.
+    for (const uid of uids)
+        await server().clients.redis.hdel(
+            index().keys(schedulePartition(uid)).def,
+            uid,
+        );
+    await untilCycle(r);
+    expect(alarm).toHaveBeenCalledWith(
+        'events_schedule_reconcile_drift',
+        expect.any(String),
+        expect.objectContaining({ applied: 150 }),
+    );
+});
+
 it('runs one pass per region at a time', async () => {
     let release!: () => void;
     const held = new Promise<void>((resolve) => (release = resolve));
