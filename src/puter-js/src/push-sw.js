@@ -300,11 +300,11 @@
                 // focus is refused once the click's window has passed
             }
             const answered = await acked;
+            // Already there: the page may still take its copy; reloading would lose its state.
+            if ( ! answered && win.url === url ) return;
             // A page that took the tap removed it; an older page leaves it.
             const mine = kept ? await claimClick(click.uid, id).catch(() => click) : null;
             if ( answered || (kept && ! mine) ) return;
-            // Already there: reloading would only lose what the user had open.
-            if ( win.url === url ) return;
         }
         await keepClick(click);
         const opened = new URL(url);

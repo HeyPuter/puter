@@ -10,13 +10,17 @@ const SOURCE = readFileSync(
 );
 const ORIGIN = 'https://app.example';
 
-/** Enough of IndexedDB for get/put and a cursor walk. */
+/**
+ * Enough of IndexedDB for get/put and a cursor walk. Logs each transaction in
+ * `stores.log`; every call fails while `stores.broken` is set.
+ */
 const fakeIndexedDB = (stores) => {
     const request = (run) => {
         const req = { listeners: [] };
         req.addEventListener = (_t, fn) => req.listeners.push(fn);
         queueMicrotask(() => {
             try {
+                if (stores.broken) throw new Error('IndexedDB is not available');
                 req.result = run(req);
                 req.onsuccess?.();
                 for (const fn of req.listeners) fn();
@@ -54,7 +58,10 @@ const fakeIndexedDB = (stores) => {
     return {
         open: () => {
             const req = request(() => ({
-                transaction: (name) => ({ objectStore: () => objectStore(name) }),
+                transaction: (name, mode) => {
+                    stores.log.push({ name, mode });
+                    return { objectStore: () => objectStore(name) };
+                },
                 close: () => {},
                 createObjectStore: () => {},
             }));
@@ -86,6 +93,8 @@ const loadWorker = ({
     const stores = {
         handlers: new Map(Object.entries(handlers)),
         clicks: new Map(Object.entries(clicks)),
+        log: [],
+        broken: false,
     };
     const scope = {
         location: { origin: ORIGIN },
@@ -470,6 +479,17 @@ describe('push-sw notificationclick', () => {
             await wait(1_000);
             expect(open.navigate).toHaveBeenCalledWith(`${ORIGIN}/chat?puter.notification=n1`);
             expect(deliveries(worker, open, ran)).toBe(1);
+        });
+
+        it('when the page is already at the tap`s URL and answers late', async () => {
+            const open = windowClient(`${ORIGIN}/chat`);
+            const worker = loadWorker({ windows: [open] });
+            const ran = [];
+            await worker.tap(TAP, slowPage(worker, ran, { claimAfter: 700 }));
+            await wait(800);
+            expect(ran).toEqual(['n1']);
+            expect(open.navigate).not.toHaveBeenCalled();
+            expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
         });
 
         it('when the page claimed it but its ack came too late', async () => {
