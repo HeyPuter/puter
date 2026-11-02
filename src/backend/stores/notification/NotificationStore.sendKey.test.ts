@@ -182,3 +182,47 @@ describe('clearing send_key on a rewrite', () => {
         for (const uid of keys) expect(await sendKeyOf(uid)).toBeNull();
     });
 });
+
+describe('writing a delayed send twice', () => {
+    const entriesFor = (sendKey: string, replaceUid: string | null = null) =>
+        node({}).sendEntries(
+            {
+                sendKey,
+                userId,
+                value: { title: 'later' },
+                type: 'app-message',
+                audience: 'account',
+                appUid: null,
+                replaceUid,
+                at: Date.now(),
+            },
+            { table: 'user', where: '`id` = ?', values: [userId] },
+        );
+    const rowsKeyed = async (uid: string): Promise<number> =>
+        (
+            await server.clients.db.pread(
+                'SELECT 1 FROM `notification` WHERE `uid` = ?',
+                [uid],
+            )
+        ).length;
+
+    it('writes nothing again once the row was rewritten and lost its key', async () => {
+        const sendKey = await writeSent(node({}));
+        await node({}).updateValue(sendKey, userId, { title: 'replaced' });
+        expect(await sendKeyOf(sendKey)).toBeNull();
+
+        await server.clients.db.batchWrite(entriesFor(sendKey));
+        expect(await rowsKeyed(sendKey)).toBe(1);
+    });
+
+    it('adds no row once the replaced row carries the key', async () => {
+        const replaced = await writeSent(node({}));
+        const sendKey = uuidv4();
+        await server.clients.db.batchWrite(entriesFor(sendKey, replaced));
+        expect(await sendKeyOf(replaced)).toBe(sendKey);
+        expect(await rowsKeyed(sendKey)).toBe(0);
+
+        await server.clients.db.batchWrite(entriesFor(sendKey, replaced));
+        expect(await rowsKeyed(sendKey)).toBe(0);
+    });
+});

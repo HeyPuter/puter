@@ -706,13 +706,44 @@ const EXPIRY_SWEEP_EVERY_MS = 60 * 60 * 1000;
 const EXPIRY_SWEEP_LEASE_MS = 15 * 60 * 1000;
 /** Rows one delete takes. Small enough not to hold a lock anyone waits on. */
 const EXPIRY_BATCH_SIZE = 500;
-/** Batches one sweep takes, so a large backlog drains over several passes. */
-const EXPIRY_MAX_BATCHES = 50;
+/**
+ * Batches one sweep takes at most. It runs once for the fleet, so this is the
+ * fleet's hourly drain; the job's signal stops it sooner.
+ */
+const EXPIRY_MAX_BATCHES = 1000;
 /**
  * Subjects one "subscriptions ended" notification names before it stops
  * listing.
  */
 const ENDED_SUBJECTS_LISTED = 20;
+
+/** Ended rows by kind, holder and app: a count and the subjects listed. */
+type EndedGroups = Map<
+    string,
+    { first: DurableSubscription; subjects: string[]; count: number }
+>;
+
+/**
+ * Add ended rows to `groups`. A schedule is news of its own: its holder knows
+ * it as a schedule, not as the subscription row behind it.
+ */
+const collectEnded = (
+    groups: EndedGroups,
+    rows: readonly DurableSubscription[],
+): void => {
+    for (const row of rows) {
+        const kind = isScheduleRow(row) ? 'schedule' : 'subscription';
+        const key = `${kind}|${row.holderUserId}|${row.appUid ?? ''}`;
+        let group = groups.get(key);
+        if (!group) {
+            group = { first: row, subjects: [], count: 0 };
+            groups.set(key, group);
+        }
+        group.count++;
+        if (group.subjects.length < ENDED_SUBJECTS_LISTED)
+            group.subjects.push(row.subject);
+    }
+};
 
 /** Re-reads an unsubscribe takes to catch a row racing a reanchor. */
 const UNSUBSCRIBE_READS = 3;
@@ -809,7 +840,7 @@ const unknownSubscription = (): HttpError =>
 const scheduleSubscription = (): HttpError =>
     new HttpError(
         404,
-        'This subscription belongs to a schedule; remove it through /events/schedules/remove',
+        'This subscription belongs to a schedule; remove it with puter.events.removeSchedule()',
         { legacyCode: 'events_schedule_not_found' },
     );
 
@@ -4610,39 +4641,49 @@ export class EventsService extends PuterService {
         // Withdrawing an app's access wholesale is how it is uninstalled.
         const scheduleEndReason =
             revocation.permission === null ? 'uninstalled' : undefined;
-        return this.#eachHolderPage(
-            (afterId) =>
-                this.stores.durableSubscription.listActiveForHolderPage(
-                    revocation.holderUserId,
-                    revocation.appUid,
-                    afterId,
-                    undefined,
-                    { includeSuspended: true },
-                ),
-            async (held) => {
-                const settling = await this.#leftSettling(
-                    held,
-                    revocation.permission,
-                );
-                if (settling.length === 0) return 0;
+        // A schedule stands only on the app's access and on consent, so a
+        // specific grant can't settle one.
+        const excludeSchedules =
+            revocation.permission !== null &&
+            revocation.permission !== EVENTS_BACKGROUND_PERMISSION;
+        const ended: EndedGroups = new Map();
+        try {
+            return await this.#eachHolderPage(
+                (afterId) =>
+                    this.stores.durableSubscription.listActiveForHolderPage(
+                        revocation.holderUserId,
+                        revocation.appUid,
+                        afterId,
+                        undefined,
+                        { includeSuspended: true, excludeSchedules },
+                    ),
+                async (held) => {
+                    const settling = await this.#leftSettling(
+                        held,
+                        revocation.permission,
+                    );
+                    if (settling.length === 0) return 0;
 
-                // The `permission_revoked` arm of the shared policy purges the
-                // backlog at once: it holds the paths of a resource its holder
-                // has just lost the right to see, and keeping it for a resume
-                // that by design never comes turns a revocation into a delayed
-                // disclosure.
-                const suspended = await this.#suspend(
-                    settling,
-                    'permission_revoked',
-                    {
-                        override: RESUMABLE_REASONS,
-                        ...(scheduleEndReason ? { scheduleEndReason } : {}),
-                    },
-                );
-                await this.#notifyEnded(suspended, 'permission_revoked');
-                return suspended.length;
-            },
-        );
+                    // The `permission_revoked` arm of the shared policy purges
+                    // the backlog at once: it holds the paths of a resource its
+                    // holder has just lost the right to see, and keeping it for
+                    // a resume that by design never comes turns a revocation
+                    // into a delayed disclosure.
+                    const suspended = await this.#suspend(
+                        settling,
+                        'permission_revoked',
+                        {
+                            override: RESUMABLE_REASONS,
+                            ...(scheduleEndReason ? { scheduleEndReason } : {}),
+                        },
+                    );
+                    collectEnded(ended, suspended);
+                    return suspended.length;
+                },
+            );
+        } finally {
+            await this.#reportEnded(ended, 'permission_revoked');
+        }
     }
 
     /**
@@ -4676,30 +4717,36 @@ export class EventsService extends PuterService {
         }
 
         const handles = new Set(retired.handles);
-        const durable = await this.#eachHolderPage(
-            (afterId) =>
-                this.stores.durableSubscription.listActiveForHolderPage(
-                    retired.userId,
-                    null,
-                    afterId,
-                    undefined,
-                    { includeSuspended: true },
-                ),
-            async (held) => {
-                const settling = held.filter((row) => {
-                    const handle = kvHandleFromSubject(row.subject);
-                    return handle !== null && handles.has(handle);
-                });
-                if (settling.length === 0) return 0;
-                const suspended = await this.#suspend(
-                    settling,
-                    'permission_revoked',
-                    { override: RESUMABLE_REASONS },
-                );
-                await this.#notifyEnded(suspended, 'permission_revoked');
-                return suspended.length;
-            },
-        );
+        const ended: EndedGroups = new Map();
+        let durable = 0;
+        try {
+            durable = await this.#eachHolderPage(
+                (afterId) =>
+                    this.stores.durableSubscription.listActiveForHolderPage(
+                        retired.userId,
+                        null,
+                        afterId,
+                        undefined,
+                        { includeSuspended: true, excludeSchedules: true },
+                    ),
+                async (held) => {
+                    const settling = held.filter((row) => {
+                        const handle = kvHandleFromSubject(row.subject);
+                        return handle !== null && handles.has(handle);
+                    });
+                    if (settling.length === 0) return 0;
+                    const suspended = await this.#suspend(
+                        settling,
+                        'permission_revoked',
+                        { override: RESUMABLE_REASONS },
+                    );
+                    collectEnded(ended, suspended);
+                    return suspended.length;
+                },
+            );
+        } finally {
+            await this.#reportEnded(ended, 'permission_revoked');
+        }
         return sessions + durable;
     }
 
@@ -5210,30 +5257,29 @@ export class EventsService extends PuterService {
         rows: readonly DurableSubscription[],
         reason: SubscriptionEndReason,
     ): Promise<void> {
-        // A schedule is news of its own: its holder knows it as a schedule,
-        // not as the subscription row behind it.
-        const groups = new Map<string, DurableSubscription[]>();
-        for (const row of rows) {
-            const kind = isScheduleRow(row) ? 'schedule' : 'subscription';
-            const key = `${kind}|${row.holderUserId}|${row.appUid ?? ''}`;
-            groups.set(key, [...(groups.get(key) ?? []), row]);
-        }
-        for (const group of groups.values()) {
-            const [first] = group;
+        const groups: EndedGroups = new Map();
+        collectEnded(groups, rows);
+        await this.#reportEnded(groups, reason);
+    }
+
+    /** Send what {@link collectEnded} gathered, one notification per group. */
+    async #reportEnded(
+        groups: EndedGroups,
+        reason: SubscriptionEndReason,
+    ): Promise<void> {
+        for (const { first, subjects, count } of groups.values()) {
             const noun = isScheduleRow(first) ? 'schedule' : 'subscription';
             try {
                 await this.services.notification.notify(
                     [first.holderUserId],
                     {
                         title:
-                            group.length === 1
+                            count === 1
                                 ? `A ${noun} ended`
-                                : `${group.length} ${noun}s ended`,
+                                : `${count} ${noun}s ended`,
                         subject: first.subject,
-                        subjects: group
-                            .slice(0, ENDED_SUBJECTS_LISTED)
-                            .map((row) => row.subject),
-                        count: group.length,
+                        subjects,
+                        count,
                         reason,
                     },
                     { type: 'app.events.ended', appUid: first.appUid },

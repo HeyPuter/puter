@@ -506,6 +506,38 @@ describe('the set a delivery addresses', () => {
         expect(again[0].sourceHash).toBe(hashContent(SOURCE));
     });
 
+    it('checks an empty replica read on the primary', async () => {
+        await handlers().publish({
+            appUid: cachedApp,
+            name: 'a',
+            source: SOURCE,
+        });
+        // The replica hasn't seen the publish yet.
+        const read = vi
+            .spyOn(env.server.clients.db, 'read')
+            .mockResolvedValueOnce([]);
+        const pread = vi.spyOn(env.server.clients.db, 'pread');
+        try {
+            const set = await handlers().cachedSetForApp(cachedApp, {
+                missRead: 'replica',
+            });
+            expect(set.map((h) => h.name)).toEqual(['a']);
+            expect(pread).toHaveBeenCalledTimes(1);
+
+            // The primary's answer is cached for the next run. (SQLite's
+            // `pread` goes through `read`, so count from here.)
+            const reads = read.mock.calls.length;
+            await handlers().cachedSetForApp(cachedApp, {
+                missRead: 'replica',
+            });
+            expect(read).toHaveBeenCalledTimes(reads);
+            expect(pread).toHaveBeenCalledTimes(1);
+        } finally {
+            read.mockRestore();
+            pread.mockRestore();
+        }
+    });
+
     it('follows every publish and removal', async () => {
         await handlers().publish({
             appUid: cachedApp,

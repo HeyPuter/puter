@@ -2948,6 +2948,10 @@ export class MeteringService extends PuterService {
             timestamp: number;
         } | null;
 
+        // Several schedulers can share the baseline (one per region without a
+        // fleet scheduler, or old nodes mid-rollout); keep windows wide.
+        if (lastChange && now - lastChange.timestamp <= 14 * 60 * 1000) return;
+
         const globalUsage = await this.getGlobalUsage();
         const currTotal = globalUsage.total;
 

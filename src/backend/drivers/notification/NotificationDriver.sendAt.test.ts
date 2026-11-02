@@ -145,7 +145,7 @@ const write = (
         signal?: AbortSignal;
     } = {},
 ) =>
-    driver().writeDeferredAppMessage(
+    driver().deferredAppMessages.write(
         {
             holderUserId: holder.user!.id,
             appUid: over.appUid ?? app.uid,
@@ -312,7 +312,7 @@ describe('notify({ sendAt }) with services.schedules', () => {
     });
 });
 
-describe('writeDeferredAppMessage', () => {
+describe('deferredAppMessages.write', () => {
     it('writes one row keyed by the send, in the caller`s transaction', async () => {
         const token = uuidv4();
         const key = uuidv4();

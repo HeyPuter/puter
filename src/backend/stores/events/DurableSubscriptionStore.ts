@@ -626,7 +626,11 @@ export class DurableSubscriptionStore extends PuterStore {
      * stops delivering against it without waiting for a rebuild.
      */
     async sweepExpired(batchSize: number): Promise<DurableReap> {
-        return this.#reap(await this.#listExpired(nowSeconds(), batchSize));
+        const cutoff = nowSeconds();
+        return this.#reap(await this.#listExpired(cutoff, batchSize), {
+            where: '`expires_at` IS NOT NULL AND `expires_at` <= ?',
+            values: [cutoff],
+        });
     }
 
     /**
@@ -638,7 +642,10 @@ export class DurableSubscriptionStore extends PuterStore {
         cutoff: number,
         batchSize: number,
     ): Promise<DurableReap> {
-        return this.#reap(await this.#listSuspendedBefore(cutoff, batchSize));
+        return this.#reap(await this.#listSuspendedBefore(cutoff, batchSize), {
+            where: '`suspended_at` IS NOT NULL AND `suspended_at` <= ?',
+            values: [cutoff],
+        });
     }
 
     // -- Reads -------------------------------------------------------
@@ -768,13 +775,15 @@ export class DurableSubscriptionStore extends PuterStore {
      * lifts. A revocation needs them: those reasons hold a backlog, and a row
      * skipped here comes back in service on the next resume and hands it over.
      * Rows suspended for good are left out.
+     *
+     * `excludeSchedules` is for a settle no schedule row can match.
      */
     async listActiveForHolderPage(
         holderUserId: number,
         appUid: string | null,
         afterId: number,
         batchSize: number = HOLDER_SETTLE_BATCH,
-        opts: { includeSuspended?: boolean } = {},
+        opts: { includeSuspended?: boolean; excludeSchedules?: boolean } = {},
     ): Promise<DurablePage> {
         const where = [
             '`holder_user_id` = ?',
@@ -788,6 +797,10 @@ export class DurableSubscriptionStore extends PuterStore {
             ...(opts.includeSuspended ? TERMINAL_SUSPENDED_REASONS : []),
             nowSeconds(),
         ];
+        if (opts.excludeSchedules) {
+            where.push(NOT_SCHEDULE_CLAUSE);
+            params.push(SCHEDULE_TOKEN_PATTERN);
+        }
         if (appUid !== null) {
             where.push('`app_uid` = ?');
             params.push(appUid);
@@ -1096,15 +1109,36 @@ export class DurableSubscriptionStore extends PuterStore {
      * Delete a batch and stop this region delivering against any of it. Other
      * regions stop once the caller publishes the returned bumps; the deleted
      * rows come back so the caller can end the schedules among them.
+     *
+     * `stillDue` re-checks candidates read from a replica on the primary, so a
+     * row resumed or extended since is kept and not reported.
      */
-    async #reap(rows: readonly DurableSubscription[]): Promise<DurableReap> {
-        if (rows.length === 0) return { rows: [], bumps: [] };
+    async #reap(
+        candidates: readonly DurableSubscription[],
+        stillDue?: { where: string; values: unknown[] },
+    ): Promise<DurableReap> {
+        if (candidates.length === 0) return { rows: [], bumps: [] };
 
+        const ids = candidates.map((row) => row.subId);
+        const inList = `(${ids.map(() => '?').join(', ')})`;
         await this.clients.db.write(
-            `DELETE FROM \`${TABLE}\` WHERE \`sub_id\` IN ` +
-                `(${rows.map(() => '?').join(', ')})`,
-            rows.map((row) => row.subId),
+            `DELETE FROM \`${TABLE}\` WHERE \`sub_id\` IN ${inList}` +
+                (stillDue ? ` AND ${stillDue.where}` : ''),
+            [...ids, ...(stillDue?.values ?? [])],
         );
+        let rows = candidates;
+        if (stillDue) {
+            const kept = new Set(
+                (
+                    await this.clients.db.pread(
+                        `SELECT \`sub_id\` FROM \`${TABLE}\` WHERE \`sub_id\` IN ${inList}`,
+                        ids,
+                    )
+                ).map((row) => String(row.sub_id)),
+            );
+            rows = candidates.filter((row) => !kept.has(row.subId));
+            if (rows.length === 0) return { rows: [], bumps: [] };
+        }
 
         const cached = rows.filter((row) => !isScheduleRow(row));
         await this.stores.eventSubscription.dropDurables(cached);

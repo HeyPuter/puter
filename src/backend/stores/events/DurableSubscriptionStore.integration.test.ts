@@ -772,6 +772,31 @@ describe('the expiry sweep', () => {
     });
 });
 
+describe('a sweep reading a lagging replica', () => {
+    it('keeps a row the primary resumed since, and does not report it', async () => {
+        const { row } = await durable().create(input());
+        await durable().suspend([row], 'permission_revoked');
+        const [stale] = await env.server.clients.db.pread(
+            'SELECT * FROM `event_subscriptions` WHERE `sub_id` = ?',
+            [row.subId],
+        );
+        await durable().resume([row]);
+        // The replica still has it suspended.
+        vi.spyOn(env.server.clients.db, 'read').mockResolvedValueOnce([stale]);
+
+        const reaped = await durable().sweepSuspended(
+            Math.floor(Date.now() / 1000) + 3600,
+            500,
+        );
+
+        expect(reaped.rows).toEqual([]);
+        await expect(durable().getBySubId(row.subId)).resolves.toMatchObject({
+            subId: row.subId,
+            suspendedAt: null,
+        });
+    });
+});
+
 describe('listHolderIdsForApp', () => {
     it('names every distinct holder bound to the app`s handlers', async () => {
         const appUid = `app-${uuidv4()}`;

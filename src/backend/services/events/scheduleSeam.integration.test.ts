@@ -47,6 +47,7 @@ import {
 } from '../../stores/events/types.js';
 import { setupTestServer } from '../../testUtil.js';
 import type { IConfig } from '../../types.js';
+import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 const APP_UID = 'app-seam';
@@ -224,6 +225,70 @@ describe('the schedules lifecycle hook', () => {
                 },
             },
         ]);
+    });
+
+    it('reads no schedule rows to settle a specific grant, and still settles them when consent goes', async () => {
+        const calls = recording();
+        const schedule = await scheduleRow();
+        const plain = await plainRow();
+        const page = vi.spyOn(durable(), 'listActiveForHolderPage');
+        const readSubIds = async () =>
+            (await Promise.all(page.mock.results.map((r) => r.value))).flatMap(
+                (p) => p.rows.map((row: DurableSubscription) => row.subId),
+            );
+
+        await server.services.events.settleRevokedGrant({
+            holderUserId: userId,
+            appUid: APP_UID,
+            permission: `fs:${anchorUid}:list`,
+        });
+        const read = await readSubIds();
+        expect(read).toContain(plain.subId);
+        expect(read).not.toContain(schedule.subId);
+        expect(calls).toEqual([]);
+
+        page.mockClear();
+        await server.services.events.settleRevokedGrant({
+            holderUserId: userId,
+            appUid: APP_UID,
+            permission: EVENTS_BACKGROUND_PERMISSION,
+        });
+        expect(await readSubIds()).toContain(schedule.subId);
+        expect(calls).toEqual([
+            {
+                subIds: [schedule.subId],
+                change: { type: 'suspended', reason: 'permission_revoked' },
+            },
+        ]);
+    });
+
+    it('tells the holder once per kind when an uninstall settles several pages', async () => {
+        recording();
+        const plains = [await plainRow(), await plainRow(), await plainRow()];
+        const schedules = [await scheduleRow(), await scheduleRow()];
+        const store = durable();
+        const listPage = store.listActiveForHolderPage.bind(store);
+        vi.spyOn(store, 'listActiveForHolderPage').mockImplementation(
+            (holder, app, afterId, _batchSize, opts) =>
+                listPage(holder, app, afterId, 1, opts),
+        );
+        const notify = vi.spyOn(server.services.notification, 'notify');
+
+        await expect(
+            server.services.events.settleRevokedGrant({
+                holderUserId: userId,
+                appUid: APP_UID,
+                permission: null,
+            }),
+        ).resolves.toBe(5);
+        const ended = notify.mock.calls
+            .filter(([, , meta]) => meta?.type === 'app.events.ended')
+            .map(([, body]) => body as { count: number; subjects: string[] });
+        expect(ended).toHaveLength(2);
+        expect(ended.map((body) => body.count).sort()).toEqual([2, 3]);
+        expect(ended.flatMap((body) => body.subjects).sort()).toEqual(
+            [...plains, ...schedules].map((row) => row.subject).sort(),
+        );
     });
 
     it('ends schedules app_deleted when their app is deleted', async () => {

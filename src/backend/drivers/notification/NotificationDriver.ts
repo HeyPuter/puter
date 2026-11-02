@@ -540,12 +540,19 @@ export class NotificationDriver extends PuterDriver {
     }
 
     /**
+     * For extensions. A field, not a method, so `/drivers/call` can't reach it.
+     */
+    readonly deferredAppMessages = {
+        write: (input: DeferredWriteInput, tx: DeferredWriteTx) =>
+            this.#writeDeferredAppMessage(input, tx),
+    };
+
+    /**
      * Check the sender and recipient as they stand now, spend the recipient's
      * limits, and write the mailbox row through `tx`, fenced on its guard.
-     * Called by extensions. Refusals are the same `HttpError`s an immediate
-     * send throws.
+     * Refusals are the same `HttpError`s an immediate send throws.
      */
-    async writeDeferredAppMessage(
+    async #writeDeferredAppMessage(
         input: DeferredWriteInput,
         tx: DeferredWriteTx,
     ): Promise<DeferredWriteOutcome> {

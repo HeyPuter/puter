@@ -53,8 +53,11 @@ const RETENTION_SWEEP_EVERY_MS = 60 * 60 * 1000;
 const RETENTION_SWEEP_LEASE_MS = 15 * 60 * 1000;
 /** Rows one delete takes. Small enough not to hold a lock anyone waits on. */
 const RETENTION_BATCH_SIZE = 500;
-/** Batches one sweep takes, so a large backlog drains over several passes. */
-const RETENTION_MAX_BATCHES = 50;
+/**
+ * Batches one sweep takes at most. It runs once for the fleet, so this is the
+ * fleet's hourly drain; the job's signal stops it sooner.
+ */
+const RETENTION_MAX_BATCHES = 1000;
 /** Unread notifications one reconnect replays. */
 const UNREAD_REPLAY_LIMIT = 200;
 

@@ -33,7 +33,7 @@ BEGIN
       AND INDEX_NAME = 'idx_notification_send_key'
   ) THEN
     ALTER TABLE `notification` ADD UNIQUE KEY `idx_notification_send_key`
-      (`send_key`);
+      (`send_key`), ALGORITHM=INPLACE, LOCK=NONE;
   END IF;
 END//
 DELIMITER ;

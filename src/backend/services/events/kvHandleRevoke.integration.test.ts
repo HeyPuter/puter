@@ -402,7 +402,7 @@ describe('revoking a handle', () => {
                     null,
                     0,
                     undefined,
-                    { includeSuspended: true },
+                    { includeSuspended: true, excludeSchedules: true },
                 ]);
         } finally {
             byHolder.mockRestore();

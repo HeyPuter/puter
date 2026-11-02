@@ -1543,6 +1543,33 @@ describe('PuterServer lifecycle hooks', () => {
     });
 });
 
+describe('PuterServer shutdown during prepare', () => {
+    it('waits for prepare hooks the drain already started before tearing down', async () => {
+        const port = await allocateEphemeralPort();
+        const server = await setupTestServer({ port } as unknown as IConfig, {
+            listen: true,
+        });
+        const order: string[] = [];
+        (server.services as unknown as Record<string, unknown>).slowPrepare = {
+            onServerPrepareShutdown: async () => {
+                order.push('prepare:start');
+                await new Promise((resolve) => setTimeout(resolve, 200));
+                order.push('prepare:done');
+            },
+            onServerShutdown: () => {
+                order.push('shutdown');
+            },
+        };
+
+        await server.prepareShutdown({ drainMs: 0 });
+        // The listener's close callback starts the prepare hooks.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await server.shutdown();
+
+        expect(order).toEqual(['prepare:start', 'prepare:done', 'shutdown']);
+    });
+});
+
 /**
  * An extension may take over `services.jobs` (a fleet-wide scheduler). Core
  * services register their jobs on it at start, so it must keep the built-in's

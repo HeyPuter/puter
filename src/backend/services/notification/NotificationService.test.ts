@@ -912,17 +912,17 @@ describe('NotificationService.sweepExpired', () => {
     });
 
     it('stops at the pass cap and leaves the rest for the next sweep', async () => {
-        await notifications.sweepExpired();
-        const user = await makeUser();
-        // 50 passes * 500/batch = 25,000 — a backlog past that so the cap,
-        // not a short batch, is what ends the first call.
-        await seedExpired(user.id, 25_050);
-
-        expect(await notifications.sweepExpired()).toBe(25_000);
-        expect(
-            await server.stores.notification.listByUserId(user.id),
-        ).toHaveLength(50);
-        expect(await notifications.sweepExpired()).toBe(50);
+        // A backlog that always fills the batch: the cap, not a short batch,
+        // is what ends the call. Seeding 500k rows would take minutes.
+        const deletes = vi
+            .spyOn(server.stores.notification, 'deleteCreatedBefore')
+            .mockResolvedValue(500);
+        try {
+            expect(await notifications.sweepExpired()).toBe(500_000);
+            expect(deletes).toHaveBeenCalledTimes(1000);
+        } finally {
+            deletes.mockRestore();
+        }
     });
 
     it('stops between batches once its signal aborts', async () => {

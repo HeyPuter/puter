@@ -366,8 +366,9 @@ export class EventHandlerStore extends PuterStore {
      * every write here. An empty set is not cached: it fails the delivery, and
      * must not outlast the publish that fills it. Schedule runs read a miss
      * from the replica (`missRead: 'replica'`), since they come by the clock
-     * rather than after a write, and cache it under a key of their own. Called
-     * by extensions.
+     * rather than after a write, and cache it under a key of their own; an
+     * empty replica read is checked on the primary, since a lagging replica
+     * right after a publish would fail the run. Called by extensions.
      */
     async cachedSetForApp(
         appUid: string,
@@ -387,7 +388,8 @@ export class EventHandlerStore extends PuterStore {
             // Read the table instead.
         }
 
-        const set = await this.setForApp(appUid, { replica });
+        let set = await this.setForApp(appUid, { replica });
+        if (replica && set.length === 0) set = await this.setForApp(appUid);
         if (set.length > 0) {
             try {
                 await this.clients.redis.set(

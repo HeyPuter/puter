@@ -428,6 +428,20 @@ export class NotificationStore extends PuterStore {
                 ],
             });
         }
+        // Already written: the new row's uid is the key, or a replaced row
+        // carries it. Point lookups on `uid`, since a miss on the mostly-NULL
+        // `send_key` index gap-locks where every plain insert goes.
+        const written = send.replaceUid
+            ? {
+                  sql:
+                      'NOT EXISTS (SELECT 1 FROM `notification` WHERE `uid` = ?) ' +
+                      'AND NOT EXISTS (SELECT 1 FROM `notification` WHERE `uid` = ? AND `send_key` = ?)',
+                  values: [send.sendKey, send.replaceUid, send.sendKey],
+              }
+            : {
+                  sql: 'NOT EXISTS (SELECT 1 FROM `notification` WHERE `uid` = ?)',
+                  values: [send.sendKey],
+              };
         // Postgres can't type a bare parameter in a SELECT list.
         const param = (type) =>
             db.case({ postgres: `CAST(? AS ${type})`, otherwise: '?' });
@@ -438,8 +452,7 @@ export class NotificationStore extends PuterStore {
                 `SELECT ${param('TEXT')}, ${param('INTEGER')}, ${param('JSONB')}, ` +
                 `${param('TEXT')}, ${param('TEXT')}, ${param('TEXT')}, ` +
                 `${param('TEXT')}, ${db.timestampFromUnixSql()}, ${param('TEXT')} ` +
-                `FROM \`${guard.table}\` WHERE ${guard.where} AND NOT EXISTS ` +
-                '(SELECT 1 FROM `notification` WHERE `send_key` = ?)',
+                `FROM \`${guard.table}\` WHERE ${guard.where} AND ${written.sql}`,
             values: [
                 send.sendKey,
                 send.userId,
@@ -451,7 +464,7 @@ export class NotificationStore extends PuterStore {
                 seconds,
                 send.sendKey,
                 ...guard.values,
-                send.sendKey,
+                ...written.values,
             ],
         });
         return entries;
