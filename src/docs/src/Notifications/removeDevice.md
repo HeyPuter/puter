@@ -8,6 +8,8 @@ platforms: [websites, apps]
 
 Removes one of the user's devices, so it gets no more push notifications. Signing out of a session also removes the devices registered from it.
 
+Removing a `'webpush'` device sticks. The website that subscribed that browser doesn't register it again on page loads. The site turns pushes off in that browser the next time a page with [`onPush()`](/Notifications/onPush/) loads or calls [`status()`](/Notifications/status/). Calling [`enable()`](/Notifications/enable/) on the site turns them back on.
+
 ## Syntax
 ```js
 puter.notifications.removeDevice(uid)

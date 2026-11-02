@@ -13,7 +13,8 @@ import { webPushSupported, workerFor } from './lib/webPush.js';
  * and sends the subscription to Puter. It resolves then; Puter's confirmation
  * push finishes the registration in the background. It rejects with
  * `push_revoked` when the user turned the app off in Puter;
- * `requestPermission()` from a click undoes that.
+ * `requestPermission()` from a click undoes that. A browser the user removed in
+ * Puter is subscribed again.
  *
  * @this {import('./index.js').NotificationsModule}
  * @param {{ serviceWorker?: string }} [options]

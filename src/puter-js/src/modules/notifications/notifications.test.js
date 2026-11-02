@@ -8,6 +8,7 @@ vi.mock('../../lib/networkUtils.js', () => ({
 }));
 
 const { NotificationsModule } = await import('./index.js');
+const { webPushState } = await import('./lib/webPush.js');
 const { PuterJSError } = await import('../../lib/PuterJSError.js');
 
 const jsonResponse = (body, status = 200) => ({
@@ -1334,5 +1335,46 @@ describe('devices', () => {
         const error = await rejects(() => makeModule().removeDevice(''));
         expect(error.code).toBe('invalid_argument');
         expect(mockFetchUrl).not.toHaveBeenCalled();
+    });
+});
+
+describe('webPushState', () => {
+    const host = { APIOrigin: 'https://api.test' };
+
+    it('asks POST /push/web/subscriptions/status without opening a sign-in', async () => {
+        mockFetchUrl.mockResolvedValue(jsonResponse({ state: 'removed' }));
+        await expect(
+            webPushState(host, 'https://push.example/1'),
+        ).resolves.toBe('removed');
+        const [url, init] = mockFetchUrl.mock.calls[0];
+        expect(url).toBe('https://api.test/push/web/subscriptions/status');
+        expect(init).toMatchObject({
+            method: 'POST',
+            includePuterAuth: true,
+            interactiveReauth: false,
+            body: JSON.stringify({ endpoint: 'https://push.example/1' }),
+        });
+    });
+
+    it.each([
+        [
+            'a server without the route',
+            () =>
+                jsonResponse({ message: 'Not Found', code: 'not_found' }, 404),
+        ],
+        ['an error', () => jsonResponse({ code: 'internal_error' }, 500)],
+        ['an unknown state', () => jsonResponse({ state: 'paused' })],
+    ])('is null for %s', async (_name, response) => {
+        mockFetchUrl.mockResolvedValue(response());
+        await expect(
+            webPushState(host, 'https://push.example/1'),
+        ).resolves.toBe(null);
+    });
+
+    it('is null when the request fails', async () => {
+        mockFetchUrl.mockRejectedValue(new TypeError('Failed to fetch'));
+        await expect(
+            webPushState(host, 'https://push.example/1'),
+        ).resolves.toBe(null);
     });
 });
