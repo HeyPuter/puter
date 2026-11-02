@@ -2638,6 +2638,32 @@ describe('a different user signing in', () => {
         );
     });
 
+    it('ends push for a user who signed out and back in with the same token, once another user signs in', async () => {
+        const { module, host, subscription } = signedIn({ whoami: undefined });
+        server((route) => {
+            if (route === '/whoami') return { uuid: USERS[host.authToken] };
+            if (route === '/push/web/subscriptions')
+                return { status: 'active', device: { uid: 'd1' } };
+            return { removed: true };
+        });
+        await module._forgetPush('token-a');
+        host.setAuthToken(null);
+        host.setAuthToken('token-a');
+        await expect(module.enable()).resolves.toBe(true);
+        expect(store.get(OPT_IN)).toBe(true);
+        mockRequest.mockClear();
+        subscription.unsubscribe.mockClear();
+
+        host.setAuthToken('token-b');
+        await vi.waitFor(() => expect(deletes()).toHaveLength(1));
+        expect(deletes()[0][4]).toMatchObject({ authToken: 'token-a' });
+        expect(subscription.unsubscribe).toHaveBeenCalled();
+        expect(store.has(OPT_IN)).toBe(false);
+
+        await expect(module.enable()).resolves.toBe(true);
+        expect(store.get('handlers:puter:opt-in:u-2')).toBe(true);
+    });
+
     it('tells users apart by the cached /whoami when the token names none', async () => {
         const listeners = new Set();
         const { host } = signedIn({

@@ -547,6 +547,9 @@ export class NotificationsModule extends EventListener {
         let last = null;
         const note = () => {
             const token = this.puter.authToken;
+            // Signed in again with it, so a later change cleans up again.
+            if (token && token === this.#forgottenToken)
+                this.#forgottenToken = null;
             if (!token || token === last?.token) return;
             const previous = last;
             last = { token, user: this.#tokenUser(token) };
