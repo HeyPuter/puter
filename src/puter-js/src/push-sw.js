@@ -255,6 +255,20 @@
         return matches(kept) ? kept : null;
     }
 
+    // Like claimClick, but keeps the copy, without its id, for the page opened next.
+    async function reclaimClick (uid, id) {
+        const kept = await idb(CLICKS, 'readwrite', (s) => {
+            const req = s.get(uid);
+            req.addEventListener('success', () => {
+                if ( req.result?.id !== id ) return;
+                const { id: _, ...copy } = req.result;
+                s.put({ ...copy, at: Date.now() }, uid);
+            });
+            return req;
+        });
+        return kept?.id === id ? kept : null;
+    }
+
     function waitForClickAck (id, timeoutMs) {
         return new Promise((resolve) => {
             const timer = setTimeout(() => {
@@ -299,14 +313,19 @@
             } catch {
                 // focus is refused once the click's window has passed
             }
-            const answered = await acked;
+            if ( await acked ) {
+                // A page that took the tap removed it; an older page leaves it.
+                if ( kept ) await claimClick(click.uid, id).catch(() => null);
+                return;
+            }
             // Already there: the page may still take its copy; reloading would lose its state.
-            if ( ! answered && win.url === url ) return;
-            // A page that took the tap removed it; a failed claim counts as the page's.
-            const mine = kept ? await claimClick(click.uid, id).catch(() => null) : null;
-            if ( answered || (kept && ! mine) ) return;
+            if ( win.url === url ) return;
+            // A failed claim counts as the page's, so the tap runs at most once.
+            if ( kept && ! await reclaimClick(click.uid, id).catch(() => null) ) return;
+            if ( ! kept ) await keepClick(click);
+        } else {
+            await keepClick(click);
         }
-        await keepClick(click);
         const opened = new URL(url);
         if ( click.uid ) opened.searchParams.set(CLICK_PARAM, click.uid);
         if ( win?.navigate ) {

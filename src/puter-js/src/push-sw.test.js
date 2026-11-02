@@ -504,6 +504,25 @@ describe('push-sw notificationclick', () => {
             expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
         });
 
+        it('taking it back and keeping it for the next page in one transaction', async () => {
+            const open = windowClient(`${ORIGIN}/inbox`);
+            const worker = loadWorker({ windows: [open] });
+            let posted = 0;
+            await worker.tap(TAP, () => {
+                posted = worker.stores.log.length;
+            });
+            await wait(10);
+            const after = worker.stores.log.slice(posted).filter((t) => t.name === 'clicks');
+            expect(after).toEqual([{ name: 'clicks', mode: 'readwrite' }]);
+            expect(open.navigate).toHaveBeenCalledWith(`${ORIGIN}/chat?puter.notification=n1`);
+            expect(worker.stores.clicks.get('n1')).toEqual({
+                uid: 'n1',
+                target: '/chat',
+                data: null,
+                at: expect.any(Number),
+            });
+        });
+
         it('when the page claimed it but its ack came too late', async () => {
             const open = windowClient(`${ORIGIN}/inbox`);
             const worker = loadWorker({ windows: [open] });
