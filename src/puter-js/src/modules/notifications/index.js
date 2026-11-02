@@ -78,12 +78,19 @@ const warnStorage = (error) => {
     );
 };
 
-/** Runs `run` alone among the site's tabs, where the browser has Web Locks. */
-const withPushLock = (run) => {
-    const locks = globalThis.navigator?.locks;
-    return typeof locks?.request === 'function'
-        ? locks.request(PUSH_LOCK, () => run())
-        : run();
+/** Runs `run` alone among the site's tabs, or as is where Web Locks refuse. */
+const withPushLock = async (run) => {
+    let started = false;
+    const start = () => {
+        started = true;
+        return run();
+    };
+    try {
+        return await globalThis.navigator.locks.request(PUSH_LOCK, start);
+    } catch (error) {
+        if (started) throw error;
+        return await start();
+    }
 };
 
 /** Hidden, or in a window without focus. */

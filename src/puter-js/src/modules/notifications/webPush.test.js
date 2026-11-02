@@ -2250,6 +2250,47 @@ describe('sign-out', () => {
     });
 });
 
+describe('where the browser refuses Web Locks, as in a sandboxed frame', () => {
+    beforeEach(() => {
+        Object.defineProperty(globalThis.navigator, 'locks', {
+            value: {
+                request: vi.fn(async () => {
+                    throw new Error('The request was denied');
+                }),
+            },
+            configurable: true,
+        });
+    });
+    afterEach(() => {
+        delete globalThis.navigator.locks;
+    });
+
+    it('signs out without rejecting and still ends the subscription', async () => {
+        store.set(OPT_IN, true);
+        store.set(SERVER_KEY, KEY);
+        const subscription = makeSubscription();
+        withBrowser(makeNav({ existing: subscription }));
+        mockRequest.mockResolvedValue({ removed: true });
+        const { module } = makeModule();
+        await expect(
+            module._forgetPush('leaving-token'),
+        ).resolves.toBeUndefined();
+        expect(subscription.unsubscribe).toHaveBeenCalled();
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
+    it('still ends a subscription left here without an opt-in on load', async () => {
+        store.set(SERVER_KEY, KEY);
+        const subscription = makeSubscription();
+        withBrowser(makeNav({ existing: subscription }));
+        const { module } = makeModule();
+        await module.onPush('chat', () => {}, { onError: () => {} });
+        await vi.waitFor(() =>
+            expect(subscription.unsubscribe).toHaveBeenCalled(),
+        );
+    });
+});
+
 describe('a different user signing in', () => {
     const USERS = { 'token-a': 'u-1', 'token-a2': 'u-1', 'token-b': 'u-2' };
     /** A page signed in as u-1, whose tokens name their user in `uu`. */
