@@ -31,6 +31,7 @@ import {
     checkDriverRateLimit,
 } from '../../core/http/middleware/rateLimit.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
+import type { LifecycleRejectStatus } from '../../clients/event/types.js';
 import type { DriverMeta } from '../../drivers/meta.js';
 import {
     isCreditExhaustion,
@@ -334,7 +335,8 @@ export class DriverController extends PuterController {
 
         if (req.actor) {
             const permService = this.services.permission as unknown as
-                PermissionService | undefined;
+                | PermissionService
+                | undefined;
             if (permService) {
                 // Build via PermissionUtil.join so any `:` in a driver or
                 // interface name is escaped — raw interpolation would let a
@@ -475,6 +477,7 @@ export class DriverController extends PuterController {
             args,
             allow: true as boolean,
             rejectReason: undefined as string | undefined,
+            rejectStatus: undefined as LifecycleRejectStatus | undefined,
         };
         await this.clients.event?.emitAndWait(
             `driver.${ifaceName}.${method}.before`,
@@ -496,11 +499,12 @@ export class DriverController extends PuterController {
                 },
                 {},
             );
+            const throttled = beforeEvent.rejectStatus === 429;
             throw new HttpError(
-                403,
+                throttled ? 429 : 403,
                 beforeEvent.rejectReason ??
                     `Blocked by policy: ${ifaceName}:${method}`,
-                { legacyCode: 'forbidden' },
+                { legacyCode: throttled ? 'too_many_requests' : 'forbidden' },
             );
         }
 

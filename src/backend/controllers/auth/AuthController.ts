@@ -1335,6 +1335,7 @@ export class AuthController extends PuterController {
             user_uid: user.uuid,
             phone: parsed.e164,
             device_fingerprint: req.deviceFingerprint ?? null,
+            dispatch_id: dispatchId ?? null,
             allowed: true,
             reason: null as string | null,
             card_fallback_instead: false,

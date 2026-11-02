@@ -5197,7 +5197,7 @@ describe('AuthController phone verification — staging & reuse', () => {
         );
     });
 
-    it('carries the client dispatch id on the sent signal', async () => {
+    it('carries the client dispatch id on the check and sent events', async () => {
         const { actor } = await makeUserAndActor();
         const emit = vi.fn();
         const emitAndWait = vi.fn(async () => {});
@@ -5215,6 +5215,11 @@ describe('AuthController phone verification — staging & reuse', () => {
         );
         expect(emit).toHaveBeenCalledWith(
             'puter.phone-verification.sent',
+            expect.objectContaining({ dispatch_id: 'disp-123' }),
+            expect.anything(),
+        );
+        expect(emitAndWait).toHaveBeenCalledWith(
+            'puter.phone-verification.check',
             expect.objectContaining({ dispatch_id: 'disp-123' }),
             expect.anything(),
         );
