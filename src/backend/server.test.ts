@@ -472,6 +472,59 @@ describe('PuterServer host header validation — permissive modes', () => {
     });
 });
 
+describe('PuterServer behind a trusted proxy', () => {
+    let server: PuterServer;
+    let port: number;
+
+    beforeAll(async () => {
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${port}`,
+                api_base_url: `http://api.puter.localhost:${port}`,
+                allow_all_host_values: false,
+                allow_no_host_header: false,
+                custom_domains_enabled: false,
+                static_hosting_domain: 'site.puter.localhost',
+                trust_proxy: 1,
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('serves the main domain whatever X-Forwarded-Host names', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: `puter.localhost:${port}`,
+            'x-forwarded-host': 'nosuchsite.site.puter.localhost',
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['x-frame-options']).toBe('SAMEORIGIN');
+    });
+
+    it('keeps a hosted-site host on site hosting', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: `nosuchsite.site.puter.localhost:${port}`,
+            'x-forwarded-host': 'api.puter.localhost',
+        });
+        expect(res.status).toBe(404);
+    });
+
+    it('reads subdomains from Host', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: `api.puter.localhost:${port}`,
+            'x-forwarded-host': 'puter.localhost',
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers['x-frame-options']).toBeUndefined();
+    });
+});
+
 describe('PuterServer host header validation — custom domains with every host accepted', () => {
     let server: PuterServer;
     let port: number;
