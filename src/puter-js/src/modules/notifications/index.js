@@ -21,6 +21,7 @@ import {
     currentWebPush,
     removeWebPush,
     syncWebPush,
+    unsubscribeWebPush,
     webPushState,
     webPushSupported,
     workerFor,
@@ -239,6 +240,7 @@ export class NotificationsModule extends EventListener {
         ]) {
             methods[name] = methods[name].bind(this);
         }
+        if (puter.env === 'web') this.#watchUser();
     }
 
     /**
@@ -340,7 +342,7 @@ export class NotificationsModule extends EventListener {
 
     /**
      * `onPush`'s sync on load, once per worker: only for a user who turned push
-     * on here with `enable()`.
+     * on here with `enable()`, else Puter's subscription here ends.
      *
      * @param {{ url: string; scope?: string }} worker
      * @internal
@@ -464,8 +466,9 @@ export class NotificationsModule extends EventListener {
     }
 
     /**
-     * Sign-out on a website: removes this browser's subscription with the token
-     * of the user leaving, and forgets their opt-in and taps. Never throws.
+     * Sign-out on a website: forgets every opt-in and tap here, ends Puter's
+     * subscription in the browser, then removes it with the token of the user
+     * leaving. Never throws.
      *
      * @param {string | null | undefined} authToken
      * @internal
@@ -473,17 +476,58 @@ export class NotificationsModule extends EventListener {
     async _forgetPush(authToken) {
         if (this.puter.env !== 'web') return;
         this.#stopSyncs();
-        try {
-            if (authToken && webPushSupported()) {
-                await removeWebPush(this.puter, { authToken });
+        this.#optInChanged('off');
+        await withPushLock(async () => {
+            await this.#forgetOptIns();
+            if (!webPushSupported()) return;
+            try {
+                await (authToken
+                    ? removeWebPush(this.puter, { authToken, keepalive: true })
+                    : unsubscribeWebPush(this.puter));
+            } catch (error) {
+                console.warn(
+                    '[puter.notifications] could not remove the push subscription at sign-out',
+                    error,
+                );
             }
-        } catch (error) {
-            console.warn(
-                '[puter.notifications] could not remove the push subscription at sign-out',
-                error,
-            );
-        }
-        await this.#forgetOptIns();
+        });
+    }
+
+    /** Another user signing in here ends push for the last one, as sign-out. */
+    #watchUser() {
+        /** @type {{ token: string; user: Promise<string | null> } | null} */
+        let last = null;
+        const note = () => {
+            const token = this.puter.authToken;
+            if (!token || token === last?.token) return;
+            const previous = last;
+            last = { token, user: this.#tokenUser(token) };
+            if (previous) void this.#forgetIfAnotherUser(previous, last);
+        };
+        note();
+        this.puter.onAuthStateChanged?.(note);
+    }
+
+    async #forgetIfAnotherUser(previous, current) {
+        const [was, now] = await Promise.all([previous.user, current.user]);
+        if (was && now && was !== now) await this._forgetPush(previous.token);
+    }
+
+    /** The user `token` names: its `uu` claim, else its cached `/whoami`. */
+    async #tokenUser(token) {
+        const claim = this.puter.decodeJwtPayload?.(token)?.uu;
+        const named =
+            typeof claim === 'string'
+                ? this.puter
+                      .decodeCompressedAppID?.(claim)
+                      ?.replace(/^app-/, '')
+                : null;
+        if (named) return named;
+        // `setAuthToken` starts that lookup right after telling its listeners.
+        await null;
+        if (this.puter.authToken !== token) return null;
+        const user = await this.puter.whoamiCache_;
+        return typeof user?.uuid === 'string' ? user.uuid : null;
     }
 
     #useWorker(worker) {
@@ -555,20 +599,22 @@ export class NotificationsModule extends EventListener {
         this.#optInVersion++;
     }
 
-    /** The signed-in user's opt-in, read from IndexedDB into `#optedIn`. */
+    /** The user's opt-in, read into `#optedIn`; null when it can't be read. */
     async #readOptIn() {
         this.#listenForOptInChanges();
         const version = this.#optInVersion;
+        /** @type {boolean | null} */
         let on = false;
         try {
-            const uuid = needsSignIn(this.puter)
-                ? null
-                : await this.#userUuid();
-            on = !!uuid && (await hasOptIn(uuid));
+            if (!needsSignIn(this.puter)) {
+                const uuid = await this.#userUuid();
+                on = uuid ? await hasOptIn(uuid) : null;
+            }
         } catch (error) {
             warnStorage(error);
+            on = null;
         }
-        if (version === this.#optInVersion) this.#optedIn = on;
+        if (version === this.#optInVersion) this.#optedIn = on === true;
         return on;
     }
 
@@ -596,17 +642,31 @@ export class NotificationsModule extends EventListener {
     }
 
     async #syncIfOptedIn(worker) {
-        if (!(await this.#readOptIn())) return;
+        const optedIn = await this.#readOptIn();
+        if (optedIn === false) await this.#endUnwanted();
+        if (!optedIn) return;
         await this.#finishSync(
             syncWebPush(this.puter, {
                 worker,
                 signal: this.#stopVerifying.signal,
-                stillWanted: () => this.#readOptIn(),
+                stillWanted: async () => (await this.#readOptIn()) === true,
                 withLock: withPushLock,
             }),
             worker,
             'could not keep the push subscription current',
         );
+    }
+
+    /** Ends a subscription left here without an opt-in, in the browser only. */
+    async #endUnwanted() {
+        await withPushLock(async () => {
+            if ((await this.#readOptIn()) !== false) return;
+            try {
+                await unsubscribeWebPush(this.puter);
+            } catch {
+                // The next load tries again.
+            }
+        });
     }
 
     /** Settles a sync nobody waits on; quiet about the expected failures. */

@@ -260,11 +260,46 @@ describe('signOut', () => {
         ]);
     });
 
+    it('resolves once push cleanup is done, with the token discarded at once', async () => {
+        let finish;
+        const puter = {
+            authToken: 't',
+            notifications: {
+                _forgetPush: vi.fn(
+                    () =>
+                        new Promise((resolve) => {
+                            finish = resolve;
+                        }),
+                ),
+            },
+            resetAuthToken: vi.fn(() => {
+                puter.authToken = null;
+            }),
+        };
+        vi.stubGlobal('puter', puter);
+        try {
+            let done = false;
+            const signingOut = makeAuth()
+                .signOut()
+                .then(() => {
+                    done = true;
+                });
+            expect(puter.authToken).toBeNull();
+            await Promise.resolve();
+            expect(done).toBe(false);
+            finish();
+            await signingOut;
+            expect(done).toBe(true);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
     it('signs out where there is no notifications module', () => {
         const puter = { authToken: 't', resetAuthToken: vi.fn() };
         vi.stubGlobal('puter', puter);
         try {
-            expect(() => makeAuth().signOut()).not.toThrow();
+            expect(makeAuth().signOut()).toBeInstanceOf(Promise);
         } finally {
             vi.unstubAllGlobals();
         }

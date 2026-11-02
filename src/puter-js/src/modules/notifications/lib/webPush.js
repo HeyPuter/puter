@@ -488,14 +488,8 @@ export async function webPushState(puter, endpoint) {
     }
 }
 
-/**
- * Ends this browser's subscriptions made with Puter's key, at `worker` or
- * anywhere on the origin without one, and tells the server, with `authToken` in
- * place of the live token when given.
- *
- * @returns {Promise<boolean>} Whether there was a subscription to remove.
- */
-export async function removeWebPush(
+/** Ends Puter's subscriptions in the browser only; resolves their endpoints. */
+export async function unsubscribeWebPush(
     puter,
     { worker = null, authToken, nav = globalThis.navigator } = {},
 ) {
@@ -506,18 +500,41 @@ export async function removeWebPush(
     });
     for (const subscription of subscriptions) {
         try {
-            await request(
+            await subscription.unsubscribe();
+        } catch {
+            // Already gone, or the browser can't tell.
+        }
+    }
+    return subscriptions.map((subscription) => subscription.endpoint);
+}
+
+/** `unsubscribeWebPush`, then the server; resolves whether there was one. */
+export async function removeWebPush(
+    puter,
+    {
+        worker = null,
+        authToken,
+        keepalive = false,
+        nav = globalThis.navigator,
+    } = {},
+) {
+    const endpoints = await unsubscribeWebPush(puter, {
+        worker,
+        authToken,
+        nav,
+    });
+    await Promise.all(
+        endpoints.map((endpoint) =>
+            request(
                 puter,
                 'DELETE',
                 '/push/web/subscriptions',
-                { endpoint: subscription.endpoint },
-                { authToken, interactiveReauth: false },
-            );
-        } finally {
-            await subscription.unsubscribe();
-        }
-    }
-    return subscriptions.length > 0;
+                { endpoint },
+                { authToken, interactiveReauth: false, keepalive },
+            ),
+        ),
+    );
+    return endpoints.length > 0;
 }
 
 /** This browser's subscription for `worker`, or null. */

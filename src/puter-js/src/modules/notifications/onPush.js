@@ -1,5 +1,4 @@
 import { PuterJSError } from '../../lib/PuterJSError.js';
-import { needsSignIn } from '../events/lib/signIn.js';
 import { webPushSupported, workerFor } from './lib/webPush.js';
 
 /** Same rule the server applies to a notification's `channel`. */
@@ -120,12 +119,7 @@ export async function onPush(key, handler, options = {}) {
         worker,
     });
 
-    if (
-        worker &&
-        !needsSignIn(puter) &&
-        webPushSupported() &&
-        Notification.permission === 'granted'
-    ) {
+    if (worker && webPushSupported() && Notification.permission === 'granted') {
         // Not awaited: a new subscription waits on a confirmation push.
         this._syncPushOnLoad(worker);
     }
