@@ -76,6 +76,7 @@ export type AccountGateUser = Partial<
         | 'phone'
         | 'card_fingerprint'
         | 'otp_enabled'
+        | 'metadata'
     >
 > & { id?: number };
 

@@ -66,6 +66,7 @@ import {
     isCardFallbackEnabled,
     phoneAttemptsKey,
 } from '../../util/cardFallback.js';
+import { isEmailGateLast } from '../../util/verificationOrder.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isStorableEmail } from '../../util/email.js';
 import { isGodmodeApp } from '../../util/godmodeApps.js';
@@ -1220,6 +1221,18 @@ export class AuthController extends PuterController {
         }
     }
 
+    /** The email-gate-last confirmation email; a failure never fails the gate. */
+    private async sendDeferredConfirmation(userId: number): Promise<void> {
+        try {
+            await this.services.signup.sendDeferredConfirmationEmail(userId);
+        } catch (e) {
+            console.warn(
+                '[verification] deferred confirmation email failed:',
+                e,
+            );
+        }
+    }
+
     private async isCardFallbackEligible(user: {
         id: number;
         requires_phone_verification?: boolean | number | null;
@@ -1265,6 +1278,12 @@ export class AuthController extends PuterController {
             throw new HttpError(403, 'Account suspended.', {
                 legacyCode: 'account_suspended',
             });
+        if (isEmailGateLast(user) && user.requires_card_verification)
+            throw new HttpError(
+                409,
+                'Card verification must be completed first.',
+                { legacyCode: 'conflict' },
+            );
         if (!this.clients.prelude?.isConfigured())
             throw await this.smsSendError(
                 503,
@@ -1574,6 +1593,7 @@ export class AuthController extends PuterController {
             requires_phone_verification: 0,
             phone: pendingPhone,
         });
+        await this.sendDeferredConfirmation(user.id);
 
         // Run the verified-event listeners synchronously (emitAndWait, not
         // fire-and-forget emit) so a carrier-based card-verification waiver in
@@ -1654,7 +1674,11 @@ export class AuthController extends PuterController {
             res.json({ card_verified: true });
             return;
         }
-        if (user.requires_phone_verification && !fallbackEligible)
+        if (
+            user.requires_phone_verification &&
+            !fallbackEligible &&
+            !isEmailGateLast(user)
+        )
             throw new HttpError(
                 409,
                 'Phone verification must be completed first.',
@@ -1717,6 +1741,7 @@ export class AuthController extends PuterController {
             await this.stores.user.update(user.id, {
                 requires_card_verification: 0,
             });
+            await this.sendDeferredConfirmation(user.id);
             res.json({ card_verified: true, disabled: true });
             return;
         }
@@ -1776,7 +1801,11 @@ export class AuthController extends PuterController {
             res.json({ card_verified: true });
             return;
         }
-        if (user.requires_phone_verification && !fallbackEligible)
+        if (
+            user.requires_phone_verification &&
+            !fallbackEligible &&
+            !isEmailGateLast(user)
+        )
             throw new HttpError(
                 409,
                 'Phone verification must be completed first.',
@@ -1817,6 +1846,7 @@ export class AuthController extends PuterController {
             await this.stores.user.update(user.id, {
                 requires_card_verification: 0,
             });
+            await this.sendDeferredConfirmation(user.id);
             res.json({ card_verified: true, disabled: true });
             return;
         }
@@ -1841,6 +1871,7 @@ export class AuthController extends PuterController {
             requires_card_verification: 0,
             ...(clearedPhoneGate ? { requires_phone_verification: 0 } : {}),
         });
+        await this.sendDeferredConfirmation(user.id);
 
         // Awaited like `user.phone-verified`, so whatever a listener grants on
         // verification is in place before the client refreshes. emitAndWait
