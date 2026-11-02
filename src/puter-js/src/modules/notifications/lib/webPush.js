@@ -238,16 +238,59 @@ const turnedOff = () =>
         'push_verification_canceled',
     );
 
-/** Whether `buffer` is the key Puter last subscribed this origin with. */
-const earlierPuterKey = async (buffer) => {
+/** The key Puter last subscribed this origin with, or null. */
+const storedPuterKey = async () => {
     try {
         const stored = await idbGet(HANDLERS_STORE, SERVER_KEY_ENTRY);
-        return (
-            typeof stored === 'string' && sameKey(buffer, fromBase64Url(stored))
-        );
+        return typeof stored === 'string' ? fromBase64Url(stored) : null;
     } catch {
-        return false;
+        return null;
     }
+};
+
+/** Whether `buffer` is the key Puter last subscribed this origin with. */
+const earlierPuterKey = async (buffer) => {
+    const stored = await storedPuterKey();
+    return !!stored && sameKey(buffer, stored);
+};
+
+/** Puter's key as stored here, else as the server gives it, else null. */
+const puterKey = async (puter, authToken) => {
+    const stored = await storedPuterKey();
+    if (stored) return stored;
+    try {
+        const { publicKey } = await request(
+            puter,
+            'GET',
+            '/push/web/key',
+            undefined,
+            { authToken, interactiveReauth: false },
+        );
+        return typeof publicKey === 'string' && publicKey !== ''
+            ? fromBase64Url(publicKey)
+            : null;
+    } catch {
+        return null;
+    }
+};
+
+/** Subscriptions with Puter's key, at `worker` or anywhere on the origin. */
+const puterSubscriptions = async (puter, { worker, authToken, nav }) => {
+    const registrations = worker
+        ? [await nav.serviceWorker.getRegistration(worker.scope ?? worker.url)]
+        : await nav.serviceWorker.getRegistrations();
+    const subscriptions = (
+        await Promise.all(
+            registrations.map((r) => r?.pushManager.getSubscription()),
+        )
+    ).filter(Boolean);
+    // The GUI's own worker carries Puter's subscription only.
+    if (subscriptions.length === 0 || puter.env === 'gui') return subscriptions;
+    const key = await puterKey(puter, authToken);
+    if (!key) return [];
+    return subscriptions.filter((subscription) =>
+        sameKey(subscription.options?.applicationServerKey, key),
+    );
 };
 
 const rememberPuterKey = async (publicKey) => {
@@ -446,30 +489,35 @@ export async function webPushState(puter, endpoint) {
 }
 
 /**
- * Ends this browser's subscription for `worker` and tells the server, with
- * `authToken` in place of the live token when given.
+ * Ends this browser's subscriptions made with Puter's key, at `worker` or
+ * anywhere on the origin without one, and tells the server, with `authToken` in
+ * place of the live token when given.
+ *
+ * @returns {Promise<boolean>} Whether there was a subscription to remove.
  */
 export async function removeWebPush(
     puter,
-    { worker, authToken, nav = globalThis.navigator } = {},
+    { worker = null, authToken, nav = globalThis.navigator } = {},
 ) {
-    const registration = await nav.serviceWorker.getRegistration(
-        worker.scope ?? worker.url,
-    );
-    const subscription = await registration?.pushManager.getSubscription();
-    if (!subscription) return false;
-    try {
-        await request(
-            puter,
-            'DELETE',
-            '/push/web/subscriptions',
-            { endpoint: subscription.endpoint },
-            { authToken, interactiveReauth: false },
-        );
-    } finally {
-        await subscription.unsubscribe();
+    const subscriptions = await puterSubscriptions(puter, {
+        worker,
+        authToken,
+        nav,
+    });
+    for (const subscription of subscriptions) {
+        try {
+            await request(
+                puter,
+                'DELETE',
+                '/push/web/subscriptions',
+                { endpoint: subscription.endpoint },
+                { authToken, interactiveReauth: false },
+            );
+        } finally {
+            await subscription.unsubscribe();
+        }
     }
-    return true;
+    return subscriptions.length > 0;
 }
 
 /** This browser's subscription for `worker`, or null. */

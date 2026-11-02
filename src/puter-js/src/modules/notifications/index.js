@@ -414,9 +414,9 @@ export class NotificationsModule extends EventListener {
 
     /**
      * `disable()`: ends this browser's subscription and forgets every opt-in
-     * here.
+     * here. A website without a `worker` ends Puter's wherever it is.
      *
-     * @param {{ url: string; scope?: string }} worker
+     * @param {{ url: string; scope?: string } | null} worker
      * @returns {Promise<boolean>}
      * @internal
      */
@@ -475,10 +475,7 @@ export class NotificationsModule extends EventListener {
         this.#stopSyncs();
         try {
             if (authToken && webPushSupported()) {
-                await removeWebPush(this.puter, {
-                    worker: this.#worker ?? workerFor('web'),
-                    authToken,
-                });
+                await removeWebPush(this.puter, { authToken });
             }
         } catch (error) {
             console.warn(
