@@ -18,7 +18,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { toAppReadView, toAppSummary, toAppView } from './appView.js';
+import {
+    isOriginBootstrapApp,
+    toAppReadView,
+    toAppSummary,
+    toAppView,
+} from './appView.js';
 
 const row = (overrides: Record<string, unknown> = {}) => ({
     id: 42,
@@ -190,5 +195,29 @@ describe('toAppReadView', () => {
         expect(
             toAppReadView(row(), clientView(), { iconSize: 64 }).icon_size,
         ).toBe(64);
+    });
+});
+
+describe('isOriginBootstrapApp', () => {
+    const originRow = (overrides: Record<string, unknown> = {}) =>
+        row({
+            name: 'app-1234',
+            title: 'app-1234',
+            description: 'App created from origin https://chat.example.com',
+            ...overrides,
+        });
+
+    it('matches a row created for an origin', () => {
+        expect(isOriginBootstrapApp(originRow())).toBe(true);
+    });
+
+    it('does not match once the app has its own name, title or description', () => {
+        expect(isOriginBootstrapApp(originRow({ name: 'chat' }))).toBe(false);
+        expect(isOriginBootstrapApp(originRow({ title: 'Chat' }))).toBe(false);
+        expect(isOriginBootstrapApp(originRow({ description: 'Chat' }))).toBe(
+            false,
+        );
+        expect(isOriginBootstrapApp(row())).toBe(false);
+        expect(isOriginBootstrapApp(null)).toBe(false);
     });
 });

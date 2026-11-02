@@ -788,7 +788,7 @@ export class AppStore extends PuterStore {
      * the row stays unclaimed until a developer registers an app for the same
      * origin and AppDriver's merge path takes ownership. Marker shape (`name
      * === uid && title === uid` + description prefix) is what
-     * `#isOriginBootstrapApp` checks.
+     * `isOriginBootstrapApp` (util/appView) checks.
      */
     async createFromOrigin(
         uid,
