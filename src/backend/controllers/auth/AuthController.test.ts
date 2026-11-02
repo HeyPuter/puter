@@ -5132,6 +5132,26 @@ describe('AuthController phone verification — staging & reuse', () => {
         expect(staged).toBe('+14155550123');
     });
 
+    it('makes an email-gate-last account verify its card before its phone', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+            requires_card_verification: 1,
+        });
+        await server.stores.user.updateMetadata(user.id, {
+            emailGateLast: true,
+        });
+        const prelude = stubPrelude();
+        await withClients({ prelude }, async () => {
+            await expect(
+                controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 409 });
+        });
+        expect(prelude.createVerification).not.toHaveBeenCalled();
+    });
+
     it('forwards an abuse-extension veto as 429 with the opaque reason, and sends nothing', async () => {
         const { user, actor } = await makeUserAndActor();
         const emitAndWait = vi.fn(
