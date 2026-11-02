@@ -1723,6 +1723,16 @@ describe('clicks from push-sw.js', () => {
         expect(store.has('clicks:n1')).toBe(true);
     });
 
+    it('leaves a kept tap to the worker when IndexedDB fails here', async () => {
+        const { nav, handler, source } = clickModule();
+        store.set('clicks:n1', { uid: 'n1', at: Date.now(), id: 'click-1' });
+        storage.broken = true;
+        nav.post(keptTap, source);
+        await flush();
+        expect(handler).not.toHaveBeenCalled();
+        expect(source.postMessage).not.toHaveBeenCalled();
+    });
+
     it('runs the tap once when the worker posts it twice', async () => {
         const { nav, handler, source } = clickModule();
         store.set('clicks:n1', { uid: 'n1', at: Date.now(), id: 'click-1' });

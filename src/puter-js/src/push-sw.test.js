@@ -492,6 +492,18 @@ describe('push-sw notificationclick', () => {
             expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
         });
 
+        it('when IndexedDB fails as the worker takes the tap back', async () => {
+            const open = windowClient(`${ORIGIN}/inbox`);
+            const worker = loadWorker({ windows: [open] });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            await worker.tap(TAP, () => {
+                worker.stores.broken = true;
+            });
+            warn.mockRestore();
+            expect(open.navigate).not.toHaveBeenCalled();
+            expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
+        });
+
         it('when the page claimed it but its ack came too late', async () => {
             const open = windowClient(`${ORIGIN}/inbox`);
             const worker = loadWorker({ windows: [open] });

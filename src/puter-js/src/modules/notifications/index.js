@@ -960,11 +960,11 @@ export class NotificationsModule extends EventListener {
             }
             // A tap the worker kept runs only if this page takes it first.
             void (async () => {
-                let claimed = true;
+                let claimed = false;
                 try {
                     claimed = !!(await takeClick(click.uid, event.data.id));
                 } catch {
-                    // Without IndexedDB here, taken as an older worker's tap.
+                    // Left to the worker, which opens it when nobody acks.
                 }
                 if (claimed) take();
             })();

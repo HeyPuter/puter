@@ -302,8 +302,8 @@
             const answered = await acked;
             // Already there: the page may still take its copy; reloading would lose its state.
             if ( ! answered && win.url === url ) return;
-            // A page that took the tap removed it; an older page leaves it.
-            const mine = kept ? await claimClick(click.uid, id).catch(() => click) : null;
+            // A page that took the tap removed it; a failed claim counts as the page's.
+            const mine = kept ? await claimClick(click.uid, id).catch(() => null) : null;
             if ( answered || (kept && ! mine) ) return;
         }
         await keepClick(click);
