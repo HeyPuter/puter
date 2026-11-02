@@ -168,9 +168,10 @@
         }
     }
 
-    async function windows () {
+    async function windows ({ topLevel = false } = {}) {
         const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
         return all.filter((c) => {
+            if ( topLevel && c.frameType === 'nested' ) return false;
             try {
                 return new URL(c.url).origin === self.location.origin;
             } catch {
@@ -214,7 +215,7 @@
 
     // A page that got a notification live while away; held back while another window of the app has focus.
     async function showForPage (message, source) {
-        for ( const win of await windows() ) {
+        for ( const win of await windows({ topLevel: true }) ) {
             if ( win.focused && win.id !== source?.id ) return false;
         }
         const options = message.options && typeof message.options === 'object' ? message.options : {};
@@ -269,7 +270,7 @@
     async function routeClick (puter, startedAt = Date.now()) {
         const click = { uid: puter.uid, target: puter.target ?? null, data: puter.data ?? null };
         const url = await sameOriginUrl(puter.url);
-        const open = await windows();
+        const open = await windows({ topLevel: true });
         const win = open.find((c) => c.url === url) ?? open.find((c) => c.focused) ?? open[0];
         if ( win ) {
             const id = `click-${++nextClickId}`;

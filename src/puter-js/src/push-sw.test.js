@@ -313,6 +313,15 @@ describe('push-sw push', () => {
         expect(worker.shown[0].options.data.puter.url).toBe(`${ORIGIN}/puter/`);
     });
 
+    it('hands a challenge to nested frames too', async () => {
+        const nested = windowClient(`${ORIGIN}/embed`, { frameType: 'nested' });
+        const worker = loadWorker({ windows: [nested] });
+        await worker.fire('push', {
+            data: pushData({ puter: { type: 'challenge', challenge: 'c.sig' } }),
+        });
+        expect(nested.postMessage).toHaveBeenCalledWith({ type: 'puter-push-challenge', challenge: 'c.sig' });
+    });
+
     it('shows a challenge and hands it to this origin`s windows', async () => {
         const mine = windowClient(`${ORIGIN}/`);
         const other = windowClient('https://elsewhere.example/');
@@ -392,6 +401,14 @@ describe('push-sw notificationclick', () => {
         expect(worker.stores.clicks.get('n1')).toMatchObject({ uid: 'n1', target: '/chat' });
     });
 
+    it('skips nested frames and opens a window for the tap', async () => {
+        const nested = windowClient(`${ORIGIN}/chat`, { frameType: 'nested', focused: true });
+        const worker = loadWorker({ windows: [nested] });
+        await worker.tap({ uid: 'n1', target: '/chat', data: null, url: `${ORIGIN}/chat` }, acks(worker));
+        expect(nested.postMessage).not.toHaveBeenCalled();
+        expect(worker.scope.clients.openWindow).toHaveBeenCalledWith(`${ORIGIN}/chat?puter.notification=n1`);
+    });
+
     it('ignores the app`s own notifications', async () => {
         const worker = loadWorker();
         await worker.fire('notificationclick', { notification: { data: { mine: true }, close: vi.fn() } });
@@ -430,6 +447,14 @@ describe('push-sw notifications a page shows', () => {
         });
         expect(await show(worker, away)).toEqual({ shown: false });
         expect(worker.shown).toEqual([]);
+    });
+
+    it('shows it while only a nested frame of the app has focus', async () => {
+        const away = windowClient(`${ORIGIN}/`);
+        const worker = loadWorker({
+            windows: [away, windowClient(`${ORIGIN}/embed`, { focused: true, frameType: 'nested' })],
+        });
+        expect(await show(worker, away)).toEqual({ shown: true });
     });
 
     it('ignores other messages', async () => {
