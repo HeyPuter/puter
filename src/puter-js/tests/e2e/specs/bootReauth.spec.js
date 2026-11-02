@@ -74,9 +74,7 @@ test.describe('a stale token does not raise sign-in UI at load', () => {
         test('no popup or dialog on load from a page that keeps push current', async ({
             playwright,
         }) => {
-            // Full Chromium: the headless shell keeps Notification.permission
-            // at 'denied' whatever is granted, so the sync never starts there.
-            // Launched here since a channel can't be set per test.
+            // Headless shell keeps notifications denied, so use full Chromium.
             const browser = await playwright.chromium.launch({
                 channel: 'chromium',
             });
