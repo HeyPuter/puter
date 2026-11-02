@@ -1,6 +1,6 @@
 ---
-title: Import Files From a Folder
-description: "Learn how to import each CSV file a user adds to a folder with Puter.js, so your app processes new files as soon as they're added."
+title: Watch a Folder for New Files
+description: "Learn how to process each file a user adds to a folder with Puter.js, so your app handles new files as soon as they're added."
 tags: [fs, events]
 order: 47
 ---
@@ -18,9 +18,9 @@ when a file is added, the app watches the folder with the [Events API](/Events/)
 It builds on [Watch for Changes](/recipes/watch-for-changes/), which shows how
 to watch a folder to update what your app shows.
 
-The import runs in your app while it's open, so it can use any library, such as
-a CSV parser. Files added while your app is closed are imported the next time
-it opens. To import them while your app is closed, see
+Your app processes the files while it's open, so it can use any library, such
+as a CSV parser. Files added while your app is closed are processed the next
+time it opens. To process them while your app is closed, see
 [Run Code in the Background](/recipes/run-code-in-the-background/).
 
 ## Watch the Folder
@@ -67,11 +67,11 @@ suffixes are listed on [Subjects and events](/Events/subjects/).
 On a website, the user has to be signed in. If nobody is,
 [`onLocal()`](/Events/onLocal/) opens the Puter sign-in window.
 
-## Import Files Moved Into the Folder
+## Process Files Moved Into the Folder
 
 Uploads and copies arrive as `add`. A file moved in from another folder, for
 example by dragging it on the Puter desktop, arrives as a `move`, so the `:add`
-subject misses it. To import both, leave the suffix off and check `event.op`:
+subject misses it. To process both, leave the suffix off and check `event.op`:
 
 ```js
 await puter.events.onLocal('fs:inbox/*.csv', ({ event }) => {
@@ -100,7 +100,7 @@ event with `op: 'gap'` and no `path`, so it doesn't say which files were added.
 [Watch for Changes](/recipes/watch-for-changes/#handle-gaps) has more on gaps.
 
 To catch up, list the folder with [`puter.fs.readdir()`](/FS/readdir/) and
-import every CSV file that has no summary yet. Run it once after subscribing,
+process every CSV file that has no summary yet. Run it once after subscribing,
 and again on each gap:
 
 ```js
@@ -128,14 +128,14 @@ const sub = await puter.events.onLocal('fs:inbox/*.csv', handler);
 await catchUp();
 ```
 
-The summary files record which CSV files are already imported, so the app
+The summary files record which CSV files are already processed, so the app
 doesn't need to store that anywhere else.
 
 The code subscribes before the first `catchUp()`, so a file added during the
-listing still reaches the function. That file can be imported twice, so make
-the import safe to repeat. Here the second summary overwrites the first. In
-your app, save the rows under a key made from the file name, so a second import
-replaces them instead of adding them again.
+listing still reaches the function. That file can be processed twice, so make
+processing safe to repeat. Here the second summary overwrites the first. In
+your app, save the rows under a key made from the file name, so processing the
+file again replaces its rows instead of adding a second copy.
 
 ## Stop Watching
 
