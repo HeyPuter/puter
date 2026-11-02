@@ -481,43 +481,86 @@ export const extractMeteredUsage = (usage) => {
 };
 
 /**
- * Chat Completions usage as it's metered: `prompt_tokens` reports cached reads
- * inside its count, so they come out of it and are priced only once, under
- * `cached_tokens`.
+ * @typedef {{
+ *     cached_tokens?: number | null;
+ *     cache_write_tokens?: number | null;
+ *     cache_write_tokens_details?: {
+ *         ttl_30m_tokens?: number | null;
+ *         ttl_12h_tokens?: number | null;
+ *     } | null;
+ * }} OpenAiCacheDetails
+ */
+
+/**
+ * OpenAI-shaped usage as it's metered. The prompt count reports cached reads
+ * and cache writes inside it, so they come out of it and are priced once each
+ * under their own keys: `cached_tokens` for reads, `cache_write_tokens` for
+ * writes at the model's default lifetime and `cache_write_12h_tokens` for
+ * writes at OpenAI's 12h lifetime. Without the per-lifetime breakdown every
+ * write is a default-lifetime write: Chat Completions writes no 12h entries,
+ * and Responses reports the breakdown whenever a request asked for them. Reads
+ * the Chat Completions (`prompt_tokens`) and Responses (`input_tokens`)
+ * spellings alike.
  *
- * @param {import('openai/resources/completions.mjs').CompletionUsage | undefined} usage
+ * @param {{
+ *           prompt_tokens?: number;
+ *           completion_tokens?: number;
+ *           prompt_tokens_details?: OpenAiCacheDetails | null;
+ *           input_tokens?: number;
+ *           output_tokens?: number;
+ *           input_tokens_details?: OpenAiCacheDetails | null;
+ *       }
+ *     | undefined} usage
  */
 export const splitCachedPrompt = (usage) => {
-    const details = usage?.prompt_tokens_details;
+    const details = usage?.prompt_tokens_details ?? usage?.input_tokens_details;
     const cachedTokens = details?.cached_tokens ?? 0;
-    // Moonshot counts the prompt tokens it wrote to its prefix cache here;
-    // they're billed at the model's write rate, not the plain prompt rate.
+    // Moonshot and GPT-5.6+ count the prompt tokens they wrote to the prefix
+    // cache here; they're billed at the model's write rate, not the prompt rate.
     const writeTokens =
         typeof details?.cache_write_tokens === 'number'
             ? details.cache_write_tokens
             : undefined;
+    const reported12h = details?.cache_write_tokens_details?.ttl_12h_tokens;
+    const write12hTokens =
+        typeof reported12h === 'number'
+            ? Math.min(reported12h, writeTokens ?? 0)
+            : undefined;
     return {
         prompt_tokens:
-            (usage?.prompt_tokens ?? 0) - cachedTokens - (writeTokens ?? 0),
-        completion_tokens: usage?.completion_tokens ?? 0,
+            (usage?.prompt_tokens ?? usage?.input_tokens ?? 0) -
+            cachedTokens -
+            (writeTokens ?? 0),
+        completion_tokens:
+            usage?.completion_tokens ?? usage?.output_tokens ?? 0,
         cached_tokens: cachedTokens,
         ...(writeTokens !== undefined
-            ? { cache_write_tokens: writeTokens }
+            ? { cache_write_tokens: writeTokens - (write12hTokens ?? 0) }
+            : {}),
+        ...(write12hTokens !== undefined
+            ? { cache_write_12h_tokens: write12hTokens }
             : {}),
     };
 };
 
 /**
- * The `{prompt_tokens, completion_tokens, cached_tokens, cache_write_tokens}`
- * shape every OpenAI-family `usage_calculator` already returns for billing,
- * mapped to the provider-neutral `UsageDetails` the end-of-stream/non-stream
- * result carries. `inputTokens`/`outputTokens` are the same numbers already
- * billed — this never introduces a new figure, only exposes the breakdown.
+ * The `{prompt_tokens, completion_tokens, cached_tokens, cache_write_tokens,
+ * cache_write_12h_tokens}` shape every OpenAI-family `usage_calculator` already
+ * returns for billing, mapped to the provider-neutral `UsageDetails` the
+ * end-of-stream/non-stream result carries. `inputTokens`/`outputTokens` are the
+ * same numbers already billed — this never introduces a new figure, only
+ * exposes the breakdown.
  *
  * @param {Record<string, number> | undefined | null} trackedUsage
+ * @param {{ writeTtl?: '5m' | '30m' }} [opts] The lifetime `cache_write_tokens`
+ *   were written with: 5m unless the provider says otherwise (OpenAI's default
+ *   entries live 30m).
  * @returns {import('../types.js').UsageDetails | undefined}
  */
-export const usageDetailsFromTrackedUsage = (trackedUsage) => {
+export const usageDetailsFromTrackedUsage = (
+    trackedUsage,
+    { writeTtl = '5m' } = {},
+) => {
     if (!trackedUsage || typeof trackedUsage !== 'object') return undefined;
     // OpenRouter, Infron and Ollama track `{prompt, completion,
     // input_cache_read}` instead; any other shape is left to the driver.
@@ -526,12 +569,19 @@ export const usageDetailsFromTrackedUsage = (trackedUsage) => {
     if (input === undefined && output === undefined) return undefined;
     const cacheRead =
         trackedUsage.cached_tokens ?? trackedUsage.input_cache_read;
+    const cacheWrite = trackedUsage.cache_write_tokens;
     return {
         inputTokens: input ?? 0,
         outputTokens: output ?? 0,
         ...(cacheRead ? { cacheReadTokens: cacheRead } : {}),
-        ...(trackedUsage.cache_write_tokens
-            ? { cacheWrite5mTokens: trackedUsage.cache_write_tokens }
+        ...(cacheWrite && writeTtl === '30m'
+            ? { cacheWrite30mTokens: cacheWrite }
+            : {}),
+        ...(cacheWrite && writeTtl !== '30m'
+            ? { cacheWrite5mTokens: cacheWrite }
+            : {}),
+        ...(trackedUsage.cache_write_12h_tokens
+            ? { cacheWrite12hTokens: trackedUsage.cache_write_12h_tokens }
             : {}),
     };
 };
@@ -864,12 +914,16 @@ export const create_chat_stream_handler_responses_api =
         // Missing usage is left undefined rather than fed to the calculator —
         // see the sibling handler above, including why usage is reported
         // before the block flushes.
+        let usageDetails;
         const usage = last_usage
             ? usage_calculator({
                   usage: last_usage,
                   webSearchCalls,
                   tool_usage: toolUsage,
                   setUsageCosts: (c) => chatStream.setUsageCosts(c),
+                  setUsageDetails: (d) => {
+                      usageDetails = d;
+                  },
               })
             : undefined;
         chatStream.reportUsage(usage);
@@ -877,7 +931,7 @@ export const create_chat_stream_handler_responses_api =
             reason:
                 incompleteReason ?? (sawFunctionCall ? 'tool_use' : 'end_turn'),
         });
-        const usageDetails = usageDetailsFromTrackedUsage(usage);
+        usageDetails ??= usageDetailsFromTrackedUsage(usage);
         if (usageDetails) chatStream.setUsageDetails(usageDetails);
 
         textblock.end();
@@ -1015,6 +1069,7 @@ export const handle_completion_output = async (
  *     webSearchCalls?: number;
  *     tool_usage?: Record<string, unknown>;
  *     setUsageCosts?: (costs: Record<string, number>) => void;
+ *     setUsageDetails?: (details: import('../types').UsageDetails) => void;
  * }) => unknown} params.usage_calculator
  * @param {() => Promise<void>} [params.finally_fn]
  * @returns {ReturnType<import('../types').IChatProvider['complete']>}
@@ -1156,12 +1211,15 @@ export const handle_completion_output_responses_api = async ({
               setUsageCosts: (c) => {
                   ret.usageCosts = c;
               },
+              setUsageDetails: (d) => {
+                  ret.usageDetails = d;
+              },
           })
         : {
               input_tokens: completion.usage.input_tokens,
               output_tokens: completion.usage.output_tokens,
           };
-    if (usage_calculator) {
+    if (usage_calculator && ret.usageDetails === undefined) {
         const usageDetails = usageDetailsFromTrackedUsage(ret.usage);
         if (usageDetails) ret.usageDetails = usageDetails;
     }

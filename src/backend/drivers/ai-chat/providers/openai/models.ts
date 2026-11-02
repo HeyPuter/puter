@@ -23,6 +23,8 @@ import type { IChatModel } from '../../types.js';
 
 // Prompts over 272K input tokens are billed at 2x input (cached reads and
 // cache writes included) and 1.5x output for the full request.
+// GPT-5.6 and later bill cache writes by the lifetime requested: 1.25x input
+// for the default 30m entries, 2.5x for 12h entries.
 const GPT_LONG_CONTEXT_PRICING = {
     threshold: 272_000,
     input_multiplier: 2,
@@ -49,6 +51,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 100,
             cached_tokens: 5,
             cache_write_tokens: 100 * 1.25,
+            cache_write_12h_tokens: 100 * 2.5,
             completion_tokens: 500,
         },
         long_context_pricing: GPT_LONG_CONTEXT_PRICING,
@@ -74,6 +77,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 200,
             cached_tokens: 10,
             cache_write_tokens: 200 * 1.25,
+            cache_write_12h_tokens: 200 * 2.5,
             completion_tokens: 1000,
         },
         long_context_pricing: GPT_LONG_CONTEXT_PRICING,
@@ -99,6 +103,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 200,
             cached_tokens: 20,
             cache_write_tokens: 200 * 1.25,
+            cache_write_12h_tokens: 200 * 2.5,
             completion_tokens: 1000,
         },
         long_context_pricing: GPT_LONG_CONTEXT_PRICING,
@@ -124,6 +129,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 10,
             cached_tokens: 1,
             cache_write_tokens: 10 * 1.25,
+            cache_write_12h_tokens: 10 * 2.5,
             completion_tokens: 50,
         },
         long_context_pricing: GPT_LONG_CONTEXT_PRICING,
@@ -149,6 +155,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 1000,
             cached_tokens: 100,
             cache_write_tokens: 1000 * 1.25,
+            cache_write_12h_tokens: 1000 * 2.5,
             completion_tokens: 5000,
         },
         long_context_pricing: GPT_LONG_CONTEXT_PRICING,
@@ -174,6 +181,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 400,
             cached_tokens: 40,
             cache_write_tokens: 400 * 1.25,
+            cache_write_12h_tokens: 400 * 2.5,
             completion_tokens: 2000,
         },
         long_context_pricing: GPT_LONG_CONTEXT_PRICING,
@@ -198,6 +206,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 200,
             cached_tokens: 20,
             cache_write_tokens: 200 * 1.25,
+            cache_write_12h_tokens: 200 * 2.5,
             completion_tokens: 1200,
         },
         long_context_pricing: GPT_LONG_CONTEXT_PRICING,
@@ -222,6 +231,7 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 20,
             cached_tokens: 2,
             cache_write_tokens: 20 * 1.25,
+            cache_write_12h_tokens: 20 * 2.5,
             completion_tokens: 120,
         },
         long_context_pricing: GPT_LONG_CONTEXT_PRICING,

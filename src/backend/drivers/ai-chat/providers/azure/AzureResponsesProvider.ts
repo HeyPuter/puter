@@ -35,6 +35,7 @@ import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import {
     clampReasoningEffort,
     openAICompatParams,
+    promptCacheRetentionToWire,
     rejectStatefulResponsesFields,
 } from '../../utils/openaiParams.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
@@ -209,6 +210,9 @@ export class AzureResponsesProvider implements IChatProvider {
         const userIdentifier = upstreamUserIdentifier(actor);
         // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
         const cacheKey = prompt_cache_key ?? userIdentifier;
+        const cacheRetention = promptCacheRetentionToWire(
+            prompt_cache_retention,
+        );
 
         // Resolve any `puter_path` content parts into inline base64 data URLs
         // before the Responses API sees them.
@@ -307,8 +311,8 @@ export class AzureResponsesProvider implements IChatProvider {
             ...(instructions !== undefined ? { instructions } : {}),
             ...(metadata !== undefined ? { metadata } : {}),
             ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
-            ...(prompt_cache_retention !== undefined
-                ? { prompt_cache_retention }
+            ...(cacheRetention !== undefined
+                ? { prompt_cache_retention: cacheRetention }
                 : {}),
             ...(store !== undefined ? { store } : {}),
             ...(max_tokens !== undefined

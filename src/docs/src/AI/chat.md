@@ -314,6 +314,21 @@ You can find the implementation in our [prompt caching example](/playground/ai-c
 
 Moonshot's Kimi K3 and Kimi K3.1 Pro models cache prompt prefixes on their own and take no `cache_control`. Their `usage` reports the tokens read from the cache as `cached_tokens` and the tokens written to it as `cache_write_tokens`. Each is billed at the model's own rate from the [AI models list](https://developer.puter.com/ai/models/).
 
+OpenAI models cache prompt prefixes on their own too. Requests from the same app and user share one cache by default, and you can pick the cache with `prompt_cache_key`. Their `usage` reports the tokens read from the cache as `cached_tokens`.
+
+GPT-5.6 and later models charge for cache writes and let you choose how long an entry lives. Pass `prompt_cache_options` with a `ttl` of `"30m"` (the default) or `"12h"`. The `usage` reports the tokens written with the 30 minute lifetime as `cache_write_tokens` and the tokens written with the 12 hour lifetime as `cache_write_12h_tokens`. Writing a 30 minute entry costs 1.25 times the model's input rate, and writing a 12 hour entry costs 2.5 times the input rate. Reads cost the same for both lifetimes. The 12 hour lifetime is only available through the OpenAI Responses API, so a request with `ttl: "12h"` is sent there.
+
+```js
+puter.ai.chat('<your message>', {
+    model: 'gpt-6-luna',
+    prompt_cache_options: { ttl: '12h' }
+});
+```
+
+Older OpenAI models charge nothing for cache writes. Pass `prompt_cache_retention` with `"in_memory"` for an entry that lives a few minutes or `"24h"` for one that can live up to a day. The 24 hour option is the default, and GPT-5.5 and later models only support it.
+
+The `usageDetails` object on every result carries the same counts under provider-neutral names, with one field per lifetime, such as `cacheWrite30mTokens` and `cacheWrite12hTokens`. See the [ChatResponse](/Objects/chatresponse/) object for the full list.
+
 ## Compaction
 
 For long, multi-turn conversations that you keep on the client, enable

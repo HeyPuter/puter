@@ -36,6 +36,8 @@ import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import {
     clampReasoningEffort,
     openAICompatParams,
+    promptCacheOptionsToWire,
+    promptCacheRetentionToWire,
 } from '../../utils/openaiParams.js';
 import { OPEN_AI_MODELS } from './models.js';
 import type { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
@@ -126,8 +128,11 @@ export class OpenAiChatProvider implements IChatProvider {
             temperature,
             text,
             prompt_cache_key,
+            prompt_cache_retention,
+            prompt_cache_options,
         } = params;
         let { messages, model } = params;
+        const cacheOptions = promptCacheOptionsToWire(prompt_cache_options);
         if (
             tools?.filter((e) => isWebSearchTool(e as Record<string, unknown>))
                 .length
@@ -157,6 +162,18 @@ export class OpenAiChatProvider implements IChatProvider {
             }
             return await this.#responsesProvider.complete(params);
         }
+        // Only the Responses API writes 12h cache entries; Chat Completions
+        // rejects the lifetime.
+        if (cacheOptions?.ttl === '12h') {
+            if (!this.#responsesProvider) {
+                throw new HttpError(
+                    400,
+                    'a 12h prompt cache lifetime requires the OpenAI Responses provider, which is not configured',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            return await this.#responsesProvider.complete(params);
+        }
         // Validate messages
         if (!Array.isArray(messages)) {
             throw new HttpError(400, '`messages` must be an array', {
@@ -180,6 +197,9 @@ export class OpenAiChatProvider implements IChatProvider {
         const userIdentifier = upstreamUserIdentifier(actor);
         // Cache key defaults to the actor identifier; see upstreamUserIdentifier.
         const cacheKey = prompt_cache_key ?? userIdentifier;
+        const cacheRetention = promptCacheRetentionToWire(
+            prompt_cache_retention,
+        );
 
         // Strip Anthropic-only shape a fallback-replayed message can carry
         // (thinking/server-tool blocks, cache_control, citations) before the
@@ -216,6 +236,12 @@ export class OpenAiChatProvider implements IChatProvider {
             user: userIdentifier,
             safety_identifier: userIdentifier,
             ...(cacheKey !== undefined ? { prompt_cache_key: cacheKey } : {}),
+            ...(cacheRetention !== undefined
+                ? { prompt_cache_retention: cacheRetention }
+                : {}),
+            ...(cacheOptions !== undefined
+                ? { prompt_cache_options: cacheOptions }
+                : {}),
             messages: messages,
             model: modelUsed.id,
             ...(mappedTools?.length ? { tools: mappedTools } : {}),
@@ -254,28 +280,11 @@ export class OpenAiChatProvider implements IChatProvider {
         );
 
         return OpenAiUtil.handle_completion_output({
-            usage_calculator: ({ usage, setUsageCosts }) => {
-                const cachedTokens =
-                    usage.prompt_tokens_details?.cached_tokens ?? 0;
-                // GPT-5.6 and later bill cache writes at 1.25x input. They're
-                // reported inside `prompt_tokens`, like cached reads.
-                // The SDK doesn't type `cache_write_tokens` yet.
-                const cacheWriteTokens =
-                    (
-                        usage.prompt_tokens_details as
-                            { cache_write_tokens?: number } | undefined
-                    )?.cache_write_tokens ?? 0;
-                const trackedUsage = {
-                    prompt_tokens:
-                        (usage.prompt_tokens ?? 0) -
-                        cachedTokens -
-                        cacheWriteTokens,
-                    completion_tokens: usage.completion_tokens ?? 0,
-                    cached_tokens: cachedTokens,
-                    ...(cacheWriteTokens
-                        ? { cache_write_tokens: cacheWriteTokens }
-                        : {}),
-                };
+            usage_calculator: ({ usage, setUsageCosts, setUsageDetails }) => {
+                // GPT-5.6 and later report cache writes inside
+                // `prompt_tokens`, like cached reads; Chat Completions only
+                // writes the default 30m entries, billed at 1.25x input.
+                const trackedUsage = OpenAiUtil.splitCachedPrompt(usage);
 
                 const metered = meterChatUsage(
                     this.#meteringService,
@@ -285,6 +294,11 @@ export class OpenAiChatProvider implements IChatProvider {
                     trackedUsage,
                 );
                 setUsageCosts(metered.costs);
+                setUsageDetails(
+                    OpenAiUtil.usageDetailsFromTrackedUsage(metered.usage, {
+                        writeTtl: '30m',
+                    })!,
+                );
                 return metered.usage;
             },
             stream,

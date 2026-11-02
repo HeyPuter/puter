@@ -115,6 +115,14 @@
  * @property {boolean} [streamToolInput] Streaming only: emit incremental `tool_use_start` /
  * `tool_input_delta` chunks as a tool call's arguments are generated, instead of a single `tool_use`
  * chunk once the call completes.
+ * @property {string} [prompt_cache_key] OpenAI models: which prompt cache the request reads from and
+ * writes to. Defaults to one cache per app and user.
+ * @property {'in_memory' | '24h'} [prompt_cache_retention] OpenAI models before GPT-5.6: how long a
+ * cache entry may live. `'24h'` is the default and the only value GPT-5.5 and later accept.
+ * @property {{ mode?: 'implicit' | 'explicit', ttl?: '30m' | '12h' }} [prompt_cache_options] OpenAI
+ * GPT-5.6 and later: `ttl` is the minimum lifetime of every cache entry the request writes. A `'12h'`
+ * entry costs twice as much to write as the default `'30m'` one and is served through the Responses
+ * API. `mode: 'explicit'` only writes at the `prompt_cache_breakpoint` markers in your messages.
  */
 
 /**
@@ -132,14 +140,16 @@
  * @property {number} inputTokens
  * @property {number} outputTokens
  * @property {number} [cacheReadTokens]
- * @property {number} [cacheWrite5mTokens]
- * @property {number} [cacheWrite1hTokens]
+ * @property {number} [cacheWrite5mTokens] Tokens written to the cache with a 5 minute lifetime (Claude, Moonshot).
+ * @property {number} [cacheWrite30mTokens] Tokens written with a 30 minute lifetime (OpenAI's default).
+ * @property {number} [cacheWrite1hTokens] Tokens written with a 1 hour lifetime (Claude, Moonshot).
+ * @property {number} [cacheWrite12hTokens] Tokens written with a 12 hour lifetime (OpenAI, `prompt_cache_options.ttl: '12h'`).
  * @property {number} [reasoningTokens]
  * @property {number} [webSearchRequests]
  * @property {number} [webFetchRequests]
  * @property {'fast' | 'standard'} [speed]
  * @property {string} [serviceTier]
- * @property {Array<{ type: string, model?: string, inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheWrite5mTokens?: number, cacheWrite1hTokens?: number }>} [iterations]
+ * @property {Array<{ type: string, model?: string, inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheWrite5mTokens?: number, cacheWrite30mTokens?: number, cacheWrite1hTokens?: number, cacheWrite12hTokens?: number }>} [iterations]
  * Per-pass breakdown when the upstream ran several passes (compaction, an advisor sub-call).
  */
 

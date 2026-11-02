@@ -27,6 +27,9 @@ const PARAMS_TO_PASS = [
     'outputFormat',
     'thinking',
     'streamToolInput',
+    'prompt_cache_key',
+    'prompt_cache_retention',
+    'prompt_cache_options',
 ];
 
 // Parameters renamed between the SDK's camelCase option and the driver's

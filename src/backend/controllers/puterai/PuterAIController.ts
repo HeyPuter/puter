@@ -447,6 +447,7 @@ export class PuterAIController extends PuterController {
                           body.reasoning_effort as ICompleteArguments['reasoning_effort'],
                   }
                 : {}),
+            ...promptCacheArgsFromBody(body),
             ...openaiCompatProvider(body),
             ...(body.fallback === false ? { fallback: false } : {}),
         };
@@ -842,15 +843,7 @@ export class PuterAIController extends PuterController {
                           body.compaction as ICompleteArguments['compaction'],
                   }
                 : {}),
-            ...(body.prompt_cache_key
-                ? { prompt_cache_key: String(body.prompt_cache_key) }
-                : {}),
-            ...(body.prompt_cache_retention
-                ? {
-                      prompt_cache_retention:
-                          body.prompt_cache_retention as ICompleteArguments['prompt_cache_retention'],
-                  }
-                : {}),
+            ...promptCacheArgsFromBody(body),
             // forced off regardless of what the caller sent — OpenAI
             // defaults `store` to true, which would persist state server-side
             // on OpenAI's end that this route gives no way to retrieve.
@@ -1342,6 +1335,33 @@ const openaiCompatProvider = (
     if (toStringOrEmpty(body.model)) return {};
     return { provider: DEFAULTS.openaiChat };
 };
+
+/**
+ * The prompt-cache fields both OpenAI-shaped routes forward as sent; the
+ * provider checks the values.
+ */
+const promptCacheArgsFromBody = (
+    body: Record<string, unknown>,
+): Pick<
+    ICompleteArguments,
+    'prompt_cache_key' | 'prompt_cache_retention' | 'prompt_cache_options'
+> => ({
+    ...(body.prompt_cache_key
+        ? { prompt_cache_key: String(body.prompt_cache_key) }
+        : {}),
+    ...(body.prompt_cache_retention
+        ? {
+              prompt_cache_retention:
+                  body.prompt_cache_retention as ICompleteArguments['prompt_cache_retention'],
+          }
+        : {}),
+    ...(body.prompt_cache_options
+        ? {
+              prompt_cache_options:
+                  body.prompt_cache_options as ICompleteArguments['prompt_cache_options'],
+          }
+        : {}),
+});
 
 const randomId = (): string => crypto.randomUUID().replace(/-/g, '');
 const generateId = (prefix: string): string => `${prefix}_${randomId()}`;

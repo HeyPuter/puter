@@ -27,6 +27,8 @@ import {
     outputFormatFromResponsesText,
     outputFormatToResponseFormat,
     outputFormatToResponsesText,
+    promptCacheOptionsToWire,
+    promptCacheRetentionToWire,
     rejectStatefulResponsesFields,
     toolChoiceFromWire,
     toolChoiceToWire,
@@ -332,5 +334,52 @@ describe('rejectStatefulResponsesFields', () => {
         expect(() =>
             rejectStatefulResponsesFields({ previous_response_id: 'resp_1' }),
         ).toThrow(/previous_response_id/);
+    });
+});
+
+describe('promptCacheRetentionToWire', () => {
+    it('spells the in-memory retention the way the upstreams expect', () => {
+        expect(promptCacheRetentionToWire('in-memory')).toBe('in_memory');
+        expect(promptCacheRetentionToWire('in_memory')).toBe('in_memory');
+        expect(promptCacheRetentionToWire('24h')).toBe('24h');
+        expect(promptCacheRetentionToWire(undefined)).toBeUndefined();
+    });
+});
+
+describe('promptCacheOptionsToWire', () => {
+    it('forwards mode and ttl and nothing else', () => {
+        expect(
+            promptCacheOptionsToWire({
+                mode: 'explicit',
+                ttl: '12h',
+                prewarm: true,
+                comparison_response_id: 'resp_1',
+            }),
+        ).toEqual({ mode: 'explicit', ttl: '12h' });
+        expect(promptCacheOptionsToWire({ ttl: '30m' })).toEqual({
+            ttl: '30m',
+        });
+    });
+
+    it('sends nothing for an absent or empty object', () => {
+        expect(promptCacheOptionsToWire(undefined)).toBeUndefined();
+        expect(promptCacheOptionsToWire(null)).toBeUndefined();
+        expect(promptCacheOptionsToWire({})).toBeUndefined();
+        expect(promptCacheOptionsToWire({ prewarm: true })).toBeUndefined();
+    });
+
+    it('rejects a lifetime or mode OpenAI does not offer', () => {
+        expect(() => promptCacheOptionsToWire({ ttl: '2h' })).toThrow(
+            expect.objectContaining({ statusCode: 400 }),
+        );
+        expect(() => promptCacheOptionsToWire({ ttl: '24h' })).toThrow(
+            /30m.*12h/,
+        );
+        expect(() => promptCacheOptionsToWire({ mode: 'auto' })).toThrow(
+            /implicit.*explicit/,
+        );
+        expect(() => promptCacheOptionsToWire('12h')).toThrow(
+            /must be an object/,
+        );
     });
 });

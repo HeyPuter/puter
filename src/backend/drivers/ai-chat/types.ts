@@ -145,13 +145,19 @@ export type StopReason =
     | 'model_context_window_exceeded'
     | (string & {});
 
-/** Provider-neutral usage breakdown. `inputTokens` excludes cache reads/writes. */
+/**
+ * Provider-neutral usage breakdown. `inputTokens` excludes cache reads/writes.
+ * Cache writes are keyed by the lifetime the entry was written with: Claude and
+ * Moonshot write 5m and 1h entries, OpenAI writes 30m and 12h entries.
+ */
 export interface UsageDetails {
     inputTokens: number;
     outputTokens: number; // includes reasoning
     cacheReadTokens?: number;
     cacheWrite5mTokens?: number;
+    cacheWrite30mTokens?: number;
     cacheWrite1hTokens?: number;
+    cacheWrite12hTokens?: number;
     reasoningTokens?: number;
     webSearchRequests?: number;
     webFetchRequests?: number;
@@ -168,8 +174,20 @@ export interface UsageDetails {
         outputTokens: number;
         cacheReadTokens?: number;
         cacheWrite5mTokens?: number;
+        cacheWrite30mTokens?: number;
         cacheWrite1hTokens?: number;
+        cacheWrite12hTokens?: number;
     }>;
+}
+
+/**
+ * OpenAI `prompt_cache_options`, GPT-5.6 and later. `ttl` is the minimum
+ * lifetime of every cache entry the request writes; `12h` entries cost twice
+ * what `30m` entries do to write and only the Responses API writes them.
+ */
+export interface PromptCacheOptions {
+    mode?: 'implicit' | 'explicit';
+    ttl?: '30m' | '12h';
 }
 
 export interface ICompleteArguments {
@@ -234,7 +252,9 @@ export interface ICompleteArguments {
     metadata?: Record<string, string>;
     prompt?: unknown;
     prompt_cache_key?: string;
-    prompt_cache_retention?: 'in-memory' | '24h' | undefined;
+    /** `in-memory` is accepted as a spelling of OpenAI's `in_memory`. */
+    prompt_cache_retention?: 'in-memory' | 'in_memory' | '24h' | undefined;
+    prompt_cache_options?: PromptCacheOptions;
     store?: boolean;
     top_p?: number;
     truncation?: 'auto' | 'disabled' | undefined;

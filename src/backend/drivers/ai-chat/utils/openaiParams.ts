@@ -29,6 +29,7 @@ import { HttpError } from '../../../core/http/HttpError.js';
 import type {
     ICompleteArguments,
     OutputFormat,
+    PromptCacheOptions,
     ReasoningEffort,
     ToolChoice,
 } from '../types.js';
@@ -303,6 +304,60 @@ export const openAICompatParams = (
     }
 
     return out;
+};
+
+// -- prompt caching ----------------------------------------------------------
+
+/**
+ * The wire spelling of `prompt_cache_retention`. Puter also accepts the
+ * hyphenated `in-memory`, which every OpenAI-shaped upstream rejects.
+ */
+export const promptCacheRetentionToWire = (
+    retention: ICompleteArguments['prompt_cache_retention'],
+): 'in_memory' | '24h' | undefined =>
+    retention === 'in-memory' ? 'in_memory' : retention;
+
+const PROMPT_CACHE_MODES = new Set(['implicit', 'explicit']);
+const PROMPT_CACHE_TTLS = new Set(['30m', '12h']);
+
+/**
+ * `prompt_cache_options` as forwarded upstream: `mode` and `ttl` only, each
+ * checked against the values OpenAI accepts, so a bad value fails here with a
+ * clear message instead of as an upstream 400 the fallback loop may hide.
+ * `comparison_response_id` names a stored response, which Puter never keeps,
+ * and `prewarm` is dropped with it.
+ */
+export const promptCacheOptionsToWire = (
+    options: unknown,
+): PromptCacheOptions | undefined => {
+    if (options === undefined || options === null) return undefined;
+    if (typeof options !== 'object' || Array.isArray(options)) {
+        throw new HttpError(400, '`prompt_cache_options` must be an object', {
+            legacyCode: 'bad_request',
+        });
+    }
+    const { mode, ttl } = options as Record<string, unknown>;
+    if (mode !== undefined && !PROMPT_CACHE_MODES.has(mode as string)) {
+        throw new HttpError(
+            400,
+            '`prompt_cache_options.mode` must be `implicit` or `explicit`',
+            { legacyCode: 'bad_request' },
+        );
+    }
+    if (ttl !== undefined && !PROMPT_CACHE_TTLS.has(ttl as string)) {
+        throw new HttpError(
+            400,
+            '`prompt_cache_options.ttl` must be `30m` or `12h`',
+            { legacyCode: 'bad_request' },
+        );
+    }
+    const wire: PromptCacheOptions = {
+        ...(mode !== undefined
+            ? { mode: mode as PromptCacheOptions['mode'] }
+            : {}),
+        ...(ttl !== undefined ? { ttl: ttl as PromptCacheOptions['ttl'] } : {}),
+    };
+    return Object.keys(wire).length ? wire : undefined;
 };
 
 // -- Responses server-side state ---------------------------------------------

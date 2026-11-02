@@ -23,6 +23,7 @@ import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import { upstreamUserIdentifier } from '../../../util/upstreamIdentifier.js';
 import type { IChatModel, ICompleteArguments } from '../../types.js';
+import { promptCacheRetentionToWire } from '../../utils/openaiParams.js';
 import { sdkClientOptions } from '../../utils/sdkClient.js';
 import {
     type ChatProviderConfig,
@@ -107,12 +108,9 @@ export class MetaProvider extends OpenAICompatProvider {
                 ? requestedEffort
                 : undefined;
 
-        // Puter spells the in-memory retention with a hyphen; Meta's enum
-        // uses an underscore.
-        const cacheRetention =
-            args.prompt_cache_retention === 'in-memory'
-                ? 'in_memory'
-                : args.prompt_cache_retention;
+        const cacheRetention = promptCacheRetentionToWire(
+            args.prompt_cache_retention,
+        );
 
         // The identifier is Puter's abuse attribution, so `custom` can't
         // override it. Cache key defaults to it; see upstreamUserIdentifier.

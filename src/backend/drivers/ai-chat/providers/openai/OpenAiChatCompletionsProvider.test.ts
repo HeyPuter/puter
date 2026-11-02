@@ -249,6 +249,44 @@ describe('OpenAiChatProvider.complete argument validation', () => {
         expect(result).toEqual({ delegated: true });
     });
 
+    it('delegates a 12h cache lifetime to the Responses provider, which is the only API that writes it', async () => {
+        const { provider } = makeProvider();
+        const sibling = {
+            complete: vi.fn().mockResolvedValue({ delegated: true }),
+        };
+        provider.setResponsesProvider(
+            sibling as unknown as Parameters<
+                typeof provider.setResponsesProvider
+            >[0],
+        );
+
+        const params = {
+            model: 'gpt-6-luna',
+            messages: [{ role: 'user', content: 'hi' }],
+            prompt_cache_options: { ttl: '12h' as const },
+        };
+        const result = await withTestActor(() => provider.complete(params));
+
+        expect(createMock).not.toHaveBeenCalled();
+        expect(sibling.complete).toHaveBeenCalledWith(params);
+        expect(result).toEqual({ delegated: true });
+    });
+
+    it('throws 400 for a 12h cache lifetime without a Responses sibling provider', async () => {
+        const { provider } = makeProvider();
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'gpt-6-luna',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    prompt_cache_options: { ttl: '12h' },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(createMock).not.toHaveBeenCalled();
+    });
+
     it('requestPricing delegates to the Responses sibling (web_search\'s own hold), and no-ops without one', async () => {
         const { provider } = makeProvider();
         const args = {
@@ -347,6 +385,31 @@ describe('OpenAiChatProvider.complete request shape', () => {
         const [args] = createMock.mock.calls[0]!;
         expect(args.prompt_cache_key).toBe('caller-key');
         expect(args.safety_identifier).toBe('puter-u42');
+    });
+
+    it('forwards 30m prompt_cache_options and the wire spelling of prompt_cache_retention', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [{ role: 'user', content: 'hello' }],
+                prompt_cache_retention: 'in-memory',
+                prompt_cache_options: {
+                    mode: 'explicit',
+                    ttl: '30m',
+                    prewarm: true,
+                } as never,
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.prompt_cache_retention).toBe('in_memory');
+        expect(args.prompt_cache_options).toEqual({
+            mode: 'explicit',
+            ttl: '30m',
+        });
     });
 
     it.each([
@@ -665,7 +728,7 @@ describe('OpenAiChatProvider.complete non-stream output', () => {
             },
         });
 
-        await withTestActor(() =>
+        const result = await withTestActor(() =>
             provider.complete({
                 model: 'gpt-6-luna',
                 messages: [{ role: 'user', content: 'hi' }],
@@ -684,6 +747,13 @@ describe('OpenAiChatProvider.complete non-stream output', () => {
             completion_tokens: 12 * Number(luna.costs.completion_tokens),
             cached_tokens: 1000 * Number(luna.costs.cached_tokens),
             cache_write_tokens: 3000 * Number(luna.costs.cache_write_tokens),
+        });
+        // Chat Completions only writes OpenAI's default 30m entries.
+        expect((result as { usageDetails: unknown }).usageDetails).toEqual({
+            inputTokens: 1000,
+            outputTokens: 12,
+            cacheReadTokens: 1000,
+            cacheWrite30mTokens: 3000,
         });
     });
 
