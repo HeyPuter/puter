@@ -46,6 +46,29 @@ const buildRouteMatcher = (route) => {
     };
 };
 
+// A `fetch()` response's headers are immutable, so it is copied first.
+const withCors = (response) => {
+    if (response.headers.has('access-control-allow-origin')) return response;
+    try {
+        response.headers.set('Access-Control-Allow-Origin', '*');
+        return response;
+    } catch {
+        const copy = new Response(response.body, response);
+        copy.headers.set('Access-Control-Allow-Origin', '*');
+        return copy;
+    }
+};
+
+// A rejected puter.js call is a plain `{ message, code }` object.
+const errorBody = (error) => {
+    if (error instanceof Error) return String(error);
+    try {
+        return JSON.stringify(error);
+    } catch {
+        return String(error);
+    }
+};
+
 function initS2w () {
     const router = {
         routing: true,
@@ -102,6 +125,8 @@ function initS2w () {
             });
         },
         async route(event) {
+            const cors = (response) =>
+                this.handleCors ? withCors(response) : response;
             if (!globalThis.me) {
                 globalThis.me = {
                     puter: init_puter_portable(
@@ -127,13 +152,13 @@ function initS2w () {
 
             const mappings = this.map.get(event.request.method);
             if (this.handleCors && event.request.method === 'OPTIONS' && !mappings) {
-                return this.handleOptions(event.request);
+                return cors(await this.handleOptions(event.request));
             }
             if (!mappings) {
-                return new Response(
+                return cors(new Response(
                     `No routes for given request type ${event.request.method}`,
                     { status: 404 },
-                );
+                ));
             }
 
             const url = new URL(event.request.url);
@@ -168,32 +193,19 @@ function initS2w () {
                             );
                         }
                     }
-                    if (
-                        this.handleCors &&
-                        !response.headers.has('access-control-allow-origin')
-                    ) {
-                        response.headers.set('Access-Control-Allow-Origin', '*');
-                    }
-                    return response;
+                    return cors(response);
                 }
             } catch (error) {
-                const response = new Response(error, {
+                return cors(new Response(errorBody(error), {
                     status: 500,
                     statusText: 'Server Error',
-                });
-                if (
-                    this.handleCors &&
-                    !response.headers.has('access-control-allow-origin')
-                ) {
-                    response.headers.set('Access-Control-Allow-Origin', '*');
-                }
-                return response;
+                }));
             }
 
-            return new Response('Path not found', {
+            return cors(new Response('Path not found', {
                 status: 404,
                 statusText: 'Not found',
-            });
+            }));
         },
     };
 

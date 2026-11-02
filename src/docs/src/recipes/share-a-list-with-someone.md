@@ -16,14 +16,6 @@ account, and the other person reads and writes them from their own.
 In this recipe, Dan makes a grocery list in your app and shares it with Alice,
 and then both of them edit it.
 
-| You want to… | Use |
-| --- | --- |
-| Let another user see or change part of your app's data | [`puter.kv.share()`](/KV/share/), as in this recipe |
-| Let another app of the same user use your data | [Share Data Between Apps](/recipes/share-data-between-apps/) |
-| Share files | [Share a File](/recipes/share-a-file/) |
-| Show data to anyone, signed in or not | [Hosting](/Hosting/) or a [worker](/Workers/). A share is for one Puter user. |
-| Let each person edit only their own entries | [A part for each member](/recipes/build-a-group-chat/#let-members-change-only-their-own-messages), or a [worker](/Workers/) that checks each write |
-
 ## Give the List Its Own Prefix
 
 A share covers every key that starts with its prefix. Build each list's prefix
@@ -39,13 +31,12 @@ await puter.kv.set(`${prefix}meta`, { title: 'Groceries', from: user.username })
 await puter.kv.set(`${prefix}item:${crypto.randomUUID()}`, { text: 'Milk', done: false });
 ```
 
-Each item gets its own key with a random id. When Dan and Alice add items at the
-same time, each write goes to a different key, so both items are kept. With all
-the items in one key, the last write would replace the other person's change.
+Each item gets its own key, so when Dan and Alice add items at the same time,
+both items are kept. With all the items in one key, the last write would
+replace the other person's change.
 
-The `meta` key describes the list. The person you share with isn't told who
-shared it or what its prefix is, so `meta` is where their app finds a title to
-show.
+The person you share with isn't told who shared it or what its prefix is, so
+the `meta` key is where their app finds a title to show.
 
 ## Ask Once for Permission to Share
 
@@ -58,12 +49,10 @@ const allowed = await puter.perms.request('kvShare', { prefix: 'list:', access: 
 document.querySelector('#share-button').hidden = !allowed;
 ```
 
-The user sees a prompt asking whether your app may let other Puter users it
-picks read and change the `list:` section of its data. The call returns `true`
-once they allow it, so the share button only shows then. Later calls return
-`true` without asking again.
-[Share Data From Your Backend](/recipes/share-data-from-your-backend/)
-covers this permission in more detail.
+The user sees a prompt the first time, and the call resolves to `true` once they
+allow it. Later calls resolve to `true` without asking again.
+[Share Data From Your Backend](/recipes/share-data-from-your-backend/#ask-for-permission-once)
+explains what the permission covers.
 
 ## Share the List
 
@@ -81,9 +70,10 @@ const share = await puter.kv.share({
 ```
 
 With write access, Alice can add, change and delete any key under the prefix,
-`meta` included. The label is plain text Alice is shown with the share, and the
-only thing about it you choose to tell her. With `notify: true`, Alice is told
-about the new share in your app, as the next section shows.
+`meta` included. The label is plain text Alice sees with the share. With
+`notify: true`, Alice's app is told about the share as soon as it's made, and
+Dan and Alice can [notify each other](/Notifications/notify/#notify-the-other-side-of-a-share)
+through it.
 
 The share is of your app's data, so Alice uses it in your app, and her other
 apps can't see it. Each of them pays for their own reads and writes, including
@@ -93,28 +83,30 @@ the ones Alice makes through the share.
 
 On Alice's side, [`puter.kv.listShared()`](/KV/listShared/) lists the shares
 made with her in your app. Each one has a `handle`, which she passes to the
-other `puter.kv` methods to use that share. Read `meta` through each handle to
-show the lists:
+other [`puter.kv`](/KV/) methods to use that share. This shows each list by the
+title in its `meta`:
 
 ```js
-const { items } = await puter.kv.listShared();
-
-for (const { handle, label } of items) {
+const addList = async (handle, label) => {
     const meta = await puter.kv.get('meta', { handle });
     const row = document.createElement('li');
     row.textContent = meta?.title ?? label ?? 'Shared list';
     row.dataset.handle = handle;
     document.querySelector('#lists').append(row);
-}
+};
+
+const { items } = await puter.kv.listShared();
+for (const { handle, label } of items) await addList(handle, label);
 ```
 
-Set the text with `textContent`, so a title or label shows as plain text and is
-never read as HTML. Anyone with write access can change `meta`, so use it for
-display only. What a person can do comes from the share's `access`.
+Setting `textContent` shows a title or label as plain text, never as HTML.
+Anyone with write access can change `meta`, so use it only for display. What
+each person can do comes from the share's `access`.
 
-A share made while Alice has your app open arrives as a
-[`kv.share.received` notification](/KV/share/#what-the-holder-sees), in your
-app only. It carries the `handle` and `label`:
+A share made while Alice has your app open also arrives as a
+[`kv.share.received` notification](/KV/share/#what-the-holder-sees), which
+[`puter.events.onLocal()`](/Events/onLocal/) receives on the `notif:app-user`
+subject:
 
 ```js
 await puter.events.onLocal('notif:app-user', ({ event }) => {
@@ -171,42 +163,38 @@ await alicesList.set(`item:${crypto.randomUUID()}`, { text: 'Bread', done: false
 const items = await dansList.list('item:*');
 ```
 
-Dan always uses the prefix. A handle stops working when its share stops, so the
-owner's code works without one. His subject names your app with [`puter.appID`](/Utils/appID/),
-since a `kv:` subject for a key that contains `:` needs the app id in front, as
-described in [Key-value data](/Events/subjects/#key-value-data).
+Dan uses the prefix rather than a handle, so his code keeps working after he
+stops sharing the list.
 
 ## Watch for Changes
 
-The `watch()` part of the helper calls
-[`puter.events.onLocal()`](/Events/onLocal/), so each person sees the other's
-changes as they happen while the list is open. The list itself is saved, so
-nothing is lost when nobody is watching:
+The helper's `watch()` calls [`puter.events.onLocal()`](/Events/onLocal/), so
+each person sees the other's changes while the list is open:
 
 ```js
 await alicesList.watch('item:*', (event) => {
     if (event.op === 'gap') return reloadList();
     if (event.self && !event.viaWorker) return;
-    showItem(event.key, event.value);
+    if (event.op === 'del') removeItem(event.key);
+    else showItem(event.key, event.value);
 });
 ```
 
-The `self` field is `true` for changes the current user made, so the check skips
-their own writes, which your app already shows. The `viaWorker` field is `true`
-when a worker made the change as that user, so those changes still show up. A
-`gap` event means some changes weren't delivered, for example during a
-reconnect, so reload the list.
-[The event](/Events/subjects/#the-event) lists every field.
+The `self` check skips the user's own writes, which your app already shows, but
+not changes a worker made as them, which have `viaWorker` set. A `gap` event
+means some changes weren't delivered, for example during a reconnect, so reload
+the list. [The event](/Events/subjects/#the-event) lists every field.
 
-When Dan and Alice change the same item at about the same time, the last write
-wins.
+For Dan, `watch()` puts your app's id from [`puter.appID`](/Utils/appID/) in the
+subject, since a `kv:` subject for a key that contains `:` needs it, as
+[Key-value data](/Events/subjects/#key-value-data) describes. When Dan and Alice
+change the same item at about the same time, the last write wins.
 
-## Keep Private Entries Out
+## Next Steps
 
-Entries saved with [`disableSharing: true`](/KV/set/) are hidden from Alice even inside the
-shared prefix. A write to one through the share is refused, which tells Alice
-that key exists, but never its value. Keep private entries under a prefix that
-isn't shared, such as `private:`.
-
-To see who has access to a list, or to stop sharing it, see
-[Manage Who Has Access to Shared Data](/recipes/manage-who-has-access-to-shared-data/).
+- To keep some entries in the prefix private, see
+  [Share Only Part of the Data](/recipes/let-someone-view-your-data/#share-only-part-of-the-data).
+- To let each person change only their own items, give each one a part of the
+  list, as in [Let Members Change Only Their Own Messages](/recipes/build-a-group-chat/#let-members-change-only-their-own-messages).
+- To see who has access to a list, or to stop sharing it, see
+  [Manage Who Has Access to Shared Data](/recipes/manage-who-has-access-to-shared-data/).

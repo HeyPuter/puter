@@ -11,7 +11,7 @@
                     cursor,
                 });
                 for (const event of page.items) {
-                    puter.print(`${event.type}: ${event.notification.title}<br>`);
+                    puter.print(`${event.type}: ${event.notification.title ?? ''}<br>`);
                     seen++;
                 }
                 cursor = page.cursor;

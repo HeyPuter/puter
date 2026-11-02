@@ -490,7 +490,8 @@ const unsafeKeyError = (key: string, subject: string): HttpError =>
     });
 
 type PathToken =
-    { type: 'key'; value: string } | { type: 'index'; value: number };
+    | { type: 'key'; value: string }
+    | { type: 'index'; value: number };
 
 const invalidPathError = (): HttpError =>
     new HttpError(400, 'kv: path has invalid syntax', {
@@ -901,7 +902,7 @@ const assertValue = (value: unknown, rootLevel = 1, path?: string): void => {
         throw new HttpError(
             400,
             `kv: value exceeds ${MAX_VALUE_BYTES} byte limit`,
-            { legacyCode: 'bad_request' },
+            { code: 'value_too_large' },
         );
     }
 };
@@ -1922,7 +1923,8 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined,
+                        | number
+                        | undefined,
                 ),
             );
         }
@@ -2002,7 +2004,8 @@ export class SystemKVStore extends PuterStore {
             );
             return writeUsage(
                 (response.ConsumedCapacity?.CapacityUnits as
-                    number | undefined) ?? 1,
+                    | number
+                    | undefined) ?? 1,
             );
         } catch (e) {
             if (!isConditionRefused(e)) throw e;
@@ -2049,7 +2052,8 @@ export class SystemKVStore extends PuterStore {
                     },
                 );
                 units = response.ConsumedCapacity?.CapacityUnits as
-                    number | undefined;
+                    | number
+                    | undefined;
             } else {
                 const expiry = ttlNumber(ttl);
                 const keep = Number.isFinite(expiry) && expiry !== 0;
@@ -2065,7 +2069,8 @@ export class SystemKVStore extends PuterStore {
                     { condition },
                 );
                 units = response.ConsumedCapacity?.CapacityUnits as
-                    number | undefined;
+                    | number
+                    | undefined;
             }
             usage = addUsage(usage, writeUsage(units ?? 1));
         } catch (e) {
@@ -2196,7 +2201,8 @@ export class SystemKVStore extends PuterStore {
                 fetched = response.Item ? [response.Item as KvCachedItem] : [];
                 fetchUnits = Number(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 0,
+                        | number
+                        | undefined) ?? 0,
                 );
             }
 
@@ -2327,7 +2333,8 @@ export class SystemKVStore extends PuterStore {
                 settleUsage,
                 writeUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined,
+                        | number
+                        | undefined,
                 ),
             ),
         };
@@ -2466,7 +2473,8 @@ export class SystemKVStore extends PuterStore {
                 settleUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
         };
@@ -2501,7 +2509,8 @@ export class SystemKVStore extends PuterStore {
         );
 
         const old = response.Attributes as
-            { value?: unknown; ttl?: number } | undefined;
+            | { value?: unknown; ttl?: number }
+            | undefined;
         const now = Date.now() / 1000;
         const res =
             old === undefined || isExpiredTtl(old.ttl, now)
@@ -2514,7 +2523,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
         };
@@ -2611,7 +2621,9 @@ export class SystemKVStore extends PuterStore {
             | { key: string; value: unknown }[]
             | {
                   items:
-                      string[] | unknown[] | { key: string; value: unknown }[];
+                      | string[]
+                      | unknown[]
+                      | { key: string; value: unknown }[];
                   cursor?: string;
                   total?: number;
               }
@@ -2734,7 +2746,8 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             );
             return response;
@@ -2751,7 +2764,8 @@ export class SystemKVStore extends PuterStore {
                 const skip = await runQuery(remaining, startKey, 'COUNT');
                 remaining -= Number(skip.Count ?? 0);
                 startKey = skip.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 // No key means no data past this page, even when the offset
                 // landed exactly on its end; listing on would restart at the
                 // first key.
@@ -2786,7 +2800,8 @@ export class SystemKVStore extends PuterStore {
                     >),
                 );
                 nextKey = response.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 pages++;
                 if (normalizedLimit === undefined) {
                     // Legacy full listing: follow continuation pages so the
@@ -2835,7 +2850,8 @@ export class SystemKVStore extends PuterStore {
                 const counted = await runQuery(0, countKey, 'COUNT');
                 total += Number(counted.Count ?? 0);
                 countKey = counted.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
             } while (countKey);
         }
 
@@ -2986,7 +3002,8 @@ export class SystemKVStore extends PuterStore {
             deleted: keys.length,
             usage,
             pageKey: response.LastEvaluatedKey as
-                Record<string, unknown> | undefined,
+                | Record<string, unknown>
+                | undefined,
         };
     }
 
@@ -3369,7 +3386,8 @@ export class SystemKVStore extends PuterStore {
             );
             const units =
                 (response.ConsumedCapacity?.CapacityUnits as
-                    number | undefined) ?? 1;
+                    | number
+                    | undefined) ?? 1;
             // A legacy ttl the condition couldn't read: the row was already expired.
             const removedTtl = response.Attributes?.ttl;
             if (
@@ -3637,7 +3655,8 @@ export class SystemKVStore extends PuterStore {
                 resetUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
             isPrivate: Boolean(response.Attributes?.[KV_PRIVATE_ATTR]),

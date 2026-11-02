@@ -6,20 +6,34 @@
             const seen = new Set();
 
             const show = (event) => {
-                if (seen.has(event.id)) return;
-                seen.add(event.id);
-                puter.print(`${event.notification.title}<br>`);
+                // A replacement keeps its id, so its time tells it apart.
+                const key = event.replaced ? `${event.id}@${event.ts}` : event.id;
+                if (seen.has(key)) return;
+                seen.add(key);
+                puter.print(`${event.notification.title ?? event.type}<br>`);
             };
 
-            // Live first, so nothing arriving during the catch-up is lost —
-            // `id` is what makes the overlap harmless.
-            const sub = await puter.events.onLocal('notif:app-user',
-                ({ event }) => show(event));
+            const readMissed = async () => {
+                let cursor;
+                do {
+                    const page = await puter.events.fetch({
+                        subject: 'notif:app-user',
+                        cursor,
+                    });
+                    page.items.forEach(show);
+                    cursor = page.cursor;
+                } while (cursor);
+            };
 
-            const page = await puter.events.fetch({ subject: 'notif:app-user' });
-            page.items.forEach(show);
+            // Listen first, so nothing sent during the catch-up is lost.
+            // show() drops the duplicates the overlap causes.
+            const sub = await puter.events.onLocal('notif:app-user', ({ event }) => {
+                if (event.op === 'gap') readMissed();
+                else show(event);
+            });
+            await readMissed();
 
-            await sub.off();
+            setTimeout(() => sub.off(), 10000);
         })();
     </script>
 </body>

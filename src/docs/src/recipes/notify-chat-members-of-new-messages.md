@@ -11,30 +11,45 @@ order: 69
 who have the chat open. This recipe notifies everyone else, with a push on their
 phone or computer.
 
-[Build a Group Chat](/recipes/build-a-group-chat/) shares the room with each
-member with `notify: true`. That lets the two sides of each share notify each
-other. With `to: { handle }`,
+The chat shares the room with each member with `notify: true`, which lets the
+two sides of each share notify each other. With `to: { handle }`,
 [`puter.notifications.notify()`](/Notifications/notify/) sends the notification
 to the other side of that share instead of to the user your app runs for. Your
-app calls it right after it sends a message. A member who has the chat open gets
-the notification in the page, and Puter doesn't push it.
+app calls it right after it sends a message. A member who's looking at the chat
+gets the notification in the page without a push, as
+[When a notification is pushed](/Notifications/push/#when-a-notification-is-pushed)
+describes.
 
-Each share connects the room's creator with one member. So the creator can
+Each share connects the room's creator with one member, so the creator can
 notify every member, and a member can notify the creator. For members to notify
 each other as well, see [Let Members Notify Each Other](#let-members-notify-each-other).
 
-This recipe uses the room, `room`, `prefix`, `handle`, `user` and
-`sendMessage()` from [Build a Group Chat](/recipes/build-a-group-chat/). Your
-site also needs to serve `/puter-sw.js`, as in
-[Push notifications for your app](/Notifications/push/#1-serve-the-service-worker).
+This recipe uses the `room`, `prefix`, `handle`, `user` and `sendMessage()`
+from [Build a Group Chat](/recipes/build-a-group-chat/). Your site also needs to
+serve `/puter-sw.js`, as
+[Reach a User When Your App Is Closed](/recipes/reach-a-user-when-your-app-is-closed/#serve-the-service-worker)
+shows.
 
 ## Notify Through the Shares
 
 A member reaches the creator through their own share's `handle`. The creator
 reaches each member through that member's share, which
-[`puter.kv.listSharedByMe()`](/KV/listSharedByMe/) lists:
+[`puter.kv.listSharedByMe()`](/KV/listSharedByMe/) lists a page at a time:
 
 ```js
+async function memberHandles () {
+    const handles = [];
+    let cursor;
+    do {
+        const page = await puter.kv.listSharedByMe({ state: 'live', limit: 200, cursor });
+        for (const share of page.items) {
+            if (share.prefix === prefix && share.notify) handles.push(share.handle);
+        }
+        cursor = page.cursor;
+    } while (cursor);
+    return handles;
+}
+
 async function notifyRoom (text) {
     const { roomId, title } = await room.get('meta');
     const notification = {
@@ -46,14 +61,9 @@ async function notifyRoom (text) {
         data: { roomId },
     };
 
-    if (handle) {
-        await puter.notifications.notify({ ...notification, to: { handle } });
-        return;
-    }
-    const { items } = await puter.kv.listSharedByMe({ state: 'live', limit: 200 });
-    const members = items.filter((share) => share.prefix === prefix && share.notify);
-    await Promise.allSettled(members.map((share) =>
-        puter.notifications.notify({ ...notification, to: { handle: share.handle } })));
+    const handles = handle ? [handle] : await memberHandles();
+    await Promise.allSettled(handles.map((to) =>
+        puter.notifications.notify({ ...notification, to: { handle: to } })));
 }
 
 const text = 'Who is bringing the tent?';
@@ -61,10 +71,12 @@ await sendMessage(text);
 await notifyRoom(text);
 ```
 
-The creator uses `Promise.allSettled()` so that one member who can't be notified
-doesn't stop the rest. A member can't be notified once their share stopped, or
-after they blocked the creator. [`notify()`](/Notifications/notify/#notify-the-other-side-of-a-share)
-lists the errors.
+The listing covers every room the creator shared, so the code keeps the shares
+of this room. It uses `Promise.allSettled()` so that one member who can't be
+notified doesn't stop the rest. A member can't be notified once their share
+stopped, or after they blocked the creator.
+[`notify()`](/Notifications/notify/#notify-the-other-side-of-a-share) lists the
+errors.
 
 The notification names your app, not the sender, so the title says who wrote
 the message. The `group` makes a new message replace the member's notification
@@ -92,11 +104,10 @@ puter.notifications.on('click', ({ data }) => {
 
 Here `openRoomById()` is your app's own function that shows a room.
 
-While the chat is open, the notification reaches this handler in the page
-instead of being pushed. The page shows it only when its tab is hidden or its
-window isn't focused, and the message itself arrives through the room's
-`watch()`. While the chat is closed, the same handler runs in your service
-worker to decide what the push shows.
+While the chat is open, the notification reaches this handler in the page, and
+the page shows it only when its tab is hidden or its window isn't focused. The
+message itself arrives through the room's `watch()`. While the chat is closed,
+the same handler runs in your service worker to decide what the push shows.
 
 ## Turn Notifications On
 
@@ -132,6 +143,19 @@ puter.notifications.on('click', ({ data }) => {
     if (data?.roomId) openRoomById(data.roomId);
 });
 
+async function memberHandles () {
+    const handles = [];
+    let cursor;
+    do {
+        const page = await puter.kv.listSharedByMe({ state: 'live', limit: 200, cursor });
+        for (const share of page.items) {
+            if (share.prefix === prefix && share.notify) handles.push(share.handle);
+        }
+        cursor = page.cursor;
+    } while (cursor);
+    return handles;
+}
+
 async function notifyRoom (text) {
     const { roomId, title } = await room.get('meta');
     const notification = {
@@ -143,25 +167,20 @@ async function notifyRoom (text) {
         data: { roomId },
     };
 
-    if (handle) {
-        await puter.notifications.notify({ ...notification, to: { handle } });
-        return;
-    }
-    const { items } = await puter.kv.listSharedByMe({ state: 'live', limit: 200 });
-    const members = items.filter((share) => share.prefix === prefix && share.notify);
-    await Promise.allSettled(members.map((share) =>
-        puter.notifications.notify({ ...notification, to: { handle: share.handle } })));
+    const handles = handle ? [handle] : await memberHandles();
+    await Promise.allSettled(handles.map((to) =>
+        puter.notifications.notify({ ...notification, to: { handle: to } })));
+}
+
+async function sendAndNotify (text) {
+    await sendMessage(text);
+    await notifyRoom(text);
 }
 
 document.getElementById('notify').addEventListener('click', async () => {
     const pushes = await puter.notifications.enable();
     console.log(pushes ? 'You will be notified' : 'Notifications are off');
 });
-
-async function sendAndNotify (text) {
-    await sendMessage(text);
-    await notifyRoom(text);
-}
 ```
 
 The worker, at `/puter-sw.js`:
@@ -174,15 +193,15 @@ importScripts('https://js.puter.com/push-sw.js');
 
 A member's share connects them with the creator only, so a member can't reach
 the other members through it. When every member should hear about every
-message, whoever sent it, each member needs a handler that Puter runs for them
-when a message lands, even while your app is closed. The handler calls
-[`notify()`](/Notifications/notify/) for its own member, so the notification
-needs no share. Use this in place of `notifyRoom()`.
+message, whoever sent it, give each member a persistent subscription to the
+room's messages, with a handler that Puter runs for them even while your app is
+closed. The handler calls [`notify()`](/Notifications/notify/) for its own
+member, so it needs no share. Use this in place of `notifyRoom()`.
 
-A handler is a function your app publishes once, under a name, with
-[`puter.events.handlers.publish()`](/Events/handlers/). Only the account that
-owns the app can publish, so run this once yourself, signed in to your site as
-the owner:
+Publish the handler once, signed in to your site as the app's owner, with
+[`puter.events.handlers.publish()`](/Events/handlers/).
+[Run Code in the Background](/recipes/run-code-in-the-background/#publish-the-handler)
+explains handlers in more detail:
 
 ```js
 await puter.events.handlers.publish('notifyNewMessage', async ({ event, user, ctx }) => {
@@ -202,39 +221,32 @@ await puter.events.handlers.publish('notifyNewMessage', async ({ event, user, ct
 
 Each member, the creator included, subscribes to the room's messages with
 [`puter.events.onPersistent()`](/Events/onPersistent/), naming the handler.
-Running a handler while the user is away needs their consent, which
+Running a handler while the member is away needs their permission, which
 [`puter.perms.request()`](/Perms/request/) asks for with the `backgroundEvents`
 resource. Call this from the "Notify me" button, after
 [`puter.notifications.enable()`](/Notifications/enable/):
 
 ```js
 async function subscribeToRoom () {
+    if (!await puter.perms.request('backgroundEvents')) return false;
+
     const subject = handle ? `kv:${handle}:msg:*` : `kv:${puter.appID}:${prefix}msg:*`;
     const subs = await puter.events.list();
-    const subscribed = subs.some((sub) =>
-        sub.subject === subject && sub.handlerName === 'notifyNewMessage' && !sub.suspendedAt);
+    const subscribed = subs.some((sub) => sub.subject === subject
+        && sub.handlerName === 'notifyNewMessage' && sub.suspendedReason !== 'permission_revoked');
     if (subscribed) return true;
 
     const { roomId, title } = await room.get('meta');
-    const options = {
+    await puter.events.onPersistent({
         subject,
         handlerName: 'notifyNewMessage',
         includeValue: true,
         context: { me: user.username, roomId, roomTitle: title },
-    };
-    try {
-        await puter.events.onPersistent(options);
-    } catch (error) {
-        if (error.code !== 'events_background_consent_required') throw error;
-        if (!await puter.perms.request('backgroundEvents')) return false;
-        await puter.events.onPersistent(options);
-    }
+    });
     return true;
 }
 ```
 
-The handler can't use variables from around it, because Puter runs it later,
-somewhere else. Everything it needs comes from `event`, `user`, and `ctx`, the
-values each subscription is created with. The `me` check skips the member's own
-messages. When the creator removes a member, or the member leaves, the member's
-subscription stops on its own.
+The `me` check in the handler skips the member's own messages. When the creator
+removes a member, or the member leaves, the member's subscription stops on its
+own.

@@ -39,10 +39,11 @@ router.post('/visits', async () => {
 });
 ```
 
-The worker runs as you, the owner of the site. Inside it, `me.puter` is
-Puter.js signed in to your account, so the count is saved in your
-[key-value store](/KV/) and every visitor adds to the same number. The
-[`incr()`](/KV/incr/) method adds 1 and returns the new value.
+The worker runs as you, the owner of the site. Inside it,
+[`me.puter`](/Workers/router/#integration-with-puter-js) is Puter.js signed in to your
+account, so the count is saved in your [key-value store](/KV/) and every
+visitor adds to the same number. The [`incr()`](/KV/incr/) method adds 1 on the
+server and returns the new value, so two visits at the same moment both count.
 
 The data belongs to the site's address. If you publish the same files under
 another site name, the worker there starts with an empty store.

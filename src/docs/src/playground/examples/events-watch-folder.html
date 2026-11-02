@@ -16,7 +16,7 @@
                 puter.print(`${event.op}: ${event.path}<br>`);
             });
 
-            // (3) Change something — the handler runs
+            // (3) Change something, and the handler runs
             await puter.fs.write(`${dir}/hello.txt`, 'Hello!');
 
             // (4) Stop listening (cleanup)

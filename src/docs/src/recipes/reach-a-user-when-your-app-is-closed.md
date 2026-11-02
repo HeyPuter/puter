@@ -5,9 +5,9 @@ tags: [notifications]
 order: 67
 ---
 
-With `puter.notifications`, your app can notify the user it runs for. Each notification goes to your app, not the Puter desktop's notifications panel, and every open page of your app gets it right away. When no page of your app is open, the same notification goes out as a push. The browser shows it on the user's phone or desktop, and a tap opens your site.
+With [`puter.notifications`](/Notifications/), your app can notify the user it runs for. Each notification goes to your app, not the Puter desktop's notifications panel, and every open page of your app gets it right away. When no page of your app is open, or the open pages are in the background, the same notification goes out as a push. The browser shows it on the user's phone or desktop, and a tap opens your site.
 
-This recipe sets that up for a website on its own domain. An app inside the Puter desktop only needs [`requestPermission()`](/Notifications/requestPermission/). [Push notifications for your app](/Notifications/push/) covers both cases.
+This recipe sets that up for a website on its own domain. An app inside the Puter desktop only needs [`enable()`](/Notifications/enable/), called from a click. [Push notifications for your app](/Notifications/push/) covers both cases.
 
 Pushes work in a normal tab in desktop browsers and on Android. On iPhone and iPad, the user first adds your site to the Home Screen and turns pushes on from there. [Where pushes work](/Notifications/push/#where-pushes-work) lists what each browser and device needs.
 
@@ -26,7 +26,7 @@ If your site already has a service worker, add that line to it and pass its path
 On every page load, say what a push shows with [`puter.notifications.onPush()`](/Notifications/onPush/). The key is the `channel` you send your notifications with:
 
 ```js
-puter.notifications.onPush('chat', (n) => ({
+await puter.notifications.onPush('chat', (n) => ({
     title: `${n.app?.name ?? 'Chat'}: ${n.title}`,
     body: n.text ?? '',
     url: n.target ?? '/',
@@ -52,9 +52,13 @@ async function turnOnPushes () {
     }
 }
 
-document.getElementById('enable').addEventListener('click', async () => {
+const enableButton = document.getElementById('enable');
+enableButton.hidden = await puter.notifications.status() !== 'off';
+
+enableButton.addEventListener('click', async () => {
     try {
         const on = await turnOnPushes();
+        enableButton.hidden = on;
         console.log(on ? 'Pushes are on' : 'Pushes are off');
     } catch (error) {
         console.log(`Could not turn on pushes: ${error.code}`);
@@ -64,7 +68,7 @@ document.getElementById('enable').addEventListener('click', async () => {
 
 The call rejects with `push_revoked` when the user turned your app off in Puter's settings. That choice stands until they allow your app again, which [`puter.notifications.requestPermission()`](/Notifications/requestPermission/) asks for with Puter's own prompt. After that, [`puter.notifications.enable()`](/Notifications/enable/) goes through. The other errors, such as a second service worker for the same scope, are listed on [`puter.notifications.enable()`](/Notifications/enable/#return-value).
 
-On later visits, [`puter.notifications.onPush()`](/Notifications/onPush/) keeps the browser's registration current without asking again, so the button is only needed once. After the user turns pushes off with [`puter.notifications.disable()`](/Notifications/disable/) or signs out, the button is needed again.
+The [`puter.notifications.status()`](/Notifications/status/) method says whether pushes are on in this browser without asking anything, so the page shows the button only when it's `'off'`. When it's `'blocked'`, the user has to allow notifications in the browser's settings. On later visits, [`puter.notifications.onPush()`](/Notifications/onPush/) keeps the browser's registration current without asking again. After the user turns pushes off with [`puter.notifications.disable()`](/Notifications/disable/) or signs out, [`status()`](/Notifications/status/) is `'off'` again.
 
 ## Send a Notification
 
@@ -78,13 +82,14 @@ async function sendMessageNotification () {
         target: '/chats/42',
         data: { chatId: 42 },
         channel: 'chat',
+        group: 'chat:42',
     });
 }
 
 document.getElementById('send').addEventListener('click', sendMessageNotification);
 ```
 
-The notification goes to your app, not the Puter desktop's notifications panel. A page you send it from is open, so that page gets it live and nothing is pushed. A push goes out when no page of your site is open. To send while the user's tabs are closed, call [`notify()`](/Notifications/notify/) from somewhere that keeps running, such as a [Puter Worker](/Workers/) with `user.puter.notifications.notify()`, or an [events handler](/Events/handlers/) with `user.notifications.notify()`. [Push notifications for your app](/Notifications/push/#sending-a-notification) has the details, and [Run Code in the Background](/recipes/run-code-in-the-background/) sets up an events handler.
+The `group` makes a newer notification for the same chat replace this one, instead of adding another. Every open page gets the notification live, and a page that's visible and focused, or shows the notification itself, holds the push back. So a notification sent from the page the user is looking at isn't pushed. [When a notification is pushed](/Notifications/push/#when-a-notification-is-pushed) has the full rule. To send while the user's tabs are closed, call [`notify()`](/Notifications/notify/) from somewhere that keeps running, such as a [Puter Worker](/Workers/) with [`user.puter.notifications.notify()`](/Notifications/notify/), or an [events handler](/Events/handlers/) with [`user.notifications.notify()`](/Notifications/notify/). [Push notifications for your app](/Notifications/push/#sending-a-notification) has the details, and [Run Code in the Background](/recipes/run-code-in-the-background/) sets up an events handler. To notify another user, see [Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/).
 
 A website using Puter.js starts out unlisted, so it gets the lower push limits for new apps. A notification over a limit still reaches your app live. The numbers are on [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications).
 
@@ -101,7 +106,7 @@ importScripts('https://js.puter.com/push-sw.js');
 The page, with an `enable` button and a `send` button:
 
 ```js
-puter.notifications.onPush('chat', (n) => ({
+await puter.notifications.onPush('chat', (n) => ({
     title: `${n.app?.name ?? 'Chat'}: ${n.title}`,
     body: n.text ?? '',
     url: n.target ?? '/',
@@ -117,9 +122,13 @@ async function turnOnPushes () {
     }
 }
 
-document.getElementById('enable').addEventListener('click', async () => {
+const enableButton = document.getElementById('enable');
+enableButton.hidden = await puter.notifications.status() !== 'off';
+
+enableButton.addEventListener('click', async () => {
     try {
         const on = await turnOnPushes();
+        enableButton.hidden = on;
         console.log(on ? 'Pushes are on' : 'Pushes are off');
     } catch (error) {
         console.log(`Could not turn on pushes: ${error.code}`);
@@ -133,6 +142,7 @@ async function sendMessageNotification () {
         target: '/chats/42',
         data: { chatId: 42 },
         channel: 'chat',
+        group: 'chat:42',
     });
 }
 

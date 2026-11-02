@@ -4,7 +4,7 @@ description: Returns the maximum value size (in bytes) for the key-value store.
 platforms: [websites, apps, nodejs, workers]
 ---
 
-A property of the `puter.kv` object that returns the maximum value size (in bytes) for the key-value store. A value is measured as the UTF-8 bytes of `JSON.stringify(value)`, so a string's quotes and escapes count.
+The largest value the key-value store accepts, in bytes. It's `408576` (399 KB). A value is measured as the UTF-8 bytes of `JSON.stringify(value)`, so a string's quotes and escapes count.
 
 ## Syntax
 

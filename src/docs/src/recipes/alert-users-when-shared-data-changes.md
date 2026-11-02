@@ -15,20 +15,18 @@ want an alert when the game ends, or when a team scores.
 This recipe adds that. Each fan's app subscribes to the game with a handler that
 Puter runs for the fan, even while your app is closed. The handler decides
 whether a change is worth an alert, and calls
-[`notify()`](/Notifications/notify/) for the fan. The same pattern fits any
-shared data with changes worth an alert, such as an order's status, a price, or
-a task assigned to someone.
-
-A handler fits here because each fan picks which changes are worth an alert,
-and the scorekeeper's page never has to reach the fans. When the person making
-a change decides who to alert, a share made with `notify: true` lets their page
-notify the other side directly with `to: { handle }`, with no handler. See
-[Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/).
+[`notify()`](/Notifications/notify/) for the fan. Each fan picks which changes
+they want, and the scorekeeper's page never has to reach the fans. When the
+person making a change should decide who hears about it, as in a chat, notify
+through the share instead, as
+[Notify Chat Members of New Messages](/recipes/notify-chat-members-of-new-messages/)
+shows.
 
 This recipe uses the `prefix`, `handle` and `label` from
 [Send Live Updates to Other Users](/recipes/send-live-updates-to-other-users/).
-Your site also needs to serve `/puter-sw.js`, as in
-[Push notifications for your app](/Notifications/push/#1-serve-the-service-worker).
+Your site also needs to serve `/puter-sw.js`, as
+[Reach a User When Your App Is Closed](/recipes/reach-a-user-when-your-app-is-closed/#serve-the-service-worker)
+shows.
 
 ## Mark the End of the Game
 
@@ -36,40 +34,42 @@ The scorekeeper writes the score as before, and adds `final: true` when the game
 ends:
 
 ```js
-await puter.kv.set(`${prefix}score`, { home: 2, away: 1 });
 await puter.kv.set(`${prefix}score`, { home: 2, away: 1, final: true });
 ```
 
 ## Publish the Handler
 
-A handler is a function your app publishes once, under a name, with
-[`puter.events.handlers.publish()`](/Events/handlers/). Puter runs it in your
-app's [events worker](/Events/workers/), where `user` is the fan the
-subscription belongs to. This one alerts on the final score, and on every goal
-for fans who asked for that:
+Publish a handler that alerts on the final score, and on every goal for fans
+who asked for that, with
+[`puter.events.handlers.publish()`](/Events/handlers/). Only the account that
+owns the app can publish, so run this once yourself, signed in to your site as
+the owner. The browser console is enough:
 
 ```js
 await puter.events.handlers.publish('alertScore', async ({ event, user, ctx }) => {
-    const score = event.value;
-    if (event.op !== 'set' || event.key !== 'score' || !score) return;
-    if (!score.final && ctx.alerts !== 'goals') return;
+    if (event.op !== 'set') return;
+    const score = 'value' in event ? event.value : await user.kv.get('score', { handle: ctx.handle });
+    if (!score || (!score.final && ctx.alerts !== 'goals')) return;
 
     await user.notifications.notify({
         title: score.final ? `Final: ${ctx.label}` : ctx.label,
         text: `${score.home} - ${score.away}`,
         channel: 'scores',
+        group: `game:${ctx.handle}`,
         target: `/games/${ctx.handle}`,
     });
 });
 ```
 
-Only the account that owns the app can publish, so run this once yourself,
-signed in to your site as the owner. The browser console is enough. Publishing
-the same source again does nothing.
+Puter runs the handler later, in your app's [events worker](/Events/workers/),
+so it can't use variables from around it. Everything it needs comes from
+`event`, `user` (the fan), and `ctx`, the values each fan's subscription is
+created with. [Run Code in the Background](/recipes/run-code-in-the-background/#publish-the-handler)
+explains handlers in more detail.
 
-The handler can't use variables from around it, because Puter runs it later,
-somewhere else. Everything it needs comes from `event`, `user`, and `ctx`, the
-values each subscription is created with.
+An event leaves out the score when it reaches many fans, so the handler reads
+it through the share then. The `group` makes a new alert for the game replace
+the fan's earlier one instead of adding another.
 
 ## Say What an Alert Shows
 
@@ -84,52 +84,45 @@ await puter.notifications.onPush('scores', (n) => ({
 }));
 ```
 
-While your app is open, the alert reaches this handler in the page instead of
-being pushed. The page shows it only when its tab is hidden or its window isn't
-focused. While your app is closed, the same handler runs in your service worker
-to decide what the push shows.
+While your app is open, an alert reaches this handler in the page, and the page
+shows it only when its tab is hidden or its window isn't focused. While your
+app is closed, the same handler runs in your service worker to decide what the
+push shows.
 
 ## Follow a Game
 
 The fan subscribes to the game's `score` key with
 [`puter.events.onPersistent()`](/Events/onPersistent/). A persistent
-subscription is stored on the fan's account and keeps running after they close
+subscription is saved to the fan's account and keeps running after they close
 your app. The fan's choice of alerts goes in `context`, which the handler gets
 as `ctx`:
 
 ```js
-async function followGame (alerts) {
-    const subject = `kv:${handle}:score`;
-    const subs = await puter.events.list();
-    for (const sub of subs) {
-        if (sub.subject === subject && sub.handlerName === 'alertScore') {
-            await puter.events.unsubscribe(sub.subId);
-        }
-    }
+const subject = `kv:${handle}:score`;
 
-    const options = {
-        subject,
-        handlerName: 'alertScore',
-        includeValue: true,
-        context: { alerts, label, handle },
-    };
-    try {
-        await puter.events.onPersistent(options);
-    } catch (error) {
-        if (error.code !== 'events_background_consent_required') throw error;
-        if (!await puter.perms.request('backgroundEvents')) return false;
-        await puter.events.onPersistent(options);
-    }
+async function findFollow () {
+    const subs = await puter.events.list();
+    return subs.find((sub) => sub.subject === subject && sub.handlerName === 'alertScore'
+        && sub.suspendedReason !== 'permission_revoked');
+}
+
+async function followGame (alerts) {
+    if (!await puter.perms.request('backgroundEvents')) return false;
+
+    const context = { alerts, label, handle };
+    const existing = await findFollow();
+    if (existing) await puter.events.update(existing.subId, { context });
+    else await puter.events.onPersistent({ subject, handlerName: 'alertScore', includeValue: true, context });
     return true;
 }
 ```
 
-The `context` is saved once, when the subscription is created. To change the
-fan's choice, the function removes their old subscription with
-[`puter.events.unsubscribe()`](/Events/unsubscribe/) and creates a new one.
-Running a handler while the user is away needs the user's consent, which
+Running a handler while the fan is away needs their permission, which
 [`puter.perms.request()`](/Perms/request/) asks for with the `backgroundEvents`
-resource.
+resource. It doesn't prompt when the fan already allowed it. When the fan
+already follows the game, [`puter.events.update()`](/Events/update/) changes
+their choice of alerts on the existing subscription, so pressing a button twice
+doesn't add a second one.
 
 Give the fan two buttons. Browsers only show their permission prompt from a
 click, so each one calls [`puter.notifications.enable()`](/Notifications/enable/)
@@ -148,19 +141,18 @@ for (const alerts of ['final', 'goals']) {
 ## Stop Following
 
 When the game is over, or the fan presses an "Unfollow" button, remove the
-subscription:
+subscription with [`puter.events.unsubscribe()`](/Events/unsubscribe/):
 
 ```js
-const subs = await puter.events.list();
-for (const sub of subs) {
-    if (sub.subject === `kv:${handle}:score` && sub.handlerName === 'alertScore') {
-        await puter.events.unsubscribe(sub.subId);
-    }
+async function unfollowGame () {
+    const existing = await findFollow();
+    if (existing) await puter.events.unsubscribe(existing.subId);
 }
 ```
 
-When the scorekeeper stops sharing the game, the fan's subscription stops on
-its own.
+When the scorekeeper stops sharing the game, the fan's subscription stops on its
+own. It stays in [`puter.events.list()`](/Events/list/) with
+`suspendedReason: 'permission_revoked'` until it's deleted 30 days later.
 
 ## Full Code
 
@@ -168,14 +160,15 @@ The handler, published once by the app's owner:
 
 ```js
 await puter.events.handlers.publish('alertScore', async ({ event, user, ctx }) => {
-    const score = event.value;
-    if (event.op !== 'set' || event.key !== 'score' || !score) return;
-    if (!score.final && ctx.alerts !== 'goals') return;
+    if (event.op !== 'set') return;
+    const score = 'value' in event ? event.value : await user.kv.get('score', { handle: ctx.handle });
+    if (!score || (!score.final && ctx.alerts !== 'goals')) return;
 
     await user.notifications.notify({
         title: score.final ? `Final: ${ctx.label}` : ctx.label,
         text: `${score.home} - ${score.away}`,
         channel: 'scores',
+        group: `game:${ctx.handle}`,
         target: `/games/${ctx.handle}`,
     });
 });
@@ -190,29 +183,27 @@ await puter.notifications.onPush('scores', (n) => ({
     url: n.target ?? '/',
 }));
 
-async function followGame (alerts) {
-    const subject = `kv:${handle}:score`;
-    const subs = await puter.events.list();
-    for (const sub of subs) {
-        if (sub.subject === subject && sub.handlerName === 'alertScore') {
-            await puter.events.unsubscribe(sub.subId);
-        }
-    }
+const subject = `kv:${handle}:score`;
 
-    const options = {
-        subject,
-        handlerName: 'alertScore',
-        includeValue: true,
-        context: { alerts, label, handle },
-    };
-    try {
-        await puter.events.onPersistent(options);
-    } catch (error) {
-        if (error.code !== 'events_background_consent_required') throw error;
-        if (!await puter.perms.request('backgroundEvents')) return false;
-        await puter.events.onPersistent(options);
-    }
+async function findFollow () {
+    const subs = await puter.events.list();
+    return subs.find((sub) => sub.subject === subject && sub.handlerName === 'alertScore'
+        && sub.suspendedReason !== 'permission_revoked');
+}
+
+async function followGame (alerts) {
+    if (!await puter.perms.request('backgroundEvents')) return false;
+
+    const context = { alerts, label, handle };
+    const existing = await findFollow();
+    if (existing) await puter.events.update(existing.subId, { context });
+    else await puter.events.onPersistent({ subject, handlerName: 'alertScore', includeValue: true, context });
     return true;
+}
+
+async function unfollowGame () {
+    const existing = await findFollow();
+    if (existing) await puter.events.unsubscribe(existing.subId);
 }
 
 for (const alerts of ['final', 'goals']) {

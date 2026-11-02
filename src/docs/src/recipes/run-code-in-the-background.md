@@ -7,44 +7,30 @@ order: 68
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Some work should happen even when nobody has your app open. For example,
-recording each file a user adds to a folder, posting to a chat when a report is
-saved, or processing a file as soon as it's uploaded. On other platforms you'd
-use a webhook, a background job, or a cloud function that runs on upload.
+Some work should happen even when nobody has your app open, such as recording
+each file a user adds to a folder, or posting to a chat when a report is saved.
+On other platforms you'd use a webhook, a background job, or a cloud function
+that runs on upload.
 
-In Puter, you write a function, publish it once, and each user's subscription
-runs it when their files change. Puter runs it in your app's
-[events worker](/Events/workers/), a serverless function that belongs to your
-app. You don't need to run a server.
+In Puter, you publish a function once, and each user's persistent subscription
+runs it when their files change. A persistent subscription, created with
+[`puter.events.onPersistent()`](/Events/onPersistent/), is saved to the user's
+account and keeps running after your app closes. Puter runs the function in
+your app's [events worker](/Events/workers/), a serverless function that
+belongs to your app, so you don't run a server. To update a page while it's
+open, use the subscriptions in
+[Watch for Changes](/recipes/watch-for-changes/) instead.
 
-[Watch for Changes](/recipes/watch-for-changes/) covers subscriptions
-that end when the page closes. This recipe uses persistent subscriptions,
-created with [`puter.events.onPersistent()`](/Events/onPersistent/). They're
-saved to the user's account and keep running after your app closes.
-
-## The Three Parts
-
-The setup has three parts:
-
-- **The handler**: the function to run. You publish it once, as the app's
-  developer.
-- **Permission**: each user has to allow your app to run code while the app is
-  closed.
-- **The subscription**: created once per user by your app. It says what to
-  watch and which handler to run.
-
-The examples build one app. Users add files to the app's `Inbox` folder, and
-the handler saves a record of each new file in the app's
-[key-value store](/KV/), so the app can show them later.
+The examples build one app. Users add files to the app's `Inbox` folder, and a
+handler saves a record of each new file in the app's [key-value store](/KV/),
+so the app can list them later.
 
 ## Publish the Handler
 
-Publish with [`puter.events.handlers.publish()`](/Events/handlers/). This is a
-developer step, like a deploy, and it only works for the account that owns the
-app. Run it from a deploy script or your browser console. For any other account
-it fails with `events_handler_forbidden`.
-
-Here's the handler and the call that publishes it:
+A handler is the function a subscription runs. Publish it with
+[`puter.events.handlers.publish()`](/Events/handlers/). This is a developer
+step, like a deploy, and only the account that owns the app can do it, so run it
+from a deploy script or your browser console:
 
 ```js
 const app = await puter.apps.get('drop-box');    // your app's name
@@ -62,39 +48,35 @@ async function recordUpload ({ event, user }) {
 await puter.events.handlers.publish('recordUpload', recordUpload, { appUid: app.uid });
 ```
 
-The handler gets one object as its argument. This handler uses two of its
-fields:
+The handler gets one object. Its `event` is what changed, in the
+[same shape](/Events/subjects/#the-event) as
+[`onLocal()`](/Events/onLocal/) events. Its `user` is a `puter` object signed
+in as the user the subscription belongs to, with the access your app has for
+that user. It expires after 15 minutes, so use it only during the run.
 
-- `event`: what changed, in the [same shape](/Events/onLocal/#the-event) as
-  [`onLocal()`](/Events/onLocal/) events. The file's ID is `event.uid`.
-- `user`: a `puter` object signed in as the user who owns the subscription. It
-  can do whatever your app can do for that user, like `user.kv` and `user.fs`.
-  It's valid for 15 minutes, so use it only during the run.
+Puter saves the handler's code and runs it later in the events worker, so the
+handler can't use anything defined outside it, including `puter`. It can use its
+parameters, its own variables, and standard globals like `fetch` and `JSON`.
+The [`publish()`](/Events/handlers/) method rejects any other name with
+`events_handler_free_variable`.
 
-Your script doesn't run the handler. Puter stores the handler's code and runs
-it later in the events worker. So the handler can't use variables or functions
-defined outside it, or `puter`. It uses `user` instead of `puter`. It can use
-its parameters, its own variables, and standard globals like `fetch`, `JSON`
-and `Math`. The [`publish()`](/Events/handlers/) method checks this, and fails
-with `events_handler_free_variable` if the handler uses a name it doesn't
-define.
+Uploads and copies arrive as `add`. A file moved in from another folder, for
+example by dragging it on the Puter desktop, arrives as a `move` with no
+`from`, because it came from outside the folder. The handler skips everything
+else, including edits, deletes and
+[gaps](/recipes/watch-for-changes/#handle-gaps). A skipped event still runs the
+handler, and each run is billed to the user as worker usage under the
+[User-Pays Model](/user-pays-model/).
 
-The handler only acts on new files. Uploads and copies arrive as `add`. A file
-moved in from another folder, for example by dragging it on the Puter desktop,
-arrives as a `move` with no `from`, because it came from outside the folder.
-Everything else is skipped, including edits, deletes and
-[gaps](/recipes/watch-for-changes/#handle-gaps).
+A new folder in `Inbox` also arrives as an `add`, and a folder dragged in sends
+one `move` and nothing for the files inside it. To handle those, check the item
+with [`user.fs.stat({ uid: event.uid })`](/FS/stat/) and list a folder with
+[`user.fs.readdir()`](/FS/readdir/).
 
-A skipped event still runs the handler. Each run is billed to the user as
-worker usage, on top of the cost per event, under the
-[User-Pays Model](/user-pays-model/), and counts toward the limit of 60 runs a
-minute per user and app. For example, every save to a file that's already in
-`Inbox` is one run.
-
-A new folder in `Inbox` also arrives as an `add`. To handle only files, check
-the item with `user.fs.stat({ uid: event.uid })`. Dragging a folder in sends one
-`move` for the folder and nothing for the files inside it, so list its contents
-with `user.fs.readdir()` to handle those.
+Write the handler's output outside the folder it watches, as this one does with
+the key-value store. A file it writes into `Inbox` is a new change that runs the
+handler again, and Puter stops that loop after a few runs without an error.
+[Handler chains](/rate-limits-and-quotas/#handler-chains) has the numbers.
 
 ## Ask for Permission
 
@@ -102,36 +84,33 @@ Running code while your app is closed needs the user's permission. Ask from
 your app with [`puter.perms.request()`](/Perms/request/):
 
 ```js
-const allowed = await puter.perms.request('events:background');
+const allowed = await puter.perms.request('backgroundEvents');
 ```
 
-It resolves to `true` or `false`. If the permission is already granted, the
-user doesn't see a prompt. To check without prompting, for example to decide
-whether to show an "Enable background processing" button, use
-[`puter.perms.check('events:background')`](/Perms/check/).
+It resolves to `true` or `false`, and doesn't prompt when the user already
+allowed it. To check without prompting, for example to decide whether to show
+an "Enable background processing" button, use
+[`puter.perms.check('backgroundEvents')`](/Perms/check/).
 
-Without the permission, [`onPersistent()`](/Events/onPersistent/) fails with
-`events_background_consent_required`. The user can also revoke the permission
-later. That pauses the app's subscriptions for that user with the reason
-`permission_revoked`. They stay paused even if the user grants the permission
-again, so your app has to subscribe again.
+The user can take the permission back later. That pauses the app's
+subscriptions for that user with the reason `permission_revoked`. They stay
+paused even if the user allows it again, so your app has to subscribe again.
 
 Persistent subscriptions need a Puter account. For a guest account,
-[`onPersistent()`](/Events/onPersistent/) fails with
+[`onPersistent()`](/Events/onPersistent/) rejects with
 `events_durable_requires_account`.
 
 ## Subscribe Once per User
 
 Every [`onPersistent()`](/Events/onPersistent/) call creates a new
-subscription, even with the same options. If you call it each time the app
-opens, each call adds another subscription, every one of them runs the handler
-for each event, and the user eventually reaches the limit of 25 subscriptions
-per app (100 on a paid plan). Check [`puter.events.list()`](/Events/list/)
-first:
+subscription, and each one runs the handler for every event. Calling it each
+time the app opens would run the handler several times per file, until the user
+reaches the [limit on persistent subscriptions](/rate-limits-and-quotas/#what-an-account-can-hold).
+So look for one with [`puter.events.list()`](/Events/list/) first:
 
 ```js
 const inbox = `~/AppData/${puter.appID}/Inbox`;
-const options = { subject: `fs:${inbox}`, handlerName: 'recordUpload' };
+const options = { subject: `fs:${inbox}`, handlerName: 'recordUpload', queue: true };
 
 async function findSubscription () {
     const subs = await puter.events.list();
@@ -142,45 +121,49 @@ async function findSubscription () {
 async function startBackgroundWork () {
     const folder = await puter.fs.mkdir(inbox, { createMissingParents: true });
     const existing = await findSubscription();
-
-    const working = existing
-        && existing.anchor.uid === folder.uid
-        && existing.suspendedReason !== 'permission_revoked';
-    if (working) return;
+    if (existing?.anchor.uid === folder.uid && existing.suspendedReason !== 'permission_revoked') return;
 
     if (existing) await puter.events.unsubscribe(existing.subId);
     await puter.events.onPersistent(options);
 }
+
+if (await puter.perms.request('backgroundEvents')) await startBackgroundWork();
 ```
 
-Call `startBackgroundWork()` when the app opens, after the user has given
-permission. This uses the default mode, which runs the handler for every change
-even while the app is closed, and tries each event once. A few details:
+An `fs:` subject on a folder matches changes anywhere inside it. The
+[`mkdir()`](/FS/mkdir/) call creates `Inbox` if it's missing, and returns the
+existing folder otherwise. The [`list()`](/Events/list/) method returns only
+your app's subscriptions, with `subject` exactly as you passed it.
 
-- An `fs:<folder>` subject matches changes anywhere inside the folder.
-- The [`mkdir()`](/FS/mkdir/) call creates `Inbox` if it's missing, and returns
-  the existing folder if it's already there.
-- A subscription is tied to the folder itself, not its name. If the user
-  deletes `Inbox` on the desktop, the folder moves to the Trash, and the
-  subscription stays attached to the folder in the Trash. The code compares
-  `anchor.uid` (the ID of the folder the subscription is attached to) with the
-  folder from `mkdir()`. When they differ, it subscribes to the new folder.
-- A paused subscription has its reason in `suspendedReason`. One paused with
-  `permission_revoked` stays paused after the user grants the permission again,
-  so the code replaces it. Subscriptions paused for other reasons resume
-  without your app doing anything, so the code keeps them.
+A subscription is tied to the folder itself, not its path. If the user deletes
+`Inbox` on the desktop, the folder moves to the Trash and the subscription
+stays on it there. Its `anchor.uid` is the ID of the folder it's tied to, so
+when that differs from the folder [`mkdir()`](/FS/mkdir/) returned, the code
+subscribes to the new folder. It also replaces a subscription paused with
+`permission_revoked`, which never resumes.
 
-The [`list()`](/Events/list/) method only returns your app's subscriptions, with
-`subject` exactly as you passed it. If two tabs open at the same moment, both
-might create a subscription. If [`list()`](/Events/list/) returns more than one
-match, keep one and unsubscribe the rest.
+If two tabs open at the same moment, both might create a subscription. When
+[`list()`](/Events/list/) returns more than one match, keep one and unsubscribe
+the rest.
+
+With `queue: true`, Puter treats the subscription like a work queue, so every
+new file gets recorded. A run that fails with a network error, a timeout or
+another temporary error is retried after 2 seconds, then 4, then 8, up to 5
+minutes apart. Runs over the per-minute limit for your app wait and run later.
+Without `queue`, a failed run isn't retried and runs over the limit are
+skipped, so uploading 100 files at once would record only about 60.
+
+Queued events cost more per event, as
+[What events cost](/rate-limits-and-quotas/#what-events-cost) lists. For work
+where a missed event doesn't matter, such as refreshing a summary that the next
+change refreshes anyway, leave `queue` out.
 
 ## Pass Settings to the Handler
 
 The handler can't see your app's variables, so per-user settings go in
 `context` when you subscribe, and the handler gets them as `ctx`. For example,
-if the user saved a chat webhook URL in your app's settings, add it to
-`options` before calling `startBackgroundWork()`:
+to post each new file to a chat webhook the user saved in your app's settings,
+add it to `options` before calling `startBackgroundWork()`:
 
 ```js
 options.context = { webhookUrl: settings.webhookUrl };
@@ -196,143 +179,49 @@ async function recordUpload ({ event, user, ctx }) {
     const name = event.path.split('/').pop();
     await user.kv.set(`uploads:${event.uid}`, { name, addedAt: event.ts });
 
-    if (ctx.webhookUrl) {
-        await fetch(ctx.webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: `New file: ${name}` }),
-        });
-    }
+    const postedKey = `posted:${event.id}`;
+    if (!ctx.webhookUrl || await user.kv.get(postedKey)) return;
+    await fetch(ctx.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: `New file: ${name}` }),
+    });
+    await user.kv.set(postedKey, true, Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
 }
 ```
 
-The `context` is saved when the subscription is created and never updated. If the
-user changes the setting, replace the subscription:
+A retried event has the same `event.id`. If a run posts the message but times
+out before it finishes, the retry would post it again, so the handler saves the
+ID after posting and skips IDs it already posted. The marker key expires after
+a week. Saving the record needs no check, since writing it twice changes
+nothing.
+
+When the user changes the setting, change the subscription's `context` with
+[`puter.events.update()`](/Events/update/). The subscription keeps its ID and
+any events still waiting to run:
 
 ```js
 async function updateWebhook (webhookUrl) {
     options.context = { webhookUrl };
     const existing = await findSubscription();
-    if (existing) await puter.events.unsubscribe(existing.subId);
-    await puter.events.onPersistent(options);
+    if (existing) await puter.events.update(existing.subId, { context: options.context });
 }
 ```
 
-This calls [`onPersistent()`](/Events/onPersistent/) directly instead of
-`startBackgroundWork()`, because [`list()`](/Events/list/) can still return the
-old subscription for a short time after an unsubscribe.
-
-The `context` can be up to 4 KB of JSON, and anything bigger fails with
-`events_context_too_large`. For more data, store it with [`puter.kv`](/KV/) and
-read it in the handler with `user.kv.get()`. The [`list()`](/Events/list/)
-method shows the key names in `context`, never the values.
-
-To end a subscription automatically, set `expiresAt` in unix seconds or as an
-ISO date string. `Date.now()` is in milliseconds, so divide it by 1000:
-
-```js
-options.expiresAt = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;    // one week from now
-```
-
-## Write Output Outside the Watched Folder
-
-Write the handler's output somewhere the subscription isn't watching, like a
-`Processed` folder next to `Inbox`, or the key-value store.
-
-A file the handler writes into the folder it's watching is a new change, so the
-handler runs again. In the events worker, Puter stops this loop after 4 runs on
-the free plan and 12 on a paid plan, and doesn't report an error.
-
-## Make Sure Every File Gets Handled
-
-By default, the events worker runs the handler once per event. If it throws or
-takes longer than 30 seconds, that event is lost. There's also a limit of 60 runs a minute per
-user and app, and runs past it are skipped, so if someone uploads 100 files at
-once, only about 60 get recorded.
-
-To handle every file, use `queue: true`. Puter then treats the subscription
-like a work queue: an event whose run never finishes, or fails with a network
-error, timeout or other temporary error, is retried after 2 seconds, then 4,
-then 8, up to 5 minutes apart. Events over the per-minute limit are delivered
-later instead of being skipped:
-
-```js
-options.queue = true;
-```
-
-A tab of your app gets the event first only if it subscribed with a function
-`handler`. Otherwise the events worker runs it right away.
-
-Subscriptions keep the delivery they were created with. To replace the
-subscriptions users created before this change, `startBackgroundWork()` also
-checks `existing.queue`:
-
-```js
-async function startBackgroundWork () {
-    const folder = await puter.fs.mkdir(inbox, { createMissingParents: true });
-    const existing = await findSubscription();
-
-    const working = existing
-        && existing.anchor.uid === folder.uid
-        && existing.suspendedReason !== 'permission_revoked'
-        && existing.queue;
-    if (working) return;
-
-    if (existing) await puter.events.unsubscribe(existing.subId);
-    await puter.events.onPersistent(options);
-}
-```
-
-Some things to know about `queue`:
-
-- **A retried event has the same `event.id`.** If a run does its work but
-  times out before finishing, the retry repeats it. For work like posting a
-  message, save `event.id` afterwards and skip IDs you've already handled.
-- **A thrown error isn't retried.** The event is dropped. To have it tried
-  again, throw it with `retry: true`, for example when a service you call is
-  busy.
-- **Five failures in a row pause the subscription**, retried and dropped
-  events alike. Puter notifies you as the developer. Fix the
-  handler and publish it again. The subscription resumes and delivers the
-  events it saved while paused.
-- Events delivered with `queue` cost the user $1 per million instead of $0.10.
-  See [Rate Limits and Quotas](/rate-limits-and-quotas/#events).
-
-Here's `recordUpload()` with the duplicate check. The marker key expires after
-a week, so these keys don't stay in the user's key-value store. Publish the
-handler again after the change:
-
-```js
-async function recordUpload ({ event, user, ctx }) {
-    const arrived = event.op === 'add' || (event.op === 'move' && !event.from);
-    if (!arrived) return;
-
-    const name = event.path.split('/').pop();
-    await user.kv.set(`uploads:${event.uid}`, { name, addedAt: event.ts });
-
-    const postedKey = `posted:${event.id}`;
-    if (ctx.webhookUrl && !(await user.kv.get(postedKey))) {
-        await fetch(ctx.webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: `New file: ${name}` }),
-        });
-        await user.kv.set(postedKey, true, Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
-    }
-}
-```
+The `context` can be up to 4 KB of JSON. For more data, store it with
+[`puter.kv`](/KV/) and read it in the handler with [`user.kv.get()`](/KV/get/).
 
 ## Update the Handler
 
 To change the handler, publish it again under the same name. Every
-subscription uses the new code from its next event, and users don't need to do
-anything.
+subscription runs the new code from its next event, and users don't need to do
+anything. Keep the name the same, since subscriptions are tied to it.
 
-A deploy script runs in a new process each time, so its SDK hasn't seen the
-published handler yet. Call [`handlers.list()`](/Events/handlers/) before
-publishing changed code. Without that call, [`publish()`](/Events/handlers/)
-fails with `events_handler_conflict`. This check stops two deploys from
-overwriting each other's code without an error:
+A deploy script runs in a new process each time, so its SDK hasn't seen what's
+published. Call [`handlers.list()`](/Events/handlers/) before publishing changed
+code, or [`publish()`](/Events/handlers/) rejects with
+`events_handler_conflict`. This check stops two deploys from overwriting each
+other's code without an error:
 
 ```js
 await puter.events.handlers.list({ appUid: app.uid });
@@ -343,40 +232,32 @@ After [`handlers.list()`](/Events/handlers/), publishing only fails if someone
 else published in between. Pass `replace: true` to overwrite anyway. To roll
 back, publish the old code.
 
-Keep the handler's name the same. Subscriptions are tied to the name, so after
-a rename every user's app has to subscribe again.
-
-To see your apps' events workers, or remove the ones you no longer need, use
-[`puter.events.workers`](/Events/workers/).
-
 ## Check on Subscriptions
 
-A paused (*suspended*) subscription still exists, and
-[`list()`](/Events/list/) shows why it's paused in `suspendedReason`:
+A subscription can pause without being removed, and
+[`list()`](/Events/list/) shows why in `suspendedReason`:
 
 | `suspendedReason` | What happened | What to do |
 | --- | --- | --- |
+| `permission_revoked` | The user took back the permission, or lost access to the folder. | Nothing. It never resumes, and `startBackgroundWork()` replaces it once the user allows background work again. |
+| `failures` | Five runs in a row failed. | Fix the handler and publish it again. The subscription resumes with up to 100 events it saved while paused. |
 | `handler_not_found` | The handler was removed. | Publish it again. The subscription resumes. |
-| `failures` | Five runs in a row failed (`queue` only). | Fix the handler and publish it again. The subscription resumes. |
 | `no_credit` | The user ran out of credit. | Nothing. It resumes when they add credit. |
-| `permission_revoked` | The user took back `events:background`, or lost access to the folder. | Ask for the permission again, then call `startBackgroundWork()`. |
 
-A paused `queue` subscription saves up to 100 missed events and delivers them
-when it resumes. They're kept for 24 hours, or 1 hour for `no_credit`. Default
-subscriptions don't save missed events while paused.
+A handler that throws counts as a failure, and with `queue` the event is
+dropped unless the error has `retry: true`. When failures pause subscriptions,
+Puter sends you, the developer, an `app.events.suspended` notification.
 
-A subscription can also be removed entirely, for example when its folder is
-permanently deleted. It then disappears from [`list()`](/Events/list/), and
-`startBackgroundWork()` creates a new one the next time the app opens. When
-that happens, Puter sends the user's app an `app.events.ended` notification.
-When subscriptions are paused, it sends you, the developer,
-`app.events.suspended`. [Catch Up on
-Notifications](/recipes/catch-up-on-notifications/) shows how to read
-both.
+A subscription can also end, for example when its folder is permanently
+deleted. It then disappears from [`list()`](/Events/list/), Puter sends the
+user's app an `app.events.ended` notification, and `startBackgroundWork()`
+creates a new one the next time the app opens.
+[Catch Up on Notifications](/recipes/catch-up-on-notifications/) shows how to
+read both notifications.
 
-To turn off background work, for example from a setting in your app, call
-[`puter.events.unsubscribe(subId)`](/Events/unsubscribe/) with the `subId` from
-`findSubscription()`.
+To turn off background work, for example from a setting in your app, pass the
+`subId` from `findSubscription()` to
+[`puter.events.unsubscribe()`](/Events/unsubscribe/).
 
 ## Full Code
 
@@ -394,14 +275,13 @@ async function recordUpload ({ event, user, ctx }) {
     await user.kv.set(`uploads:${event.uid}`, { name, addedAt: event.ts });
 
     const postedKey = `posted:${event.id}`;
-    if (ctx.webhookUrl && !(await user.kv.get(postedKey))) {
-        await fetch(ctx.webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: `New file: ${name}` }),
-        });
-        await user.kv.set(postedKey, true, Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
-    }
+    if (!ctx.webhookUrl || await user.kv.get(postedKey)) return;
+    await fetch(ctx.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: `New file: ${name}` }),
+    });
+    await user.kv.set(postedKey, true, Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60);
 }
 
 await puter.events.handlers.list({ appUid: app.uid });
@@ -429,12 +309,7 @@ async function findSubscription () {
 async function startBackgroundWork () {
     const folder = await puter.fs.mkdir(inbox, { createMissingParents: true });
     const existing = await findSubscription();
-
-    const working = existing
-        && existing.anchor.uid === folder.uid
-        && existing.suspendedReason !== 'permission_revoked'
-        && existing.queue;
-    if (working) return;
+    if (existing?.anchor.uid === folder.uid && existing.suspendedReason !== 'permission_revoked') return;
 
     if (existing) await puter.events.unsubscribe(existing.subId);
     await puter.events.onPersistent(options);
@@ -443,10 +318,8 @@ async function startBackgroundWork () {
 async function updateWebhook (webhookUrl) {
     options.context = { webhookUrl };
     const existing = await findSubscription();
-    if (existing) await puter.events.unsubscribe(existing.subId);
-    await puter.events.onPersistent(options);
+    if (existing) await puter.events.update(existing.subId, { context: options.context });
 }
 
-const allowed = await puter.perms.request('events:background');
-if (allowed) await startBackgroundWork();
+if (await puter.perms.request('backgroundEvents')) await startBackgroundWork();
 ```

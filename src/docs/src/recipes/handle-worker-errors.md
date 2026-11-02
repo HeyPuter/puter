@@ -19,7 +19,9 @@ show how to return these errors from a worker, and how to read them in your app.
 
 If a handler throws, or a promise it awaits rejects, the worker catches it and
 answers `500`. The body of that response is the error as text, such as
-`SyntaxError: Unexpected end of JSON input`.
+`SyntaxError: Unexpected end of JSON input`. A rejected Puter.js call, such as
+[`user.puter.getUser()`](/Auth/getUser/) with an expired session, answers with
+the text `[object Object]`.
 
 That has two problems. The caller cannot tell a bad request apart from a bug in
 your code, because both are `500`. And the error text can show details of your
@@ -81,7 +83,7 @@ router.post('/notes', async ({ request, user }) => {
 Check the type as well as the value. A body like `{ "text": 42 }` or
 `{ "text": ["a"] }` is valid JSON, but `text.trim()` would throw on it.
 
-## Check the User's Session
+## Check Who Is Calling
 
 When your app calls the worker with [`puter.workers.exec()`](/Workers/exec/),
 the request carries the user's Puter session, and the route gets a `user`. The

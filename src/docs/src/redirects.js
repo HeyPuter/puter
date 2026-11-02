@@ -24,6 +24,16 @@ const redirects = {
     '/playground/perms-request-permission': '/playground/perms-request-fs',
     // A push example needs the site's own service worker, which the playground can't serve.
     '/playground/notifications-push': '/Notifications/push',
+    // A browser registers for pushes through `enable()`.
+    '/Notifications/registerDevice': '/Notifications/enable',
+    // These examples need an app the reader owns, which the playground can't provide.
+    '/playground/events-persistent': '/Events/onPersistent',
+    '/playground/events-persistent-pinned': '/Events/onPersistent',
+    '/playground/events-handlers': '/Events/handlers',
+    '/playground/events-handlers-publish-all': '/Events/handlers',
+    '/playground/events-workers': '/Events/workers',
+    // Recipe slugs follow their titles.
+    '/recipes/push-when-closed': '/recipes/reach-a-user-when-your-app-is-closed',
 
     // Only the account's own session can call `updateProfile()`, so it is
     // not documented for apps.

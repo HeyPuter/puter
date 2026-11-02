@@ -150,7 +150,7 @@ Use `provider: 'cloudflare'`, a `@cf/...` model ID, or its `workers-ai:...` alia
 | `guidance` | `Number` | Prompt guidance on models other than Schnell. |
 | `negative_prompt` | `String` | Content to exclude (Phoenix, SDXL, and Inpainting). |
 | `input_image`, `input_images` | `String`, `Array<String>` | One reference image for FLUX.2 and Inpainting models. Inpainting requires an image; SDXL models reject one. |
-| `maskImage` | `String \| Blob` | Mask for Inpainting, in any [input image](#input-images-image-to-image) form; requires an input image. |
+| `maskImage` | `String \| Blob` | Mask for Inpainting, in any [input image](#input-images-image-to-image-) form; requires an input image. |
 | `strength` | `Number` | Transformation strength for Inpainting image editing. |
 
 Output encoding is selected by the model; `response_format` does not change Cloudflare output.

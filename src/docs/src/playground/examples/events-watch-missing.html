@@ -7,7 +7,7 @@
             const dir = puter.randName();
             await puter.fs.mkdir(dir);
 
-            // (2) Subscribe anyway — the subscription anchors on `dir` and
+            // (2) Subscribe anyway. The subscription anchors on `dir` and
             //     matches the rest of the path as it appears.
             const sub = await puter.events.onLocal(
                 `fs:${dir}/inbox/trigger.json:add`,

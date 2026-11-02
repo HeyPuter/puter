@@ -18,7 +18,7 @@
  * @template [T=KVScalar]
  * @typedef {Object} KVSetItem
  * @property {string} key The key to create or update. Maximum key size is `1 KB`.
- * @property {T} value The value to store. Maximum value size is `400 KB`.
+ * @property {T} value The value to store. Maximum value size is `399 KB`.
  * @property {number | null} [expireAt] Timestamp, in seconds, at which the key should expire.
  * Omit or pass `null` for no expiry.
  */
@@ -29,7 +29,7 @@
  * @template [T=KVScalar]
  * @typedef {Object} KVSetObject
  * @property {string} key The key to create or update. Maximum key size is `1 KB`.
- * @property {T} value The value to store. Maximum value size is `400 KB`.
+ * @property {T} value The value to store. Maximum value size is `399 KB`.
  * @property {number | null} [expireAt] Timestamp, in seconds, at which the key should expire.
  * Omit or pass `null` for no expiry.
  * @property {KVOptConfig} [optConfig]
@@ -141,9 +141,10 @@
  * @property {string} [appUuid] Address another app's namespace instead of this app's own. Requires
  * access to that app's data, which `puter.perms.request('appData', { app, scopes })` asks the user for.
  * @property {string} [handle] Address a region another user shared with you, by the `handle` from
- * `listShared()`. Keys and list patterns are then relative to the shared prefix. Needs `read` access
- * for `get` and `list`, and `write` for every other method; `flush` is refused. Rejected when
- * combined with `appUuid` or `disableSharing`.
+ * `listShared()`. Keys and list patterns are then relative to the shared prefix. `watch` access is
+ * enough to `list` keys without values, `read` adds `get` and listing with values, and `write` adds
+ * every method that changes keys; `flush` is refused. Rejected when combined with `appUuid` or
+ * `disableSharing`.
  * @property {boolean} [onlyIfAbsent] `set()` only: write the key only when it has no live entry.
  * `set()` then resolves to `false` instead of overwriting. Two writes at nearly the same time can
  * both succeed. Rejected on the batch form.
@@ -160,7 +161,8 @@
 
 /**
  * What a share lets its holder do. Each level includes the ones before it: `watch` delivers change
- * events, `read` adds `get` and `list`, and `write` adds every method that changes or deletes keys.
+ * events and lists keys without values, `read` adds `get` and values, and `write` adds every method
+ * that changes or deletes keys.
  *
  * @typedef {'watch' | 'read' | 'write'} KVShareAccess
  */

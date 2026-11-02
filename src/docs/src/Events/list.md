@@ -6,9 +6,9 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-Lists the persistent subscriptions created with [`puter.events.onPersistent()`](/Events/onPersistent/). Session subscriptions from `onLocal()` aren't stored, so they aren't listed.
+Lists the persistent subscriptions created with [`puter.events.onPersistent()`](/Events/onPersistent/). Session subscriptions from [`onLocal()`](/Events/onLocal/) aren't stored, so they aren't listed.
 
-An app sees only the subscriptions it created. An account session sees all of them, **including ones left by apps that have been deleted**, so that's where to clean up stray subscriptions. A scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, sees none, whether the account or an app created it.
+An app sees only the subscriptions it created. Outside an app, such as in Node.js with an account token, you see all of them. Deleting an app deletes its subscriptions. A scoped access token, such as the one in a [`getReadURL()`](/FS/getReadURL/) URL, sees none, whether the account or an app created it.
 
 On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
 
@@ -22,25 +22,32 @@ puter.events.list(options)
 
 #### `options` (Object) (optional)
 
-- `limit` (Number): Maximum subscriptions per request. Capped at 200; defaults to 50.
-- `cursor` (String | null): The cursor from a previous page. Passing it (even `null`) returns a single page instead of the full list.
-- `includeTotal` (Boolean): Adds `total` to the page. Ask for it on the first page only; it gets slower as the count grows.
-- `stream` (Boolean): Returns an async iterator of page envelopes instead of a promise.
+- `limit` (Number): Maximum subscriptions per request. Defaults to 50, max 200.
+- `cursor` (String | null): The cursor from a previous page. Passing it, even as `null`, returns a single page instead of the full list.
+- `includeTotal` (Boolean): Adds `total` to the page. Ask for it on the first page only, since it gets slower as the count grows.
+- `stream` (Boolean): Returns an async iterator of pages instead of a promise.
 
 ## Return value
 
-- No pagination options: a `Promise` for an array of every subscription (fetched page by page for you).
-- With `cursor` or `includeTotal`: a `Promise` for one page, `{ items, cursor?, total? }`. `cursor` is present while more pages exist.
-- With `stream: true`: an async iterator of pages.
+- Without `cursor`, `includeTotal`, or `stream`, a `Promise` for an array of every subscription, fetched page by page for you.
+- With `cursor` or `includeTotal`, a `Promise` for one page, `{ items, cursor?, total? }`. It includes a `cursor` if there are more pages to load.
+- With `stream: true`, an async iterator of pages.
 
-**Pages can be short.** Don't treat `items.length < limit` as the end; keep going until `cursor` is absent.
+Pages can be shorter than `limit` before the last one, so keep going until `cursor` is absent.
 
-Each subscription is the object [`onPersistent()`](/Events/onPersistent/) returns. In particular:
+Each subscription is the object [`onPersistent()`](/Events/onPersistent/#return-value) returns, without `off()`. In particular:
 
-- `contextKeys` (Array | null) and `contextHash` (String | null) describe the stored `context`. **Values are never returned**, since context often holds secrets. The hash changes whenever a value does.
-- `suspendedAt` (Number | null) and `suspendedReason` (String | null) are set when a subscription is [suspended](/Events/onPersistent/#suspended-subscriptions): `handler_not_found`, `failures`, `no_credit`, or `permission_revoked`.
+- `contextKeys` (Array | null) and `contextHash` (String | null) describe the stored `context`. The values are never returned, since context often holds secrets. The hash changes whenever a value does.
+- `suspendedAt` (Number | null) and `suspendedReason` (String | null) are set when a subscription is [suspended](/Events/onPersistent/#suspended-subscriptions), with `handler_not_found`, `failures`, `no_credit`, or `permission_revoked`.
 
-The promise rejects with `{ message, code }`: `auth_canceled` if nobody was signed in and the user closed the sign-in, `too_many_requests` over the listing rate limit, `events_disabled` where events are off, and `events_failed` for a response the SDK couldn't read.
+The promise rejects with `{ message, code }`:
+
+| `code` | Meaning |
+| --- | --- |
+| `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
+| `too_many_requests` | Over the listing rate limit. |
+| `events_disabled` | Events aren't enabled on this server. |
+| `events_failed` | The server sent a response the SDK couldn't read. |
 
 ## Examples
 
@@ -60,7 +67,7 @@ The promise rejects with `{ message, code }`: `auth_canceled` if nobody was sign
             });
 
             for (const row of await puter.events.list()) {
-                puter.print(`${row.subject} — ${row.queue ? 'queue' : 'every listener'}`);
+                puter.print(`${row.subject}: ${row.queue ? 'queue' : 'every listener'}`);
                 puter.print(` (context: ${row.contextKeys?.join(', ') ?? 'none'})<br>`);
             }
 

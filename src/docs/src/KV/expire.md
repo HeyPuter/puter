@@ -4,7 +4,7 @@ description: Set the time-to-live (TTL) in seconds for a key in the user's own k
 platforms: [websites, apps, nodejs, workers]
 ---
 
-Set the time-to-live (TTL) in seconds for a key in the key-value store.
+Sets a key's time-to-live (TTL) in seconds.
 
 ## Syntax
 
@@ -17,11 +17,11 @@ puter.kv.expire(key, ttlSeconds, optConfig)
 
 #### `key` (String) (required)
 
-A string containing the name of the key.
+The key to expire.
 
 #### `ttlSeconds` (Number) (required)
 
-The number of seconds until the key is removed from the key-value store. `0` or less expires the key immediately.
+The number of seconds until the key is removed. A value of `0` or less expires the key right away.
 
 #### `optConfig` (Object) (optional)
 
@@ -29,12 +29,12 @@ The number of seconds until the key is removed from the key-value store. `0` or 
 
 The last argument. It takes these properties:
 
-- `handle` (String): Work on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix. The share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
-- `appUuid` (String): Work on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
+- `handle` (String): Works on data another user shared with you, using the `handle` from [`puter.kv.listShared()`](/KV/listShared/). The key is then relative to the shared prefix, and the share needs `write` access. See [Sharing with other users](/KV/#sharing-with-other-users).
+- `appUuid` (String): Works on another app's data, which the user let your app reach with [`puter.perms.request('appData', …)`](/Perms/appData/). It can't be combined with `handle`.
 
 ## Return value
 
-A `Promise` that will resolve to `true` when the expiration has been set.
+A `Promise` that resolves to `true` once the TTL is set.
 
 ## Errors
 
@@ -42,15 +42,15 @@ With `handle`, the promise can reject with these codes:
 
 | Code | Meaning |
 | -- | -- |
-| `kv_handle_not_found` | `handle` doesn't exist, the share stopped, or it isn't shared with you. |
+| `kv_handle_not_found` | `handle` doesn't exist, the share stopped, it isn't shared with you, or the call comes from an app other than the one whose data it shares. |
 | `kv_handle_access_denied` | The share's access doesn't allow this method, or the key is private to the owner's app. |
-| `kv_handle_option_invalid` | `handle` was combined with `appUuid` or `disableSharing`. |
+| `kv_handle_option_invalid` | `handle` was combined with `appUuid`. |
 | `kv_handle_key_invalid` | With `handle`, the key is empty or longer than 768 bytes. |
-| `kv_handles_disabled` | Shares can't be used this way on this deployment. |
+| `kv_handles_disabled` | Calls through a share are turned off on this deployment. |
 
-## Keys That Don't Exist
+## Keys that don't exist
 
-A missing or already-expired key becomes an empty entry with the TTL you gave it, rather than staying absent. [`puter.kv.list()`](/KV/list/) shows it and [`puter.kv.get()`](/KV/get/) reads it as `null`, the same as a missing key — the old value, if there was one, never comes back. [`puter.kv.incr()`](/KV/incr/) rejects such an entry, the same as any non-number value.
+A missing or already-expired key becomes an empty entry with the TTL you gave it, rather than staying absent. [`puter.kv.list()`](/KV/list/) shows it and [`puter.kv.get()`](/KV/get/) reads it as `null`, the same as a missing key. The old value, if there was one, doesn't come back. [`puter.kv.incr()`](/KV/incr/) rejects such an entry, the same as any non-number value.
 
 To remove a key's TTL instead of setting one, use [`puter.kv.set()`](/KV/set/) or [`puter.kv.update()`](/KV/update/) with a `null` TTL.
 
@@ -74,7 +74,7 @@ To remove a key's TTL instead of setting one, use [`puter.kv.set()`](/KV/set/) o
             // (3) Wait 2 seconds and get the value
             setTimeout(async () => {
                 const name = await puter.kv.get('name');
-                puter.print("Value :", name);
+                puter.print(`Value: ${name}`);
             }, 2000);
         })();
     </script>

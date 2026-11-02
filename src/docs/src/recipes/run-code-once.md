@@ -6,73 +6,67 @@ order: 12
 ---
 
 Some things should only happen once, like showing a welcome tour or giving out
-a daily reward. The obvious way is to check a flag, do the thing, then set the
-flag. But two tabs can both check the flag before either one sets it, and then
+a daily reward. The obvious way is to read a flag, do the thing, then set the
+flag. But two tabs can both read the flag before either one sets it, and then
 both do it. This is called a race condition.
 
-[`puter.kv.incr()`](/KV/incr/) avoids it. It adds 1 on the server and returns
-the new number in one step, so no matter how many calls happen at once, exactly
-one of them gets back `1`. [Add Counters](/recipes/add-counters/) covers
-`incr()` for regular counting.
+To avoid it, check and set the flag in one call. The `onlyIfAbsent` option of
+[`puter.kv.set()`](/KV/set/) writes a key only when it doesn't exist yet, and
+resolves to `true` only for the call that wrote it.
 
 ## Run Once
 
-Call [`puter.kv.incr()`](/KV/incr/) and only run the action when it returns `1`:
+Pass `{ onlyIfAbsent: true }` and only run the action when the call resolves to
+`true`:
 
 ```js
-if ( await puter.kv.incr('welcomeTourShown') === 1 ) {
+if ( await puter.kv.set('welcomeTourShown', true, { onlyIfAbsent: true }) ) {
     showWelcomeTour();
 }
 ```
 
-The first call returns 1. Every call after that returns 2, 3 and so on, and
-skips the tour.
+The first call writes the key and resolves to `true`. Every call after that
+finds the key, writes nothing and resolves to `false`. When two tabs try at the
+same moment, only one of them gets `true`.
 
-Data in `puter.kv` is stored per user and per app, so this runs once per user,
-across all their tabs and devices. To run something once across all users, see
-[Run Once Across All Users](#run-once-across-all-users).
-
-## Why Not Use get() and set()
-
-```js
-// Two tabs can both get null here, and both show the tour.
-if ( await puter.kv.get('welcomeTourShown') === null ) {
-    await puter.kv.set('welcomeTourShown', true);
-    showWelcomeTour();
-}
-```
-
-With one tab this works fine. With two, both can call
-[`puter.kv.get()`](/KV/get/) before either calls [`puter.kv.set()`](/KV/set/),
-so both see `null` and both show the tour.
+Data in [`puter.kv`](/KV/) is stored per user and per app, so this runs once
+per user, across all their tabs and devices. Two calls at nearly the same
+moment from different places can both get `true`, so use it where a rare repeat
+is harmless, like a tour. To show the tour again, delete the key with
+[`puter.kv.del()`](/KV/del/).
 
 ## Run Once per Day
 
-Put the date in the key. Each day gets a new key that starts again at 1:
+Put the date in the key, so each day gets a new key. The third argument of
+[`puter.kv.set()`](/KV/set/) is when the key expires, as a Unix timestamp in
+seconds, so old keys delete themselves:
 
 ```js
-const today = new Date().toISOString().slice(0, 10);   // '2026-10-02', in UTC
-const key = `dailyReward:${ today }`;
+const today = new Date().toISOString().slice(0, 10);   // '2026-10-31', in UTC
+const inTwoDays = Math.floor(Date.now() / 1000) + 2 * 24 * 60 * 60;
 
-if ( await puter.kv.incr(key) === 1 ) {
-    await puter.kv.expire(key, 60 * 60 * 24 * 2);   // delete the key after 2 days
+if ( await puter.kv.set(`dailyReward:${ today }`, true, inTwoDays, { onlyIfAbsent: true }) ) {
     giveDailyReward();
 }
 ```
 
-The date in the key is what makes it once a day. The
-[`puter.kv.expire()`](/KV/expire/) call just cleans up old keys, so if the tab
-closes before it runs, nothing breaks. For once an hour, use
-`toISOString().slice(0, 13)` instead.
+For once an hour, use `toISOString().slice(0, 13)` instead. To hold a key only
+while some work runs, see
+[Set a Lock or Cooldown](/recipes/store-temporary-data/#set-a-lock-or-cooldown).
 
 ## Allow It a Few Times
 
-[`puter.kv.incr()`](/KV/incr/) returns how many times the action has been tried,
-so the same check works for limits other than one. This allows three free
-exports a day:
+To allow an action more than once, count the tries with
+[`puter.kv.incr()`](/KV/incr/). It adds 1 on the server and returns the new
+count, so two tabs that try at once get different numbers. This allows three
+free exports a day:
 
 ```js
-const used = await puter.kv.incr(`freeExports:${ today }`);
+const key = `freeExports:${ today }`;
+const used = await puter.kv.incr(key);
+if ( used === 1 ) {
+    await puter.kv.expire(key, 2 * 24 * 60 * 60);   // delete it after 2 days
+}
 
 if ( used <= 3 ) {
     await exportFile();
@@ -81,64 +75,47 @@ if ( used <= 3 ) {
 }
 ```
 
-Calls that get turned down still count, so the number can go past 3. That's
-fine, since anything over 3 is turned down anyway.
-
-## Hand Out Numbers in Order
-
-[`puter.kv.incr()`](/KV/incr/) also works like an auto-increment ID in SQL.
-Every call gets the next number and no two calls get the same one, which is
-useful for things like invoice numbers:
-
-```js
-const number = await puter.kv.incr('nextInvoiceNumber');
-
-await puter.kv.set(`invoice:${ String(number).padStart(6, '0') }`, invoice);
-// invoice:000042
-```
-
-If the [`puter.kv.set()`](/KV/set/) call fails, that number is skipped, so there
-can be gaps. The zero padding keeps the keys in number order, as explained in
-[Query a Collection](/recipes/query-collection/#filter-by-number).
+Since [`puter.kv.incr()`](/KV/incr/) takes no expiry, the first try sets one
+with [`puter.kv.expire()`](/KV/expire/). Tries that get turned down still count,
+so the number can go past 3, and anything over 3 is turned down anyway.
+[Add Counters](/recipes/add-counters/) covers counting in more detail.
 
 ## Run Once Across All Users
 
-Services that send webhooks, like payment providers, will send an event again
-if your reply is slow or fails. A [worker](/Workers/) can make sure each event
-is only handled once by claiming its ID. It uses `me.puter.kv`, which is your
-own storage, so every request shares the same keys (see [Build an API with a
-Worker](/recipes/build-an-api/#routes-without-a-user)):
+Code in the browser can be changed by the user, and [`puter.kv`](/KV/) only
+holds one user's data. To run something once for everyone, or to guard
+something valuable like a payment, do the check in a [worker](/Workers/).
+Inside a worker, [`me.puter`](/Workers/router/#integration-with-puter-js) is Puter.js
+signed in as you, the worker's owner, so every request reads and writes the
+same keys.
+
+Services that send webhooks, like payment providers, send an event again if
+your reply is slow or fails. This worker route claims each event's ID before
+handling it:
 
 ```js
 router.post('/webhooks/payments', async ({ request }) => {
     const event = await request.json();
     const key = `handled:${ event.id }`;
+    const inAWeek = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
 
-    if ( await me.puter.kv.incr(key) > 1 ) {
+    if ( ! await me.puter.kv.set(key, true, inAWeek, { onlyIfAbsent: true }) ) {
         return { received: true };   // already handled
     }
-    await me.puter.kv.expire(key, 60 * 60 * 24 * 7);
 
     try {
         await handlePayment(event);
     } catch ( error ) {
-        await me.puter.kv.del(key);   // let the next retry try again
+        await me.puter.kv.del(key);   // let the next retry handle it
         throw error;
     }
     return { received: true };
 });
 ```
 
-Keep the key around longer than the sender keeps retrying. A week is enough for
-most services. If handling the event fails, the key is deleted so the next retry
-runs normally.
-
-## Notes
-
-- To let something run again, like replaying the welcome tour, delete its key
-  with [`puter.kv.del()`](/KV/del/).
-- [Set a Lock or Cooldown](/recipes/store-temporary-data/#set-a-lock-or-cooldown)
-  is simpler, but two tabs can get through it at the same time. Use `incr()`
-  when running twice would be a problem.
-- Code running in the browser can be changed by the user. For anything
-  valuable, like credits or payments, do the check in a worker.
+A retry arrives seconds or minutes after the first delivery, so it finds the
+claim and skips the event. Keep the key longer than the sender keeps retrying.
+A week is enough for most services. If handling the event fails, the key is
+deleted and the worker answers `500`, so the next retry handles it.
+[Build an API with a Worker](/recipes/build-an-api/#routes-without-a-user)
+covers routes that outside services call.

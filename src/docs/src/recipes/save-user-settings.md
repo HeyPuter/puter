@@ -6,12 +6,14 @@ order: 11
 ---
 
 Most apps have settings, like a theme, a font size, or which notifications to
-send. If you save them in `localStorage`, they only exist in that one browser.
-If you save them with [`puter.kv`](/KV/), they're stored in the user's Puter
-account and follow them to every device.
+send. Saved in `localStorage`, they only exist in that one browser. Saved with
+[`puter.kv`](/KV/), they're stored in the user's Puter account and follow them
+to every device.
 
 This recipe keeps all settings in a single `settings` key and only saves what
-the user actually changed. Everything else comes from defaults in your code.
+the user changed. Everything else comes from defaults in your code. Secrets such
+as API tokens go in their own [private
+key](/recipes/share-data-between-apps/#keep-an-entry-private) instead.
 
 ## Load Settings with Defaults
 
@@ -25,8 +27,9 @@ const DEFAULTS = {
 };
 ```
 
-When the app starts, read the saved settings and merge them over the defaults.
-A simple `{ ...DEFAULTS, ...saved }` only merges the top level, so a saved
+When the app starts, read the saved settings with
+[`puter.kv.get()`](/KV/get/) and merge them over the defaults. A plain
+`{ ...DEFAULTS, ...saved }` only merges the top level, so a saved
 `editor.fontSize` would wipe out the default `wordWrap` and `tabSize`. This
 function merges nested groups too:
 
@@ -43,12 +46,10 @@ function withDefaults (defaults, saved) {
 const settings = withDefaults(DEFAULTS, await puter.kv.get('settings'));
 ```
 
-If the user never changed anything, there's no `settings` key,
-[`puter.kv.get()`](/KV/get/) returns `null`, and they get the defaults.
-
-Only saving changes also means you can change a default later. Users who never
-touched that setting get the new default, and users who picked their own value
-keep it.
+A user who never changed anything has no `settings` key, so
+[`puter.kv.get()`](/KV/get/) returns `null` and they get the defaults. Since
+only changes are saved, you can change a default later. Users who never touched
+that setting get the new default, and users who picked their own value keep it.
 
 ## Change a Setting
 
@@ -59,8 +60,9 @@ path to it. A dot means "inside this group":
 await puter.kv.update('settings', { 'editor.fontSize': 16 });
 ```
 
-Only that setting changes, and everything else in `editor` stays the same. If
-there's no `settings` key or `editor` group yet, they get created.
+Only that setting changes. If there's no `settings` key or `editor` group yet,
+they're created. A path that ends at a group, such as `editor`, replaces the
+whole group, so name each setting by its full path.
 
 To change several settings at once, put them in the same object. They're saved
 in one write:
@@ -72,14 +74,6 @@ await puter.kv.update('settings', {
 });
 ```
 
-Always use the full path to each setting, not the group object. Passing a group
-replaces the whole group and drops anything you left out:
-
-```js
-await puter.kv.update('settings', { editor: { tabSize: 2 } });
-// editor is now just { tabSize: 2 }, and the saved fontSize is gone
-```
-
 [`puter.kv.update()`](/KV/update/) returns the saved settings, so you can
 re-render right away:
 
@@ -88,10 +82,13 @@ const saved = await puter.kv.update('settings', { theme: 'dark' });
 render(withDefaults(DEFAULTS, saved));
 ```
 
+To update other open tabs when settings change, [watch the
+key](/recipes/watch-for-changes/).
+
 ## Save from a Settings Form
 
-Since paths are just strings, you can put each setting's path in your HTML and
-use one handler for the whole form:
+Paths are strings, so you can put each setting's path in your HTML and use one
+handler for the whole form:
 
 ```html
 <input type="number" data-setting="editor.fontSize">
@@ -118,14 +115,13 @@ await puter.kv.remove('settings', 'editor.fontSize');
 ```
 
 Removing a group resets everything in it, and you can pass several paths in one
-call:
+call. Removing something that was never saved does nothing:
 
 ```js
 await puter.kv.remove('settings', 'editor', 'notifications');
 ```
 
-Removing something that was never saved does nothing. To reset everything,
-delete the key with [`puter.kv.del()`](/KV/del/):
+To reset everything, delete the key with [`puter.kv.del()`](/KV/del/):
 
 ```js
 await puter.kv.del('settings');
@@ -144,8 +140,8 @@ await puter.kv.update('settings', { [`mutedChannels.${ member(channel) }`]: true
 await puter.kv.remove('settings', `mutedChannels.${ member(channel) }`);              // unmute
 ```
 
-`member()` wraps the name in brackets and quotes, so a channel name with a dot
-in it isn't split into a path.
+The `member()` helper wraps the name in brackets and quotes, so a channel name
+with a dot in it isn't split into a path.
 
 ## Rename a Setting
 
@@ -162,14 +158,8 @@ if ( saved.fontSize !== undefined ) {
 ```
 
 The new path is written before the old one is removed, so if the app closes in
-between, the next load just finishes the move.
+between, the next load finishes the move.
 
-## Notes
-
-- You can't write a path inside a setting that holds a plain value. If `theme`
-  is the string `'dark'`, writing `theme.mode` is rejected with `invalid_path`.
-  Rename the setting first, as shown above.
-- Keep secrets like API keys or tokens in their own private keys, as shown in
-  [Share Data Between Apps](/recipes/share-data-between-apps/#keep-an-entry-private).
-- To update other open tabs when settings change, watch the key with
-  [Events](/Events/).
+Turning a plain setting into a group needs the same move. A path can't go inside
+a plain value, so while `theme` holds the string `'dark'`, writing `theme.mode`
+rejects with `invalid_path`.

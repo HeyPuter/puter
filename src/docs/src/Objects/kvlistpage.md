@@ -1,9 +1,9 @@
 ---
 title: KVListPage
-description: The KVListPage object containing paginated key-value list results.
+description: A page of results from puter.kv.list().
 ---
 
-The `KVListPage` object containing paginated results from [`puter.kv.list()`](/KV/list/).
+A page of results from [`puter.kv.list()`](/KV/list/).
 
 ## Attributes
 
@@ -16,10 +16,8 @@ An array containing either:
 
 #### `cursor` (String) (optional)
 
-A pagination cursor to fetch the next page of results. Present only when there are more results to fetch. Pass this value to the next `puter.kv.list()` call to retrieve the next page.
-
-A page may hold fewer than `limit` items while `cursor` is still present — always iterate until `cursor` is absent.
+Pass it as `cursor` to the next [`puter.kv.list()`](/KV/list/) call to get the next page. It's included only if there are more pages to load. A page can hold fewer than `limit` items while more pages exist, so keep going until a page has no `cursor`.
 
 #### `total` (Number) (optional)
 
-The total number of items matching the query across all pages. Present only when the request set `includeTotal: true`. Computing it is metered and its cost grows with the store — request it once (on the first page) and avoid it in hot paths. If you only need to know whether more pages exist, check for `cursor` instead.
+The number of items that match across all pages. Only included when the request set `includeTotal: true`. The count is metered, and its cost grows with the size of the store. Request it once, on the first page, and keep it out of hot paths. To find out whether more pages exist, check for `cursor` instead.

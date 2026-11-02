@@ -5,14 +5,10 @@
         (async () => {
             // (1) Listen for this app's notifications while it's open
             const listener = await puter.notifications.onNotification((n) => {
-                puter.print(`notification: ${n.title}<br>`);
+                puter.print(`Received: ${n.title}<br>`);
             }, { catchUp: false });
 
-            // (2) Let the user decide whether they also get pushes
-            const allowed = await puter.notifications.requestPermission();
-            puter.print(`pushes allowed: ${allowed}<br>`);
-
-            // (3) Send one
+            // (2) Send one. This page is open, so it arrives here live.
             await puter.notifications.notify({
                 title: 'Your export is ready',
                 text: 'report.pdf finished exporting.',

@@ -8,9 +8,9 @@ platforms: [websites, apps, nodejs, workers]
 
 Lists the live shares other users made with you, a page at a time. Each share comes with the `handle` you pass to the other [`puter.kv`](/KV/) methods to use it.
 
-A share tells you its level, its app, and the owner's label. It never says who shared it or what the prefix is. To tell shares apart, read the label, or read a key the owner keeps for that, such as `meta`, through the handle. Reading needs `read` or `write` access, so a `watch` share only has its label.
+A share tells you its level, its app, and the owner's label, but not who shared it or what the prefix is. To tell shares apart, read the label, or read a key the owner keeps for that, such as `meta`, through the handle. Reading needs `read` or `write` access, so for a `watch` share you have only the label.
 
-In an app, the listing has only the shares of that app's data. Outside an app, it has every share made with you, and `appUid` narrows it to one app.
+In an app, the listing has only the shares of that app's data, and the handles work only in that app. Outside an app, it has every share made with you, and `appUid` narrows it to one app.
 
 ## Syntax
 
@@ -23,7 +23,7 @@ puter.kv.listShared(options)
 
 #### `options` (Object) (optional)
 
-- `limit` (Number): Shares per page. Defaults to `50`, at most `200`.
+- `limit` (Number): Shares per page. Defaults to `50`. A value over `200` is lowered to `200`.
 - `cursor` (String): The `cursor` from the previous page.
 - `includeTotal` (Boolean): Add `total` to the result. Defaults to `false`.
 - `appUid` (String | null): List only the shares of this app's data. Pass `null` for the store that belongs to no app. In an app, the only uid you can pass is the app's own.

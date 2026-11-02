@@ -131,10 +131,5 @@ async function publish (project, name) {
 ```
 
 To list the user's sites or take one offline, see
-[Manage websites](/recipes/manage-websites/).
-
-## Notes
-
-- To give single files a public URL, such as images or downloads, see
-  [Host files online](/recipes/host-file/). One hosted folder serves every file,
-  with no page or site name to manage.
+[Manage Websites](/recipes/manage-websites/). To give single files a public
+URL, such as images or downloads, see [Host Files Online](/recipes/host-file/).

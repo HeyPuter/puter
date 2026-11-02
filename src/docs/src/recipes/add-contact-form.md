@@ -1,7 +1,7 @@
 ---
 title: Add a Contact Form
 description: "Learn how to add a contact form to your app or website with Puter.js, so every message a visitor sends lands in your email inbox."
-tags: [workers, email]
+tags: [workers, email, kv]
 order: 39
 ---
 
@@ -40,11 +40,11 @@ router.post('/contact', async ({ request }) => {
 ```
 
 The recipient is fixed in the worker, so the form can only ever send mail to
-you. `replyTo` is set to the visitor's address, so pressing reply in your inbox
-writes back to them.
+you. The `replyTo` field is the visitor's address, so pressing reply in your
+inbox writes back to them.
 
-The email is sent with `me.puter`, which is your own Puter account as the
-worker's owner. Sends are billed to you, and
+The email is sent with [`me.puter`](/Workers/router/#integration-with-puter-js), which
+is Puter.js signed in as you, the worker's owner. Sends are billed to you, and
 [transactional email](/Email/sendTransactional/) needs your account to be on a
 paid plan.
 
@@ -107,42 +107,30 @@ Every message sent through the form now arrives in your email inbox.
 ## Limit How Often a Visitor Can Send
 
 Anyone who knows the worker's URL can call the `/contact` route, and every call
-sends an email billed to you. To keep a bot from flooding your inbox, add a
-rate limit. Record the visitor's IP address in [`puter.kv`](/KV/) with an
-expiry time, and while the key exists, the route answers `429` and sends
-nothing.
+sends an email billed to you. To keep a bot from flooding your inbox, give each
+visitor a cooldown. The route writes a key for the visitor's IP address in your
+[key-value store](/KV/) with an expiry, and while the key exists, it answers
+`429` and sends nothing.
 
-Here is the complete worker file with a rate limit of one message every 3
-minutes. Change `COOLDOWN_SECONDS` to fit your app:
+Here is the complete worker file with a cooldown of 3 minutes. Change
+`COOLDOWN_SECONDS` to fit your app:
 
 ```js
 const CONTACT_TO = 'you@example.com';
 const COOLDOWN_SECONDS = 3 * 60;
 
-function toPrefix48(addr) {
-  if (!addr.includes(':')) return addr; // IPv4: leave unchanged
+function toPrefix48(address) {
+    if (!address.includes(':')) return address;   // IPv4
 
-  const [head, tail = ''] = addr.split('%')[0].split('::'); // drop zone ID
-  const left = head ? head.split(':') : [];
-  const right = tail ? tail.split(':') : [];
-  const full = [...left, ...Array(8 - left.length - right.length).fill('0'), ...right];
+    const [head, tail = ''] = address.split('%')[0].split('::');
+    const left = head ? head.split(':') : [];
+    const right = tail ? tail.split(':') : [];
+    const groups = [...left, ...Array(8 - left.length - right.length).fill('0'), ...right];
 
-  const parts = full.slice(0, 3).map(h => parseInt(h || '0', 16).toString(16));
-  while (parts.length && parts[parts.length - 1] === '0') parts.pop();
+    const prefix = groups.slice(0, 3).map(group => parseInt(group || '0', 16).toString(16));
+    while (prefix.length && prefix[prefix.length - 1] === '0') prefix.pop();
 
-  return `${parts.join(':')}::/48`;
-}
-
-async function isRateLimited (request) {
-    const key = `contact:${toPrefix48(request.headers.get('x-real-ip'))}`;
-
-    if ( await me.puter.kv.get(key) ) {
-        return true;
-    }
-
-    const expireAt = Math.floor(Date.now() / 1000) + COOLDOWN_SECONDS;
-    await me.puter.kv.set(key, true, expireAt);
-    return false;
+    return `${prefix.join(':')}::/48`;
 }
 
 router.post('/contact', async ({ request }) => {
@@ -151,27 +139,40 @@ router.post('/contact', async ({ request }) => {
         return new Response('name, email and message are required', { status: 400 });
     }
 
-    if ( await isRateLimited(request) ) {
+    const key = `contact:${toPrefix48(request.headers.get('x-real-ip'))}`;
+    const expireAt = Math.floor(Date.now() / 1000) + COOLDOWN_SECONDS;
+    if (!await me.puter.kv.set(key, true, expireAt, { onlyIfAbsent: true })) {
         return new Response('Please wait a few minutes before sending another message', { status: 429 });
     }
 
-    await me.puter.email.sendTransactional({
-        to: CONTACT_TO,
-        replyTo: email,
-        subject: `Contact form: ${name}`,
-        text: `From: ${name} <${email}>\n\n${message}`,
-    });
+    try {
+        await me.puter.email.sendTransactional({
+            to: CONTACT_TO,
+            replyTo: email,
+            subject: `Contact form: ${name}`,
+            text: `From: ${name} <${email}>\n\n${message}`,
+        });
+    } catch {
+        await me.puter.kv.del(key);   // the visitor can try again right away
+        return new Response('Your message could not be sent, please try again', { status: 502 });
+    }
 
     return { ok: true };
 });
 ```
 
-The `x-real-ip` header carries the visitor's IP address, and it cannot be faked to get around
-the limit. The `toPrefix48()` helper handles both IPv4 and IPv6. An IPv4 address is used
-as is. One IPv6 connection usually comes with a whole block of addresses, so an
-IPv6 address is rate limited by its /48 prefix instead of the single address. The [`puter.kv.set()`](/KV/set/) method takes the expiry as a Unix
-timestamp in seconds, and once it passes, the key is removed and the visitor
-can send again.
+The `onlyIfAbsent` option makes [`puter.kv.set()`](/KV/set/) write the key only
+when it doesn't exist yet, and resolve to `false` when it does. Checking and
+starting the cooldown is one call, so two requests sent at the same moment
+can't both get through. The third argument is when the key expires, as a Unix
+timestamp in seconds. Once it passes, the key is gone and the visitor can send
+again.
 
-The limit is checked after the fields are validated, so a form with a missing
-field does not start the cooldown.
+The `x-real-ip` header carries the visitor's IP address, and it can't be faked
+to get around the limit. The `toPrefix48()` helper leaves an IPv4 address as it
+is. One IPv6 connection usually comes with a whole block of addresses, so an
+IPv6 address is limited by its /48 prefix instead of the single address.
+
+The cooldown starts after the fields are validated, so a form with a missing
+field doesn't start it. If the email can't be sent, the key is deleted so the
+visitor can try again.
