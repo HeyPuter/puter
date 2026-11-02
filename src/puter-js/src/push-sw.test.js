@@ -10,10 +10,7 @@ const SOURCE = readFileSync(
 );
 const ORIGIN = 'https://app.example';
 
-/**
- * Enough of IndexedDB for get/put and a cursor walk. Logs each transaction in
- * `stores.log`; every call fails while `stores.broken` is set.
- */
+/** Enough of IndexedDB for this worker; logs transactions, fails while `broken`. */
 const fakeIndexedDB = (stores) => {
     const request = (run) => {
         const req = { listeners: [] };
