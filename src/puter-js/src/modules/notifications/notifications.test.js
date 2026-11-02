@@ -1414,6 +1414,39 @@ describe('request with keepalive', () => {
         }
     });
 
+    it('sends it once more through fetchUrl when the browser refuses keepalive', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => {
+                throw new TypeError('Failed to fetch');
+            }),
+        );
+        mockFetchUrl.mockResolvedValue(jsonResponse({ removed: true }));
+        try {
+            await expect(
+                request(
+                    { APIOrigin: 'https://api.test', authToken: 'live' },
+                    'DELETE',
+                    '/push/web/subscriptions',
+                    { endpoint: 'e' },
+                    {
+                        authToken: 'leaving',
+                        interactiveReauth: false,
+                        keepalive: true,
+                    },
+                ),
+            ).resolves.toEqual({ removed: true });
+            expect(mockFetchUrl).toHaveBeenCalledTimes(1);
+            expect(mockFetchUrl.mock.calls[0][1]).toMatchObject({
+                method: 'DELETE',
+                authToken: 'leaving',
+                interactiveReauth: false,
+            });
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
     it('passes the server error through', async () => {
         vi.stubGlobal(
             'fetch',

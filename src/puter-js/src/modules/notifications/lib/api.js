@@ -24,7 +24,8 @@ const sendKeepalive = (puter, method, route, body, authToken) => {
  * device routes didn't answer themselves becomes `push_unavailable`. With
  * `authToken`, that token is sent instead of the live one, and a rejected one
  * opens no sign-in. `interactiveReauth: false` keeps a rejected live token from
- * opening one too. `keepalive` sends it even if the page unloads meanwhile.
+ * opening one too. `keepalive` sends it even if the page unloads meanwhile,
+ * where the browser allows it.
  */
 export async function request(
     puter,
@@ -33,17 +34,20 @@ export async function request(
     body,
     { authToken, interactiveReauth = true, keepalive = false } = {},
 ) {
+    const send = () =>
+        fetchUrl(`${puter.APIOrigin}${route}`, {
+            method,
+            ...(authToken
+                ? { authToken, interactiveReauth: false }
+                : { includePuterAuth: true }),
+            ...(interactiveReauth ? {} : { interactiveReauth: false }),
+            headers: { 'Content-Type': 'application/json' },
+            ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+    // Some browsers refuse a keepalive request that needs a CORS preflight.
     const response = keepalive
-        ? await sendKeepalive(puter, method, route, body, authToken)
-        : await fetchUrl(`${puter.APIOrigin}${route}`, {
-              method,
-              ...(authToken
-                  ? { authToken, interactiveReauth: false }
-                  : { includePuterAuth: true }),
-              ...(interactiveReauth ? {} : { interactiveReauth: false }),
-              headers: { 'Content-Type': 'application/json' },
-              ...(body ? { body: JSON.stringify(body) } : {}),
-          });
+        ? await sendKeepalive(puter, method, route, body, authToken).catch(send)
+        : await send();
 
     const isJson = response.headers
         .get('content-type')
