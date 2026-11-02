@@ -217,7 +217,7 @@ export type EventMap = {
          */
         is_temp?: boolean;
         ip?: string | null;
-        source?: 'oidc' | 'team_provision';
+        source?: 'oidc' | 'magic_link' | 'team_provision';
         req?: unknown;
         data?: unknown;
         abuse?: unknown;
@@ -277,7 +277,7 @@ export type EventMap = {
         ip?: string | null;
         fingerprint?: string | null;
         reputation?: number | null;
-        source?: 'oidc' | 'team_provision';
+        source?: 'oidc' | 'magic_link' | 'team_provision';
         requires_phone_verification: boolean;
         requires_card_verification: boolean;
         accepted: boolean;

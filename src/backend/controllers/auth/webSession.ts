@@ -17,11 +17,43 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import crypto from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { AuthService } from '../../services/auth/AuthService.js';
+import type { TokenService } from '../../services/auth/TokenService.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import type { IConfig } from '../../types.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import {
+    buildUserDetails,
+    scrubSensitive,
+    type UserDetailsDeps,
+} from '../../util/userDetails.js';
+
+/** Lifetime of the `otp-login` JWT a first factor hands back. */
+export const OTP_LOGIN_TOKEN_TTL = '5m';
+
+/**
+ * The challenge a first factor hands an account with 2FA on. `/login/otp` and
+ * `/login/recovery-code` redeem it; `claims` rides along to them.
+ */
+export function signOtpLoginChallenge(
+    token: TokenService,
+    user: Pick<UserRow, 'uuid'>,
+    claims: Record<string, unknown> = {},
+): string {
+    return token.sign(
+        'otp',
+        {
+            ...claims,
+            user_uid: user.uuid,
+            purpose: 'otp-login',
+            // Keeps each token distinct for the single-use check.
+            jti: crypto.randomUUID(),
+        },
+        { expiresIn: OTP_LOGIN_TOKEN_TTL },
+    );
+}
 
 /**
  * Open a web session for a sign-in this request completed, recording where it
@@ -45,4 +77,34 @@ export async function startWebSession(
         httpOnly: true,
     });
     return gui_token;
+}
+
+/**
+ * Finish a sign-in whose every factor passed: open the web session and build
+ * the body `/login` answers with, so a no-reload login can store `user` as
+ * `window.user` verbatim.
+ */
+export async function completeWebLogin(
+    req: Request,
+    res: Response,
+    user: UserRow,
+    deps: UserDetailsDeps & { services: { auth: AuthService } },
+): Promise<{
+    proceed: true;
+    next_step: 'complete';
+    token: string;
+    user: Record<string, unknown>;
+}> {
+    const guiToken = await startWebSession(req, res, user, {
+        config: deps.config,
+        auth: deps.services.auth,
+    });
+    const details = await buildUserDetails(user, deps, { isUser: true });
+    scrubSensitive(details);
+    return {
+        proceed: true,
+        next_step: 'complete',
+        token: guiToken,
+        user: details,
+    };
 }

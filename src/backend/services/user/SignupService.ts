@@ -25,13 +25,17 @@ import type { EventMetadata } from '../../clients/event/types.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
-import { cleanEmail, isBlockedEmail } from '../../util/email.js';
+import {
+    cleanEmail,
+    isBlockedEmail,
+    isStorableEmail,
+} from '../../util/email.js';
 import {
     bonusCodeInvalidError,
     checkSignupBonus,
     validateSignupBonus,
 } from '../../util/signupBonus.js';
-import { isUsernameTaken } from '../../util/username.js';
+import { generateUsername, isUsernameTaken } from '../../util/username.js';
 import {
     generateDefaultFsentries,
     promoteToVerifiedGroup,
@@ -56,10 +60,13 @@ export type SignupGateOutcome =
           requestCode?: string;
       };
 
+/** Signup routes whose address was proven before the account exists. */
+export type VerifiedEmailSignupSource = 'oidc' | 'magic_link';
+
 export interface SignupGateInput {
     req: Request;
     /** Set for signups that did not come through the signup form. */
-    source?: 'oidc' | 'team_provision';
+    source?: VerifiedEmailSignupSource | 'team_provision';
     data: Record<string, unknown>;
     email: string;
     isTemp: boolean;
@@ -79,6 +86,30 @@ export interface SignupInput {
     isTemp: boolean;
     fingerprint: string | null;
     bonusCode: string | null;
+}
+
+export interface VerifiedEmailSignupInput {
+    req: Request;
+    source: VerifiedEmailSignupSource;
+    email: string;
+    referrer?: string | null;
+    /** Canonical (`normalizeBonusCode`). */
+    bonusCode?: string | null;
+    /** Request fields the validate listeners read, e.g. a captcha response. */
+    data?: Record<string, unknown>;
+    /** Omitted by sources that never collect one. */
+    fingerprint?: string | null;
+}
+
+export interface VerifiedEmailSignupOutcome {
+    success: boolean;
+    user?: UserRow;
+    error?: string;
+    code?: string;
+    /** Another request created the address's account first; re-resolve. */
+    raced?: boolean;
+    /** The abuse trail id of a vetoed signup, safe to show the user. */
+    requestCode?: string;
 }
 
 /** The trusted client address; `req.ip` honors `trust proxy`. */
@@ -526,6 +557,134 @@ export class SignupService extends PuterService {
             saveAccount: !isTemp,
         });
         return user;
+    }
+
+    /**
+     * A signup whose address the caller already proved (an identity provider
+     * attested it, or the user clicked a link sent to it): no password, the
+     * address is confirmed on insert, and the gate still decides block and
+     * phone/card requirements. The caller announces the signup once it has
+     * finished whatever else the account needs.
+     */
+    async signupVerifiedEmail(
+        input: VerifiedEmailSignupInput,
+    ): Promise<VerifiedEmailSignupOutcome> {
+        const { req, source, email } = input;
+        const bonusCode = input.bonusCode ?? null;
+        if (!isStorableEmail(email)) {
+            return { success: false, error: 'This email cannot be used.' };
+        }
+        if (this.config.disable_user_signup) {
+            return { success: false, error: 'User registration is disabled.' };
+        }
+
+        const username = await generateUsername(this.stores);
+        if (!username) {
+            return {
+                success: false,
+                error: 'Failed to generate unique username.',
+            };
+        }
+
+        const clientIp = signupClientIp(req);
+
+        // Before the gate: the abuse harness reads the verdict the
+        // `email.validate` hook caches for this address.
+        try {
+            await this.validateEmail(email);
+        } catch (e) {
+            if (!(e instanceof HttpError)) throw e;
+            return { success: false, error: e.message };
+        }
+
+        const gate = await this.runSignupGate({
+            req,
+            source,
+            data: {
+                ...input.data,
+                username,
+                email,
+                ...(bonusCode ? { bonusCode } : {}),
+            },
+            email,
+            isTemp: false,
+            ...(input.fingerprint !== undefined
+                ? { fingerprint: input.fingerprint }
+                : {}),
+            bonusCode,
+        });
+        if (gate.verdict === 'bonus_code_invalid') {
+            return {
+                success: false,
+                error: 'This bonus code is invalid or no longer available.',
+                code: 'bonus_code_invalid',
+            };
+        }
+        if (gate.verdict !== 'allowed') {
+            return {
+                success: false,
+                error: gate.message ?? 'Signup blocked',
+                code: gate.code ?? 'signup_blocked',
+                requestCode: gate.requestCode,
+            };
+        }
+
+        // The gate takes long enough for a second request (another tab, a
+        // provider retry) to have created the account. Re-check against the
+        // primary, and let the unique index catch anything still in flight.
+        if (await this.stores.user.findEmailOwner(email, { force: true })) {
+            return { success: false, raced: true };
+        }
+
+        try {
+            const user = await provisionUser(
+                {
+                    db: this.clients.db,
+                    userStore: this.stores.user,
+                    groupStore: this.stores.group,
+                },
+                {
+                    username,
+                    uuid: uuidv4(),
+                    password: null,
+                    email,
+                    clean_email: cleanEmail(email),
+                    free_storage: this.config.storage_capacity ?? null,
+                    requires_email_confirmation: false,
+                    // Confirmed in the INSERT: an unconfirmed, password-less
+                    // row does not own its address, so two concurrent requests
+                    // would both insert and only collide when they confirm.
+                    email_confirmed: true,
+                    requires_phone_verification: gate.requiresPhoneVerification,
+                    requires_card_verification: gate.requiresCardVerification,
+                    ...(gate.reputation != null
+                        ? { reputation: gate.reputation }
+                        : {}),
+                    audit_metadata: {
+                        ip: clientIp,
+                        ip_fwd: req.headers['x-forwarded-for'],
+                        user_agent: req?.headers?.['user-agent'],
+                        origin: req?.headers?.origin,
+                        ...(input.fingerprint
+                            ? { fingerprint: input.fingerprint }
+                            : {}),
+                    },
+                    signup_ip: clientIp,
+                    // The abuse harness and the admin IP lookup both key on
+                    // this column; the raw chain stays in `audit_metadata`.
+                    signup_ip_forwarded: clientIp,
+                    signup_user_agent: req?.headers?.['user-agent'] ?? null,
+                    signup_origin: req?.headers?.origin,
+                    signup_server: this.config.serverId,
+                    referrer: input.referrer ?? null,
+                },
+                this.config.default_user_group,
+            );
+            return { success: true, user };
+        } catch (e) {
+            if (!isOwnedEmailConflict(e)) throw e;
+            return { success: false, raced: true };
+        }
     }
 
     /**

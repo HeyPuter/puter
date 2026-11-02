@@ -23,7 +23,7 @@ import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
-import { startWebSession } from '../auth/webSession.js';
+import { signOtpLoginChallenge, startWebSession } from '../auth/webSession.js';
 import {
     completeOidcLoginReturn,
     mintOidcPopupReturn,
@@ -32,6 +32,7 @@ import {
 } from '../auth/oidcLoginReturn.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import { isStorableEmail } from '../../util/email.js';
 import { normalizeBonusCode } from '../../util/signupBonus.js';
 import { parseMaskedSharePath } from '../../services/fs/sharePathMask.js';
 import {
@@ -528,11 +529,23 @@ export class OIDCController extends PuterController {
                     .toString('base64url');
                 statePayload.nonce = browserNonce;
 
+                // Preselects the account at the provider when the user
+                // already typed their address.
+                const rawLoginHint = Array.isArray(req.query.login_hint)
+                    ? req.query.login_hint[0]
+                    : req.query.login_hint;
+                const loginHint =
+                    typeof rawLoginHint === 'string' &&
+                    isStorableEmail(rawLoginHint)
+                        ? rawLoginHint
+                        : null;
+
                 const state = this.services.oidc.signState(statePayload);
                 const url = await this.services.oidc.getAuthorizationUrl(
                     provider,
                     state,
                     flow,
+                    { loginHint },
                 );
                 if (!url)
                     throw new HttpError(
@@ -1018,16 +1031,9 @@ if (window.opener) {
             switchedToLogin: extraQueryParams?.oidc_switched === 'login',
         };
         if (user.otp_enabled) {
-            const challenge = this.services.token.sign(
-                'otp',
-                {
-                    purpose: 'otp-login',
-                    user_uid: user.uuid,
-                    jti: crypto.randomUUID(),
-                    oidcContinuation: continuation,
-                },
-                { expiresIn: '5m' },
-            );
+            const challenge = signOtpLoginChallenge(this.services.token, user, {
+                oidcContinuation: continuation,
+            });
             res.set('Cache-Control', 'no-store');
             res.set('Referrer-Policy', 'no-referrer');
             let retryUrl = `${origin}/action/login`;

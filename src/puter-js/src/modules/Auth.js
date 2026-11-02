@@ -96,6 +96,23 @@ import { hasOpaqueOrigin } from '../lib/auth-popup.js';
  */
 
 /**
+ * Options for `puter.auth.signIn()`.
+ *
+ * @typedef {Object} SignInOptions
+ * @property {boolean} [attempt_temp_user_creation] Create a temporary account
+ *   instead of asking the user to sign in, when the browser has no Puter
+ *   account yet.
+ * @property {boolean} [request_auth] Let the user pick their account again even
+ *   when this site already has a token for them.
+ * @property {string} [email] The user's email address, when your site already
+ *   knows it. The popup starts on email sign-in with it filled in.
+ */
+
+/** Loose shape check; the server validates the address for real. */
+const isEmailAddress = (value) =>
+    typeof value === 'string' && /^[^\s@"<>]+@[^\s@"<>]+\.[^\s@"<>]+$/.test(value.trim());
+
+/**
  * The result of a sign-in operation.
  *
  * @typedef {Object} SignInResult
@@ -133,13 +150,21 @@ export class AuthModule extends PuterModule {
      * call that finds no token) sets it, which is the behaviour its own popup
      * used to carry as `?request_auth=true`.
      *
-     * @type {(options?: {
-     *     attempt_temp_user_creation?: boolean;
-     *     request_auth?: boolean;
-     * }) => Promise<SignInResult>}
+     * `email` starts the popup on email sign-in with that address filled in.
+     * Rejects with `{ error: 'invalid_email' }`, before opening anything, when
+     * it isn't an email address.
+     *
+     * @type {(options?: SignInOptions) => Promise<SignInResult>}
      */
     signIn = (options) => {
         options = options || {};
+
+        if (options.email !== undefined && !isEmailAddress(options.email)) {
+            return Promise.reject({
+                error: 'invalid_email',
+                msg: '`email` must be an email address.',
+            });
+        }
 
         // Apps receive their token from the GUI that launched them, not from a
         // popup. Running the popup flow under app mode would deliver the token
@@ -165,7 +190,7 @@ export class AuthModule extends PuterModule {
             const msg_id = signinsession;
             this.pendingSignInMessageIds_.add(msg_id);
             const popupName = `Puter-sign-in-${signinsession}`;
-            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}`;
+            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}${options.email !== undefined ? `&email=${encodeURIComponent(options.email.trim())}` : ''}`;
 
             // Guards against settling the promise more than once across the
             // message, popup-closed, and dialog-cancel code paths.
