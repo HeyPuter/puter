@@ -15,6 +15,7 @@ import {
     idbGet,
     idbPut,
     setOptIn,
+    takeClick,
 } from './lib/pushStore.js';
 import { ReceiptLog } from './lib/receipts.js';
 import { toClick } from './lib/shapes.js';
@@ -933,13 +934,29 @@ export class NotificationsModule extends EventListener {
             if (event.data?.type !== WORKER_CLICK_MESSAGE) return;
             const click = toClick(event.data.notification);
             if (!click || !this._hasListeners('click')) return;
-            if (event.data.id !== undefined) {
-                event.source?.postMessage?.({
-                    type: WORKER_CLICK_ACK_MESSAGE,
-                    id: event.data.id,
-                });
+            const take = () => {
+                if (event.data.id !== undefined) {
+                    event.source?.postMessage?.({
+                        type: WORKER_CLICK_ACK_MESSAGE,
+                        id: event.data.id,
+                    });
+                }
+                this.emit('click', click);
+            };
+            if (event.data.kept !== true) {
+                take();
+                return;
             }
-            this.emit('click', click);
+            // A tap the worker kept runs only if this page takes it first.
+            void (async () => {
+                let claimed = true;
+                try {
+                    claimed = !!(await takeClick(click.uid, event.data.id));
+                } catch {
+                    // Without IndexedDB here, taken as an older worker's tap.
+                }
+                if (claimed) take();
+            })();
         });
         container?.startMessages?.();
 

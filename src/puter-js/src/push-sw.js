@@ -21,8 +21,9 @@
     const CLICKS = 'clicks';
     const HANDLER_TIMEOUT_MS = 5000;
     const CLICK_KEEP_MS = 5 * 60 * 1000;
-    // Browsers allow openWindow only shortly after the click.
     const CLICK_ACK_BUDGET_MS = 600;
+    // Firefox allows openWindow for 1 s after the click; this leaves room for it.
+    const CLICK_OPEN_BUDGET_MS = 800;
     // Saved by the page; the worker's scope is used when there is none.
     const TAP_BASE_PREFIX = 'puter:tap-base:';
     const DEFAULT_TITLE = 'New notification';
@@ -241,6 +242,19 @@
         });
     }
 
+    // One readwrite get+delete, so only the page or the worker gets the tap.
+    async function claimClick (uid, id) {
+        const matches = (kept) => !!kept && (id === undefined || kept.id === id);
+        const kept = await idb(CLICKS, 'readwrite', (s) => {
+            const req = s.get(uid);
+            req.addEventListener('success', () => {
+                if ( matches(req.result) ) s.delete(uid);
+            });
+            return req;
+        });
+        return matches(kept) ? kept : null;
+    }
+
     function waitForClickAck (id, timeoutMs) {
         return new Promise((resolve) => {
             const timer = setTimeout(() => {
@@ -255,14 +269,16 @@
         });
     }
 
-    // Kept for the page the tap opens, which reads it from the URL.
-    async function keepClick (click) {
-        if ( ! click.uid ) return;
+    // Kept for the page that claims it: an open one by `id`, or one the tap opens.
+    async function keepClick (click, id) {
+        if ( ! click.uid ) return false;
         try {
             await forgetOldClicks();
-            await idb(CLICKS, 'readwrite', (s) => s.put({ ...click, at: Date.now() }, click.uid));
+            await idb(CLICKS, 'readwrite', (s) => s.put({ ...click, at: Date.now(), ...(id ? { id } : {}) }, click.uid));
+            return true;
         } catch ( err ) {
             console.warn('[puter] could not keep a tap', err);
+            return false;
         }
     }
 
@@ -273,15 +289,21 @@
         const open = await windows({ topLevel: true });
         const win = open.find((c) => c.url === url) ?? open.find((c) => c.focused) ?? open[0];
         if ( win ) {
-            const id = `click-${++nextClickId}`;
-            const acked = waitForClickAck(id, Math.max(0, startedAt + CLICK_ACK_BUDGET_MS - Date.now()));
-            win.postMessage({ type: CLICK_MESSAGE, id, notification: click });
+            const id = `click-${Date.now()}-${++nextClickId}`;
+            const kept = await keepClick(click, id);
+            const postedAt = Date.now();
+            const deadline = Math.min(postedAt + CLICK_ACK_BUDGET_MS, startedAt + CLICK_OPEN_BUDGET_MS);
+            const acked = waitForClickAck(id, Math.max(0, deadline - postedAt));
+            win.postMessage({ type: CLICK_MESSAGE, id, notification: click, ...(kept ? { kept: true } : {}) });
             try {
                 await win.focus();
             } catch {
                 // focus is refused once the click's window has passed
             }
-            if ( await acked ) return;
+            const answered = await acked;
+            // A page that took the tap removed it; an older page leaves it.
+            const mine = kept ? await claimClick(click.uid, id).catch(() => click) : null;
+            if ( answered || (kept && ! mine) ) return;
             // Already there: reloading would only lose what the user had open.
             if ( win.url === url ) return;
         }

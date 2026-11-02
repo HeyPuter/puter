@@ -62,3 +62,16 @@ export const forgetPushState = async (idb = globalThis.indexedDB) => {
     );
     await run(idb, CLICKS_STORE, 'readwrite', (s) => s.clear());
 };
+
+/** Takes tap `uid` (only the copy posted as `id`, if given) in one transaction. */
+export const takeClick = async (uid, id, idb = globalThis.indexedDB) => {
+    const matches = (kept) => !!kept && (id === undefined || kept.id === id);
+    const kept = await run(idb, CLICKS_STORE, 'readwrite', (s) => {
+        const req = s.get(uid);
+        req.addEventListener('success', () => {
+            if (matches(req.result)) s.delete(uid);
+        });
+        return req;
+    });
+    return matches(kept) ? kept : null;
+};

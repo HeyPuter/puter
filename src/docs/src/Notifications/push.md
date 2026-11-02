@@ -148,7 +148,7 @@ To notify another user, share data with them with `notify: true` and send throug
 
 ## When the user taps
 
-On a website, a tap on a push, or on a notification a page of your site showed itself, focuses an open page of your site and calls its [`on('click')`](/Notifications/on/) handlers. With no page open, it opens the handler's `url`, or else the notification's `target`, and the new page's first [`on('click')`](/Notifications/on/) handler gets the click. Inside the Puter desktop, a tap opens your app and hands the click to [`on('click')`](/Notifications/on/).
+On a website, a tap on a push, or on a notification a page of your site showed itself, focuses an open page of your site and calls its [`on('click')`](/Notifications/on/) handlers. With no page open, it opens the handler's `url`, or else the notification's `target`, and the new page's first [`on('click')`](/Notifications/on/) handler gets the click. A tap reaches one page, once: when an open page doesn't answer within about half a second, the tap opens its URL instead, and the slow page doesn't get it. If that page wasn't loaded through your worker, such as one opened before the worker was installed, the URL opens in a new tab. Inside the Puter desktop, a tap opens your app and hands the click to [`on('click')`](/Notifications/on/).
 
 ## Groups and sensitive notifications
 

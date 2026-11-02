@@ -19,6 +19,12 @@ vi.mock('./lib/pushStore.js', () => {
         CLICKS_STORE: 'clicks',
         SERVER_KEY_ENTRY: 'puter:server-key',
         TAP_BASE_PREFIX: 'puter:tap-base:',
+        takeClick: stored(async (uid, id) => {
+            const kept = store.get(`clicks:${uid}`);
+            if (!kept || (id !== undefined && kept.id !== id)) return null;
+            store.delete(`clicks:${uid}`);
+            return kept;
+        }),
         idbGet: stored(async (s, k) => store.get(`${s}:${k}`)),
         idbPut: stored(async (s, k, v) => void store.set(`${s}:${k}`, v)),
         idbDelete: stored(async (s, k) => void store.delete(`${s}:${k}`)),
@@ -1647,6 +1653,60 @@ describe('clicks from push-sw.js', () => {
         module.off('click', handler);
         nav.post(tap, source);
         expect(source.postMessage).not.toHaveBeenCalled();
+    });
+
+    const keptTap = {
+        type: 'puter-notification-click',
+        id: 'click-1',
+        kept: true,
+        notification: { uid: 'n1', target: '/c', data: null },
+    };
+    const clickModule = () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        const { module } = makeModule();
+        const handler = vi.fn();
+        module.on('click', handler);
+        return { nav, handler, source: { postMessage: vi.fn() } };
+    };
+
+    it('takes a tap the worker kept for it, then acknowledges it', async () => {
+        const { nav, handler, source } = clickModule();
+        store.set('clicks:n1', { uid: 'n1', at: Date.now(), id: 'click-1' });
+        nav.post(keptTap, source);
+        await flush();
+        expect(store.has('clicks:n1')).toBe(false);
+        expect(handler).toHaveBeenCalledTimes(1);
+        expect(source.postMessage).toHaveBeenCalledWith({
+            type: 'puter-notification-click-ack',
+            id: 'click-1',
+        });
+    });
+
+    it('leaves a tap the worker already took back', async () => {
+        const { nav, handler, source } = clickModule();
+        nav.post(keptTap, source);
+        await flush();
+        expect(handler).not.toHaveBeenCalled();
+        expect(source.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('leaves a tap the worker kept again for the page it opened', async () => {
+        const { nav, handler, source } = clickModule();
+        store.set('clicks:n1', { uid: 'n1', at: Date.now() });
+        nav.post(keptTap, source);
+        await flush();
+        expect(handler).not.toHaveBeenCalled();
+        expect(store.has('clicks:n1')).toBe(true);
+    });
+
+    it('runs the tap once when the worker posts it twice', async () => {
+        const { nav, handler, source } = clickModule();
+        store.set('clicks:n1', { uid: 'n1', at: Date.now(), id: 'click-1' });
+        nav.post(keptTap, source);
+        nav.post(keptTap, source);
+        await flush();
+        expect(handler).toHaveBeenCalledTimes(1);
     });
 });
 
