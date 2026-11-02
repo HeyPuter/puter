@@ -4,6 +4,7 @@ import type {
     EventHandler,
     OnScheduleOptions,
     Puter,
+    ScheduledNotification,
     ScheduleHandler,
 } from '../../index.js';
 
@@ -34,4 +35,18 @@ export const onPuter = async (puter: Puter): Promise<void> => {
     await puter.events.unsubscribe('sub-id');
     // The handle onSchedule() returns always has off().
     await schedule.off();
+};
+
+// With `sendAt`, notify() resolves to the stored send, or to what an immediate
+// send resolves to when `sendAt` is within 5 seconds.
+export const notifyLater = async (puter: Puter): Promise<void> => {
+    const later: ScheduledNotification | string | void =
+        await puter.notifications.notify({ title: 'Hi', sendAt: Date.now() });
+    // @ts-expect-error A near or past `sendAt` sends at once instead.
+    const stored: ScheduledNotification = await puter.notifications.notify({
+        title: 'Hi',
+        sendAt: new Date(),
+    });
+    const uid: string = await puter.notifications.notify({ title: 'Hi' });
+    void [later, stored, uid];
 };

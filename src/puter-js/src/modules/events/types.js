@@ -417,16 +417,27 @@
  * Error codes the schedule methods reject with, besides the shared events
  * codes such as `events_disabled` and `too_many_requests`.
  *
- * @typedef {'events_schedule_invalid'
+ * @typedef {'bad_request'
+ *   | 'invalid_request'
+ *   | 'events_schedule_invalid'
  *   | 'events_schedule_never_fires'
  *   | 'events_schedule_too_frequent'
- *   | 'events_schedule_immutable'
  *   | 'events_schedule_app_required'
  *   | 'events_schedule_limit'
  *   | 'events_schedule_budget'
  *   | 'events_schedule_not_found'
  *   | 'events_schedule_sending'
- *   | 'events_schedule_busy'} ScheduleErrorCode
+ *   | 'events_schedule_busy'
+ *   | 'events_handler_required'
+ *   | 'events_handler_name_required'
+ *   | 'events_handler_invalid'
+ *   | 'events_handler_hash_unavailable'
+ *   | 'events_handler_not_found'
+ *   | 'events_handler_hash_mismatch'
+ *   | 'events_context_invalid'
+ *   | 'events_context_too_large'
+ *   | 'events_durable_requires_account'
+ *   | 'events_background_consent_required'} ScheduleErrorCode
  */
 
 /**

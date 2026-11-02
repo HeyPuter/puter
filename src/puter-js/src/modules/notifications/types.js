@@ -36,9 +36,9 @@
  *
  * @typedef {Object} DelayedNotificationOptions
  * @property {number | string | Date} sendAt When to send it: an ISO-8601 time
- *   with a zone (or a plain date, read as UTC midnight), a `Date`, or
- *   milliseconds since the epoch, rounded up to the next whole second. At most
- *   366 days ahead. Within 5 seconds, or in the past, it is sent at once.
+ *   with a zone (or a plain date, read as UTC midnight), a `Date`, or whole
+ *   milliseconds since the epoch. Rounded up to the next whole second, and at
+ *   most 366 days ahead. Within 5 seconds, or in the past, it is sent at once.
  */
 
 /**

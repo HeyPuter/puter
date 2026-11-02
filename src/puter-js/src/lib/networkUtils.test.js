@@ -700,6 +700,40 @@ describe('transient retry', () => {
         vi.useRealTimers();
     });
 
+    // A quota refusal stays refused until the caller removes something.
+    it.each([
+        [{ code: 'events_schedule_limit', message: 'Limit reached' }],
+        [{ code: 'events_schedule_budget', message: 'Over budget' }],
+        [{ code: 'events_subscription_limit', message: 'Limit reached' }],
+        [{ code: 'events_handler_limit', message: 'Limit reached' }],
+        [{ error: { code: 'events_schedule_limit', message: 'Limit' } }],
+    ])('answers a 429 quota refusal at once (%j)', async (body) => {
+        const xhrs = installFakeXHR(sequence(respond({ status: 429, body })));
+        const resp = await fetchUrl('https://api.example/x', {
+            method: 'POST',
+        });
+        expect(resp.status).toBe(429);
+        expect(xhrs.length).toBe(1);
+    });
+
+    it('keeps retrying a too_many_requests 429', async () => {
+        vi.useFakeTimers();
+        const xhrs = installFakeXHR(
+            sequence(
+                respond({
+                    status: 429,
+                    body: { code: 'too_many_requests', message: 'Slow down' },
+                }),
+                respond({ status: 200, body: { ok: 1 } }),
+            ),
+        );
+        const p = fetchUrl('https://api.example/x', { method: 'POST' });
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect((await p).status).toBe(200);
+        expect(xhrs.length).toBe(2);
+        vi.useRealTimers();
+    });
+
     // Waiting on the account's own requests to finish takes longer than a rate
     // window, so `credits_reserved` backs off exponentially past 2s.
     it('backs off exponentially on a credits_reserved 429', async () => {

@@ -47,7 +47,7 @@ const toError = (error) => {
 /**
  * Sends the user this app runs for a notification, or with `to` the other party
  * of a KV share. Only an app can send one. With `sendAt` it is stored and sent
- * then; `cancel()` takes it back before it goes.
+ * then, and `cancel()` cancels it before it goes.
  *
  * @this {import('./index.js').NotificationsModule}
  * @param {(

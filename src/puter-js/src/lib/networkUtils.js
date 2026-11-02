@@ -514,6 +514,20 @@ const isFinalUnavailable = (status, parsed) =>
         FINAL_UNAVAILABLE_CODES.has(code),
     );
 
+// A 429 that refuses a quota (how many schedules, subscriptions, or handlers an
+// account holds) is final: it stays refused until something is removed.
+const FINAL_QUOTA_CODES = new Set([
+    'events_schedule_limit',
+    'events_schedule_budget',
+    'events_subscription_limit',
+    'events_handler_limit',
+]);
+
+const isQuotaRejection = (parsed) =>
+    [parsed?.code, parsed?.error?.code].some((code) =>
+        FINAL_QUOTA_CODES.has(code),
+    );
+
 // A rate/concurrency gate rejects in middleware, before the handler that would
 // have done the work — so nothing happened, and replaying is safe for a write
 // exactly as it is for a read. Treating this like the statuses above meant a
@@ -848,6 +862,7 @@ async function classifyRetry(outcome, ctx) {
     // gate rejection — any method, honors kill switch, fixed schedule (an
     // exponential one when it's waiting on the account's own requests).
     if (status === GATE_REJECT_STATUS) {
+        if (isQuotaRejection(parsed)) return null;
         return isCreditHoldRejection(parsed)
             ? creditHoldRetry(ctx)
             : gateRetry(ctx);
