@@ -1610,12 +1610,24 @@ const parseJsonMaybe = (value: unknown): unknown => {
     }
 };
 
+/** An OpenAI `prompt_cache_breakpoint` marker, kept on the translated part. */
+const cacheBreakpointOf = (
+    p: Record<string, unknown>,
+): { prompt_cache_breakpoint?: unknown } =>
+    p.prompt_cache_breakpoint && typeof p.prompt_cache_breakpoint === 'object'
+        ? { prompt_cache_breakpoint: p.prompt_cache_breakpoint }
+        : {};
+
 const normalizeContentPart = (part: unknown): Record<string, unknown> => {
     if (typeof part === 'string') return { type: 'text', text: part };
     if (!part || typeof part !== 'object') return { type: 'text', text: '' };
     const p = part as Record<string, unknown>;
     if (p.type === 'input_text' || p.type === 'output_text') {
-        return { type: 'text', text: String(p.text ?? '') };
+        return {
+            type: 'text',
+            text: String(p.text ?? ''),
+            ...cacheBreakpointOf(p),
+        };
     }
     if (p.type === 'input_image') {
         return {
@@ -1623,6 +1635,7 @@ const normalizeContentPart = (part: unknown): Record<string, unknown> => {
             ...(p.detail ? { detail: p.detail } : {}),
             ...(p.image_url ? { image_url: { url: p.image_url } } : {}),
             ...(p.file_id ? { file_id: p.file_id } : {}),
+            ...cacheBreakpointOf(p),
         };
     }
     if (p.type === 'input_audio')
@@ -1634,6 +1647,7 @@ const normalizeContentPart = (part: unknown): Record<string, unknown> => {
             ...(p.file_id ? { file_id: p.file_id } : {}),
             ...(p.file_url ? { file_url: p.file_url } : {}),
             ...(p.filename ? { filename: p.filename } : {}),
+            ...cacheBreakpointOf(p),
         };
     }
     return p;

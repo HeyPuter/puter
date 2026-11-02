@@ -363,13 +363,18 @@ describe('PuterAIController.openaiResponses input normalization', () => {
                 role: 'user',
                 content: [
                     'a bare string part',
-                    { type: 'input_text', text: 'typed text' },
+                    {
+                        type: 'input_text',
+                        text: 'typed text',
+                        prompt_cache_breakpoint: { mode: 'explicit', ttl: '12h' },
+                    },
                     { type: 'output_text', text: 'echoed text' },
                     {
                         type: 'input_image',
                         detail: 'high',
                         image_url: 'https://img.test/a.png',
                         file_id: 'file_img',
+                        prompt_cache_breakpoint: { mode: 'explicit' },
                     },
                     { type: 'input_audio', input_audio: { data: 'AAA' } },
                     {
@@ -390,13 +395,18 @@ describe('PuterAIController.openaiResponses input normalization', () => {
                 role: 'user',
                 content: [
                     { type: 'text', text: 'a bare string part' },
-                    { type: 'text', text: 'typed text' },
+                    {
+                        type: 'text',
+                        text: 'typed text',
+                        prompt_cache_breakpoint: { mode: 'explicit', ttl: '12h' },
+                    },
                     { type: 'text', text: 'echoed text' },
                     {
                         type: 'image_url',
                         detail: 'high',
                         image_url: { url: 'https://img.test/a.png' },
                         file_id: 'file_img',
+                        prompt_cache_breakpoint: { mode: 'explicit' },
                     },
                     { type: 'input_audio', input_audio: { data: 'AAA' } },
                     {

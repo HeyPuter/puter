@@ -22,6 +22,7 @@ import { describe, expect, it } from 'vitest';
 import type { ICompleteArguments } from '../types.js';
 import {
     clampReasoningEffort,
+    messagesHaveCacheBreakpointTtl,
     openAICompatParams,
     outputFormatFromResponseFormat,
     outputFormatFromResponsesText,
@@ -381,5 +382,64 @@ describe('promptCacheOptionsToWire', () => {
         expect(() => promptCacheOptionsToWire('12h')).toThrow(
             /must be an object/,
         );
+    });
+});
+
+describe('messagesHaveCacheBreakpointTtl', () => {
+    it('finds a breakpoint lifetime on any content part', () => {
+        expect(
+            messagesHaveCacheBreakpointTtl([
+                { role: 'user', content: 'plain' },
+                {
+                    role: 'system',
+                    content: [
+                        { type: 'text', text: 'a' },
+                        {
+                            type: 'text',
+                            text: 'b',
+                            prompt_cache_breakpoint: {
+                                mode: 'explicit',
+                                ttl: '30m',
+                            },
+                        },
+                    ],
+                },
+            ]),
+        ).toBe(true);
+        expect(
+            messagesHaveCacheBreakpointTtl([
+                {
+                    role: 'user',
+                    content: {
+                        type: 'text',
+                        text: 'a',
+                        prompt_cache_breakpoint: { ttl: '12h' },
+                    },
+                },
+            ]),
+        ).toBe(true);
+    });
+
+    it('ignores breakpoints without a lifetime and odd message shapes', () => {
+        expect(
+            messagesHaveCacheBreakpointTtl([
+                {
+                    role: 'system',
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'a',
+                            prompt_cache_breakpoint: { mode: 'explicit' },
+                        },
+                        'bare string part',
+                        null,
+                    ],
+                },
+                { role: 'user', content: null },
+                null,
+            ]),
+        ).toBe(false);
+        expect(messagesHaveCacheBreakpointTtl(undefined)).toBe(false);
+        expect(messagesHaveCacheBreakpointTtl('nope')).toBe(false);
     });
 });

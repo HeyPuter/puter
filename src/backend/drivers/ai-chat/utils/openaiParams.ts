@@ -360,6 +360,26 @@ export const promptCacheOptionsToWire = (
     return Object.keys(wire).length ? wire : undefined;
 };
 
+/**
+ * Whether any content part carries a `prompt_cache_breakpoint` with its own
+ * `ttl`. Chat Completions rejects the field whatever its value; only the
+ * Responses API honours a per-breakpoint lifetime.
+ */
+export const messagesHaveCacheBreakpointTtl = (messages: unknown): boolean =>
+    Array.isArray(messages) &&
+    messages.some((message) => {
+        const content = (message as { content?: unknown } | null)?.content;
+        const parts = Array.isArray(content) ? content : [content];
+        return parts.some(
+            (part) =>
+                (
+                    part as {
+                        prompt_cache_breakpoint?: { ttl?: unknown } | null;
+                    } | null
+                )?.prompt_cache_breakpoint?.ttl !== undefined,
+        );
+    });
+
 // -- Responses server-side state ---------------------------------------------
 
 const STATEFUL_RESPONSES_FIELDS = [

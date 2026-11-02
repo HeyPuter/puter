@@ -35,6 +35,7 @@ import { make_openai_tools } from '../../utils/FunctionCalling.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import {
     clampReasoningEffort,
+    messagesHaveCacheBreakpointTtl,
     openAICompatParams,
     promptCacheOptionsToWire,
     promptCacheRetentionToWire,
@@ -162,13 +163,16 @@ export class OpenAiChatProvider implements IChatProvider {
             }
             return await this.#responsesProvider.complete(params);
         }
-        // Only the Responses API writes 12h cache entries; Chat Completions
-        // rejects the lifetime.
-        if (cacheOptions?.ttl === '12h') {
+        // Only the Responses API writes 12h cache entries or takes a lifetime
+        // on a `prompt_cache_breakpoint`; Chat Completions rejects both.
+        if (
+            cacheOptions?.ttl === '12h' ||
+            messagesHaveCacheBreakpointTtl(messages)
+        ) {
             if (!this.#responsesProvider) {
                 throw new HttpError(
                     400,
-                    'a 12h prompt cache lifetime requires the OpenAI Responses provider, which is not configured',
+                    'a prompt cache lifetime requires the OpenAI Responses provider, which is not configured',
                     { legacyCode: 'bad_request' },
                 );
             }

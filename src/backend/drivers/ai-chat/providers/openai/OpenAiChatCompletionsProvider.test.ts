@@ -272,6 +272,92 @@ describe('OpenAiChatProvider.complete argument validation', () => {
         expect(result).toEqual({ delegated: true });
     });
 
+    it.each([
+        ['30m', { mode: 'explicit', ttl: '30m' }],
+        ['12h', { mode: 'explicit', ttl: '12h' }],
+    ])(
+        'delegates a %s breakpoint lifetime to the Responses provider, since Chat Completions rejects the field',
+        async (_ttl, breakpoint) => {
+            const { provider } = makeProvider();
+            const sibling = {
+                complete: vi.fn().mockResolvedValue({ delegated: true }),
+            };
+            provider.setResponsesProvider(
+                sibling as unknown as Parameters<
+                    typeof provider.setResponsesProvider
+                >[0],
+            );
+
+            const params = {
+                model: 'gpt-6-luna',
+                messages: [
+                    {
+                        role: 'system',
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'long prefix',
+                                prompt_cache_breakpoint: breakpoint,
+                            },
+                        ],
+                    },
+                    { role: 'user', content: 'hi' },
+                ],
+            };
+            const result = await withTestActor(() =>
+                provider.complete(params as never),
+            );
+
+            expect(createMock).not.toHaveBeenCalled();
+            expect(sibling.complete).toHaveBeenCalledWith(params);
+            expect(result).toEqual({ delegated: true });
+        },
+    );
+
+    it('keeps a breakpoint without a lifetime on the Chat Completions path, intact', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 1, completion_tokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-6-luna',
+                messages: [
+                    {
+                        role: 'system',
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'long prefix',
+                                prompt_cache_breakpoint: { mode: 'explicit' },
+                            },
+                        ],
+                    },
+                    { role: 'user', content: 'hi' },
+                ],
+            } as never),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.messages[0]).toMatchObject({
+            role: 'system',
+            content: [
+                {
+                    type: 'text',
+                    text: 'long prefix',
+                    prompt_cache_breakpoint: { mode: 'explicit' },
+                },
+            ],
+        });
+    });
+
     it('throws 400 for a 12h cache lifetime without a Responses sibling provider', async () => {
         const { provider } = makeProvider();
 
