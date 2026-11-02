@@ -70,8 +70,53 @@ test.describe('a stale token does not raise sign-in UI at load', () => {
     }) => {
         const popups = [];
         page.on('popup', (p) => popups.push(p.url()));
+        const fixtureOrigin = new URL(FIXTURE).origin;
         await context.grantPermissions(['notifications'], {
-            origin: new URL(FIXTURE).origin,
+            origin: fixtureOrigin,
+        });
+        // The opt-in the fixture's user recorded when they turned push on.
+        await page.addInitScript(() => {
+            const open = indexedDB.open('puter-push', 1);
+            open.onupgradeneeded = () => {
+                open.result.createObjectStore('handlers');
+                open.result.createObjectStore('clicks');
+            };
+            open.onsuccess = () => {
+                const tx = open.result.transaction('handlers', 'readwrite');
+                tx.objectStore('handlers').put(
+                    true,
+                    'puter:opt-in:boot-reauth-user',
+                );
+                tx.oncomplete = () => open.result.close();
+            };
+        });
+        // The push routes answer the stale token as Puter's API does.
+        let keyRequests = 0;
+        const cors = {
+            'Access-Control-Allow-Origin': fixtureOrigin,
+            'Access-Control-Allow-Credentials': 'true',
+            'Access-Control-Allow-Headers': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, DELETE',
+        };
+        await page.route('**/push/web/**', (route) => {
+            if (route.request().method() === 'OPTIONS')
+                return route.fulfill({ status: 204, headers: cors });
+            keyRequests++;
+            return route.fulfill({
+                status: 401,
+                headers: cors,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    code: 'token_auth_failed',
+                    message: 'Authentication failed',
+                }),
+            });
+        });
+
+        // Boot's own 401s come later, so the sync starts while signed in.
+        await page.route(/\/(whoami|rao)(\?|$)/, async (route) => {
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            await route.continue();
         });
 
         await seedStaleToken(page, 'puter.auth.token.v2');
@@ -82,6 +127,7 @@ test.describe('a stale token does not raise sign-in UI at load', () => {
         });
         await page.waitForTimeout(2000);
 
+        expect(keyRequests).toBeGreaterThan(0);
         expect(popups).toEqual([]);
         await expect(page.locator('puter-dialog')).toHaveCount(0);
     });
