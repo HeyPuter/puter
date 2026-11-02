@@ -7,6 +7,8 @@ export const CLICKS_STORE = 'clicks';
 // stays at the version workers already installed open.
 const OPT_IN_PREFIX = 'puter:opt-in:';
 export const SERVER_KEY_ENTRY = 'puter:server-key';
+/** Where a tap without a URL goes, per worker scope; read by `push-sw.js`. */
+export const TAP_BASE_PREFIX = 'puter:tap-base:';
 
 const open = (idb) =>
     new Promise((resolve, reject) => {

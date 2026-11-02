@@ -60,6 +60,10 @@ const scriptUrl = (worker) => {
     }
 };
 
+/** The scope `worker` registers at: its own, else its script's folder. */
+export const workerScope = (worker) =>
+    new URL(worker.scope ?? './', scriptUrl(worker)).href;
+
 const workerConflict = (worker, other) =>
     new PuterJSError(
         `Another service worker (${other.scriptURL}) runs where ${worker.url} would. ` +
@@ -121,7 +125,7 @@ const siteWorkerAt = async (nav, worker) => {
     let scope;
     let existing;
     try {
-        scope = new URL('./', scriptUrl(worker)).href;
+        scope = workerScope(worker);
         existing = await nav.serviceWorker.getRegistration(scope);
     } catch {
         return null;

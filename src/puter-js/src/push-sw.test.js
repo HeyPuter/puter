@@ -32,7 +32,23 @@ const fakeIndexedDB = (stores) => {
         return {
             get: (key) => request(() => map.get(key)),
             put: (value, key) => request(() => void map.set(key, value)),
-            openCursor: () => request(() => null),
+            delete: (key) => request(() => void map.delete(key)),
+            openCursor: () => {
+                const keys = [...map.keys()];
+                const cursorAt = (req, i) =>
+                    i < keys.length
+                        ? {
+                              value: map.get(keys[i]),
+                              delete: () => map.delete(keys[i]),
+                              continue: () =>
+                                  queueMicrotask(() => {
+                                      req.result = cursorAt(req, i + 1);
+                                      for (const fn of req.listeners) fn();
+                                  }),
+                          }
+                        : null;
+                return request((req) => cursorAt(req, 0));
+            },
         };
     };
     return {
@@ -60,12 +76,16 @@ const windowClient = (url, over = {}) => ({
 
 const loadWorker = ({
     handlers = {},
+    clicks = {},
     windows = [],
     scope: registrationScope = `${ORIGIN}/`,
 } = {}) => {
     const listeners = {};
     const shown = [];
-    const stores = { handlers: new Map(Object.entries(handlers)) };
+    const stores = {
+        handlers: new Map(Object.entries(handlers)),
+        clicks: new Map(Object.entries(clicks)),
+    };
     const scope = {
         location: { origin: ORIGIN },
         addEventListener: (type, fn) => {
@@ -123,6 +143,7 @@ const loadWorker = ({
 };
 
 const pushData = (payload) => ({ json: () => payload });
+const TAP_BASE = 'puter:tap-base:';
 
 describe('push-sw push', () => {
     it('leaves a push without a Puter message to the app', async () => {
@@ -259,6 +280,37 @@ describe('push-sw push', () => {
             data: pushData({ puter: { uid: 'n1', title: 'Hi' } }),
         });
         expect(worker.shown[0].options.data.puter.url).toBe(`${ORIGIN}/app/`);
+    });
+
+    it('opens the site`s root for a folder worker when the page saved it as the tap base', async () => {
+        const worker = loadWorker({
+            scope: `${ORIGIN}/puter/`,
+            handlers: {
+                [`${TAP_BASE}${ORIGIN}/puter/`]: `${ORIGIN}/`,
+                chat: '() => ({ url: "chat/1" })',
+            },
+        });
+        await worker.fire('push', {
+            data: pushData({ puter: { uid: 'n1', title: 'Hi' } }),
+        });
+        await worker.fire('push', {
+            data: pushData({ puter: { uid: 'n2', title: 'Hi', channel: 'chat' } }),
+        });
+        expect(worker.shown.map((n) => n.options.data.puter.url)).toEqual([
+            `${ORIGIN}/`,
+            `${ORIGIN}/chat/1`,
+        ]);
+    });
+
+    it('keeps to the scope when the saved tap base is on another origin', async () => {
+        const worker = loadWorker({
+            scope: `${ORIGIN}/puter/`,
+            handlers: { [`${TAP_BASE}${ORIGIN}/puter/`]: 'https://elsewhere.example/' },
+        });
+        await worker.fire('push', {
+            data: pushData({ puter: { uid: 'n1', title: 'Hi' } }),
+        });
+        expect(worker.shown[0].options.data.puter.url).toBe(`${ORIGIN}/puter/`);
     });
 
     it('shows a challenge and hands it to this origin`s windows', async () => {

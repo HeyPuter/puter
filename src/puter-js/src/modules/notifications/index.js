@@ -8,6 +8,7 @@ import { request } from './lib/api.js';
 import {
     CLICKS_STORE,
     HANDLERS_STORE,
+    TAP_BASE_PREFIX,
     forgetPushState,
     hasOptIn,
     idbDelete,
@@ -25,6 +26,7 @@ import {
     webPushState,
     webPushSupported,
     workerFor,
+    workerScope,
 } from './lib/webPush.js';
 import { listDevices } from './listDevices.js';
 import { notify } from './notify.js';
@@ -123,18 +125,39 @@ const withinHandlerTime = async (promise) => {
     }
 };
 
-/**
- * Where a tap goes: on this origin, with relative paths read from the worker's
- * scope.
- */
-export const tapUrl = (url, scope) => {
-    const base = new URL(scope);
+/** Where a tap goes: on `base`'s origin, with relative paths read from it. */
+export const tapUrl = (url, base) => {
+    const from = new URL(base);
     try {
-        const resolved = new URL(url ?? '', base);
-        return resolved.origin === base.origin ? resolved.href : base.href;
+        const resolved = new URL(url ?? '', from);
+        return resolved.origin === from.origin ? resolved.href : from.href;
     } catch {
-        return base.href;
+        return from.href;
     }
+};
+
+/** Where taps resolve: the worker's scope if this page is in it, else `/`. */
+const tapBaseFor = (worker, pageUrl) => {
+    const scope = workerScope(worker);
+    return {
+        scope,
+        base: pageUrl.startsWith(scope) ? scope : new URL('/', scope).href,
+    };
+};
+
+/** The tap base a page saved for `scope`, else `scope`. */
+const savedTapBase = async (scope) => {
+    try {
+        const base = await idbGet(HANDLERS_STORE, TAP_BASE_PREFIX + scope);
+        if (
+            typeof base === 'string' &&
+            new URL(base).origin === new URL(scope).origin
+        )
+            return base;
+    } catch {
+        // Nothing saved, or IndexedDB is unavailable.
+    }
+    return scope;
 };
 
 /**
@@ -551,6 +574,7 @@ export class NotificationsModule extends EventListener {
 
     #useWorker(worker) {
         this.#worker = worker;
+        if (this.puter.env === 'web') void this.#saveTapBase(worker);
         void (async () => {
             try {
                 const registration =
@@ -563,6 +587,18 @@ export class NotificationsModule extends EventListener {
                 if (this.#worker === worker) this.#workerRegistered = false;
             }
         })();
+    }
+
+    async #saveTapBase(worker) {
+        try {
+            const { scope, base } = tapBaseFor(
+                worker,
+                globalThis.location.href,
+            );
+            await idbPut(HANDLERS_STORE, TAP_BASE_PREFIX + scope, base);
+        } catch {
+            // Taps then open the worker's scope.
+        }
     }
 
     /** Whether this page shows a browser notification itself while it is away. */
@@ -872,7 +908,7 @@ export class NotificationsModule extends EventListener {
                         uid: notification.uid,
                         target: sensitive ? null : notification.target,
                         data: sensitive ? null : notification.data,
-                        url: tapUrl(url, scope),
+                        url: tapUrl(url, await savedTapBase(scope)),
                     },
                 },
             };

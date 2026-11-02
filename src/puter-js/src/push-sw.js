@@ -23,6 +23,8 @@
     const CLICK_KEEP_MS = 5 * 60 * 1000;
     // Browsers allow openWindow only shortly after the click.
     const CLICK_ACK_BUDGET_MS = 600;
+    // Saved by the page; the worker's scope is used when there is none.
+    const TAP_BASE_PREFIX = 'puter:tap-base:';
     const DEFAULT_TITLE = 'New notification';
     const CHALLENGE_MESSAGE = 'puter-push-challenge';
     const CLICK_MESSAGE = 'puter-notification-click';
@@ -144,14 +146,25 @@
         return shown;
     }
 
-    // Taps only ever open this origin; relative paths are read from the worker's scope.
-    function sameOriginUrl (url) {
+    async function tapBase () {
         const scope = self.registration.scope ?? `${self.location.origin}/`;
         try {
-            const parsed = new URL(url ?? '', scope);
-            return parsed.origin === self.location.origin ? parsed.href : scope;
+            const base = await idb(HANDLERS, 'readonly', (s) => s.get(TAP_BASE_PREFIX + scope));
+            if ( typeof base === 'string' && new URL(base).origin === self.location.origin ) return base;
         } catch {
-            return scope;
+            // nothing saved, or IndexedDB is unavailable
+        }
+        return scope;
+    }
+
+    // Taps only ever open this origin; relative paths are read from the tap base.
+    async function sameOriginUrl (url) {
+        const base = await tapBase();
+        try {
+            const parsed = new URL(url ?? '', base);
+            return parsed.origin === self.location.origin ? parsed.href : base;
+        } catch {
+            return base;
         }
     }
 
@@ -184,7 +197,7 @@
                 uid: notification.uid,
                 target: notification.target,
                 data: notification.data,
-                url: sameOriginUrl(url),
+                url: await sameOriginUrl(url),
             },
         };
         try {
@@ -255,7 +268,7 @@
     // An open window with a click handler takes the tap; otherwise one opens its URL.
     async function routeClick (puter, startedAt = Date.now()) {
         const click = { uid: puter.uid, target: puter.target ?? null, data: puter.data ?? null };
-        const url = sameOriginUrl(puter.url);
+        const url = await sameOriginUrl(puter.url);
         const open = await windows();
         const win = open.find((c) => c.url === url) ?? open.find((c) => c.focused) ?? open[0];
         if ( win ) {

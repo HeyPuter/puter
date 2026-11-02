@@ -18,6 +18,7 @@ vi.mock('./lib/pushStore.js', () => {
         HANDLERS_STORE: 'handlers',
         CLICKS_STORE: 'clicks',
         SERVER_KEY_ENTRY: 'puter:server-key',
+        TAP_BASE_PREFIX: 'puter:tap-base:',
         idbGet: stored(async (s, k) => store.get(`${s}:${k}`)),
         idbPut: stored(async (s, k, v) => void store.set(`${s}:${k}`, v)),
         idbDelete: stored(async (s, k) => void store.delete(`${s}:${k}`)),
@@ -1000,6 +1001,52 @@ describe('onPush', () => {
         expect(store.size).toBe(0);
     });
 
+    describe('tap base', () => {
+        const TAP_BASE = 'handlers:puter:tap-base:';
+
+        it.each([
+            [
+                'the worker`s folder for a page inside it',
+                `${ORIGIN}/app/index.html`,
+                '/app/puter-sw.js',
+                `${ORIGIN}/app/`,
+                `${ORIGIN}/app/`,
+            ],
+            [
+                'the site`s root for a page outside the folder',
+                `${ORIGIN}/`,
+                '/puter/puter-sw.js',
+                `${ORIGIN}/puter/`,
+                `${ORIGIN}/`,
+            ],
+            [
+                'the root for the default worker',
+                `${ORIGIN}/chat`,
+                undefined,
+                `${ORIGIN}/`,
+                `${ORIGIN}/`,
+            ],
+        ])('saves %s', async (_, href, serviceWorker, scope, base) => {
+            globalThis.location = { href, origin: ORIGIN };
+            const { module } = makeModule();
+            await module.onPush('chat', () => {}, { serviceWorker });
+            await flush();
+            expect(store.get(`${TAP_BASE}${scope}`)).toBe(base);
+        });
+
+        it('is saved by enable() too', async () => {
+            withBrowser(
+                makeNav({
+                    active: { scriptURL: `${ORIGIN}/puter/puter-sw.js` },
+                }),
+            );
+            server();
+            const { module } = makeModule();
+            await module.enable({ serviceWorker: '/puter/puter-sw.js' });
+            expect(store.get(`${TAP_BASE}${ORIGIN}/puter/`)).toBe(`${ORIGIN}/`);
+        });
+    });
+
     it('starts one feed for every key', async () => {
         const { module } = makeModule();
         await module.onPush('chat', () => {});
@@ -1387,6 +1434,20 @@ describe('onPush', () => {
             expect(nav.serviceWorker.getRegistration).toHaveBeenLastCalledWith(
                 '/js/sw.js',
             );
+        });
+
+        it('reads the tap URL from the saved tap base', async () => {
+            away();
+            nav.registration.scope = `${ORIGIN}/puter/`;
+            const { module, feed } = makeModule();
+            await module.onPush('chat', () => ({ url: 'chat/1' }), {
+                serviceWorker: '/puter/puter-sw.js',
+            });
+            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
+            expect(
+                nav.registration.showNotification.mock.calls[0][1].data.puter
+                    .url,
+            ).toBe(`${ORIGIN}/chat/1`);
         });
 
         it('reads the tap URL from the worker`s scope', async () => {
