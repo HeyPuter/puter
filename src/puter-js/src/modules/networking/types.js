@@ -3,10 +3,11 @@
 /**
  * Names of events emitted by a socket. Plain `PSocket` uses `'open'`,
  * `'data'`, `'close'`, `'error'`; `PTLSSocket` uses the `'tls'`-prefixed
- * variants.
+ * variants. `'drain'` is shared by both.
  *
  * @typedef {'open'
  *     | 'data'
+ *     | 'drain'
  *     | 'error'
  *     | 'close'
  *     | 'tlsdata'
