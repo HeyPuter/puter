@@ -273,7 +273,6 @@
     async function keepClick (click, id) {
         if ( ! click.uid ) return false;
         try {
-            await forgetOldClicks();
             await idb(CLICKS, 'readwrite', (s) => s.put({ ...click, at: Date.now(), ...(id ? { id } : {}) }, click.uid));
             return true;
         } catch ( err ) {
@@ -321,10 +320,12 @@
         await self.clients.openWindow(opened.href);
     }
 
+    const forgetOldClicksQuietly = () => forgetOldClicks().catch(() => {});
+
     self.addEventListener('push', (event) => {
         const message = readMessage(event.data);
         if ( ! message ) return;
-        event.waitUntil(showPush(message));
+        event.waitUntil(Promise.all([showPush(message), forgetOldClicksQuietly()]));
     });
 
     self.addEventListener('message', (event) => {
@@ -350,7 +351,7 @@
         if ( ! puter || typeof puter !== 'object' ) return;
         const startedAt = Date.now();
         event.notification.close();
-        event.waitUntil(routeClick(puter, startedAt));
+        event.waitUntil(Promise.all([routeClick(puter, startedAt), forgetOldClicksQuietly()]));
     });
 
     self.addEventListener('pushsubscriptionchange', (event) => {

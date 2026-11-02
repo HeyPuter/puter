@@ -318,6 +318,20 @@ describe('push-sw push', () => {
         expect(worker.shown[0].options.data.puter.url).toBe(`${ORIGIN}/puter/`);
     });
 
+    it('removes taps kept longer than five minutes', async () => {
+        const now = Date.now();
+        const worker = loadWorker({
+            clicks: {
+                old: { uid: 'old', at: now - 6 * 60 * 1000 },
+                fresh: { uid: 'fresh', at: now },
+            },
+        });
+        await worker.fire('push', {
+            data: pushData({ puter: { uid: 'n1', title: 'Hi' } }),
+        });
+        expect([...worker.stores.clicks.keys()]).toEqual(['fresh']);
+    });
+
     it('hands a challenge to nested frames too', async () => {
         const nested = windowClient(`${ORIGIN}/embed`, { frameType: 'nested' });
         const worker = loadWorker({ windows: [nested] });
@@ -420,6 +434,12 @@ describe('push-sw notificationclick', () => {
         await worker.tap({ uid: 'n1', target: '/chat', data: null, url: `${ORIGIN}/chat` }, acks(worker));
         expect(nested.postMessage).not.toHaveBeenCalled();
         expect(worker.scope.clients.openWindow).toHaveBeenCalledWith(`${ORIGIN}/chat?puter.notification=n1`);
+    });
+
+    it('removes taps kept longer than five minutes', async () => {
+        const worker = loadWorker({ clicks: { old: { uid: 'old', at: Date.now() - 6 * 60 * 1000 } } });
+        await worker.tap({ uid: 'n1', target: '/chat', data: null, url: `${ORIGIN}/chat` });
+        expect([...worker.stores.clicks.keys()]).toEqual(['n1']);
     });
 
     describe('delivers a tap once', () => {

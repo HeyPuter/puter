@@ -19,11 +19,19 @@ vi.mock('./lib/pushStore.js', () => {
         CLICKS_STORE: 'clicks',
         SERVER_KEY_ENTRY: 'puter:server-key',
         TAP_BASE_PREFIX: 'puter:tap-base:',
+        CLICK_KEEP_MS: 5 * 60 * 1000,
         takeClick: stored(async (uid, id) => {
             const kept = store.get(`clicks:${uid}`);
             if (!kept || (id !== undefined && kept.id !== id)) return null;
             store.delete(`clicks:${uid}`);
             return kept;
+        }),
+        forgetOldClicks: stored(async () => {
+            const cutoff = Date.now() - 5 * 60 * 1000;
+            for (const [key, value] of [...store.entries()]) {
+                if (key.startsWith('clicks:') && !(value?.at > cutoff))
+                    store.delete(key);
+            }
         }),
         idbGet: stored(async (s, k) => store.get(`${s}:${k}`)),
         idbPut: stored(async (s, k, v) => void store.set(`${s}:${k}`, v)),
@@ -1154,6 +1162,21 @@ describe('onPush', () => {
             expect(theirs.unsubscribe).not.toHaveBeenCalled();
         });
 
+        it('removes taps kept longer than five minutes', async () => {
+            store.set('clicks:old', {
+                uid: 'old',
+                at: Date.now() - 6 * 60 * 1000,
+            });
+            store.set('clicks:fresh', { uid: 'fresh', at: Date.now() });
+            withBrowser(makeNav());
+            server();
+            const { module } = makeModule();
+            await module.onPush('chat', () => {});
+            await flush();
+            expect(store.has('clicks:old')).toBe(false);
+            expect(store.has('clicks:fresh')).toBe(true);
+        });
+
         it('syncs once for every onPush on the page when the user turned push on', async () => {
             store.set(OPT_IN, true);
             withBrowser(makeNav({ existing: makeSubscription() }));
@@ -1707,6 +1730,75 @@ describe('clicks from push-sw.js', () => {
         nav.post(keptTap, source);
         await flush();
         expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    describe('in the URL of a page a tap opened', () => {
+        beforeEach(() => {
+            globalThis.location = {
+                href: `${ORIGIN}/chat?puter.notification=n1`,
+                origin: ORIGIN,
+            };
+        });
+
+        it('goes to the first click handler, once', async () => {
+            store.set('clicks:n1', {
+                uid: 'n1',
+                target: '/c',
+                data: 1,
+                at: Date.now(),
+            });
+            const { handler } = clickModule();
+            await flush();
+            expect(handler).toHaveBeenCalledWith({
+                uid: 'n1',
+                target: '/c',
+                data: 1,
+            });
+            expect(store.has('clicks:n1')).toBe(false);
+        });
+
+        it('is dropped once older than five minutes', async () => {
+            store.set('clicks:n1', {
+                uid: 'n1',
+                at: Date.now() - 6 * 60 * 1000,
+            });
+            const { handler } = clickModule();
+            await flush();
+            expect(handler).not.toHaveBeenCalled();
+            expect(store.has('clicks:n1')).toBe(false);
+        });
+
+        it('is removed when no click handler comes within 10 seconds of load', async () => {
+            vi.useFakeTimers();
+            globalThis.document = { readyState: 'complete' };
+            try {
+                store.set('clicks:n1', { uid: 'n1', at: Date.now() });
+                makeModule();
+                await vi.advanceTimersByTimeAsync(9_000);
+                expect(store.has('clicks:n1')).toBe(true);
+                await vi.advanceTimersByTimeAsync(1_000);
+                expect(store.has('clicks:n1')).toBe(false);
+            } finally {
+                delete globalThis.document;
+            }
+        });
+
+        it('stays for a click handler added within 10 seconds of load', async () => {
+            vi.useFakeTimers();
+            globalThis.document = { readyState: 'complete' };
+            try {
+                store.set('clicks:n1', { uid: 'n1', at: Date.now() });
+                withBrowser(makeNav());
+                const { module } = makeModule();
+                await vi.advanceTimersByTimeAsync(5_000);
+                const handler = vi.fn();
+                module.on('click', handler);
+                await vi.advanceTimersByTimeAsync(10_000);
+                expect(handler).toHaveBeenCalledTimes(1);
+            } finally {
+                delete globalThis.document;
+            }
+        });
     });
 });
 

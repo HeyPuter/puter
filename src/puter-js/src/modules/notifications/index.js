@@ -6,9 +6,10 @@ import { enable } from './enable.js';
 import { enablePush } from './enablePush.js';
 import { request } from './lib/api.js';
 import {
-    CLICKS_STORE,
+    CLICK_KEEP_MS,
     HANDLERS_STORE,
     TAP_BASE_PREFIX,
+    forgetOldClicks,
     forgetPushState,
     hasOptIn,
     idbDelete,
@@ -59,6 +60,8 @@ const PUSH_LOCK = 'puter-push';
 const HANDLER_TIMEOUT_MS = 5_000;
 /** How long an older `push-sw.js`, which never answers, is waited for. */
 const WORKER_SHOW_TIMEOUT_MS = 2_000;
+/** How long after load a page a tap opened waits for a `click` handler. */
+const UNREAD_TAP_MS = 10_000;
 /** Sync failures that are the server's or the user's choice, not a fault. */
 const QUIET_SYNC_ERRORS = new Set([
     'push_device_removed',
@@ -250,6 +253,7 @@ export class NotificationsModule extends EventListener {
     #userChange = Promise.resolve();
     /** The token whose push state sign-out already ended. */
     #forgottenToken = null;
+    #sweptClicks = false;
 
     /** @param {import('../../index.js').Puter} puter */
     constructor(puter) {
@@ -275,7 +279,10 @@ export class NotificationsModule extends EventListener {
         ]) {
             methods[name] = methods[name].bind(this);
         }
-        if (puter.env === 'web') this.#watchUser();
+        if (puter.env === 'web') {
+            this.#watchUser();
+            this.#dropUnreadTap();
+        }
     }
 
     /**
@@ -383,6 +390,10 @@ export class NotificationsModule extends EventListener {
      * @internal
      */
     _syncPushOnLoad(worker) {
+        if (!this.#sweptClicks) {
+            this.#sweptClicks = true;
+            forgetOldClicks().catch(() => {});
+        }
         if (!this.#syncs.has(worker.url)) {
             this.#syncs.set(worker.url, this.#syncIfOptedIn(worker));
         }
@@ -960,11 +971,9 @@ export class NotificationsModule extends EventListener {
         });
         container?.startMessages?.();
 
-        const url = globalThis.location
-            ? new URL(globalThis.location.href)
-            : null;
-        const uid = url?.searchParams.get(CLICK_PARAM);
+        const uid = this.#tapInUrl();
         if (!uid) return;
+        const url = new URL(globalThis.location.href);
         url.searchParams.delete(CLICK_PARAM);
         globalThis.history?.replaceState?.(
             globalThis.history.state,
@@ -973,8 +982,11 @@ export class NotificationsModule extends EventListener {
         );
         void (async () => {
             try {
-                const click = toClick(await idbGet(CLICKS_STORE, uid));
-                await idbDelete(CLICKS_STORE, uid);
+                const kept = await takeClick(uid);
+                const click =
+                    kept?.at > Date.now() - CLICK_KEEP_MS
+                        ? toClick(kept)
+                        : null;
                 if (click) firstHandler(click);
             } catch (error) {
                 console.warn(
@@ -983,6 +995,29 @@ export class NotificationsModule extends EventListener {
                 );
             }
         })();
+    }
+
+    /** The tap this page was opened for, from its URL. */
+    #tapInUrl() {
+        try {
+            return new URL(globalThis.location.href).searchParams.get(
+                CLICK_PARAM,
+            );
+        } catch {
+            return null;
+        }
+    }
+
+    /** A tap that opened this page is dropped when no `click` handler reads it. */
+    #dropUnreadTap() {
+        const uid = this.#tapInUrl();
+        if (!uid) return;
+        const drop = () =>
+            setTimeout(() => {
+                if (!this.#listening) takeClick(uid).catch(() => {});
+            }, UNREAD_TAP_MS);
+        if (globalThis.document?.readyState === 'complete') drop();
+        else globalThis.addEventListener?.('load', drop, { once: true });
     }
 }
 

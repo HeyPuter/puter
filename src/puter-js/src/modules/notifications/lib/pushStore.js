@@ -9,6 +9,8 @@ const OPT_IN_PREFIX = 'puter:opt-in:';
 export const SERVER_KEY_ENTRY = 'puter:server-key';
 /** Where a tap without a URL goes, per worker scope; read by `push-sw.js`. */
 export const TAP_BASE_PREFIX = 'puter:tap-base:';
+/** How long a kept tap waits for its page, as in `push-sw.js`. */
+export const CLICK_KEEP_MS = 5 * 60 * 1000;
 
 const open = (idb) =>
     new Promise((resolve, reject) => {
@@ -74,4 +76,19 @@ export const takeClick = async (uid, id, idb = globalThis.indexedDB) => {
         return req;
     });
     return matches(kept) ? kept : null;
+};
+
+/** Removes kept taps older than `CLICK_KEEP_MS`. */
+export const forgetOldClicks = (idb = globalThis.indexedDB) => {
+    const cutoff = Date.now() - CLICK_KEEP_MS;
+    return run(idb, CLICKS_STORE, 'readwrite', (s) => {
+        const req = s.openCursor();
+        req.addEventListener('success', () => {
+            const cursor = req.result;
+            if (!cursor) return;
+            if (!(cursor.value?.at > cutoff)) cursor.delete();
+            cursor.continue();
+        });
+        return req;
+    });
 };
