@@ -388,6 +388,7 @@ export class NotificationsModule extends EventListener {
             renewRemoved: true,
             interactive: true,
             withLock: withPushLock,
+            onAnnounced: () => this.#recordOptIn(true),
         });
         try {
             // The GUI reads the registered device right after.
@@ -406,7 +407,6 @@ export class NotificationsModule extends EventListener {
             );
         }
         this.#workerRegistered = true;
-        await this.#recordOptIn(true);
         void this.#finishSync(
             syncing,
             worker,

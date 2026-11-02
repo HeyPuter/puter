@@ -1763,6 +1763,51 @@ describe('enable', () => {
     });
 });
 
+describe('enable() while another tab loads', () => {
+    it('records the opt-in before the other tab checks it, so the new subscription stays', async () => {
+        store.set(SERVER_KEY, KEY);
+        const subscription = makeSubscription();
+        withBrowser(makeNav({ existing: subscription }));
+        let announce;
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') return { publicKey: KEY };
+            if (method === 'POST' && route === '/push/web/subscriptions') {
+                return await new Promise((resolve) => {
+                    announce = () =>
+                        resolve({ status: 'active', device: { uid: 'd1' } });
+                });
+            }
+            return {};
+        });
+        const { module: enabling } = makeModule();
+        const turningOn = enabling.enable();
+        await vi.waitFor(() => expect(announce).toBeDefined());
+
+        const { module: loading } = makeModule();
+        await loading.onPush('chat', () => {}, { onError: () => {} });
+        await flush();
+        announce();
+        await expect(turningOn).resolves.toBe(true);
+        await flush();
+        await flush();
+
+        expect(store.get(OPT_IN)).toBe(true);
+        expect(subscription.unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('records no opt-in when the announce fails', async () => {
+        withBrowser(makeNav({ existing: makeSubscription() }));
+        server(() => {
+            throw new PuterJSError('down', 'internal_error');
+        });
+        const { module } = makeModule();
+        await expect(module.enable()).rejects.toMatchObject({
+            code: 'internal_error',
+        });
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+});
+
 describe('enable after the user removed this browser in Puter', () => {
     it('replaces the removed subscription and turns pushes back on', async () => {
         const removed = makeSubscription(undefined, 'https://push.example/1');

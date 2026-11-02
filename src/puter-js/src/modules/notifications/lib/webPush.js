@@ -325,7 +325,7 @@ const register = async (
     puter,
     nav,
     subscribe,
-    { label, onPending, signal, interactive, whileWanted },
+    { label, onPending, signal, interactive, whileWanted, onAnnounced },
 ) => {
     /** @type {ReturnType<typeof nextChallenge> | null} */
     let challenge = null;
@@ -334,10 +334,15 @@ const register = async (
             const subscription = await subscribe();
             // Before the POST: the confirmation can arrive before it returns.
             challenge = nextChallenge(nav, signal);
-            return {
+            const result = await announce(
+                puter,
                 subscription,
-                result: await announce(puter, subscription, label, interactive),
-            };
+                label,
+                interactive,
+            );
+            if (signal?.aborted) throw turnedOff();
+            await onAnnounced?.();
+            return { subscription, result };
         });
         if (result.status === 'active') return result.device;
         onPending?.();
@@ -377,6 +382,7 @@ const register = async (
  *     interactive?: boolean;
  *     stillWanted?: () => boolean | Promise<boolean>;
  *     withLock?: <T>(run: () => Promise<T>) => Promise<T>;
+ *     onAnnounced?: () => Promise<void>;
  * }} options
  *   `onPending` runs once the server has the subscription and only its
  *   confirmation is left. Aborting `signal` stops waiting for that
@@ -385,7 +391,8 @@ const register = async (
  *   `push_device_removed`. `interactive` lets a rejected token open Puter's
  *   sign-in for the key and the subscription; the confirmation never does.
  *   Subscribing and confirming each run in `withLock` while `stillWanted`
- *   holds, else reject with `push_verification_canceled`.
+ *   holds, else reject with `push_verification_canceled`. `onAnnounced` runs in
+ *   the same lock once the server has the subscription.
  * @returns {Promise<Record<string, unknown>>} The server's device record.
  */
 export async function syncWebPush(
@@ -400,6 +407,7 @@ export async function syncWebPush(
         interactive = false,
         stillWanted = () => true,
         withLock = (run) => run(),
+        onAnnounced,
     },
 ) {
     const { publicKey } = await request(
@@ -427,6 +435,7 @@ export async function syncWebPush(
         onPending,
         signal,
         interactive,
+        onAnnounced,
         whileWanted: (run) =>
             withLock(async () => {
                 if (signal?.aborted || !(await stillWanted()))
