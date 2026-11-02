@@ -64,10 +64,33 @@ test.describe('a stale token does not raise sign-in UI at load', () => {
         });
     }
 
-    test('no popup or dialog on load from a page that keeps push current', async ({
-        page,
-        context,
-    }) => {
+    test.describe('with push support', () => {
+        // Playwright's WebKit has no PushManager or Notification.
+        test.skip(
+            ({ browserName }) => browserName !== 'chromium',
+            'Needs the Push API, which only Chromium has here',
+        );
+
+        test('no popup or dialog on load from a page that keeps push current', async ({
+            playwright,
+        }) => {
+            // Full Chromium: the headless shell keeps Notification.permission
+            // at 'denied' whatever is granted, so the sync never starts there.
+            // Launched here since a channel can't be set per test.
+            const browser = await playwright.chromium.launch({
+                channel: 'chromium',
+            });
+            try {
+                const context = await browser.newContext();
+                const page = await context.newPage();
+                await keepsPushCurrent(page, context);
+            } finally {
+                await browser.close();
+            }
+        });
+    });
+
+    async function keepsPushCurrent(page, context) {
         const popups = [];
         page.on('popup', (p) => popups.push(p.url()));
         const fixtureOrigin = new URL(FIXTURE).origin;
@@ -122,6 +145,15 @@ test.describe('a stale token does not raise sign-in UI at load', () => {
         await seedStaleToken(page, 'puter.auth.token.v2');
         await page.goto(`${FIXTURE}?push`);
         await page.locator('body.ready').waitFor({ timeout: 60_000 });
+        const canPush = await page.evaluate(
+            () =>
+                'PushManager' in window &&
+                globalThis.Notification?.permission === 'granted',
+        );
+        test.skip(
+            !canPush,
+            'This browser has no Push API or no notification permission, so onPush() has no sync to run',
+        );
         await page.waitForFunction(() => !window.puter?.authToken, null, {
             timeout: 30_000,
         });
@@ -130,7 +162,7 @@ test.describe('a stale token does not raise sign-in UI at load', () => {
         expect(keyRequests).toBeGreaterThan(0);
         expect(popups).toEqual([]);
         await expect(page.locator('puter-dialog')).toHaveCount(0);
-    });
+    }
 
     test('a call the user makes still prompts', async ({ page }) => {
         const popupPromise = page.waitForEvent('popup', { timeout: 30_000 });
