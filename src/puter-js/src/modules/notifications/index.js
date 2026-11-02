@@ -222,6 +222,10 @@ export class NotificationsModule extends EventListener {
      * doesn't register this browser after them.
      */
     #stopVerifying = new AbortController();
+    /** The cleanup after a user change, which `enable()` waits for. */
+    #userChange = Promise.resolve();
+    /** The token whose push state sign-out already ended. */
+    #forgottenToken = null;
 
     /** @param {import('../../index.js').Puter} puter */
     constructor(puter) {
@@ -380,6 +384,7 @@ export class NotificationsModule extends EventListener {
      * @internal
      */
     async _enableWebPush(worker) {
+        await this.#userChange;
         this.#useWorker(worker);
         this.#listenForOptInChanges();
         /** @type {() => void} */
@@ -482,6 +487,7 @@ export class NotificationsModule extends EventListener {
      */
     async _forgetPush(authToken) {
         if (this.puter.env !== 'web') return;
+        this.#forgottenToken = authToken ?? null;
         this.#stopSyncs();
         this.#optInChanged('off');
         await withPushLock(async () => {
@@ -509,13 +515,19 @@ export class NotificationsModule extends EventListener {
             if (!token || token === last?.token) return;
             const previous = last;
             last = { token, user: this.#tokenUser(token) };
-            if (previous) void this.#forgetIfAnotherUser(previous, last);
+            if (previous) {
+                this.#userChange = Promise.all([
+                    this.#userChange,
+                    this.#forgetIfAnotherUser(previous, last),
+                ]);
+            }
         };
         note();
         this.puter.onAuthStateChanged?.(note);
     }
 
     async #forgetIfAnotherUser(previous, current) {
+        if (previous.token === this.#forgottenToken) return;
         const [was, now] = await Promise.all([previous.user, current.user]);
         if (was && now && was !== now) await this._forgetPush(previous.token);
     }

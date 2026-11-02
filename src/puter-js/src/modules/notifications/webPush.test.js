@@ -2342,6 +2342,79 @@ describe('a different user signing in', () => {
         expect(store.get(OPT_IN)).toBe(true);
     });
 
+    /** A page of u-1 where `enable()` signs in u-2; `/whoami` takes a moment. */
+    const enablingPage = () => {
+        store.set(OPT_IN, true);
+        store.set(SERVER_KEY, KEY);
+        const subscription = makeSubscription();
+        withBrowser(makeNav({ existing: subscription }));
+        const listeners = new Set();
+        const lookUp = (token) =>
+            new Promise((resolve) =>
+                setTimeout(() => resolve({ uuid: USERS[token] }), 20),
+            );
+        const { module, host } = makeModule({
+            authToken: 'token-a',
+            whoami: undefined,
+            whoamiCache_: lookUp('token-a'),
+            decodeJwtPayload: () => null,
+            onAuthStateChanged: (listener) => listeners.add(listener),
+            setAuthToken(token) {
+                this.authToken = token;
+                for (const listener of listeners) listener();
+                this.whoamiCache_ = token ? lookUp(token) : null;
+            },
+            ui: {
+                authenticateWithPuter: async () => host.setAuthToken('token-b'),
+            },
+        });
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') return { publicKey: KEY };
+            if (method === 'POST' && route === '/push/web/subscriptions')
+                return { status: 'active', device: { uid: 'd1' } };
+            return { removed: true };
+        });
+        return { module, host, subscription };
+    };
+    const OPT_IN_B = 'handlers:puter:opt-in:u-2';
+    const routes = () => mockRequest.mock.calls.map(([, m, r]) => `${m} ${r}`);
+
+    it('lets the next user turn push on after a sign-out on the same page', async () => {
+        const { module, host, subscription } = enablingPage();
+        await module._forgetPush('token-a');
+        host.setAuthToken(null);
+        subscription.unsubscribe.mockClear();
+        mockRequest.mockClear();
+
+        await expect(module.enable()).resolves.toBe(true);
+        await flush();
+        await flush();
+
+        expect(store.get(OPT_IN_B)).toBe(true);
+        expect(subscription.unsubscribe).not.toHaveBeenCalled();
+        expect(routes()).not.toContain('DELETE /push/web/subscriptions');
+    });
+
+    it('ends the last user`s pushes before the next one, signing in from enable(), turns them on', async () => {
+        const { module, host } = enablingPage();
+        await flush();
+        host.setAuthToken(null);
+
+        await expect(module.enable()).resolves.toBe(true);
+        await flush();
+        await flush();
+
+        expect(store.has(OPT_IN)).toBe(false);
+        expect(store.get(OPT_IN_B)).toBe(true);
+        const order = routes();
+        expect(order.indexOf('DELETE /push/web/subscriptions')).toBeLessThan(
+            order.indexOf('POST /push/web/subscriptions'),
+        );
+        expect(order.lastIndexOf('DELETE /push/web/subscriptions')).toBe(
+            order.indexOf('DELETE /push/web/subscriptions'),
+        );
+    });
+
     it('tells users apart by the cached /whoami when the token names none', async () => {
         const listeners = new Set();
         const { host } = signedIn({
