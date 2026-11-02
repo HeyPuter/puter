@@ -4,6 +4,7 @@ import { needsSignIn } from '../events/lib/signIn.js';
 import { disable } from './disable.js';
 import { enable } from './enable.js';
 import { enablePush } from './enablePush.js';
+import { request } from './lib/api.js';
 import {
     CLICKS_STORE,
     HANDLERS_STORE,
@@ -59,6 +60,8 @@ const QUIET_SYNC_ERRORS = new Set([
     'push_revoked',
     'push_unavailable',
     'push_verification_canceled',
+    'reauth_required',
+    'token_auth_failed',
     'too_many_requests',
 ]);
 
@@ -370,6 +373,7 @@ export class NotificationsModule extends EventListener {
             onPending: pending,
             signal,
             renewRemoved: true,
+            interactive: true,
         });
         try {
             // The GUI reads the registered device right after.
@@ -506,8 +510,14 @@ export class NotificationsModule extends EventListener {
         const known =
             this.puter.whoami ?? (await this.puter.whoamiCache_) ?? null;
         if (typeof known?.uuid === 'string') return known.uuid;
-        const user = await this.puter.auth?.whoami?.();
-        return typeof user?.uuid === 'string' ? user.uuid : null;
+        try {
+            const user = await request(this.puter, 'GET', '/whoami', null, {
+                interactiveReauth: false,
+            });
+            return typeof user?.uuid === 'string' ? user.uuid : null;
+        } catch {
+            return null;
+        }
     }
 
     async #recordOptIn(on) {

@@ -178,6 +178,7 @@ describe('syncWebPush', () => {
                     keys: { p256dh: 'p', auth: 'a' },
                 },
             },
+            { interactiveReauth: false },
         );
         expect(store.get('handlers:puter:server-key')).toBe(KEY);
     });
@@ -545,6 +546,50 @@ describe('syncWebPush', () => {
             ),
         ).toHaveLength(2);
     });
+
+    /** A server that answers pending; `confirm()` hands back the challenge. */
+    const pendingServer = (nav) => {
+        server((route) =>
+            route === '/push/web/subscriptions'
+                ? { status: 'pending' }
+                : { device: { uid: 'd8' } },
+        );
+        return () =>
+            nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+    };
+    const reauthByRoute = () =>
+        Object.fromEntries(
+            mockRequest.mock.calls.map(([, , route, , options]) => [
+                route,
+                options?.interactiveReauth,
+            ]),
+        );
+
+    it.each([
+        [false, undefined],
+        [true, true],
+    ])(
+        'with interactive: %s, lets only the key and the announce open a sign-in',
+        async (interactive, given) => {
+            const nav = makeNav();
+            const confirm = pendingServer(nav);
+            const onPending = vi.fn();
+            const syncing = syncWebPush(puter, {
+                worker,
+                nav,
+                onPending,
+                interactive: given,
+            });
+            await vi.waitFor(() => expect(onPending).toHaveBeenCalled());
+            confirm();
+            await syncing;
+            expect(reauthByRoute()).toEqual({
+                '/push/web/key': interactive,
+                '/push/web/subscriptions': interactive,
+                '/push/web/subscriptions/verify': false,
+            });
+        },
+    );
 });
 
 describe('removeWebPush', () => {
@@ -558,7 +603,7 @@ describe('removeWebPush', () => {
             'DELETE',
             '/push/web/subscriptions',
             { endpoint: subscription.endpoint },
-            { authToken: undefined },
+            { authToken: undefined, interactiveReauth: false },
         );
         expect(subscription.unsubscribe).toHaveBeenCalled();
     });
@@ -849,6 +894,8 @@ describe('onPush', () => {
             'push_disabled',
             'push_revoked',
             'push_unavailable',
+            'reauth_required',
+            'token_auth_failed',
             'too_many_requests',
         ])('keeps quiet about %s', async (code) => {
             store.set(OPT_IN, true);
@@ -867,6 +914,33 @@ describe('onPush', () => {
             expect(error).not.toHaveBeenCalled();
             expect(store.has(OPT_IN)).toBe(code !== 'push_revoked');
             error.mockRestore();
+        });
+
+        it('never opens a sign-in, nor when the browser replaces the subscription', async () => {
+            store.set(OPT_IN, true);
+            const nav = makeNav({ existing: makeSubscription() });
+            withBrowser(nav);
+            server();
+            const { module } = makeModule();
+            await module.onPush('chat', () => {});
+            await vi.waitFor(() =>
+                expect(mockRequest).toHaveBeenCalledTimes(2),
+            );
+            nav.post({ type: 'puter-push-subscription-changed' });
+            await vi.waitFor(() =>
+                expect(mockRequest).toHaveBeenCalledTimes(4),
+            );
+            expect(
+                mockRequest.mock.calls.map(([, , route, , options]) => [
+                    route,
+                    options,
+                ]),
+            ).toEqual([
+                ['/push/web/key', { interactiveReauth: false }],
+                ['/push/web/subscriptions', { interactiveReauth: false }],
+                ['/push/web/key', { interactiveReauth: false }],
+                ['/push/web/subscriptions', { interactiveReauth: false }],
+            ]);
         });
 
         it('ends a subscription the user removed in Puter, quietly, and keeps pushes off until enable()', async () => {
@@ -1347,6 +1421,7 @@ describe('enable', () => {
             'POST',
             '/push/web/subscriptions',
             expect.anything(),
+            { interactiveReauth: false },
         );
     });
 
@@ -1374,6 +1449,55 @@ describe('enable', () => {
         expect(done).toBe(false);
         nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
         await expect(enabling).resolves.toBe(true);
+    });
+
+    it('lets the key and the announce open a sign-in, but not the confirmation', async () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        server((route) =>
+            route === '/push/web/subscriptions'
+                ? { status: 'pending' }
+                : { device: { uid: 'd2' } },
+        );
+        const { module } = makeModule();
+        await module.enable();
+        nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+        await vi.waitFor(() => expect(mockRequest).toHaveBeenCalledTimes(3));
+        expect(
+            mockRequest.mock.calls.map(([, , route, , options]) => [
+                route,
+                options,
+            ]),
+        ).toEqual([
+            ['/push/web/key', { interactiveReauth: true }],
+            ['/push/web/subscriptions', { interactiveReauth: true }],
+            ['/push/web/subscriptions/verify', { interactiveReauth: false }],
+        ]);
+    });
+
+    it('looks the user up without opening a sign-in when no user is cached', async () => {
+        withBrowser(makeNav({ existing: makeSubscription() }));
+        server((route) =>
+            route === '/whoami'
+                ? { uuid: 'u-1' }
+                : { status: 'active', device: { uid: 'd1' } },
+        );
+        const auth = { whoami: vi.fn(async () => ({ uuid: 'u-1' })) };
+        const { module } = makeModule({
+            whoami: undefined,
+            whoamiCache_: Promise.resolve(null),
+            auth,
+        });
+        await module.enable();
+        expect(store.get(OPT_IN)).toBe(true);
+        expect(auth.whoami).not.toHaveBeenCalled();
+        expect(mockRequest).toHaveBeenCalledWith(
+            expect.anything(),
+            'GET',
+            '/whoami',
+            null,
+            { interactiveReauth: false },
+        );
     });
 
     it('rejects user_gesture_required outside a click, without prompting', async () => {
@@ -1656,7 +1780,7 @@ describe('sign-out', () => {
             'DELETE',
             '/push/web/subscriptions',
             { endpoint: subscription.endpoint },
-            { authToken: 'leaving-token' },
+            { authToken: 'leaving-token', interactiveReauth: false },
         );
         expect(subscription.unsubscribe).toHaveBeenCalled();
         expect(store.has(OPT_IN)).toBe(false);

@@ -64,6 +64,28 @@ test.describe('a stale token does not raise sign-in UI at load', () => {
         });
     }
 
+    test('no popup or dialog on load from a page that keeps push current', async ({
+        page,
+        context,
+    }) => {
+        const popups = [];
+        page.on('popup', (p) => popups.push(p.url()));
+        await context.grantPermissions(['notifications'], {
+            origin: new URL(FIXTURE).origin,
+        });
+
+        await seedStaleToken(page, 'puter.auth.token.v2');
+        await page.goto(`${FIXTURE}?push`);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+        await page.waitForFunction(() => !window.puter?.authToken, null, {
+            timeout: 30_000,
+        });
+        await page.waitForTimeout(2000);
+
+        expect(popups).toEqual([]);
+        await expect(page.locator('puter-dialog')).toHaveCount(0);
+    });
+
     test('a call the user makes still prompts', async ({ page }) => {
         const popupPromise = page.waitForEvent('popup', { timeout: 30_000 });
 

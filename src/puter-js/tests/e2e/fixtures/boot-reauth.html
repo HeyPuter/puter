@@ -34,9 +34,16 @@
             document.getElementById('kv-get').disabled = false;
         }
 
+        // With ?push, the page keeps a push subscription current from load on.
+        const keepsPush = new URLSearchParams(location.search).has('push');
         function waitForPuter() {
-            if (window.puter && puter.kv) ready();
-            else setTimeout(waitForPuter, 50);
+            if (window.puter && puter.kv) {
+                if (keepsPush)
+                    puter.notifications.onPush('boot', () => {}, {
+                        onError: () => {},
+                    });
+                ready();
+            } else setTimeout(waitForPuter, 50);
         }
         waitForPuter();
 
