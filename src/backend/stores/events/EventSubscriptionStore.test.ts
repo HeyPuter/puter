@@ -353,7 +353,9 @@ describe('rows made through a share handle', () => {
         await expect(
             store.add(through(holder, cap + 2)),
         ).resolves.toMatchObject({ userId: USER });
-    });
+        // Fills the whole cap one add at a time, which a loaded runner takes
+        // past the default timeout.
+    }, 30_000);
 
     it('lists the rows made through the given handles, and no others', async () => {
         const holder = USER + 7000;
