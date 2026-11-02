@@ -590,6 +590,63 @@ describe('syncWebPush', () => {
             });
         },
     );
+
+    it('subscribes and announces inside withLock, and not at all once push is no longer wanted', async () => {
+        const nav = makeNav();
+        const order = [];
+        server((route) => {
+            order.push(route);
+            return { status: 'active', device: { uid: 'd1' } };
+        });
+        const withLock = async (run) => {
+            order.push('lock');
+            try {
+                return await run();
+            } finally {
+                order.push('unlock');
+            }
+        };
+        nav.pushManager.subscribe.mockImplementation(async () => {
+            order.push('subscribe');
+            return makeSubscription();
+        });
+        await syncWebPush(puter, { worker, nav, withLock });
+        expect(order).toEqual([
+            'lock',
+            'subscribe',
+            '/push/web/subscriptions',
+            'unlock',
+        ]);
+
+        mockRequest.mockClear();
+        nav.pushManager.subscribe.mockClear();
+        await expect(
+            syncWebPush(puter, { worker, nav, stillWanted: () => false }),
+        ).rejects.toMatchObject({ code: 'push_verification_canceled' });
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(Object.keys(reauthByRoute())).toEqual(['/push/web/key']);
+    });
+
+    it('verifies only while push is still wanted when the confirmation arrives', async () => {
+        const nav = makeNav();
+        const confirm = pendingServer(nav);
+        let wanted = true;
+        const syncing = syncWebPush(puter, {
+            worker,
+            nav,
+            onPending: () => {
+                wanted = false;
+                confirm();
+            },
+            stillWanted: () => wanted,
+        });
+        await expect(syncing).rejects.toMatchObject({
+            code: 'push_verification_canceled',
+        });
+        expect(Object.keys(reauthByRoute())).not.toContain(
+            '/push/web/subscriptions/verify',
+        );
+    });
 });
 
 describe('removeWebPush', () => {
@@ -1743,8 +1800,9 @@ describe('disable', () => {
         const { module } = makeModule();
         const enabling = module.enable();
         await vi.waitFor(() => expect(announce).toBeDefined());
-        await module.disable();
+        const disabling = module.disable();
         announce();
+        await expect(disabling).resolves.toBe(true);
         await expect(enabling).rejects.toMatchObject({
             code: 'push_verification_canceled',
         });
@@ -1759,6 +1817,115 @@ describe('disable', () => {
         const { module } = makeModule();
         await expect(module.disable()).resolves.toBe(true);
         expect(subscription.unsubscribe).toHaveBeenCalled();
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+});
+
+describe.each([
+    ['with Web Locks', false],
+    ['without Web Locks', true],
+])('another tab turning push off, %s', (_label, noLocks) => {
+    beforeEach(() => {
+        if (noLocks)
+            Object.defineProperty(globalThis.navigator, 'locks', {
+                value: undefined,
+                configurable: true,
+            });
+    });
+    afterEach(() => {
+        if (noLocks) delete globalThis.navigator.locks;
+    });
+
+    /** Requests these tabs made; earlier tests' tabs still hear the channel. */
+    const routes = (...tabs) =>
+        mockRequest.mock.calls
+            .filter(([host]) => tabs.some((tab) => tab.puter === host))
+            .map(([, method, route]) => `${method} ${route}`);
+
+    it('stops a load sync before it announces, and the device stays removed', async () => {
+        store.set(OPT_IN, true);
+        withBrowser(makeNav({ existing: makeSubscription() }));
+        let releaseKey;
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') {
+                await new Promise((resolve) => {
+                    releaseKey = resolve;
+                });
+                return { publicKey: KEY };
+            }
+            return method === 'DELETE'
+                ? { removed: true }
+                : { status: 'active', device: { uid: 'd1' } };
+        });
+        const onError = vi.fn();
+        const { module: loading } = makeModule();
+        await loading.onPush('chat', () => {}, { onError });
+        await vi.waitFor(() => expect(releaseKey).toBeDefined());
+
+        const { module: other } = makeModule();
+        await expect(other.disable()).resolves.toBe(true);
+        releaseKey();
+        await flush();
+        await flush();
+
+        expect(routes(loading, other)).toEqual([
+            'GET /push/web/key',
+            'DELETE /push/web/subscriptions',
+        ]);
+        expect(onError).not.toHaveBeenCalled();
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
+    it('stops a load sync waiting for its confirmation, without verifying', async () => {
+        store.set(OPT_IN, true);
+        const nav = makeNav();
+        withBrowser(nav);
+        server((route) =>
+            route === '/push/web/subscriptions'
+                ? { status: 'pending' }
+                : { device: { uid: 'd1' } },
+        );
+        const { module: loading } = makeModule();
+        await loading.onPush('chat', () => {}, { onError: () => {} });
+        await vi.waitFor(() =>
+            expect(routes(loading)).toContain('POST /push/web/subscriptions'),
+        );
+
+        const { module: other } = makeModule();
+        await other.disable();
+        nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+        await flush();
+        await flush();
+
+        expect(routes(loading)).not.toContain(
+            'POST /push/web/subscriptions/verify',
+        );
+    });
+
+    it('makes an enable() in flight reject', async () => {
+        withBrowser(makeNav({ existing: makeSubscription() }));
+        let announce;
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') return { publicKey: KEY };
+            if (method === 'POST' && route === '/push/web/subscriptions') {
+                return await new Promise((resolve) => {
+                    announce = () => resolve({ status: 'pending' });
+                });
+            }
+            return { removed: true };
+        });
+        const { module: enablingTab } = makeModule();
+        const enabling = enablingTab.enable();
+        await vi.waitFor(() => expect(announce).toBeDefined());
+
+        const { module: other } = makeModule();
+        const disabling = other.disable();
+        await flush();
+        announce();
+        await expect(enabling).rejects.toMatchObject({
+            code: 'push_verification_canceled',
+        });
+        await expect(disabling).resolves.toBe(true);
         expect(store.has(OPT_IN)).toBe(false);
     });
 });
