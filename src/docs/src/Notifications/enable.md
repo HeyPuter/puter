@@ -10,7 +10,7 @@ On a website, the browser asks on your own origin, and pushes arrive through you
 
 The call resolves as soon as the browser has answered and Puter has its subscription. It doesn't wait for the confirmation. Pushes start once your page hands the confirmation back, usually within seconds. If the confirmation doesn't arrive within 30 seconds, the `onError` of [`onPush()`](/Notifications/onPush/) gets `push_verification_timeout`, or the console does without one, and the next page load tries again.
 
-The choice sticks. Once enabled, [`onPush()`](/Notifications/onPush/) keeps the subscription current on later page loads without asking again. After [`disable()`](/Notifications/disable/), after the user turns your app off in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/), page loads don't subscribe again until your page calls [`enable()`](/Notifications/enable/) again from a click.
+The choice sticks. Once enabled, [`onPush()`](/Notifications/onPush/) keeps the subscription current on later page loads without asking again. After [`disable()`](/Notifications/disable/), after the user turns your app off or removes this browser in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/), page loads don't subscribe again until your page calls [`enable()`](/Notifications/enable/) again from a click.
 
 If the user turned your app off in Puter's settings, the call rejects with `push_revoked`. To ask again, call [`requestPermission()`](/Notifications/requestPermission/) from a click, which opens Puter's permission prompt, and then call [`enable()`](/Notifications/enable/) again.
 

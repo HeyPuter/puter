@@ -9,9 +9,10 @@ const STATES = new Set(['on', 'off', 'blocked', 'unavailable']);
  * that the browser blocks notifications, and `unavailable` that this browser,
  * page or server can't receive pushes.
  *
- * On a website, `on` means the user turned pushes on here with `enable()` and
- * this browser holds the subscription. Inside the Puter desktop it means pushes
- * are on in this browser and the app holds `notifications:push`.
+ * On a website, `on` means the user turned pushes on here with `enable()`, this
+ * browser holds the subscription, and Puter hasn't had this browser removed or
+ * the app turned off. Inside the Puter desktop it means pushes are on in this
+ * browser and the app holds `notifications:push`.
  *
  * @this {import('./index.js').NotificationsModule}
  * @param {{ serviceWorker?: string }} [options]

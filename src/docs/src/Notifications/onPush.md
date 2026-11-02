@@ -8,7 +8,7 @@ Handles the notifications your app sends with `channel: key` in [`notify()`](/No
 
 A page with a handler tells Puter when it receives a notification, before your handler runs. When the page is visible and focused, nothing is pushed. When it's hidden or its window isn't focused, the page shows the notification itself, unless another tab of your site is focused. It shows the handler's result, or the notification's own title and text when no handler matches the notification's `channel`. Showing it needs the browser's notification permission, which [`enable()`](/Notifications/enable/) asks for. Otherwise, when no page answers within 5 seconds that it's visible and focused or that it shows the notification itself, Puter sends a push. [Push notifications for your app](/Notifications/push/#when-a-notification-is-pushed) has the full rule.
 
-The user turns pushes on once with [`enable()`](/Notifications/enable/). After that, each page load's [`onPush()`](/Notifications/onPush/) call keeps this browser's subscription current without asking again. Different keys share that one permission. After [`disable()`](/Notifications/disable/), after the user turns your app off in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/), page loads don't subscribe again until your page calls [`enable()`](/Notifications/enable/) from a click.
+The user turns pushes on once with [`enable()`](/Notifications/enable/). After that, each page load's [`onPush()`](/Notifications/onPush/) call keeps this browser's subscription current without asking again. Different keys share that one permission. After [`disable()`](/Notifications/disable/), after the user turns your app off or removes this browser in Puter, or after [`puter.auth.signOut()`](/Auth/signOut/), page loads don't subscribe again until your page calls [`enable()`](/Notifications/enable/) from a click.
 
 ## The service worker
 
@@ -50,7 +50,7 @@ A [sensitive](/Notifications/notify/#parameters) push carries no `channel`, so n
 
 #### `options` (Object) (optional)
 - `serviceWorker` (String): path of the worker that imports `push-sw.js`. Default `/puter-sw.js`.
-- `onError` (Function): called when the handler throws in the page or runs past 5 seconds there (`push_handler_timeout`, and the notification's own title and text show instead), the live listener stops, keeping the subscription current fails, or the confirmation push after [`enable()`](/Notifications/enable/) doesn't arrive within 30 seconds (`push_verification_timeout`). Without it, errors go to the console. A server without a push service (`push_unavailable`) and an app the user turned off in Puter (`push_revoked`) are not reported here, since [`enable()`](/Notifications/enable/) rejects with them when called.
+- `onError` (Function): called when the handler throws in the page or runs past 5 seconds there (`push_handler_timeout`, and the notification's own title and text show instead), the live listener stops, keeping the subscription current fails, or the confirmation push after [`enable()`](/Notifications/enable/) doesn't arrive within 30 seconds (`push_verification_timeout`). Without it, errors go to the console. A server without a push service (`push_unavailable`) and an app the user turned off in Puter (`push_revoked`) are not reported here, since [`enable()`](/Notifications/enable/) rejects with them when called. A browser the user removed in Puter isn't reported either, since [`enable()`](/Notifications/enable/) turns pushes back on there.
 
 ## Handler limits
 
