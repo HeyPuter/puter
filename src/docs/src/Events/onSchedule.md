@@ -12,6 +12,8 @@ Runs a handler your app published with [`puter.events.handlers.publish()`](/Even
 
 To run a handler when the user's data changes instead, use [`puter.events.onPersistent()`](/Events/onPersistent/).
 
+[Change Data at a Set Time](/recipes/change-data-at-a-set-time/) walks through a one-time schedule with `at`, including how to cancel and move it.
+
 Only an app can create a schedule, meaning an app running on Puter or a website using Puter.js. The schedule belongs to the user the app runs for, and to that app. On a website with nobody signed in, it asks the user to sign in first, as other Puter.js calls do. An app running on Puter is always signed in.
 
 ## Syntax

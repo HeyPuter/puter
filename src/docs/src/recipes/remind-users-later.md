@@ -180,6 +180,8 @@ skips it the next time. Running a handler needs the user's
 Cancel it the same way as a stored notification, with
 [`puter.events.removeSchedule()`](/Events/removeSchedule/) and
 `schedule.scheduleId`.
+[Change Data at a Set Time](/recipes/change-data-at-a-set-time/) shows how to
+cancel or move a one-time schedule, including one that has already run.
 
 ## Full Code
 
