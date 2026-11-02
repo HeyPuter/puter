@@ -284,11 +284,13 @@ const register = async (
     subscribe,
     { label, onPending, signal, interactive, whileWanted },
 ) => {
-    // Listening first: the confirmation can arrive before the POST returns.
-    const challenge = nextChallenge(nav, signal);
+    /** @type {ReturnType<typeof nextChallenge> | null} */
+    let challenge = null;
     try {
         const { subscription, result } = await whileWanted(async () => {
             const subscription = await subscribe();
+            // Before the POST: the confirmation can arrive before it returns.
+            challenge = nextChallenge(nav, signal);
             return {
                 subscription,
                 result: await announce(puter, subscription, label, interactive),
@@ -312,7 +314,7 @@ const register = async (
         );
         return device;
     } finally {
-        challenge.cancel();
+        challenge?.cancel();
     }
 };
 

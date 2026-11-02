@@ -627,6 +627,44 @@ describe('syncWebPush', () => {
         expect(Object.keys(reauthByRoute())).toEqual(['/push/web/key']);
     });
 
+    it.each(['active', 'pending'])(
+        'waits for the lock as long as it takes when the server answers %s',
+        async (status) => {
+            vi.useFakeTimers();
+            const unhandled = [];
+            const note = (reason) => unhandled.push(reason);
+            process.on('unhandledRejection', note);
+            try {
+                const nav = makeNav();
+                server(() => ({ status, device: { uid: 'd9' } }));
+                let release;
+                const held = new Promise((resolve) => {
+                    release = resolve;
+                });
+                const syncing = syncWebPush(puter, {
+                    worker,
+                    nav,
+                    onPending: () =>
+                        nav.post({
+                            type: 'puter-push-challenge',
+                            challenge: 'c.sig',
+                        }),
+                    withLock: async (run) => {
+                        await held;
+                        return await run();
+                    },
+                });
+                await vi.advanceTimersByTimeAsync(31_000);
+                release();
+                await expect(syncing).resolves.toEqual({ uid: 'd9' });
+                await vi.advanceTimersByTimeAsync(0);
+                expect(unhandled).toEqual([]);
+            } finally {
+                process.off('unhandledRejection', note);
+            }
+        },
+    );
+
     it('verifies only while push is still wanted when the confirmation arrives', async () => {
         const nav = makeNav();
         const confirm = pendingServer(nav);
