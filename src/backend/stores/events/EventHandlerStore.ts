@@ -372,9 +372,17 @@ export class EventHandlerStore extends PuterStore {
      */
     async cachedSetForApp(
         appUid: string,
-        options: { missRead?: 'primary' | 'replica' } = {},
+        options: {
+            missRead?: 'primary' | 'replica';
+            handlerName?: string;
+        } = {},
     ): Promise<Pick<EventHandler, 'name' | 'sourceHash'>[]> {
         const replica = options.missRead === 'replica';
+        // A set without the handler may be from before its publish.
+        const usable = (set: Pick<EventHandler, 'name'>[]) =>
+            set.length > 0 &&
+            (options.handlerName === undefined ||
+                set.some((handler) => handler.name === options.handlerName));
         const key = replica
             ? replicaSetCacheKey(appUid)
             : handlerSetCacheKey(appUid);
@@ -382,14 +390,17 @@ export class EventHandlerStore extends PuterStore {
             const cached = JSON.parse(
                 (await this.clients.redis.get(key)) ?? 'null',
             ) as unknown;
-            if (Array.isArray(cached) && cached.length > 0)
+            if (
+                Array.isArray(cached) &&
+                usable(cached as Pick<EventHandler, 'name'>[])
+            )
                 return cached as Pick<EventHandler, 'name' | 'sourceHash'>[];
         } catch {
             // Read the table instead.
         }
 
         let set = await this.setForApp(appUid, { replica });
-        if (replica && set.length === 0) set = await this.setForApp(appUid);
+        if (replica && !usable(set)) set = await this.setForApp(appUid);
         if (set.length > 0) {
             try {
                 await this.clients.redis.set(

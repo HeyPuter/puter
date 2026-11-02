@@ -55,7 +55,10 @@ const OTHER_SOURCE = 'async ({ event, ctx }) => { console.log(ctx.url); }';
 const codeOf = (code: string) => (err: unknown) =>
     isHttpError(err) && err.legacyCode === code;
 
-/** A minimal `apps` row, owned by `ownerUserId`, for the events-workers reads to join against. */
+/**
+ * A minimal `apps` row, owned by `ownerUserId`, for the events-workers reads to
+ * join against.
+ */
 const makeApp = async (owner: number): Promise<string> => {
     const uid = `app-${uuidv4()}`;
     await env.server.clients.db.write(
@@ -122,7 +125,11 @@ describe('publishing a handler', () => {
     });
 
     it('refuses different source from a publisher that did not name the base', async () => {
-        await handlers().publish({ appUid, name: 'ingestUpload', source: SOURCE });
+        await handlers().publish({
+            appUid,
+            name: 'ingestUpload',
+            source: SOURCE,
+        });
 
         await expect(
             handlers().publish({
@@ -179,7 +186,11 @@ describe('publishing a handler', () => {
     });
 
     it('takes the name outright for a publisher that asked to replace', async () => {
-        await handlers().publish({ appUid, name: 'ingestUpload', source: SOURCE });
+        await handlers().publish({
+            appUid,
+            name: 'ingestUpload',
+            source: SOURCE,
+        });
 
         const replaced = await handlers().publish({
             appUid,
@@ -236,9 +247,10 @@ describe('publishing a handler', () => {
         // The row reflects whichever one actually won — never a mix of the
         // two, and never silently both.
         const stored = await handlers().getByName(appUid, 'ingestUpload');
-        expect([OTHER_SOURCE, 'async () => { /* the other racer */ }']).toContain(
-            stored!.source,
-        );
+        expect([
+            OTHER_SOURCE,
+            'async () => { /* the other racer */ }',
+        ]).toContain(stored!.source);
     });
 
     it('never lets a create-vs-create race leak a raw database error', async () => {
@@ -271,7 +283,11 @@ describe('publishing a handler', () => {
     });
 
     it('scopes the name to one app', async () => {
-        await handlers().publish({ appUid, name: 'ingestUpload', source: SOURCE });
+        await handlers().publish({
+            appUid,
+            name: 'ingestUpload',
+            source: SOURCE,
+        });
         const other = await handlers().publish({
             appUid: otherAppUid,
             name: 'ingestUpload',
@@ -285,7 +301,13 @@ describe('publishing a handler', () => {
     });
 
     it('refuses a name that is not an addressable identifier', async () => {
-        for (const name of ['', ' leading', 'has space', '-dash', 'x'.repeat(129)]) {
+        for (const name of [
+            '',
+            ' leading',
+            'has space',
+            '-dash',
+            'x'.repeat(129),
+        ]) {
             await expect(
                 handlers().publish({ appUid, name, source: SOURCE }),
             ).rejects.toSatisfy(codeOf('events_handler_name_invalid'));
@@ -309,7 +331,11 @@ describe('publishing a handler', () => {
 
 describe('listing handlers', () => {
     it('reports names, hashes and dependents, never source', async () => {
-        await handlers().publish({ appUid, name: 'ingestUpload', source: SOURCE });
+        await handlers().publish({
+            appUid,
+            name: 'ingestUpload',
+            source: SOURCE,
+        });
         await handlers().publish({
             appUid,
             name: 'indexDocument',
@@ -327,13 +353,15 @@ describe('listing handlers', () => {
             hash: hashContent(SOURCE),
             subscriptions: 0,
         });
-        expect(
-            listed.every((row) => !('source' in row)),
-        ).toBe(true);
+        expect(listed.every((row) => !('source' in row))).toBe(true);
     });
 
     it('counts the subscriptions each name is carrying', async () => {
-        await handlers().publish({ appUid, name: 'ingestUpload', source: SOURCE });
+        await handlers().publish({
+            appUid,
+            name: 'ingestUpload',
+            source: SOURCE,
+        });
         for (const suffix of ['a', 'b']) {
             await env.server.clients.db.write(
                 'INSERT INTO `event_subscriptions` (`sub_id`, `token`, `owner_user_id`, ' +
@@ -365,7 +393,11 @@ describe('listing handlers', () => {
 
 describe('removing a handler', () => {
     it('drops the row and reports what it was', async () => {
-        await handlers().publish({ appUid, name: 'ingestUpload', source: SOURCE });
+        await handlers().publish({
+            appUid,
+            name: 'ingestUpload',
+            source: SOURCE,
+        });
 
         await expect(
             handlers().remove(appUid, 'ingestUpload'),
@@ -535,6 +567,35 @@ describe('the set a delivery addresses', () => {
         } finally {
             read.mockRestore();
             pread.mockRestore();
+        }
+    });
+
+    it('re-reads on the primary a replica set without the handler a run needs', async () => {
+        await handlers().publish({
+            appUid: cachedApp,
+            name: 'a',
+            source: SOURCE,
+        });
+        const stale = await handlers().setForApp(cachedApp);
+        await handlers().publish({
+            appUid: cachedApp,
+            name: 'b',
+            source: SOURCE,
+        });
+        // The replica has only `a`, published before `b`.
+        const read = vi
+            .spyOn(env.server.clients.db, 'read')
+            .mockResolvedValueOnce(
+                stale.map((h) => ({ name: h.name, source_hash: h.sourceHash })),
+            );
+        try {
+            const set = await handlers().cachedSetForApp(cachedApp, {
+                missRead: 'replica',
+                handlerName: 'b',
+            });
+            expect(set.map((h) => h.name).sort()).toEqual(['a', 'b']);
+        } finally {
+            read.mockRestore();
         }
     });
 
@@ -733,7 +794,11 @@ describe('listing an owner`s events workers', () => {
     it('reports one row per app, with its handler count and app details', async () => {
         const uid = await makeApp(ownerUserId);
         await handlers().publish({ appUid: uid, name: 'a', source: SOURCE });
-        await handlers().publish({ appUid: uid, name: 'b', source: OTHER_SOURCE });
+        await handlers().publish({
+            appUid: uid,
+            name: 'b',
+            source: OTHER_SOURCE,
+        });
 
         const page = await handlers().listEventsWorkersForOwner(ownerUserId);
 
@@ -760,7 +825,11 @@ describe('listing an owner`s events workers', () => {
         const uidA = await makeApp(ownerUserId);
         const uidB = await makeApp(ownerUserId);
         await handlers().publish({ appUid: uidA, name: 'a', source: SOURCE });
-        await handlers().publish({ appUid: uidB, name: 'b', source: OTHER_SOURCE });
+        await handlers().publish({
+            appUid: uidB,
+            name: 'b',
+            source: OTHER_SOURCE,
+        });
 
         const page = await handlers().listEventsWorkersForOwner(ownerUserId, {
             appUid: uidA,
@@ -784,7 +853,11 @@ describe('listing an owner`s events workers', () => {
         const uids: string[] = [];
         for (let i = 0; i < 3; i++) {
             const uid = await makeApp(ownerUserId);
-            await handlers().publish({ appUid: uid, name: 'a', source: SOURCE });
+            await handlers().publish({
+                appUid: uid,
+                name: 'a',
+                source: SOURCE,
+            });
             uids.push(uid);
         }
 
@@ -802,9 +875,7 @@ describe('listing an owner`s events workers', () => {
         expect(second.cursor).toBeUndefined();
 
         expect(
-            [...first.items, ...second.items]
-                .map((row) => row.appUid)
-                .sort(),
+            [...first.items, ...second.items].map((row) => row.appUid).sort(),
         ).toEqual([...uids].sort());
     });
 });

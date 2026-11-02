@@ -47,7 +47,7 @@ It rejects with an error carrying `message` and `code`:
 | `invalid_argument` | `notification` isn't an object, or its `title` is missing or blank. |
 | `bad_request` | A field is over its limit, has the wrong type, or isn't one of the fields above. The message names the field. With `to`, it must be an object with only a string `handle`. |
 | `forbidden` | The call wasn't made by an app, for example from Node.js with an account token. |
-| `too_many_requests` | Your app sent this user too many notifications. With `to`, the error is the same whether the recipient's limit or the [share limit](#notify-the-other-side-of-a-share) refused the call. |
+| `too_many_requests` | Your app sent this user too many notifications. With `to`, the error is the same whether the recipient's limit or the [share limit](#notify-the-other-side-of-a-share) refused the call. With a `sendAt` more than 5 seconds ahead, the user stored too many notifications or created too many [schedules](/Events/onSchedule/) in the last minute. See [Rate Limits and Quotas](/rate-limits-and-quotas/#schedules). |
 | `subject_does_not_exist` | With `to`, the handle doesn't name a live share of this app's data that you're on either side of. |
 | `kv_share_notify_not_enabled` | With `to`, the share wasn't made with `notify: true`. |
 | `recipient_not_accepting_shares` | With `to`, the recipient blocked you or doesn't accept shares. |
@@ -97,7 +97,7 @@ It's written once, even when sending is retried. A retry doesn't write a second 
 
 Once it has gone out, or been dropped, its schedule has `state: 'ended'` and an `endReason` of `delivered` or `dropped`, and it stays in [`puter.events.listSchedules()`](/Events/listSchedules/) for 7 days. While it's going out it's `sending`, and [`cancel()`](/Notifications/cancel/) rejects with `events_schedule_sending`.
 
-When the user uninstalls your app, the notifications it has waiting for them are cancelled. Deleting the app, or the account that owns it, cancels all of them. This holds even on a server where sending later is turned off.
+When the user uninstalls your app, the notifications it has waiting for them are cancelled, and one that's due after the uninstall is dropped. Deleting the app, or the account that owns it, cancels all of them. This holds even on a server where sending later is turned off.
 
 The number of notifications and [`at` schedules](/Events/onSchedule/) your app can have waiting for each user is limited by the user's plan. See [Rate Limits and Quotas](/rate-limits-and-quotas/#schedules).
 

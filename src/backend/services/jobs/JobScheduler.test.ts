@@ -233,6 +233,34 @@ describe('JobScheduler', () => {
         expect(vi.getTimerCount()).toBe(baseline);
     });
 
+    it('claims nothing once draining, and leaves a running job its lease', async () => {
+        const scheduler = node({ namespace: `drain${Date.now()}` });
+        let release!: () => void;
+        let signal!: AbortSignal;
+        scheduler.register('long', {
+            every: HOUR,
+            scope: 'region',
+            run: (ctx) => {
+                signal = ctx.signal;
+                return new Promise<void>((resolve) => {
+                    release = resolve;
+                });
+            },
+        });
+        const first = scheduler.poll();
+        await vi.waitFor(() => expect(release).toBeDefined());
+        const run = vi.fn(async () => {});
+        scheduler.register('other', { every: HOUR, scope: 'region', run });
+
+        scheduler.onServerDrainStart();
+        await scheduler.poll();
+        expect(run).not.toHaveBeenCalled();
+        expect(signal.aborted).toBe(false);
+
+        release();
+        await first;
+    });
+
     it('arms no poll on a node with jobs turned off, though poll() still runs them', async () => {
         vi.useFakeTimers({
             toFake: [

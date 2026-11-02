@@ -125,6 +125,8 @@ export class JobScheduler extends PuterService {
     #leases = new Set<RunLease>();
     #started = false;
     #stopping = false;
+    /** Polling stopped; runs already going keep their leases. */
+    #draining = false;
     #timer: ReturnType<typeof setInterval> | null = null;
     #pollDelays = new Set<ReturnType<typeof setTimeout>>();
     #warnedOff = false;
@@ -178,18 +180,28 @@ export class JobScheduler extends PuterService {
         if (this.#jobs.size > 0) this.#arm();
     }
 
+    /** Claim nothing new while draining; running jobs carry on until prepare. */
+    override onServerDrainStart(): void {
+        this.#stopPolling();
+    }
+
     override onServerPrepareShutdown(): void {
         this.#stopping = true;
-        if (this.#timer) clearInterval(this.#timer);
-        this.#timer = null;
-        for (const delay of this.#pollDelays) clearTimeout(delay);
-        this.#pollDelays.clear();
+        this.#stopPolling();
         for (const lease of [...this.#leases]) {
             lease.controller.abort(
                 new JobLeaseLostError('server shutting down'),
             );
             lease.close();
         }
+    }
+
+    #stopPolling(): void {
+        this.#draining = true;
+        if (this.#timer) clearInterval(this.#timer);
+        this.#timer = null;
+        for (const delay of this.#pollDelays) clearTimeout(delay);
+        this.#pollDelays.clear();
     }
 
     /**
@@ -213,7 +225,7 @@ export class JobScheduler extends PuterService {
      * Resolves once the runs it started have finished.
      */
     async poll(): Promise<void> {
-        if (this.#stopping) return;
+        if (this.#stopping || this.#draining) return;
         const fleet: string[] = [];
         const region: Promise<void>[] = [];
         for (const [name, job] of this.#jobs) {
@@ -228,7 +240,7 @@ export class JobScheduler extends PuterService {
     }
 
     #arm(): void {
-        if (this.#timer || this.#stopping) return;
+        if (this.#timer || this.#stopping || this.#draining) return;
         if (this.config.jobs?.enabled === false) {
             // Nothing alarms on a job that never runs, so say it here.
             if (!this.#warnedOff) {

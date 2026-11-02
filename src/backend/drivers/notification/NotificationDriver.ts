@@ -570,6 +570,16 @@ export class NotificationDriver extends PuterDriver {
             return 'dropped';
         }
         if (sender.user?.suspended) return 'senderSuspended';
+        // Uninstalled since, and the cancel at uninstall missed it.
+        const appId = sender.effectiveApp?.id;
+        if (
+            typeof appId !== 'number' ||
+            !(await this.stores.permission.hasAnyUserAppPerm(
+                holderUserId,
+                appId,
+            ))
+        )
+            return 'dropped';
         const stored = parseDelayedAppMessage(input.payload);
         if (!stored) return 'dropped';
         const { message } = stored;

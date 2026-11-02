@@ -162,7 +162,7 @@ The `user` binding is valid for 15 minutes, so use it only during the run. Write
 | Throws a temporary error, meaning a network error, a timeout, a rate limit (`429`), a `5xx`, or any error with `retry: true` | Retried after 2 seconds, then 4, 8 and so on, up to 5 minutes apart, with the same `event.id`. It counts as a failure. |
 | Runs past 30 seconds | Retried on the same schedule. It counts as a failure. |
 
-A run that fails because of Puter doesn't count as a failure. It's retried on the same schedule, and waits longer if Puter's answer asked for a longer wait, up to 5 minutes. To drop the run in that case anyway, throw an error with `terminal: true`. The rules are the same as for a [`queue` subscription](/Events/onPersistent/#what-happens-when-a-handler-fails).
+A run that fails because of Puter doesn't count as a failure. It's retried on the same schedule, and waits longer if Puter's answer asked for a longer wait, up to 5 minutes. To drop the run in that case anyway, throw an error with `terminal: true`. The rules are the same as for a [`queue` subscription](/Events/onPersistent/#what-happens-when-a-handler-fails), except that the retries stop once the schedule's next run is due, or after 24 hours for an `at` schedule or a last run. The run is then dropped without billing.
 
 Five failures in a row suspend the schedule with `failures`. The developer is notified, and publishing the handler again resumes it.
 
@@ -244,6 +244,7 @@ The promise rejects with `{ message, code }`:
 | `events_schedule_invalid` | An option is malformed. For example, more than one of `every`, `cron` and `at`, an `every` that isn't a whole number of seconds, a time with no zone, an `at` less than 1 second or more than 366 days ahead, an unsupported cron expression, an unknown `tz`, or `tz` without `cron`. The message says which. |
 | `events_schedule_never_fires` | The schedule would never run. Its first run or its `startAt` is more than 366 days away, or it ends before its first run. |
 | `events_schedule_too_frequent` | It would run more often than your plan's [minimum interval](#how-often-a-schedule-can-run). |
+| `events_schedule_too_deep` | The call was made from a handler at the end of a [handler chain](/Events/onPersistent/#handlers-that-trigger-handlers), so the schedule could never run. |
 | `bad_request` | `handlerName` is empty or over 128 characters, or `handlerHash` isn't a SHA-256 hex digest. |
 | `events_handler_not_found` | Nothing is published under `handlerName`. The schedule isn't created. |
 | `events_handler_hash_mismatch` | The published handler isn't the source you passed as `handler`. |

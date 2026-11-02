@@ -589,7 +589,7 @@ Calls over any of these fail with `too_many_requests`. A share over the `kv.shar
 
 A [`puter.kv.share()`](/KV/share/) call names 1 to 50 recipients, and each one counts toward the named-recipient limit. A recipient who doesn't already have the share also counts toward the new-recipient limit, including a username that doesn't exist and a user the share is refused for. The call counts once toward the mint limit when it makes a share, changes one, or has any recipient who counts as new. A call where every recipient already has the share at the same access level and label counts only toward the named-recipient limit. When the recipients don't all fit in a limit, the whole call fails with `too_many_requests`, and the part that did fit still counts.
 
-Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one. Changing a subscription's context with [`puter.events.update()`](/Events/update/) counts toward the `subscribe` limit. Creating a [schedule](#schedules) counts toward the `subscribe` limit, removing one toward `unsubscribe`, and listing or reading one toward the subscription listings.
+Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one. Changing a subscription's context with [`puter.events.update()`](/Events/update/) counts toward the `subscribe` limit. Creating a [schedule](#schedules), or storing a notification with [`notify()`](/Notifications/notify/#send-it-later) and a `sendAt` more than 5 seconds ahead, counts toward the `subscribe` limit. Removing one counts toward `unsubscribe`, and listing or reading one toward the subscription listings.
 
 #### Delivery
 
@@ -712,11 +712,12 @@ A recurring schedule can run at most every 1 minute on a paid plan and every 15 
 - A run that finds 8 deploys already started waits 5 seconds and tries again.
 - A stored notification over its recipient's [notification limits](#notifications) waits at least a minute and tries again, without using one of its 5 attempts.
 - A `cron` create that finds 2 checks running and 8 waiting fails with `events_schedule_busy`. Try again in a moment.
+- A run that Puter couldn't get to its handler is retried until the schedule's next run is due, and then it's dropped. An `at` schedule's run, or a schedule's last run, is retried for 24 hours. A dropped run isn't billed and doesn't count as a failure.
 - A stored notification counts toward the [notification limits](#notifications) of its recipient when it goes out, not when it's stored.
 
 | Call                                                | Limit                                | Scope              |
 | --------------------------------------------------- | ------------------------------------ | ------------------ |
-| `onSchedule()`                                      | 60/min, shared with `subscribe`      | Per user, all apps |
+| `onSchedule()`, and `notify()` with a later `sendAt` | 60/min, shared with `subscribe`     | Per user, all apps |
 | `removeSchedule()` and `notifications.cancel()`     | 600/min, shared with `unsubscribe`   | Per user, all apps |
 | `listSchedules()` and `getSchedule()`               | 120/min, shared with the subscription listings | Per user, per app |
 

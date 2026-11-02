@@ -58,7 +58,11 @@ export interface WorkerInvocation {
  * toward the run that suspends a subscription.
  */
 export type WorkerInvocationOutcome =
-    'settled' | 'terminal' | 'retriable' | 'unavailable' | 'deferred';
+    | 'settled'
+    | 'terminal'
+    | 'retriable'
+    | 'unavailable'
+    | 'deferred';
 
 export interface WorkerInvocationResult {
     outcome: WorkerInvocationOutcome;
@@ -90,6 +94,8 @@ export type SubscriberTokenMinter = (
 /** Where the handler set is read from when its cache misses. */
 export interface AddressOptions {
     missRead?: 'primary' | 'replica';
+    /** A handler the set must have; a set without it is re-read on the primary. */
+    handlerName?: string;
 }
 
 /**
@@ -103,7 +109,8 @@ export type EventsWorkerAddresser = (
 
 /** What one run came to, including why nothing was invoked. */
 export type WorkerRunResult =
-    WorkerInvocationResult | { outcome: MintRefusal | 'deploy-busy' };
+    | WorkerInvocationResult
+    | { outcome: MintRefusal | 'deploy-busy' };
 
 /** How {@link EventsWorkerInvoker.run} reaches the worker. */
 export type WorkerRunOptions = WorkerInvokeOptions & AddressOptions;
@@ -180,6 +187,7 @@ export class EventsWorkerInvoker implements WorkerInvokerSeam {
         // stops it.
         const address = await this.#address(appUid, {
             missRead: options.missRead,
+            handlerName,
         });
         if (address === null) return { outcome: 'retriable' };
 

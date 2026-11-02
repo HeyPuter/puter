@@ -271,7 +271,8 @@ export class NotificationService extends PuterService {
      * `updated` row is an earlier notification rewritten in place, and
      * `replacedAt` marks it a replacement. `handlerDepth` is the depth the
      * write was made at, when no actor in context carries it. `rewriteSent`
-     * says the caller already sent a desktop rewrite. Called by extensions.
+     * says the caller already sent a desktop rewrite. `replayable` marks a send
+     * that may be emitted again under the same `sendId`. Called by extensions.
      */
     async emitWritten(
         written: {
@@ -284,7 +285,12 @@ export class NotificationService extends PuterService {
             updated?: boolean;
             replacedAt?: number;
         },
-        opts: { sendId: string; handlerDepth?: number; rewriteSent?: boolean },
+        opts: {
+            sendId: string;
+            handlerDepth?: number;
+            rewriteSent?: boolean;
+            replayable?: boolean;
+        },
     ): Promise<void> {
         const { userId, uid, value: payload, updated } = written;
         const scope = {
@@ -305,6 +311,7 @@ export class NotificationService extends PuterService {
                 value: structuredClone(payload),
                 ...(updated ? { updated: true as const } : {}),
                 sendId: opts.sendId,
+                ...(opts.replayable ? { replayable: true as const } : {}),
             },
             {},
         );
