@@ -95,8 +95,8 @@ shows how to check [`listSchedules()`](/Events/listSchedules/) first.
 The `context` is stored with the schedule and can't be changed. When the
 user's key changes, remove the schedule with
 [`puter.events.removeSchedule()`](/Events/removeSchedule/) and create a new
-one. [`listSchedules()`](/Events/listSchedules/) shows the names of the
-`context` keys, never their values. It can be up to 4 KB.
+one. The [`listSchedules()`](/Events/listSchedules/) method shows the names
+of the `context` keys, never their values.
 
 The schedule runs every 15 minutes from when it's created, which is as often
 as a free plan allows. A paid plan can run one every minute. See
@@ -123,7 +123,7 @@ async function syncChanges ({ ctx, user, fetch }) {
                 signal: AbortSignal.timeout(5000),
             });
         } catch {
-            return;    // too slow or unreachable: the next run asks again
+            return;    // too slow or unreachable, so the next run asks again
         }
         if (!res.ok) return;
 
@@ -146,7 +146,7 @@ async function syncChanges ({ ctx, user, fetch }) {
 }
 ```
 
-Publish the handler again after the change. A few details:
+A few details:
 
 - The loop stops starting new pages after 20 seconds. Each page is at most
   100 items (`limit`, if the API takes one), its request gives up after 5
@@ -166,9 +166,19 @@ Publish the handler again after the change. A few details:
   wins, even when the other got further. A cursor that moves back only means
   pages are fetched again. An item the slower run saves can be older than the
   one it replaces until a later run fetches it again. If that matters, keep the
-  API's `updatedAt` on each item and skip writing one older than what's stored;
-  the key-value store has no compare-and-set, so the handler has to tolerate
-  the rare overlap rather than prevent it.
+  API's `updatedAt` on each item and skip writing one older than what's
+  stored. The key-value store has no compare-and-set, so the handler has to
+  tolerate the rare overlap rather than prevent it.
+
+Publish the handler again after the change. A deploy script runs in a new
+process each time, so its SDK hasn't seen what's published. Call
+[`handlers.list()`](/Events/handlers/) before publishing changed code, or
+[`publish()`](/Events/handlers/) rejects with `events_handler_conflict`:
+
+```js
+await puter.events.handlers.list({ appUid: app.uid });
+await puter.events.handlers.publish('syncChanges', syncChanges, { appUid: app.uid });
+```
 
 ## Full Code
 
@@ -191,7 +201,7 @@ async function syncChanges ({ ctx, user, fetch }) {
                 signal: AbortSignal.timeout(5000),
             });
         } catch {
-            return;    // too slow or unreachable: the next run asks again
+            return;    // too slow or unreachable, so the next run asks again
         }
         if (!res.ok) return;
 

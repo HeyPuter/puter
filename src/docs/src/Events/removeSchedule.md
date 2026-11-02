@@ -30,7 +30,9 @@ A `Promise` that resolves when the schedule has ended.
 
 An app can only remove schedules it created. An account session can remove any of the user's schedules, including ones left by apps they no longer use. A scoped access token can't remove any.
 
-An id this caller doesn't hold, or a schedule that already ended, is reported as not existing, so removing a schedule twice rejects the second time. With `events_schedule_sending`, `auth_canceled`, `too_many_requests` or `events_disabled`, nothing was removed. When the call fails any other way, such as a network error or `events_failed`, the removal may still have happened: read the schedule again with [`getSchedule()`](/Events/getSchedule/) to find out. It rejects with `{ message, code }`:
+An id this caller doesn't hold, or a schedule that already ended, is reported as not existing, so removing a schedule twice rejects the second time. With `events_schedule_sending`, `auth_canceled`, `too_many_requests` or `events_disabled`, nothing was removed. When the call fails any other way, such as a network error or `events_failed`, the removal may still have happened, so read the schedule again with [`getSchedule()`](/Events/getSchedule/) to find out.
+
+It rejects with `{ message, code }`:
 
 | `code` | Meaning |
 | --- | --- |
@@ -43,7 +45,7 @@ An id this caller doesn't hold, or a schedule that already ended, is reported as
 
 ## Examples
 
-<strong class="example-title">Cancel a notification, then try again</strong>
+<strong class="example-title">Cancel a notification, then read it</strong>
 
 ```html;events-remove-schedule
 <html>
@@ -55,17 +57,14 @@ An id this caller doesn't hold, or a schedule that already ended, is reported as
                 title: 'Your trial ends tomorrow',
                 sendAt: Date.now() + 24 * 60 * 60 * 1000,
             });
-            if (typeof later !== 'object' || !later) return;    // due now: sent at once
+            if (typeof later !== 'object' || !later) return;    // due now, so it was sent at once
 
             await puter.events.removeSchedule(later.scheduleId);
             puter.print('cancelled<br>');
 
-            // Removing it twice is refused the same way an unknown id is
-            try {
-                await puter.events.removeSchedule(later.scheduleId);
-            } catch (error) {
-                puter.print(`second attempt: ${error.code}<br>`);
-            }
+            // The ended schedule can still be read for 7 days
+            const ended = await puter.events.getSchedule(later.scheduleId);
+            puter.print(`${ended.state} (${ended.endReason})<br>`);
         })();
     </script>
 </body>

@@ -31,11 +31,11 @@ Give exactly one of `every`, `cron` or `at`.
 - `at` (Number | String | Date): Run once, at this [time](#times). It must be at least 1 second and at most 366 days ahead. A schedule with `at` takes no `startAt`, `expiresAt` or `maxRuns`.
 - `startAt` (Number | String | Date): For `every`, the first run. Without it, the first run is one interval after this call. A `startAt` in the past sets where the intervals line up, and the first run is the next one after this call. For example, `every: '1d'` with `startAt: '2026-01-01'` runs at midnight UTC every day. For `cron`, the earliest time the schedule may run. At most 366 days ahead.
 - `expiresAt` (Number | String | Date): The last time the schedule may run. A run due at exactly this time still runs.
-- `maxRuns` (Number): How many slots the schedule has, from 1 to 100,000: it ends at its `maxRuns`-th slot counted from the first. It counts slots, not runs that happened, so slots skipped while the schedule was behind or suspended (see [When a schedule runs](#when-a-schedule-runs)) still count, and the retries of one slot count once. With `expiresAt` too, the one that comes first ends the schedule.
+- `maxRuns` (Number): How many slots the schedule has, from 1 to 100,000. It ends at its `maxRuns`-th slot counted from the first. It counts slots, not runs that happened, so slots skipped while the schedule was behind or suspended (see [When a schedule runs](#when-a-schedule-runs)) still count, and the retries of one slot count once. With `expiresAt` too, the one that comes first ends the schedule.
 - `handlerName` (String) (required): The published handler each run calls.
-- `handler` (Function | String | Object): The handler source you wrote this schedule against, as a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Only its **hash** is sent. The schedule is created only if it matches what's published under `handlerName`. It never runs in this client.
+- `handler` (Function | String | Object): The handler source you wrote this schedule against, as a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Only its hash is sent. The schedule is created only if it matches what's published under `handlerName`. It never runs in this client.
 - `handlerHash` (String): The SHA-256 hex digest of the handler source, in place of `handler`.
-- `context` (Object): Values the handler needs, passed to every run as a frozen `ctx`. **Up to 4 KB serialized.** It's read once, at this call, and can't be changed later. To change it, remove the schedule and create a new one.
+- `context` (Object): Values the handler needs, passed to every run as a frozen `ctx`. Up to 4 KB serialized. It's read once, at this call, and can't be changed later. To change it, remove the schedule and create a new one.
 
 ### Times
 
@@ -48,7 +48,7 @@ The `at`, `startAt` and `expiresAt` options each take one of these:
 
 Times are rounded up to the next whole second. A string with a time and no zone, such as `'2026-11-01T18:30'`, is refused with `events_schedule_invalid`, because it could be read in any zone.
 
-These are **milliseconds**, unlike `expiresAt` on [`onPersistent()`](/Events/onPersistent/), which takes seconds. Every time a schedule reports, including `event.scheduledFor`, is in milliseconds too.
+These times are in milliseconds, unlike `expiresAt` on [`onPersistent()`](/Events/onPersistent/), which takes seconds. Every time a schedule reports, including `event.scheduledFor`, is in milliseconds too.
 
 ## Cron expressions
 
@@ -81,9 +81,9 @@ Some cron syntax isn't supported, and is refused with `events_schedule_invalid`:
 - `@reboot`.
 - An expression over 128 characters.
 
-When neither the day of the month nor the day of the week is `*`, a day matches if **either** one matches, as in standard cron. So `0 9 13 * 5` runs at 09:00 on the 13th of each month and at 09:00 every Friday. A day that a month doesn't have is skipped, so `0 0 31 * *` runs only in months with 31 days.
+When neither the day of the month nor the day of the week is `*`, a day matches if either one matches, as in standard cron. So `0 9 13 * 5` runs at 09:00 on the 13th of each month and at 09:00 every Friday. A day that a month doesn't have is skipped, so `0 0 31 * *` runs only in months with 31 days.
 
-The expression has to run within 366 days of the call. `0 0 31 2 *` never runs, and is refused with `events_schedule_never_fires`. So is `0 0 29 2 *` while the next February 29 is more than 366 days away.
+The expression has to run within 366 days of the call. An expression that never runs, such as `0 0 31 2 *`, is refused with `events_schedule_never_fires`. So is `0 0 29 2 *` while the next February 29 is more than 366 days away.
 
 ### Time zones and daylight saving time
 
@@ -98,17 +98,17 @@ When the clocks change:
 
 ## How often a schedule can run
 
-A schedule can't run more often than your plan's **minimum interval**, which is 1 minute on a paid plan and 15 minutes on a free one. For `every`, the interval is what's checked. For `cron`, it's the smallest gap between two runs, checked over the next 10,000 runs or 400 days, whichever ends first. For example, `0-4 9 * * *` runs at 09:00, 09:01, 09:02, 09:03 and 09:04 each day. Those runs are 1 minute apart, so a free plan can't use it. A schedule under the minimum is refused with `events_schedule_too_frequent`.
+A schedule can't run more often than your plan's minimum interval, which is 1 minute on a paid plan and 15 minutes on a free one. For `every`, the interval is what's checked. For `cron`, it's the smallest gap between two runs, checked over the next 10,000 runs or 400 days, whichever ends first. For example, `0-4 9 * * *` runs at 09:00, 09:01, 09:02, 09:03 and 09:04 each day. Those runs are 1 minute apart, so a free plan can't use it. A schedule under the minimum is refused with `events_schedule_too_frequent`.
 
 The plan also limits how many schedules the user can hold for your app and in total, and how many runs per hour all of them can add up to. Over those limits, the call fails with `events_schedule_limit` or `events_schedule_budget`. With `maxRuns` on a `cron` schedule, the last run has to fall inside those same 10,000 runs or 400 days, or the call fails with `events_schedule_invalid`. See [Rate Limits and Quotas](/rate-limits-and-quotas/#schedules) for the numbers.
 
-The plan's limits are checked when a schedule is created. A schedule keeps running if the user later moves to a plan with lower limits; schedules created after that are held to the new plan.
+The plan's limits are checked when a schedule is created. A schedule keeps running if the user later moves to a plan with lower limits. Schedules created after that are held to the new plan.
 
 ## When a schedule runs
 
-Each run is due at a time, its **slot**, which the handler gets as `event.scheduledFor`. A run usually starts within 60 seconds of its slot.
+Each run is due at a time, called its slot, which the handler gets as `event.scheduledFor`. A run usually starts within 60 seconds of its slot.
 
-So that schedules due at the same moment don't all start at once, Puter starts each schedule's runs a fixed delay after their slots. The delay comes from the schedule's id, and is a whole number of seconds up to 30 seconds or a tenth of the schedule's smallest gap, whichever is smaller. For an `at` schedule it's up to 10 seconds. So a schedule that runs every minute has a delay of at most 5 seconds.
+So that schedules due at the same moment don't all start at once, Puter starts each schedule's runs a fixed delay after their slots. The delay comes from the schedule's id, and is a whole number of seconds under 30 seconds or a tenth of the schedule's smallest gap, whichever is smaller. For an `at` schedule it's under 10 seconds. So a schedule that runs every minute has a delay of at most 5 seconds.
 
 A run can start later than 60 seconds after its slot when it's being retried, when your app's schedules for this user go over 200 runs a minute, while your events worker is being deployed, or while the user's account is suspended. The handler can compare `event.firedAt` with `event.scheduledFor` to see how late a run is.
 
@@ -118,7 +118,7 @@ When a schedule falls behind, for example while a run was being retried, it does
 
 ## Delivery guarantees
 
-Runs are **at-least-once**. A retry, or a handler that outlives its timeout, can run one slot twice. Every attempt at one slot has the same `event.id`, `<scheduleId>:<scheduledFor>`, so record it once the work is done and skip IDs you've already handled:
+Runs are at-least-once. A retry, or a handler that outlives its timeout, can run one slot twice. Every attempt at one slot has the same `event.id`, `<scheduleId>:<scheduledFor>`, so record it once the work is done and skip ids you've already handled:
 
 ```js
 await puter.events.handlers.publish('sendDigest', async ({ event, ctx, user }) => {
@@ -157,16 +157,16 @@ The `user` binding is valid for 15 minutes, so use it only during the run. Write
 | --- | --- |
 | Resolves | Done. The schedule moves on to its next slot. |
 | Throws | The run is dropped and the schedule moves on to its next slot. It counts as a failure. |
-| Throws a temporary error: a network error, a timeout, a rate limit (`429`), a `5xx`, or any error with `retry: true` | Retried after 2 seconds, then 4, 8 and so on, up to 5 minutes apart, with the same `event.id`. It counts as a failure. |
+| Throws a temporary error, meaning a network error, a timeout, a rate limit (`429`), a `5xx`, or any error with `retry: true` | Retried after 2 seconds, then 4, 8 and so on, up to 5 minutes apart, with the same `event.id`. It counts as a failure. |
 | Runs past 30 seconds | Retried on the same schedule. It counts as a failure. |
 
 A run that fails because of Puter doesn't count as a failure. It's retried on the same schedule, and waits longer if Puter's answer asked for a longer wait, up to 5 minutes. To drop the run in that case anyway, throw an error with `terminal: true`. The rules are the same as for a [`queue` subscription](/Events/onPersistent/#what-happens-when-a-handler-fails).
 
-**Five failures in a row suspend the schedule** with `failures`. The developer is notified, and publishing the handler again resumes it.
+Five failures in a row suspend the schedule with `failures`. The developer is notified, and publishing the handler again resumes it.
 
 ## Background runs need consent
 
-A schedule runs your handler while the user isn't there, so it needs the per-app permission **`events:background`**, as [`onPersistent()`](/Events/onPersistent/#background-delivery-needs-consent) does. Without it, the call fails with `events_background_consent_required`. To ask for it, call [`puter.perms.request()`](/Perms/request/) with the `'backgroundEvents'` resource:
+A schedule runs your handler while the user isn't there, so it needs the per-app permission `events:background`, as [`onPersistent()`](/Events/onPersistent/#background-delivery-needs-consent) does. Without it, the call fails with `events_background_consent_required`. To ask for it, call [`puter.perms.request()`](/Perms/request/) with the `'backgroundEvents'` resource:
 
 ```js
 await puter.perms.request('backgroundEvents');
@@ -176,7 +176,7 @@ When the user revokes it, every schedule your app holds for them ends with `perm
 
 ## Suspended and ended schedules
 
-A schedule can stop running without being removed. It's then *suspended*, and [`listSchedules()`](/Events/listSchedules/) shows `state: 'suspended'` and a `suspendedReason`:
+A schedule can stop running without being removed. It's then suspended, and [`listSchedules()`](/Events/listSchedules/) shows `state: 'suspended'` and a `suspendedReason`:
 
 | `suspendedReason` | Cause | Resumes when |
 | --- | --- | --- |
@@ -209,7 +209,7 @@ A `Promise` that resolves to the schedule. All times are in milliseconds since t
 - `kind` (String): `'recurring'` for `every` and `cron`, `'once'` for `at`, and `'deferred'` for a notification sent later with [`notify()`](/Notifications/notify/#send-it-later).
 - `appUid` (String): The app that created it.
 - `handlerName` (String | null): The handler each run calls, or `null` once the schedule has ended.
-- `contextKeys` (Array | null), `contextHash` (String | null): The key names and a hash of the stored context, never its values. `contextKeys` is `null` when there's no context, and once the schedule has ended.
+- `contextKeys` (Array | null), `contextHash` (String | null): The key names and a hash of the stored context, never its values. The `contextKeys` field is `null` when there's no context, and once the schedule has ended.
 - `every` (Number | null): The interval, in milliseconds, of an `every` schedule.
 - `cron` (String | null): The expression of a `cron` schedule.
 - `tz` (String): The time zone of a `cron` schedule, and `'UTC'` for the others.
@@ -218,7 +218,7 @@ A `Promise` that resolves to the schedule. All times are in milliseconds since t
 - `state` (String): `'active'`, `'suspended'`, `'sending'`, or `'ended'`. A delayed notification is `'sending'` once it has started to go out.
 - `suspendedReason` (String | null): Why it's [suspended](#suspended-and-ended-schedules).
 - `endReason` (String | null), `endedAt` (Number | null): Why and when it [ended](#suspended-and-ended-schedules).
-- `nextRunAt` (Number | null): The next slot of the schedule, worked out from its definition and the clock. A late or retried run for an earlier slot can still happen first. After the last slot is due, it stays at that slot until the run for it is done. `null` while the schedule is suspended or sending, and once it has ended.
+- `nextRunAt` (Number | null): The next slot of the schedule, worked out from its definition and the clock. A late or retried run for an earlier slot can still happen first. After the last slot is due, it stays at that slot until the run for it is done. It's `null` while the schedule is suspended or sending, and once it has ended.
 - `createdAt` (Number): When it was created.
 - `off()` (Function): Removes the schedule. Same as [`puter.events.removeSchedule(scheduleId)`](/Events/removeSchedule/). Only on the object `onSchedule()` returns.
 

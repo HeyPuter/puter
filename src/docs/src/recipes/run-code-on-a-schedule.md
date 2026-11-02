@@ -64,7 +64,7 @@ The [`publish()`](/Events/handlers/) method checks this, and fails with
 
 The notification reaches every open page of your app, and goes out as a push
 when none is open and the user turned pushes on.
-[Reach a User When Your App Is Closed](/recipes/push-when-closed/) shows how
+[Reach a User When Your App Is Closed](/recipes/reach-a-user-when-your-app-is-closed/) shows how
 to set pushes up. The `group` makes each morning's summary replace the one
 before it.
 
@@ -82,7 +82,7 @@ user doesn't see a prompt. Without it,
 [`onSchedule()`](/Events/onSchedule/) fails with
 `events_background_consent_required`.
 
-If the user takes the permission back later, every schedule your app holds for
+If the user revokes the permission later, every schedule your app holds for
 them ends. Granting it again doesn't bring them back, so your app has to
 create them again. Schedules also need a Puter account. For a guest account,
 [`onSchedule()`](/Events/onSchedule/) fails with
@@ -105,9 +105,9 @@ The five fields of `0 8 * * 1-5` are the minute, the hour, the day of the
 month, the month and the day of the week, so it means 8:00 on Monday to
 Friday. The `tz` option is the browser's time zone, such as
 `'America/New_York'`. The schedule follows that zone's daylight saving time,
-so the summary arrives at 8:00 local time all year.
-[`onSchedule()`](/Events/onSchedule/#cron-expressions) lists the cron syntax
-it accepts.
+so the summary arrives at 8:00 local time all year. The
+[`onSchedule()`](/Events/onSchedule/#cron-expressions) page lists the cron
+syntax it accepts.
 
 Every [`onSchedule()`](/Events/onSchedule/) call creates a new schedule, even
 with the same options. If you call it each time the app opens, the user gets
@@ -140,8 +140,8 @@ permission. A few details:
   time, and only your app's schedules for this user. The loop follows
   `cursor` until there are no more pages.
 - Ended schedules stay in the list for 7 days, so the code skips ones with
-  `state: 'ended'`. That includes a schedule that ended because the user took
-  the permission back, so the app creates a new one once it's granted again.
+  `state: 'ended'`. That includes a schedule that ended because the user
+  revoked the permission, so the app creates a new one once it's granted again.
 - A suspended schedule has `state: 'suspended'`. It resumes on its own, for
   example when the user adds credit, so the code keeps it.
 
@@ -152,12 +152,12 @@ remove the rest with
 
 ## Skip Summaries Already Sent
 
-Puter runs each slot of a schedule at least once. A run that times out, or
-fails with a network error, is retried, and a retry can repeat work the first
-attempt already did. Every attempt at the same slot has the same `event.id`,
-so the handler saves it after sending and skips IDs it has already sent. The
-marker key expires after a week, so these keys don't pile up in the user's
-key-value store:
+Each run happens at least once. A run that times out, or fails with a network
+error, is retried, and a retry can repeat work the first attempt already did.
+Every attempt at the same run has the same `event.id`, so the handler saves
+it after sending and skips ids it has already sent. The marker key expires
+after a week, so old markers are removed from the user's key-value store on
+their own:
 
 ```js
 async function sendSummary ({ event, user }) {
@@ -180,7 +180,7 @@ async function sendSummary ({ event, user }) {
 ```
 
 This skips a retry of a run that already finished. It doesn't rule out every
-repeat: two attempts that overlap, such as a run still going past its 30
+repeat. Two attempts that overlap, such as a run still going past its 30
 seconds when its retry starts, can both pass the check, and a run that stops
 after sending but before saving the key sends again when it's retried. Here a
 repeat carries the same `group`, so it replaces the summary that's showing
@@ -190,6 +190,16 @@ a payment, make the call itself safe to repeat, for example by passing
 
 Publish the handler again after the change. The schedules already created use
 the new code from their next run.
+
+A deploy script runs in a new process each time, so its SDK hasn't seen what's
+published. Call [`handlers.list()`](/Events/handlers/) before publishing changed
+code, or [`publish()`](/Events/handlers/) rejects with
+`events_handler_conflict`:
+
+```js
+await puter.events.handlers.list({ appUid: app.uid });
+await puter.events.handlers.publish('sendSummary', sendSummary, { appUid: app.uid });
+```
 
 ## Handle Mornings That Were Missed
 
@@ -289,10 +299,6 @@ async function sendSummary ({ event, user }) {
 await puter.events.handlers.list({ appUid: app.uid });
 await puter.events.handlers.publish('sendSummary', sendSummary, { appUid: app.uid });
 ```
-
-The [`handlers.list()`](/Events/handlers/) call before publishing lets a deploy
-script publish changed code. Without it, publishing a changed handler fails
-with `events_handler_conflict`.
 
 The app code runs in your app, signed in as the user:
 

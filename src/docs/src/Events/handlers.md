@@ -49,7 +49,7 @@ A handler gets one object. Which `event` it carries depends on what ran it:
 
 The other bindings are the same for both: `ctx`, `user` and `fetch`, plus `ack` on a `queue` subscription. See [Where the handler runs](/Events/onPersistent/#where-the-handler-runs). One handler can serve both, and tell them apart by `event.op`.
 
-Schedule runs and `queue` deliveries are at-least-once. A retry, or a handler still running past its 30 seconds when the retry starts, can run the same event twice, and even at the same time. Both attempts have the same `event.id`, so record it once the work is done and skip IDs you've already handled.
+Schedule runs and `queue` deliveries are at-least-once. A retry, or a handler still running past its 30 seconds when the retry starts, can run the same event twice, and even at the same time. Both attempts have the same `event.id`, so record it once the work is done and skip ids you've already handled.
 
 ## `publish()`
 

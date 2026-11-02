@@ -7,7 +7,7 @@
                 title: 'Stand-up in 10 minutes',
                 sendAt: Date.now() + 10 * 60 * 1000,
             });
-            if (typeof later !== 'object' || !later) return;    // due now: sent at once
+            if (typeof later !== 'object' || !later) return;    // due now, so it was sent at once
 
             const schedule = await puter.events.getSchedule(later.scheduleId);
             const due = schedule.nextRunAt ? new Date(schedule.nextRunAt).toLocaleTimeString() : 'nothing due';

@@ -1,6 +1,6 @@
 ---
 title: Remind Users Later
-description: "Learn how to send a user a reminder at a time they pick with Puter.js, and take it back if they no longer need it, even while your app is closed."
+description: "Learn how to send a user a reminder at a time they pick with Puter.js, and cancel it if they no longer need it, even while your app is closed."
 tags: [notifications, events, kv]
 order: 69
 ---
@@ -37,16 +37,17 @@ as `'2026-11-14T09:00:00-05:00'`, or milliseconds since the epoch. It can be
 up to 366 days ahead.
 
 The call resolves to `{ scheduleId, sendAt }`. A `sendAt` within 5 seconds,
-or already past, isn't stored: the notification goes out at once and the call
+or already past, isn't stored. The notification goes out at once, and the call
 resolves as it would without `sendAt`, with the notification's `uid` (a
-string). Check which one you got before keeping a `scheduleId`. Puter sends the
-stored notification
-within a few seconds of `sendAt`, as if your app called
-[`notify()`](/Notifications/notify/) then. It reaches every open page of your
-app, and goes out as a push when no page is open and the user turned pushes
-on. [Reach a User When Your App Is Closed](/recipes/push-when-closed/) shows
-how to set pushes up, and `target` is the page the user lands on when they
-tap it.
+string). Check which one you got before keeping a `scheduleId`.
+
+Puter usually sends the stored notification within 15 seconds of `sendAt`, as
+if your app called [`notify()`](/Notifications/notify/) then. It reaches every
+open page of your app, and goes out as a push when no page is open and the
+user turned pushes on.
+[Reach a User When Your App Is Closed](/recipes/reach-a-user-when-your-app-is-closed/)
+shows how to set pushes up, and `target` is the page the user lands on when
+they tap it.
 
 ## Cancel a Reminder
 
@@ -61,7 +62,7 @@ async function remindLater (taskId, title, sendAt) {
         target: `/tasks/${taskId}`,
         sendAt,
     });
-    // A time within 5 seconds, or past, is sent at once: nothing to cancel.
+    // A time within 5 seconds, or past, is sent at once, so there's nothing to cancel.
     if (typeof reminder !== 'object' || !reminder) return;
     await puter.kv.set(`reminder:${taskId}`, reminder.scheduleId);
 }
@@ -95,10 +96,10 @@ To move a reminder to a new time, cancel it and call `remindLater()` again.
 
 ## Show the Reminders That Are Waiting
 
-[`puter.events.listSchedules()`](/Events/listSchedules/) lists the
-notifications your app has waiting for the user, along with any
-[schedules](/Events/onSchedule/) it created. A stored notification has
-`kind: 'deferred'`, and `nextRunAt` is when it goes out:
+To list the notifications your app has waiting for the user, along with any
+[schedules](/Events/onSchedule/) it created, use
+[`puter.events.listSchedules()`](/Events/listSchedules/). A stored
+notification has `kind: 'deferred'`, and `nextRunAt` is when it goes out:
 
 ```js
 async function listReminders () {
@@ -122,8 +123,8 @@ The list doesn't include the notification's title, so match each
 for.
 
 There's a limit on how many notifications your app can have waiting for one
-user, 100 on a free plan and 1,000 on a paid one. Past it,
-[`notify()`](/Notifications/notify/) rejects with `events_schedule_limit`.
+user. Past it, [`notify()`](/Notifications/notify/) rejects with
+`events_schedule_limit`.
 See [Rate Limits and Quotas](/rate-limits-and-quotas/#schedules).
 
 ## Decide When the Reminder Is Due
@@ -191,7 +192,7 @@ async function remindLater (taskId, title, sendAt) {
         target: `/tasks/${taskId}`,
         sendAt,
     });
-    // A time within 5 seconds, or past, is sent at once: nothing to cancel.
+    // A time within 5 seconds, or past, is sent at once, so there's nothing to cancel.
     if (typeof reminder !== 'object' || !reminder) return;
     await puter.kv.set(`reminder:${taskId}`, reminder.scheduleId);
 }

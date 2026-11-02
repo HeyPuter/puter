@@ -690,7 +690,7 @@ const examples = [
             },
             {
                 title: 'Remove a Schedule',
-                description: 'End a schedule with the Puter.js Events API, and see what removing it twice returns. Run it in the playground.',
+                description: 'End a schedule with the Puter.js Events API, then read the ended schedule. Run it in the playground.',
                 slug: 'events-remove-schedule',
                 source: '/playground/examples/events-remove-schedule.html',
             },

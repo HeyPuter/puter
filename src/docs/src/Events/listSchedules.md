@@ -36,7 +36,7 @@ A `Promise` for one page, `{ items, cursor?, total? }`:
 - `cursor` (String): Present while there are more pages to load. Pass it as `cursor` to get the next page.
 - `total` (Number): The number of schedules across every page, only with `includeTotal`.
 
-**Pages can be short.** A page with fewer than `limit` items isn't the last one. Keep going until `cursor` is absent.
+Pages can be shorter than `limit` before the last one, so keep going until `cursor` is absent.
 
 The `context` a schedule was created with is never returned, since it often holds secrets. The `contextKeys` field lists its key names, and `contextHash` changes whenever a value does.
 
@@ -66,7 +66,7 @@ The promise rejects with `{ message, code }`:
                 title: 'Time for a break',
                 sendAt: Date.now() + 60 * 60 * 1000,
             });
-            if (typeof later !== 'object' || !later) return;    // due now: sent at once
+            if (typeof later !== 'object' || !later) return;    // due now, so it was sent at once
 
             // (2) Page through everything this app holds for the user
             let cursor = null;

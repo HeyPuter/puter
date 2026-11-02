@@ -673,21 +673,22 @@ These limits apply to [`onSchedule()`](/Events/onSchedule/) schedules, and to no
 | Runs per hour of all recurring schedules added up            | Per user, per app  | 1,800  | 40    | 0         |
 | Runs per hour of all recurring schedules added up            | Per user, all apps | 18,000 | 120   | 0         |
 
-A recurring schedule can run at most every **1 minute** on a paid plan and every **15 minutes** on a free one. For a `cron` schedule, that's the smallest gap between two of its runs.
+A recurring schedule can run at most every 1 minute on a paid plan and every 15 minutes on a free one. For a `cron` schedule, that's the smallest gap between two of its runs.
 
-- Over a count: `events_schedule_limit`. Over the runs per hour: `events_schedule_budget`. Under the minimum interval: `events_schedule_too_frequent`. Anonymous accounts get `events_durable_requires_account`.
+- A create over a count fails with `events_schedule_limit`, one over the runs per hour with `events_schedule_budget`, and one under the minimum interval with `events_schedule_too_frequent`. Anonymous accounts get `events_durable_requires_account`.
 - A recurring schedule's runs per hour are worked out when it's created. An `every` schedule counts 3,600 divided by its interval in seconds, rounded up to the next 0.001, so one that runs every minute counts 60, one that runs every 15 minutes counts 4, and one that runs every 7 minutes counts 8.572. A `cron` schedule counts the most runs it makes in any one hour, over its next 10,000 runs or 400 days. So a paid plan fits 30 schedules that run every minute in one app, and a free plan fits 10 that run every 15 minutes.
-- `at` schedules and stored notifications count only toward the waiting limits, until they run or are cancelled.
-- A suspended schedule still counts. Removing a schedule, or its last run finishing, frees its slot immediately.
+- One-time `at` schedules and stored notifications count only toward the waiting limits, until they run or are cancelled.
+- A suspended schedule still counts. A schedule stops counting as soon as it's removed or its last run finishes.
 - Schedules don't count toward the persistent subscription limits.
-- These limits are checked when a schedule is created, against the plan the user has then. Schedules made before a change to a plan with lower limits keep running; new ones are held to the current plan.
+- These limits are checked when a schedule is created, against the plan the user has then. Schedules made before a change to a plan with lower limits keep running. New ones are held to the current plan.
 
 | Limit                                              | Value                                   | Scope              |
 | -------------------------------------------------- | --------------------------------------- | ------------------ |
 | Schedule runs                                      | 200 per minute                          | Per user, per app  |
+| Schedule runs at once                              | 8 per server                            | Per user, all apps |
 | Time from a run's slot until it starts             | Usually within 60 seconds               | Per run            |
-| Spread after the slot, recurring                   | Up to 30 seconds, or a tenth of the smallest gap if that's less | Per schedule |
-| Spread after the slot, `at` and stored notifications | Up to 10 seconds                      | Per schedule       |
+| Spread after the slot, recurring                   | Under 30 seconds, or under a tenth of the smallest gap if that's less | Per schedule |
+| Spread after the slot, `at` and stored notifications | Under 10 seconds                      | Per schedule       |
 | Run timeout                                        | 30 seconds                              | Per run            |
 | Retry delay                                        | 2 seconds, doubling, up to 5 minutes    | Per run            |
 | Failures in a row before suspension                | 5                                       | Per schedule       |
@@ -703,10 +704,13 @@ A recurring schedule can run at most every **1 minute** on a paid plan and every
 | Ended schedules kept in `listSchedules()`          | 7 days                                  | Per schedule       |
 | A stored notification sent within 5 seconds        | Sent right away instead                 | Per notification   |
 | Attempts to send a stored notification             | 5, then it's dropped                    | Per notification   |
+| A stored notification over its recipient's limits  | Dropped 6 hours after `sendAt`          | Per notification   |
 | A stored notification, as JSON                     | 16 KB                                   | Per notification   |
 
 - Over the schedule runs per minute, runs wait for the next minute. They don't fail and don't count as failures. This limit is separate from the 60 handler runs a minute for subscriptions, so neither one uses up the other.
+- Over the runs at once, a run waits about 3 seconds and tries again. It doesn't fail, doesn't count as a failure, and keeps its `event.id` and `missed` count.
 - A run that finds 8 deploys already started waits 5 seconds and tries again.
+- A stored notification over its recipient's [notification limits](#notifications) waits at least a minute and tries again, without using one of its 5 attempts.
 - A `cron` create that finds 2 checks running and 8 waiting fails with `events_schedule_busy`. Try again in a moment.
 - A stored notification counts toward the [notification limits](#notifications) of its recipient when it goes out, not when it's stored.
 
@@ -716,7 +720,7 @@ A recurring schedule can run at most every **1 minute** on a paid plan and every
 | `removeSchedule()` and `notifications.cancel()`     | 600/min, shared with `unsubscribe`   | Per user, all apps |
 | `listSchedules()` and `getSchedule()`               | 120/min, shared with the subscription listings | Per user, per app |
 
-A `listSchedules()` page holds 50 schedules by default, and up to 200. Over any of these call limits: `too_many_requests`. A create refused for its options, its handler or a missing permission still counts toward the `onSchedule()` limit, and removing a schedule that doesn't exist still counts toward the `removeSchedule()` limit.
+A [`listSchedules()`](/Events/listSchedules/) page holds 50 schedules by default, and up to 200. Calls over any of these limits fail with `too_many_requests`. A create refused for its options, its handler or a missing permission still counts toward the [`onSchedule()`](/Events/onSchedule/) limit, and removing a schedule that doesn't exist still counts toward the [`removeSchedule()`](/Events/removeSchedule/) limit.
 
 #### What events cost
 

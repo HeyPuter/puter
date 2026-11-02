@@ -23,10 +23,10 @@ puter.notifications.notify(notification)
 - `text` (String): Up to 240 characters. Line breaks are kept.
 - `icon` (String): An `https` URL to an image, up to 2,048 characters. Without it, your app's icon is used. A push that Puter shows always uses your app's icon.
 - `target` (String): A path inside your app, starting with `/`, such as `/chats/42`. Up to 512 characters. A click hands it back to your app through [`on('click')`](/Notifications/on/). On a website, a tap on a push opens this path when no page of your site is open.
-- `data` (any): A JSON value of up to 1 KB, handed back on click. Push services can read it, so put IDs in it, not personal content.
+- `data` (any): A JSON value of up to 1 KB, handed back on click. Push services can read it, so put ids in it, not personal content.
 - `group` (String): A later notification with the same `group` replaces this one, as [Groups](#groups) describes. Up to 128 letters, digits and `. _ : @ -`.
 - `channel` (String): What kind of notification it is, such as `messages` or `reminders`. The [`onPush()`](/Notifications/onPush/) handler registered with this key decides what its push shows. Up to 32 lowercase letters, digits and `-`.
-- `sensitive` (Boolean): Pushes, and the notification a page of your app shows itself, name only your app, such as "New notification from Chat" for an app named Chat, instead of showing the title and text. On a website, a sensitive push carries no `channel`, `target` or `data`. So no [`onPush()`](/Notifications/onPush/) handler runs for it, a tap opens your service worker's scope (`/` by default), and [`on('click')`](/Notifications/on/) gets `null` for `target` and `data`. [`onNotification()`](/Notifications/onNotification/) still gets the whole notification.
+- `sensitive` (Boolean): Pushes, and the notification a page of your app shows itself, name only your app, such as "New notification from Chat" for an app named Chat, instead of showing the title and text. On a website, a sensitive push carries no `channel`, `target` or `data`. So no [`onPush()`](/Notifications/onPush/) handler runs for it, a tap opens your service worker's scope (`/` by default), and [`on('click')`](/Notifications/on/) gets `null` for `target` and `data`. A listener added with [`onNotification()`](/Notifications/onNotification/) still gets the whole notification.
 - `priority` (String): Only `'normal'` is available to apps.
 - `ttl` (Number): How many seconds a push may wait for a device that's offline, from 1 to 86400. Defaults to 3600. It doesn't change how long the notification is kept.
 - `to` (Object): Send it to the other side of a key-value share instead, as `{ handle }` with the share's handle. See [Notify the other side of a share](#notify-the-other-side-of-a-share).
@@ -38,7 +38,7 @@ A `Promise` that resolves to the notification's `uid` (String). When the notific
 
 With `to`, the `Promise` resolves with no value, so the call doesn't reveal anything about the recipient's notifications.
 
-With a `sendAt` more than 5 seconds ahead, the `Promise` resolves to `{ scheduleId, sendAt }` instead, with or without `to`. Pass `scheduleId` to [`cancel()`](/Notifications/cancel/) to take it back before it goes out. The `sendAt` it resolves with is when it goes, in milliseconds since the epoch. With a `sendAt` within 5 seconds, it resolves as it would without one.
+With a `sendAt` more than 5 seconds ahead, the `Promise` resolves to `{ scheduleId, sendAt }` instead, with or without `to`. To cancel it before it goes out, pass `scheduleId` to [`cancel()`](/Notifications/cancel/). The `sendAt` it resolves with is when it goes, in milliseconds since the epoch. With a `sendAt` within 5 seconds, it resolves as it would without one.
 
 It rejects with an error carrying `message` and `code`:
 
@@ -84,16 +84,16 @@ const later = await puter.notifications.notify({
 if (typeof later === 'object' && later) await puter.notifications.cancel(later.scheduleId);
 ```
 
-A stored notification is a schedule of `kind: 'deferred'`. [`puter.events.getSchedule()`](/Events/getSchedule/) and [`puter.events.listSchedules()`](/Events/listSchedules/) show it, with `nextRunAt` set to its `sendAt` until it starts to go out. It needs no handler and no `events:background` permission.
+A stored notification is a schedule of `kind: 'deferred'`. You can read it with [`puter.events.getSchedule()`](/Events/getSchedule/) and [`puter.events.listSchedules()`](/Events/listSchedules/), which show `nextRunAt` set to its `sendAt` until it starts to go out. It needs no handler and no `events:background` permission.
 
 When it's due:
 
-- It usually goes out within 10 seconds of `sendAt`, as if [`notify()`](/Notifications/notify/) were called then. It reaches every open page of your app live, and goes out as a push when no page answers, as described in [Push notifications for your app](/Notifications/push/#when-a-notification-is-pushed). A `group` replaces whatever notification is open in that group at that time.
+- It usually goes out within 15 seconds of `sendAt`, as if [`notify()`](/Notifications/notify/) were called then. It reaches every open page of your app live, and goes out as a push when no page answers, as described in [Push notifications for your app](/Notifications/push/#when-a-notification-is-pushed). A `group` replaces whatever notification is open in that group at that time.
 - The notification limits are counted then, against the recipient. With `to`, the share is checked when you call [`notify()`](/Notifications/notify/), and again when it goes out, which is when it counts toward the limit for that sender, recipient and app. A push is billed to the user who receives it, as any push is.
 - If it can't go out because of a rate limit or a temporary error, it's retried, up to 5 attempts in all. After that it's dropped. A share that stopped, a recipient who blocked you, or an app or account that was deleted drops it right away.
 - While the sending account is suspended, it waits, and it's tried again every 15 minutes.
 
-It's written once, even when sending is retried. A retry doesn't write a second notification, and doesn't push it or bill it a second time. An open page of your app can receive it twice, with the same `uid`. A retry sends the live copy again only within 24 hours of the first; after that the send is finished without it.
+It's written once, even when sending is retried. A retry doesn't write a second notification, and doesn't push it or bill it a second time. An open page of your app can receive it twice, with the same `uid`. A retry delivers it to open pages again only within 24 hours of the first attempt. After that, the retry finishes without delivering it.
 
 Once it has gone out, or been dropped, its schedule has `state: 'ended'` and an `endReason` of `delivered` or `dropped`, and it stays in [`puter.events.listSchedules()`](/Events/listSchedules/) for 7 days. While it's going out it's `sending`, and [`cancel()`](/Notifications/cancel/) rejects with `events_schedule_sending`.
 

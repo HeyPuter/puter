@@ -25,7 +25,7 @@ What you watch is written as a subject string:
 
 [Subjects and events](/Events/subjects/) has the full subject syntax and the shape of each event.
 
-To run a handler on a timer instead of when data changes, create a **schedule** with [`onSchedule()`](/Events/onSchedule/). It runs your handler at an interval, on a cron expression in the user's time zone, or once at a set time, even while your app is closed:
+To run a handler on a timer instead of when data changes, create a schedule with [`onSchedule()`](/Events/onSchedule/). It runs your handler at an interval, on a cron expression in the user's time zone, or once at a set time, even while your app is closed:
 
 ```js
 await puter.events.onSchedule({
