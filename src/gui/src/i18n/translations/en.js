@@ -946,7 +946,7 @@ const en = {
         magic_link_sent_message: 'We sent a sign-in link to %strong%.',
         magic_link_sent_keep_open: 'Open it in this browser and this window finishes signing you in. The link works once and expires in 15 minutes.',
         magic_link_invalid_email: 'Please enter a valid email address.',
-        magic_link_password_c2a: 'Log in with a password instead',
+        magic_link_password_c2a: 'Log In',
         sign_in_with_email_link: 'Sign in with Email Link',
         magic_link_tos_fineprint: 'By signing in, you agree to Puter\'s {{link=terms}}Terms of Service{{/link}} and {{link=privacy}}Privacy Policy{{/link}}.',
         magic_link_request_failed: 'We could not send the link. Please try again.',
