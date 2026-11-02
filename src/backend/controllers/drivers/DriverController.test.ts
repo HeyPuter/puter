@@ -736,6 +736,42 @@ describe('DriverController driver-method lifecycle events', () => {
             rejectReason: 'blocked in test',
         });
     });
+
+    it('answers 429 when a before listener vetoes with rejectStatus 429', async () => {
+        const actor = await makeUserActor();
+        await grantKvPerm(actor);
+        const key = `throttle-${uuidv4()}`;
+        server.clients.event.on(
+            'driver.puter-kvstore.set.before',
+            (_k, data) => {
+                if ((data.args as { key?: string })?.key === key) {
+                    data.allow = false;
+                    data.rejectStatus = 429;
+                }
+            },
+        );
+
+        const req = makeReq(
+            {
+                interface: 'puter-kvstore',
+                method: 'set',
+                args: { key, value: 'v' },
+            },
+            actor,
+        );
+        await expect(
+            runWithContext({ actor }, () =>
+                routes['POST /call'](
+                    req,
+                    makeRes() as unknown as Response,
+                    () => {},
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 429,
+            legacyCode: 'too_many_requests',
+        });
+    });
 });
 
 describe('DriverController.#handleListInterfaces', () => {
