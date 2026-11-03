@@ -179,6 +179,11 @@ export interface InternalDeployTarget {
      * scripts belong to what.
      */
     tags?: string[];
+    /**
+     * Per-invocation CPU limit in milliseconds, sent with the upload. Unset
+     * sends no limit. Ignored by the local runtime.
+     */
+    cpuMs?: number;
 }
 
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -940,6 +945,7 @@ export class WorkerDriver extends PuterDriver {
             compatibility_flags: WORKER_COMPATIBILITY_FLAGS,
             compatibility_date: WORKER_COMPATIBILITY_DATE,
             ...(target?.tags ? { tags: target.tags } : {}),
+            ...(target?.cpuMs ? { limits: { cpu_ms: target.cpuMs } } : {}),
             bindings: [
                 // A script deployed without a token gets no binding at all,
                 // rather than an empty one for its code to find.
