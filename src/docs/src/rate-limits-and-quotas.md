@@ -23,7 +23,7 @@ Under the [User-Pays Model](/user-pays-model), limits are counted against each u
 | ---------------------- | ---------------------- |
 | **Per user, per app**  | One user in one app. **This is the default**: a limit that names no scope uses it. The same user in another app has a separate budget. The Puter desktop and API tokens count as one more app, and each [worker](/Workers/) gets its own budget too. |
 | **Per user, all apps** | One user, summed across every app they use. Used for quotas on things an account keeps (subscriptions, share handles, shares per day, uploads in progress) and a few call budgets. |
-| **Per app, all users** | One app, summed across all of its users. Used for things a developer publishes, such as event handlers. |
+| **Per app, all users** | One app, summed across all of its users. Used for things a developer publishes, such as event handlers. A user's own handlers in an app are counted separately, per user and per app. |
 | **Per network**        | One IP address or device. Used by routes with no signed-in user, such as signed URLs and WebDAV. |
 
 When a quota has both a per-app and an all-apps number, both apply: one app can use up to its per-app share, and all apps together can use up to the all-apps total.
@@ -579,7 +579,7 @@ Counted per event, per region:
 | New recipients of `kv.share()`                    | 300/min, 2,000/hour | Per user, all apps |
 | Recipients named in `kv.share()`                  | 1,200/min | Per user, all apps |
 | `kv.share.received` notifications                 | 5/hour   | Per owner and holder |
-| Handler publish / remove                          | 60/min   | Per user, all apps |
+| Handler publish / remove, app and user scope      | 60/min   | Per user, all apps |
 | Subscription and share-handle listings (combined) | 120/min  | Per user, per app  |
 | Handler listings                                  | 120/min  | Per user, per app  |
 | Events worker listings                            | 120/min  | Per user, per app  |
@@ -617,6 +617,9 @@ Unsubscribing counts toward its own `unsubscribe` limit, not the `subscribe` one
 | Source for all handlers combined       | 5 MB                           | Per app, all users |
 | Handlers per `publishAll()` call       | 50                             | Per call           |
 | Events worker deploys                  | 30/hour                        | Per app, all users |
+| Published handlers in a user scope     | 20                             | Per user, per app  |
+| Source for all handlers in a user scope combined | 1 MB                 | Per user, per app  |
+| Events worker deploys for a user scope | 10/hour                        | Per user, per app  |
 | Run timeout                            | 30 seconds                     | Per run            |
 | Retry delay (`queue`, temporary errors) | 2 seconds, doubling, up to 5 minutes | Per delivery |
 | Failures in a row before suspension    | 5                              | Per subscription   |
@@ -627,6 +630,19 @@ Failures count as in a row until the handler takes a delivery or an hour passes 
 Only the handler's own failures count, including a run past the 30-second timeout. A run in the events worker that Puter couldn't start or finish, or that threw after a Puter API call from `user` got a `5xx`, a `429`, or a network error, is retried on the same delay schedule and doesn't count. When Puter's answer names a longer wait (`Retry-After`), the retry waits that long, up to 5 minutes. Puter's own failures never suspend a subscription, and the events it holds while retrying stay within the backlog limits above.
 
 Over the deploy limit, deliveries stay queued and retry after the hour rolls over.
+
+A [user scope](/Events/handlers/#user-scope) holds the handlers one user published in one app, including every inline `handler` passed to [`onSchedule()`](/Events/onSchedule/) or [`onPersistent()`](/Events/onPersistent/). Each one is its own script. The scope-specific rows above are separate from the app's: they don't count toward the app's 100 handlers or 5 MB.
+
+- A publish over the handler cap fails with `events_handler_limit`, and one over the combined source cap with `events_worker_too_large`. A single handler over 64 KB fails with `events_handler_too_large`.
+- Publishing into a user scope needs credit on a hosted Puter server, and fails with `insufficient_funds` without it. A server that hasn't turned user scopes on answers `events_user_handlers_disabled`. Listing and removing a scope's handlers need neither.
+
+#### Worker units
+
+| Limit                                    | Paid | Free | Scope              |
+| ---------------------------------------- | ---- | ---- | ------------------ |
+| Worker units held at once                | 100  | 16   | Per user, all apps |
+
+The units are the user's [workers](/Workers/), their user scopes (one per app that holds a handler of theirs), and the [events workers](/Events/workers/) of apps they own. Only creating a new unit is refused, with a `403` and code `forbidden`. A user already over the limit keeps what they hold, and publishing into a scope they already have isn't refused.
 
 #### Handler chains
 

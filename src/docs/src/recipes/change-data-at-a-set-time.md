@@ -14,10 +14,10 @@ snoozed task comes back to the list, a poll closes, or a shared link stops
 working. On other platforms you'd store the time in a database and run a job
 that checks it every minute.
 
-In Puter, you publish a function once, and create a one-time schedule that
-runs it at that time with [`puter.events.onSchedule()`](/Events/onSchedule/)
-and `at`. Puter runs it in your app's [events worker](/Events/workers/), a
-serverless function that belongs to your app, even while your app is closed.
+In Puter, you create a one-time schedule that runs a function at that time with
+[`puter.events.onSchedule()`](/Events/onSchedule/) and `at`. Puter runs it in an
+[events worker](/Events/workers/), a serverless function, even while your app is
+closed.
 
 When all that's due is a notification,
 [Remind Users Later](/recipes/remind-users-later/) sends one at a set time
@@ -30,10 +30,12 @@ gets a notification about it.
 
 ## Publish the Handler
 
-The function a schedule runs is called a handler. Publish it with
-[`puter.events.handlers.publish()`](/Events/handlers/). This is a developer
-step, like a deploy, and it only works for the account that owns the app. Run
-it from a deploy script or your browser console:
+The function a schedule runs is called a handler. This recipe publishes it once
+under a name with [`puter.events.handlers.publish()`](/Events/handlers/), so one
+copy serves every user and you can update it for all of them. Publishing is a
+developer step, like a deploy, and it only works for the account that owns the
+app. Run it from a deploy script or your browser console. To skip the deploy,
+[pass the handler inline](#pass-the-handler-inline) instead.
 
 ```js
 const app = await puter.apps.get('task-list');    // your app's name
@@ -61,6 +63,32 @@ with [`user.notifications.notify()`](/Notifications/notify/), and marks the
 task as no longer snoozed with [`user.kv.update()`](/KV/update/).
 [Run Code on a Schedule](/recipes/run-code-on-a-schedule/#publish-the-handler)
 explains what else a handler can use.
+
+### Pass the Handler Inline
+
+For a one-time schedule, the handler can go straight into `onSchedule()`. Leave
+out `handlerName`, and Puter stores the code in the signed-in user's own
+[user scope](/Events/handlers/#user-scope) of your app:
+
+```js
+await puter.events.onSchedule({
+    at: Date.now() + 60 * 60 * 1000,
+    handler: async ({ ctx, user }) => {
+        const key = `task:${ctx.taskId}`;
+        const task = await user.kv.get(key);
+        if (!task) return;
+
+        await user.notifications.notify({ title: 'Back on your list', text: task.title });
+        await user.kv.update(key, { snoozedUntil: null });
+    },
+    context: { taskId: 'task-42' },
+});
+```
+
+The code stays in the user's scope after the schedule ends, so remove it when
+you're done with it, as
+[Clean Up Background Work](/recipes/clean-up-background-work/#remove-a-user-scope)
+shows.
 
 ## Ask for Permission
 
@@ -244,7 +272,7 @@ the schedule ends on its own after its last run.
 
 Each run of a repeating schedule has its own `event.id`, so the handler keeps
 the id of the last run it handled and skips a retry of that run. Publish it as
-the app's developer, like `unsnooze`:
+the app's developer, like `unsnooze`, or pass it inline as `handler`:
 
 ```js
 async function reopenTask ({ event, ctx, user }) {

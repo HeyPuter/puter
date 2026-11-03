@@ -41,9 +41,11 @@ await puter.kv.set(`${prefix}score`, { home: 2, away: 1, final: true });
 
 Publish a handler that alerts on the final score, and on every goal for fans
 who asked for that, with
-[`puter.events.handlers.publish()`](/Events/handlers/). Only the account that
-owns the app can publish, so run this once yourself, signed in to your site as
-the owner. The browser console is enough:
+[`puter.events.handlers.publish()`](/Events/handlers/). Publishing is a
+developer step, so run this once yourself, signed in to your site as the app's
+owner. The browser console is enough. To skip it, pass the same function as
+`handler` to each fan's `onPersistent()` call instead, which stores it in the
+fan's own [user scope](/Events/handlers/#user-scope):
 
 ```js
 await puter.events.handlers.publish('alertScore', async ({ event, user, ctx }) => {

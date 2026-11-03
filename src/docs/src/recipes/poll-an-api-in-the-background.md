@@ -38,7 +38,9 @@ timestamp.
 
 The handler keeps its cursor in the user's key-value store, so each run picks
 up where the last one stopped. Publish it as the app's developer, from a
-deploy script or your browser console:
+deploy script or your browser console, so one copy serves every user. To skip
+the deploy, pass the same function as `handler` to `onSchedule()` instead, which
+stores it in the user's own [user scope](/Events/handlers/#user-scope):
 
 ```js
 const app = await puter.apps.get('order-sync');    // your app's name
