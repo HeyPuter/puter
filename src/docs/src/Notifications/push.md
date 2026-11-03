@@ -300,6 +300,7 @@ The browser can be allowed to show notifications while the operating system hide
 | It rejects with `push_revoked` | The user turned your app off in Puter's settings. Call [`requestPermission()`](/Notifications/requestPermission/) from a click first. |
 | The `onError` of [`onPush()`](/Notifications/onPush/) gets `push_verification_timeout` | The worker doesn't import `push-sw.js`, or the confirmation push didn't arrive within 30 seconds. The next page load tries again. |
 | A push shows the plain title and text, not your handler's result | This browser hasn't run [`onPush()`](/Notifications/onPush/) for that `channel` yet, or the handler threw, took over 5 seconds, or used an outside variable. Check the worker's console. |
+| Pushes stop until the user opens your site again | The browser replaced its push subscription for your site, as browsers sometimes do. Your service worker keeps the new one, and the next page load that calls [`onPush()`](/Notifications/onPush/) registers it with Puter. Pushes sent before that don't arrive. |
 | No push while your site is open in a tab | The open page received the notification live. It shows one only when it's hidden or its window isn't focused. |
 | No push at all | The browser isn't running, the operating system hides its notifications ([above](#operating-system-settings)), the user reached the [push limit](/rate-limits-and-quotas/#notifications) for your app, or the user has no usage credit left. |
 

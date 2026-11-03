@@ -373,9 +373,55 @@
         event.waitUntil(Promise.all([routeClick(puter, startedAt), forgetOldClicksQuietly()]));
     });
 
+    // Entries pushStore.js writes.
+    const OPT_IN_PREFIX = 'puter:opt-in:';
+    const SERVER_KEY = 'puter:server-key';
+    const SERVER_KEYS = 'puter:server-keys';
+    const CHANGED_PREFIX = 'puter:subscription-changed:';
+
+    const fromBase64Url = (value) => {
+        const padded = value.replace(/-/g, '+').replace(/_/g, '/');
+        const binary = atob(padded + '='.repeat((4 - (padded.length % 4)) % 4));
+        return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    };
+
+    function sameKey (buffer, value) {
+        if ( ! buffer ) return false;
+        try {
+            const bytes = new Uint8Array(buffer);
+            const key = fromBase64Url(value);
+            return bytes.length === key.length && bytes.every((b, i) => b === key[i]);
+        } catch {
+            return false;
+        }
+    }
+
+    async function puterKeys () {
+        const last = await idb(HANDLERS, 'readonly', (s) => s.get(SERVER_KEY));
+        const listed = await idb(HANDLERS, 'readonly', (s) => s.get(SERVER_KEYS));
+        return [last, ...(Array.isArray(listed) ? listed : [])].filter((key) => str(key));
+    }
+
+    // No Puter session here: keep Puter's subscription and mark it for the next page load to register.
+    async function keepSubscription (event) {
+        const optIns = await idb(HANDLERS, 'readonly', (s) => s.count(IDBKeyRange.bound(OPT_IN_PREFIX, `${OPT_IN_PREFIX}\uffff`)));
+        if ( ! optIns ) return;
+        const keys = await puterKeys();
+        const old = event.oldSubscription?.options?.applicationServerKey;
+        if ( old && ! keys.some((key) => sameKey(old, key)) ) return;
+        await idb(HANDLERS, 'readwrite', (s) => s.put(Date.now(), CHANGED_PREFIX + self.registration.scope));
+        if ( event.newSubscription || ! keys.length ) return;
+        if ( await self.registration.pushManager.getSubscription() ) return;
+        await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromBase64Url(keys[0]) });
+    }
+
     self.addEventListener('pushsubscriptionchange', (event) => {
-        // The worker has no Puter session; an open page registers the new one.
         event.waitUntil((async () => {
+            try {
+                await keepSubscription(event);
+            } catch ( err ) {
+                console.warn('[puter] could not keep the push subscription', err);
+            }
             for ( const win of await windows() ) win.postMessage({ type: CHANGED_MESSAGE });
         })());
     });

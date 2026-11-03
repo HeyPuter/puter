@@ -1402,7 +1402,7 @@ describe('webPushCheck', () => {
 });
 
 describe('forgetPushState', () => {
-    it('forgets opt-ins and confirmed syncs, and every kept tap', async () => {
+    it('forgets opt-ins, confirmed syncs and replaced-subscription marks, and every kept tap', async () => {
         const calls = [];
         const request = (call) => {
             calls.push(call);
@@ -1436,6 +1436,7 @@ describe('forgetPushState', () => {
         expect(calls).toEqual([
             ['delete', 'handlers', 'puter:opt-in:'],
             ['delete', 'handlers', 'puter:synced:'],
+            ['delete', 'handlers', 'puter:subscription-changed:'],
             ['clear', 'clicks'],
         ]);
     });

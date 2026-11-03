@@ -20,6 +20,7 @@ vi.mock('./lib/pushStore.js', () => {
         SERVER_KEY_ENTRY: 'puter:server-key',
         SERVER_KEYS_ENTRY: 'puter:server-keys',
         SYNCED_PREFIX: 'puter:synced:',
+        SUBSCRIPTION_CHANGED_PREFIX: 'puter:subscription-changed:',
         TAP_BASE_PREFIX: 'puter:tap-base:',
         CLICK_KEEP_MS: 5 * 60 * 1000,
         takeClick: stored(async (uid, id) => {
@@ -45,7 +46,12 @@ vi.mock('./lib/pushStore.js', () => {
                 : void store.delete(optIn(uuid)),
         ),
         forgetPushState: stored(async () => {
-            const forgotten = [optIn(''), 'handlers:puter:synced:', 'clicks:'];
+            const forgotten = [
+                optIn(''),
+                'handlers:puter:synced:',
+                'handlers:puter:subscription-changed:',
+                'clicks:',
+            ];
             for (const key of [...store.keys()]) {
                 if (forgotten.some((prefix) => key.startsWith(prefix)))
                     store.delete(key);
@@ -1377,6 +1383,7 @@ describe('onPush', () => {
     describe('on load after the server confirmed this browser', () => {
         const ENDPOINT = 'https://push.example/send/abc';
         const SYNCED = 'handlers:puter:synced:u-1';
+        const CHANGED = `handlers:puter:subscription-changed:${ORIGIN}/`;
         const NEW_KEY = Buffer.from([4, ...Array(64).fill(5)]).toString(
             'base64url',
         );
@@ -1513,6 +1520,19 @@ describe('onPush', () => {
             );
         });
 
+        it('registers again, and forgets the mark, after the worker saw the browser replace the subscription', async () => {
+            confirmed();
+            store.set(CHANGED, 1);
+            withBrowser(makeNav({ existing: makeSubscription() }));
+            statusSays({ state: 'active' });
+            await load();
+            expect(routes()).toEqual([
+                '/push/web/key',
+                '/push/web/subscriptions',
+            ]);
+            expect(store.has(CHANGED)).toBe(false);
+        });
+
         it('registers in full when the worker says the browser replaced the subscription', async () => {
             confirmed();
             const nav = makeNav({ existing: makeSubscription() });
@@ -1544,11 +1564,13 @@ describe('onPush', () => {
 
         it('is forgotten by disable()', async () => {
             confirmed();
+            store.set(CHANGED, 1);
             withBrowser(makeNav({ existing: makeSubscription() }));
             mockRequest.mockResolvedValue({ removed: true });
             const { module } = makeModule();
             await module.disable();
             expect(store.has(SYNCED)).toBe(false);
+            expect(store.has(CHANGED)).toBe(false);
         });
     });
 

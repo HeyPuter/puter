@@ -8,6 +8,7 @@ import { request } from './lib/api.js';
 import {
     CLICK_KEEP_MS,
     HANDLERS_STORE,
+    SUBSCRIPTION_CHANGED_PREFIX,
     SYNCED_PREFIX,
     TAP_BASE_PREFIX,
     forgetOldClicks,
@@ -743,12 +744,17 @@ export class NotificationsModule extends EventListener {
         try {
             const uuid = await this.#userUuid();
             if (!uuid) return false;
-            const [synced, current] = await Promise.all([
+            const [synced, changed, current] = await Promise.all([
                 idbGet(HANDLERS_STORE, SYNCED_PREFIX + uuid),
+                idbGet(
+                    HANDLERS_STORE,
+                    SUBSCRIPTION_CHANGED_PREFIX + workerScope(worker),
+                ),
                 currentWebPush({ worker }),
             ]);
             const age = Date.now() - synced?.at;
             if (
+                changed != null ||
                 !current ||
                 synced?.endpoint !== current.endpoint ||
                 !(age >= 0 && age < SYNCED_FOR_MS) ||
@@ -790,6 +796,10 @@ export class NotificationsModule extends EventListener {
                     at: Date.now(),
                 });
             }
+            await idbDelete(
+                HANDLERS_STORE,
+                SUBSCRIPTION_CHANGED_PREFIX + workerScope(worker),
+            );
         } catch {
             // The next load registers again.
         }
