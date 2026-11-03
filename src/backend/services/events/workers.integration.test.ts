@@ -175,7 +175,7 @@ let destroys: Array<{ appUid: string; ownerId: number | undefined }>;
 
 beforeAll(async () => {
     env = await setupPuterTestEnv({
-        events: { enabled: true },
+        events: { enabled: true, userHandlers: true },
         unlimitedMetering: true,
     } as IConfig);
 
@@ -204,6 +204,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
     await env.server.clients.db.write('DELETE FROM `event_handlers`', []);
+    await env.server.clients.db.write('DELETE FROM `event_user_handlers`', []);
     await env.server.clients.db.write('DELETE FROM `event_subscriptions`', []);
     await env.server.clients.db.write('DELETE FROM `apps`', []);
     creates.length = 0;
@@ -623,5 +624,236 @@ describe('POST /events/workers/destroy', () => {
         expect(refused.status).toBe(403);
         expect(refused.body.code).toBe('events_handler_forbidden');
         expect(destroys).toEqual([]);
+    });
+});
+
+// -- User scopes -----------------------------------------------------
+
+/** `userId`'s own session of `app`, wherever the app's owner is. */
+const sessionIn = async (app: { uid: string }, asUser: 'user' | 'other') => {
+    const { actor } = await env.server.services.auth.authenticate(
+        asUser === 'user' ? env.users.user.token : env.users.other.token,
+    );
+    return env.server.services.auth.getUserAppToken(actor!, app.uid);
+};
+
+const publishUserScope = (token: string, name: string, source: string) =>
+    call('POST', '/events/handlers/publish', token, {
+        scope: 'user',
+        name,
+        source,
+    });
+
+describe('GET /events/workers with user scopes', () => {
+    it('adds the caller`s user scopes to their app workers outside an app', async () => {
+        const mine = await makeApp(userId);
+        await publish(mine.token, {
+            appUid: mine.uid,
+            name: 'a',
+            source: SOURCE,
+        });
+        const theirs = await makeApp(otherUserId);
+        const inTheirs = await sessionIn(theirs, 'user');
+        await publishUserScope(inTheirs, 'x', SOURCE);
+        await publishUserScope(inTheirs, 'y', OTHER_SOURCE);
+        // Another holder's scope in the same app is not the caller's.
+        await publishUserScope(await sessionIn(theirs, 'other'), 'z', SOURCE);
+
+        const listed = await call(
+            'GET',
+            '/events/workers',
+            env.users.user.token,
+        );
+
+        expect(listed.status).toBe(200);
+        expect(listed.body.items).toEqual([
+            expect.objectContaining({
+                scope: 'app',
+                appUid: mine.uid,
+                handlerCount: 1,
+            }),
+            expect.objectContaining({
+                scope: 'user',
+                appUid: theirs.uid,
+                appName: theirs.uid,
+                handlerCount: 2,
+            }),
+        ]);
+        expect(listed.body.cursor).toBeUndefined();
+    });
+
+    it('pages through the app workers and then the user scopes', async () => {
+        const mine = await makeApp(userId);
+        await publish(mine.token, {
+            appUid: mine.uid,
+            name: 'a',
+            source: SOURCE,
+        });
+        const first = await makeApp(otherUserId);
+        const second = await makeApp(otherUserId);
+        await publishUserScope(await sessionIn(first, 'user'), 'x', SOURCE);
+        await publishUserScope(await sessionIn(second, 'user'), 'x', SOURCE);
+
+        const seen: Array<Record<string, unknown>> = [];
+        let cursor: string | undefined;
+        let pages = 0;
+        do {
+            const page = await call(
+                'GET',
+                `/events/workers?limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`,
+                env.users.user.token,
+            );
+            expect(page.status).toBe(200);
+            seen.push(...(page.body.items as Array<Record<string, unknown>>));
+            cursor = page.body.cursor as string | undefined;
+            pages += 1;
+        } while (cursor && pages < 10);
+
+        expect(seen.map((item) => [item.scope, item.appUid])).toEqual([
+            ['app', mine.uid],
+            ...[first.uid, second.uid].sort().map((uid) => ['user', uid]),
+        ]);
+    });
+
+    it('lists only that app`s scope for the caller inside an app', async () => {
+        const theirs = await makeApp(otherUserId);
+        const otherApp = await makeApp(otherUserId);
+        const inTheirs = await sessionIn(theirs, 'user');
+        await publishUserScope(inTheirs, 'x', SOURCE);
+        await publishUserScope(await sessionIn(otherApp, 'user'), 'x', SOURCE);
+        await publishUserScope(await sessionIn(theirs, 'other'), 'x', SOURCE);
+        // The owner's own worker in that app is not the caller's to see.
+        await publish(theirs.token, {
+            appUid: theirs.uid,
+            name: 'owner',
+            source: SOURCE,
+        });
+
+        const listed = await call('GET', '/events/workers', inTheirs);
+
+        expect(listed.status).toBe(200);
+        expect(listed.body.items).toEqual([
+            expect.objectContaining({
+                scope: 'user',
+                appUid: theirs.uid,
+                handlerCount: 1,
+            }),
+        ]);
+    });
+
+    it('still lists the owner`s worker beside their own user scope inside the app', async () => {
+        const mine = await makeApp(userId);
+        await publish(mine.token, {
+            appUid: mine.uid,
+            name: 'a',
+            source: SOURCE,
+        });
+        await publishUserScope(mine.token, 'x', SOURCE);
+
+        const listed = await call('GET', '/events/workers', mine.token);
+
+        expect(
+            (listed.body.items as Array<Record<string, unknown>>).map(
+                (item) => item.scope,
+            ),
+        ).toEqual(['app', 'user']);
+    });
+
+    it('refuses a scoped token, which has no scope of its own', async () => {
+        const theirs = await makeApp(otherUserId);
+        await publishUserScope(await sessionIn(theirs, 'user'), 'x', SOURCE);
+        const scoped = await appIssuedScopedToken({
+            uid: theirs.uid,
+            token: await sessionIn(theirs, 'user'),
+        });
+
+        const listed = await call('GET', '/events/workers', scoped);
+        expect(listed.status).toBe(403);
+        expect(listed.body.code).toBe('events_worker_owner_only');
+    });
+});
+
+describe('POST /events/workers/destroy with a user scope', () => {
+    it('removes the caller`s scope only, suspends what was bound, and announces it', async () => {
+        const theirs = await makeApp(otherUserId);
+        const mineIn = await sessionIn(theirs, 'user');
+        const otherIn = await sessionIn(theirs, 'other');
+        await publish(theirs.token, {
+            appUid: theirs.uid,
+            name: 'owner',
+            source: SOURCE,
+        });
+        await publishUserScope(mineIn, 'x', SOURCE);
+        await publishUserScope(mineIn, 'y', OTHER_SOURCE);
+        await publishUserScope(otherIn, 'x', SOURCE);
+        destroys.length = 0;
+
+        const destroyed = await call(
+            'POST',
+            '/events/workers/destroy',
+            mineIn,
+            {
+                scope: 'user',
+            },
+        );
+
+        expect(destroyed.status).toBe(200);
+        expect(destroyed.body).toMatchObject({
+            appUid: theirs.uid,
+            removed: 2,
+            suspended: 0,
+            scope: 'user',
+        });
+        const store = env.server.stores.eventHandler;
+        expect(
+            await store.countForApp({ appUid: theirs.uid, holder: userId }),
+        ).toBe(0);
+        expect(
+            await store.countForApp({
+                appUid: theirs.uid,
+                holder: otherUserId,
+            }),
+        ).toBe(1);
+        expect(await store.countForApp({ appUid: theirs.uid, holder: 0 })).toBe(
+            1,
+        );
+        expect(destroys).toEqual([{ appUid: theirs.uid, ownerId: userId }]);
+
+        const again = await call('POST', '/events/workers/destroy', mineIn, {
+            scope: 'user',
+        });
+        expect(again.status).toBe(404);
+    });
+
+    it('refuses a scoped token, a session with no app, and another app', async () => {
+        const theirs = await makeApp(otherUserId);
+        const mineIn = await sessionIn(theirs, 'user');
+        await publishUserScope(mineIn, 'x', SOURCE);
+        const scoped = await appIssuedScopedToken({
+            uid: theirs.uid,
+            token: mineIn,
+        });
+        const elsewhere = await makeApp(otherUserId);
+
+        for (const [token, body] of [
+            [scoped, { scope: 'user' }],
+            [env.users.user.token, { scope: 'user', appUid: theirs.uid }],
+            [mineIn, { scope: 'user', appUid: elsewhere.uid }],
+        ] as const) {
+            const refused = await call(
+                'POST',
+                '/events/workers/destroy',
+                token,
+                body,
+            );
+            expect(refused.status).toBe(403);
+            expect(refused.body.code).toBe('events_handler_forbidden');
+        }
+        expect(
+            await env.server.stores.eventHandler.countForApp({
+                appUid: theirs.uid,
+                holder: userId,
+            }),
+        ).toBe(1);
     });
 });
