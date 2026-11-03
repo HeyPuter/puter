@@ -9,6 +9,7 @@ vi.mock('../../lib/networkUtils.js', () => ({
 
 const { NotificationsModule } = await import('./index.js');
 const { webPushState } = await import('./lib/webPush.js');
+const { request } = await import('./lib/api.js');
 const { PuterJSError } = await import('../../lib/PuterJSError.js');
 
 const jsonResponse = (body, status = 200) => ({
@@ -1510,5 +1511,96 @@ describe('webPushState', () => {
         await expect(
             webPushState(host, 'https://push.example/1'),
         ).resolves.toBe(null);
+    });
+});
+
+describe('request with keepalive', () => {
+    it('sends through fetch with keepalive and the given token, never through fetchUrl', async () => {
+        const fetch = vi.fn(async () => jsonResponse({ removed: true }));
+        vi.stubGlobal('fetch', fetch);
+        try {
+            const puter = { APIOrigin: 'https://api.test', authToken: 'live' };
+            await expect(
+                request(
+                    puter,
+                    'DELETE',
+                    '/push/web/subscriptions',
+                    { endpoint: 'e' },
+                    { authToken: 'leaving', keepalive: true },
+                ),
+            ).resolves.toEqual({ removed: true });
+            expect(fetch).toHaveBeenCalledWith(
+                'https://api.test/push/web/subscriptions',
+                {
+                    method: 'DELETE',
+                    keepalive: true,
+                    credentials: 'include',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: 'Bearer leaving',
+                    },
+                    body: JSON.stringify({ endpoint: 'e' }),
+                },
+            );
+            expect(mockFetchUrl).not.toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('sends it once more through fetchUrl when the browser refuses keepalive', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => {
+                throw new TypeError('Failed to fetch');
+            }),
+        );
+        mockFetchUrl.mockResolvedValue(jsonResponse({ removed: true }));
+        try {
+            await expect(
+                request(
+                    { APIOrigin: 'https://api.test', authToken: 'live' },
+                    'DELETE',
+                    '/push/web/subscriptions',
+                    { endpoint: 'e' },
+                    {
+                        authToken: 'leaving',
+                        interactiveReauth: false,
+                        keepalive: true,
+                    },
+                ),
+            ).resolves.toEqual({ removed: true });
+            expect(mockFetchUrl).toHaveBeenCalledTimes(1);
+            expect(mockFetchUrl.mock.calls[0][1]).toMatchObject({
+                method: 'DELETE',
+                authToken: 'leaving',
+                interactiveReauth: false,
+            });
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('passes the server error through', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () =>
+                jsonResponse({ message: 'no', code: 'token_auth_failed' }, 401),
+            ),
+        );
+        try {
+            const error = await rejects(() =>
+                request(
+                    { APIOrigin: 'https://api.test', authToken: 't' },
+                    'DELETE',
+                    '/push/web/subscriptions',
+                    { endpoint: 'e' },
+                    { keepalive: true },
+                ),
+            );
+            expect(error.code).toBe('token_auth_failed');
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });

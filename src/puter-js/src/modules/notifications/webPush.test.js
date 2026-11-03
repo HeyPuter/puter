@@ -18,6 +18,21 @@ vi.mock('./lib/pushStore.js', () => {
         HANDLERS_STORE: 'handlers',
         CLICKS_STORE: 'clicks',
         SERVER_KEY_ENTRY: 'puter:server-key',
+        TAP_BASE_PREFIX: 'puter:tap-base:',
+        CLICK_KEEP_MS: 5 * 60 * 1000,
+        takeClick: stored(async (uid, id) => {
+            const kept = store.get(`clicks:${uid}`);
+            if (!kept || (id !== undefined && kept.id !== id)) return null;
+            store.delete(`clicks:${uid}`);
+            return kept;
+        }),
+        forgetOldClicks: stored(async () => {
+            const cutoff = Date.now() - 5 * 60 * 1000;
+            for (const [key, value] of [...store.entries()]) {
+                if (key.startsWith('clicks:') && !(value?.at > cutoff))
+                    store.delete(key);
+            }
+        }),
         idbGet: stored(async (s, k) => store.get(`${s}:${k}`)),
         idbPut: stored(async (s, k, v) => void store.set(`${s}:${k}`, v)),
         idbDelete: stored(async (s, k) => void store.delete(`${s}:${k}`)),
@@ -48,6 +63,7 @@ const SCRIPT = `${ORIGIN}/puter-sw.js`;
 const KEY = Buffer.from([4, ...Array(64).fill(7)]).toString('base64url');
 const OLD_KEY = Buffer.from([4, ...Array(64).fill(3)]).toString('base64url');
 const OPT_IN = 'handlers:puter:opt-in:u-1';
+const SERVER_KEY = 'handlers:puter:server-key';
 
 const makeSubscription = (
     key = fromBase64Url(KEY),
@@ -105,6 +121,7 @@ const makeNav = ({
         serviceWorker: {
             register: vi.fn(async () => registration),
             getRegistration: vi.fn(async () => registration),
+            getRegistrations: vi.fn(async () => [registration]),
             addEventListener: (type, fn) => listeners.add(fn),
             removeEventListener: (type, fn) => listeners.delete(fn),
             startMessages: vi.fn(),
@@ -178,6 +195,7 @@ describe('syncWebPush', () => {
                     keys: { p256dh: 'p', auth: 'a' },
                 },
             },
+            { interactiveReauth: false },
         );
         expect(store.get('handlers:puter:server-key')).toBe(KEY);
     });
@@ -545,22 +563,248 @@ describe('syncWebPush', () => {
             ),
         ).toHaveLength(2);
     });
+
+    /** A server that answers pending; `confirm()` hands back the challenge. */
+    const pendingServer = (nav) => {
+        server((route) =>
+            route === '/push/web/subscriptions'
+                ? { status: 'pending' }
+                : { device: { uid: 'd8' } },
+        );
+        return () =>
+            nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+    };
+    const reauthByRoute = () =>
+        Object.fromEntries(
+            mockRequest.mock.calls.map(([, , route, , options]) => [
+                route,
+                options?.interactiveReauth,
+            ]),
+        );
+
+    it.each([
+        [false, undefined],
+        [true, true],
+    ])(
+        'with interactive: %s, lets only the key and the announce open a sign-in',
+        async (interactive, given) => {
+            const nav = makeNav();
+            const confirm = pendingServer(nav);
+            const onPending = vi.fn();
+            const syncing = syncWebPush(puter, {
+                worker,
+                nav,
+                onPending,
+                interactive: given,
+            });
+            await vi.waitFor(() => expect(onPending).toHaveBeenCalled());
+            confirm();
+            await syncing;
+            expect(reauthByRoute()).toEqual({
+                '/push/web/key': interactive,
+                '/push/web/subscriptions': interactive,
+                '/push/web/subscriptions/verify': false,
+            });
+        },
+    );
+
+    it('subscribes and announces inside withLock, and not at all once push is no longer wanted', async () => {
+        const nav = makeNav();
+        const order = [];
+        server((route) => {
+            order.push(route);
+            return { status: 'active', device: { uid: 'd1' } };
+        });
+        const withLock = async (run) => {
+            order.push('lock');
+            try {
+                return await run();
+            } finally {
+                order.push('unlock');
+            }
+        };
+        nav.pushManager.subscribe.mockImplementation(async () => {
+            order.push('subscribe');
+            return makeSubscription();
+        });
+        await syncWebPush(puter, { worker, nav, withLock });
+        expect(order).toEqual([
+            'lock',
+            'subscribe',
+            '/push/web/subscriptions',
+            'unlock',
+        ]);
+
+        mockRequest.mockClear();
+        nav.pushManager.subscribe.mockClear();
+        await expect(
+            syncWebPush(puter, { worker, nav, stillWanted: () => false }),
+        ).rejects.toMatchObject({ code: 'push_verification_canceled' });
+        expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        expect(Object.keys(reauthByRoute())).toEqual(['/push/web/key']);
+    });
+
+    it.each(['active', 'pending'])(
+        'waits for the lock as long as it takes when the server answers %s',
+        async (status) => {
+            vi.useFakeTimers();
+            const unhandled = [];
+            const note = (reason) => unhandled.push(reason);
+            process.on('unhandledRejection', note);
+            try {
+                const nav = makeNav();
+                server(() => ({ status, device: { uid: 'd9' } }));
+                let release;
+                const held = new Promise((resolve) => {
+                    release = resolve;
+                });
+                const syncing = syncWebPush(puter, {
+                    worker,
+                    nav,
+                    onPending: () =>
+                        nav.post({
+                            type: 'puter-push-challenge',
+                            challenge: 'c.sig',
+                        }),
+                    withLock: async (run) => {
+                        await held;
+                        return await run();
+                    },
+                });
+                await vi.advanceTimersByTimeAsync(31_000);
+                release();
+                await expect(syncing).resolves.toEqual({ uid: 'd9' });
+                await vi.advanceTimersByTimeAsync(0);
+                expect(unhandled).toEqual([]);
+            } finally {
+                process.off('unhandledRejection', note);
+            }
+        },
+    );
+
+    it('verifies only while push is still wanted when the confirmation arrives', async () => {
+        const nav = makeNav();
+        const confirm = pendingServer(nav);
+        let wanted = true;
+        const syncing = syncWebPush(puter, {
+            worker,
+            nav,
+            onPending: () => {
+                wanted = false;
+                confirm();
+            },
+            stillWanted: () => wanted,
+        });
+        await expect(syncing).rejects.toMatchObject({
+            code: 'push_verification_canceled',
+        });
+        expect(Object.keys(reauthByRoute())).not.toContain(
+            '/push/web/subscriptions/verify',
+        );
+    });
 });
 
 describe('removeWebPush', () => {
-    it('tells the server, then ends the subscription', async () => {
+    /** A browser with a registration per scope, each holding `subscription`. */
+    const navWith = (byScope) => {
+        const registrations = Object.entries(byScope).map(
+            ([scope, subscription]) => ({
+                scope: `${ORIGIN}${scope}`,
+                pushManager: { getSubscription: async () => subscription },
+            }),
+        );
+        return {
+            serviceWorker: {
+                getRegistrations: vi.fn(async () => registrations),
+                getRegistration: vi.fn(async (path) =>
+                    registrations.find((r) =>
+                        `${ORIGIN}${path}`.startsWith(r.scope),
+                    ),
+                ),
+            },
+        };
+    };
+    const theirKey = new Uint8Array([4, ...Array(64).fill(9)]);
+
+    it('ends the subscription in the browser, then tells the server', async () => {
+        store.set(SERVER_KEY, KEY);
+        const order = [];
         const subscription = makeSubscription();
+        subscription.unsubscribe.mockImplementation(async () => {
+            order.push('unsubscribe');
+        });
+        mockRequest.mockImplementation(async (_p, method) => {
+            order.push(method);
+            return { removed: true };
+        });
         const nav = makeNav({ existing: subscription });
-        mockRequest.mockResolvedValue({ removed: true });
         await expect(removeWebPush(puter, { worker, nav })).resolves.toBe(true);
         expect(mockRequest).toHaveBeenCalledWith(
             puter,
             'DELETE',
             '/push/web/subscriptions',
             { endpoint: subscription.endpoint },
-            { authToken: undefined },
+            {
+                authToken: undefined,
+                interactiveReauth: false,
+                keepalive: false,
+            },
         );
-        expect(subscription.unsubscribe).toHaveBeenCalled();
+        expect(order).toEqual(['unsubscribe', 'DELETE']);
+    });
+
+    it('leaves a subscription made with another key alone, and tells the server nothing', async () => {
+        store.set(SERVER_KEY, KEY);
+        const theirs = makeSubscription(theirKey);
+        const nav = makeNav({ existing: theirs });
+        await expect(removeWebPush(puter, { worker, nav })).resolves.toBe(
+            false,
+        );
+        expect(theirs.unsubscribe).not.toHaveBeenCalled();
+        expect(mockRequest).not.toHaveBeenCalled();
+    });
+
+    it('without a worker, finds Puter`s subscription in a folder and keeps the site`s own at the root', async () => {
+        store.set(SERVER_KEY, KEY);
+        const theirs = makeSubscription(theirKey, 'https://push.example/site');
+        const ours = makeSubscription();
+        const nav = navWith({ '/': theirs, '/push/': ours });
+        mockRequest.mockResolvedValue({ removed: true });
+        await expect(removeWebPush(puter, { nav })).resolves.toBe(true);
+        expect(ours.unsubscribe).toHaveBeenCalled();
+        expect(theirs.unsubscribe).not.toHaveBeenCalled();
+        expect(mockRequest.mock.calls.map(([, , , body]) => body)).toEqual([
+            { endpoint: ours.endpoint },
+        ]);
+    });
+
+    it('asks the server for Puter`s key, without a sign-in, when none is stored', async () => {
+        const theirs = makeSubscription(theirKey, 'https://push.example/site');
+        const ours = makeSubscription();
+        const nav = navWith({ '/': theirs, '/push/': ours });
+        server(() => ({ removed: true }));
+        await removeWebPush(puter, { nav, authToken: 'leaving' });
+        expect(mockRequest.mock.calls[0]).toEqual([
+            puter,
+            'GET',
+            '/push/web/key',
+            undefined,
+            { authToken: 'leaving', interactiveReauth: false },
+        ]);
+        expect(ours.unsubscribe).toHaveBeenCalled();
+        expect(theirs.unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('touches nothing when Puter`s key can`t be told', async () => {
+        const subscription = makeSubscription();
+        const nav = makeNav({ existing: subscription });
+        mockRequest.mockRejectedValue(
+            new PuterJSError('down', 'internal_error'),
+        );
+        await expect(removeWebPush(puter, { worker, nav })).resolves.toBe(
+            false,
+        );
+        expect(subscription.unsubscribe).not.toHaveBeenCalled();
     });
 });
 
@@ -825,6 +1069,52 @@ describe('onPush', () => {
         expect(store.size).toBe(0);
     });
 
+    describe('tap base', () => {
+        const TAP_BASE = 'handlers:puter:tap-base:';
+
+        it.each([
+            [
+                'the worker`s folder for a page inside it',
+                `${ORIGIN}/app/index.html`,
+                '/app/puter-sw.js',
+                `${ORIGIN}/app/`,
+                `${ORIGIN}/app/`,
+            ],
+            [
+                'the site`s root for a page outside the folder',
+                `${ORIGIN}/`,
+                '/puter/puter-sw.js',
+                `${ORIGIN}/puter/`,
+                `${ORIGIN}/`,
+            ],
+            [
+                'the root for the default worker',
+                `${ORIGIN}/chat`,
+                undefined,
+                `${ORIGIN}/`,
+                `${ORIGIN}/`,
+            ],
+        ])('saves %s', async (_, href, serviceWorker, scope, base) => {
+            globalThis.location = { href, origin: ORIGIN };
+            const { module } = makeModule();
+            await module.onPush('chat', () => {}, { serviceWorker });
+            await flush();
+            expect(store.get(`${TAP_BASE}${scope}`)).toBe(base);
+        });
+
+        it('is saved by enable() too', async () => {
+            withBrowser(
+                makeNav({
+                    active: { scriptURL: `${ORIGIN}/puter/puter-sw.js` },
+                }),
+            );
+            server();
+            const { module } = makeModule();
+            await module.enable({ serviceWorker: '/puter/puter-sw.js' });
+            expect(store.get(`${TAP_BASE}${ORIGIN}/puter/`)).toBe(`${ORIGIN}/`);
+        });
+    });
+
     it('starts one feed for every key', async () => {
         const { module } = makeModule();
         await module.onPush('chat', () => {});
@@ -875,12 +1165,70 @@ describe('onPush', () => {
 
     describe('on load', () => {
         it('syncs nothing for a user who never turned push on here', async () => {
-            withBrowser(makeNav({ existing: makeSubscription() }));
+            withBrowser(makeNav());
             server();
             const { module } = makeModule();
             await module.onPush('chat', () => {});
             await flush();
             expect(mockRequest).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            ['a user who never turned push on here', {}],
+            ['a visitor who is not signed in', { authToken: null }],
+        ])(
+            'ends Puter`s subscription in the browser only, for %s',
+            async (_label, over) => {
+                store.set(SERVER_KEY, KEY);
+                const subscription = makeSubscription();
+                withBrowser(makeNav({ existing: subscription }));
+                const { module } = makeModule(over);
+                await module.onPush('chat', () => {}, { onError: () => {} });
+                await vi.waitFor(() =>
+                    expect(subscription.unsubscribe).toHaveBeenCalled(),
+                );
+                expect(mockRequest).not.toHaveBeenCalled();
+            },
+        );
+
+        it('leaves the subscription alone when the opt-ins can`t be read', async () => {
+            store.set(SERVER_KEY, KEY);
+            storage.broken = true;
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const subscription = makeSubscription();
+            withBrowser(makeNav({ existing: subscription }));
+            const { module } = makeModule();
+            await module.onPush('chat', () => {}, { onError: () => {} });
+            await flush();
+            await flush();
+            expect(subscription.unsubscribe).not.toHaveBeenCalled();
+            warn.mockRestore();
+        });
+
+        it('leaves another service`s subscription alone', async () => {
+            store.set(SERVER_KEY, KEY);
+            const theirs = makeSubscription(new Uint8Array([4, 1, 2]));
+            withBrowser(makeNav({ existing: theirs }));
+            const { module } = makeModule();
+            await module.onPush('chat', () => {});
+            await flush();
+            await flush();
+            expect(theirs.unsubscribe).not.toHaveBeenCalled();
+        });
+
+        it('removes taps kept longer than five minutes', async () => {
+            store.set('clicks:old', {
+                uid: 'old',
+                at: Date.now() - 6 * 60 * 1000,
+            });
+            store.set('clicks:fresh', { uid: 'fresh', at: Date.now() });
+            withBrowser(makeNav());
+            server();
+            const { module } = makeModule();
+            await module.onPush('chat', () => {});
+            await flush();
+            expect(store.has('clicks:old')).toBe(false);
+            expect(store.has('clicks:fresh')).toBe(true);
         });
 
         it('syncs once for every onPush on the page when the user turned push on', async () => {
@@ -903,6 +1251,8 @@ describe('onPush', () => {
             'push_disabled',
             'push_revoked',
             'push_unavailable',
+            'reauth_required',
+            'token_auth_failed',
             'too_many_requests',
         ])('keeps quiet about %s', async (code) => {
             store.set(OPT_IN, true);
@@ -921,6 +1271,33 @@ describe('onPush', () => {
             expect(error).not.toHaveBeenCalled();
             expect(store.has(OPT_IN)).toBe(code !== 'push_revoked');
             error.mockRestore();
+        });
+
+        it('never opens a sign-in, nor when the browser replaces the subscription', async () => {
+            store.set(OPT_IN, true);
+            const nav = makeNav({ existing: makeSubscription() });
+            withBrowser(nav);
+            server();
+            const { module } = makeModule();
+            await module.onPush('chat', () => {});
+            await vi.waitFor(() =>
+                expect(mockRequest).toHaveBeenCalledTimes(2),
+            );
+            nav.post({ type: 'puter-push-subscription-changed' });
+            await vi.waitFor(() =>
+                expect(mockRequest).toHaveBeenCalledTimes(4),
+            );
+            expect(
+                mockRequest.mock.calls.map(([, , route, , options]) => [
+                    route,
+                    options,
+                ]),
+            ).toEqual([
+                ['/push/web/key', { interactiveReauth: false }],
+                ['/push/web/subscriptions', { interactiveReauth: false }],
+                ['/push/web/key', { interactiveReauth: false }],
+                ['/push/web/subscriptions', { interactiveReauth: false }],
+            ]);
         });
 
         it('ends a subscription the user removed in Puter, quietly, and keeps pushes off until enable()', async () => {
@@ -1142,6 +1519,20 @@ describe('onPush', () => {
             );
         });
 
+        it('reads the tap URL from the saved tap base', async () => {
+            away();
+            nav.registration.scope = `${ORIGIN}/puter/`;
+            const { module, feed } = makeModule();
+            await module.onPush('chat', () => ({ url: 'chat/1' }), {
+                serviceWorker: '/puter/puter-sw.js',
+            });
+            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
+            expect(
+                nav.registration.showNotification.mock.calls[0][1].data.puter
+                    .url,
+            ).toBe(`${ORIGIN}/chat/1`);
+        });
+
         it('reads the tap URL from the worker`s scope', async () => {
             away();
             nav.registration.scope = `${ORIGIN}/app/`;
@@ -1340,6 +1731,139 @@ describe('clicks from push-sw.js', () => {
         nav.post(tap, source);
         expect(source.postMessage).not.toHaveBeenCalled();
     });
+
+    const keptTap = {
+        type: 'puter-notification-click',
+        id: 'click-1',
+        kept: true,
+        notification: { uid: 'n1', target: '/c', data: null },
+    };
+    const clickModule = () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        const { module } = makeModule();
+        const handler = vi.fn();
+        module.on('click', handler);
+        return { nav, handler, source: { postMessage: vi.fn() } };
+    };
+
+    it('takes a tap the worker kept for it, then acknowledges it', async () => {
+        const { nav, handler, source } = clickModule();
+        store.set('clicks:n1', { uid: 'n1', at: Date.now(), id: 'click-1' });
+        nav.post(keptTap, source);
+        await flush();
+        expect(store.has('clicks:n1')).toBe(false);
+        expect(handler).toHaveBeenCalledTimes(1);
+        expect(source.postMessage).toHaveBeenCalledWith({
+            type: 'puter-notification-click-ack',
+            id: 'click-1',
+        });
+    });
+
+    it('leaves a tap the worker already took back', async () => {
+        const { nav, handler, source } = clickModule();
+        nav.post(keptTap, source);
+        await flush();
+        expect(handler).not.toHaveBeenCalled();
+        expect(source.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('leaves a tap the worker kept again for the page it opened', async () => {
+        const { nav, handler, source } = clickModule();
+        store.set('clicks:n1', { uid: 'n1', at: Date.now() });
+        nav.post(keptTap, source);
+        await flush();
+        expect(handler).not.toHaveBeenCalled();
+        expect(store.has('clicks:n1')).toBe(true);
+    });
+
+    it('leaves a kept tap to the worker when IndexedDB fails here', async () => {
+        const { nav, handler, source } = clickModule();
+        store.set('clicks:n1', { uid: 'n1', at: Date.now(), id: 'click-1' });
+        storage.broken = true;
+        nav.post(keptTap, source);
+        await flush();
+        expect(handler).not.toHaveBeenCalled();
+        expect(source.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('runs the tap once when the worker posts it twice', async () => {
+        const { nav, handler, source } = clickModule();
+        store.set('clicks:n1', { uid: 'n1', at: Date.now(), id: 'click-1' });
+        nav.post(keptTap, source);
+        nav.post(keptTap, source);
+        await flush();
+        expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    describe('in the URL of a page a tap opened', () => {
+        beforeEach(() => {
+            globalThis.location = {
+                href: `${ORIGIN}/chat?puter.notification=n1`,
+                origin: ORIGIN,
+            };
+        });
+
+        it('goes to the first click handler, once', async () => {
+            store.set('clicks:n1', {
+                uid: 'n1',
+                target: '/c',
+                data: 1,
+                at: Date.now(),
+            });
+            const { handler } = clickModule();
+            await flush();
+            expect(handler).toHaveBeenCalledWith({
+                uid: 'n1',
+                target: '/c',
+                data: 1,
+            });
+            expect(store.has('clicks:n1')).toBe(false);
+        });
+
+        it('is dropped once older than five minutes', async () => {
+            store.set('clicks:n1', {
+                uid: 'n1',
+                at: Date.now() - 6 * 60 * 1000,
+            });
+            const { handler } = clickModule();
+            await flush();
+            expect(handler).not.toHaveBeenCalled();
+            expect(store.has('clicks:n1')).toBe(false);
+        });
+
+        it('is removed when no click handler comes within 10 seconds of load', async () => {
+            vi.useFakeTimers();
+            globalThis.document = { readyState: 'complete' };
+            try {
+                store.set('clicks:n1', { uid: 'n1', at: Date.now() });
+                makeModule();
+                await vi.advanceTimersByTimeAsync(9_000);
+                expect(store.has('clicks:n1')).toBe(true);
+                await vi.advanceTimersByTimeAsync(1_000);
+                expect(store.has('clicks:n1')).toBe(false);
+            } finally {
+                delete globalThis.document;
+            }
+        });
+
+        it('stays for a click handler added within 10 seconds of load', async () => {
+            vi.useFakeTimers();
+            globalThis.document = { readyState: 'complete' };
+            try {
+                store.set('clicks:n1', { uid: 'n1', at: Date.now() });
+                withBrowser(makeNav());
+                const { module } = makeModule();
+                await vi.advanceTimersByTimeAsync(5_000);
+                const handler = vi.fn();
+                module.on('click', handler);
+                await vi.advanceTimersByTimeAsync(10_000);
+                expect(handler).toHaveBeenCalledTimes(1);
+            } finally {
+                delete globalThis.document;
+            }
+        });
+    });
 });
 
 describe('enable', () => {
@@ -1401,6 +1925,7 @@ describe('enable', () => {
             'POST',
             '/push/web/subscriptions',
             expect.anything(),
+            { interactiveReauth: false },
         );
     });
 
@@ -1428,6 +1953,55 @@ describe('enable', () => {
         expect(done).toBe(false);
         nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
         await expect(enabling).resolves.toBe(true);
+    });
+
+    it('lets the key and the announce open a sign-in, but not the confirmation', async () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        server((route) =>
+            route === '/push/web/subscriptions'
+                ? { status: 'pending' }
+                : { device: { uid: 'd2' } },
+        );
+        const { module } = makeModule();
+        await module.enable();
+        nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+        await vi.waitFor(() => expect(mockRequest).toHaveBeenCalledTimes(3));
+        expect(
+            mockRequest.mock.calls.map(([, , route, , options]) => [
+                route,
+                options,
+            ]),
+        ).toEqual([
+            ['/push/web/key', { interactiveReauth: true }],
+            ['/push/web/subscriptions', { interactiveReauth: true }],
+            ['/push/web/subscriptions/verify', { interactiveReauth: false }],
+        ]);
+    });
+
+    it('looks the user up without opening a sign-in when no user is cached', async () => {
+        withBrowser(makeNav({ existing: makeSubscription() }));
+        server((route) =>
+            route === '/whoami'
+                ? { uuid: 'u-1' }
+                : { status: 'active', device: { uid: 'd1' } },
+        );
+        const auth = { whoami: vi.fn(async () => ({ uuid: 'u-1' })) };
+        const { module } = makeModule({
+            whoami: undefined,
+            whoamiCache_: Promise.resolve(null),
+            auth,
+        });
+        await module.enable();
+        expect(store.get(OPT_IN)).toBe(true);
+        expect(auth.whoami).not.toHaveBeenCalled();
+        expect(mockRequest).toHaveBeenCalledWith(
+            expect.anything(),
+            'GET',
+            '/whoami',
+            null,
+            { interactiveReauth: false },
+        );
     });
 
     it('rejects user_gesture_required outside a click, without prompting', async () => {
@@ -1462,6 +2036,51 @@ describe('enable', () => {
         expect(module.requestPermission).not.toHaveBeenCalled();
         expect(Notification.requestPermission).not.toHaveBeenCalled();
         expect(mockRequest).toHaveBeenCalledTimes(2);
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+});
+
+describe('enable() while another tab loads', () => {
+    it('records the opt-in before the other tab checks it, so the new subscription stays', async () => {
+        store.set(SERVER_KEY, KEY);
+        const subscription = makeSubscription();
+        withBrowser(makeNav({ existing: subscription }));
+        let announce;
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') return { publicKey: KEY };
+            if (method === 'POST' && route === '/push/web/subscriptions') {
+                return await new Promise((resolve) => {
+                    announce = () =>
+                        resolve({ status: 'active', device: { uid: 'd1' } });
+                });
+            }
+            return {};
+        });
+        const { module: enabling } = makeModule();
+        const turningOn = enabling.enable();
+        await vi.waitFor(() => expect(announce).toBeDefined());
+
+        const { module: loading } = makeModule();
+        await loading.onPush('chat', () => {}, { onError: () => {} });
+        await flush();
+        announce();
+        await expect(turningOn).resolves.toBe(true);
+        await flush();
+        await flush();
+
+        expect(store.get(OPT_IN)).toBe(true);
+        expect(subscription.unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('records no opt-in when the announce fails', async () => {
+        withBrowser(makeNav({ existing: makeSubscription() }));
+        server(() => {
+            throw new PuterJSError('down', 'internal_error');
+        });
+        const { module } = makeModule();
+        await expect(module.enable()).rejects.toMatchObject({
+            code: 'internal_error',
+        });
         expect(store.has(OPT_IN)).toBe(false);
     });
 });
@@ -1673,8 +2292,9 @@ describe('disable', () => {
         const { module } = makeModule();
         const enabling = module.enable();
         await vi.waitFor(() => expect(announce).toBeDefined());
-        await module.disable();
+        const disabling = module.disable();
         announce();
+        await expect(disabling).resolves.toBe(true);
         await expect(enabling).rejects.toMatchObject({
             code: 'push_verification_canceled',
         });
@@ -1683,6 +2303,7 @@ describe('disable', () => {
 
     it('removes the subscription and forgets the opt-in', async () => {
         store.set(OPT_IN, true);
+        store.set(SERVER_KEY, KEY);
         const subscription = makeSubscription();
         withBrowser(makeNav({ existing: subscription }));
         mockRequest.mockResolvedValue({ removed: true });
@@ -1693,14 +2314,132 @@ describe('disable', () => {
     });
 });
 
-describe('sign-out', () => {
-    it('removes the subscription with the leaving user`s token and forgets their push state', async () => {
+describe.each([
+    ['with Web Locks', false],
+    ['without Web Locks', true],
+])('another tab turning push off, %s', (_label, noLocks) => {
+    beforeEach(() => {
+        store.set(SERVER_KEY, KEY);
+        if (noLocks)
+            Object.defineProperty(globalThis.navigator, 'locks', {
+                value: undefined,
+                configurable: true,
+            });
+    });
+    afterEach(() => {
+        if (noLocks) delete globalThis.navigator.locks;
+    });
+
+    /** Requests these tabs made; earlier tests' tabs still hear the channel. */
+    const routes = (...tabs) =>
+        mockRequest.mock.calls
+            .filter(([host]) => tabs.some((tab) => tab.puter === host))
+            .map(([, method, route]) => `${method} ${route}`);
+
+    it('stops a load sync before it announces, and the device stays removed', async () => {
         store.set(OPT_IN, true);
+        withBrowser(makeNav({ existing: makeSubscription() }));
+        let releaseKey;
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') {
+                await new Promise((resolve) => {
+                    releaseKey = resolve;
+                });
+                return { publicKey: KEY };
+            }
+            return method === 'DELETE'
+                ? { removed: true }
+                : { status: 'active', device: { uid: 'd1' } };
+        });
+        const onError = vi.fn();
+        const { module: loading } = makeModule();
+        await loading.onPush('chat', () => {}, { onError });
+        await vi.waitFor(() => expect(releaseKey).toBeDefined());
+
+        const { module: other } = makeModule();
+        await expect(other.disable()).resolves.toBe(true);
+        releaseKey();
+        await flush();
+        await flush();
+
+        expect(routes(loading, other)).toEqual([
+            'GET /push/web/key',
+            'DELETE /push/web/subscriptions',
+        ]);
+        expect(onError).not.toHaveBeenCalled();
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
+    it('stops a load sync waiting for its confirmation, without verifying', async () => {
+        store.set(OPT_IN, true);
+        const nav = makeNav();
+        withBrowser(nav);
+        server((route) =>
+            route === '/push/web/subscriptions'
+                ? { status: 'pending' }
+                : { device: { uid: 'd1' } },
+        );
+        const { module: loading } = makeModule();
+        await loading.onPush('chat', () => {}, { onError: () => {} });
+        await vi.waitFor(() =>
+            expect(routes(loading)).toContain('POST /push/web/subscriptions'),
+        );
+
+        const { module: other } = makeModule();
+        await other.disable();
+        nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+        await flush();
+        await flush();
+
+        expect(routes(loading)).not.toContain(
+            'POST /push/web/subscriptions/verify',
+        );
+    });
+
+    it('makes an enable() in flight reject', async () => {
+        withBrowser(makeNav({ existing: makeSubscription() }));
+        let announce;
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') return { publicKey: KEY };
+            if (method === 'POST' && route === '/push/web/subscriptions') {
+                return await new Promise((resolve) => {
+                    announce = () => resolve({ status: 'pending' });
+                });
+            }
+            return { removed: true };
+        });
+        const { module: enablingTab } = makeModule();
+        const enabling = enablingTab.enable();
+        await vi.waitFor(() => expect(announce).toBeDefined());
+
+        const { module: other } = makeModule();
+        const disabling = other.disable();
+        await flush();
+        announce();
+        await expect(enabling).rejects.toMatchObject({
+            code: 'push_verification_canceled',
+        });
+        await expect(disabling).resolves.toBe(true);
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+});
+
+describe('sign-out', () => {
+    it('forgets the push state, ends the subscription in the browser, then removes it with the leaving user`s token', async () => {
+        store.set(OPT_IN, true);
+        store.set(SERVER_KEY, KEY);
         store.set('clicks:n1', { uid: 'n1' });
         store.set('handlers:chat', '() => {}');
+        const order = [];
         const subscription = makeSubscription();
+        subscription.unsubscribe.mockImplementation(async () => {
+            order.push(['unsubscribe', store.has(OPT_IN)]);
+        });
         withBrowser(makeNav({ existing: subscription }));
-        mockRequest.mockResolvedValue({ removed: true });
+        mockRequest.mockImplementation(async (_p, method) => {
+            order.push([method]);
+            return { removed: true };
+        });
         const { module } = makeModule();
 
         await module._forgetPush('leaving-token');
@@ -1710,16 +2449,20 @@ describe('sign-out', () => {
             'DELETE',
             '/push/web/subscriptions',
             { endpoint: subscription.endpoint },
-            { authToken: 'leaving-token' },
+            {
+                authToken: 'leaving-token',
+                interactiveReauth: false,
+                keepalive: true,
+            },
         );
-        expect(subscription.unsubscribe).toHaveBeenCalled();
-        expect(store.has(OPT_IN)).toBe(false);
+        expect(order).toEqual([['unsubscribe', false], ['DELETE']]);
         expect(store.has('clicks:n1')).toBe(false);
         expect(store.has('handlers:chat')).toBe(true);
     });
 
     it('never rejects, and still forgets the push state when the server refuses', async () => {
         store.set(OPT_IN, true);
+        store.set(SERVER_KEY, KEY);
         const subscription = makeSubscription();
         withBrowser(makeNav({ existing: subscription }));
         mockRequest.mockRejectedValue(
@@ -1737,10 +2480,259 @@ describe('sign-out', () => {
         warn.mockRestore();
     });
 
+    it('leaves another service`s subscription on the site alone', async () => {
+        store.set(OPT_IN, true);
+        store.set(SERVER_KEY, KEY);
+        const theirs = makeSubscription(new Uint8Array([4, 1, 2]));
+        withBrowser(makeNav({ existing: theirs }));
+        const { module } = makeModule();
+        await module._forgetPush('leaving-token');
+        expect(theirs.unsubscribe).not.toHaveBeenCalled();
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
+    it('stops another tab`s sync waiting for its confirmation', async () => {
+        store.set(OPT_IN, true);
+        store.set(SERVER_KEY, KEY);
+        const nav = makeNav();
+        withBrowser(nav);
+        server((route) =>
+            route === '/push/web/subscriptions'
+                ? { status: 'pending' }
+                : { removed: true },
+        );
+        const { module: loading } = makeModule();
+        await loading.onPush('chat', () => {}, { onError: () => {} });
+        await vi.waitFor(() =>
+            expect(mockRequest.mock.calls.map(([, , r]) => r)).toContain(
+                '/push/web/subscriptions',
+            ),
+        );
+        const { module: other } = makeModule();
+        await other._forgetPush('leaving-token');
+        nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+        await flush();
+        await flush();
+        expect(mockRequest.mock.calls.map(([, , r]) => r)).not.toContain(
+            '/push/web/subscriptions/verify',
+        );
+    });
+
     it('does nothing inside the Puter desktop', async () => {
         withBrowser(makeNav({ existing: makeSubscription() }));
         const { module } = makeModule({ env: 'app' });
         await module._forgetPush('token');
         expect(mockRequest).not.toHaveBeenCalled();
+    });
+});
+
+describe('where the browser refuses Web Locks, as in a sandboxed frame', () => {
+    beforeEach(() => {
+        Object.defineProperty(globalThis.navigator, 'locks', {
+            value: {
+                request: vi.fn(async () => {
+                    throw new Error('The request was denied');
+                }),
+            },
+            configurable: true,
+        });
+    });
+    afterEach(() => {
+        delete globalThis.navigator.locks;
+    });
+
+    it('signs out without rejecting and still ends the subscription', async () => {
+        store.set(OPT_IN, true);
+        store.set(SERVER_KEY, KEY);
+        const subscription = makeSubscription();
+        withBrowser(makeNav({ existing: subscription }));
+        mockRequest.mockResolvedValue({ removed: true });
+        const { module } = makeModule();
+        await expect(
+            module._forgetPush('leaving-token'),
+        ).resolves.toBeUndefined();
+        expect(subscription.unsubscribe).toHaveBeenCalled();
+        expect(store.has(OPT_IN)).toBe(false);
+    });
+
+    it('still ends a subscription left here without an opt-in on load', async () => {
+        store.set(SERVER_KEY, KEY);
+        const subscription = makeSubscription();
+        withBrowser(makeNav({ existing: subscription }));
+        const { module } = makeModule();
+        await module.onPush('chat', () => {}, { onError: () => {} });
+        await vi.waitFor(() =>
+            expect(subscription.unsubscribe).toHaveBeenCalled(),
+        );
+    });
+});
+
+describe('a different user signing in', () => {
+    const USERS = { 'token-a': 'u-1', 'token-a2': 'u-1', 'token-b': 'u-2' };
+    /** A page signed in as u-1, whose tokens name their user in `uu`. */
+    const signedIn = (over = {}) => {
+        store.set(OPT_IN, true);
+        store.set(SERVER_KEY, KEY);
+        const subscription = makeSubscription();
+        withBrowser(makeNav({ existing: subscription }));
+        mockRequest.mockResolvedValue({ removed: true });
+        const { module, host } = makeModule({
+            authToken: 'token-a',
+            decodeJwtPayload: (token) => ({ uu: USERS[token] }),
+            decodeCompressedAppID: (value) => value,
+            ...over,
+        });
+        return { module, host, subscription };
+    };
+    const deletes = () =>
+        mockRequest.mock.calls.filter(([, method]) => method === 'DELETE');
+
+    it.each([
+        ['over the session', ['token-b']],
+        ['after the last token was dropped', [null, 'token-b']],
+    ])(
+        'ends the last user`s pushes with their token, %s',
+        async (_label, tokens) => {
+            const { host, subscription } = signedIn();
+            for (const token of tokens) host.setAuthToken(token);
+            await vi.waitFor(() => expect(deletes()).toHaveLength(1));
+            expect(deletes()[0][4]).toMatchObject({
+                authToken: 'token-a',
+                keepalive: true,
+            });
+            expect(subscription.unsubscribe).toHaveBeenCalled();
+            expect(store.has(OPT_IN)).toBe(false);
+        },
+    );
+
+    it.each([
+        ['a new token for the same user', ['token-a2']],
+        ['the token being dropped', [null]],
+    ])('keeps everything on %s', async (_label, tokens) => {
+        const { host, subscription } = signedIn();
+        for (const token of tokens) host.setAuthToken(token);
+        await flush();
+        await flush();
+        expect(subscription.unsubscribe).not.toHaveBeenCalled();
+        expect(mockRequest).not.toHaveBeenCalled();
+        expect(store.get(OPT_IN)).toBe(true);
+    });
+
+    /** A page of u-1 where `enable()` signs in u-2; `/whoami` takes a moment. */
+    const enablingPage = () => {
+        store.set(OPT_IN, true);
+        store.set(SERVER_KEY, KEY);
+        const subscription = makeSubscription();
+        withBrowser(makeNav({ existing: subscription }));
+        const listeners = new Set();
+        const lookUp = (token) =>
+            new Promise((resolve) =>
+                setTimeout(() => resolve({ uuid: USERS[token] }), 20),
+            );
+        const { module, host } = makeModule({
+            authToken: 'token-a',
+            whoami: undefined,
+            whoamiCache_: lookUp('token-a'),
+            decodeJwtPayload: () => null,
+            onAuthStateChanged: (listener) => listeners.add(listener),
+            setAuthToken(token) {
+                this.authToken = token;
+                for (const listener of listeners) listener();
+                this.whoamiCache_ = token ? lookUp(token) : null;
+            },
+            ui: {
+                authenticateWithPuter: async () => host.setAuthToken('token-b'),
+            },
+        });
+        mockRequest.mockImplementation(async (_p, method, route) => {
+            if (route === '/push/web/key') return { publicKey: KEY };
+            if (method === 'POST' && route === '/push/web/subscriptions')
+                return { status: 'active', device: { uid: 'd1' } };
+            return { removed: true };
+        });
+        return { module, host, subscription };
+    };
+    const OPT_IN_B = 'handlers:puter:opt-in:u-2';
+    const routes = () => mockRequest.mock.calls.map(([, m, r]) => `${m} ${r}`);
+
+    it('lets the next user turn push on after a sign-out on the same page', async () => {
+        const { module, host, subscription } = enablingPage();
+        await module._forgetPush('token-a');
+        host.setAuthToken(null);
+        subscription.unsubscribe.mockClear();
+        mockRequest.mockClear();
+
+        await expect(module.enable()).resolves.toBe(true);
+        await flush();
+        await flush();
+
+        expect(store.get(OPT_IN_B)).toBe(true);
+        expect(subscription.unsubscribe).not.toHaveBeenCalled();
+        expect(routes()).not.toContain('DELETE /push/web/subscriptions');
+    });
+
+    it('ends the last user`s pushes before the next one, signing in from enable(), turns them on', async () => {
+        const { module, host } = enablingPage();
+        await flush();
+        host.setAuthToken(null);
+
+        await expect(module.enable()).resolves.toBe(true);
+        await flush();
+        await flush();
+
+        expect(store.has(OPT_IN)).toBe(false);
+        expect(store.get(OPT_IN_B)).toBe(true);
+        const order = routes();
+        expect(order.indexOf('DELETE /push/web/subscriptions')).toBeLessThan(
+            order.indexOf('POST /push/web/subscriptions'),
+        );
+        expect(order.lastIndexOf('DELETE /push/web/subscriptions')).toBe(
+            order.indexOf('DELETE /push/web/subscriptions'),
+        );
+    });
+
+    it('ends push for a user who signed out and back in with the same token, once another user signs in', async () => {
+        const { module, host, subscription } = signedIn({ whoami: undefined });
+        server((route) => {
+            if (route === '/whoami') return { uuid: USERS[host.authToken] };
+            if (route === '/push/web/subscriptions')
+                return { status: 'active', device: { uid: 'd1' } };
+            return { removed: true };
+        });
+        await module._forgetPush('token-a');
+        host.setAuthToken(null);
+        host.setAuthToken('token-a');
+        await expect(module.enable()).resolves.toBe(true);
+        expect(store.get(OPT_IN)).toBe(true);
+        mockRequest.mockClear();
+        subscription.unsubscribe.mockClear();
+
+        host.setAuthToken('token-b');
+        await vi.waitFor(() => expect(deletes()).toHaveLength(1));
+        expect(deletes()[0][4]).toMatchObject({ authToken: 'token-a' });
+        expect(subscription.unsubscribe).toHaveBeenCalled();
+        expect(store.has(OPT_IN)).toBe(false);
+
+        await expect(module.enable()).resolves.toBe(true);
+        expect(store.get('handlers:puter:opt-in:u-2')).toBe(true);
+    });
+
+    it('tells users apart by the cached /whoami when the token names none', async () => {
+        const listeners = new Set();
+        const { host } = signedIn({
+            decodeJwtPayload: () => null,
+            whoamiCache_: Promise.resolve({ uuid: 'u-1' }),
+            onAuthStateChanged: (listener) => listeners.add(listener),
+            // As `puter.setAuthToken`: listeners first, then the lookup.
+            setAuthToken(token) {
+                this.authToken = token;
+                for (const listener of listeners) listener();
+                this.whoamiCache_ = Promise.resolve({ uuid: USERS[token] });
+            },
+        });
+        await flush();
+        host.setAuthToken('token-b');
+        await vi.waitFor(() => expect(deletes()).toHaveLength(1));
     });
 });
