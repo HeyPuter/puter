@@ -1,0 +1,17 @@
+name: Notify HeyPuter (dev)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  notify:
+    if: github.repository == 'HeyPuter/puter'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger heyputer dev deploy
+        run: |
+          curl -fsS -X POST \
+            -H "Authorization: token ${{ secrets.HEYPUTER_DISPATCH_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/HeyPuter/heyputer/dispatches \
+            -d '{"event_type":"puter-dev-requested"}'
