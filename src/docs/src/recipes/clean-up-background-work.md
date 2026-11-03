@@ -69,12 +69,13 @@ so that function finds the subscription that's left.
 
 An inline `handler` passed to [`onSchedule()`](/Events/onSchedule/) or
 [`onPersistent()`](/Events/onPersistent/) is stored in the signed-in user's own
-user scope of your app. Ending the subscription or schedule leaves the code
-there, where it counts toward the scope's
-[limits](/rate-limits-and-quotas/#handlers), and the scope keeps counting as one
-of the user's [worker units](/rate-limits-and-quotas/#worker-units). The user
-scope is the user's, so your app removes it from the user's session, with no
-owner step. [`handlers.list()`](/Events/handlers/) with `scope: 'user'` shows
+user scope of your app. Puter removes it about a day after the last
+subscription or schedule bound to it is gone, so you don't have to. Until then it
+counts toward the scope's [limits](/rate-limits-and-quotas/#handlers), and the
+scope counts as one of the user's [worker units](/rate-limits-and-quotas/#worker-units).
+To free it sooner, the
+user scope is the user's, so your app removes it from the user's session, with
+no owner step. [`handlers.list()`](/Events/handlers/) with `scope: 'user'` shows
 what the scope holds, and
 [`handlers.remove()`](/Events/handlers/) removes one:
 

@@ -85,10 +85,9 @@ await puter.events.onSchedule({
 });
 ```
 
-The code stays in the user's scope after the schedule ends, so remove it when
-you're done with it, as
-[Clean Up Background Work](/recipes/clean-up-background-work/#remove-a-user-scope)
-shows.
+Puter removes the code from the user's scope about a day after the schedule
+ends. To remove it sooner, see
+[Clean Up Background Work](/recipes/clean-up-background-work/#remove-a-user-scope).
 
 ## Ask for Permission
 

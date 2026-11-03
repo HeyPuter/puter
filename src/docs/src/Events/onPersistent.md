@@ -150,7 +150,7 @@ A persistent subscription can stop without being unsubscribed. It's then suspend
 
 A suspended subscription stops delivering and isn't billed. Its backlog is cut to 100 deliveries and kept for 24 hours (`handler_not_found`, `failures`) or 1 hour (`no_credit`), then replaced by one gap marker. A `permission_revoked` backlog is dropped right away. Suspended subscriptions are deleted after 30 days.
 
-The app's developer gets an `app.events.suspended` notification for `handler_not_found` and `failures` on a handler in the app's scope. The holder gets an `app.events.handler_suspended` notification for the same two reasons on a handler in their own user scope, and the developer isn't told. The holder also gets an `app.events.ended` notification on `notif:app-user` for `no_credit` and `permission_revoked`. Both can be read with [`fetch()`](/Events/fetch/).
+The app's developer gets an `app.events.suspended` notification for `handler_not_found` and `failures` on a handler in the app's scope. The holder gets an `app.events.handler_suspended` notification instead when a subscription bound to a handler in their own user scope is suspended, and the developer isn't told. That covers the handler being removed, including by the holder with `handlers.remove()` or `workers.destroy()`, five failures in a row, and a delivery that finds the handler missing. The holder also gets an `app.events.ended` notification on `notif:app-user` for `no_credit` and `permission_revoked`. Both can be read with [`fetch()`](/Events/fetch/).
 
 A subscription suspended for a reason that can resume still counts toward your [persistent subscription limit](/rate-limits-and-quotas/#what-an-account-can-hold) until you unsubscribe it. One suspended with `permission_revoked` doesn't count. An account keeps at most 500 of those, and past that, subscribing again deletes the oldest ones.
 
@@ -186,7 +186,7 @@ The promise rejects with `{ message, code }`:
 | `auth_canceled` | Nobody was signed in, and the user closed the sign-in without finishing it. |
 | `events_user_handlers_disabled` | Publishing into a user scope isn't turned on for this server. |
 | `events_handler_forbidden` | The call can't publish into a user scope: it came from a scoped access token, a temporary account, or on behalf of a different app. |
-| `insufficient_funds` | Publishing into a user scope needs credit on a hosted Puter server, and the user has none. |
+| `insufficient_funds` | Publishing into a user scope needs credit on a hosted Puter server, and the user has none. Arrives as HTTP 402. |
 | `forbidden` | The user already holds as many [worker units](/rate-limits-and-quotas/#worker-units) as their plan allows, so a new user scope can't be created. |
 | `events_handler_limit` | The user scope already holds the [maximum number of handlers](/rate-limits-and-quotas/#handlers). |
 | `events_handler_too_large` | The handler is over 64 KB. |
@@ -233,7 +233,7 @@ const sub = await puter.events.onPersistent({
 await puter.events.unsubscribe(sub.subId);
 ```
 
-The handler is stored in the user's scope under `sub.handlerName`, and keeps running for this user until the subscription ends. Unsubscribing leaves the handler in the scope, where it counts toward the scope's limits until you remove it. [Clean Up Background Work](/recipes/clean-up-background-work/) covers removing it.
+The handler is stored in the user's scope under `sub.handlerName`, and keeps running for this user until the subscription ends. After the subscription ends, Puter removes the handler about a day later, once nothing is bound to it. You can remove it sooner, as [Clean Up Background Work](/recipes/clean-up-background-work/#remove-a-user-scope) shows.
 
 <strong class="example-title">Watch a folder with a handler the app's owner published</strong>
 

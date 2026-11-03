@@ -383,7 +383,10 @@
  *   and `cron`, `once` for `at`, `deferred` for a delayed notification.
  * @property {string} appUid The app that created it.
  * @property {string | null} handlerName The handler each run calls, or `null`
- *   once the schedule has ended.
+ *   once the schedule has ended. For an inline handler, the name the server
+ *   gave it, which starts with `@`.
+ * @property {'user'} [handlerScope] Present when the handler is in the user's
+ *   own scope.
  * @property {string[] | null} contextKeys Key names of its context, or `null`
  *   when it has none or has ended.
  * @property {string | null} contextHash Hash of its context.

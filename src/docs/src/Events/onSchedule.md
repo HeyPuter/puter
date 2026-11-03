@@ -167,7 +167,7 @@ The `user` binding is valid for 15 minutes, so use it only during the run. Write
 
 A run that fails because of Puter doesn't count as a failure. It's retried on the same schedule, and waits longer if Puter's answer asked for a longer wait, up to 5 minutes. To drop the run in that case anyway, throw an error with `terminal: true`. The rules are the same as for a [`queue` subscription](/Events/onPersistent/#what-happens-when-a-handler-fails), except that the retries stop once the schedule's next run is due, or after 24 hours for an `at` schedule or a last run. The run is then dropped without billing.
 
-Five failures in a row suspend the schedule with `failures`, and publishing the handler again resumes it. For an app handler the developer gets an `app.events.suspended` notification. For a handler in a user scope the user gets an `app.events.handler_suspended` notification instead, and the developer isn't told.
+Five failures in a row suspend the schedule with `failures`, and publishing the handler again resumes it. For an app handler the developer gets an `app.events.suspended` notification. For a handler in a user scope the user gets an `app.events.handler_suspended` notification instead, and the developer isn't told. The user gets it too when the handler is removed, including by the user, or a run finds it missing, which suspends the schedule with `handler_not_found`.
 
 ## Background runs need consent
 
@@ -213,7 +213,8 @@ A `Promise` that resolves to the schedule. All times are in milliseconds since t
 - `scheduleId` (String): Its id, which [`getSchedule()`](/Events/getSchedule/) and [`removeSchedule()`](/Events/removeSchedule/) take.
 - `kind` (String): `'recurring'` for `every` and `cron`, `'once'` for `at`, and `'deferred'` for a notification sent later with [`notify()`](/Notifications/notify/#send-it-later).
 - `appUid` (String): The app that created it.
-- `handlerName` (String | null): The handler each run calls, or `null` once the schedule has ended.
+- `handlerName` (String | null): The handler each run calls, or `null` once the schedule has ended. For a schedule created with an inline `handler`, it's the name Puter gave the handler, which starts with `@`.
+- `handlerScope` (String): `'user'` when the handler is in the user's own [user scope](/Events/handlers/#user-scope). Absent for an app handler.
 - `contextKeys` (Array | null), `contextHash` (String | null): The key names and a hash of the stored context, never its values. The `contextKeys` field is `null` when there's no context, and once the schedule has ended.
 - `every` (Number | null): The interval, in milliseconds, of an `every` schedule.
 - `cron` (String | null): The expression of a `cron` schedule.
@@ -235,7 +236,7 @@ The promise rejects with `{ message, code }`:
 | `events_handler_required` | There's neither a `handler` nor a `handlerName`. |
 | `events_user_handlers_disabled` | Publishing into a user scope isn't turned on for this server. |
 | `events_handler_forbidden` | The call can't publish into a user scope: it came from a scoped access token, a temporary account, or on behalf of a different app. |
-| `insufficient_funds` | Publishing into a user scope needs credit on a hosted Puter server, and the user has none. |
+| `insufficient_funds` | Publishing into a user scope needs credit on a hosted Puter server, and the user has none. Arrives as HTTP 402. |
 | `forbidden` | The user already holds as many [worker units](/rate-limits-and-quotas/#worker-units) as their plan allows, so a new user scope can't be created. |
 | `events_handler_limit` | The user scope already holds the [maximum number of handlers](/rate-limits-and-quotas/#handlers). |
 | `events_handler_too_large` | The handler is over 64 KB. |

@@ -634,7 +634,8 @@ Over the deploy limit, deliveries stay queued and retry after the hour rolls ove
 A [user scope](/Events/handlers/#user-scope) holds the handlers one user published in one app, including every inline `handler` passed to [`onSchedule()`](/Events/onSchedule/) or [`onPersistent()`](/Events/onPersistent/). Each one is its own script. The scope-specific rows above are separate from the app's: they don't count toward the app's 100 handlers or 5 MB.
 
 - A publish over the handler cap fails with `events_handler_limit`, and one over the combined source cap with `events_worker_too_large`. A single handler over 64 KB fails with `events_handler_too_large`.
-- Publishing into a user scope needs credit on a hosted Puter server, and fails with `insufficient_funds` without it. A server that hasn't turned user scopes on answers `events_user_handlers_disabled`. Listing and removing a scope's handlers need neither.
+- A user-scope handler that no subscription or schedule is bound to is removed once it's more than a day old.
+- Publishing into a user scope needs credit on a hosted Puter server, and fails with `insufficient_funds` (402) without it. A server that hasn't turned user scopes on answers `events_user_handlers_disabled`. Listing and removing a scope's handlers need neither.
 
 #### Worker units
 

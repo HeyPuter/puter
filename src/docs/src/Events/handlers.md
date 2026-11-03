@@ -53,7 +53,8 @@ Handlers in a user scope:
 - Are billed to the user like their own workers. A hosted Puter server may bill each user scope as a monthly cost, and publishing into one needs credit. Listing and removing don't.
 - Count toward the user's [worker units](/rate-limits-and-quotas/#worker-units), as one unit per app. A user over their plan's limit keeps what they hold, and can't create a new scope.
 - Are limited to 20 handlers and 1 MB of source combined per scope, and 10 deploys an hour. See [Rate Limits and Quotas](/rate-limits-and-quotas/#handlers).
-- Suspend like any other handler. When removing one or repeated failures suspend a subscription or schedule bound to it, the user gets an `app.events.handler_suspended` notification, and the developer isn't told.
+- Clean themselves up. Once no subscription or schedule, in any state, is bound to a handler and it's more than a day old, Puter removes it. This covers inline handlers and named ones. A scope with no handlers left stops counting as a worker unit.
+- Suspend like any other handler. The user gets an `app.events.handler_suspended` notification, and the developer isn't told, when a subscription or schedule bound to one is suspended because the handler was removed (including by the user, with `remove()` or `workers.destroy()`), because it failed 5 times in a row, or because a delivery found the handler missing. Publishing the name again resumes them.
 
 The server may turn user-scope handlers off, and then publishing into one fails with `events_user_handlers_disabled`. To remove a whole scope, see [`workers.destroy()`](/Events/workers/).
 
@@ -168,7 +169,7 @@ All four methods reject with `{ message, code }`:
 | `events_handler_app_required` | The call was made outside an app without `appUid`. |
 | `events_handler_forbidden` | For app scope, the signed-in user doesn't own the app, the app doesn't exist, `appUid` names a different app than the one making the call, or the caller is a scoped access token. For `scope: 'user'`, the caller isn't an app acting for a signed-in user: a scoped access token, a temporary account, or a different app. |
 | `events_user_handlers_disabled` | `scope: 'user'` was used to publish, and this server doesn't have user-scope handlers turned on. |
-| `insufficient_funds` | Publishing into a user scope needs credit on a hosted Puter server, and the user has none. |
+| `insufficient_funds` | Publishing into a user scope needs credit on a hosted Puter server, and the user has none. Arrives as HTTP 402. |
 | `forbidden` | The user already holds as many [worker units](/rate-limits-and-quotas/#worker-units) as their plan allows, so a new user scope can't be created. |
 | `events_handler_too_large` | The handler is over 64 KB. |
 | `events_worker_too_large` | The app's handlers would exceed 5 MB combined, or a user scope's would exceed 1 MB. |
