@@ -43,6 +43,20 @@ import { PuterClient } from '../types.js';
  *
  * On a miss, a handler set here may deploy the script itself and retry once
  * with `x-puter-events-deployed: 1`, skipping the dispatcher's own callback.
+ *
+ * Calls that come due within a few milliseconds of each other go out together:
+ *
+ *     POST <events dispatcher>/invoke-batch
+ *     x-puter-internal-auth:  <internal secret>
+ *     { calls: [{ script, appUid, key, deployed?, body, waitMs }] }
+ *
+ * The dispatcher runs a few at a time, in order, and streams NDJSON: `{ i,
+ * started: true }` when a call goes to its worker, then `{ i, status, handled?,
+ * error?, retryAfter?, dispatch? }` when it finishes — the same facts the
+ * single route carries in its status and headers. A call's timeout runs from
+ * its `started` line, so time spent queued behind other calls is never the
+ * handler's. A call still queued `waitMs` after the batch arrived is never
+ * started and answers `dispatch: "queue-timeout"`.
  */
 
 /** The one route an events worker answers. */
@@ -50,6 +64,27 @@ export const EVENTS_INVOKE_PATH = '/__events/invoke';
 
 /** The route the events dispatcher takes an invocation on. */
 export const EVENTS_DISPATCH_PATH = '/invoke';
+
+/** The route it takes several on, answering each as it finishes. */
+export const EVENTS_DISPATCH_BATCH_PATH = '/invoke-batch';
+
+/** Calls one batch carries at most. */
+export const INVOKE_BATCH_SIZE = 60;
+
+/** How long the first call of a batch waits for others to join it. */
+export const INVOKE_BATCH_WINDOW_MS = 5;
+
+/**
+ * How long a dispatcher without the batch route is sent single calls before the
+ * batch route is tried again.
+ */
+const BATCH_UNSUPPORTED_RETRY_MS = 5 * 60_000;
+
+/**
+ * How long past its wait a batched call's `started` line may take to arrive
+ * before the call is given up as never started.
+ */
+const BATCH_START_GRACE_MS = 2_000;
 
 /**
  * Header the dispatcher marks its own failures with. Anything carrying it never
@@ -112,10 +147,16 @@ const SELF_DEPLOYABLE_MISS_REASONS = new Set([
  */
 const ALREADY_DEPLOYED_MISS_REASONS = new Set(['deploy-timeout']);
 
+/** Whose call asked for the deploy, for the share of deploys it may take. */
+export interface WorkerMissOptions {
+    lane?: InvokeLane;
+}
+
 /** What a self-deploy attempt did, and to which app/script it applies. */
 export type WorkerMissHandler = (
     appUid: string,
     script: string,
+    options: WorkerMissOptions,
 ) => Promise<'deployed' | string>;
 
 /** How long a handler has to answer before the attempt is abandoned. */
@@ -127,6 +168,18 @@ export const EVENTS_INVOKE_TIMEOUT_MS = 30_000;
  * that waits for a free one before its invoke timeout starts.
  */
 export const INVOKE_CONNECTIONS = 256;
+
+/**
+ * Of those, how many schedule runs may hold at once, so a burst of schedules
+ * can never take the connections event deliveries need.
+ */
+export const SCHEDULE_INVOKE_CONNECTIONS = 64;
+
+/** Whose call this is, for the connection share it may take. */
+export type InvokeLane = 'delivery' | 'schedule';
+
+/** What a deploy answers when another deploy of the region holds the way. */
+export const DEPLOY_BUSY = 'busy';
 const INVOKE_KEEP_ALIVE_MS = 30_000;
 
 /**
@@ -161,6 +214,12 @@ export interface EventsInvokeCall {
     timeoutMs: number;
     /** Set on the retry after this backend deployed the script itself. */
     deployed?: boolean;
+    lane?: InvokeLane;
+    /**
+     * Builds `body` again at send time, for a transport that waits for a
+     * connection first, so a send time stamped into it is the real one.
+     */
+    render?: () => string;
 }
 
 /** What one attempt at delivering an invocation came back with. */
@@ -176,6 +235,8 @@ export interface EventsInvokeAnswer {
     timedOut?: boolean;
     /** From a `retry-after` header in seconds. */
     retryAfterMs?: number;
+    /** A deploy this call needed was put off: another held the way. */
+    deployBusy?: boolean;
 }
 
 /**
@@ -194,16 +255,28 @@ export interface EventsInvokeTransport {
  * handler); retried like `retriable` but never the handler's fault.
  */
 export type WorkerInvokeOutcome =
-    'settled' | 'terminal' | 'retriable' | 'unavailable';
+    | 'settled'
+    | 'terminal'
+    | 'retriable'
+    | 'unavailable';
 
 export interface WorkerInvokeResult {
     outcome: WorkerInvokeOutcome;
+    /** A deploy on miss was put off because another one held the way. */
+    deployBusy?: boolean;
     /** The status the handler answered with, or `null` when it never did. */
     status: number | null;
     /** Why it could not answer, when nothing did. */
     error?: string;
     /** How long the answer asked to be left alone. */
     retryAfterMs?: number;
+}
+
+/** How one invocation is sent. */
+export interface WorkerInvokeOptions {
+    lane?: InvokeLane;
+    /** Applied to the event as each attempt is sent. */
+    stampEvent?: (event: unknown) => unknown;
 }
 
 const NO_TRANSPORT =
@@ -236,7 +309,10 @@ export class EventsWorkerInvokerClient extends PuterClient {
         this.#dispatcher = null;
     }
 
-    async invoke(request: WorkerInvokeRequest): Promise<WorkerInvokeResult> {
+    async invoke(
+        request: WorkerInvokeRequest,
+        options: WorkerInvokeOptions = {},
+    ): Promise<WorkerInvokeResult> {
         const transport = this.#pickTransport();
         if (!transport)
             return {
@@ -245,32 +321,41 @@ export class EventsWorkerInvokerClient extends PuterClient {
                 error: NO_TRANSPORT,
             };
 
-        const call: EventsInvokeCall = {
-            script: request.script,
-            appUid: request.appUid,
-            key: request.key,
-            body: JSON.stringify({
+        const { stampEvent } = options;
+        const render = (): string =>
+            JSON.stringify({
                 handler: request.handler,
-                event: request.event,
+                event: stampEvent ? stampEvent(request.event) : request.event,
                 ctx: request.ctx,
                 token: request.token,
-            }),
-            timeoutMs: this.#timeoutMs(),
-        };
+            });
+        const send = (deployed: boolean): Promise<EventsInvokeAnswer> =>
+            transport.send({
+                script: request.script,
+                appUid: request.appUid,
+                key: request.key,
+                body: render(),
+                timeoutMs: this.#timeoutMs(),
+                ...(deployed ? { deployed: true } : {}),
+                ...(options.lane ? { lane: options.lane } : {}),
+                ...(stampEvent ? { render } : {}),
+            });
 
-        let result = await transport.send(call);
+        let result = await send(false);
         if (this.#missHandler && selfDeployable(result)) {
             const outcome = await this.#missHandler(
                 request.appUid,
                 request.script,
+                { lane: options.lane },
             );
             if (outcome !== 'deployed')
                 return {
                     outcome: 'unavailable',
                     status: null,
                     error: `deploy: ${outcome}`,
+                    ...(outcome === DEPLOY_BUSY ? { deployBusy: true } : {}),
                 };
-            result = await transport.send({ ...call, deployed: true });
+            result = await send(true);
         } else if (
             result.status === null &&
             result.dispatchReason &&
@@ -278,10 +363,17 @@ export class EventsWorkerInvokerClient extends PuterClient {
         ) {
             // No deploy to trigger — just give propagation the one retry
             // it usually needs, without spending an upload on it.
-            result = await transport.send({ ...call, deployed: true });
+            result = await send(true);
         }
 
         const { status, handled, error, timedOut, retryAfterMs } = result;
+        if (result.deployBusy)
+            return {
+                outcome: 'unavailable',
+                status: null,
+                error,
+                deployBusy: true,
+            };
         // Past the timeout the handler was most likely still running, which
         // is its own doing; any other missing answer never reached it.
         if (status === null)
@@ -313,9 +405,19 @@ export class EventsWorkerInvokerClient extends PuterClient {
         // a misconfiguration worth reporting once per attempt rather than a
         // round trip.
         if (!dispatcherUrl || !internalSecret) return null;
+        const { invokeBatchSize, invokeBatchWindowMs } =
+            this.config.events ?? {};
         this.#dispatcher ??= new DispatcherInvokeTransport(
             dispatcherUrl,
             internalSecret,
+            {
+                ...(invokeBatchSize !== undefined
+                    ? { batchSize: invokeBatchSize }
+                    : {}),
+                ...(invokeBatchWindowMs !== undefined
+                    ? { batchWindowMs: invokeBatchWindowMs }
+                    : {}),
+            },
         );
         return this.#dispatcher;
     }
@@ -328,28 +430,63 @@ export class EventsWorkerInvokerClient extends PuterClient {
     }
 }
 
+/** A call waiting in, or sent with, the current batch. */
+interface BatchedCall {
+    call: EventsInvokeCall;
+    resolve: (answer: EventsInvokeAnswer) => void;
+    /** When its wait for a connection began, for what is left of it. */
+    waitingSince: number;
+}
+
+export interface DispatcherInvokeTransportOptions {
+    fetchImpl?: typeof undiciFetch;
+    /** Calls per batch; 1 sends every call on its own. */
+    batchSize?: number;
+    batchWindowMs?: number;
+}
+
 /** Reaches an events worker the only way production can: through the dispatcher. */
 export class DispatcherInvokeTransport implements EventsInvokeTransport {
     readonly #url: string;
     readonly #secret: string;
     readonly #fetchImpl: typeof undiciFetch;
+    readonly #batchSize: number;
+    readonly #batchWindowMs: number;
     #agent: Agent | null = null;
     /** Calls holding a connection slot. */
     #active = 0;
-    /** Calls waiting for one, longest-waiting first. */
-    readonly #waiting = new Set<() => void>();
+    /** Of those, schedule runs. */
+    #scheduleActive = 0;
+    /** Calls waiting for one, longest-waiting first, with their lane. */
+    readonly #waiting = new Map<() => void, InvokeLane>();
+    /** Calls gathered for the next batch. */
+    #batch: BatchedCall[] = [];
+    #batchTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Until when the dispatcher is taken not to have the batch route. */
+    #batchUnsupportedUntil = 0;
 
     constructor(
         dispatcherUrl: string,
         secret: string,
-        options: { fetchImpl?: typeof undiciFetch } = {},
+        options: DispatcherInvokeTransportOptions = {},
     ) {
-        this.#url = dispatcherUrl;
+        // Joined as a string: `new URL(path, base)` resolves an absolute path
+        // against the base's origin, dropping any path prefix it carries.
+        this.#url = dispatcherUrl.replace(/\/$/, '');
         this.#secret = secret;
         this.#fetchImpl = options.fetchImpl ?? undiciFetch;
+        this.#batchSize = Math.max(
+            1,
+            Math.floor(options.batchSize ?? INVOKE_BATCH_SIZE),
+        );
+        this.#batchWindowMs = Math.max(
+            0,
+            options.batchWindowMs ?? INVOKE_BATCH_WINDOW_MS,
+        );
     }
 
     close(): void {
+        this.#flush();
         void this.#agent?.close().catch(() => {});
         this.#agent = null;
     }
@@ -357,29 +494,68 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
     async send(call: EventsInvokeCall): Promise<EventsInvokeAnswer> {
         // No `timedOut`: the handler never got this call, so the wait is not
         // its failure.
-        if (!(await this.#acquire(call.timeoutMs * CONNECTION_WAIT_SHARE)))
+        const lane = call.lane ?? 'delivery';
+        const waitingSince = Date.now();
+        if (
+            !(await this.#acquire(call.timeoutMs * CONNECTION_WAIT_SHARE, lane))
+        )
             return {
                 status: null,
                 error: 'no free connection to the events dispatcher',
             };
         try {
-            // `new URL(path, base)` resolves an absolute path against the
-            // base's origin, dropping any path prefix `base` already carries.
-            const url = `${this.#url.replace(/\/$/, '')}${EVENTS_DISPATCH_PATH}`;
-            const response = await this.#fetchImpl(url, {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/json',
-                    'x-puter-internal-auth': this.#secret,
-                    'x-puter-events-script': call.script,
-                    'x-puter-events-app': call.appUid,
-                    'x-puter-events-key': call.key,
-                    ...(call.deployed ? { [EVENTS_DEPLOYED_HEADER]: '1' } : {}),
-                },
-                body: call.body,
-                signal: AbortSignal.timeout(call.timeoutMs),
-                dispatcher: this.#dispatcherFor(),
+            if (this.#batchSize === 1) return await this.#sendOne(call);
+            return await new Promise<EventsInvokeAnswer>((resolve) => {
+                this.#batch.push({ call, resolve, waitingSince });
+                if (this.#batch.length >= this.#batchSize) this.#flush();
+                else
+                    this.#batchTimer ??= setTimeout(
+                        () => this.#flush(),
+                        this.#batchWindowMs,
+                    );
             });
+        } finally {
+            this.#release(lane);
+        }
+    }
+
+    /** Send what has gathered: alone when it is one call, else as a batch. */
+    #flush(): void {
+        if (this.#batchTimer) clearTimeout(this.#batchTimer);
+        this.#batchTimer = null;
+        const batch = this.#batch;
+        this.#batch = [];
+        if (batch.length === 0) return;
+        if (batch.length === 1 || Date.now() < this.#batchUnsupportedUntil) {
+            for (const { call, resolve } of batch)
+                void this.#sendOne(call).then(resolve);
+            return;
+        }
+        void this.#sendBatch(batch);
+    }
+
+    /** One call on the single route. */
+    async #sendOne(call: EventsInvokeCall): Promise<EventsInvokeAnswer> {
+        try {
+            const response = await this.#fetchImpl(
+                `${this.#url}${EVENTS_DISPATCH_PATH}`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/json',
+                        'x-puter-internal-auth': this.#secret,
+                        'x-puter-events-script': call.script,
+                        'x-puter-events-app': call.appUid,
+                        'x-puter-events-key': call.key,
+                        ...(call.deployed
+                            ? { [EVENTS_DEPLOYED_HEADER]: '1' }
+                            : {}),
+                    },
+                    body: call.render ? call.render() : call.body,
+                    signal: AbortSignal.timeout(call.timeoutMs),
+                    dispatcher: this.#dispatcherFor(),
+                },
+            );
             // The body is not read: a handler answers with a status, and
             // whatever else it writes is its own business.
             void response.body?.cancel().catch(() => {});
@@ -390,24 +566,181 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                 EVENTS_DISPATCH_ERROR_HEADER,
             );
             if (dispatchError !== null)
-                return {
-                    status: null,
-                    error: `dispatcher: ${dispatchError} (${response.status})`,
-                    dispatchReason: dispatchError,
-                };
+                return dispatchAnswer(dispatchError, response.status);
 
             return answerFrom(response);
         } catch (err) {
             return failedAnswer(err);
-        } finally {
-            this.#release();
         }
     }
 
+    /**
+     * Several calls in one request. A call may wait in the dispatcher's queue
+     * for whatever is left of its connection wait, and its timeout runs from
+     * its `started` line; the request itself is dropped once every call has an
+     * answer.
+     */
+    async #sendBatch(batch: BatchedCall[]): Promise<void> {
+        const hangUp = new AbortController();
+        let open = batch.length;
+        const answered = batch.map(() => false);
+        const timers: ReturnType<typeof setTimeout>[] = [];
+        const settle = (i: number, answer: EventsInvokeAnswer): void => {
+            if (answered[i]) return;
+            answered[i] = true;
+            clearTimeout(timers[i]);
+            batch[i].resolve(answer);
+            if (--open === 0) hangUp.abort();
+        };
+        const settleRest = (answer: EventsInvokeAnswer): void => {
+            for (let i = 0; i < batch.length; i++) settle(i, answer);
+        };
+
+        const now = Date.now();
+        const waits = batch.map(({ call, waitingSince }) =>
+            Math.max(
+                0,
+                Math.floor(
+                    call.timeoutMs * CONNECTION_WAIT_SHARE -
+                        (now - waitingSince),
+                ),
+            ),
+        );
+        const body = JSON.stringify({
+            calls: batch.map(({ call }, i) => ({
+                script: call.script,
+                appUid: call.appUid,
+                key: call.key,
+                ...(call.deployed ? { deployed: true } : {}),
+                body: call.render ? call.render() : call.body,
+                waitMs: waits[i],
+            })),
+        });
+        const arm = (
+            i: number,
+            ms: number,
+            answer: () => EventsInvokeAnswer,
+        ) => {
+            clearTimeout(timers[i]);
+            timers[i] = setTimeout(() => settle(i, answer()), ms);
+            timers[i].unref?.();
+        };
+        // No `timedOut`: a call that never started never reached a handler.
+        batch.forEach((_, i) =>
+            arm(i, waits[i] + BATCH_START_GRACE_MS, () => ({
+                status: null,
+                error: 'dispatcher: call never started',
+            })),
+        );
+        const started = (i: number): void => {
+            if (!answered[i])
+                arm(i, batch[i].call.timeoutMs, () =>
+                    failedAnswer(timeoutError()),
+                );
+        };
+        const longest = Math.max(
+            ...batch.map(
+                ({ call }, i) =>
+                    waits[i] + BATCH_START_GRACE_MS + call.timeoutMs,
+            ),
+        );
+
+        try {
+            const response = await this.#fetchImpl(
+                `${this.#url}${EVENTS_DISPATCH_BATCH_PATH}`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/json',
+                        'x-puter-internal-auth': this.#secret,
+                    },
+                    body,
+                    signal: AbortSignal.any([
+                        hangUp.signal,
+                        AbortSignal.timeout(longest),
+                    ]),
+                    dispatcher: this.#dispatcherFor(),
+                },
+            );
+
+            const dispatchError = response.headers.get(
+                EVENTS_DISPATCH_ERROR_HEADER,
+            );
+            if (dispatchError === 'no-such-route') {
+                // A dispatcher from before the batch route: nothing ran, so
+                // every call goes again on its own.
+                void response.body?.cancel().catch(() => {});
+                this.#batchUnsupportedUntil =
+                    Date.now() + BATCH_UNSUPPORTED_RETRY_MS;
+                batch.forEach(({ call }, i) => {
+                    if (!answered[i])
+                        void this.#sendOne(call).then((a) => settle(i, a));
+                });
+                return;
+            }
+            if (dispatchError !== null || !response.ok) {
+                void response.body?.cancel().catch(() => {});
+                // An unmarked failure (an edge 404, a WAF 403) reads as
+                // Puter's, never as any handler's answer.
+                settleRest(
+                    dispatchError !== null
+                        ? dispatchAnswer(dispatchError, response.status)
+                        : {
+                              status: null,
+                              error: `dispatcher: unmarked ${response.status} for a batch`,
+                          },
+                );
+                return;
+            }
+
+            let buffered = '';
+            const read = (line: string): void => {
+                if (line.trim() === '') return;
+                const parsed = parseAnswerLine(line);
+                if (!parsed || parsed.i >= batch.length) return;
+                if ('started' in parsed) started(parsed.i);
+                else settle(parsed.i, parsed.answer);
+            };
+            const decoder = new TextDecoder();
+            for await (const chunk of response.body ?? []) {
+                buffered += decoder.decode(chunk, { stream: true });
+                let newline = buffered.indexOf('\n');
+                while (newline !== -1) {
+                    read(buffered.slice(0, newline));
+                    buffered = buffered.slice(newline + 1);
+                    newline = buffered.indexOf('\n');
+                }
+            }
+            read(buffered);
+            settleRest({
+                status: null,
+                error: 'dispatcher: batch ended without an answer',
+            });
+        } catch (err) {
+            // Every call has its answer and the request was dropped on purpose.
+            if (open === 0) return;
+            settleRest(failedAnswer(err));
+        }
+    }
+
+    /** Whether a call on `lane` may take a connection now. */
+    #free(lane: InvokeLane): boolean {
+        return (
+            this.#active < INVOKE_CONNECTIONS &&
+            (lane !== 'schedule' ||
+                this.#scheduleActive < SCHEDULE_INVOKE_CONNECTIONS)
+        );
+    }
+
+    #take(lane: InvokeLane): void {
+        this.#active++;
+        if (lane === 'schedule') this.#scheduleActive++;
+    }
+
     /** A connection slot, or false once `waitMs` passes without one. */
-    #acquire(waitMs: number): Promise<boolean> {
-        if (this.#active < INVOKE_CONNECTIONS) {
-            this.#active++;
+    #acquire(waitMs: number, lane: InvokeLane): Promise<boolean> {
+        if (this.#free(lane)) {
+            this.#take(lane);
             return Promise.resolve(true);
         }
         return new Promise((resolve) => {
@@ -420,19 +753,24 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                 resolve(false);
             }, waitMs);
             timer.unref?.();
-            this.#waiting.add(granted);
+            this.#waiting.set(granted, lane);
         });
     }
 
-    /** Hand the slot to the longest waiter, or give it back. */
-    #release(): void {
-        const next = this.#waiting.values().next().value;
-        if (next) {
-            this.#waiting.delete(next);
-            next();
+    /**
+     * Give the slot back, then hand one to the longest waiter it can go to: a
+     * schedule waiter at a full schedule share doesn't hold up a delivery.
+     */
+    #release(lane: InvokeLane): void {
+        this.#active--;
+        if (lane === 'schedule') this.#scheduleActive--;
+        for (const [granted, waiting] of this.#waiting) {
+            if (!this.#free(waiting)) continue;
+            this.#waiting.delete(granted);
+            this.#take(waiting);
+            granted();
             return;
         }
-        this.#active--;
     }
 
     /** One pool per process, built on first use and closed with the server. */
@@ -445,6 +783,65 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
         return this.#agent;
     }
 }
+
+/** What a failure the dispatcher marked as its own reads as. */
+const dispatchAnswer = (
+    reason: string,
+    status: number,
+): EventsInvokeAnswer => ({
+    status: null,
+    error: `dispatcher: ${reason} (${status})`,
+    dispatchReason: reason,
+});
+
+/** What `AbortSignal.timeout` rejects with, for a batched call's own timeout. */
+const timeoutError = (): Error =>
+    new DOMException(
+        'The operation was aborted due to timeout',
+        'TimeoutError',
+    );
+
+/** One line of a batch answer, or null when it is not one. */
+export const parseAnswerLine = (
+    line: string,
+):
+    | { i: number; started: true }
+    | { i: number; answer: EventsInvokeAnswer }
+    | null => {
+    let raw: unknown;
+    try {
+        raw = JSON.parse(line);
+    } catch {
+        return null;
+    }
+    if (!raw || typeof raw !== 'object') return null;
+    const { i, started, status, handled, error, retryAfter, dispatch } =
+        raw as Record<string, unknown>;
+    if (!Number.isInteger(i) || (i as number) < 0) return null;
+    if (started === true) return { i: i as number, started: true };
+    if (typeof status !== 'number') return null;
+    if (typeof dispatch === 'string')
+        return { i: i as number, answer: dispatchAnswer(dispatch, status) };
+    return {
+        i: i as number,
+        answer: answerFrom({
+            status,
+            headers: {
+                get: (name) => {
+                    if (name === EVENTS_HANDLED_HEADER)
+                        return handled === true ? '1' : null;
+                    if (name === EVENTS_ERROR_HEADER)
+                        return typeof error === 'string' ? error : null;
+                    if (name === 'retry-after')
+                        return typeof retryAfter === 'string'
+                            ? retryAfter
+                            : null;
+                    return null;
+                },
+            },
+        }),
+    };
+};
 
 /** Whether deploying the script is what fixes this answer. */
 const selfDeployable = (result: EventsInvokeAnswer): boolean =>

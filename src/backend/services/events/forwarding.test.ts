@@ -79,6 +79,14 @@ vi.mock(import('@opentelemetry/api'), async (importOriginal) => ({
                     metricCalls.push({ name, value, attributes });
                 },
             }),
+            createHistogram: (name: string) => ({
+                record: (
+                    value: number,
+                    attributes: Record<string, unknown> = {},
+                ) => {
+                    metricCalls.push({ name, value, attributes });
+                },
+            }),
         }),
     },
 }));
@@ -441,6 +449,7 @@ const makeRegion = (
             ): Promise<{
                 row: DurableSubscription;
                 bump: { userId: number; generation: number };
+                reaped: [];
             }> => {
                 const row = durableRow({
                     holderUserId: input.holderUserId as number,
@@ -469,6 +478,7 @@ const makeRegion = (
                             row.ownerUserId,
                         ),
                     },
+                    reaped: [],
                 };
             },
         },

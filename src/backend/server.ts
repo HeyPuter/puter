@@ -1765,16 +1765,19 @@ export class PuterServer {
         }
     }
 
-    #prepareShutdownHooksRan = false;
+    #prepareShutdownHooks: Promise<void> | null = null;
 
     /**
      * Run every layer's `onServerPrepareShutdown` exactly once, whichever of
-     * `prepareShutdown()` / `shutdown()` gets there first.
+     * `prepareShutdown()` / `shutdown()` gets there first; the other waits for
+     * that run to finish.
      */
-    async #runPrepareShutdownHooks() {
-        if (this.#prepareShutdownHooksRan) return;
-        this.#prepareShutdownHooksRan = true;
-        await this.#runHook('bottomUp', 'onServerPrepareShutdown');
+    #runPrepareShutdownHooks(): Promise<void> {
+        this.#prepareShutdownHooks ??= this.#runHook(
+            'bottomUp',
+            'onServerPrepareShutdown',
+        );
+        return this.#prepareShutdownHooks;
     }
 
     async prepareShutdown(info: ServerDrainInfo = {}) {

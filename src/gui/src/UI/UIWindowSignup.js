@@ -596,26 +596,31 @@ function UIWindowSignup(options) {
                             show_email_dialog
                         ) {
                             $(el_window).close();
-                            // Verification gates run in order: email →
-                            // phone (SMS) → card, matching the server-side
-                            // order in assertVerifiedAccount.
-                            if (show_email_dialog) {
-                                email_verified =
-                                    await UIWindowEmailConfirmationRequired({
-                                        stay_on_top: true,
-                                        has_head: true,
-                                        reload_on_success:
-                                            options.reload_on_success,
-                                        window_options:
-                                            options.window_options ?? {},
-                                    });
-                            }
+                            // Verification gates run in the server's order
+                            // (see assertVerifiedAccount): email → phone
+                            // (SMS) → card, or card → phone → email when the
+                            // account clears email last.
+                            const emailGate = async () => {
+                                if (show_email_dialog) {
+                                    email_verified =
+                                        await UIWindowEmailConfirmationRequired({
+                                            stay_on_top: true,
+                                            has_head: true,
+                                            reload_on_success:
+                                                options.reload_on_success,
+                                            window_options:
+                                                options.window_options ?? {},
+                                        });
+                                }
+                            };
                             // A user the SMS path keeps failing may take the
                             // card fallback instead; that resolves 'card' and
                             // clears the card gate along with the phone gate
                             // (see UIWindowPhoneVerificationRequired).
                             let card_gate_cleared_by_fallback = false;
-                            if (data.user?.requires_phone_verification) {
+                            const phoneGate = async () => {
+                                if (!data.user?.requires_phone_verification)
+                                    return;
                                 let phone_ok = false;
                                 do {
                                     phone_ok =
@@ -632,12 +637,13 @@ function UIWindowSignup(options) {
                                 } while (!phone_ok);
                                 card_gate_cleared_by_fallback =
                                     phone_ok === 'card';
-                            }
-                            // Card verification is the last gate.
-                            if (
-                                data.user?.requires_card_verification &&
-                                !card_gate_cleared_by_fallback
-                            ) {
+                            };
+                            const cardGate = async () => {
+                                if (
+                                    !data.user?.requires_card_verification ||
+                                    card_gate_cleared_by_fallback
+                                )
+                                    return;
                                 let card_ok = false;
                                 do {
                                     card_ok =
@@ -649,6 +655,15 @@ function UIWindowSignup(options) {
                                                 options.window_options ?? {},
                                         });
                                 } while (!card_ok);
+                            };
+                            if (data.user?.email_gate_last) {
+                                await cardGate();
+                                await phoneGate();
+                                await emailGate();
+                            } else {
+                                await emailGate();
+                                await phoneGate();
+                                await cardGate();
                             }
                         }
 

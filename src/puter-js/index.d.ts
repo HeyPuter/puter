@@ -139,11 +139,18 @@ export type {
     HandlerSummary,
     OnLocalOptions,
     OnPersistentOptions,
+    OnScheduleOptions,
     PersistentSubscription,
     PublishedHandler,
     PuterEvent,
     PuterKvEvent,
     PuterNotifEvent,
+    PuterScheduleEvent,
+    Schedule,
+    ScheduleDelivery,
+    ScheduleErrorCode,
+    ScheduleHandler,
+    ScheduleListOptions,
     UpdatePersistentOptions,
 } from './types/modules/events/types.js';
 export type { EventSubscription } from './types/modules/events/lib/subscription.js';
@@ -236,6 +243,7 @@ export type { PSocket, PTLSSocket } from './types/modules/networking/PSocket.js'
 // -- puter.notifications --
 export type {
     AppNotification,
+    DelayedNotificationOptions,
     NotificationClick,
     NotificationHandler,
     NotificationInput,
@@ -249,6 +257,7 @@ export type {
     PushPlatform,
     PushShown,
     PushStatus,
+    ScheduledNotification,
     ShareNotificationInput,
 } from './types/modules/notifications/types.js';
 

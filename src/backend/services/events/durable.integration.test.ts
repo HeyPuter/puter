@@ -872,6 +872,71 @@ describe('what a write costs once a durable row exists', () => {
 
         expect(deliveryOf(path)).toBeUndefined();
     });
+
+    it('publishes the expiry reap`s bump, so a region still caching the row drops it', async () => {
+        await clearRows();
+        const created = await subscribe(env.users.user.token, {
+            expiresAt: Math.floor(Date.now() / 1000) + 3600,
+        });
+        const subId = created.body.subId as string;
+        const stale =
+            await env.server.stores.durableSubscription.getBySubId(subId);
+        await env.server.clients.db.write(
+            `UPDATE \`${TABLE}\` SET \`expires_at\` = ? WHERE \`sub_id\` = ?`,
+            [Math.floor(Date.now() / 1000) - 1, subId],
+        );
+
+        const heard: Array<Record<string, unknown>> = [];
+        const listener = (_key: string, data: unknown) => {
+            heard.push(data as Record<string, unknown>);
+        };
+        const announced = vi.spyOn(
+            env.server.services.eventForward,
+            'announceGeneration',
+        );
+        env.server.clients.event.on(
+            'outer.pubsub.events.generationBumped',
+            listener as never,
+        );
+        try {
+            await expect(events().sweepExpired()).resolves.toBe(1);
+            // Over the addressed peer channel as well as the bus.
+            expect(announced).toHaveBeenCalledWith(
+                expect.objectContaining({ userId }),
+                true,
+                'subscription',
+            );
+        } finally {
+            env.server.clients.event.off(
+                'outer.pubsub.events.generationBumped',
+                listener as never,
+            );
+            announced.mockRestore();
+        }
+        const published = heard.find(
+            (bump) => bump.userId === userId && bump.durable === true,
+        );
+        expect(published).toBeDefined();
+
+        // Another region's Redis still holds the row; this one stands in for it.
+        await env.server.stores.eventSubscription.cacheDurable([stale!]);
+        delivered.length = 0;
+        const before = `${anchor}/stale-${uuidv4().slice(0, 8)}.txt`;
+        await fs().touch(userId, { path: before });
+        await settle(before);
+        expect(deliveryOf(before)?.subId).toBe(subId);
+
+        await env.server.clients.event.emitAndWait(
+            'outer.pubsub.events.generationBumped',
+            published!,
+            { from_outside: true },
+        );
+        delivered.length = 0;
+        const after = `${anchor}/peer-swept-${uuidv4().slice(0, 8)}.txt`;
+        await fs().touch(userId, { path: after });
+        await quiet();
+        expect(deliveryOf(after)).toBeUndefined();
+    });
 });
 
 describe('where a durable delivery is addressed', () => {
