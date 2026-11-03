@@ -26,6 +26,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
+import { isPuterEmailAddress } from '../email/mailbox.js';
 import {
     bonusCodeInvalidError,
     checkSignupBonus,
@@ -95,10 +96,20 @@ export const signupClientIp = (req: Request): string | null =>
  */
 export class SignupService extends PuterService {
     /**
-     * Config blocklist (suffix match on the cleaned address), then the
-     * `email.validate` hook. Throws 400 on rejection.
+     * Puter mailbox addresses, the config blocklist (suffix match on the
+     * cleaned address), then the `email.validate` hook. Throws 400 on
+     * rejection.
      */
     async validateEmail(email: string): Promise<void> {
+        // A Puter mailbox can't be an account's own email: it is reached
+        // through an account in the first place.
+        if (isPuterEmailAddress(email.trim())) {
+            throw new HttpError(
+                400,
+                'A Puter email address cannot be used as your account email. Please use a different email address.',
+                { legacyCode: 'email_not_allowed' as never },
+            );
+        }
         if (isBlockedEmail(email, this.config.blockedEmailDomains)) {
             throw new HttpError(400, 'This email is not allowed.', {
                 legacyCode: 'email_not_allowed' as never,
