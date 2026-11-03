@@ -1462,6 +1462,50 @@ describe('onPush', () => {
         });
 
         it.each([
+            ['removed', 'a new subscription'],
+            ['revoked', 'a new subscription'],
+            ['removed', 'a new confirmation'],
+        ])(
+            'leaves things alone when the server says %s but another tab`s enable() made %s meanwhile',
+            async (state, change) => {
+                confirmed();
+                const stale = makeSubscription();
+                const fresh = makeSubscription(
+                    fromBase64Url(KEY),
+                    'https://push.example/send/new',
+                );
+                const nav = makeNav({ existing: stale });
+                withBrowser(nav);
+                let answer;
+                mockRequest.mockImplementation(
+                    () =>
+                        new Promise((resolve) => {
+                            answer = resolve;
+                        }),
+                );
+                await load();
+                expect(routes()).toEqual(['/push/web/subscriptions/status']);
+                if (change === 'a new subscription') {
+                    nav.pushManager.getSubscription.mockResolvedValue(fresh);
+                    store.set(SYNCED, {
+                        endpoint: fresh.endpoint,
+                        at: Date.now() + 1,
+                    });
+                } else {
+                    store.set(SYNCED, {
+                        endpoint: ENDPOINT,
+                        at: Date.now() + 1,
+                    });
+                }
+                answer({ state });
+                for (let i = 0; i < 5; i++) await flush();
+                expect(stale.unsubscribe).not.toHaveBeenCalled();
+                expect(fresh.unsubscribe).not.toHaveBeenCalled();
+                expect(store.get(OPT_IN)).toBe(true);
+            },
+        );
+
+        it.each([
             [
                 'a sync over a day old',
                 { at: Date.now() - 25 * 60 * 60 * 1000 },

@@ -741,10 +741,14 @@ export class NotificationsModule extends EventListener {
     async #settledByStatus(worker) {
         const signal = this.#stopVerifying.signal;
         let subscription = null;
+        let uuid = null;
+        let synced = null;
         try {
-            const uuid = await this.#userUuid();
+            uuid = await this.#userUuid();
             if (!uuid) return false;
-            const [synced, changed, current] = await Promise.all([
+            let changed;
+            let current;
+            [synced, changed, current] = await Promise.all([
                 idbGet(HANDLERS_STORE, SYNCED_PREFIX + uuid),
                 idbGet(
                     HANDLERS_STORE,
@@ -768,12 +772,23 @@ export class NotificationsModule extends EventListener {
         this.#checkWorkerUpdate(worker);
         const answer = await webPushCheck(this.puter, subscription.endpoint);
         if (signal.aborted) return true;
-        if (answer?.state === 'removed') {
-            await this.#dropRemoved(worker, subscription);
-            return true;
-        }
-        if (answer?.state === 'revoked') {
-            await this.#recordOptIn(false);
+        if (answer?.state === 'removed' || answer?.state === 'revoked') {
+            await withPushLock(async () => {
+                // Another tab's enable() since the check wins.
+                const [now, record] = await Promise.all([
+                    currentWebPush({ worker }),
+                    idbGet(HANDLERS_STORE, SYNCED_PREFIX + uuid),
+                ]).catch(() => []);
+                if (
+                    !now ||
+                    now.endpoint !== subscription.endpoint ||
+                    record?.at !== synced.at
+                )
+                    return;
+                if (answer.state === 'removed')
+                    await this.#dropRemoved(worker, now);
+                else await this.#recordOptIn(false);
+            });
             return true;
         }
         if (answer?.state !== 'active') return false;
