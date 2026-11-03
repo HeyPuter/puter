@@ -803,7 +803,7 @@ describe('WorkerDriver', () => {
         const FREE_CAP = 16;
         const PAID_CAP = 100;
 
-        // The cap sits after the Cloudflare-config gate, so the driver needs
+        // The cap sits after the deploy-credentials gate, so the driver needs
         // credentials to reach it; a create under the cap then fails on the
         // missing source file, which is what tells it past the cap check.
         let originalWorkersConfig: unknown;
