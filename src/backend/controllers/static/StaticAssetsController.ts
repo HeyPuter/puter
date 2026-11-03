@@ -23,6 +23,9 @@ import path from 'node:path';
 import { PuterController } from '../types.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
 
+// Sites import push-sw.js by URL, so the CDN refetches it within five minutes.
+const PUSH_WORKER_CACHE_CONTROL = 'public, max-age=0, s-maxage=300';
+
 /**
  * Static asset routes.
  *
@@ -58,6 +61,7 @@ export class StaticAssetsController extends PuterController {
             // `/v2/push-sw.js` is the path older docs gave.
             for (const route of ['/push-sw.js', '/v2/push-sw.js']) {
                 router.get(route, { subdomain: 'js' }, (_req, res) => {
+                    res.setHeader('Cache-Control', PUSH_WORKER_CACHE_CONTROL);
                     res.sendFile('puter.js/push-sw.js', { root });
                 });
             }
@@ -108,6 +112,10 @@ export class StaticAssetsController extends PuterController {
                 });
                 for (const route of ['/push-sw.js', '/v2/push-sw.js']) {
                     router.get(route, { subdomain: 'js' }, (_req, res) => {
+                        res.setHeader(
+                            'Cache-Control',
+                            PUSH_WORKER_CACHE_CONTROL,
+                        );
                         res.sendFile('push-sw.js', { root: puterjsRoot });
                     });
                 }
