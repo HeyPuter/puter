@@ -5,6 +5,7 @@ import { cancel } from './cancel.js';
 import { disable } from './disable.js';
 import { enable } from './enable.js';
 import { enablePush } from './enablePush.js';
+import { request } from './lib/api.js';
 import {
     CLICKS_STORE,
     HANDLERS_STORE,
@@ -48,6 +49,8 @@ export const CLICK_PARAM = 'puter.notification';
 
 /** Where a site's tabs tell each other that a user's opt-in changed. */
 const OPT_IN_CHANNEL = 'puter-push-opt-in';
+/** Held by a site's tabs while one changes this browser's subscription. */
+const PUSH_LOCK = 'puter-push';
 
 /** As long as `push-sw.js` gives a handler. */
 const HANDLER_TIMEOUT_MS = 5_000;
@@ -60,6 +63,8 @@ const QUIET_SYNC_ERRORS = new Set([
     'push_revoked',
     'push_unavailable',
     'push_verification_canceled',
+    'reauth_required',
+    'token_auth_failed',
     'too_many_requests',
 ]);
 
@@ -71,6 +76,14 @@ const warnStorage = (error) => {
         '[puter.notifications] IndexedDB is unavailable, so pushes show without their onPush handlers',
         error,
     );
+};
+
+/** Runs `run` alone among the site's tabs, where the browser has Web Locks. */
+const withPushLock = (run) => {
+    const locks = globalThis.navigator?.locks;
+    return typeof locks?.request === 'function'
+        ? locks.request(PUSH_LOCK, () => run())
+        : run();
 };
 
 /** Hidden, or in a window without focus. */
@@ -363,6 +376,7 @@ export class NotificationsModule extends EventListener {
      */
     async _enableWebPush(worker) {
         this.#useWorker(worker);
+        this.#listenForOptInChanges();
         /** @type {() => void} */
         let pending = () => {};
         const sent = new Promise((resolve) => {
@@ -374,6 +388,8 @@ export class NotificationsModule extends EventListener {
             onPending: pending,
             signal,
             renewRemoved: true,
+            interactive: true,
+            withLock: withPushLock,
         });
         try {
             // The GUI reads the registered device right after.
@@ -409,12 +425,12 @@ export class NotificationsModule extends EventListener {
      * @internal
      */
     async _disableWebPush(worker) {
-        this.#cancelVerification();
-        try {
-            return await removeWebPush(this.puter, { worker });
-        } finally {
+        this.#stopSyncs();
+        if (this.puter.env === 'web') this.#optInChanged('off');
+        return await withPushLock(async () => {
             if (this.puter.env === 'web') await this.#forgetOptIns();
-        }
+            return await removeWebPush(this.puter, { worker });
+        });
     }
 
     /**
@@ -460,8 +476,7 @@ export class NotificationsModule extends EventListener {
      */
     async _forgetPush(authToken) {
         if (this.puter.env !== 'web') return;
-        this.#syncs.clear();
-        this.#cancelVerification();
+        this.#stopSyncs();
         try {
             if (authToken && webPushSupported()) {
                 await removeWebPush(this.puter, {
@@ -510,8 +525,14 @@ export class NotificationsModule extends EventListener {
         const known =
             this.puter.whoami ?? (await this.puter.whoamiCache_) ?? null;
         if (typeof known?.uuid === 'string') return known.uuid;
-        const user = await this.puter.auth?.whoami?.();
-        return typeof user?.uuid === 'string' ? user.uuid : null;
+        try {
+            const user = await request(this.puter, 'GET', '/whoami', null, {
+                interactiveReauth: false,
+            });
+            return typeof user?.uuid === 'string' ? user.uuid : null;
+        } catch {
+            return null;
+        }
     }
 
     async #recordOptIn(on) {
@@ -558,11 +579,11 @@ export class NotificationsModule extends EventListener {
         return on;
     }
 
-    /** Other tabs of the site re-read the opt-in this one just wrote. */
-    #optInChanged() {
+    /** Other tabs re-read the opt-in; `off` also stops their syncs. */
+    #optInChanged(kind = 'changed') {
         this.#listenForOptInChanges();
         try {
-            this.#optInChannel?.postMessage('changed');
+            this.#optInChannel?.postMessage(kind);
         } catch {
             // A closed channel; the other tabs read it on their next sync.
         }
@@ -575,7 +596,10 @@ export class NotificationsModule extends EventListener {
         )
             return;
         this.#optInChannel = new BroadcastChannel(OPT_IN_CHANNEL);
-        this.#optInChannel.onmessage = () => void this.#readOptIn();
+        this.#optInChannel.onmessage = (event) => {
+            if (event.data === 'off') this.#stopSyncs();
+            void this.#readOptIn();
+        };
     }
 
     async #syncIfOptedIn(worker) {
@@ -584,6 +608,8 @@ export class NotificationsModule extends EventListener {
             syncWebPush(this.puter, {
                 worker,
                 signal: this.#stopVerifying.signal,
+                stillWanted: () => this.#readOptIn(),
+                withLock: withPushLock,
             }),
             worker,
             'could not keep the push subscription current',
@@ -625,9 +651,11 @@ export class NotificationsModule extends EventListener {
         await this.#recordOptIn(false);
     }
 
-    #cancelVerification() {
+    /** Ends this page's syncs in flight; the next `onPush` syncs again. */
+    #stopSyncs() {
         this.#stopVerifying.abort();
         this.#stopVerifying = new AbortController();
+        this.#syncs.clear();
     }
 
     /**

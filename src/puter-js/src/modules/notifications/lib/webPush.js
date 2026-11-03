@@ -220,11 +220,23 @@ const subscribeWith = async (registration, key) => {
 };
 
 /** Tells the server about `subscription`; `active` or `pending`. */
-const announce = (puter, subscription, label) =>
-    request(puter, 'POST', '/push/web/subscriptions', {
-        subscription: subscriptionBody(subscription),
-        ...(label ? { label } : {}),
-    });
+const announce = (puter, subscription, label, interactive) =>
+    request(
+        puter,
+        'POST',
+        '/push/web/subscriptions',
+        {
+            subscription: subscriptionBody(subscription),
+            ...(label ? { label } : {}),
+        },
+        { interactiveReauth: interactive },
+    );
+
+const turnedOff = () =>
+    new PuterJSError(
+        'Push notifications were turned off before this browser was confirmed',
+        'push_verification_canceled',
+    );
 
 /** Whether `buffer` is the key Puter last subscribed this origin with. */
 const earlierPuterKey = async (buffer) => {
@@ -265,41 +277,44 @@ const currentSubscription = async (puter, registration, key) => {
     return null;
 };
 
-/**
- * Announces `subscription` and, for one the server doesn't have yet, waits for
- * the confirmation push and verifies it.
- */
+/** Announces what `subscribe` gives, then confirms it if the server asks. */
 const register = async (
     puter,
     nav,
-    subscription,
-    { label, onPending, signal },
+    subscribe,
+    { label, onPending, signal, interactive, whileWanted },
 ) => {
-    // Listening first: the confirmation can arrive before the POST returns.
-    const challenge = nextChallenge(nav, signal);
+    /** @type {ReturnType<typeof nextChallenge> | null} */
+    let challenge = null;
     try {
-        const result = await announce(puter, subscription, label);
+        const { subscription, result } = await whileWanted(async () => {
+            const subscription = await subscribe();
+            // Before the POST: the confirmation can arrive before it returns.
+            challenge = nextChallenge(nav, signal);
+            return {
+                subscription,
+                result: await announce(puter, subscription, label, interactive),
+            };
+        });
         if (result.status === 'active') return result.device;
         onPending?.();
         const answer = await challenge.promise;
-        if (answer === null) {
-            throw new PuterJSError(
-                'Push notifications were turned off before this browser was confirmed',
-                'push_verification_canceled',
-            );
-        }
-        const { device } = await request(
-            puter,
-            'POST',
-            '/push/web/subscriptions/verify',
-            {
-                subscription: subscriptionBody(subscription),
-                challenge: answer,
-            },
+        if (answer === null) throw turnedOff();
+        const { device } = await whileWanted(() =>
+            request(
+                puter,
+                'POST',
+                '/push/web/subscriptions/verify',
+                {
+                    subscription: subscriptionBody(subscription),
+                    challenge: answer,
+                },
+                { interactiveReauth: false },
+            ),
         );
         return device;
     } finally {
-        challenge.cancel();
+        challenge?.cancel();
     }
 };
 
@@ -316,12 +331,18 @@ const register = async (
  *     onPending?: () => void;
  *     signal?: AbortSignal;
  *     renewRemoved?: boolean;
+ *     interactive?: boolean;
+ *     stillWanted?: () => boolean | Promise<boolean>;
+ *     withLock?: <T>(run: () => Promise<T>) => Promise<T>;
  * }} options
  *   `onPending` runs once the server has the subscription and only its
  *   confirmation is left. Aborting `signal` stops waiting for that
  *   confirmation, with `push_verification_canceled`. `renewRemoved` replaces a
  *   subscription the user removed in Puter instead of rejecting with
- *   `push_device_removed`.
+ *   `push_device_removed`. `interactive` lets a rejected token open Puter's
+ *   sign-in for the key and the subscription; the confirmation never does.
+ *   Subscribing and confirming each run in `withLock` while `stillWanted`
+ *   holds, else reject with `push_verification_canceled`.
  * @returns {Promise<Record<string, unknown>>} The server's device record.
  */
 export async function syncWebPush(
@@ -333,9 +354,18 @@ export async function syncWebPush(
         onPending,
         signal,
         renewRemoved = false,
+        interactive = false,
+        stillWanted = () => true,
+        withLock = (run) => run(),
     },
 ) {
-    const { publicKey } = await request(puter, 'GET', '/push/web/key');
+    const { publicKey } = await request(
+        puter,
+        'GET',
+        '/push/web/key',
+        undefined,
+        { interactiveReauth: interactive },
+    );
     if (typeof publicKey !== 'string' || publicKey === '') {
         throw new PuterJSError(
             "Push notifications aren't available on this deployment",
@@ -347,24 +377,50 @@ export async function syncWebPush(
         keepSiteWorker: puter.env !== 'gui',
     });
 
-    let subscription =
-        (await currentSubscription(puter, registration, key)) ??
-        (await subscribeWith(registration, key));
-    await rememberPuterKey(publicKey);
-
-    const options = { label, onPending, signal };
+    /** @type {PushSubscription | null} */
+    let subscription = null;
+    const options = {
+        label,
+        onPending,
+        signal,
+        interactive,
+        whileWanted: (run) =>
+            withLock(async () => {
+                if (signal?.aborted || !(await stillWanted()))
+                    throw turnedOff();
+                return await run();
+            }),
+    };
     try {
-        return await register(puter, nav, subscription, options);
+        return await register(
+            puter,
+            nav,
+            async () => {
+                subscription =
+                    (await currentSubscription(puter, registration, key)) ??
+                    (await subscribeWith(registration, key));
+                await rememberPuterKey(publicKey);
+                return subscription;
+            },
+            options,
+        );
     } catch (error) {
         const renewable =
             RENEWABLE_SUBSCRIPTION_ERRORS.has(error?.code) ||
             (renewRemoved && error?.code === 'push_device_removed');
-        if (!renewable || signal?.aborted) throw error;
+        if (!renewable || !subscription || signal?.aborted) throw error;
         // A brand-new subscription the push service doesn't know yet, an
         // endpoint another account turned off here, or one the user removed.
-        await subscription.unsubscribe();
-        subscription = await subscribeWith(registration, key);
-        return await register(puter, nav, subscription, options);
+        const stale = subscription;
+        return await register(
+            puter,
+            nav,
+            async () => {
+                await stale.unsubscribe();
+                return await subscribeWith(registration, key);
+            },
+            options,
+        );
     }
 }
 
@@ -408,7 +464,7 @@ export async function removeWebPush(
             'DELETE',
             '/push/web/subscriptions',
             { endpoint: subscription.endpoint },
-            { authToken },
+            { authToken, interactiveReauth: false },
         );
     } finally {
         await subscription.unsubscribe();
