@@ -32,6 +32,7 @@ import {
     type CardFallbackDeps,
 } from '../../../util/cardFallback';
 import { reserveUsernames } from '../../../util/reservedUsernames';
+import { isEmailGateLast } from '../../../util/verificationOrder';
 import {
     isAccountContext,
     isAppActor,
@@ -309,11 +310,25 @@ export const requireVerifiedAccount = (): RequestHandler =>
 export const assertVerifiedAccount = (
     user: AccountGateUser | undefined,
 ): void => {
-    if (user?.requires_email_confirmation && !user?.email_confirmed) {
-        throw new HttpError(403, 'Please confirm your email to continue', {
-            legacyCode: 'email_confirmation_required',
-        });
-    }
+    const assertEmail = () => {
+        if (user?.requires_email_confirmation && !user?.email_confirmed) {
+            throw new HttpError(403, 'Please confirm your email to continue', {
+                legacyCode: 'email_confirmation_required',
+            });
+        }
+    };
+    const assertCard = () => {
+        if (user?.requires_card_verification) {
+            throw new HttpError(403, 'Please verify your card to continue', {
+                legacyCode: 'card_verification_required',
+            });
+        }
+    };
+    // Email → phone → card, or card → phone → email for an email-gate-last
+    // account, so the client is sent to the gate it has to clear next.
+    const emailLast = isEmailGateLast(user);
+    if (emailLast) assertCard();
+    else assertEmail();
     if (user?.requires_phone_verification) {
         throw new HttpError(
             403,
@@ -323,11 +338,8 @@ export const assertVerifiedAccount = (
             },
         );
     }
-    if (user?.requires_card_verification) {
-        throw new HttpError(403, 'Please verify your card to continue', {
-            legacyCode: 'card_verification_required',
-        });
-    }
+    if (emailLast) assertEmail();
+    else assertCard();
     // A team seat signs in on a password its administrator still holds,
     // so it reaches nothing until it has replaced that password.
     if (user?.requires_password_change) {

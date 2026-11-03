@@ -323,6 +323,8 @@ export type EventMap = {
         // the abuse extension cap sends per device (across accounts) so a
         // device farm can't dodge the per-account cap with fresh signups.
         device_fingerprint: string | null;
+        // Browser-signals dispatch id the client sent, or null.
+        dispatch_id: string | null;
         allowed: boolean;
         reason: string | null;
         // With `allowed` false, offer the card fallback in place of SMS. Only
@@ -952,6 +954,9 @@ export type AiCostFactorEvent = {
  */
 export type LifecyclePhase = 'before' | 'after' | 'error' | 'reject';
 
+/** Status a vetoing `before` listener may answer with. */
+export type LifecycleRejectStatus = 403 | 429;
+
 /**
  * Payload for `driver.<iface>.<method>.<phase>` events.
  *
@@ -981,6 +986,8 @@ export type DriverMethodLifecycleEvent = {
     allow?: boolean;
     /** Optional human-readable reason surfaced to the caller when vetoed. */
     rejectReason?: string;
+    /** Status for a veto: 403 (default) or 429 for a throttle. */
+    rejectStatus?: LifecycleRejectStatus;
 };
 
 /**
@@ -1015,6 +1022,8 @@ export type RouteLifecycleEvent = {
     allow?: boolean;
     /** Optional human-readable reason surfaced to the caller when vetoed. */
     rejectReason?: string;
+    /** Status for a veto: 403 (default) or 429 for a throttle. */
+    rejectStatus?: LifecycleRejectStatus;
 };
 
 export type EventKey = keyof EventMap & string;

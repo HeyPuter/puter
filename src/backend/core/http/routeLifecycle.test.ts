@@ -290,6 +290,26 @@ describe('createRouteLifecycleMiddleware', () => {
         expect(after).toHaveLength(0);
     });
 
+    it('answers 429 when the vetoing listener asks for it', async () => {
+        const events = makeEvents();
+        events.on(`${BASE}.before` as never, (_k, data) => {
+            (data as RouteLifecycleEvent).allow = false;
+            (data as RouteLifecycleEvent).rejectReason = 'slow down';
+            (data as RouteLifecycleEvent).rejectStatus = 429;
+        });
+        const reject = record(events, `${BASE}.reject` as keyof EventMap);
+
+        const mw = createRouteLifecycleMiddleware(events, POST, PATH);
+        const res = new FakeRes();
+        await mw(makeReq('u-9'), res as unknown as Response, () => {});
+
+        expect(res.statusCode).toBe(429);
+        expect(res.body).toMatchObject({
+            error: { code: 'too_many_requests', message: 'slow down' },
+        });
+        expect(reject[0]).toMatchObject({ statusCode: 429 });
+    });
+
     it('treats a listener-sent response as a terminal after (not a reject) with the real status', async () => {
         const events = makeEvents();
         events.on(`${BASE}.before` as never, (_k, data) => {
