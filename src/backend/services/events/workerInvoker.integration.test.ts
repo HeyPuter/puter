@@ -1617,6 +1617,30 @@ describe('a handler in a user scope', () => {
         notify.mockRestore();
     });
 
+    it('does not suspend a schedule run whose replica read lags the publish', async () => {
+        const subId = await inlineRow();
+        const store = env.server.stores.eventHandler;
+        const real = store.setForApp.bind(store);
+        // The replica has not seen the insert; the primary has.
+        const lagging = vi
+            .spyOn(store, 'setForApp')
+            .mockImplementation(async (scope, options) =>
+                options?.replica
+                    ? [{ name: 'other', sourceHash: 'a'.repeat(64) }]
+                    : real(scope, options),
+            );
+        try {
+            const result = await events().invokeForSchedule(
+                invocationFor(subId),
+            );
+            expect(result).toMatchObject({ outcome: 'settled' });
+            expect((await durable().getBySubId(subId))?.suspendedAt).toBeNull();
+            expect(calls[0].headers.script).toBe(userScript());
+        } finally {
+            lagging.mockRestore();
+        }
+    });
+
     it('resumes a suspended row when the name is published again', async () => {
         const subId = await inlineRow();
         await env.server.stores.eventHandler.deleteUserScope(appUid, userId);
