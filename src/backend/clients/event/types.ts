@@ -581,6 +581,8 @@ export type EventMap = {
         updated?: true;
         /** Names this one send, for a receipt asked about it. */
         sendId: string;
+        /** The same `sendId` may be emitted again, as a delayed send is. */
+        replayable?: true;
     };
     /**
      * One notification, addressed at whatever sockets each region holds for the

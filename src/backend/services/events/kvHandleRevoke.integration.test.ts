@@ -383,7 +383,7 @@ describe('revoking a handle', () => {
         const sub = await subscribeDurable(handle);
 
         const store = env.server.stores.durableSubscription;
-        const byHolder = vi.spyOn(store, 'listActiveForHolder');
+        const byHolder = vi.spyOn(store, 'listActiveForHolderPage');
         const settle = vi.spyOn(events(), 'settleRevokedGrant');
 
         try {
@@ -400,7 +400,9 @@ describe('revoking a handle', () => {
             for (const call of byHolder.mock.calls)
                 expect(call.slice(1)).toEqual([
                     null,
-                    { includeSuspended: true },
+                    0,
+                    undefined,
+                    { includeSuspended: true, excludeSchedules: true },
                 ]);
         } finally {
             byHolder.mockRestore();
@@ -442,7 +444,9 @@ describe('revoking a handle', () => {
         const page = await shares().listKvHandles(owner.actor, {
             limit: 100,
         });
-        const deeperRow = page.items.find((one) => one.handle === deeper.handle);
+        const deeperRow = page.items.find(
+            (one) => one.handle === deeper.handle,
+        );
         expect(deeperRow?.revokedAt).toBeTypeOf('number');
         expect((await countLive()).total).toBe(before.total);
     });

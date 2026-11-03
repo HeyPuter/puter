@@ -54,8 +54,13 @@ import {
     type Actor,
 } from '../../core/actor.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
+import type {
+    ScheduleEndReason,
+    ScheduleSubscriptionChange,
+} from '../../core/schedules.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import type {
+    DurableCreated,
     ReanchorInput,
     SuspendedReason,
 } from '../../stores/events/DurableSubscriptionStore.js';
@@ -64,10 +69,10 @@ import {
     DurableQuotaRaceLost,
     HANDLER_SETTLE_BATCH,
     isSuspendedReason,
+    type DurablePage,
+    type DurableReap,
 } from '../../stores/events/DurableSubscriptionStore.js';
 import {
-    HANDLER_NAME_MAX_LENGTH,
-    hashContent,
     type EventHandlerSummary,
     type EventsWorkerSummary,
     type PublishOutcome,
@@ -84,6 +89,7 @@ import type {
     PendingShed,
 } from '../../stores/events/PendingDeliveryStore.js';
 import {
+    isScheduleRow,
     runsInWorker,
     type SubscriptionPermission,
 } from '../../stores/events/types.js';
@@ -116,6 +122,7 @@ import {
     appSocketRoom,
     type SocketSpecifier,
 } from '../socket/SocketService.js';
+import { savedAfterId, type JobRunContext } from '../jobs/JobScheduler.js';
 import { PuterService } from '../types.js';
 import { DEFAULT_FREE_SUBSCRIPTION } from '../metering/consts.js';
 import type { IConfig } from '../../types.js';
@@ -171,6 +178,14 @@ import {
     type CompiledMatch,
 } from './matcher.js';
 import { MatcherCache } from './matcherCache.js';
+import {
+    badRequest,
+    parseContext,
+    parseHandlerHash,
+    parseHandlerName,
+    projectContext,
+    spendUserWindow,
+} from './requestParsing.js';
 import {
     mergeNotifCatchUp,
     notifFetchCursor,
@@ -245,10 +260,14 @@ import { scanHandlerSource } from '../../../puter-js/src/modules/events/lib/free
 import {
     EventsWorkerInvoker,
     RecordingWorkerInvoker,
+    type AddressOptions,
+    type MintRefusal,
     type WorkerInvocation,
     type WorkerInvocationOutcome,
     type WorkerInvocationResult,
     type WorkerInvokerSeam,
+    type WorkerRunOptions,
+    type WorkerRunResult,
 } from './workerSeam.js';
 
 /**
@@ -524,6 +543,9 @@ interface DeliveryMeter {
     durable: boolean;
 }
 
+/** What one schedule run came to, including why nothing ran. */
+export type ScheduleInvokeResult = WorkerRunResult | { outcome: 'too-deep' };
+
 /**
  * Why a subscription ended without its holder unsubscribing. Both are terminal:
  * the grant is gone, or the node is, and neither comes back by itself.
@@ -677,33 +699,65 @@ const ENDED_MESSAGES: Record<SubscriptionEndReason, string> = {
 
 // -- Expiry sweep -----------------------------------------------------
 
+/** Expired and long-suspended rows, then stranded worker sessions. */
+const EXPIRY_SWEEP_JOB = 'events.subscriptions.expirySweep';
 /** An expiry is a date, not a deadline, so hourly is close enough. */
-const EXPIRY_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
-// The first pass lands within this long of boot, so a fleet that redeploys more
-// often than the interval still sweeps.
-const EXPIRY_SWEEP_INITIAL_DELAY_MS = 5 * 60 * 1000;
+const EXPIRY_SWEEP_EVERY_MS = 60 * 60 * 1000;
+const EXPIRY_SWEEP_LEASE_MS = 15 * 60 * 1000;
 /** Rows one delete takes. Small enough not to hold a lock anyone waits on. */
 const EXPIRY_BATCH_SIZE = 500;
-/** Batches one sweep takes, so a large backlog drains over several passes. */
-const EXPIRY_MAX_BATCHES = 50;
+/**
+ * Batches one sweep takes at most. It runs once for the fleet, so this is the
+ * fleet's hourly drain; the job's signal stops it sooner.
+ */
+const EXPIRY_MAX_BATCHES = 1000;
 /**
  * Subjects one "subscriptions ended" notification names before it stops
  * listing.
  */
 const ENDED_SUBJECTS_LISTED = 20;
 
+/** Ended rows by kind, holder and app: a count and the subjects listed. */
+type EndedGroups = Map<
+    string,
+    { first: DurableSubscription; subjects: string[]; count: number }
+>;
+
+/**
+ * Add ended rows to `groups`. A schedule is news of its own: its holder knows
+ * it as a schedule, not as the subscription row behind it.
+ */
+const collectEnded = (
+    groups: EndedGroups,
+    rows: readonly DurableSubscription[],
+): void => {
+    for (const row of rows) {
+        const kind = isScheduleRow(row) ? 'schedule' : 'subscription';
+        const key = `${kind}|${row.holderUserId}|${row.appUid ?? ''}`;
+        let group = groups.get(key);
+        if (!group) {
+            group = { first: row, subjects: [], count: 0 };
+            groups.set(key, group);
+        }
+        group.count++;
+        if (group.subjects.length < ENDED_SUBJECTS_LISTED)
+            group.subjects.push(row.subject);
+    }
+};
+
 /** Re-reads an unsubscribe takes to catch a row racing a reanchor. */
 const UNSUBSCRIBE_READS = 3;
 
-/**
- * Worker sessions one page of the stray-session sweep reads, and pages one pass
- * takes. Bounded low: the sweep is a safety net for sessions no API path could
- * reach any more, not a bulk cleanup, and it runs every hour.
- */
 /** A deleted account's apps settled at once. */
 const DELETED_ACCOUNT_SETTLE_CONCURRENCY = 4;
 /** Session rows ended at once when their handle stops standing. */
 const SESSION_END_CONCURRENCY = 4;
+/**
+ * Worker sessions one page of the stray-session sweep reads, and pages one pass
+ * takes. Bounded low: the sweep is a safety net for sessions no API path could
+ * reach any more, not a bulk cleanup; it runs every hour and resumes where the
+ * last pass stopped.
+ */
 const WORKER_SESSION_SWEEP_BATCH = 500;
 const WORKER_SESSION_SWEEP_MAX_PAGES = 2;
 
@@ -751,12 +805,14 @@ const METER_ACTOR_LIMIT = 5_000;
 const NO_CREDIT_SWEEP_BATCH = 500;
 const NO_CREDIT_SWEEP_MAX_BATCHES = 200;
 
+const NO_CREDIT_SWEEP_JOB = 'events.subscriptions.creditSweep';
 /**
  * How often suspensions waiting on a restored balance are re-checked. Well
  * inside the hour a `no_credit` backlog is held for, so a top-up gets the
  * subscription back before what it was owed expires.
  */
-const NO_CREDIT_SWEEP_INTERVAL_MS = 15 * 60 * 1000;
+const NO_CREDIT_SWEEP_EVERY_MS = 15 * 60 * 1000;
+const NO_CREDIT_SWEEP_LEASE_MS = 10 * 60 * 1000;
 
 /** The part of a socket this service uses, so tests need not build one. */
 export interface EventSocket {
@@ -777,10 +833,23 @@ const unknownSubscription = (): HttpError =>
         legacyCode: 'subscription_does_not_exist',
     });
 
-const tooManyCalls = (): HttpError =>
-    new HttpError(429, 'Too many subscription changes', {
-        legacyCode: 'too_many_requests',
-    });
+/**
+ * A schedule's subscription row goes only with its schedule. Answered for the
+ * caller's own row only; anyone else's id still reads as absent.
+ */
+const scheduleSubscription = (): HttpError =>
+    new HttpError(
+        404,
+        'This subscription belongs to a schedule; remove it with puter.events.removeSchedule()',
+        { legacyCode: 'events_schedule_not_found' },
+    );
+
+const scheduleImmutable = (): HttpError =>
+    new HttpError(
+        400,
+        "A schedule's context can't be changed; remove the schedule and create a new one",
+        { legacyCode: 'events_schedule_immutable' },
+    );
 
 const handlerRequired = (): HttpError =>
     new HttpError(400, 'A `queue` subscription needs a handlerName', {
@@ -870,9 +939,6 @@ const handlerAppForbidden = (): HttpError =>
         legacyCode: 'events_handler_forbidden',
     });
 
-const badRequest = (message: string, code: string): HttpError =>
-    new HttpError(400, message, { legacyCode: code });
-
 /**
  * A handler runs with nothing around it, so a name it neither binds nor gets
  * from the runtime fails on its first delivery. Refused at publish instead.
@@ -932,26 +998,6 @@ const toView = (sub: DispatchSubscription): SubscriptionView => {
         op: sub.op,
         includeValue: sub.includeValue === true,
     };
-};
-
-/**
- * The context as a listing may describe it: which keys it sets, and a hash of
- * the whole blob. Never the values — the column is where an API key lives.
- */
-const projectContext = (
-    context: string | null,
-): Pick<DurableSubscriptionView, 'contextKeys' | 'contextHash'> => {
-    if (context === null) return { contextKeys: null, contextHash: null };
-    let keys: string[] = [];
-    try {
-        const parsed: unknown = JSON.parse(context);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
-            keys = Object.keys(parsed).sort();
-    } catch {
-        // Stored by this service as JSON, so this cannot normally happen; an
-        // unreadable blob still reports its hash rather than failing the list.
-    }
-    return { contextKeys: keys, contextHash: hashContent(context) };
 };
 
 const toDurableView = (sub: DurableSubscription): DurableSubscriptionView => ({
@@ -1298,45 +1344,12 @@ const parseDelivery = (request: DurableSubscribeRequest): DeliveryClass => {
     return queue === true || delivery === 'single' ? 'single' : 'broadcast';
 };
 
-const parseHandlerName = (value: unknown): string | null => {
-    if (value === undefined || value === null) return null;
-    if (typeof value !== 'string' || value.length === 0)
-        throw badRequest('handlerName must be a string', 'bad_request');
-    if (value.length > HANDLER_NAME_MAX_LENGTH)
-        throw badRequest(
-            `handlerName may not exceed ${HANDLER_NAME_MAX_LENGTH} characters`,
-            'bad_request',
-        );
-    return value;
-};
-
-/** Hex digest of the inline source a subscribe claims it is binding. */
-const parseHandlerHash = (value: unknown): string | null => {
-    if (value === undefined || value === null) return null;
-    if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value))
-        throw badRequest(
-            'handlerHash must be a sha-256 hex digest',
-            'bad_request',
-        );
-    return value;
-};
-
 /** An app uid a user session names, for a surface with no app of its own. */
 const parseAppUid = (value: unknown): string | null => {
     if (value === undefined || value === null || value === '') return null;
     if (typeof value !== 'string')
         throw badRequest('appUid must be a string', 'bad_request');
     return value;
-};
-
-/** Stored as JSON text; the byte cap is the store's to enforce. */
-const parseContext = (value: unknown): string | null => {
-    if (value === undefined || value === null) return null;
-    try {
-        return JSON.stringify(value);
-    } catch {
-        throw badRequest('context must be JSON-serializable', 'bad_request');
-    }
 };
 
 /** Unix seconds or an ISO-8601 string, and it has to be in the future. */
@@ -1376,10 +1389,7 @@ export class EventsService extends PuterService {
     readonly #flushing = new Map<string, number>();
     /** Paces settles started by deliveries that found consent withdrawn. */
     readonly #consentSettles = new ConsentSettles();
-    #expirySweep: ReturnType<typeof setInterval> | null = null;
-    #expiryKick: ReturnType<typeof setTimeout> | null = null;
     #pendingSweep: ReturnType<typeof setInterval> | null = null;
-    #creditSweep: ReturnType<typeof setInterval> | null = null;
 
     /**
      * What runs an app's handler. Replaced at start-up by the invoker that
@@ -1406,7 +1416,7 @@ export class EventsService extends PuterService {
             this.worker = new EventsWorkerInvoker(
                 this.clients.eventsWorkerInvoker,
                 (invocation) => this.#mintSubscriberToken(invocation),
-                (appUid) => this.#addressEventsWorker(appUid),
+                (appUid, options) => this.#addressEventsWorker(appUid, options),
                 () => workerRuntimeReady(this.config),
             );
 
@@ -1524,20 +1534,13 @@ export class EventsService extends PuterService {
             });
         });
 
-        this.#armExpirySweep();
         this.#armPendingSweep();
-        this.#armCreditSweep();
+        if (this.enabled) this.#registerJobs();
     }
 
     override onServerPrepareShutdown(): void {
-        if (this.#expiryKick) clearTimeout(this.#expiryKick);
-        this.#expiryKick = null;
-        if (this.#expirySweep) clearInterval(this.#expirySweep);
-        this.#expirySweep = null;
         if (this.#pendingSweep) clearInterval(this.#pendingSweep);
         this.#pendingSweep = null;
-        if (this.#creditSweep) clearInterval(this.#creditSweep);
-        this.#creditSweep = null;
     }
 
     override onServerShutdown(): void {
@@ -1875,18 +1878,18 @@ export class EventsService extends PuterService {
         // present is refused before anything about it is resolved or stored.
         if (
             runsInWorker({ appUid, handlerName }) &&
-            (await this.#hasBackgroundConsent(actor)) !== true
+            (await this.hasBackgroundConsent(actor)) !== true
         )
             throw backgroundConsentRequired();
 
         if (handlerName)
-            await this.#assertHandlerBinding(appUid, handlerName, handlerHash);
+            await this.assertHandlerBinding(appUid, handlerName, handlerHash);
 
         const rawSubject = String(request?.subject ?? '');
         if (includeValue) assertValueDeliverable(rawSubject);
         const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
 
-        let created: { row: DurableSubscription; bump: GenerationBump };
+        let created: DurableCreated;
         try {
             created = await this.stores.durableSubscription.create({
                 holderUserId,
@@ -1913,8 +1916,11 @@ export class EventsService extends PuterService {
                 this.#publishGeneration(err.bump, true);
             throw err;
         }
-        const { row, bump } = created;
-        this.#publishGeneration(bump, true);
+        const { row, bump, reaped } = created;
+        if (bump) this.#publishGeneration(bump, true);
+        for (const trimmed of reaped)
+            if (trimmed.userId !== bump?.userId)
+                this.#publishGeneration(trimmed, true);
 
         return { sub: toDurableView(row) };
     }
@@ -2147,6 +2153,7 @@ export class EventsService extends PuterService {
             !rowInActorScope(actor, row)
         )
             throw unknownSubscription();
+        if (isScheduleRow(row)) throw scheduleSubscription();
 
         const bump = await this.stores.durableSubscription.remove(row);
         // A concurrent duplicate of this same call already removed it.
@@ -2190,6 +2197,7 @@ export class EventsService extends PuterService {
             !rowInActorScope(actor, row)
         )
             throw unknownSubscription();
+        if (isScheduleRow(row)) throw scheduleImmutable();
         if (row.context === context) return { sub: toDurableView(row) };
 
         const updated = await this.stores.durableSubscription.updateContext(
@@ -2267,12 +2275,7 @@ export class EventsService extends PuterService {
         const entryId = String(request?.id ?? '');
         if (!subId || !entryId) throw unknownSubscription();
 
-        const ok = await checkRateLimit(
-            `${EVENTS_ACK_LIMIT.scope}:${holderUserId}`,
-            EVENTS_ACK_LIMIT.limit,
-            EVENTS_ACK_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
+        await spendUserWindow(EVENTS_ACK_LIMIT, holderUserId);
 
         const row = await this.stores.durableSubscription.getBySubId(subId);
         if (
@@ -2567,14 +2570,22 @@ export class EventsService extends PuterService {
     async #suspend(
         rows: readonly DurableSubscription[],
         reason: SuspendedReason,
-        opts: { override?: readonly SuspendedReason[] } = {},
+        opts: {
+            override?: readonly SuspendedReason[];
+            /** What a schedule ended by this records instead of `reason`. */
+            scheduleEndReason?: ScheduleEndReason;
+        } = {},
     ): Promise<DurableSubscription[]> {
         if (rows.length === 0) return [];
 
         const { suspended, bumps } =
-            await this.stores.durableSubscription.suspend(rows, reason, opts);
+            await this.stores.durableSubscription.suspend(rows, reason, {
+                override: opts.override,
+            });
         const policy = backlogPolicyFor(reason);
         for (const row of suspended) {
+            // A schedule's row never holds a backlog.
+            if (isScheduleRow(row)) continue;
             try {
                 if (policy.cap === 0)
                     await this.stores.pendingDelivery.purge(row.subId);
@@ -2598,7 +2609,50 @@ export class EventsService extends PuterService {
             this.#forget(row.subId);
         }
         for (const bump of bumps) this.#publishGeneration(bump, true);
+        await this.#schedulesChanged(suspended, {
+            type: 'suspended',
+            reason,
+            ...(opts.scheduleEndReason
+                ? { endReason: opts.scheduleEndReason }
+                : {}),
+        });
         return suspended;
+    }
+
+    /** Hand the schedules' rows among `rows` to the schedule lifecycle. */
+    async #schedulesChanged(
+        rows: readonly DurableSubscription[],
+        change: ScheduleSubscriptionChange,
+    ): Promise<void> {
+        const schedules = rows.filter(isScheduleRow);
+        if (schedules.length === 0) return;
+        await this.services.schedules?.onSubscriptionsChanged(
+            schedules,
+            change,
+        );
+    }
+
+    /**
+     * Run `settle` over every page of a holder-wide read. Rows a page settles
+     * may leave the set it pages over, so it walks by id rather than offset.
+     * Stops before the next page, or before settling one just read, once
+     * `signal` aborts.
+     */
+    async #eachHolderPage(
+        page: (afterId: number) => Promise<DurablePage>,
+        settle: (rows: DurableSubscription[]) => Promise<number>,
+        signal?: AbortSignal,
+    ): Promise<number> {
+        let settled = 0;
+        let afterId = 0;
+        for (;;) {
+            if (signal?.aborted) return settled;
+            const { rows, nextId } = await page(afterId);
+            if (signal?.aborted) return settled;
+            if (rows.length > 0) settled += await settle(rows);
+            if (nextId === null) return settled;
+            afterId = nextId;
+        }
     }
 
     /**
@@ -2619,6 +2673,8 @@ export class EventsService extends PuterService {
 
         const bumps = await this.stores.durableSubscription.resume(resuming);
         for (const row of resuming) {
+            // A schedule's row holds no backlog, and has no anchor to re-check.
+            if (isScheduleRow(row)) continue;
             try {
                 await this.stores.pendingDelivery.releaseHold(row.subId);
                 await this.#drain(row);
@@ -2631,13 +2687,14 @@ export class EventsService extends PuterService {
             }
         }
         for (const bump of bumps) this.#publishGeneration(bump, true);
+        await this.#schedulesChanged(resuming, { type: 'resumed' });
         return resuming.length;
     }
 
     /**
      * Stop one subscription after its handler kept failing. The counting is the
      * retry path's; this is the state it drives, and the developer is told
-     * because it is their code that stopped working.
+     * because it is their code that stopped working. Called by extensions.
      */
     async suspendForFailures(subId: string): Promise<boolean> {
         return this.#suspendOne(subId, 'failures', { notifyDeveloper: true });
@@ -2655,27 +2712,33 @@ export class EventsService extends PuterService {
     /**
      * Put back what a restored balance releases. The seam credit restoration
      * calls: one holder's rows, one pass, and nothing else has to know how a
-     * suspension is spelled.
+     * suspension is spelled. Stops between pages once `signal` aborts.
      */
-    async resumeForCredit(holderUserId: number): Promise<number> {
+    async resumeForCredit(
+        holderUserId: number,
+        signal?: AbortSignal,
+    ): Promise<number> {
         if (!this.enabled) return 0;
-        return this.resumeSubscriptions(
-            await this.stores.durableSubscription.listSuspendedForHolder(
-                holderUserId,
-                'no_credit',
-            ),
+        return this.#eachHolderPage(
+            (afterId) =>
+                this.stores.durableSubscription.listSuspendedForHolderPage(
+                    holderUserId,
+                    'no_credit',
+                    afterId,
+                ),
+            (rows) => this.resumeSubscriptions(rows),
+            signal,
         );
     }
 
-    /**
-     * Drop rows past their expiry, in batches, and report how many went. Every
-     * node sweeps; the delete is idempotent, so two overlapping costs a few
-     * empty batches rather than correctness.
-     */
-    async sweepExpired(): Promise<number> {
+    /** Drop rows past their expiry, in batches, and report how many went. */
+    async sweepExpired(signal?: AbortSignal): Promise<number> {
         if (!this.enabled) return 0;
-        return this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.sweepExpired(batchSize),
+        return this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.sweepExpired(batchSize),
+            'ended',
+            signal,
         );
     }
 
@@ -2684,13 +2747,19 @@ export class EventsService extends PuterService {
      * revoked subscription never resumes, so the row survives only as the
      * answer its holder gets from `list` when they ask why it stopped.
      */
-    async sweepSuspended(): Promise<number> {
+    async sweepSuspended(signal?: AbortSignal): Promise<number> {
         if (!this.enabled) return 0;
         const cutoff =
             Math.floor(Date.now() / 1000) -
             SUSPENDED_ROW_TTL_DAYS * 24 * 60 * 60;
-        return this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.sweepSuspended(cutoff, batchSize),
+        return this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.sweepSuspended(
+                    cutoff,
+                    batchSize,
+                ),
+            'ended',
+            signal,
         );
     }
 
@@ -2701,20 +2770,26 @@ export class EventsService extends PuterService {
      * existed). Scoped to this one worker name; the same strand for
      * `WorkerDriver`-minted sessions is a separate finding, not covered here.
      */
-    async sweepStrandedWorkerSessions(): Promise<number> {
+    async sweepStrandedWorkerSessions({
+        signal,
+        state,
+        saveState,
+    }: JobRunContext): Promise<number> {
         if (!this.enabled) return 0;
 
         let revoked = 0;
-        let afterId = 0;
-        for (let page = 0; page < WORKER_SESSION_SWEEP_MAX_PAGES; page++) {
+        let afterId = savedAfterId(state);
+        let saved = afterId;
+        for (
+            let page = 0;
+            page < WORKER_SESSION_SWEEP_MAX_PAGES && !signal.aborted;
+            page++
+        ) {
             const rows = await this.stores.session.listWorkerSessions({
                 workerName: EVENTS_WORKER_SESSION_NAME,
                 afterId,
                 limit: WORKER_SESSION_SWEEP_BATCH,
             });
-            if (rows.length === 0) break;
-            afterId = rows[rows.length - 1].id;
-
             const appUids = [
                 ...new Set(rows.map((row) => row.appUid).filter(Boolean)),
             ] as string[];
@@ -2734,7 +2809,16 @@ export class EventsService extends PuterService {
                 }
             }
 
-            if (rows.length < WORKER_SESSION_SWEEP_BATCH) break;
+            // A short page is the end of the table; the next run wraps.
+            afterId =
+                rows.length < WORKER_SESSION_SWEEP_BATCH
+                    ? 0
+                    : rows[rows.length - 1].id;
+            if (afterId !== saved) {
+                await saveState(afterId === 0 ? null : { afterId });
+                saved = afterId;
+            }
+            if (afterId === 0) break;
         }
         return revoked;
     }
@@ -2744,13 +2828,25 @@ export class EventsService extends PuterService {
      * top-up is not something this service hears about, and coupling delivery
      * to the payment path would make one more thing that has to be told. The
      * cost of the delay is bounded by how long a `no_credit` backlog is held.
+     *
+     * Each run picks up where the last one stopped and wraps at the end of the
+     * table, so a backlog past one run's cap is still reached.
      */
-    async sweepNoCredit(): Promise<number> {
+    async sweepNoCredit({
+        signal,
+        state,
+        saveState,
+    }: JobRunContext): Promise<number> {
         if (!this.enabled || !this.services.metering) return 0;
 
         let resumed = 0;
-        let after = 0;
-        for (let pass = 0; pass < NO_CREDIT_SWEEP_MAX_BATCHES; pass++) {
+        let after = savedAfterId(state);
+        let saved = after;
+        for (
+            let pass = 0;
+            pass < NO_CREDIT_SWEEP_MAX_BATCHES && !signal.aborted;
+            pass++
+        ) {
             const page =
                 await this.stores.durableSubscription.listSuspendedPage(
                     'no_credit',
@@ -2759,6 +2855,8 @@ export class EventsService extends PuterService {
                 );
             const holders = new Set(page.rows.map((row) => row.holderUserId));
             for (const holderUserId of holders) {
+                // The page is redone next run.
+                if (signal.aborted) return resumed;
                 const actor = await this.#meterActor({
                     holderUserId,
                     appUid: null,
@@ -2775,22 +2873,37 @@ export class EventsService extends PuterService {
                 } catch {
                     continue;
                 }
-                resumed += await this.resumeForCredit(holderUserId);
+                resumed += await this.resumeForCredit(holderUserId, signal);
             }
-            if (page.nextId === null) break;
-            after = page.nextId;
+            // Interrupted mid-page: keep the checkpoint so the page is redone.
+            if (signal.aborted) return resumed;
+            after = page.nextId ?? 0;
+            if (after !== saved) {
+                await saveState(after === 0 ? null : { afterId: after });
+                saved = after;
+            }
+            if (after === 0) break;
         }
         return resumed;
     }
 
+    /**
+     * Reap in batches until a short one, publishing each batch's bumps so every
+     * region stops delivering against what went, and ending the schedules whose
+     * rows went with `endReason`.
+     */
     async #sweepInBatches(
-        pass: (batchSize: number) => Promise<number>,
+        pass: (batchSize: number) => Promise<DurableReap>,
+        endReason: ScheduleEndReason,
+        signal?: AbortSignal,
     ): Promise<number> {
         let removed = 0;
-        for (let i = 0; i < EXPIRY_MAX_BATCHES; i++) {
-            const batch = await pass(EXPIRY_BATCH_SIZE);
-            removed += batch;
-            if (batch < EXPIRY_BATCH_SIZE) break;
+        for (let i = 0; i < EXPIRY_MAX_BATCHES && !signal?.aborted; i++) {
+            const { rows, bumps } = await pass(EXPIRY_BATCH_SIZE);
+            for (const bump of bumps) this.#publishGeneration(bump, true);
+            removed += rows.length;
+            await this.#schedulesChanged(rows, { type: 'ended', endReason });
+            if (rows.length < EXPIRY_BATCH_SIZE) break;
         }
         return removed;
     }
@@ -2922,12 +3035,7 @@ export class EventsService extends PuterService {
     async #spendHandlerBudget(actor: Actor): Promise<void> {
         const userId = actor.user?.id;
         if (userId === undefined) throw disabled();
-        const ok = await checkRateLimit(
-            `${EVENTS_HANDLER_PUBLISH_LIMIT.scope}:${userId}`,
-            EVENTS_HANDLER_PUBLISH_LIMIT.limit,
-            EVENTS_HANDLER_PUBLISH_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
+        await spendUserWindow(EVENTS_HANDLER_PUBLISH_LIMIT, userId);
     }
 
     /**
@@ -3179,8 +3287,9 @@ export class EventsService extends PuterService {
      * nobody present is not something a narrower credential inherits.
      *
      * `null` when the check itself failed, which is not an answer either way.
+     * Called by extensions.
      */
-    async #hasBackgroundConsent(actor: Actor): Promise<boolean | null> {
+    async hasBackgroundConsent(actor: Actor): Promise<boolean | null> {
         try {
             return await this.services.permission.check(
                 actor,
@@ -3198,9 +3307,9 @@ export class EventsService extends PuterService {
      * Handlers are published per app, so an account-scoped row has no namespace
      * to bind in — the name is stored and binds nothing. An inline body is
      * different: sending a hash _is_ the binding claim, and there is nothing
-     * for it to match.
+     * for it to match. Called by extensions.
      */
-    async #assertHandlerBinding(
+    async assertHandlerBinding(
         appUid: string | null,
         name: string,
         hash: string | null,
@@ -4529,23 +4638,52 @@ export class EventsService extends PuterService {
         // Suspended rows included: the three resumable reasons hold a backlog,
         // and one skipped here comes back in service on the next resume and
         // hands over everything queued after the revocation.
-        const held = await this.stores.durableSubscription.listActiveForHolder(
-            revocation.holderUserId,
-            revocation.appUid,
-            { includeSuspended: true },
-        );
-        const settling = await this.#leftSettling(held, revocation.permission);
-        if (settling.length === 0) return 0;
+        // Withdrawing an app's access wholesale is how it is uninstalled.
+        const scheduleEndReason =
+            revocation.permission === null ? 'uninstalled' : undefined;
+        // A schedule stands only on the app's access and on consent, so a
+        // specific grant can't settle one.
+        const excludeSchedules =
+            revocation.permission !== null &&
+            revocation.permission !== EVENTS_BACKGROUND_PERMISSION;
+        const ended: EndedGroups = new Map();
+        try {
+            return await this.#eachHolderPage(
+                (afterId) =>
+                    this.stores.durableSubscription.listActiveForHolderPage(
+                        revocation.holderUserId,
+                        revocation.appUid,
+                        afterId,
+                        undefined,
+                        { includeSuspended: true, excludeSchedules },
+                    ),
+                async (held) => {
+                    const settling = await this.#leftSettling(
+                        held,
+                        revocation.permission,
+                    );
+                    if (settling.length === 0) return 0;
 
-        // The `permission_revoked` arm of the shared policy purges the backlog
-        // at once: it holds the paths of a resource its holder has just lost
-        // the right to see, and keeping it for a resume that by design never
-        // comes turns a revocation into a delayed disclosure.
-        const suspended = await this.#suspend(settling, 'permission_revoked', {
-            override: RESUMABLE_REASONS,
-        });
-        await this.#notifyEnded(suspended, 'permission_revoked');
-        return suspended.length;
+                    // The `permission_revoked` arm of the shared policy purges
+                    // the backlog at once: it holds the paths of a resource its
+                    // holder has just lost the right to see, and keeping it for
+                    // a resume that by design never comes turns a revocation
+                    // into a delayed disclosure.
+                    const suspended = await this.#suspend(
+                        settling,
+                        'permission_revoked',
+                        {
+                            override: RESUMABLE_REASONS,
+                            ...(scheduleEndReason ? { scheduleEndReason } : {}),
+                        },
+                    );
+                    collectEnded(ended, suspended);
+                    return suspended.length;
+                },
+            );
+        } finally {
+            await this.#reportEnded(ended, 'permission_revoked');
+        }
     }
 
     /**
@@ -4578,23 +4716,38 @@ export class EventsService extends PuterService {
             );
         }
 
-        const held = await this.stores.durableSubscription.listActiveForHolder(
-            retired.userId,
-            null,
-            { includeSuspended: true },
-        );
         const handles = new Set(retired.handles);
-        const settling = held.filter((row) => {
-            const handle = kvHandleFromSubject(row.subject);
-            return handle !== null && handles.has(handle);
-        });
-        if (settling.length === 0) return sessions;
-
-        const suspended = await this.#suspend(settling, 'permission_revoked', {
-            override: RESUMABLE_REASONS,
-        });
-        await this.#notifyEnded(suspended, 'permission_revoked');
-        return sessions + suspended.length;
+        const ended: EndedGroups = new Map();
+        let durable = 0;
+        try {
+            durable = await this.#eachHolderPage(
+                (afterId) =>
+                    this.stores.durableSubscription.listActiveForHolderPage(
+                        retired.userId,
+                        null,
+                        afterId,
+                        undefined,
+                        { includeSuspended: true, excludeSchedules: true },
+                    ),
+                async (held) => {
+                    const settling = held.filter((row) => {
+                        const handle = kvHandleFromSubject(row.subject);
+                        return handle !== null && handles.has(handle);
+                    });
+                    if (settling.length === 0) return 0;
+                    const suspended = await this.#suspend(
+                        settling,
+                        'permission_revoked',
+                        { override: RESUMABLE_REASONS },
+                    );
+                    collectEnded(ended, suspended);
+                    return suspended.length;
+                },
+            );
+        } finally {
+            await this.#reportEnded(ended, 'permission_revoked');
+        }
+        return sessions + durable;
     }
 
     /** End this region's session rows made through these handles. */
@@ -4696,8 +4849,10 @@ export class EventsService extends PuterService {
 
         const holders =
             await this.stores.durableSubscription.listHolderIdsForApp(appUid);
-        await this.#sweepInBatches((batchSize) =>
-            this.stores.durableSubscription.reapForApp(appUid, batchSize),
+        await this.#sweepInBatches(
+            (batchSize) =>
+                this.stores.durableSubscription.reapForApp(appUid, batchSize),
+            'app_deleted',
         );
         await this.stores.eventHandler.deleteForApp(appUid);
         await this.#maybeAnnounceWorkerDestroy(appUid, ownerUserId);
@@ -4746,7 +4901,7 @@ export class EventsService extends PuterService {
             const actor = await resolveGrantActor(row, deps);
             return (
                 actor !== null &&
-                (await this.#hasBackgroundConsent(actor)) === true
+                (await this.hasBackgroundConsent(actor)) === true
             );
         };
         const settling: DurableSubscription[] = [];
@@ -4804,6 +4959,9 @@ export class EventsService extends PuterService {
         row: DurableSubscription,
         permission: string,
     ): boolean {
+        // A schedule stands only on the app's access and on consent, which a
+        // revocation of either settles before it gets here.
+        if (isScheduleRow(row)) return false;
         if (kvHandleFromSubject(row.subject) !== null)
             return kvShareGrantCovers(permission, row.permission);
         if (isKvToken(row.token))
@@ -4823,6 +4981,8 @@ export class EventsService extends PuterService {
         // On the token, like the families below it: the stored subject parses
         // only because a subscribe validated it, and a settle must not start
         // throwing on a row it cannot read.
+        if (isScheduleRow(row))
+            return (await resolveGrantActor(row, this.#aclDeps())) !== null;
         if (isNotifToken(row.token)) {
             const actor = await resolveGrantActor(row, this.#aclDeps());
             if (!actor?.user.uuid) return false;
@@ -5097,26 +5257,29 @@ export class EventsService extends PuterService {
         rows: readonly DurableSubscription[],
         reason: SubscriptionEndReason,
     ): Promise<void> {
-        const groups = new Map<string, DurableSubscription[]>();
-        for (const row of rows) {
-            const key = `${row.holderUserId}|${row.appUid ?? ''}`;
-            groups.set(key, [...(groups.get(key) ?? []), row]);
-        }
-        for (const group of groups.values()) {
-            const [first] = group;
+        const groups: EndedGroups = new Map();
+        collectEnded(groups, rows);
+        await this.#reportEnded(groups, reason);
+    }
+
+    /** Send what {@link collectEnded} gathered, one notification per group. */
+    async #reportEnded(
+        groups: EndedGroups,
+        reason: SubscriptionEndReason,
+    ): Promise<void> {
+        for (const { first, subjects, count } of groups.values()) {
+            const noun = isScheduleRow(first) ? 'schedule' : 'subscription';
             try {
                 await this.services.notification.notify(
                     [first.holderUserId],
                     {
                         title:
-                            group.length === 1
-                                ? 'A subscription ended'
-                                : `${group.length} subscriptions ended`,
+                            count === 1
+                                ? `A ${noun} ended`
+                                : `${count} ${noun}s ended`,
                         subject: first.subject,
-                        subjects: group
-                            .slice(0, ENDED_SUBJECTS_LISTED)
-                            .map((row) => row.subject),
-                        count: group.length,
+                        subjects,
+                        count,
                         reason,
                     },
                     { type: 'app.events.ended', appUid: first.appUid },
@@ -5642,49 +5805,53 @@ export class EventsService extends PuterService {
      */
     async #mintSubscriberToken(
         invocation: WorkerInvocation,
-    ): Promise<string | null> {
+    ): Promise<{ token: string } | { refused: MintRefusal }> {
         const { appUid } = invocation;
-        if (!appUid) return null;
+        if (!appUid) return { refused: 'no-identity' };
 
-        const actor = await resolveGrantActor(
-            {
-                holderUserId: invocation.holderUserId,
-                appUid,
-                permission: SUBSCRIBE_MODE,
-            },
-            this.#aclDeps(),
-        );
-        if (!actor) return null;
+        const actor =
+            invocation.actor ??
+            (await resolveGrantActor(
+                {
+                    holderUserId: invocation.holderUserId,
+                    appUid,
+                    permission: SUBSCRIBE_MODE,
+                },
+                this.#aclDeps(),
+            ));
+        if (!actor) return { refused: 'no-identity' };
 
         // Asked again here: nothing else on the delivery path reads it, the
         // settle that ends a revoked row is best-effort, and what is minted is
         // the app's whole standing for this holder. The permission cache
         // answers it, so only a grant change costs a lookup.
-        const consent = await this.#hasBackgroundConsent(actor);
+        const consent = await this.hasBackgroundConsent(actor);
         if (consent !== true) {
             // A no may be a withdrawal whose settle never ran or failed.
             // Without one the row stays in service, deferred forever.
             if (consent === false) this.#settleLostConsent(actor, appUid);
-            return null;
+            return { refused: 'no-consent' };
         }
 
         try {
-            return await this.services.auth.createWorkerAppToken(
-                actor,
-                appUid,
-                EVENTS_WORKER_SESSION_NAME,
-                {
-                    handlerDepth: invocation.handlerDepth + 1,
-                    expiresInSeconds: EVENTS_HANDLER_TOKEN_TTL_SECONDS,
-                },
-            );
+            return {
+                token: await this.services.auth.createWorkerAppToken(
+                    actor,
+                    appUid,
+                    EVENTS_WORKER_SESSION_NAME,
+                    {
+                        handlerDepth: invocation.handlerDepth + 1,
+                        expiresInSeconds: EVENTS_HANDLER_TOKEN_TTL_SECONDS,
+                    },
+                ),
+            };
         } catch (err) {
             console.warn(
                 '[events] could not mint a delivery token',
                 invocation.subId,
                 err,
             );
-            return null;
+            return { refused: 'mint-failed' };
         }
     }
 
@@ -5765,6 +5932,69 @@ export class EventsService extends PuterService {
         this.clients.eventsWorkerInvoker.setMissHandler(handler);
     }
 
+    // -- Schedules ---------------------------------------------------
+
+    /**
+     * Run one schedule's handler: the depth check, then mint, address and
+     * invoke on the schedule lane. Unlike a delivery it says why nothing ran,
+     * and never spends the delivery invocation limit; schedules have their own.
+     * Called by extensions.
+     */
+    async invokeForSchedule(
+        invocation: WorkerInvocation,
+        options: Pick<WorkerRunOptions, 'stampEvent'> = {},
+    ): Promise<ScheduleInvokeResult> {
+        if (await this.#tooDeep(invocation)) return { outcome: 'too-deep' };
+        // Something other than the worker invoker was put in its place.
+        if (!(this.worker instanceof EventsWorkerInvoker))
+            return this.worker.invoke(invocation);
+        return this.worker.run(invocation, {
+            ...options,
+            lane: 'schedule',
+            missRead: 'replica',
+        });
+    }
+
+    /**
+     * Who a schedule runs as; `null` once its holder or app is gone. Called by
+     * extensions.
+     */
+    resolveScheduleActor(
+        holderUserId: number,
+        appUid: string,
+    ): Promise<Actor | null> {
+        return resolveGrantActor(
+            { holderUserId, appUid, permission: SUBSCRIBE_MODE },
+            this.#aclDeps(),
+        );
+    }
+
+    /**
+     * Whether a schedule's holder can pay for a run. One who can't has the
+     * schedule's row suspended, which parks the schedule, and is told once.
+     * Called by extensions.
+     */
+    chargeableForSchedule(
+        holderUserId: number,
+        appUid: string,
+        subId: string,
+    ): Promise<boolean> {
+        return this.#chargeable(
+            { holderUserId, appUid, deliveryClass: 'single', durable: true },
+            subId,
+        );
+    }
+
+    /** Bill one schedule run, as one single delivery. Called by extensions. */
+    meterScheduleRun(holderUserId: number, appUid: string): Promise<void> {
+        return this.#meterDelivery({
+            holderUserId,
+            appUid,
+            deliveryClass: 'single',
+            durable: true,
+        });
+    }
+
     /**
      * Where an app's handlers currently live: the script its published set
      * hashes to, and the key an invocation of it carries.
@@ -5777,11 +6007,15 @@ export class EventsService extends PuterService {
      */
     async #addressEventsWorker(
         appUid: string,
+        options: AddressOptions = {},
     ): Promise<{ script: string; key: string } | null> {
         if (!workerRuntimeReady(this.config)) return null;
         const secret = this.config.events!.internalSecret!;
 
-        const set = await this.stores.eventHandler.cachedSetForApp(appUid);
+        const set = await this.stores.eventHandler.cachedSetForApp(
+            appUid,
+            options,
+        );
         if (set.length === 0) return null;
 
         // A gone or suspended owner is nobody to deploy or bill this as, so
@@ -6393,22 +6627,12 @@ export class EventsService extends PuterService {
         };
     }
 
-    async #spendCallBudget(userId: number): Promise<void> {
-        const ok = await checkRateLimit(
-            `${EVENTS_SUBSCRIBE_LIMIT.scope}:${userId}`,
-            EVENTS_SUBSCRIBE_LIMIT.limit,
-            EVENTS_SUBSCRIBE_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
+    #spendCallBudget(userId: number): Promise<void> {
+        return spendUserWindow(EVENTS_SUBSCRIBE_LIMIT, userId);
     }
 
-    async #spendUnsubscribeBudget(userId: number): Promise<void> {
-        const ok = await checkRateLimit(
-            `${EVENTS_UNSUBSCRIBE_LIMIT.scope}:${userId}`,
-            EVENTS_UNSUBSCRIBE_LIMIT.limit,
-            EVENTS_UNSUBSCRIBE_LIMIT.window,
-        );
-        if (!ok) throw tooManyCalls();
+    #spendUnsubscribeBudget(userId: number): Promise<void> {
+        return spendUserWindow(EVENTS_UNSUBSCRIBE_LIMIT, userId);
     }
 
     /**
@@ -6465,37 +6689,27 @@ export class EventsService extends PuterService {
         }
     }
 
-    #armExpirySweep(): void {
-        if (!this.enabled) return;
-        const run = () => {
-            void this.sweepExpired()
-                .then(() => this.sweepSuspended())
-                .then(() => this.sweepStrandedWorkerSessions())
-                .catch((err) => {
-                    console.warn('[events] expiry sweep failed', err);
-                });
-        };
-        // Jittered so a deploy does not have every node sweep at once.
-        const kick = setTimeout(
-            run,
-            EXPIRY_SWEEP_INITIAL_DELAY_MS * (0.5 + Math.random()),
-        );
-        kick.unref?.();
-        this.#expiryKick = kick;
-        const sweep = setInterval(run, EXPIRY_SWEEP_INTERVAL_MS);
-        sweep.unref?.();
-        this.#expirySweep = sweep;
-    }
-
-    #armCreditSweep(): void {
-        if (!this.enabled) return;
-        const sweep = setInterval(() => {
-            void this.sweepNoCredit().catch((err) => {
-                console.warn('[events] credit sweep failed', err);
-            });
-        }, NO_CREDIT_SWEEP_INTERVAL_MS);
-        sweep.unref?.();
-        this.#creditSweep = sweep;
+    /** The table sweeps, each run once per cadence across the fleet. */
+    #registerJobs(): void {
+        this.services.jobs.register(EXPIRY_SWEEP_JOB, {
+            every: EXPIRY_SWEEP_EVERY_MS,
+            scope: 'fleet',
+            nearPrimary: true,
+            leaseMs: EXPIRY_SWEEP_LEASE_MS,
+            run: async (ctx) => {
+                await this.sweepExpired(ctx.signal);
+                await this.sweepSuspended(ctx.signal);
+                await this.sweepStrandedWorkerSessions(ctx);
+            },
+        });
+        this.services.jobs.register(NO_CREDIT_SWEEP_JOB, {
+            every: NO_CREDIT_SWEEP_EVERY_MS,
+            scope: 'fleet',
+            leaseMs: NO_CREDIT_SWEEP_LEASE_MS,
+            run: async (ctx) => {
+                await this.sweepNoCredit(ctx);
+            },
+        });
     }
 
     #armPendingSweep(): void {
