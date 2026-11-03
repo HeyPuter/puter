@@ -1,0 +1,42 @@
+-- Copyright (C) 2024-present Puter Technologies Inc.
+--
+-- This file is part of Puter.
+--
+-- Puter is free software: you can redistribute it and/or modify
+-- it under the terms of the GNU Affero General Public License as published
+-- by the Free Software Foundation, either version 3 of the License, or
+-- (at your option) any later version.
+--
+-- This program is distributed in the hope that it will be useful,
+-- but WITHOUT ANY WARRANTY; without even the implied warranty of
+-- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-- GNU Affero General Public License for more details.
+--
+-- You should have received a copy of the GNU Affero General Public License
+-- along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+-- Handlers an app's user published into their own scope, kept apart from
+-- `event_handlers` so code that predates them never reads them. See
+-- sqlite/0101_user-scoped-handlers.sql for the column rationale.
+--
+-- Idempotent: `CREATE TABLE IF NOT EXISTS` with the indexes declared inline,
+-- and a guarded column add. There is no per-file applied-state tracking, so a
+-- replay has to be a no-op.
+
+CREATE TABLE IF NOT EXISTS `event_user_handlers` (
+    `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+    -- Matches `apps`.`uid` exactly, charset included, so an equality against
+    -- one never falls back to a conversion.
+    `app_uid` char(40) CHARACTER SET latin1 COLLATE latin1_swedish_ci NOT NULL,
+    `holder_user_id` int unsigned NOT NULL,
+    `name` varchar(128) NOT NULL,
+    `source` mediumtext NOT NULL,
+    `source_hash` char(64) NOT NULL,
+    `created_at` bigint NOT NULL,
+    `updated_at` bigint NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `idx_event_user_handlers_app_holder_name` (`app_uid`, `holder_user_id`, `name`),
+    KEY `idx_event_user_handlers_holder_app` (`holder_user_id`, `app_uid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CALL _puter_add_col('event_subscriptions', 'handler_scope', '`handler_scope` tinyint unsigned NOT NULL DEFAULT 0');
