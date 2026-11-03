@@ -43,6 +43,7 @@ import { PuterDriver } from '../types.js';
 import { BoundedTtlMap } from '../../util/boundedTtlMap.js';
 import { awaitLater } from '../../util/concurrency.js';
 import { isUniqueViolation } from '../../util/dbError.js';
+import { assertRentedUnitRoom } from '../../util/rentedUnits.js';
 import { loadFileInput } from '../util/fileInput.js';
 import {
     normalizeLimit,
@@ -57,7 +58,6 @@ const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 export const WORKER_COMPATIBILITY_DATE = '2025-07-15';
 export const WORKER_COMPATIBILITY_FLAGS = ['global_fetch_strictly_public'];
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
-const MAX_WORKERS_PER_USER = 100;
 
 /**
  * Opt-in key for `create()` that skips the admission checks a _new_ worker has
@@ -188,8 +188,8 @@ export interface InternalDeployTarget {
 
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
 // How far to scan an app's child apps when resolving which workers it may
-// see. A user is capped at MAX_WORKERS_PER_USER workers, so only that many
-// child apps can actually own one; the ceiling is generous slack over that.
+// see. A user is capped at their plan's rented units, so only that many
+// child apps can actually own a worker; the ceiling is generous slack over that.
 const CHILD_APP_SCAN_LIMIT = 1000;
 
 // -- Preamble --------------------------------------------------------
@@ -457,25 +457,16 @@ export class WorkerDriver extends PuterDriver {
 
         this.#requireCfConfig();
 
-        // Quota check — count existing workers.puter.* subdomains owned by user
-        //
-        // A deploy target creates no such row, so this count can neither see
-        // its scripts nor be grown by them; running it would only make an
-        // unrelated worker quota decide whether these deploy. Whatever bounds
-        // them has to be counted where they actually live, and belongs to the
-        // caller that owns their lifecycle.
-        const existingWorkers =
-            skipAdmission || deployTarget
-                ? []
-                : await this.stores.subdomain.listByUserIdAndPrefix(
-                      actor.user.id,
-                      WORKER_SUBDOMAIN_PREFIX,
-                  );
-        if (existingWorkers.length >= MAX_WORKERS_PER_USER) {
-            throw new HttpError(
-                403,
-                `Worker limit reached (max ${MAX_WORKERS_PER_USER})`,
-                { legacyCode: 'forbidden' },
+        // A new worker is one more rented unit. Deploy targets create no
+        // worker row and are bounded by their own caller; redeploying an
+        // existing worker is never refused.
+        if (!skipAdmission && !deployTarget && !existingSub) {
+            await assertRentedUnitRoom(
+                {
+                    stores: this.stores,
+                    metering: this.services.metering,
+                },
+                actor,
             );
         }
 

@@ -302,6 +302,13 @@ export const EVENTS_WORKER_DEPLOYS_PER_HOUR = 30;
 export const EVENTS_USER_WORKER_DEPLOYS_PER_HOUR = 10;
 
 /**
+ * Units one user may rent at once: ordinary workers, user scopes, and the
+ * events workers of apps they own. Only creating a unit is refused; holdings
+ * over the cap are kept.
+ */
+export const RENTED_UNITS_PER_USER = tiered(100, 16, 16);
+
+/**
  * Handlers one `publishAll` may carry. A build step publishes its whole set in
  * one call, and the set is capped by what an app may hold anyway.
  */
