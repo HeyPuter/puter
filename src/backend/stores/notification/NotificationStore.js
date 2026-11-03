@@ -315,6 +315,30 @@ export class NotificationStore extends PuterStore {
         return rows.map((r) => this.#normalizeRow(r));
     }
 
+    /**
+     * The newest row id in a mailbox slice, or null when it has none. Scoped
+     * like `listScoped`; rows of every type count.
+     *
+     * @param {number} userId
+     * @param {{ audience: string; appUid?: string | null }} scope
+     * @returns {Promise<number | null>}
+     */
+    async latestScopedId(userId, { audience, appUid }) {
+        const { where, params } = sliceWhere(userId, {
+            audience,
+            appUid,
+            excludeTypes: [],
+        });
+        const [row] = await this.clients.db.read(
+            `SELECT \`id\` FROM \`notification\`
+             WHERE ${where.join(' AND ')}
+             ORDER BY \`id\` DESC
+             LIMIT 1`,
+            params,
+        );
+        return row ? Number(row.id) : null;
+    }
+
     // -- Writes -------------------------------------------------------
 
     /**
