@@ -238,16 +238,59 @@ const turnedOff = () =>
         'push_verification_canceled',
     );
 
-/** Whether `buffer` is the key Puter last subscribed this origin with. */
-const earlierPuterKey = async (buffer) => {
+/** The key Puter last subscribed this origin with, or null. */
+const storedPuterKey = async () => {
     try {
         const stored = await idbGet(HANDLERS_STORE, SERVER_KEY_ENTRY);
-        return (
-            typeof stored === 'string' && sameKey(buffer, fromBase64Url(stored))
-        );
+        return typeof stored === 'string' ? fromBase64Url(stored) : null;
     } catch {
-        return false;
+        return null;
     }
+};
+
+/** Whether `buffer` is the key Puter last subscribed this origin with. */
+const earlierPuterKey = async (buffer) => {
+    const stored = await storedPuterKey();
+    return !!stored && sameKey(buffer, stored);
+};
+
+/** Puter's key as stored here, else as the server gives it, else null. */
+const puterKey = async (puter, authToken) => {
+    const stored = await storedPuterKey();
+    if (stored) return stored;
+    try {
+        const { publicKey } = await request(
+            puter,
+            'GET',
+            '/push/web/key',
+            undefined,
+            { authToken, interactiveReauth: false },
+        );
+        return typeof publicKey === 'string' && publicKey !== ''
+            ? fromBase64Url(publicKey)
+            : null;
+    } catch {
+        return null;
+    }
+};
+
+/** Subscriptions with Puter's key, at `worker` or anywhere on the origin. */
+const puterSubscriptions = async (puter, { worker, authToken, nav }) => {
+    const registrations = worker
+        ? [await nav.serviceWorker.getRegistration(worker.scope ?? worker.url)]
+        : await nav.serviceWorker.getRegistrations();
+    const subscriptions = (
+        await Promise.all(
+            registrations.map((r) => r?.pushManager.getSubscription()),
+        )
+    ).filter(Boolean);
+    // The GUI's own worker carries Puter's subscription only.
+    if (subscriptions.length === 0 || puter.env === 'gui') return subscriptions;
+    const key = await puterKey(puter, authToken);
+    if (!key) return [];
+    return subscriptions.filter((subscription) =>
+        sameKey(subscription.options?.applicationServerKey, key),
+    );
 };
 
 const rememberPuterKey = async (publicKey) => {
@@ -282,7 +325,7 @@ const register = async (
     puter,
     nav,
     subscribe,
-    { label, onPending, signal, interactive, whileWanted },
+    { label, onPending, signal, interactive, whileWanted, onAnnounced },
 ) => {
     /** @type {ReturnType<typeof nextChallenge> | null} */
     let challenge = null;
@@ -291,10 +334,15 @@ const register = async (
             const subscription = await subscribe();
             // Before the POST: the confirmation can arrive before it returns.
             challenge = nextChallenge(nav, signal);
-            return {
+            const result = await announce(
+                puter,
                 subscription,
-                result: await announce(puter, subscription, label, interactive),
-            };
+                label,
+                interactive,
+            );
+            if (signal?.aborted) throw turnedOff();
+            await onAnnounced?.();
+            return { subscription, result };
         });
         if (result.status === 'active') return result.device;
         onPending?.();
@@ -334,6 +382,7 @@ const register = async (
  *     interactive?: boolean;
  *     stillWanted?: () => boolean | Promise<boolean>;
  *     withLock?: <T>(run: () => Promise<T>) => Promise<T>;
+ *     onAnnounced?: () => Promise<void>;
  * }} options
  *   `onPending` runs once the server has the subscription and only its
  *   confirmation is left. Aborting `signal` stops waiting for that
@@ -342,7 +391,8 @@ const register = async (
  *   `push_device_removed`. `interactive` lets a rejected token open Puter's
  *   sign-in for the key and the subscription; the confirmation never does.
  *   Subscribing and confirming each run in `withLock` while `stillWanted`
- *   holds, else reject with `push_verification_canceled`.
+ *   holds, else reject with `push_verification_canceled`. `onAnnounced` runs in
+ *   the same lock once the server has the subscription.
  * @returns {Promise<Record<string, unknown>>} The server's device record.
  */
 export async function syncWebPush(
@@ -357,6 +407,7 @@ export async function syncWebPush(
         interactive = false,
         stillWanted = () => true,
         withLock = (run) => run(),
+        onAnnounced,
     },
 ) {
     const { publicKey } = await request(
@@ -384,6 +435,7 @@ export async function syncWebPush(
         onPending,
         signal,
         interactive,
+        onAnnounced,
         whileWanted: (run) =>
             withLock(async () => {
                 if (signal?.aborted || !(await stillWanted()))
@@ -445,31 +497,53 @@ export async function webPushState(puter, endpoint) {
     }
 }
 
-/**
- * Ends this browser's subscription for `worker` and tells the server, with
- * `authToken` in place of the live token when given.
- */
+/** Ends Puter's subscriptions in the browser only; resolves their endpoints. */
+export async function unsubscribeWebPush(
+    puter,
+    { worker = null, authToken, nav = globalThis.navigator } = {},
+) {
+    const subscriptions = await puterSubscriptions(puter, {
+        worker,
+        authToken,
+        nav,
+    });
+    for (const subscription of subscriptions) {
+        try {
+            await subscription.unsubscribe();
+        } catch {
+            // Already gone, or the browser can't tell.
+        }
+    }
+    return subscriptions.map((subscription) => subscription.endpoint);
+}
+
+/** `unsubscribeWebPush`, then the server; resolves whether there was one. */
 export async function removeWebPush(
     puter,
-    { worker, authToken, nav = globalThis.navigator } = {},
+    {
+        worker = null,
+        authToken,
+        keepalive = false,
+        nav = globalThis.navigator,
+    } = {},
 ) {
-    const registration = await nav.serviceWorker.getRegistration(
-        worker.scope ?? worker.url,
+    const endpoints = await unsubscribeWebPush(puter, {
+        worker,
+        authToken,
+        nav,
+    });
+    await Promise.all(
+        endpoints.map((endpoint) =>
+            request(
+                puter,
+                'DELETE',
+                '/push/web/subscriptions',
+                { endpoint },
+                { authToken, interactiveReauth: false, keepalive },
+            ),
+        ),
     );
-    const subscription = await registration?.pushManager.getSubscription();
-    if (!subscription) return false;
-    try {
-        await request(
-            puter,
-            'DELETE',
-            '/push/web/subscriptions',
-            { endpoint: subscription.endpoint },
-            { authToken, interactiveReauth: false },
-        );
-    } finally {
-        await subscription.unsubscribe();
-    }
-    return true;
+    return endpoints.length > 0;
 }
 
 /** This browser's subscription for `worker`, or null. */

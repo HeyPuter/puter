@@ -22,6 +22,7 @@ import {
     currentWebPush,
     removeWebPush,
     syncWebPush,
+    unsubscribeWebPush,
     webPushState,
     webPushSupported,
     workerFor,
@@ -78,12 +79,19 @@ const warnStorage = (error) => {
     );
 };
 
-/** Runs `run` alone among the site's tabs, where the browser has Web Locks. */
-const withPushLock = (run) => {
-    const locks = globalThis.navigator?.locks;
-    return typeof locks?.request === 'function'
-        ? locks.request(PUSH_LOCK, () => run())
-        : run();
+/** Runs `run` alone among the site's tabs, or as is where Web Locks refuse. */
+const withPushLock = async (run) => {
+    let started = false;
+    const start = () => {
+        started = true;
+        return run();
+    };
+    try {
+        return await globalThis.navigator.locks.request(PUSH_LOCK, start);
+    } catch (error) {
+        if (started) throw error;
+        return await start();
+    }
 };
 
 /** Hidden, or in a window without focus. */
@@ -217,6 +225,10 @@ export class NotificationsModule extends EventListener {
      * doesn't register this browser after them.
      */
     #stopVerifying = new AbortController();
+    /** The cleanup after a user change, which `enable()` waits for. */
+    #userChange = Promise.resolve();
+    /** The token whose push state sign-out already ended. */
+    #forgottenToken = null;
 
     /** @param {import('../../index.js').Puter} puter */
     constructor(puter) {
@@ -243,6 +255,7 @@ export class NotificationsModule extends EventListener {
         ]) {
             methods[name] = methods[name].bind(this);
         }
+        if (puter.env === 'web') this.#watchUser();
     }
 
     /**
@@ -344,7 +357,7 @@ export class NotificationsModule extends EventListener {
 
     /**
      * `onPush`'s sync on load, once per worker: only for a user who turned push
-     * on here with `enable()`.
+     * on here with `enable()`, else Puter's subscription here ends.
      *
      * @param {{ url: string; scope?: string }} worker
      * @internal
@@ -375,6 +388,7 @@ export class NotificationsModule extends EventListener {
      * @internal
      */
     async _enableWebPush(worker) {
+        await this.#userChange;
         this.#useWorker(worker);
         this.#listenForOptInChanges();
         /** @type {() => void} */
@@ -390,6 +404,7 @@ export class NotificationsModule extends EventListener {
             renewRemoved: true,
             interactive: true,
             withLock: withPushLock,
+            onAnnounced: () => this.#recordOptIn(true),
         });
         try {
             // The GUI reads the registered device right after.
@@ -408,7 +423,6 @@ export class NotificationsModule extends EventListener {
             );
         }
         this.#workerRegistered = true;
-        await this.#recordOptIn(true);
         void this.#finishSync(
             syncing,
             worker,
@@ -418,9 +432,9 @@ export class NotificationsModule extends EventListener {
 
     /**
      * `disable()`: ends this browser's subscription and forgets every opt-in
-     * here.
+     * here. A website without a `worker` ends Puter's wherever it is.
      *
-     * @param {{ url: string; scope?: string }} worker
+     * @param {{ url: string; scope?: string } | null} worker
      * @returns {Promise<boolean>}
      * @internal
      */
@@ -468,29 +482,78 @@ export class NotificationsModule extends EventListener {
     }
 
     /**
-     * Sign-out on a website: removes this browser's subscription with the token
-     * of the user leaving, and forgets their opt-in and taps. Never throws.
+     * Sign-out on a website: forgets every opt-in and tap here, ends Puter's
+     * subscription in the browser, then removes it with the token of the user
+     * leaving. Never throws.
      *
      * @param {string | null | undefined} authToken
      * @internal
      */
     async _forgetPush(authToken) {
         if (this.puter.env !== 'web') return;
+        this.#forgottenToken = authToken ?? null;
         this.#stopSyncs();
-        try {
-            if (authToken && webPushSupported()) {
-                await removeWebPush(this.puter, {
-                    worker: this.#worker ?? workerFor('web'),
-                    authToken,
-                });
+        this.#optInChanged('off');
+        await withPushLock(async () => {
+            await this.#forgetOptIns();
+            if (!webPushSupported()) return;
+            try {
+                await (authToken
+                    ? removeWebPush(this.puter, { authToken, keepalive: true })
+                    : unsubscribeWebPush(this.puter));
+            } catch (error) {
+                console.warn(
+                    '[puter.notifications] could not remove the push subscription at sign-out',
+                    error,
+                );
             }
-        } catch (error) {
-            console.warn(
-                '[puter.notifications] could not remove the push subscription at sign-out',
-                error,
-            );
-        }
-        await this.#forgetOptIns();
+        });
+    }
+
+    /** Another user signing in here ends push for the last one, as sign-out. */
+    #watchUser() {
+        /** @type {{ token: string; user: Promise<string | null> } | null} */
+        let last = null;
+        const note = () => {
+            const token = this.puter.authToken;
+            // Signed in again with it, so a later change cleans up again.
+            if (token && token === this.#forgottenToken)
+                this.#forgottenToken = null;
+            if (!token || token === last?.token) return;
+            const previous = last;
+            last = { token, user: this.#tokenUser(token) };
+            if (previous) {
+                this.#userChange = Promise.all([
+                    this.#userChange,
+                    this.#forgetIfAnotherUser(previous, last),
+                ]);
+            }
+        };
+        note();
+        this.puter.onAuthStateChanged?.(note);
+    }
+
+    async #forgetIfAnotherUser(previous, current) {
+        if (previous.token === this.#forgottenToken) return;
+        const [was, now] = await Promise.all([previous.user, current.user]);
+        if (was && now && was !== now) await this._forgetPush(previous.token);
+    }
+
+    /** The user `token` names: its `uu` claim, else its cached `/whoami`. */
+    async #tokenUser(token) {
+        const claim = this.puter.decodeJwtPayload?.(token)?.uu;
+        const named =
+            typeof claim === 'string'
+                ? this.puter
+                      .decodeCompressedAppID?.(claim)
+                      ?.replace(/^app-/, '')
+                : null;
+        if (named) return named;
+        // `setAuthToken` starts that lookup right after telling its listeners.
+        await null;
+        if (this.puter.authToken !== token) return null;
+        const user = await this.puter.whoamiCache_;
+        return typeof user?.uuid === 'string' ? user.uuid : null;
     }
 
     #useWorker(worker) {
@@ -562,20 +625,22 @@ export class NotificationsModule extends EventListener {
         this.#optInVersion++;
     }
 
-    /** The signed-in user's opt-in, read from IndexedDB into `#optedIn`. */
+    /** The user's opt-in, read into `#optedIn`; null when it can't be read. */
     async #readOptIn() {
         this.#listenForOptInChanges();
         const version = this.#optInVersion;
+        /** @type {boolean | null} */
         let on = false;
         try {
-            const uuid = needsSignIn(this.puter)
-                ? null
-                : await this.#userUuid();
-            on = !!uuid && (await hasOptIn(uuid));
+            if (!needsSignIn(this.puter)) {
+                const uuid = await this.#userUuid();
+                on = uuid ? await hasOptIn(uuid) : null;
+            }
         } catch (error) {
             warnStorage(error);
+            on = null;
         }
-        if (version === this.#optInVersion) this.#optedIn = on;
+        if (version === this.#optInVersion) this.#optedIn = on === true;
         return on;
     }
 
@@ -603,17 +668,31 @@ export class NotificationsModule extends EventListener {
     }
 
     async #syncIfOptedIn(worker) {
-        if (!(await this.#readOptIn())) return;
+        const optedIn = await this.#readOptIn();
+        if (optedIn === false) await this.#endUnwanted();
+        if (!optedIn) return;
         await this.#finishSync(
             syncWebPush(this.puter, {
                 worker,
                 signal: this.#stopVerifying.signal,
-                stillWanted: () => this.#readOptIn(),
+                stillWanted: async () => (await this.#readOptIn()) === true,
                 withLock: withPushLock,
             }),
             worker,
             'could not keep the push subscription current',
         );
+    }
+
+    /** Ends a subscription left here without an opt-in, in the browser only. */
+    async #endUnwanted() {
+        await withPushLock(async () => {
+            if ((await this.#readOptIn()) !== false) return;
+            try {
+                await unsubscribeWebPush(this.puter);
+            } catch {
+                // The next load tries again.
+            }
+        });
     }
 
     /** Settles a sync nobody waits on; quiet about the expected failures. */

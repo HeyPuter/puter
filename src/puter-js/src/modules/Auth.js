@@ -530,14 +530,16 @@ export class AuthModule extends PuterModule {
 
     /**
      * Signs the user out of this app by discarding its auth token. On a
-     * website, this browser's push subscription for the app is removed too.
+     * website, this browser's push subscription for the app is removed too. The
+     * token is gone at once; the promise resolves once the subscription is.
      *
-     * @type {() => void}
+     * @type {() => Promise<void>}
      */
-    signOut = () => {
+    signOut = async () => {
         // Started first, so it still holds the token of the user leaving.
-        void puter.notifications?._forgetPush?.(puter.authToken);
+        const forgetting = puter.notifications?._forgetPush?.(puter.authToken);
         puter.resetAuthToken();
+        await forgetting;
     };
 
     /**
