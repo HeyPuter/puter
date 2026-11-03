@@ -683,6 +683,29 @@ describe('starting from the end', () => {
         });
     });
 
+    it('returns a replacement stamped by a clock behind the server`s', async () => {
+        await clearMailboxes();
+        const behind = Date.now() - 60_000;
+        const [early, late] = [await message('early'), await message('late')];
+        const replace = (uid: string, title: string, replacedAt: number) =>
+            env.server.stores.notification.updateValue(
+                uid,
+                userId,
+                { type: 'app.message', title },
+                { onlyUnseen: true, replacedAt },
+            );
+        await replace(early, 'replaced before', behind - 1_000);
+        const cursor = await fromEnd();
+
+        await replace(late, 'replaced after', behind);
+
+        const next = await fetchPage(appToken, { subject: SUBJECT, cursor });
+        expect(uidsOf(next)).toEqual([late]);
+        expect(next.body.items![0]).toMatchObject({
+            notification: { title: 'replaced after' },
+        });
+    });
+
     it('keeps to the slice the subject names', async () => {
         await clearMailboxes();
         await message('own before');

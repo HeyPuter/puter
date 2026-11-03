@@ -2105,24 +2105,25 @@ export class EventsService extends PuterService {
     }
 
     /**
-     * An empty page whose cursor sits at the newest row of `scope`: reads from
-     * it return rows inserted later and rows replaced from now on.
+     * An empty page whose cursor sits at the newest row of `scope` and at its
+     * latest replacement: reads from it return rows inserted or replaced
+     * later.
      */
     async #fetchEnd(
         userId: number,
         scope: NotifFetchScope,
     ): Promise<PageResult<ProjectedNotifEvent>> {
-        const replacedAt = Date.now();
-        const latest = await this.stores.notification.latestScopedId(userId, {
-            audience: scope.audience,
-            appUid: scope.appUid,
-        });
+        const slice = { audience: scope.audience, appUid: scope.appUid };
+        const [latest, replaced] = await Promise.all([
+            this.stores.notification.latestScopedId(userId, slice),
+            this.stores.notification.latestScopedReplacement(userId, slice),
+        ]);
         return {
             items: [],
             cursor: sealCursor(
                 notifFetchCursor({
                     id: latest ?? 0,
-                    replaced: { replacedAt, id: 0 },
+                    replaced: replaced ?? { replacedAt: 0, id: 0 },
                 }),
                 this.config.jwt_secret_v2,
             ),

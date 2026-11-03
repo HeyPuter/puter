@@ -438,6 +438,33 @@ describe('NotificationStore', () => {
         expect(await latest('account', undefined)).toBeNull();
     });
 
+    it('finds the latest replacement of a slice, or null when none', async () => {
+        const u = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const write = (inApp = appUid) =>
+            store.create({
+                userId: u.id,
+                value: {},
+                audience: 'app-user',
+                appUid: inApp,
+            });
+        const latest = () =>
+            store.latestScopedReplacement(u.id, {
+                audience: 'app-user',
+                appUid,
+            });
+
+        const a = await write();
+        const b = await write();
+        const otherApp = await write(`app-${uuidv4()}`);
+        expect(await latest()).toBeNull();
+
+        await store.updateValue(a.uid, u.id, {}, { replacedAt: 2_000 });
+        await store.updateValue(b.uid, u.id, {}, { replacedAt: 2_000 });
+        await store.updateValue(otherApp.uid, u.id, {}, { replacedAt: 9_000 });
+        expect(await latest()).toEqual({ replacedAt: 2_000, id: Number(b.id) });
+    });
+
     // -- mutations -----------------------------------------------------
 
     it('acknowledges only once and only for the owning user', async () => {
