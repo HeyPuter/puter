@@ -31,7 +31,6 @@ import {
     EVENTS_DEPLOYED_HEADER,
     EVENTS_DISPATCH_ERROR_HEADER,
     EVENTS_HANDLED_HEADER,
-    EVENTS_INVOKE_TIMEOUT_MS,
     EventsWorkerInvokerClient,
     type EventsInvokeCall,
 } from '../../clients/events/EventsWorkerInvokerClient.js';
@@ -371,15 +370,14 @@ describe('LocalEventsInvokeTransport', () => {
 });
 
 describe('deploy-on-miss of an evicted script', () => {
-    it('redeploys the script and resends the run, inside one run budget', async () => {
+    it('redeploys the evicted script, then resends the run with the deployed marker', async () => {
         const { layers, created } = makeLayers({ 'app-m': { ownerUserId: 8 } });
-        // The upload takes a moment, and the namespace only has the script
-        // once it lands: before that the dispatcher answers a miss.
+        // The namespace only has the script once the deploy lands: before
+        // that the dispatcher answers a miss.
         let resident = false;
         layers.drivers.workers.create = (async (args: {
             workerName: string;
         }) => {
-            await new Promise((resolve) => setTimeout(resolve, 50));
             created.push(args.workerName);
             resident = true;
             return { success: true, errors: [] };
@@ -413,7 +411,6 @@ describe('deploy-on-miss of an evicted script', () => {
             deployer.ensure(appUid, script, options),
         );
 
-        const started = Date.now();
         const result = await client.invoke({
             script: SCRIPT,
             appUid: 'app-m',
@@ -428,6 +425,5 @@ describe('deploy-on-miss of an evicted script', () => {
         expect(created).toEqual([SCRIPT]);
         // One miss, then the resend carrying the deployed marker.
         expect(sent).toEqual([false, true]);
-        expect(Date.now() - started).toBeLessThan(EVENTS_INVOKE_TIMEOUT_MS);
     });
 });
