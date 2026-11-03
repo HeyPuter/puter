@@ -5368,13 +5368,16 @@ export class EventsService extends PuterService {
         )
             return;
         try {
+            // Most holders have no scope, and asking consent is the costly part.
+            const scope = { appUid, holder: holderUserId };
+            if ((await this.stores.eventHandler.countForApp(scope)) === 0)
+                return;
             const actor = await resolveGrantActor(
                 { holderUserId, appUid, permission: SUBSCRIBE_MODE },
                 this.#aclDeps(),
             );
             if (!actor || (await this.hasBackgroundConsent(actor)) !== false)
                 return;
-            const scope = { appUid, holder: holderUserId };
             if (
                 (await this.stores.eventHandler.deleteUserScope(
                     appUid,

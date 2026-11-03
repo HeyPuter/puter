@@ -1100,33 +1100,238 @@ describe('subscription views', () => {
     });
 });
 
-// Firing resolves app-scope sets only, so a row bound to a user-scope handler
-// has to wait rather than run against the wrong set or be failed.
 describe('firing a user-scope row', () => {
-    it('leaves a delivery owed instead of running or failing it', async () => {
+    const inlineQueue = async () => {
         const created = await subscribe(userToken, {
             subject: `fs:${anchor}`,
             queue: true,
             handlerSource: SOURCE,
         });
         expect(created.status).toBe(200);
-        const invoke = vi.fn();
+        return String(created.body.subId);
+    };
+    const withSeam = () => {
+        const invoke = vi.fn().mockResolvedValue({ outcome: 'settled' });
         const previous = events().worker;
         events().worker = { invoke } as never;
         onTestFinished(() => {
             events().worker = previous;
         });
-
+        return invoke;
+    };
+    const touchAnchor = async () => {
         await env.server.services.fs.touch(userId, {
             path: `${anchor}/${uuidv4()}.txt`,
         });
         await new Promise((resolve) => setTimeout(resolve, 300));
+    };
+
+    it('hands the seam the row with its scope and the handler it is bound to', async () => {
+        const subId = await inlineQueue();
+        const invoke = withSeam();
+
+        await touchAnchor();
+
+        expect(invoke).toHaveBeenCalledTimes(1);
+        expect(invoke.mock.calls[0][0]).toMatchObject({
+            subId,
+            holderUserId: userId,
+            appUid,
+            handlerName: `@${hashContent(SOURCE)}`,
+            handlerScope: 'user',
+        });
+    });
+
+    it('leaves an app-scope row without a scope on its invocation', async () => {
+        await publishApp(userToken, 'app-handler', SOURCE);
+        await subscribe(userToken, {
+            subject: `fs:${anchor}`,
+            queue: true,
+            handlerName: 'app-handler',
+        });
+        const invoke = withSeam();
+
+        await touchAnchor();
+
+        expect(invoke).toHaveBeenCalledTimes(1);
+        expect(invoke.mock.calls[0][0].handlerScope).toBeUndefined();
+    });
+
+    it('leaves a delivery owed, unsuspended, with the flag off', async () => {
+        const subId = await inlineQueue();
+        const invoke = withSeam();
+        (
+            events() as unknown as { config: IConfig }
+        ).config.events!.userHandlers = false;
+
+        await touchAnchor();
 
         expect(invoke).not.toHaveBeenCalled();
-        const row = await env.server.stores.durableSubscription.getBySubId(
-            String(created.body.subId),
-        );
+        const row =
+            await env.server.stores.durableSubscription.getBySubId(subId);
         expect(row?.suspendedAt).toBeNull();
+        expect(await env.server.stores.pendingDelivery.depth(subId)).toBe(1);
+    });
+});
+
+describe('suspension notices', () => {
+    it('tells the holder, and not the app`s developer, when their handler is removed under a row', async () => {
+        const notify = vi.spyOn(env.server.services.notification, 'notify');
+        await publishUser(otherToken, 'watcher', SOURCE);
+        const created = await subscribe(otherToken, {
+            subject: `fs:${otherAnchor}`,
+            queue: true,
+            handlerName: 'watcher',
+            handlerScope: 'user',
+        });
+        expect(created.status).toBe(200);
+
+        await removeUser(otherToken, 'watcher');
+
+        await vi.waitFor(() =>
+            expect(notify).toHaveBeenCalledWith(
+                [otherUserId],
+                expect.objectContaining({ handler: 'watcher' }),
+                expect.objectContaining({
+                    type: 'app.events.handler_suspended',
+                    appUid,
+                }),
+            ),
+        );
+        expect(
+            notify.mock.calls.some(
+                ([, , options]) =>
+                    (options as { type?: string }).type ===
+                    'app.events.suspended',
+            ),
+        ).toBe(false);
+        // The developer owns the app and is a different user from the holder.
+        expect(
+            notify.mock.calls.some(([recipients]) =>
+                (recipients as number[]).includes(userId),
+            ),
+        ).toBe(false);
+    });
+
+    it('still tells the developer for a removed app-scope handler', async () => {
+        const notify = vi.spyOn(env.server.services.notification, 'notify');
+        await publishApp(userToken, 'app-watcher', SOURCE);
+        await subscribe(otherToken, {
+            subject: `fs:${otherAnchor}`,
+            queue: true,
+            handlerName: 'app-watcher',
+        });
+
+        await call('POST', '/events/handlers/remove', userToken, {
+            name: 'app-watcher',
+        });
+
+        await vi.waitFor(() =>
+            expect(notify).toHaveBeenCalledWith(
+                [userId],
+                expect.objectContaining({ handler: 'app-watcher' }),
+                expect.objectContaining({ type: 'app.events.suspended' }),
+            ),
+        );
+    });
+});
+
+describe('the unbound handler sweep', () => {
+    const DAY = 24 * 60 * 60;
+    const age = (scope: HandlerScope, name: string, seconds: number) => {
+        const table =
+            scope.holder === 0 ? 'event_handlers' : 'event_user_handlers';
+        return env.server.clients.db.write(
+            `UPDATE \`${table}\` SET \`updated_at\` = ? WHERE \`app_uid\` = ? AND \`name\` = ?`,
+            [Math.floor(Date.now() / 1000) - seconds, scope.appUid, name],
+        );
+    };
+    const names = async (scope: HandlerScope) =>
+        (await store().listForApp(scope)).map((handler) => handler.name);
+
+    it('deletes an unbound handler past a day, and keeps a younger one', async () => {
+        await publishUser(userToken, 'old', SOURCE);
+        await publishUser(userToken, 'young', OTHER_SOURCE);
+        await age(userScope(userId), 'old', DAY + 60);
+        await age(userScope(userId), 'young', DAY - 600);
+
+        expect(
+            await events().sweepUnboundUserHandlers(),
+        ).toBeGreaterThanOrEqual(1);
+
+        expect(await names(userScope(userId))).toEqual(['young']);
+    });
+
+    it('keeps a handler a row is bound to, including a suspended one', async () => {
+        const created = await subscribe(userToken, {
+            subject: `fs:${anchor}`,
+            queue: true,
+            handlerSource: SOURCE,
+        });
+        const name = String(created.body.handlerName);
+        const row = (await env.server.stores.durableSubscription.getBySubId(
+            String(created.body.subId),
+        ))!;
+        await events().suspendSubscriptions([row], 'failures');
+        await age(userScope(userId), name, 3 * DAY);
+
+        await events().sweepUnboundUserHandlers();
+
+        expect(await names(userScope(userId))).toEqual([name]);
+
+        // Once nothing is bound to it, it goes.
+        await env.server.clients.db.write(
+            'DELETE FROM `event_subscriptions` WHERE `sub_id` = ?',
+            [row.subId],
+        );
+        await events().sweepUnboundUserHandlers();
+        expect(await names(userScope(userId))).toEqual([]);
+    });
+
+    it('leaves app-scope handlers alone, however old', async () => {
+        await publishApp(userToken, 'app-old', SOURCE);
+        await age(appHandlerScope(appUid), 'app-old', 30 * DAY);
+
+        await events().sweepUnboundUserHandlers();
+
+        expect(await names(appHandlerScope(appUid))).toEqual(['app-old']);
+    });
+
+    it('drops the cached set of a scope it deleted from', async () => {
+        await publishUser(userToken, 'old', SOURCE);
+        // Warm the scope's cached set.
+        await store().cachedSetForApp(userScope(userId));
+        await age(userScope(userId), 'old', 2 * DAY);
+
+        await events().sweepUnboundUserHandlers();
+
+        expect(
+            await store().cachedSetForApp(userScope(userId), {
+                handlerName: 'old',
+            }),
+        ).toEqual([]);
+    });
+
+    it('stops when its signal is aborted', async () => {
+        await publishUser(userToken, 'old', SOURCE);
+        await age(userScope(userId), 'old', 2 * DAY);
+        const controller = new AbortController();
+        controller.abort();
+
+        expect(await events().sweepUnboundUserHandlers(controller.signal)).toBe(
+            0,
+        );
+        expect(await names(userScope(userId))).toEqual(['old']);
+    });
+
+    it('is registered as a fleet job', () => {
+        expect(() =>
+            env.server.services.jobs.register('events.userHandlers.gc', {
+                every: 1000,
+                scope: 'fleet',
+                run: async () => {},
+            }),
+        ).toThrow('already registered');
     });
 });
 
