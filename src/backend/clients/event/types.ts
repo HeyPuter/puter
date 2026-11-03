@@ -666,9 +666,18 @@ export type EventMap = {
     // and going away (1→0, whether by removing the last handler or by the
     // destroy route). `actor.user` is the app's owner, not the caller — a
     // developer session publishing for an app it owns is the common case, but
-    // billing follows ownership.
-    'events.worker.create': { actor: Actor; appUid: string };
-    'events.worker.destroy': { actor: Actor; appUid: string };
+    // billing follows ownership. For `scope: 'user'` the unit is one user's
+    // handlers in one app instead, and `actor.user` is that user.
+    'events.worker.create': {
+        actor: Actor;
+        appUid: string;
+        scope: 'app' | 'user';
+    };
+    'events.worker.destroy': {
+        actor: Actor;
+        appUid: string;
+        scope: 'app' | 'user';
+    };
 
     // ---- Outer / GUI broadcast ----
     'outer.cacheUpdate': {

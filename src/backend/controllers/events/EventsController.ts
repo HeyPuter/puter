@@ -402,6 +402,7 @@ export class EventsController extends PuterController {
             handlers: await this.services.events.listHandlers(actor, {
                 appUid:
                     typeof query.appUid === 'string' ? query.appUid : undefined,
+                scope: query.scope,
             }),
         });
     }
