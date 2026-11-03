@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { pipeline, type Readable } from 'node:stream';
+import type { Readable } from 'node:stream';
 
 // Only what's used here, so callers on another @types/node (or express's
 // Response) still fit.
@@ -32,24 +32,32 @@ type ResponseSink = NodeJS.WritableStream & {
  * mid-body destroys the response, so the client sees an aborted transfer rather
  * than a clean end, and the failure is logged once instead of surfacing as an
  * unhandled stream error. A client that hangs up stops the source.
+ *
+ * `pipe` rather than `pipeline`: pipeline puts seven close listeners on the
+ * response, and with the ones metering, compression and tracing add, every
+ * streamed response tripped Node's ten-listener warning.
  */
 export function pipeStreamResult(
     stream: Readable,
     res: ResponseSink,
     label: string,
 ): void {
-    // The caller hung up while the driver ran; `pipeline` throws on a closed
-    // destination, so drop the source instead.
+    // The caller hung up while the driver ran: nothing will read the source.
     if (res.closed || res.destroyed) {
         stream.destroy();
         return;
     }
-    pipeline(stream, res, (err) => {
-        if (!err) return;
+    stream.once('error', (err) => {
+        stream.unpipe(res);
         if (!res.destroyed) res.destroy();
-        // The client hanging up is not a failure of ours.
-        if ((err as { code?: string }).code === 'ERR_STREAM_PREMATURE_CLOSE')
-            return;
         console.warn(`[drivers] ${label} stream failed mid-response:`, err);
     });
+    // A response that closes before the source ended is a client hanging up.
+    res.once('close', () => {
+        if (stream.readableEnded) return;
+        stream.unpipe(res);
+        stream.destroy();
+    });
+    res.once('error', () => stream.destroy());
+    stream.pipe(res);
 }
