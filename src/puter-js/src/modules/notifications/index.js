@@ -8,6 +8,7 @@ import { request } from './lib/api.js';
 import {
     CLICK_KEEP_MS,
     HANDLERS_STORE,
+    SYNCED_PREFIX,
     TAP_BASE_PREFIX,
     forgetOldClicks,
     forgetPushState,
@@ -25,6 +26,8 @@ import {
     removeWebPush,
     syncWebPush,
     unsubscribeWebPush,
+    usesPuterKey,
+    webPushCheck,
     webPushState,
     webPushSupported,
     workerFor,
@@ -62,6 +65,8 @@ const HANDLER_TIMEOUT_MS = 5_000;
 const WORKER_SHOW_TIMEOUT_MS = 2_000;
 /** How long after load a page a tap opened waits for a `click` handler. */
 const UNREAD_TAP_MS = 10_000;
+/** How long a load only asks the server about a subscription it confirmed. */
+const SYNCED_FOR_MS = 24 * 60 * 60 * 1000;
 /** Sync failures that are the server's or the user's choice, not a fault. */
 const QUIET_SYNC_ERRORS = new Set([
     'push_device_removed',
@@ -404,7 +409,7 @@ export class NotificationsModule extends EventListener {
             (event) => {
                 if (event.data?.type !== SUBSCRIPTION_CHANGED_MESSAGE) return;
                 if (this.#pushHandlers.size > 0 && this.#worker)
-                    void this.#syncIfOptedIn(this.#worker);
+                    void this.#syncIfOptedIn(this.#worker, { full: true });
             },
         );
     }
@@ -436,6 +441,7 @@ export class NotificationsModule extends EventListener {
             interactive: true,
             withLock: withPushLock,
             onAnnounced: () => this.#recordOptIn(true),
+            onSynced: (endpoint) => this.#noteSynced(worker, endpoint),
         });
         try {
             // The GUI reads the registered device right after.
@@ -711,20 +717,82 @@ export class NotificationsModule extends EventListener {
         };
     }
 
-    async #syncIfOptedIn(worker) {
+    /** With `full`, registers again even when a status call would do. */
+    async #syncIfOptedIn(worker, { full = false } = {}) {
         const optedIn = await this.#readOptIn();
         if (optedIn === false) await this.#endUnwanted();
         if (!optedIn) return;
+        if (!full && (await this.#settledByStatus(worker))) return;
         await this.#finishSync(
             syncWebPush(this.puter, {
                 worker,
                 signal: this.#stopVerifying.signal,
                 stillWanted: async () => (await this.#readOptIn()) === true,
                 withLock: withPushLock,
+                onSynced: (endpoint) => this.#noteSynced(worker, endpoint),
             }),
             worker,
             'could not keep the push subscription current',
         );
+    }
+
+    /** Settles the load with a status call when that's enough; false if not. */
+    async #settledByStatus(worker) {
+        const signal = this.#stopVerifying.signal;
+        let subscription = null;
+        try {
+            const uuid = await this.#userUuid();
+            if (!uuid) return false;
+            const [synced, current] = await Promise.all([
+                idbGet(HANDLERS_STORE, SYNCED_PREFIX + uuid),
+                currentWebPush({ worker }),
+            ]);
+            const age = Date.now() - synced?.at;
+            if (
+                !current ||
+                synced?.endpoint !== current.endpoint ||
+                !(age >= 0 && age < SYNCED_FOR_MS) ||
+                !(await usesPuterKey(current))
+            )
+                return false;
+            subscription = current;
+        } catch {
+            return false;
+        }
+        const answer = await webPushCheck(this.puter, subscription.endpoint);
+        if (signal.aborted) return true;
+        if (answer?.state === 'removed') {
+            await this.#dropRemoved(worker, subscription);
+            return true;
+        }
+        if (answer?.state === 'revoked') {
+            await this.#recordOptIn(false);
+            return true;
+        }
+        if (answer?.state !== 'active') return false;
+        if (
+            answer.publicKey !== null &&
+            !(await usesPuterKey(subscription, answer.publicKey))
+        )
+            return false;
+        this.#workerRegistered = true;
+        return true;
+    }
+
+    /** Remembers the subscription the server confirmed, for the next loads. */
+    async #noteSynced(worker, endpoint) {
+        if (this.puter.env !== 'web') return;
+        try {
+            const uuid = await this.#userUuid();
+            if (uuid) {
+                await idbPut(HANDLERS_STORE, SYNCED_PREFIX + uuid, {
+                    endpoint,
+                    at: Date.now(),
+                });
+            }
+        } catch {
+            // The next load registers again.
+        }
     }
 
     /** Ends a subscription left here without an opt-in, in the browser only. */

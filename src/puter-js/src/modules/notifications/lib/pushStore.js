@@ -7,6 +7,8 @@ export const CLICKS_STORE = 'clicks';
 // stays at the version workers already installed open.
 const OPT_IN_PREFIX = 'puter:opt-in:';
 export const SERVER_KEY_ENTRY = 'puter:server-key';
+/** Per user: `{ endpoint, at }` of the subscription the server last confirmed. */
+export const SYNCED_PREFIX = 'puter:synced:';
 /** Where a tap without a URL goes, per worker scope; read by `push-sw.js`. */
 export const TAP_BASE_PREFIX = 'puter:tap-base:';
 /** How long a kept tap waits for its page, as in `push-sw.js`. */
@@ -55,13 +57,13 @@ export const setOptIn = (userUuid, on, idb = globalThis.indexedDB) =>
         ? idbPut(HANDLERS_STORE, OPT_IN_PREFIX + userUuid, true, idb)
         : idbDelete(HANDLERS_STORE, OPT_IN_PREFIX + userUuid, idb);
 
-/** Forgets every user's opt-in and every kept tap. */
+/** Forgets every user's opt-in and sync, and every kept tap. */
 export const forgetPushState = async (idb = globalThis.indexedDB) => {
-    await run(idb, HANDLERS_STORE, 'readwrite', (s) =>
-        s.delete(
-            globalThis.IDBKeyRange.bound(OPT_IN_PREFIX, `${OPT_IN_PREFIX}￿`),
-        ),
-    );
+    for (const prefix of [OPT_IN_PREFIX, SYNCED_PREFIX]) {
+        await run(idb, HANDLERS_STORE, 'readwrite', (s) =>
+            s.delete(globalThis.IDBKeyRange.bound(prefix, `${prefix}￿`)),
+        );
+    }
     await run(idb, CLICKS_STORE, 'readwrite', (s) => s.clear());
 };
 

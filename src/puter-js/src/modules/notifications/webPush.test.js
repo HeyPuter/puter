@@ -18,6 +18,7 @@ vi.mock('./lib/pushStore.js', () => {
         HANDLERS_STORE: 'handlers',
         CLICKS_STORE: 'clicks',
         SERVER_KEY_ENTRY: 'puter:server-key',
+        SYNCED_PREFIX: 'puter:synced:',
         TAP_BASE_PREFIX: 'puter:tap-base:',
         CLICK_KEEP_MS: 5 * 60 * 1000,
         takeClick: stored(async (uid, id) => {
@@ -43,8 +44,9 @@ vi.mock('./lib/pushStore.js', () => {
                 : void store.delete(optIn(uuid)),
         ),
         forgetPushState: stored(async () => {
+            const forgotten = [optIn(''), 'handlers:puter:synced:', 'clicks:'];
             for (const key of [...store.keys()]) {
-                if (key.startsWith(optIn('')) || key.startsWith('clicks:'))
+                if (forgotten.some((prefix) => key.startsWith(prefix)))
                     store.delete(key);
             }
         }),
@@ -1304,6 +1306,184 @@ describe('onPush', () => {
                 expect.objectContaining({ code: 'internal_error' }),
             );
             error.mockRestore();
+        });
+    });
+
+    describe('on load after the server confirmed this browser', () => {
+        const ENDPOINT = 'https://push.example/send/abc';
+        const SYNCED = 'handlers:puter:synced:u-1';
+        const NEW_KEY = Buffer.from([4, ...Array(64).fill(5)]).toString(
+            'base64url',
+        );
+        const routes = () => mockRequest.mock.calls.map(([, , r]) => r);
+        const confirmed = (over = {}) => {
+            store.set(OPT_IN, true);
+            store.set(SERVER_KEY, KEY);
+            store.set(SYNCED, { endpoint: ENDPOINT, at: Date.now(), ...over });
+        };
+        const statusSays = (answer) =>
+            mockRequest.mockImplementation(async (_p, _m, route) => {
+                if (route === '/push/web/subscriptions/status') {
+                    if (answer instanceof Error) throw answer;
+                    return answer;
+                }
+                if (route === '/push/web/key') return { publicKey: KEY };
+                return { status: 'active', device: { uid: 'd1' } };
+            });
+        const load = async () => {
+            const { module } = makeModule();
+            await module.onPush('chat', () => {}, { onError: () => {} });
+            for (let i = 0; i < 5; i++) await flush();
+            return module;
+        };
+
+        it.each([
+            ['a server that names no key', { state: 'active' }],
+            [
+                'a server that names the same key',
+                { state: 'active', publicKey: KEY },
+            ],
+        ])(
+            'only asks the server about the subscription, on %s',
+            async (_label, answer) => {
+                confirmed();
+                withBrowser(makeNav({ existing: makeSubscription() }));
+                statusSays(answer);
+                await load();
+                expect(routes()).toEqual(['/push/web/subscriptions/status']);
+            },
+        );
+
+        it('ends a subscription the user removed in Puter, after only asking', async () => {
+            confirmed();
+            const subscription = makeSubscription();
+            const nav = makeNav({ existing: subscription });
+            withBrowser(nav);
+            statusSays({ state: 'removed' });
+            await load();
+            expect(routes()).toEqual(['/push/web/subscriptions/status']);
+            expect(subscription.unsubscribe).toHaveBeenCalledTimes(1);
+            expect(store.has(OPT_IN)).toBe(false);
+            expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+        });
+
+        it('keeps pushes off once the user turned the app off in Puter, after only asking', async () => {
+            confirmed();
+            const subscription = makeSubscription();
+            withBrowser(makeNav({ existing: subscription }));
+            statusSays({ state: 'revoked' });
+            await load();
+            expect(routes()).toEqual(['/push/web/subscriptions/status']);
+            expect(store.has(OPT_IN)).toBe(false);
+            expect(subscription.unsubscribe).not.toHaveBeenCalled();
+        });
+
+        it.each([
+            [
+                'a sync over a day old',
+                { at: Date.now() - 25 * 60 * 60 * 1000 },
+                { state: 'active' },
+            ],
+            [
+                'another subscription',
+                { endpoint: 'https://push.example/send/other' },
+                { state: 'active' },
+            ],
+            ['an unknown subscription', {}, { state: 'unknown' }],
+            [
+                'a server that can`t tell',
+                {},
+                new PuterJSError('Not Found', 'not_found'),
+            ],
+            ['a new key', {}, { state: 'active', publicKey: NEW_KEY }],
+        ])('registers again after %s', async (_label, over, answer) => {
+            confirmed(over);
+            withBrowser(makeNav({ existing: makeSubscription() }));
+            statusSays(answer);
+            await load();
+            expect(routes()).toEqual(
+                expect.arrayContaining([
+                    '/push/web/key',
+                    '/push/web/subscriptions',
+                ]),
+            );
+            expect(store.get(SYNCED).at).toBeGreaterThan(
+                Date.now() - 60 * 1000,
+            );
+        });
+
+        it('remembers a confirmed subscription, so the next load only asks', async () => {
+            store.set(OPT_IN, true);
+            withBrowser(makeNav({ existing: makeSubscription() }));
+            statusSays({ state: 'active' });
+            await load();
+            expect(routes()).toEqual([
+                '/push/web/key',
+                '/push/web/subscriptions',
+            ]);
+            expect(store.get(SYNCED)).toEqual({
+                endpoint: ENDPOINT,
+                at: expect.any(Number),
+            });
+
+            mockRequest.mockClear();
+            await load();
+            expect(routes()).toEqual(['/push/web/subscriptions/status']);
+        });
+
+        it('remembers a subscription once its confirmation is verified', async () => {
+            store.set(OPT_IN, true);
+            const nav = makeNav();
+            withBrowser(nav);
+            server((route) =>
+                route === '/push/web/subscriptions'
+                    ? { status: 'pending' }
+                    : { device: { uid: 'd2' } },
+            );
+            await load();
+            expect(store.has(SYNCED)).toBe(false);
+            nav.post({ type: 'puter-push-challenge', challenge: 'c.sig' });
+            await vi.waitFor(() =>
+                expect(store.get(SYNCED)?.endpoint).toBe(ENDPOINT),
+            );
+        });
+
+        it('registers in full when the worker says the browser replaced the subscription', async () => {
+            confirmed();
+            const nav = makeNav({ existing: makeSubscription() });
+            withBrowser(nav);
+            statusSays({ state: 'active' });
+            await load();
+            expect(routes()).toEqual(['/push/web/subscriptions/status']);
+            nav.post({ type: 'puter-push-subscription-changed' });
+            await vi.waitFor(() =>
+                expect(routes()).toEqual([
+                    '/push/web/subscriptions/status',
+                    '/push/web/key',
+                    '/push/web/subscriptions',
+                ]),
+            );
+        });
+
+        it('lets enable() register in full', async () => {
+            confirmed();
+            withBrowser(makeNav({ existing: makeSubscription() }));
+            statusSays({ state: 'active' });
+            const { module } = makeModule();
+            await expect(module.enable()).resolves.toBe(true);
+            expect(routes()).toEqual([
+                '/push/web/key',
+                '/push/web/subscriptions',
+            ]);
+        });
+
+        it('is forgotten by disable()', async () => {
+            confirmed();
+            withBrowser(makeNav({ existing: makeSubscription() }));
+            mockRequest.mockResolvedValue({ removed: true });
+            const { module } = makeModule();
+            await module.disable();
+            expect(store.has(SYNCED)).toBe(false);
         });
     });
 

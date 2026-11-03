@@ -329,7 +329,15 @@ const register = async (
     puter,
     nav,
     subscribe,
-    { label, onPending, signal, interactive, whileWanted, onAnnounced },
+    {
+        label,
+        onPending,
+        signal,
+        interactive,
+        whileWanted,
+        onAnnounced,
+        onSynced,
+    },
 ) => {
     /** @type {ReturnType<typeof nextChallenge> | null} */
     let challenge = null;
@@ -346,14 +354,16 @@ const register = async (
             );
             if (signal?.aborted) throw turnedOff();
             await onAnnounced?.();
+            if (result.status === 'active')
+                await onSynced?.(subscription.endpoint);
             return { subscription, result };
         });
         if (result.status === 'active') return result.device;
         onPending?.();
         const answer = await challenge.promise;
         if (answer === null) throw turnedOff();
-        const { device } = await whileWanted(() =>
-            request(
+        const { device } = await whileWanted(async () => {
+            const verified = await request(
                 puter,
                 'POST',
                 '/push/web/subscriptions/verify',
@@ -362,8 +372,10 @@ const register = async (
                     challenge: answer,
                 },
                 { interactiveReauth: false },
-            ),
-        );
+            );
+            await onSynced?.(subscription.endpoint);
+            return verified;
+        });
         return device;
     } finally {
         challenge?.cancel();
@@ -387,6 +399,7 @@ const register = async (
  *     stillWanted?: () => boolean | Promise<boolean>;
  *     withLock?: <T>(run: () => Promise<T>) => Promise<T>;
  *     onAnnounced?: () => Promise<void>;
+ *     onSynced?: (endpoint: string) => Promise<void>;
  * }} options
  *   `onPending` runs once the server has the subscription and only its
  *   confirmation is left. Aborting `signal` stops waiting for that
@@ -412,6 +425,7 @@ export async function syncWebPush(
         stillWanted = () => true,
         withLock = (run) => run(),
         onAnnounced,
+        onSynced,
     },
 ) {
     const { publicKey } = await request(
@@ -440,6 +454,7 @@ export async function syncWebPush(
         signal,
         interactive,
         onAnnounced,
+        onSynced,
         whileWanted: (run) =>
             withLock(async () => {
                 if (signal?.aborted || !(await stillWanted()))
@@ -487,17 +502,42 @@ export async function syncWebPush(
  * @returns {Promise<'active' | 'removed' | 'revoked' | 'unknown' | null>}
  */
 export async function webPushState(puter, endpoint) {
+    return (await webPushCheck(puter, endpoint))?.state ?? null;
+}
+
+/** `webPushState`'s answer with the key the server names as Puter's, if any. */
+export async function webPushCheck(puter, endpoint) {
     try {
-        const { state } = await request(
+        const { state, publicKey } = await request(
             puter,
             'POST',
             '/push/web/subscriptions/status',
             { endpoint },
             { interactiveReauth: false },
         );
-        return SUBSCRIPTION_STATES.has(state) ? state : null;
+        if (!SUBSCRIPTION_STATES.has(state)) return null;
+        return {
+            state,
+            publicKey:
+                typeof publicKey === 'string' && publicKey !== ''
+                    ? publicKey
+                    : null,
+        };
     } catch {
         return null;
+    }
+}
+
+/** Whether `subscription` uses Puter's stored key, and `publicKey` if given. */
+export async function usesPuterKey(subscription, publicKey = null) {
+    const existing = subscription?.options?.applicationServerKey;
+    const stored = await storedPuterKey();
+    if (!stored || !sameKey(existing, stored)) return false;
+    if (publicKey === null) return true;
+    try {
+        return sameKey(existing, fromBase64Url(publicKey));
+    } catch {
+        return false;
     }
 }
 
