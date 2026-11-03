@@ -23,16 +23,19 @@
  */
 
 import type { fetch as undiciFetch } from 'undici';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IConfig } from '../../types.js';
 import {
     DispatcherInvokeTransport,
     EVENTS_DEPLOYED_HEADER,
+    EVENTS_DEADLINE_MARGIN_MS,
     EVENTS_DISPATCH_BATCH_PATH,
     EVENTS_DISPATCH_ERROR_HEADER,
     EVENTS_DISPATCH_PATH,
     EVENTS_ERROR_HEADER,
     EVENTS_HANDLED_HEADER,
+    EVENTS_INVOKE_TIMEOUT_MS,
+    EVENTS_WORKER_LEASE_FACTOR,
     EventsWorkerInvokerClient,
     INVOKE_CONNECTIONS,
     SCHEDULE_INVOKE_CONNECTIONS,
@@ -1301,4 +1304,91 @@ describe('outcomeForStatus', () => {
             expect(outcomeForStatus(status, handled, errorCode)).toBe(expected);
         },
     );
+});
+
+describe('EventsWorkerInvokerClient overall deadline', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    const LEASE_MS = EVENTS_INVOKE_TIMEOUT_MS * EVENTS_WORKER_LEASE_FACTOR;
+
+    /**
+     * A transport on a fake clock: each send costs what `cost` says, and
+     * answers a miss until the deployed header, then a handled 200.
+     */
+    const timedTransport = (cost: (deployed: boolean) => number) => {
+        const sends: Array<{ deployed: boolean; timeoutMs: number }> = [];
+        const transport = {
+            send: async (call: {
+                deployed?: boolean;
+                timeoutMs: number;
+            }): Promise<unknown> => {
+                const deployed = call.deployed === true;
+                sends.push({ deployed, timeoutMs: call.timeoutMs });
+                // A send never outlasts its own timeout.
+                vi.advanceTimersByTime(
+                    Math.min(cost(deployed), call.timeoutMs * 1.5),
+                );
+                return deployed
+                    ? { status: 200, handled: true }
+                    : {
+                          status: null,
+                          dispatchReason: 'missing',
+                          error: 'dispatcher: missing (404)',
+                      };
+            },
+        };
+        return { transport, sends };
+    };
+
+    const run = async (
+        cost: (deployed: boolean) => number,
+        deployMs: number,
+    ) => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const { transport, sends } = timedTransport(cost);
+        const client = makeClient();
+        client.setTransport(transport as never);
+        client.setMissHandler(async () => {
+            vi.advanceTimersByTime(deployMs);
+            return 'deployed';
+        });
+        const started = Date.now();
+        const result = await client.invoke(REQUEST);
+        return { result, sends, elapsed: Date.now() - started };
+    };
+
+    it('leaves a fast miss as it was: a full-timeout resend', async () => {
+        const { result, sends } = await run(() => 100, 2_000);
+        expect(result).toEqual({ outcome: 'settled', status: 200 });
+        expect(sends).toEqual([
+            { deployed: false, timeoutMs: EVENTS_INVOKE_TIMEOUT_MS },
+            { deployed: true, timeoutMs: EVENTS_INVOKE_TIMEOUT_MS },
+        ]);
+    });
+
+    it('shortens the resend after a slow deploy, so the call ends before the lease', async () => {
+        // A miss that took 12 s, a deploy that took 30 s, and a resend that
+        // would use everything it is given.
+        const { result, sends, elapsed } = await run(
+            (deployed) => (deployed ? 1e9 : 12_000),
+            30_000,
+        );
+        expect(result.outcome).toBe('settled');
+        expect(sends[1].deployed).toBe(true);
+        expect(sends[1].timeoutMs).toBeLessThan(EVENTS_INVOKE_TIMEOUT_MS);
+        expect(elapsed).toBeLessThanOrEqual(
+            LEASE_MS - EVENTS_DEADLINE_MARGIN_MS,
+        );
+    });
+
+    it('does not resend when the deploy leaves less than the margin', async () => {
+        const { result, sends } = await run(
+            () => 100,
+            LEASE_MS - EVENTS_DEADLINE_MARGIN_MS * 2 + 1_000,
+        );
+        expect(sends).toHaveLength(1);
+        expect(result).toMatchObject({ outcome: 'unavailable', status: null });
+    });
 });
