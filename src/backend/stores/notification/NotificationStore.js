@@ -316,8 +316,8 @@ export class NotificationStore extends PuterStore {
     }
 
     /**
-     * The newest row id in a mailbox slice, or null when it has none. Scoped
-     * like `listScoped`; rows of every type count.
+     * The newest row id in a mailbox slice, or null when it has none, from the
+     * primary. Scoped like `listScoped`; rows of every type count.
      *
      * @param {number} userId
      * @param {{ audience: string; appUid?: string | null }} scope
@@ -329,7 +329,7 @@ export class NotificationStore extends PuterStore {
             appUid,
             excludeTypes: [],
         });
-        const [row] = await this.clients.db.read(
+        const [row] = await this.clients.db.pread(
             `SELECT \`id\` FROM \`notification\`
              WHERE ${where.join(' AND ')}
              ORDER BY \`id\` DESC
