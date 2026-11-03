@@ -5132,6 +5132,26 @@ describe('AuthController phone verification — staging & reuse', () => {
         expect(staged).toBe('+14155550123');
     });
 
+    it('makes an email-gate-last account verify its card before its phone', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+            requires_card_verification: 1,
+        });
+        await server.stores.user.updateMetadata(user.id, {
+            emailGateLast: true,
+        });
+        const prelude = stubPrelude();
+        await withClients({ prelude }, async () => {
+            await expect(
+                controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 409 });
+        });
+        expect(prelude.createVerification).not.toHaveBeenCalled();
+    });
+
     it('forwards an abuse-extension veto as 429 with the opaque reason, and sends nothing', async () => {
         const { user, actor } = await makeUserAndActor();
         const emitAndWait = vi.fn(
@@ -5197,7 +5217,7 @@ describe('AuthController phone verification — staging & reuse', () => {
         );
     });
 
-    it('carries the client dispatch id on the sent signal', async () => {
+    it('carries the client dispatch id on the check and sent events', async () => {
         const { actor } = await makeUserAndActor();
         const emit = vi.fn();
         const emitAndWait = vi.fn(async () => {});
@@ -5215,6 +5235,11 @@ describe('AuthController phone verification — staging & reuse', () => {
         );
         expect(emit).toHaveBeenCalledWith(
             'puter.phone-verification.sent',
+            expect.objectContaining({ dispatch_id: 'disp-123' }),
+            expect.anything(),
+        );
+        expect(emitAndWait).toHaveBeenCalledWith(
+            'puter.phone-verification.check',
             expect.objectContaining({ dispatch_id: 'disp-123' }),
             expect.anything(),
         );

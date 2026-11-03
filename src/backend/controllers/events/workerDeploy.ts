@@ -29,6 +29,7 @@ import {
 import type {
     EventsInvokeAnswer,
     EventsInvokeCall,
+    InvokeLane,
 } from '../../clients/events/EventsWorkerInvokerClient.js';
 import {
     EVENTS_INVOKE_PATH,
@@ -36,6 +37,7 @@ import {
     failedAnswer,
 } from '../../clients/events/EventsWorkerInvokerClient.js';
 import type { puterServices } from '../../services/index.js';
+import type { IExtensionServiceInstances } from '../../services/types.js';
 import {
     eventsInvokeKey,
     eventsWorkerScope,
@@ -61,13 +63,25 @@ import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
 
 /** Why a deploy could not happen, for the callers that answer differently. */
 export type EventsDeployOutcome =
-    'deployed' | 'stale' | 'no-handlers' | 'no-owner' | 'throttled' | 'failed';
+    | 'deployed'
+    | 'stale'
+    | 'no-handlers'
+    | 'no-owner'
+    | 'throttled'
+    | 'failed'
+    | 'busy';
+
+/** Whose call asked for the deploy: a schedule run's is held to a share. */
+export interface EventsDeployOptions {
+    lane?: InvokeLane;
+}
 
 interface DeployLayers {
     config: IConfig;
     clients: LayerInstances<typeof puterClients>;
     stores: LayerInstances<typeof puterStores>;
-    services: LayerInstances<typeof puterServices>;
+    services: LayerInstances<typeof puterServices> &
+        Pick<IExtensionServiceInstances, 'schedules'>;
     drivers: LayerInstances<typeof puterDrivers>;
 }
 
@@ -77,6 +91,12 @@ interface DeployLayers {
  */
 const DEPLOY_THROTTLE_TTL_SECONDS = 2 * 60 * 60;
 
+interface InFlightDeploy {
+    /** A schedule run's, which the region's deploy slots may refuse. */
+    capped: boolean;
+    promise: Promise<EventsDeployOutcome>;
+}
+
 interface DeployResult {
     success?: boolean;
     errors?: unknown[];
@@ -85,7 +105,7 @@ interface DeployResult {
 export class EventsWorkerDeployer {
     readonly #layers: DeployLayers;
     /** Collapses the burst of misses one cold app produces into one deploy. */
-    readonly #inFlight = new Map<string, Promise<EventsDeployOutcome>>();
+    readonly #inFlight = new Map<string, InFlightDeploy>();
 
     constructor(layers: DeployLayers) {
         this.#layers = layers;
@@ -104,15 +124,79 @@ export class EventsWorkerDeployer {
      * A request for anything else is `stale` — the set moved on, and the next
      * delivery resolves the new script rather than this one being revived.
      */
-    ensure(appUid: string, script: string): Promise<EventsDeployOutcome> {
+    ensure(
+        appUid: string,
+        script: string,
+        options: EventsDeployOptions = {},
+    ): Promise<EventsDeployOutcome> {
         const key = `${appUid}|${script}`;
+        const capped = options.lane === 'schedule';
         const existing = this.#inFlight.get(key);
-        if (existing) return existing;
-        const started = this.#deploy(appUid, script).finally(() =>
-            this.#inFlight.delete(key),
+        if (!existing) return this.#start(key, appUid, script, options);
+        if (capped || !existing.capped) return existing.promise;
+        return this.#afterCapped(
+            existing.promise,
+            key,
+            appUid,
+            script,
+            options,
         );
-        this.#inFlight.set(key, started);
-        return started;
+    }
+
+    #start(
+        key: string,
+        appUid: string,
+        script: string,
+        options: EventsDeployOptions,
+    ): Promise<EventsDeployOutcome> {
+        const entry: InFlightDeploy = {
+            capped: options.lane === 'schedule',
+            promise: this.#gated(appUid, script, options).finally(() => {
+                if (this.#inFlight.get(key) === entry)
+                    this.#inFlight.delete(key);
+            }),
+        };
+        this.#inFlight.set(key, entry);
+        return entry.promise;
+    }
+
+    /**
+     * A delivery that joined a schedule run's deploy: `busy` means no deploy
+     * started, and a delivery is never refused a slot, so it asks again.
+     */
+    async #afterCapped(
+        capped: Promise<EventsDeployOutcome>,
+        key: string,
+        appUid: string,
+        script: string,
+        options: EventsDeployOptions,
+    ): Promise<EventsDeployOutcome> {
+        const outcome = await capped;
+        if (outcome !== 'busy') return outcome;
+        const current = this.#inFlight.get(key);
+        if (current && !current.capped) return current.promise;
+        return this.#start(key, appUid, script, options);
+    }
+
+    /**
+     * Every deploy goes through the schedules' deploy gate when a server has
+     * one: a per-script lock, so a burst of runs of an evicted script deploys
+     * it once, and a region-wide cap that a schedule run's deploy (`capped`)
+     * may be refused with `busy`. A delivery's deploy is never refused.
+     */
+    #gated(
+        appUid: string,
+        script: string,
+        options: EventsDeployOptions,
+    ): Promise<EventsDeployOutcome> {
+        const deploy = () => this.#deploy(appUid, script);
+        return (
+            this.#layers.services.schedules?.gateDeploy?.(
+                script,
+                { capped: options.lane === 'schedule' },
+                deploy,
+            ) ?? deploy()
+        );
     }
 
     async #deploy(
@@ -299,6 +383,8 @@ export class LocalEventsInvokeTransport {
     }
 
     async send(call: EventsInvokeCall): Promise<EventsInvokeAnswer> {
+        // Built per attempt, so a send time stamped into the body is taken
+        // after a cold deploy rather than before it.
         const request = (): Request =>
             new Request(
                 `http://${call.script}.workers.puter.localhost${EVENTS_INVOKE_PATH}`,
@@ -308,7 +394,7 @@ export class LocalEventsInvokeTransport {
                         'content-type': 'application/json',
                         'x-puter-events-key': call.key,
                     },
-                    body: call.body,
+                    body: call.render ? call.render() : call.body,
                 },
             );
 
@@ -319,9 +405,14 @@ export class LocalEventsInvokeTransport {
             const outcome = await this.#deployer.ensure(
                 call.appUid,
                 call.script,
+                { lane: call.lane },
             );
             if (outcome !== 'deployed')
-                return { status: null, error: `deploy: ${outcome}` };
+                return {
+                    status: null,
+                    error: `deploy: ${outcome}`,
+                    ...(outcome === 'busy' ? { deployBusy: true } : {}),
+                };
 
             const retried = await this.#dispatch(request(), call.timeoutMs);
             if (retried === null)

@@ -18,6 +18,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -52,6 +53,10 @@ const checked = tsc([
     '--module', 'nodenext',
     '--moduleResolution', 'nodenext',
     join(SDK, 'index.d.ts'),
+    // Usage the declarations must keep accepting (and refusing).
+    ...readdirSync(join(SDK, 'tests', 'types'))
+        .filter((name) => name.endsWith('.ts'))
+        .map((name) => join(SDK, 'tests', 'types', name)),
 ]);
 
 // Errors inside third-party `@types` packages are not this project's to fix.

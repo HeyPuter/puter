@@ -20,6 +20,7 @@
 import type { Request, RequestHandler } from 'express';
 import { actorUid } from '../actor';
 import type { EventClient } from '../../clients/event/EventClient';
+import type { LifecycleRejectStatus } from '../../clients/event/types';
 import type { RouteMethod } from './types';
 
 type RoutePathValue = string | RegExp | Array<string | RegExp> | undefined;
@@ -100,30 +101,33 @@ export const createRouteLifecycleMiddleware = (
             ...base,
             allow: true as boolean,
             rejectReason: undefined as string | undefined,
+            rejectStatus: undefined as LifecycleRejectStatus | undefined,
         };
         if (observeBefore) {
             await events.emitAndWait(beforeKey, beforeEvent, {});
         }
 
         // Explicit veto: a listener set `allow = false`. Emit `reject` and
-        // answer 403 — unless the listener already wrote its own response, in
-        // which case we report that status rather than a misleading 403.
+        // answer 403 (or the listener's 429) — unless the listener already
+        // wrote its own response, in which case we report that status.
         if (beforeEvent.allow === false) {
+            const status = beforeEvent.rejectStatus === 429 ? 429 : 403;
             events.emit(
                 `${keyBase}.reject`,
                 {
                     phase: 'reject',
                     ...base,
-                    statusCode: res.headersSent ? res.statusCode : 403,
+                    statusCode: res.headersSent ? res.statusCode : status,
                     durationMs: Date.now() - startedAt,
                     rejectReason: beforeEvent.rejectReason,
                 },
                 {},
             );
             if (!res.headersSent) {
-                res.status(403).json({
+                res.status(status).json({
                     error: {
-                        code: 'forbidden',
+                        code:
+                            status === 429 ? 'too_many_requests' : 'forbidden',
                         message:
                             beforeEvent.rejectReason ?? 'Blocked by policy',
                     },

@@ -29,6 +29,8 @@ A notification has a `title`, and optionally `text` and an `icon`. A `target` pa
 
 [`notify()`](/Notifications/notify/) lists every field. [Rate Limits and Quotas](/rate-limits-and-quotas/#notifications) lists the size limits and how many notifications and pushes your app can send each user.
 
+To send a notification at a set time instead of now, pass `sendAt` to [`notify()`](/Notifications/notify/#send-it-later). It goes out then, even when your app is closed.
+
 ## Who you can notify
 
 A notification goes to the user your app runs for. To notify another user, such as a chat member, share data with them in a [key-value share](/KV/share/) made with `notify: true`, and send through the share's handle. Each side of the share can notify the other.
@@ -134,6 +136,7 @@ Your app's notifications are events on the `notif:app-user` [subject](/Events/su
 ## Functions
 
 - **[`puter.notifications.notify()`](/Notifications/notify/)** - Send a notification to the user, or to the other side of a key-value share
+- **[`puter.notifications.cancel()`](/Notifications/cancel/)** - Cancel a notification stored to send later
 - **[`puter.notifications.onNotification()`](/Notifications/onNotification/)** - Receive your app's notifications, including the ones sent while it was closed
 - **[`puter.notifications.onPush()`](/Notifications/onPush/)** - Say what a push shows for one channel, and handle its notifications while the page is open
 - **[`puter.notifications.on('click')`](/Notifications/on/)** - React when the user clicks one of your notifications
@@ -152,6 +155,7 @@ For Puter's own apps, which manage where pushes go:
 ## Examples
 
 - [Send a Notification](/playground/notifications-notify/)
+- [Send a Notification Later](/playground/notifications-send-later/)
 - [Push notifications for a website](/Notifications/push/#a-minimal-page)
 
 ## Recipes

@@ -323,6 +323,8 @@ export type EventMap = {
         // the abuse extension cap sends per device (across accounts) so a
         // device farm can't dodge the per-account cap with fresh signups.
         device_fingerprint: string | null;
+        // Browser-signals dispatch id the client sent, or null.
+        dispatch_id: string | null;
         allowed: boolean;
         reason: string | null;
         // With `allowed` false, offer the card fallback in place of SMS. Only
@@ -579,6 +581,8 @@ export type EventMap = {
         updated?: true;
         /** Names this one send, for a receipt asked about it. */
         sendId: string;
+        /** The same `sendId` may be emitted again, as a delayed send is. */
+        replayable?: true;
     };
     /**
      * One notification, addressed at whatever sockets each region holds for the
@@ -950,6 +954,9 @@ export type AiCostFactorEvent = {
  */
 export type LifecyclePhase = 'before' | 'after' | 'error' | 'reject';
 
+/** Status a vetoing `before` listener may answer with. */
+export type LifecycleRejectStatus = 403 | 429;
+
 /**
  * Payload for `driver.<iface>.<method>.<phase>` events.
  *
@@ -979,6 +986,8 @@ export type DriverMethodLifecycleEvent = {
     allow?: boolean;
     /** Optional human-readable reason surfaced to the caller when vetoed. */
     rejectReason?: string;
+    /** Status for a veto: 403 (default) or 429 for a throttle. */
+    rejectStatus?: LifecycleRejectStatus;
 };
 
 /**
@@ -1013,6 +1022,8 @@ export type RouteLifecycleEvent = {
     allow?: boolean;
     /** Optional human-readable reason surfaced to the caller when vetoed. */
     rejectReason?: string;
+    /** Status for a veto: 403 (default) or 429 for a throttle. */
+    rejectStatus?: LifecycleRejectStatus;
 };
 
 export type EventKey = keyof EventMap & string;
@@ -1021,10 +1032,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
@@ -1035,7 +1047,10 @@ export type MatchingEvents<P extends ListenKey> = P extends `${infer Prefix}.*`
 
 /** Acked, not acked, no socket anywhere, or sockets only in a peer region. */
 export type NotifDeliveryOutcome =
-    'received' | 'unreceived' | 'no-socket' | 'remote-only';
+    | 'received'
+    | 'unreceived'
+    | 'no-socket'
+    | 'remote-only';
 
 /** One socket's receipt for a live notification. */
 export interface NotifDeliveryResponder {

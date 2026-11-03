@@ -172,6 +172,87 @@ describe('SignupService.signup', () => {
     });
 });
 
+describe('SignupService email gate last', () => {
+    /** Signs up with the validate hook asking for `gates`; returns sent emails. */
+    const signupWith = async (gates: Record<string, boolean>) => {
+        const send = vi.fn(async () => true);
+        const clients = server.clients as unknown as { email: unknown };
+        const realEmail = clients.email;
+        clients.email = { send };
+        const require = (_k: string, data: unknown) => {
+            Object.assign(data as Record<string, unknown>, gates);
+        };
+        server.clients.event.on('puter.signup.validate', require);
+        const username = `egl_${slug()}`;
+        try {
+            const user = await server.services.signup.signup({
+                req,
+                body: {
+                    username,
+                    email: `${username}@example.com`,
+                    password: 'correct horse battery',
+                },
+                isTemp: false,
+                fingerprint: null,
+                bonusCode: null,
+            });
+            return { user, send, restore: () => (clients.email = realEmail) };
+        } finally {
+            server.clients.event.off('puter.signup.validate', require);
+        }
+    };
+
+    it('holds the confirmation email until card and phone are cleared, then sends it once', async () => {
+        const { user, send, restore } = await signupWith({
+            requires_phone_verification: true,
+            requires_card_verification: true,
+            email_gate_last: true,
+        });
+        try {
+            expect(send).not.toHaveBeenCalled();
+            const stored = await server.stores.user.getById(user.id, {
+                force: true,
+            });
+            expect(stored!.metadata?.emailGateLast).toBe(true);
+
+            await server.stores.user.update(user.id, {
+                requires_card_verification: 0,
+            });
+            await server.services.signup.sendDeferredConfirmationEmail(user.id);
+            expect(send).not.toHaveBeenCalled();
+
+            await server.stores.user.update(user.id, {
+                requires_phone_verification: 0,
+            });
+            await server.services.signup.sendDeferredConfirmationEmail(user.id);
+            await server.services.signup.sendDeferredConfirmationEmail(user.id);
+            expect(send).toHaveBeenCalledTimes(1);
+            expect(send).toHaveBeenCalledWith(
+                `${user.username}@example.com`,
+                'email_verification_code',
+                { code: stored!.email_confirm_code },
+            );
+        } finally {
+            restore();
+        }
+    });
+
+    it('ignores the flag when there is no phone or card gate', async () => {
+        const { user, send, restore } = await signupWith({
+            email_gate_last: true,
+        });
+        try {
+            expect(send).toHaveBeenCalledTimes(1);
+            const stored = await server.stores.user.getById(user.id, {
+                force: true,
+            });
+            expect(stored!.metadata?.emailGateLast).toBeUndefined();
+        } finally {
+            restore();
+        }
+    });
+});
+
 describe('SignupService.announceSignup', () => {
     it('leaves out the form-only fields for a source that has none', async () => {
         const username = `an_${slug()}`;

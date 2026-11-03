@@ -85,6 +85,7 @@ export default suite('notifications', {
             'status',
             'listDevices',
             'removeDevice',
+            'cancel',
         ] as const) {
             t.assert.equal(
                 typeof t.puter.notifications[method],
@@ -383,6 +384,58 @@ export default suite('notifications', {
             true,
         );
     },
+
+    'answers sendAt and cancel events_disabled without schedules, and sends without sendAt':
+        async (t) => {
+            const appUid = await makeApp(t);
+            const { later, now, cancelled, invalid, sent } = await asApp(
+                t,
+                appUid,
+                async () => {
+                    const refusal = async (run: () => Promise<unknown>) => {
+                        try {
+                            await run();
+                        } catch (error) {
+                            return error;
+                        }
+                        throw new Error('expected a refusal');
+                    };
+                    return {
+                        later: await refusal(() =>
+                            t.puter.notifications.notify({
+                                title: unique('later'),
+                                sendAt: new Date(Date.now() + 60 * 60 * 1000),
+                            }),
+                        ),
+                        now: await refusal(() =>
+                            t.puter.notifications.notify({
+                                title: unique('now'),
+                                sendAt: Date.now(),
+                            }),
+                        ),
+                        cancelled: await refusal(() =>
+                            t.puter.notifications.cancel(
+                                '2f7c1b6e-4d1a-4c55-9a8e-0e6f3c2b1a90',
+                            ),
+                        ),
+                        invalid: await refusal(() =>
+                            t.puter.notifications.notify({
+                                title: unique('never'),
+                                sendAt: new Date(Number.NaN),
+                            }),
+                        ),
+                        sent: await t.puter.notifications.notify({
+                            title: unique('plain'),
+                        }),
+                    };
+                },
+            );
+            t.assert.equal(codeOf(later), 'events_disabled');
+            t.assert.equal(codeOf(now), 'events_disabled');
+            t.assert.equal(codeOf(cancelled), 'events_disabled');
+            t.assert.equal(codeOf(invalid), 'events_schedule_invalid');
+            t.assert.equal(typeof sent, 'string');
+        },
 
     'status resolves one of its four states without asking': async (t) => {
         const state = await t.puter.notifications.status();

@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">The Events API is in beta. Event shapes, limits, and behavior may change between releases.</div>
 
-An **events worker** runs an app's published [handlers](/Events/handlers/). It runs them for every event on a subscription with a `handlerName`, whether or not a client is connected, and for a [`queue`](/Events/onPersistent/#choosing-a-mode) delivery once no connected client takes it. Each app has at most one, created when it publishes its first handler, however many handlers it publishes.
+An **events worker** runs an app's published [handlers](/Events/handlers/). It runs them for every event on a subscription with a `handlerName`, whether or not a client is connected, for a [`queue`](/Events/onPersistent/#choosing-a-mode) delivery once no connected client takes it, and for every run of a [schedule](/Events/onSchedule/). Each app has at most one, created when it publishes its first handler, however many handlers it publishes.
 
 A hosted Puter server may bill each app's events worker as a monthly cost, even if nothing ever delivers to it. Use this API to see which apps have one and remove the ones you don't need.
 
@@ -43,11 +43,11 @@ Resolves to `{ items, cursor, deployable }`:
 puter.events.workers.destroy(appUid)
 ```
 
-Removes every handler the app has published, the same as calling [`puter.events.handlers.remove()`](/Events/handlers/) on each. Their subscriptions are suspended with `handler_not_found`, not deleted, and publishing the handlers again resumes them.
+Removes every handler the app has published, the same as calling [`puter.events.handlers.remove()`](/Events/handlers/) on each. Their subscriptions and schedules are suspended with `handler_not_found`, not deleted, and publishing the handlers again resumes them.
 
 It also ends the worker session background deliveries ran under, for every user. The next delivery after a new publish starts a new one.
 
-Resolves to `{ appUid, removed, suspended }`, the number of handlers deleted and the number of subscriptions suspended. An app with nothing published rejects with `events_handler_not_found`.
+Resolves to `{ appUid, removed, suspended }`, the number of handlers deleted and the number of subscriptions and schedules suspended. An app with nothing published rejects with `events_handler_not_found`.
 
 ## Errors
 
