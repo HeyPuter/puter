@@ -8,7 +8,9 @@ platforms: [websites, apps, nodejs, workers]
 
 <div class="info">Schedules are available on puter.com. A self-hosted Puter server answers <code>events_disabled</code>.</div>
 
-Runs a handler your app published with [`puter.events.handlers.publish()`](/Events/handlers/) on a timer. A schedule can run at an interval, on a cron expression in a time zone, or once at a set time. It's stored on the user's account and runs in your app's [events worker](/Events/workers/), whether or not your app is open. It never runs in the client that created it.
+Runs a handler on a timer. A schedule can run at an interval, on a cron expression in a time zone, or once at a set time. It's stored on the user's account and runs in an [events worker](/Events/workers/), whether or not your app is open. It never runs in the client that created it.
+
+The handler is either inline code you pass as `handler`, or a handler published under a name with [`puter.events.handlers.publish()`](/Events/handlers/). Inline code is published into the signed-in user's own [user scope](/Events/handlers/#user-scope) of your app and runs for that user only. A named handler published by the app's owner is shared by every user of the app.
 
 To run a handler when the user's data changes instead, use [`puter.events.onPersistent()`](/Events/onPersistent/).
 
@@ -34,9 +36,10 @@ Give exactly one of `every`, `cron` or `at`.
 - `startAt` (Number | String | Date): For `every`, the first run. Without it, the first run is one interval after this call. A `startAt` in the past sets where the intervals line up, and the first run is the next one after this call. For example, `every: '1d'` with `startAt: '2026-01-01'` runs at midnight UTC every day. For `cron`, the earliest time the schedule may run. At most 366 days ahead.
 - `expiresAt` (Number | String | Date): The last time the schedule may run. A run due at exactly this time still runs.
 - `maxRuns` (Number): How many slots the schedule has, from 1 to 100,000. It ends at its `maxRuns`-th slot counted from the first. It counts slots, not runs that happened, so slots skipped while the schedule was behind or suspended (see [When a schedule runs](#when-a-schedule-runs)) still count, and the retries of one slot count once. With `expiresAt` too, the one that comes first ends the schedule.
-- `handlerName` (String) (required): The published handler each run calls.
-- `handler` (Function | String | Object): The handler source you wrote this schedule against, as a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Only its hash is sent. The schedule is created only if it matches what's published under `handlerName`. It never runs in this client.
-- `handlerHash` (String): The SHA-256 hex digest of the handler source, in place of `handler`.
+- `handler` (Function | String | Object): The handler code, as a function, a source string, or `{ file: '~/AppData/…/handler.js' }`. Required unless you pass `handlerName`. Without `handlerName`, the source is sent and published into the signed-in user's own user scope, and every run calls it. With `handlerName`, only its hash is sent, and the schedule is created only if it matches what's published under that name. It never runs in this client.
+- `handlerName` (String): The published handler each run calls. Required unless you pass `handler`.
+- `handlerScope` (String): Where `handlerName` is looked up, `'app'` or `'user'`. Defaults to `'app'`, the handlers the app's owner published. `'user'` binds to a handler the signed-in user's scope holds, published with `handlers.publish(name, handler, { scope: 'user' })`.
+- `handlerHash` (String): The SHA-256 hex digest of the handler source, in place of `handler`, to check it against `handlerName`.
 - `context` (Object): Values the handler needs, passed to every run as a frozen `ctx`. Up to 4 KB serialized. It's read once, at this call, and can't be changed later. To change it, remove the schedule and create a new one.
 
 ### Times
@@ -164,7 +167,7 @@ The `user` binding is valid for 15 minutes, so use it only during the run. Write
 
 A run that fails because of Puter doesn't count as a failure. It's retried on the same schedule, and waits longer if Puter's answer asked for a longer wait, up to 5 minutes. To drop the run in that case anyway, throw an error with `terminal: true`. The rules are the same as for a [`queue` subscription](/Events/onPersistent/#what-happens-when-a-handler-fails), except that the retries stop once the schedule's next run is due, or after 24 hours for an `at` schedule or a last run. The run is then dropped without billing.
 
-Five failures in a row suspend the schedule with `failures`. The developer is notified, and publishing the handler again resumes it.
+Five failures in a row suspend the schedule with `failures`, and publishing the handler again resumes it. For an app handler the developer gets an `app.events.suspended` notification. For a handler in a user scope the user gets an `app.events.handler_suspended` notification instead, and the developer isn't told.
 
 ## Background runs need consent
 
@@ -229,8 +232,15 @@ The promise rejects with `{ message, code }`:
 | `code` | Meaning |
 | --- | --- |
 | `invalid_request` | `options` isn't an object. |
-| `events_handler_required` | There's no `handlerName`. |
-| `events_handler_name_required` | `handler` was given without `handlerName`. |
+| `events_handler_required` | There's neither a `handler` nor a `handlerName`. |
+| `events_user_handlers_disabled` | Publishing into a user scope isn't turned on for this server. |
+| `events_handler_forbidden` | The call can't publish into a user scope: it came from a scoped access token, a temporary account, or on behalf of a different app. |
+| `insufficient_funds` | Publishing into a user scope needs credit on a hosted Puter server, and the user has none. |
+| `forbidden` | The user already holds as many [worker units](/rate-limits-and-quotas/#worker-units) as their plan allows, so a new user scope can't be created. |
+| `events_handler_limit` | The user scope already holds the [maximum number of handlers](/rate-limits-and-quotas/#handlers). |
+| `events_handler_too_large` | The handler is over 64 KB. |
+| `events_worker_too_large` | The user scope's handlers would exceed 1 MB combined. |
+| `events_handler_name_invalid` | `handlerName` is empty, too long, has characters that aren't allowed, or starts with `@`, which is reserved for inline handlers. |
 | `events_handler_free_variable` | The handler uses an outside variable. The message names it. |
 | `events_handler_invalid` | `handler` isn't a function, a source string, or `{ file }`. |
 | `events_handler_hash_unavailable` | This environment has no `crypto.subtle`, so `handler` can't be hashed. Pass `handlerName` alone. |
@@ -246,7 +256,7 @@ The promise rejects with `{ message, code }`:
 | `events_schedule_too_frequent` | It would run more often than your plan's [minimum interval](#how-often-a-schedule-can-run). |
 | `events_schedule_too_deep` | The call was made from a handler at the end of a [handler chain](/Events/onPersistent/#handlers-that-trigger-handlers), so the schedule could never run. |
 | `bad_request` | `handlerName` is empty or over 128 characters, or `handlerHash` isn't a SHA-256 hex digest. |
-| `events_handler_not_found` | Nothing is published under `handlerName`. The schedule isn't created. |
+| `events_handler_not_found` | Nothing is published under `handlerName` in that scope. The schedule isn't created. |
 | `events_handler_hash_mismatch` | The published handler isn't the source you passed as `handler`. |
 | `events_schedule_limit` | The user holds as many schedules as their plan allows, for your app or in total. |
 | `events_schedule_budget` | The schedule would make your app's schedules, or all of the user's schedules, run more times an hour than their plan allows. |
