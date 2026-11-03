@@ -163,6 +163,19 @@ export type WorkerMissHandler = (
 export const EVENTS_INVOKE_TIMEOUT_MS = 30_000;
 
 /**
+ * How many invoke timeouts a delivery's worker lease lasts. The lease store
+ * reads this, and `invoke()` keeps a whole call, deploy and resend included,
+ * inside it.
+ */
+export const EVENTS_WORKER_LEASE_FACTOR = 2;
+
+/**
+ * Left unspent at the end of the lease, and the least a resend is worth
+ * starting with: below it the call is given up as `unavailable` and retried.
+ */
+export const EVENTS_DEADLINE_MARGIN_MS = 5_000;
+
+/**
  * Connections held open to the dispatcher, so a busy fleet is not
  * re-handshaking. Also how many calls one transport makes at once: a call past
  * that waits for a free one before its invoke timeout starts.
@@ -255,10 +268,7 @@ export interface EventsInvokeTransport {
  * handler); retried like `retriable` but never the handler's fault.
  */
 export type WorkerInvokeOutcome =
-    | 'settled'
-    | 'terminal'
-    | 'retriable'
-    | 'unavailable';
+    'settled' | 'terminal' | 'retriable' | 'unavailable';
 
 export interface WorkerInvokeResult {
     outcome: WorkerInvokeOutcome;
@@ -329,17 +339,48 @@ export class EventsWorkerInvokerClient extends PuterClient {
                 ctx: request.ctx,
                 token: request.token,
             });
-        const send = (deployed: boolean): Promise<EventsInvokeAnswer> =>
+        const timeoutMs = this.#timeoutMs();
+        // The whole call, deploy and resend included, ends before the lease a
+        // delivery holds would let it be claimed again mid-run.
+        // A short configured timeout gets a proportionally short margin.
+        const margin = Math.min(EVENTS_DEADLINE_MARGIN_MS, timeoutMs / 2);
+        const deadline =
+            Date.now() + timeoutMs * EVENTS_WORKER_LEASE_FACTOR - margin;
+        const send = (
+            deployed: boolean,
+            sendTimeoutMs = timeoutMs,
+        ): Promise<EventsInvokeAnswer> =>
             transport.send({
                 script: request.script,
                 appUid: request.appUid,
                 key: request.key,
                 body: render(),
-                timeoutMs: this.#timeoutMs(),
+                timeoutMs: sendTimeoutMs,
                 ...(deployed ? { deployed: true } : {}),
                 ...(options.lane ? { lane: options.lane } : {}),
                 ...(stampEvent ? { render } : {}),
             });
+
+        // A send may wait for a connection for half its timeout before the
+        // run's own timeout starts, so it is given what is left divided by that.
+        const resend = (): Promise<EventsInvokeAnswer> | null => {
+            const remaining = deadline - Date.now();
+            if (remaining < margin) return null;
+            return send(
+                true,
+                Math.floor(
+                    Math.min(
+                        timeoutMs,
+                        remaining / (1 + CONNECTION_WAIT_SHARE),
+                    ),
+                ),
+            );
+        };
+        const outOfTime = (): WorkerInvokeResult => ({
+            outcome: 'unavailable',
+            status: null,
+            error: 'out of time to resend after deploy',
+        });
 
         let result = await send(false);
         if (this.#missHandler && selfDeployable(result)) {
@@ -355,7 +396,9 @@ export class EventsWorkerInvokerClient extends PuterClient {
                     error: `deploy: ${outcome}`,
                     ...(outcome === DEPLOY_BUSY ? { deployBusy: true } : {}),
                 };
-            result = await send(true);
+            const resent = await resend();
+            if (!resent) return outOfTime();
+            result = resent;
         } else if (
             result.status === null &&
             result.dispatchReason &&
@@ -363,7 +406,9 @@ export class EventsWorkerInvokerClient extends PuterClient {
         ) {
             // No deploy to trigger — just give propagation the one retry
             // it usually needs, without spending an upload on it.
-            result = await send(true);
+            const resent = await resend();
+            if (!resent) return outOfTime();
+            result = resent;
         }
 
         const { status, handled, error, timedOut, retryAfterMs } = result;

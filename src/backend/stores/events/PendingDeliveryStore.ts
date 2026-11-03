@@ -18,7 +18,10 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { EVENTS_INVOKE_TIMEOUT_MS } from '../../clients/events/EventsWorkerInvokerClient.js';
+import {
+    EVENTS_INVOKE_TIMEOUT_MS,
+    EVENTS_WORKER_LEASE_FACTOR,
+} from '../../clients/events/EventsWorkerInvokerClient.js';
 import {
     EVENTS_FAILURE_COUNTER_TTL_MS,
     EVENTS_PENDING_DELIVERIES_PER_SUBSCRIPTION,
@@ -316,7 +319,7 @@ export class PendingDeliveryStore extends PuterStore {
             typeof configured === 'number' && configured > 0
                 ? configured
                 : EVENTS_INVOKE_TIMEOUT_MS;
-        return invokeTimeoutMs * 2;
+        return invokeTimeoutMs * EVENTS_WORKER_LEASE_FACTOR;
     }
 
     // -- Writes ------------------------------------------------------
