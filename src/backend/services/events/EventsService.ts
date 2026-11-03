@@ -2755,6 +2755,8 @@ export class EventsService extends PuterService {
             actor,
             request?.appUid,
             parseHandlerScopeKind(request?.scope, 'scope'),
+            false,
+            true,
         );
         const { appUid } = scope;
 
@@ -3305,6 +3307,7 @@ export class EventsService extends PuterService {
         requested: unknown,
         kind: HandlerScopeKind = 'app',
         publishing = false,
+        destroying = false,
     ): Promise<HandlerScope> {
         if (!this.enabled) throw disabled();
         const userId = actor.user?.id;
@@ -3313,6 +3316,7 @@ export class EventsService extends PuterService {
             return this.#userScope(actor, requested, {
                 requireFlag: publishing,
                 requireCredit: publishing,
+                accountOk: destroying,
             });
 
         const acting = actor.effectiveApp;
@@ -3351,7 +3355,12 @@ export class EventsService extends PuterService {
     async #userScope(
         actor: Actor,
         requested: unknown,
-        checks: { requireFlag?: boolean; requireCredit?: boolean } = {},
+        checks: {
+            requireFlag?: boolean;
+            requireCredit?: boolean;
+            /** An account session may name any app, for its own scope only. */
+            accountOk?: boolean;
+        } = {},
     ): Promise<HandlerScope> {
         const userId = actor.user?.id;
         if (userId === undefined) throw disabled();
@@ -3359,9 +3368,18 @@ export class EventsService extends PuterService {
             throw userHandlersDisabled();
 
         const acting = actor.effectiveApp;
-        if (!acting || isAccessTokenActor(actor)) throw userScopeForbidden();
         const named = parseAppUid(requested);
-        if (named !== null && named !== acting.uid) throw userScopeForbidden();
+        const account =
+            checks.accountOk === true &&
+            acting === null &&
+            !isAccessTokenActor(actor) &&
+            named !== null;
+        if (!account) {
+            if (!acting || isAccessTokenActor(actor))
+                throw userScopeForbidden();
+            if (named !== null && named !== acting.uid)
+                throw userScopeForbidden();
+        }
         if ((await this.#planId(actor)) === DEFAULT_TEMP_SUBSCRIPTION)
             throw userScopeForbidden();
 
@@ -3371,7 +3389,7 @@ export class EventsService extends PuterService {
                 actor,
                 this.config,
             );
-        return { appUid: acting.uid, holder: userId };
+        return { appUid: (acting?.uid ?? named)!, holder: userId };
     }
 
     async #spendHandlerBudget(actor: Actor): Promise<void> {
@@ -3432,8 +3450,10 @@ export class EventsService extends PuterService {
         };
     }
 
-    #assertUnitRoom(actor: Actor): Promise<void> {
-        return assertRentedUnitRoom(
+    /** The rented-unit cap applies only where user scopes are on. */
+    async #assertUnitRoom(actor: Actor): Promise<void> {
+        if (!this.userHandlersEnabled) return;
+        await assertRentedUnitRoom(
             { stores: this.stores, metering: this.services.metering },
             actor,
         );

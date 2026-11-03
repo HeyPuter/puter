@@ -907,6 +907,11 @@ describe('with the flag off', () => {
         expect(await store().countForApp(userScope(userId))).toBe(0);
     });
 
+    it('does not apply the rented-unit cap to an owner`s first app publish', async () => {
+        holding(DEFAULT_FREE_SUBSCRIPTION, { workers: 16, scopes: 16, owned: 16 });
+        expect((await publishApp(userToken, 'daily', SOURCE)).status).toBe(200);
+    });
+
     it('leaves app scope alone, and lets a user remove what they hold', async () => {
         expect((await publishApp(userToken, 'daily', SOURCE)).status).toBe(200);
 

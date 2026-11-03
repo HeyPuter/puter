@@ -58,6 +58,8 @@ const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 export const WORKER_COMPATIBILITY_DATE = '2025-07-15';
 export const WORKER_COMPATIBILITY_FLAGS = ['global_fetch_strictly_public'];
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
+/** Cap on ordinary workers while user-scope handlers are off. */
+const MAX_WORKERS_PER_USER = 100;
 
 /**
  * Opt-in key for `create()` that skips the admission checks a _new_ worker has
@@ -457,17 +459,34 @@ export class WorkerDriver extends PuterDriver {
 
         this.#requireCfConfig();
 
-        // A new worker is one more rented unit. Deploy targets create no
-        // worker row and are bounded by their own caller; redeploying an
-        // existing worker is never refused.
-        if (!skipAdmission && !deployTarget && !existingSub) {
-            await assertRentedUnitRoom(
-                {
-                    stores: this.stores,
-                    metering: this.services.metering,
-                },
-                actor,
-            );
+        // With user scopes on, a new worker is one more rented unit under the
+        // plan's cap, and redeploying an existing worker is never refused.
+        // Deploy targets create no worker row and are bounded by their caller.
+        if (this.config.events?.userHandlers === true) {
+            if (!skipAdmission && !deployTarget && !existingSub) {
+                await assertRentedUnitRoom(
+                    {
+                        stores: this.stores,
+                        metering: this.services.metering,
+                    },
+                    actor,
+                );
+            }
+        } else {
+            const existingWorkers =
+                skipAdmission || deployTarget
+                    ? []
+                    : await this.stores.subdomain.listByUserIdAndPrefix(
+                          actor.user.id,
+                          WORKER_SUBDOMAIN_PREFIX,
+                      );
+            if (existingWorkers.length >= MAX_WORKERS_PER_USER) {
+                throw new HttpError(
+                    403,
+                    `Worker limit reached (max ${MAX_WORKERS_PER_USER})`,
+                    { legacyCode: 'forbidden' },
+                );
+            }
         }
 
         // Read source file. loadFileInput runs the read-ACL check internally

@@ -825,7 +825,7 @@ describe('POST /events/workers/destroy with a user scope', () => {
         expect(again.status).toBe(404);
     });
 
-    it('refuses a scoped token, a session with no app, and another app', async () => {
+    it('refuses a scoped token and an app session naming another app', async () => {
         const theirs = await makeApp(otherUserId);
         const mineIn = await sessionIn(theirs, 'user');
         await publishUserScope(mineIn, 'x', SOURCE);
@@ -837,7 +837,6 @@ describe('POST /events/workers/destroy with a user scope', () => {
 
         for (const [token, body] of [
             [scoped, { scope: 'user' }],
-            [env.users.user.token, { scope: 'user', appUid: theirs.uid }],
             [mineIn, { scope: 'user', appUid: elsewhere.uid }],
         ] as const) {
             const refused = await call(
@@ -855,5 +854,91 @@ describe('POST /events/workers/destroy with a user scope', () => {
                 holder: userId,
             }),
         ).toBe(1);
+    });
+});
+
+describe('destroying a user scope from an account session', () => {
+    it('removes the caller`s own scope of any app, and nobody else`s', async () => {
+        const theirs = await makeApp(otherUserId);
+        await publishUserScope(await sessionIn(theirs, 'user'), 'x', SOURCE);
+        await publishUserScope(await sessionIn(theirs, 'other'), 'x', SOURCE);
+        const store = env.server.stores.eventHandler;
+        destroys.length = 0;
+
+        const destroyed = await call(
+            'POST',
+            '/events/workers/destroy',
+            env.users.user.token,
+            { scope: 'user', appUid: theirs.uid },
+        );
+
+        expect(destroyed.status).toBe(200);
+        expect(destroyed.body).toMatchObject({ removed: 1, scope: 'user' });
+        expect(
+            await store.countForApp({ appUid: theirs.uid, holder: userId }),
+        ).toBe(0);
+        expect(
+            await store.countForApp({ appUid: theirs.uid, holder: otherUserId }),
+        ).toBe(1);
+        expect(destroys).toEqual([{ appUid: theirs.uid, ownerId: userId }]);
+
+        // The same call as the other user removes only theirs; the first user
+        // has no scope left to touch.
+        const none = await call(
+            'POST',
+            '/events/workers/destroy',
+            env.users.user.token,
+            { scope: 'user', appUid: theirs.uid },
+        );
+        expect(none.status).toBe(404);
+        expect(
+            await store.countForApp({ appUid: theirs.uid, holder: otherUserId }),
+        ).toBe(1);
+    });
+
+    it('needs an appUid, and still refuses a scoped token', async () => {
+        const theirs = await makeApp(otherUserId);
+        const mineIn = await sessionIn(theirs, 'user');
+        await publishUserScope(mineIn, 'x', SOURCE);
+
+        const noApp = await call(
+            'POST',
+            '/events/workers/destroy',
+            env.users.user.token,
+            { scope: 'user' },
+        );
+        expect(noApp.status).toBe(403);
+
+        const scoped = await appIssuedScopedToken({
+            uid: theirs.uid,
+            token: mineIn,
+        });
+        const refused = await call('POST', '/events/workers/destroy', scoped, {
+            scope: 'user',
+            appUid: theirs.uid,
+        });
+        expect(refused.status).toBe(403);
+    });
+
+    it('works with user handlers switched off, so a user can stop paying', async () => {
+        const theirs = await makeApp(otherUserId);
+        await publishUserScope(await sessionIn(theirs, 'user'), 'x', SOURCE);
+        const config = (
+            env.server.services.events as unknown as {
+                config: { events: { userHandlers?: boolean } };
+            }
+        ).config;
+        config.events.userHandlers = false;
+        try {
+            const destroyed = await call(
+                'POST',
+                '/events/workers/destroy',
+                env.users.user.token,
+                { scope: 'user', appUid: theirs.uid },
+            );
+            expect(destroyed.status).toBe(200);
+        } finally {
+            config.events.userHandlers = true;
+        }
     });
 });

@@ -807,10 +807,13 @@ describe('WorkerDriver', () => {
         // credentials to reach it; a create under the cap then fails on the
         // missing source file, which is what tells it past the cap check.
         let originalWorkersConfig: unknown;
+        let originalEvents: unknown;
         beforeAll(() => {
             const driverConfig = (
                 target as unknown as { config: Record<string, unknown> }
             ).config;
+            originalEvents = driverConfig.events;
+            driverConfig.events = { userHandlers: true };
             originalWorkersConfig = driverConfig.workers;
             driverConfig.workers = {
                 XAUTHKEY: 'test-key',
@@ -818,9 +821,11 @@ describe('WorkerDriver', () => {
             };
         });
         afterAll(() => {
-            (
+            const driverConfig = (
                 target as unknown as { config: Record<string, unknown> }
-            ).config.workers = originalWorkersConfig;
+            ).config;
+            driverConfig.workers = originalWorkersConfig;
+            driverConfig.events = originalEvents;
         });
 
         const holding = (
@@ -856,6 +861,40 @@ describe('WorkerDriver', () => {
                     filePath: '/test.js',
                 }),
             );
+
+        it('keeps the flat 100-worker cap over ordinary workers with user scopes off', async () => {
+            const driverConfig = (
+                target as unknown as { config: Record<string, unknown> }
+            ).config;
+            driverConfig.events = { userHandlers: false };
+            try {
+                // 16 workers is fine here, and scopes and owned apps don't count.
+                holding(DEFAULT_FREE_SUBSCRIPTION, {
+                    workers: 16,
+                    scopes: 50,
+                    owned: 50,
+                });
+                const list = vi
+                    .spyOn(server.stores.subdomain, 'listByUserIdAndPrefix')
+                    .mockResolvedValue(
+                        Array.from({ length: 16 }, () => ({})) as never,
+                    );
+                await expect(createWorker()).rejects.not.toMatchObject({
+                    statusCode: 403,
+                });
+
+                list.mockResolvedValue(
+                    Array.from({ length: 100 }, () => ({})) as never,
+                );
+                await expect(createWorker()).rejects.toMatchObject({
+                    statusCode: 403,
+                    message: 'Worker limit reached (max 100)',
+                    legacyCode: 'forbidden',
+                });
+            } finally {
+                driverConfig.events = { userHandlers: true };
+            }
+        });
 
         it('refuses a free user one unit past the cap, across all three sources', async () => {
             for (const held of [
@@ -995,7 +1034,7 @@ describe('WorkerDriver', () => {
             // with an account id also demands a built worker preamble, which
             // is not built for backend tests.
             const store = server.stores.subdomain;
-            const originalCount = store.countByUserIdAndPrefix.bind(store);
+            const originalList = store.listByUserIdAndPrefix.bind(store);
             const driverConfig = (
                 target as unknown as { config: Record<string, unknown> }
             ).config;
@@ -1004,11 +1043,13 @@ describe('WorkerDriver', () => {
                 XAUTHKEY: 'test-key',
                 ACCOUNTID: 'test-account',
             };
-            let countCalls = 0;
-            store.countByUserIdAndPrefix = (async () => {
-                countCalls++;
-                return 100;
-            }) as typeof store.countByUserIdAndPrefix;
+            let listCalls = 0;
+            store.listByUserIdAndPrefix = (async () => {
+                listCalls++;
+                return Array.from({ length: 100 }, (_, i) => ({
+                    subdomain: `workers.puter.w${i}`,
+                })) as never;
+            }) as typeof store.listByUserIdAndPrefix;
 
             try {
                 await expect(
@@ -1020,7 +1061,7 @@ describe('WorkerDriver', () => {
                         }),
                     ),
                 ).rejects.toMatchObject({ statusCode: 403 });
-                expect(countCalls).toBe(1);
+                expect(listCalls).toBe(1);
 
                 // With the bypass the limit is never even counted; the call
                 // fails later, on the missing source file.
@@ -1034,9 +1075,9 @@ describe('WorkerDriver', () => {
                         }),
                     ),
                 ).rejects.not.toMatchObject({ statusCode: 403 });
-                expect(countCalls).toBe(1);
+                expect(listCalls).toBe(1);
             } finally {
-                store.countByUserIdAndPrefix = originalCount;
+                store.listByUserIdAndPrefix = originalList;
                 driverConfig.workers = originalWorkersConfig;
             }
         });
