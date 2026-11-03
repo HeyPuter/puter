@@ -1,0 +1,23 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const later = await puter.notifications.notify({
+                title: 'Stand-up in 10 minutes',
+                sendAt: Date.now() + 10 * 60 * 1000,
+            });
+            if (typeof later !== 'object' || !later) return;    // due now, so it was sent at once
+
+            const schedule = await puter.events.getSchedule(later.scheduleId);
+            const due = schedule.nextRunAt ? new Date(schedule.nextRunAt).toLocaleTimeString() : 'nothing due';
+            puter.print(`${schedule.state}, due ${due}<br>`);
+
+            // Ended schedules can still be read
+            await puter.notifications.cancel(later.scheduleId);
+            const ended = await puter.events.getSchedule(later.scheduleId);
+            puter.print(`${ended.state} (${ended.endReason})<br>`);
+        })();
+    </script>
+</body>
+</html>

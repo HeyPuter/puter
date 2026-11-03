@@ -442,6 +442,46 @@ describe('secureFetch transport behaviour', () => {
             });
         });
 
+        it('follows redirects up to maxRedirects, each through the proxy', async () => {
+            respond = (res) => {
+                if (lastRequest.url === '/?url=https://upstream.test/start') {
+                    res.writeHead(301, { location: '/landing' });
+                    res.end();
+                    return;
+                }
+                res.writeHead(200);
+                res.end('landed');
+            };
+
+            const res = await withProxy(() =>
+                secureFetch('https://upstream.test/start', { maxRedirects: 1 }),
+            );
+            expect(await res.text()).toBe('landed');
+            expect(lastRequest.url).toBe('/?url=https://upstream.test/landing');
+        });
+
+        it('re-validates each hop and stops at maxRedirects', async () => {
+            respond = (res) => {
+                res.writeHead(302, { location: 'http://169.254.169.254/' });
+                res.end();
+            };
+            await withProxy(async () => {
+                await expect(
+                    secureFetch('https://upstream.test/a', { maxRedirects: 3 }),
+                ).rejects.toThrow('IP-addressed URLs are not allowed');
+            });
+
+            respond = (res) => {
+                res.writeHead(302, { location: 'https://upstream.test/loop' });
+                res.end();
+            };
+            await withProxy(async () => {
+                await expect(
+                    secureFetch('https://upstream.test/a', { maxRedirects: 2 }),
+                ).rejects.toThrow('redirects are not allowed');
+            });
+        });
+
         it('names the target as unknown when a 3xx carries no Location', async () => {
             respond = (res) => {
                 res.writeHead(304);

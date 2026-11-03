@@ -19,8 +19,11 @@
 
 import { HttpError } from '../../core/http/HttpError.js';
 
-/** How wide one column is, and the name a caller knows the value by. */
-interface ColumnWidth {
+/**
+ * How wide one column is, and the name a caller knows the value by. Called by
+ * extensions.
+ */
+export interface ColumnWidth {
     /** Column in the migrations, so a schema change is greppable from here. */
     column: string;
     max: number;
