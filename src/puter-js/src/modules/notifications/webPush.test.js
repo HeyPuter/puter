@@ -1089,6 +1089,59 @@ describe('onPush', () => {
             expect(store.get('handlers:chat')).toBe(chat.toString());
         });
 
+        describe('in the back/forward cache', () => {
+            let page;
+            beforeEach(() => {
+                page = new EventTarget();
+                globalThis.addEventListener = page.addEventListener.bind(page);
+            });
+            afterEach(() => {
+                delete globalThis.addEventListener;
+            });
+            const pageEvent = (type, persisted) =>
+                page.dispatchEvent(
+                    Object.assign(new Event(type), { persisted }),
+                );
+
+            it('lets go of the lock while hidden, so another tab can remove the saved handler', async () => {
+                const chat = (n) => ({ title: n.text });
+                await makeModule().module.onPush('chat', chat);
+                const tabB = await makeModule().module.onPush('chat', chat);
+                pageEvent('pagehide', true);
+                await flush();
+                await tabB.off();
+                expect(store.has('handlers:chat')).toBe(false);
+            });
+
+            it('takes the lock again and saves its handler again when restored', async () => {
+                const chat = (n) => ({ title: n.text });
+                const { module } = makeModule();
+                const cached = await module.onPush('chat', chat);
+                const tabB = await makeModule().module.onPush('chat', chat);
+                pageEvent('pagehide', true);
+                await flush();
+                await tabB.off();
+                pageEvent('pageshow', true);
+                await vi.waitFor(() =>
+                    expect(store.get('handlers:chat')).toBe(chat.toString()),
+                );
+                const tabC = await makeModule().module.onPush('chat', chat);
+                await tabC.off();
+                expect(store.get('handlers:chat')).toBe(chat.toString());
+                await cached.off();
+                expect(store.has('handlers:chat')).toBe(false);
+            });
+
+            it('changes nothing on a pageshow that is not a restore', async () => {
+                const chat = (n) => ({ title: n.text });
+                await makeModule().module.onPush('chat', chat);
+                const tabB = await makeModule().module.onPush('chat', chat);
+                pageEvent('pageshow', false);
+                await tabB.off();
+                expect(store.get('handlers:chat')).toBe(chat.toString());
+            });
+        });
+
         it('lets each key go on its own', async () => {
             const tabA = await makeModule().module.onPush('chat', () => {});
             await makeModule().module.onPush('mail', () => {});

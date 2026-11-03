@@ -282,6 +282,7 @@ export class NotificationsModule extends EventListener {
     #sourceWrites = new Map();
     /** This page's hold on each key's handler lock, with its handler count. */
     #handlerLocks = new Map();
+    #watchingPageCache = false;
     #receipts = new ReceiptLog(() => this.#showsOwn());
     /**
      * Whether the signed-in user turned push on here, as last read or set. A
@@ -389,7 +390,7 @@ export class NotificationsModule extends EventListener {
         if (worker) this.#useWorker(worker);
         this.#startPushFeed();
         if (source !== null) {
-            await this.#holdHandlerLock(key);
+            await this.#holdHandlerLock(key, source);
             await this.#writeSource(key, () =>
                 idbPut(HANDLERS_STORE, key, source),
             );
@@ -835,14 +836,16 @@ export class NotificationsModule extends EventListener {
     }
 
     /** Holds the key's handler lock for one more handler; resolves once held. */
-    #holdHandlerLock(key) {
+    #holdHandlerLock(key, source) {
+        this.#watchPageCache();
         let hold = this.#handlerLocks.get(key);
         if (!hold) {
-            hold = { count: 0, ...holdShared(handlerLock(key)) };
+            hold = { count: 0, source, lock: holdShared(handlerLock(key)) };
             this.#handlerLocks.set(key, hold);
         }
         hold.count++;
-        return hold.granted;
+        hold.source = source;
+        return hold.lock.granted;
     }
 
     /** Lets go of the key's handler lock with its last handler. */
@@ -851,8 +854,29 @@ export class NotificationsModule extends EventListener {
         if (!hold) return Promise.resolve();
         if (--hold.count > 0) return Promise.resolve();
         this.#handlerLocks.delete(key);
-        hold.release();
-        return hold.released;
+        hold.lock.release();
+        return hold.lock.released;
+    }
+
+    /** Browsers keep no page holding a Web Lock in the back/forward cache. */
+    #watchPageCache() {
+        if (this.#watchingPageCache || !globalThis.addEventListener) return;
+        this.#watchingPageCache = true;
+        globalThis.addEventListener('pagehide', () => {
+            for (const hold of this.#handlerLocks.values()) hold.lock.release();
+        });
+        globalThis.addEventListener('pageshow', (event) => {
+            if (!event.persisted) return;
+            for (const [key, hold] of this.#handlerLocks) {
+                hold.lock = holdShared(handlerLock(key));
+                const { granted } = hold.lock;
+                // Another tab may have removed the saved handler meanwhile.
+                void this.#writeSource(key, async () => {
+                    await granted;
+                    await idbPut(HANDLERS_STORE, key, hold.source);
+                });
+            }
+        });
     }
 
     /**
