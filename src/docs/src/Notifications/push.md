@@ -65,15 +65,15 @@ To check the worker, open `https://<your site>/puter-sw.js` in a browser tab. It
 
 #### Serving your own copy
 
-`https://js.puter.com/push-sw.js` always serves the current version, and Puter's CDN picks up a new one within five minutes. To decide when your worker changes, serve a fixed copy instead. The file ships in the [`@heyputer/puter.js`](https://www.npmjs.com/package/@heyputer/puter.js) npm package as `src/push-sw.js`. Copy it to your site, or import it from a CDN that serves npm packages, with the version in the URL:
+The worker at `https://js.puter.com/push-sw.js` always serves the current version, and Puter's CDN picks up a new one within five minutes. It matches `https://js.puter.com/v2/`, which always serves the newest Puter.js, so a site that loads Puter.js from there should keep the default worker.
+
+A site that pins Puter.js to one version, from npm or a CDN such as jsdelivr, can pin the worker to the same version. The file ships in the [`@heyputer/puter.js`](https://www.npmjs.com/package/@heyputer/puter.js) npm package as `src/push-sw.js`. Copy it to your site, or import it from a CDN that serves npm packages, with the version in the URL:
 
 ```js
 importScripts('https://cdn.jsdelivr.net/npm/@heyputer/puter.js@<version>/src/push-sw.js');
 ```
 
-Replace `<version>` with the version of the Puter.js your site loads.
-
-The worker and your pages share what [`onPush()`](/Notifications/onPush/) and [`enable()`](/Notifications/enable/) save in the browser, so update the copy together with the Puter.js your pages load, to the same version. A Content-Security-Policy on the worker has to allow the copy's origin instead of `https://js.puter.com`.
+Replace `<version>` with the version of the Puter.js your site loads, and change both together. The worker and your pages share what [`onPush()`](/Notifications/onPush/) and [`enable()`](/Notifications/enable/) save in the browser. A Content-Security-Policy on the worker has to allow the copy's origin instead of `https://js.puter.com`.
 
 A worker can also run only the handlers registered in it, and never the source your pages saved. [`onPush()`](/Notifications/onPush/#handler-limits) shows how.
 
