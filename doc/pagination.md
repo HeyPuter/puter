@@ -64,7 +64,8 @@ store:
   among rows up to that id. Each is its own indexed read, merged into one
   page, so a row replaced after a client read it comes back from that cursor.
   `from=end` with no cursor answers an empty page whose cursor holds the
-  slice's newest `id` and the current time as the replacement mark.
+  slice's newest `id` and the slice's latest `(replaced_at, id)` as the
+  replacement mark.
 
 Cursors that carry a sort also pin it: a request that passes a cursor plus a
 conflicting sort is rejected with 400.
