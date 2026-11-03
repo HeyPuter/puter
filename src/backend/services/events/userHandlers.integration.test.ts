@@ -908,7 +908,11 @@ describe('with the flag off', () => {
     });
 
     it('does not apply the rented-unit cap to an owner`s first app publish', async () => {
-        holding(DEFAULT_FREE_SUBSCRIPTION, { workers: 16, scopes: 16, owned: 16 });
+        holding(DEFAULT_FREE_SUBSCRIPTION, {
+            workers: 16,
+            scopes: 16,
+            owned: 16,
+        });
         expect((await publishApp(userToken, 'daily', SOURCE)).status).toBe(200);
     });
 
@@ -1179,6 +1183,97 @@ describe('firing a user-scope row', () => {
     });
 });
 
+describe('a user-scope row with the flag off and no credit', () => {
+    const rowOf = (subId: string) =>
+        env.server.stores.durableSubscription.getBySubId(subId);
+    const setup = async (delivery: 'queue' | 'broadcast') => {
+        const created = await subscribe(userToken, {
+            subject: `fs:${anchor}`,
+            ...(delivery === 'queue' ? { queue: true } : {}),
+            handlerSource: SOURCE,
+        });
+        expect(created.status).toBe(200);
+        const appRow = await subscribe(userToken, {
+            subject: `fs:${anchor}`,
+            ...(delivery === 'queue' ? { queue: true } : {}),
+            handlerName: 'app-handler',
+        });
+        (
+            events() as unknown as { config: IConfig }
+        ).config.events!.userHandlers = false;
+        vi.spyOn(
+            env.server.services.metering,
+            'hasAnyUsageCached',
+        ).mockResolvedValue(false);
+        return {
+            subId: String(created.body.subId),
+            appSubId: String(appRow.body.subId),
+        };
+    };
+    const touchAnchor = async () => {
+        await env.server.services.fs.touch(userId, {
+            path: `${anchor}/${uuidv4()}.txt`,
+        });
+        await new Promise((resolve) => setTimeout(resolve, 400));
+    };
+
+    it('suspends nothing, bills nothing and reaches no client for a queued row', async () => {
+        await publishApp(userToken, 'app-handler', SOURCE);
+        const { subId, appSubId } = await setup('queue');
+        const meter = vi.spyOn(
+            env.server.services.metering,
+            'bufferIncrementUsages',
+        );
+        const socket = env.server.services.socket;
+        vi.spyOn(socket, 'has').mockReturnValue(true);
+        const send = vi.spyOn(socket, 'send');
+
+        await touchAnchor();
+
+        expect((await rowOf(subId))?.suspendedAt).toBeNull();
+        expect(meter).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ subId }),
+        );
+        expect(await env.server.stores.pendingDelivery.depth(subId)).toBe(1);
+        // An app-scope row is judged as ever.
+        expect((await rowOf(appSubId))?.suspendedReason).toBe('no_credit');
+    });
+
+    it('delivers nothing and bills nothing for a broadcast row', async () => {
+        await publishApp(userToken, 'app-handler', SOURCE);
+        const { subId } = await setup('broadcast');
+        const meter = vi.spyOn(
+            env.server.services.metering,
+            'bufferIncrementUsages',
+        );
+        const send = vi.spyOn(env.server.services.socket, 'send');
+
+        await touchAnchor();
+
+        expect((await rowOf(subId))?.suspendedAt).toBeNull();
+        expect(meter).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({ subId }),
+        );
+    });
+
+    it('lets a schedule run on a user scope skip the credit gate', async () => {
+        const { subId } = await setup('queue');
+        expect(
+            await events().chargeableForSchedule(userId, appUid, subId, 'user'),
+        ).toBe(true);
+        expect((await rowOf(subId))?.suspendedAt).toBeNull();
+        expect(
+            await events().chargeableForSchedule(userId, appUid, subId),
+        ).toBe(false);
+    });
+});
+
 describe('suspension notices', () => {
     it('tells the holder, and not the app`s developer, when their handler is removed under a row', async () => {
         const notify = vi.spyOn(env.server.services.notification, 'notify');
@@ -1337,6 +1432,112 @@ describe('the unbound handler sweep', () => {
                 run: async () => {},
             }),
         ).toThrow('already registered');
+    });
+});
+
+describe('cached rows written by a node without scope markers', () => {
+    const sub = () => env.server.stores.eventSubscription;
+    const keyOf = (row: { ownerUserId: number; token: string }) =>
+        `ev:t:{${row.ownerUserId}}:${row.token}`;
+    const dbReads = () => {
+        const db = env.server.clients.db;
+        const spies = [vi.spyOn(db, 'read'), vi.spyOn(db, 'pread')];
+        return () => spies.reduce((sum, spy) => sum + spy.mock.calls.length, 0);
+    };
+    /** What an older node leaves in the cache: the row with no scope at all. */
+    const asOldNodeCached = async (subId: string) => {
+        const row =
+            (await env.server.stores.durableSubscription.getBySubId(subId))!;
+        const { handlerScope: _scope, ...bare } = row;
+        void _scope;
+        await env.server.clients.redis.hset(
+            keyOf(row),
+            subId,
+            JSON.stringify(bare),
+        );
+        return row;
+    };
+
+    it('resolves an unmarked user row as user scope, and marks the entry', async () => {
+        const created = await subscribe(userToken, {
+            subject: `fs:${anchor}`,
+            queue: true,
+            handlerSource: SOURCE,
+        });
+        const subId = String(created.body.subId);
+        const row = await asOldNodeCached(subId);
+
+        const [read] = await sub().getForTokens(row.ownerUserId, [row.token]);
+        expect(read).toMatchObject({ subId, handlerScope: 'user' });
+        expect('sc' in read).toBe(false);
+
+        const stored = JSON.parse(
+            (await env.server.clients.redis.hget(keyOf(row), subId))!,
+        );
+        expect(stored).toMatchObject({ sc: 1, handlerScope: 'user' });
+    });
+
+    it('resolves an unmarked app row as app scope', async () => {
+        await publishApp(userToken, 'app-handler', SOURCE);
+        const created = await subscribe(userToken, {
+            subject: `fs:${anchor}`,
+            queue: true,
+            handlerName: 'app-handler',
+        });
+        const subId = String(created.body.subId);
+        const row = await asOldNodeCached(subId);
+
+        const [read] = await sub().getForTokens(row.ownerUserId, [row.token]);
+        expect(read.handlerScope).toBeUndefined();
+        const stored = JSON.parse(
+            (await env.server.clients.redis.hget(keyOf(row), subId))!,
+        );
+        expect(stored.sc).toBe(1);
+    });
+
+    it('reads nothing extra once every cached row is marked', async () => {
+        const created = await subscribe(userToken, {
+            subject: `fs:${anchor}`,
+            queue: true,
+            handlerSource: SOURCE,
+        });
+        const row = (await env.server.stores.durableSubscription.getBySubId(
+            String(created.body.subId),
+        ))!;
+        await sub().cacheDurable([row]);
+        const reads = dbReads();
+
+        const [read] = await sub().getForTokens(row.ownerUserId, [row.token]);
+        const again = await sub().getForTokens(row.ownerUserId, [row.token], {
+            perToken: 5,
+        });
+
+        expect(read.handlerScope).toBe('user');
+        expect(again[0].handlerScope).toBe('user');
+        expect(reads()).toBe(0);
+    });
+
+    it('does not bring back a row dropped while it was being resolved', async () => {
+        const created = await subscribe(userToken, {
+            subject: `fs:${anchor}`,
+            queue: true,
+            handlerSource: SOURCE,
+        });
+        const subId = String(created.body.subId);
+        const row = await asOldNodeCached(subId);
+        const real = env.server.clients.db.read.bind(env.server.clients.db);
+        vi.spyOn(env.server.clients.db, 'read').mockImplementation(
+            async (...args) => {
+                await env.server.clients.redis.hdel(keyOf(row), subId);
+                return real(...args);
+            },
+        );
+
+        await sub().getForTokens(row.ownerUserId, [row.token]);
+
+        expect(await env.server.clients.redis.hget(keyOf(row), subId)).toBe(
+            null,
+        );
     });
 });
 

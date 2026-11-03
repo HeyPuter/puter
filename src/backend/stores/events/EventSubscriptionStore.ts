@@ -155,6 +155,15 @@ const liveRegionsByToken = (
     return live;
 };
 
+/**
+ * Present on every durable row this code caches: the handler scope is stated (a
+ * user row also carries `handlerScope`). A node without user scopes writes rows
+ * without it, and its entries say nothing about scope.
+ */
+const SCOPE_MARKER = 'sc';
+
+const SCOPE_LOOKUP_BATCH = 200;
+
 /** A row we cannot read is a row we cannot deliver against. */
 const parseRow = (raw: string): DispatchSubscription | null => {
     try {
@@ -1015,7 +1024,11 @@ export class EventSubscriptionStore extends PuterStore {
         const write = this.clients.redis.pipeline();
         for (const row of rows) {
             const key = tokenKey(ownerUserId, row.token);
-            write.hset(key, row.subId, JSON.stringify(row));
+            write.hset(
+                key,
+                row.subId,
+                JSON.stringify({ ...row, [SCOPE_MARKER]: 1 }),
+            );
             write.expire(key, DURABLE_CACHE_TTL_SECONDS);
             write.hset(durableMapKey(ownerUserId), row.subId, row.token);
         }
@@ -1269,7 +1282,78 @@ export class EventSubscriptionStore extends PuterStore {
                     subs.push(parsed);
             }
         }
+        await this.#settleScopes(ownerUserId, subs);
         return subs;
+    }
+
+    /**
+     * Rows a node without user scopes cached carry no scope marker, so a user
+     * row among them reads as an app row. Those with a handler are resolved
+     * from the table (replica, then primary for what it lacks) and rewritten
+     * with the marker; marked rows cost nothing.
+     */
+    async #settleScopes(
+        ownerUserId: number,
+        rows: DispatchSubscription[],
+    ): Promise<void> {
+        const unmarked: DispatchSubscription[] = [];
+        for (const row of rows) {
+            const marked = (row as unknown as Record<string, unknown>)[
+                SCOPE_MARKER
+            ];
+            delete (row as unknown as Record<string, unknown>)[SCOPE_MARKER];
+            if (marked === undefined && row.durable === true && row.handlerName)
+                unmarked.push(row);
+        }
+        if (unmarked.length === 0) return;
+
+        try {
+            const scopes = new Map<string, number>();
+            const lookup = async (
+                read: 'read' | 'pread',
+                ids: string[],
+            ): Promise<void> => {
+                const found = await this.clients.db[read](
+                    'SELECT `sub_id`, `handler_scope` FROM `event_subscriptions` ' +
+                        `WHERE \`sub_id\` IN (${ids.map(() => '?').join(', ')})`,
+                    ids,
+                );
+                for (const row of found)
+                    scopes.set(String(row.sub_id), Number(row.handler_scope));
+            };
+            for (let i = 0; i < unmarked.length; i += SCOPE_LOOKUP_BATCH) {
+                const ids = unmarked
+                    .slice(i, i + SCOPE_LOOKUP_BATCH)
+                    .map((row) => row.subId);
+                await lookup('read', ids);
+                const missing = ids.filter((id) => !scopes.has(id));
+                if (missing.length > 0) await lookup('pread', missing);
+            }
+
+            const resolved = unmarked.filter((row) => scopes.has(row.subId));
+            for (const row of resolved)
+                if (scopes.get(row.subId) === 1)
+                    (row as DurableSubscription).handlerScope = 'user';
+
+            // Rewritten only where the entry still stands, so a row dropped
+            // meanwhile is not brought back.
+            const check = this.clients.redis.pipeline();
+            for (const row of resolved)
+                check.hexists(tokenKey(ownerUserId, row.token), row.subId);
+            const standing = (await check.exec()) ?? [];
+            const write = this.clients.redis.pipeline();
+            resolved.forEach((row, i) => {
+                if (Number(standing[i]?.[1]) !== 1) return;
+                write.hset(
+                    tokenKey(ownerUserId, row.token),
+                    row.subId,
+                    JSON.stringify({ ...row, [SCOPE_MARKER]: 1 }),
+                );
+            });
+            await write.exec();
+        } catch (err) {
+            console.warn('[events] could not resolve cached row scopes', err);
+        }
     }
 
     /**
@@ -1316,6 +1400,7 @@ export class EventSubscriptionStore extends PuterStore {
             }
             subs.push(...taken.values());
         }
+        await this.#settleScopes(ownerUserId, subs);
         return subs;
     }
 

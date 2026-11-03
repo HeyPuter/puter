@@ -621,7 +621,7 @@ describe('EventsWorkerDeployer in a user scope', () => {
         );
     });
 
-    it('collapses one scope`s concurrent misses, and keeps other holders` apart', async () => {
+    it('collapses concurrent deploys of one script across holders into one upload', async () => {
         const app = nextApp();
         const source = sourceN('a');
         const { layers, created } = makeLayers(holders(10, 11));
@@ -635,16 +635,10 @@ describe('EventsWorkerDeployer in a user scope', () => {
         await Promise.all([
             deployer.ensure(userScope(10, app), script),
             deployer.ensure(userScope(10, app), script),
-            deployer.ensure(userScope(10, app), script),
+            deployer.ensure(userScope(11, app), script),
+            deployer.ensure(userScope(11, nextApp()), script),
         ]);
         expect(created).toHaveLength(1);
-
-        // Same script and app, another holder: its own deploy, as that holder.
-        await Promise.all([
-            deployer.ensure(userScope(10, app), script),
-            deployer.ensure(userScope(11, app), script),
-        ]);
-        expect(created).toHaveLength(3);
     });
 
     it('names a script for identical code the same under any holder and app', async () => {
@@ -824,6 +818,79 @@ describe('LocalEventsInvokeTransport in a user scope', () => {
         await expect(
             transport.send({ ...call, holder: 'uuid-99' }),
         ).resolves.toMatchObject({ status: null, error: 'deploy: no-holder' });
+        expect(created).toEqual([script]);
+    });
+});
+
+describe('concurrent eager deploys of one script', () => {
+    const setup = () => {
+        const source = sourceN('a');
+        const made = makeLayers(holders(10, 11));
+        withSets(made.layers, {
+            10: [{ name: 'a', source }],
+            11: [{ name: 'a', source }],
+        });
+        return {
+            ...made,
+            script: scriptOf('a', source),
+            app: nextApp(),
+        };
+    };
+
+    it('upload once when two holders publish the same new code together', async () => {
+        const { layers, created, script, app } = setup();
+        const deployer = new EventsWorkerDeployer(layers);
+
+        const outcomes = await Promise.all([
+            deployer.deployEagerly(userScope(10, app), script),
+            deployer.deployEagerly(userScope(11, app), script),
+        ]);
+
+        expect(outcomes).toEqual(['deployed', 'deployed']);
+        expect(created).toEqual([script]);
+    });
+
+    it('skip the upload when the marker appears while they wait on the gate', async () => {
+        const { layers, redis, created, script, app } = setup();
+        // Another node's deploy of the script finishes before the gate opens.
+        const gated = new EventsWorkerDeployer({
+            ...layers,
+            services: {
+                schedules: {
+                    gateDeploy: async (
+                        _script: string,
+                        _options: { capped: boolean },
+                        deploy: () => Promise<EventsDeployOutcome>,
+                    ) => {
+                        await redis.set(`ev:deployed:${script}`, '1');
+                        return deploy();
+                    },
+                },
+            },
+        } as unknown as Layers);
+
+        expect(
+            await gated.ensure(userScope(10, app), script, { eager: true }),
+        ).toBe('deployed');
+        expect(created).toEqual([]);
+        // A miss still uploads, whatever the marker says.
+        expect(await gated.ensure(userScope(11, app), script)).toBe('deployed');
+        expect(created).toEqual([script]);
+    });
+
+    it('make a miss that joins an eager deploy deploy after it', async () => {
+        const { layers, redis, created, script, app } = setup();
+        const deployer = new EventsWorkerDeployer(layers);
+        await redis.set(`ev:deployed:${script}`, '1');
+
+        const eager = deployer.ensure(userScope(10, app), script, {
+            eager: true,
+        });
+        const miss = deployer.ensure(userScope(11, app), script);
+
+        expect(await eager).toBe('deployed');
+        expect(await miss).toBe('deployed');
+        // The eager one skipped on the marker; the miss uploaded.
         expect(created).toEqual([script]);
     });
 });

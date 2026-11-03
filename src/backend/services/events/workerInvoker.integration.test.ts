@@ -1641,6 +1641,30 @@ describe('a handler in a user scope', () => {
         }
     });
 
+    it('reads a cold user scope from the replica only, once, for a delivery', async () => {
+        await inlineRow();
+        // Eager deploy at publish has finished with the primary by now.
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const redis = env.server.clients.redis;
+        const key = `eventHandlers:uset:${appUid}:${userId}`;
+        await redis.del(key, `${key}:r`);
+        const db = env.server.clients.db;
+        const primary = vi.spyOn(db, 'pread');
+        const replica = vi.spyOn(db, 'read');
+        const handlerReads = (spy: typeof primary) =>
+            spy.mock.calls.filter(([sql]) =>
+                String(sql).includes('event_user_handlers'),
+            ).length;
+
+        await touch('cold-user-scope.txt');
+        await invoked(1);
+
+        expect(handlerReads(primary)).toBe(0);
+        expect(handlerReads(replica)).toBe(1);
+        primary.mockRestore();
+        replica.mockRestore();
+    });
+
     it('resumes a suspended row when the name is published again', async () => {
         const subId = await inlineRow();
         await env.server.stores.eventHandler.deleteUserScope(appUid, userId);

@@ -5973,6 +5973,19 @@ export class EventsService extends PuterService {
     }
 
     /**
+     * A user-scope row while the flag is off: nothing resolves its handler, so
+     * it is left alone entirely, before any credit check, billing, client
+     * delivery or suspension. What it is owed stays queued.
+     */
+    #parkedUserRow(row: DispatchSubscription): boolean {
+        return (
+            row.durable === true &&
+            row.handlerScope === 'user' &&
+            !this.userHandlersEnabled
+        );
+    }
+
+    /**
      * Hand this subscription what it is owed, oldest first, until something
      * takes a lease and holds it. Stops after a batch so one consumer that
      * settles inline cannot drain a whole backlog inside one call.
@@ -5984,6 +5997,11 @@ export class EventsService extends PuterService {
         // A just-authorized row comes as its delivery re-check served it.
         opts?: { deferWhenBusy?: boolean; justAuthorized?: boolean },
     ): Promise<number> {
+        if (this.#parkedUserRow(row)) {
+            if (opts?.deferWhenBusy)
+                await this.stores.pendingDelivery.defer(row.subId);
+            return 0;
+        }
         const serving = opts?.justAuthorized ? row : await this.#stillOwed(row);
         if (!serving) {
             if (opts?.deferWhenBusy)
@@ -6084,6 +6102,7 @@ export class EventsService extends PuterService {
         row: DispatchSubscription,
         claimed: ClaimedDelivery,
     ): Promise<boolean> {
+        if (this.#parkedUserRow(row)) return false;
         const meter = meterFor(row);
         // Held, not dropped: a delivery its holder cannot pay for waits out the
         // suspension's window and goes out if the balance comes back.
@@ -6197,8 +6216,7 @@ export class EventsService extends PuterService {
         );
         // Nothing to run yet: the lease paces the retry and nothing is failed.
         if (!invocation) return false;
-        if (await this.#suspendIfHandlerGone(invocation, 'primary'))
-            return false;
+        if (await this.#suspendIfHandlerGone(invocation)) return false;
 
         // Over the invocation budget nothing ran, so nothing was delivered and
         // the lease is the backoff — and the budget refusal itself must not
@@ -6544,7 +6562,7 @@ export class EventsService extends PuterService {
         options: Pick<WorkerRunOptions, 'stampEvent'> = {},
     ): Promise<ScheduleInvokeResult> {
         if (await this.#tooDeep(invocation)) return { outcome: 'too-deep' };
-        if (await this.#suspendIfHandlerGone(invocation, 'replica'))
+        if (await this.#suspendIfHandlerGone(invocation))
             return { outcome: 'deferred' };
         // Something other than the worker invoker was put in its place.
         if (!(this.worker instanceof EventsWorkerInvoker))
@@ -6579,7 +6597,11 @@ export class EventsService extends PuterService {
         holderUserId: number,
         appUid: string,
         subId: string,
+        handlerScope?: HandlerScopeKind,
     ): Promise<boolean> {
+        // The run is refused as unavailable instead, so nothing suspends here.
+        if (handlerScope === 'user' && !this.userHandlersEnabled)
+            return Promise.resolve(true);
         return this.#chargeable(
             { holderUserId, appUid, deliveryClass: 'single', durable: true },
             subId,
@@ -6655,7 +6677,10 @@ export class EventsService extends PuterService {
 
         const set = await this.stores.eventHandler.cachedSetForApp(
             { appUid, holder: holderUserId },
-            { missRead: options.missRead, handlerName },
+            // Replica unless asked otherwise, so this and the missing-handler
+            // check share one cache entry; a set lacking the name is re-read
+            // on the primary either way.
+            { missRead: options.missRead ?? 'replica', handlerName },
         );
         const entry = set.find((handler) => handler.name === handlerName);
         if (!entry) return null;
@@ -6679,7 +6704,6 @@ export class EventsService extends PuterService {
      */
     async #suspendIfHandlerGone(
         invocation: WorkerInvocation,
-        missRead: 'primary' | 'replica',
     ): Promise<boolean> {
         const { appUid, handlerName, holderUserId } = invocation;
         if (
@@ -6691,7 +6715,7 @@ export class EventsService extends PuterService {
             return false;
         const set = await this.stores.eventHandler.cachedSetForApp(
             { appUid, holder: holderUserId },
-            { missRead, handlerName },
+            { missRead: 'replica', handlerName },
         );
         if (set.some((handler) => handler.name === handlerName)) return false;
 
@@ -6776,7 +6800,7 @@ export class EventsService extends PuterService {
         subject: string,
         delivery: AddressedDelivery,
     ): void {
-        if (this.#ended.has(row.subId)) return;
+        if (this.#ended.has(row.subId) || this.#parkedUserRow(row)) return;
         this.#coalesce().push(coalesceKey(row.subId, subject), delivery);
     }
 

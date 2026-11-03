@@ -84,6 +84,11 @@ export type EventsDeployOutcome =
 /** Whose call asked for the deploy: a schedule run's is held to a share. */
 export interface EventsDeployOptions {
     lane?: InvokeLane;
+    /**
+     * A user-scope publish's deploy, which skips the upload when the script's
+     * deployed marker is already set. A deploy-on-miss is never eager.
+     */
+    eager?: boolean;
 }
 
 interface DeployLayers {
@@ -111,6 +116,7 @@ const isUserScope = (scope: HandlerScope): boolean => scope.holder !== 0;
 interface InFlightDeploy {
     /** A schedule run's, which the region's deploy slots may refuse. */
     capped: boolean;
+    eager: boolean;
     promise: Promise<EventsDeployOutcome>;
 }
 
@@ -148,10 +154,24 @@ export class EventsWorkerDeployer {
         script: string,
         options: EventsDeployOptions = {},
     ): Promise<EventsDeployOutcome> {
-        const key = `${scope.appUid}|${scope.holder}|${script}`;
+        // A user scope's script is the same bytes whoever holds it, so
+        // concurrent deploys of it from any holder or app are one.
+        const key = isUserScope(scope)
+            ? `user|${script}`
+            : `${scope.appUid}|${scope.holder}|${script}`;
         const capped = options.lane === 'schedule';
         const existing = this.#inFlight.get(key);
         if (!existing) return this.#start(key, scope, script, options);
+        // An eager deploy may have skipped the upload, which a miss must not
+        // take for done.
+        if (existing.eager && !options.eager)
+            return this.#afterEager(
+                existing.promise,
+                key,
+                scope,
+                script,
+                options,
+            );
         if (capped || !existing.capped) return existing.promise;
         return this.#afterCapped(existing.promise, key, scope, script, options);
     }
@@ -165,13 +185,8 @@ export class EventsWorkerDeployer {
         scope: HandlerScope,
         script: string,
     ): Promise<EventsDeployOutcome> {
-        try {
-            if (await this.#layers.clients.redis.get(deployedMarkerKey(script)))
-                return 'deployed';
-        } catch (err) {
-            console.warn('[events] deployed marker unreadable', err);
-        }
-        return this.ensure(scope, script);
+        if (await this.#markedDeployed(script)) return 'deployed';
+        return this.ensure(scope, script, { eager: true });
     }
 
     /**
@@ -196,6 +211,7 @@ export class EventsWorkerDeployer {
     ): Promise<EventsDeployOutcome> {
         const entry: InFlightDeploy = {
             capped: options.lane === 'schedule',
+            eager: options.eager === true,
             promise: this.#gated(scope, script, options).finally(() => {
                 if (this.#inFlight.get(key) === entry)
                     this.#inFlight.delete(key);
@@ -203,6 +219,20 @@ export class EventsWorkerDeployer {
         };
         this.#inFlight.set(key, entry);
         return entry.promise;
+    }
+
+    /** A miss that found an eager deploy in flight deploys after it. */
+    async #afterEager(
+        eager: Promise<EventsDeployOutcome>,
+        key: string,
+        scope: HandlerScope,
+        script: string,
+        options: EventsDeployOptions,
+    ): Promise<EventsDeployOutcome> {
+        await eager;
+        const current = this.#inFlight.get(key);
+        if (current && !current.eager) return current.promise;
+        return this.#start(key, scope, script, options);
     }
 
     /**
@@ -234,7 +264,8 @@ export class EventsWorkerDeployer {
         script: string,
         options: EventsDeployOptions,
     ): Promise<EventsDeployOutcome> {
-        const deploy = () => this.#deploy(scope, script);
+        const deploy = () =>
+            this.#deploy(scope, script, options.eager === true);
         return (
             this.#layers.services.schedules?.gateDeploy?.(
                 script,
@@ -247,6 +278,7 @@ export class EventsWorkerDeployer {
     async #deploy(
         handlerScope: HandlerScope,
         script: string,
+        eager: boolean,
     ): Promise<EventsDeployOutcome> {
         const { appUid } = handlerScope;
         const { stores, drivers } = this.#layers;
@@ -270,6 +302,11 @@ export class EventsWorkerDeployer {
                 : eventsWorkerScript(handlerSetHash(set), backend) !== script
         )
             return 'stale';
+
+        // Asked again inside the gate, where another deploy of this script may
+        // have just finished.
+        if (eager && userScope && (await this.#markedDeployed(script)))
+            return 'deployed';
 
         if (await this.#tooManyDeploysThisHour(handlerScope))
             return 'throttled';
@@ -363,6 +400,17 @@ export class EventsWorkerDeployer {
         }
         if (userScope) await this.#markDeployed(script);
         return 'deployed';
+    }
+
+    async #markedDeployed(script: string): Promise<boolean> {
+        try {
+            return !!(await this.#layers.clients.redis.get(
+                deployedMarkerKey(script),
+            ));
+        } catch (err) {
+            console.warn('[events] deployed marker unreadable', err);
+            return false;
+        }
     }
 
     async #markDeployed(script: string): Promise<void> {
