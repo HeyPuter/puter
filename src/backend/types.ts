@@ -1308,6 +1308,12 @@ interface IConfigOptional {
          */
         workerNamespace?: string;
         /**
+         * Per-invocation CPU limit, in milliseconds, set on every events worker
+         * at deploy. Unset means no limit. Scripts already deployed pick it up
+         * on their next deploy.
+         */
+        workerCpuMs?: number;
+        /**
          * Where the events dispatcher answers `POST /invoke` — its own
          * hostname, since it carries no zone route. Unset means invocations
          * have nowhere to go and stay retriable.

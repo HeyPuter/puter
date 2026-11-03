@@ -26,6 +26,7 @@
 import MockRedis from 'ioredis-mock';
 import { describe, expect, it } from 'vitest';
 import type { EventsInvokeCall } from '../../clients/events/EventsWorkerInvokerClient.js';
+import { INTERNAL_DEPLOY_TARGET } from '../../drivers/workers/WorkerDriver.js';
 import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
 import {
     EventsWorkerDeployer,
@@ -51,14 +52,22 @@ interface Owner {
 type Layers = ConstructorParameters<typeof EventsWorkerDeployer>[0];
 
 /** Stub layers whose only real dependency is a fresh redis mock. */
-const makeLayers = (owners: Record<string, Owner | null>) => {
+const makeLayers = (
+    owners: Record<string, Owner | null>,
+    events: Record<string, unknown> = {},
+) => {
     const redis = new MockRedis.Cluster(['redis://localhost:7001']);
     const created: string[] = [];
+    const targets: Array<Record<string, unknown>> = [];
     /** Apps whose handler sources were read, once per read. */
     const sourceReads: string[] = [];
     const layers = {
         config: {
-            events: { workerRuntime: true, internalSecret: 'sekret' },
+            events: {
+                workerRuntime: true,
+                internalSecret: 'sekret',
+                ...events,
+            },
             // `#namespace()` needs a local-worker shape to resolve without
             // throwing — this stub never reaches a real Cloudflare or
             // Miniflare deploy either way.
@@ -108,8 +117,12 @@ const makeLayers = (owners: Record<string, Owner | null>) => {
         services: {},
         drivers: {
             workers: {
-                create: async (args: { workerName: string }) => {
+                create: async (args: {
+                    workerName: string;
+                    [INTERNAL_DEPLOY_TARGET]?: Record<string, unknown>;
+                }) => {
                     created.push(args.workerName);
+                    targets.push(args[INTERNAL_DEPLOY_TARGET] ?? {});
                     return { success: true, errors: [] };
                 },
             },
@@ -118,6 +131,7 @@ const makeLayers = (owners: Record<string, Owner | null>) => {
     return {
         layers: layers as unknown as Layers,
         created,
+        targets,
         redis,
         sourceReads,
     };
@@ -173,6 +187,23 @@ describe('EventsWorkerDeployer.ensure', () => {
         expect(sourceReads).toEqual([]);
         const hour = new Date().toISOString().slice(0, 13);
         expect(await redis.get(`ev:deploys:{app-e}:${hour}`)).toBeNull();
+    });
+
+    it('passes events.workerCpuMs to the deploy target', async () => {
+        const { layers, targets } = makeLayers(
+            { 'app-f': { ownerUserId: 6 } },
+            { workerCpuMs: 50 },
+        );
+        const deployer = new EventsWorkerDeployer(layers);
+        expect(await deployer.ensure('app-f', SCRIPT)).toBe('deployed');
+        expect(targets[0]!.cpuMs).toBe(50);
+    });
+
+    it('passes no cpuMs when events.workerCpuMs is unset', async () => {
+        const { layers, targets } = makeLayers({ 'app-g': { ownerUserId: 7 } });
+        const deployer = new EventsWorkerDeployer(layers);
+        expect(await deployer.ensure('app-g', SCRIPT)).toBe('deployed');
+        expect(targets[0]!.cpuMs).toBeUndefined();
     });
 
     it('deploys normally under the cap', async () => {

@@ -754,6 +754,50 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
             expect(putCalls()).toHaveLength(1);
         });
 
+        const uploadedMetadata = () => {
+            const [, init] = putCalls().at(-1)!;
+            const form = (init as RequestInit).body as FormData;
+            return JSON.parse(form.get('metadata') as string);
+        };
+
+        it('sends limits.cpu_ms in the upload metadata when cpuMs is set', async () => {
+            const { user, actor } = await makeUser();
+            const path = `/${user.username}/cpu.worker.js`;
+            await writeSource(actor, user.id, path, 'export default {}');
+            const scriptName = `dt-cpu-${user.username}`;
+            await inCtx(actor, () =>
+                target.create({
+                    appId: '',
+                    workerName: scriptName,
+                    filePath: path,
+                    [INTERNAL_DEPLOY_TARGET]: { scriptName, cpuMs: 50 },
+                }),
+            );
+            expect(uploadedMetadata().limits).toEqual({ cpu_ms: 50 });
+        });
+
+        it('sends no limits key without cpuMs, and none on an ordinary create', async () => {
+            const { user, actor } = await makeUser();
+            const path = `/${user.username}/nocpu.worker.js`;
+            await writeSource(actor, user.id, path, 'export default {}');
+            const scriptName = `dt-nocpu-${user.username}`;
+            await deployTo(actor, path, scriptName);
+            expect(uploadedMetadata()).not.toHaveProperty('limits');
+
+            const name = `plain-${user.username}`;
+            await inCtx(actor, () =>
+                target.create({ appId: '', workerName: name, filePath: path }),
+            );
+            const metadata = uploadedMetadata();
+            expect(metadata).not.toHaveProperty('limits');
+            expect(Object.keys(metadata)).toEqual([
+                'body_part',
+                'compatibility_flags',
+                'compatibility_date',
+                'bindings',
+            ]);
+        });
+
         it('refuses a file another user owns, even with manage on it', async () => {
             const owner = await makeUser();
             const deployer = await makeUser();

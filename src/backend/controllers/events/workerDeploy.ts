@@ -269,6 +269,7 @@ export class EventsWorkerDeployer {
                         runtime: 'events',
                         source: generated.source,
                         omitOwnerToken: true,
+                        cpuMs: this.#layers.config.events?.workerCpuMs,
                         // What the script compares an invocation against.
                         // Derived from the script name, so a redeploy of
                         // the same set binds the same key.
