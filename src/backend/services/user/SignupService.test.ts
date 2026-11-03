@@ -381,3 +381,29 @@ describe('SignupService.confirmEmail', () => {
         expect(after!.email).toBe(other.email);
     });
 });
+
+describe('SignupService.validateEmail', () => {
+    it('refuses Puter mailbox addresses before any listener runs', async () => {
+        const listener = vi.fn();
+        server.clients.event.on('email.validate', listener);
+        try {
+            for (const email of [
+                'someone@puter.email',
+                'Someone@PUTER.EMAIL',
+                'someone@puterstaging.email',
+            ]) {
+                await expect(
+                    server.services.signup.validateEmail(email),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            }
+            expect(listener).not.toHaveBeenCalled();
+            await expect(
+                server.services.signup.validateEmail(
+                    `ok-${slug()}@example.com`,
+                ),
+            ).resolves.toBeUndefined();
+        } finally {
+            server.clients.event.off('email.validate', listener);
+        }
+    });
+});
