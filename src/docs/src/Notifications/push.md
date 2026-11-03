@@ -145,7 +145,9 @@ await puter.notifications.notify({
 The page you send from is usually open and focused. With an [`onPush()`](/Notifications/onPush/) or [`onNotification()`](/Notifications/onNotification/) listener, it gets the notification live and nothing is pushed. To reach the user while your app is closed, send from somewhere that keeps running:
 
 - **A [Puter Worker](/Workers/)**, with [`user.puter.notifications.notify()`](/Notifications/notify/) in a route your page calls through [`puter.workers.exec()`](/Workers/exec/). It notifies the user who called the worker, from the app that called it.
-- **An [events handler](/Events/handlers/)**, with [`user.notifications.notify()`](/Notifications/notify/). It notifies the user who holds the subscription, and it runs while your app is closed. Running a handler in the background needs the user's `events:background` permission, as [`onPersistent()`](/Events/onPersistent/) describes.
+- **An [events handler](/Events/handlers/)**, with [`user.notifications.notify()`](/Notifications/notify/). It notifies the user who holds the subscription or [schedule](/Events/onSchedule/), and it runs while your app is closed. Running a handler in the background needs the user's `events:background` permission, as [`onPersistent()`](/Events/onPersistent/) describes.
+
+To send a notification at a set time, pass `sendAt` to [`notify()`](/Notifications/notify/#send-it-later). Puter stores it and sends it then, even with your app closed, and [`cancel()`](/Notifications/cancel/) cancels it until it goes out. It counts toward the push limits and is billed when it goes out, not when you store it. When sending it has to be retried, it still goes out as one push, billed once, though an open page of your app can receive it twice, with the same `uid`. To send something different each time, such as a daily summary, run a handler on a timer with [`puter.events.onSchedule()`](/Events/onSchedule/) and call [`user.notifications.notify()`](/Notifications/notify/) from it.
 
 An app that notifies from an events handler needs the user to allow both background events and pushes. Ask for both with [`puter.perms.request()`](/Perms/request/#batching), so the user answers one prompt:
 
@@ -320,7 +322,7 @@ The browser can be allowed to show notifications while the operating system hide
 ## Good to know
 
 - Say who did what. "Ana shared Q3-report.pdf" reads well as a push. A push that only says there's something new can be hidden as spam on Android.
-- The `data` field is handed back on click, and push services can read it, so put IDs in it and fetch the rest. Set `sensitive: true` when the title and text shouldn't leave Puter.
+- The `data` field is handed back on click, and push services can read it, so put ids in it and fetch the rest. Set `sensitive: true` when the title and text shouldn't leave Puter.
 - A push carries about 4 KB, with `data` at most 1 KB. A push that doesn't fit has its text shortened.
 - A tap opens your domain. The `url` a handler returns has to be on your origin, and a tap on one from another origin opens your site's root instead, or the worker's folder when your pages are inside it.
 - Pushes from your app are billed to the user who receives them. See [What pushes cost](/rate-limits-and-quotas/#what-pushes-cost). Puter's own notifications are free.

@@ -29,6 +29,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
+import { testJobContext } from '../jobs/jobsTestUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import { EVENTS_WORKER_SESSION_NAME } from './workerRuntime.js';
@@ -327,7 +328,9 @@ describe('an app deleted while it has events state', () => {
         await env.server.stores.app.delete((row as { id: number }).id);
 
         const revoked =
-            await env.server.services.events.sweepStrandedWorkerSessions();
+            await env.server.services.events.sweepStrandedWorkerSessions(
+                testJobContext(),
+            );
         expect(revoked).toBeGreaterThanOrEqual(1);
 
         // `authenticate()` can no longer resolve the token at all — the app
@@ -366,9 +369,60 @@ describe('an app deleted while it has events state', () => {
             EVENTS_WORKER_SESSION_NAME,
         );
 
-        await env.server.services.events.sweepStrandedWorkerSessions();
+        await env.server.services.events.sweepStrandedWorkerSessions(
+            testJobContext(),
+        );
 
         const reauth = await env.server.services.auth.authenticate(token);
         expect(reauth).not.toHaveProperty('reauth');
+    });
+
+    it('reaches a stranded session past one run`s two pages on the next run, then wraps', async () => {
+        const db = env.server.clients.db;
+        const now = Math.floor(Date.now() / 1000);
+        const meta = JSON.stringify({
+            worker_name: EVENTS_WORKER_SESSION_NAME,
+        });
+        const workerSession = (appUid: string) => ({
+            statement:
+                'INSERT INTO `sessions` (`uuid`, `user_id`, `meta`, `last_activity`, `created_at`, `kind`, `app_uid`) ' +
+                "VALUES (?, ?, ?, ?, ?, 'worker', ?)",
+            values: [uuidv4(), userId, meta, now, now, appUid],
+        });
+        // A run reads two pages of 500; these fill them, all still standing.
+        const live = Array.from(
+            { length: 1000 },
+            (_, i) => `app-live-${uuidv4().slice(0, 8)}-${i}`,
+        );
+        await db.batchWrite(
+            live.map((uid) => ({
+                statement:
+                    'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
+                values: [uid, uid, uid, `https://${uid}.example/`, userId],
+            })),
+        );
+        await db.batchWrite(live.map(workerSession));
+        const stranded = workerSession(`app-gone-${uuidv4()}`);
+        await db.batchWrite([stranded]);
+        const strandedRevoked = async () => {
+            const [row] = await db.pread(
+                'SELECT `revoked_at` FROM `sessions` WHERE `uuid` = ?',
+                [stranded.values[0]],
+            );
+            return row.revoked_at !== null;
+        };
+
+        const first = testJobContext();
+        await env.server.services.events.sweepStrandedWorkerSessions(first);
+        expect(await strandedRevoked()).toBe(false);
+        expect(first.saved.at(-1)).toMatchObject({
+            afterId: expect.any(Number),
+        });
+
+        const second = testJobContext(first.saved.at(-1));
+        await env.server.services.events.sweepStrandedWorkerSessions(second);
+        expect(await strandedRevoked()).toBe(true);
+        // The end of the table wraps the cursor back to the start.
+        expect(second.saved.at(-1)).toBeNull();
     });
 });

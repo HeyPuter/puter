@@ -25,7 +25,17 @@ What you watch is written as a subject string:
 
 [Subjects and events](/Events/subjects/) has the full subject syntax and the shape of each event.
 
-With the [User-Pays Model](/user-pays-model/), deliveries are billed to the user holding the subscription, not to you. See [Rate Limits and Quotas](/rate-limits-and-quotas/#events) for limits and costs.
+To run a handler on a timer instead of when data changes, create a schedule with [`onSchedule()`](/Events/onSchedule/). It runs your handler at an interval, on a cron expression in the user's time zone, or once at a set time, even while your app is closed:
+
+```js
+await puter.events.onSchedule({
+    cron: '0 9 * * 1-5',
+    tz: 'America/New_York',
+    handlerName: 'sendDigest',
+});
+```
+
+With the [User-Pays Model](/user-pays-model/), deliveries and schedule runs are billed to the user holding the subscription or schedule, not to you. See [Rate Limits and Quotas](/rate-limits-and-quotas/#events) for limits and costs.
 
 ## Features
 
@@ -247,6 +257,10 @@ These Events features are supported out of the box when using Puter.js:
 - **[`puter.events.list()`](/Events/list/)** - List the persistent subscriptions you hold
 - **[`puter.events.update()`](/Events/update/)** - Change a persistent subscription's context without ending it
 - **[`puter.events.unsubscribe()`](/Events/unsubscribe/)** - End a persistent subscription
+- **[`puter.events.onSchedule()`](/Events/onSchedule/)** - Run a handler at an interval, on a cron expression, or once at a set time
+- **[`puter.events.listSchedules()`](/Events/listSchedules/)** - List the schedules you hold
+- **[`puter.events.getSchedule()`](/Events/getSchedule/)** - Read one schedule
+- **[`puter.events.removeSchedule()`](/Events/removeSchedule/)** - End a schedule
 - **[`puter.events.fetch()`](/Events/fetch/)** - Read the notifications you missed while nothing was listening
 - **[`puter.events.handlers`](/Events/handlers/)** - Publish, list and remove the named handlers persistent subscriptions run
 - **[`puter.events.workers`](/Events/workers/)** - List and destroy an app's events worker
@@ -266,6 +280,10 @@ You can see various Puter.js Events features in action from the following exampl
   - [Find Suspended Subscriptions](/playground/events-list-suspended/)
   - [Change a Subscription's Context](/playground/events-update/)
   - [End a Persistent Subscription](/playground/events-unsubscribe/)
+- Schedules
+  - [List Schedules](/playground/events-list-schedules/)
+  - [Read a Schedule](/playground/events-get-schedule/)
+  - [Remove a Schedule](/playground/events-remove-schedule/)
 - Catching up
   - [Catch Up on Notifications](/playground/events-fetch/)
   - [Catch Up, Then Keep Listening](/playground/events-fetch-then-listen/)

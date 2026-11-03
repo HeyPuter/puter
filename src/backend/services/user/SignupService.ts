@@ -32,6 +32,7 @@ import {
     validateSignupBonus,
 } from '../../util/signupBonus.js';
 import { isUsernameTaken } from '../../util/username.js';
+import { isEmailGateLast } from '../../util/verificationOrder.js';
 import {
     generateDefaultFsentries,
     promoteToVerifiedGroup,
@@ -47,6 +48,8 @@ export type SignupGateOutcome =
           requiresEmailConfirmation: boolean;
           requiresPhoneVerification: boolean;
           requiresCardVerification: boolean;
+          /** Card and phone come before email (see `isEmailGateLast`). */
+          emailGateLast: boolean;
       }
     | { verdict: 'bonus_code_invalid' }
     | {
@@ -175,6 +178,9 @@ export class SignupService extends PuterService {
             requires_email_confirmation: false,
             requires_phone_verification: false,
             requires_card_verification: false,
+            // Clear card and phone before email, and send the confirmation
+            // email only then. Meaningless without a phone or card gate.
+            email_gate_last: false,
             message: null as string | null,
             code: null as string | null,
             ...(input.fingerprint !== undefined ? { fingerprint } : {}),
@@ -250,6 +256,9 @@ export class SignupService extends PuterService {
             ),
             requiresPhoneVerification,
             requiresCardVerification,
+            emailGateLast:
+                Boolean(validateEvent.email_gate_last) &&
+                (requiresPhoneVerification || requiresCardVerification),
         };
     }
 
@@ -507,7 +516,10 @@ export class SignupService extends PuterService {
             }
         }
 
-        if (!isTemp && user.requires_email_confirmation) {
+        const emailGateLast = !isTemp && gate.emailGateLast;
+        if (emailGateLast) user = await this.#markEmailGateLast(user);
+
+        if (!isTemp && user.requires_email_confirmation && !emailGateLast) {
             await this.sendConfirmationEmail(
                 user,
                 'signup',
@@ -582,13 +594,46 @@ export class SignupService extends PuterService {
         }
     }
 
+    /** Record that this account clears card and phone before email. */
+    async #markEmailGateLast(user: UserRow): Promise<UserRow> {
+        await this.stores.user.updateMetadata(user.id, { emailGateLast: true });
+        return { ...user, metadata: { ...user.metadata, emailGateLast: true } };
+    }
+
+    /**
+     * Send an email-gate-last account its confirmation email once card and
+     * phone are cleared. Once per account; `/send-confirm-email` resends.
+     */
+    async sendDeferredConfirmationEmail(userId: number): Promise<void> {
+        const user = await this.stores.user.getById(userId, { force: true });
+        if (!user || !isEmailGateLast(user)) return;
+        if (user.metadata?.emailGateLastSent === true) return;
+        if (user.email_confirmed || !user.requires_email_confirmation) return;
+        if (user.requires_phone_verification || user.requires_card_verification)
+            return;
+        await this.stores.user.updateMetadata(user.id, {
+            emailGateLastSent: true,
+        });
+        let code =
+            typeof user.email_confirm_code === 'string'
+                ? user.email_confirm_code
+                : null;
+        if (!code) {
+            code = String(crypto.randomInt(100000, 1000000));
+            await this.stores.user.update(user.id, {
+                email_confirm_code: code,
+            });
+        }
+        await this.sendConfirmationEmail(user, 'deferred', { code });
+    }
+
     /**
      * Send the confirmation code (or link) for the account's address. A lost
      * message is alarmed rather than thrown: the account exists either way.
      */
     async sendConfirmationEmail(
         user: UserRow,
-        stage: 'signup' | 'resend',
+        stage: 'signup' | 'resend' | 'deferred',
         message: { code: string } | { token: string },
     ): Promise<void> {
         if (!this.clients.email || !user.email) return;
@@ -762,7 +807,7 @@ export class SignupService extends PuterService {
      * phone/card gate is outstanding either.
      */
     #confirmationEmailFailed(
-        stage: 'signup' | 'resend',
+        stage: 'signup' | 'resend' | 'deferred',
         user: UserRow,
         cause: unknown,
     ): void {
@@ -774,7 +819,7 @@ export class SignupService extends PuterService {
                   ? 'no transport configured (message dropped)'
                   : String(cause);
         console.warn(
-            `[${stage === 'signup' ? 'signup' : 'send-confirm-email'}] ` +
+            `[${stage === 'resend' ? 'send-confirm-email' : 'signup'}] ` +
                 `confirmation email not delivered: ${detail}`,
         );
         // Best-effort: failing to alarm must not fail the signup.
