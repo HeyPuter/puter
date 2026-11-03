@@ -412,6 +412,8 @@
         await idb(HANDLERS, 'readwrite', (s) => s.put(Date.now(), CHANGED_PREFIX + self.registration.scope));
         if ( event.newSubscription || ! keys.length ) return;
         if ( await self.registration.pushManager.getSubscription() ) return;
+        // Without the old subscription, only a worker a Puter page used (it saved a tap base) subscribes.
+        if ( ! old && ! await idb(HANDLERS, 'readonly', (s) => s.get(TAP_BASE_PREFIX + self.registration.scope)) ) return;
         await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: fromBase64Url(keys[0]) });
     }
 

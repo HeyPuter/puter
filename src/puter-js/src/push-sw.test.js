@@ -663,6 +663,17 @@ describe('push-sw pushsubscriptionchange', () => {
         expect(worker.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
     });
 
+    it('without the old subscription, subscribes only a worker a Puter page used', async () => {
+        const unused = loadWorker({ handlers: optedIn });
+        await unused.fire('pushsubscriptionchange', {});
+        expect(unused.stores.handlers.has(CHANGED)).toBe(true);
+        expect(unused.scope.registration.pushManager.subscribe).not.toHaveBeenCalled();
+
+        const used = loadWorker({ handlers: { ...optedIn, [`${TAP_BASE}${ORIGIN}/`]: `${ORIGIN}/` } });
+        await used.fire('pushsubscriptionchange', {});
+        expect(used.scope.registration.pushManager.subscribe).toHaveBeenCalledTimes(1);
+    });
+
     it('subscribes nothing when the browser already has a subscription again', async () => {
         const worker = loadWorker({ handlers: optedIn, subscription: { endpoint: 'https://push.example/3' } });
         await worker.fire('pushsubscriptionchange', {});
