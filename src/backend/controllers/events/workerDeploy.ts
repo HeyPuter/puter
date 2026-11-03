@@ -42,24 +42,33 @@ import {
     eventsInvokeKey,
     eventsWorkerScope,
     eventsWorkerScript,
+    userHandlerScript,
 } from '../../services/events/workerRuntime.js';
 import {
     generateEventsWorkerSource,
     handlerSetHash,
 } from '../../services/events/workerSource.js';
-import { appHandlerScope } from '../../stores/events/EventHandlerStore.js';
+import {
+    appHandlerScope,
+    type HandlerScope,
+} from '../../stores/events/EventHandlerStore.js';
 import type { puterStores } from '../../stores/index.js';
 import type { IConfig, LayerInstances } from '../../types.js';
-import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
+import {
+    EVENTS_USER_WORKER_DEPLOYS_PER_HOUR,
+    EVENTS_WORKER_DEPLOYS_PER_HOUR,
+} from './limits.js';
 
 /**
  * Deploys an app's events worker from its published handlers.
  *
  * Deployed the first time a delivery needs it and again on eviction — a publish
- * only writes rows. Scripts carry no worker token and no `subdomains` row: not
- * one of the owner's workers, not addressable from the internet, not listed or
- * deleted as if it were. A republished set leaves the old script behind rather
- * than deleting it; redeploying a still-live one is always safe.
+ * only writes rows (a user-scope publish also deploys eagerly). An app's scope
+ * is one script for the whole set; a user scope is one script per handler,
+ * deployed as the holder. Scripts carry no worker token and no `subdomains`
+ * row: not one of the owner's workers, not addressable from the internet, not
+ * listed or deleted as if it were. A republished set leaves the old script
+ * behind rather than deleting it; redeploying a still-live one is always safe.
  */
 
 /** Why a deploy could not happen, for the callers that answer differently. */
@@ -87,10 +96,17 @@ interface DeployLayers {
 }
 
 /**
- * `ev:deploys:{<appUid>}:<hour>` bucket TTL — comfortably past the hour it
- * counts.
+ * `ev:deploys:{<appUid>}[:<holder>]:<hour>` bucket TTL — comfortably past the
+ * hour it counts.
  */
 const DEPLOY_THROTTLE_TTL_SECONDS = 2 * 60 * 60;
+
+/** How long `ev:deployed:<script>` says a script was uploaded. Under a day. */
+const DEPLOYED_MARKER_TTL_SECONDS = 20 * 60 * 60;
+
+const deployedMarkerKey = (script: string): string => `ev:deployed:${script}`;
+
+const isUserScope = (scope: HandlerScope): boolean => scope.holder !== 0;
 
 interface InFlightDeploy {
     /** A schedule run's, which the region's deploy slots may refuse. */
@@ -121,38 +137,66 @@ export class EventsWorkerDeployer {
     }
 
     /**
-     * Deploy `script`, which must be what the app's handlers currently hash to.
-     * A request for anything else is `stale` — the set moved on, and the next
-     * delivery resolves the new script rather than this one being revived.
+     * Deploy `script`, which must be what the scope's handlers currently hash
+     * to: the whole set for an app, one handler for a user scope. A request for
+     * anything else is `stale` — the handlers moved on, and the next delivery
+     * resolves the new script rather than this one being revived. Always
+     * uploads; a deploy-on-miss means whatever said it was there is wrong.
      */
     ensure(
-        appUid: string,
+        scope: HandlerScope,
         script: string,
         options: EventsDeployOptions = {},
     ): Promise<EventsDeployOutcome> {
-        const key = `${appUid}|${script}`;
+        const key = `${scope.appUid}|${scope.holder}|${script}`;
         const capped = options.lane === 'schedule';
         const existing = this.#inFlight.get(key);
-        if (!existing) return this.#start(key, appUid, script, options);
+        if (!existing) return this.#start(key, scope, script, options);
         if (capped || !existing.capped) return existing.promise;
-        return this.#afterCapped(
-            existing.promise,
-            key,
-            appUid,
-            script,
-            options,
-        );
+        return this.#afterCapped(existing.promise, key, scope, script, options);
+    }
+
+    /**
+     * {@link ensure} for the deploy a user-scope publish starts, which skips the
+     * upload when another holder's deploy of the same script left its marker.
+     * Only this path reads the marker.
+     */
+    async deployEagerly(
+        scope: HandlerScope,
+        script: string,
+    ): Promise<EventsDeployOutcome> {
+        try {
+            if (await this.#layers.clients.redis.get(deployedMarkerKey(script)))
+                return 'deployed';
+        } catch (err) {
+            console.warn('[events] deployed marker unreadable', err);
+        }
+        return this.ensure(scope, script);
+    }
+
+    /**
+     * The scope a script request names: the app's own, or the user scope of
+     * `holder` (a user uuid). Null for a holder that does not exist.
+     */
+    async scopeFor(
+        appUid: string,
+        holder?: string | null,
+    ): Promise<HandlerScope | null> {
+        if (!holder) return appHandlerScope(appUid);
+        const user = await this.#layers.stores.user.getByUuid(holder);
+        if (!user?.id) return null;
+        return { appUid, holder: Number(user.id) };
     }
 
     #start(
         key: string,
-        appUid: string,
+        scope: HandlerScope,
         script: string,
         options: EventsDeployOptions,
     ): Promise<EventsDeployOutcome> {
         const entry: InFlightDeploy = {
             capped: options.lane === 'schedule',
-            promise: this.#gated(appUid, script, options).finally(() => {
+            promise: this.#gated(scope, script, options).finally(() => {
                 if (this.#inFlight.get(key) === entry)
                     this.#inFlight.delete(key);
             }),
@@ -168,7 +212,7 @@ export class EventsWorkerDeployer {
     async #afterCapped(
         capped: Promise<EventsDeployOutcome>,
         key: string,
-        appUid: string,
+        scope: HandlerScope,
         script: string,
         options: EventsDeployOptions,
     ): Promise<EventsDeployOutcome> {
@@ -176,7 +220,7 @@ export class EventsWorkerDeployer {
         if (outcome !== 'busy') return outcome;
         const current = this.#inFlight.get(key);
         if (current && !current.capped) return current.promise;
-        return this.#start(key, appUid, script, options);
+        return this.#start(key, scope, script, options);
     }
 
     /**
@@ -186,11 +230,11 @@ export class EventsWorkerDeployer {
      * may be refused with `busy`. A delivery's deploy is never refused.
      */
     #gated(
-        appUid: string,
+        scope: HandlerScope,
         script: string,
         options: EventsDeployOptions,
     ): Promise<EventsDeployOutcome> {
-        const deploy = () => this.#deploy(appUid, script);
+        const deploy = () => this.#deploy(scope, script);
         return (
             this.#layers.services.schedules?.gateDeploy?.(
                 script,
@@ -201,32 +245,49 @@ export class EventsWorkerDeployer {
     }
 
     async #deploy(
-        appUid: string,
+        handlerScope: HandlerScope,
         script: string,
     ): Promise<EventsDeployOutcome> {
+        const { appUid } = handlerScope;
         const { stores, drivers } = this.#layers;
-        const scope = eventsWorkerScope(this.#layers.config);
+        const backend = eventsWorkerScope(this.#layers.config);
+        const userScope = isUserScope(handlerScope);
 
         // Names and hashes are enough to tell a stale request, so the set's
         // sources are read and built only once the throttle has let it through.
-        const set = await stores.eventHandler.setForApp(
-            appHandlerScope(appUid),
-        );
+        const set = await stores.eventHandler.setForApp(handlerScope);
         if (set.length === 0) return 'no-handlers';
         // Two apps that published byte-identical sets share one script, which
         // is sound: the source is the same, and everything per-app arrives with
-        // the invocation. Whoever deploys first owns it.
-        if (eventsWorkerScript(handlerSetHash(set), scope) !== script)
+        // the invocation. Whoever deploys first owns it. A user scope's script
+        // is one handler's, so it is shared the same way across holders.
+        const wanted = userScope
+            ? set.find((entry) => userHandlerScript(entry, backend) === script)
+            : undefined;
+        if (
+            userScope
+                ? !wanted
+                : eventsWorkerScript(handlerSetHash(set), backend) !== script
+        )
             return 'stale';
 
-        if (await this.#tooManyDeploysThisHour(appUid)) return 'throttled';
+        if (await this.#tooManyDeploysThisHour(handlerScope))
+            return 'throttled';
 
-        const handlers = await stores.eventHandler.allForApp(
-            appHandlerScope(appUid),
-        );
+        const all = await stores.eventHandler.allForApp(handlerScope);
+        const handlers = wanted
+            ? all.filter(
+                  (handler) =>
+                      handler.name === wanted.name &&
+                      handler.sourceHash === wanted.sourceHash,
+              )
+            : all;
         const generated = generateEventsWorkerSource(handlers);
         // The set can move between the two reads.
-        if (eventsWorkerScript(generated.setHash, scope) !== script)
+        if (
+            handlers.length === 0 ||
+            eventsWorkerScript(generated.setHash, backend) !== script
+        )
             return 'stale';
         if (generated.tooLarge) {
             console.error(
@@ -240,7 +301,7 @@ export class EventsWorkerDeployer {
                 generated.broken.join(', '),
             );
 
-        const owner = await this.#owner(appUid);
+        const owner = await this.#owner(handlerScope);
         if (!owner) return 'no-owner';
 
         const secret = this.#layers.config.events?.internalSecret;
@@ -300,34 +361,63 @@ export class EventsWorkerDeployer {
             );
             return 'failed';
         }
+        if (userScope) await this.#markDeployed(script);
         return 'deployed';
     }
 
-    /**
-     * Whether this app has already deployed `EVENTS_WORKER_DEPLOYS_PER_HOUR`
-     * times this hour. A flapping set (publish, remove, republish) provisions
-     * upstream on every miss, and this is the ceiling on that loop.
-     */
-    async #tooManyDeploysThisHour(appUid: string): Promise<boolean> {
-        const redis = this.#layers.clients.redis;
-        const hour = new Date().toISOString().slice(0, 13);
-        const key = `ev:deploys:{${appUid}}:${hour}`;
-        const count = await redis.incr(key);
-        if (count === 1) await redis.expire(key, DEPLOY_THROTTLE_TTL_SECONDS);
-        return count > EVENTS_WORKER_DEPLOYS_PER_HOUR;
+    async #markDeployed(script: string): Promise<void> {
+        try {
+            await this.#layers.clients.redis.set(
+                deployedMarkerKey(script),
+                '1',
+                'EX',
+                DEPLOYED_MARKER_TTL_SECONDS,
+            );
+        } catch (err) {
+            console.warn('[events] could not mark a script deployed', err);
+        }
     }
 
-    /** The app owner, as an actor the deploy can run as. */
+    /**
+     * Whether this scope has already deployed its hourly cap this hour. A
+     * flapping set (publish, remove, republish) provisions upstream on every
+     * miss, and this is the ceiling on that loop. An app's counter is per app;
+     * a user scope has its own, so one user cannot spend another's.
+     */
+    async #tooManyDeploysThisHour(scope: HandlerScope): Promise<boolean> {
+        const redis = this.#layers.clients.redis;
+        const hour = new Date().toISOString().slice(0, 13);
+        const userScope = isUserScope(scope);
+        const key = userScope
+            ? `ev:deploys:{${scope.appUid}}:${scope.holder}:${hour}`
+            : `ev:deploys:{${scope.appUid}}:${hour}`;
+        const count = await redis.incr(key);
+        if (count === 1) await redis.expire(key, DEPLOY_THROTTLE_TTL_SECONDS);
+        return (
+            count >
+            (userScope
+                ? EVENTS_USER_WORKER_DEPLOYS_PER_HOUR
+                : EVENTS_WORKER_DEPLOYS_PER_HOUR)
+        );
+    }
+
+    /**
+     * The user a scope's deploy runs as, as an actor: the app's owner, or the
+     * holder of a user scope.
+     */
     async #owner(
-        appUid: string,
+        scope: HandlerScope,
     ): Promise<
         | (Actor & { user: { id: number; uuid: string; username: string } })
         | null
     > {
         const { stores } = this.#layers;
-        const app = await stores.app.getByUid(appUid);
-        const ownerUserId = Number(app?.owner_user_id);
-        if (!app || !Number.isFinite(ownerUserId)) return null;
+        let ownerUserId = scope.holder;
+        if (!isUserScope(scope)) {
+            const app = await stores.app.getByUid(scope.appUid);
+            ownerUserId = Number(app?.owner_user_id);
+            if (!app || !Number.isFinite(ownerUserId)) return null;
+        }
 
         const user = await stores.user.getById(ownerUserId);
         if (!user?.id || !user.uuid || !user.username || user.suspended)
@@ -408,11 +498,14 @@ export class LocalEventsInvokeTransport {
             const resident = await this.#dispatch(request(), call.timeoutMs);
             if (resident !== null) return resident;
 
-            const outcome = await this.#deployer.ensure(
+            const scope = await this.#deployer.scopeFor(
                 call.appUid,
-                call.script,
-                { lane: call.lane },
+                call.holder,
             );
+            if (!scope) return { status: null, error: 'deploy: no-holder' };
+            const outcome = await this.#deployer.ensure(scope, call.script, {
+                lane: call.lane,
+            });
             if (outcome !== 'deployed')
                 return {
                     status: null,

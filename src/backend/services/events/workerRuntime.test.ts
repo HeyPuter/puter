@@ -23,7 +23,9 @@ import {
     eventsInvokeKey,
     eventsWorkerScope,
     eventsWorkerScript,
+    userHandlerScript,
 } from './workerRuntime.js';
+import { handlerSetHash } from './workerSource.js';
 
 const SET_HASH = 'a1'.repeat(32);
 const OTHER_HASH = 'b2'.repeat(32);
@@ -47,6 +49,37 @@ describe('eventsWorkerScript', () => {
         );
         expect(staging).toMatch(/^evw-[a-f0-9]{32}$/);
         expect(prod).toMatch(/^evw-[a-f0-9]{32}$/);
+    });
+});
+
+describe('userHandlerScript', () => {
+    const handler = { name: '@abc', sourceHash: SET_HASH };
+
+    it('is the script of the handler as a set of one', () => {
+        expect(userHandlerScript(handler, '')).toBe(
+            eventsWorkerScript(handlerSetHash([handler]), ''),
+        );
+    });
+
+    it('is the same for identical code whoever holds it, and differs by code and name', () => {
+        // Nothing but name and source hash goes in: two holders (or two apps)
+        // of the same handler deploy one script.
+        const again = { ...handler };
+        expect(userHandlerScript(again, 's')).toBe(
+            userHandlerScript(handler, 's'),
+        );
+        expect(
+            userHandlerScript({ ...handler, sourceHash: OTHER_HASH }, 's'),
+        ).not.toBe(userHandlerScript(handler, 's'));
+        expect(userHandlerScript({ ...handler, name: '@abd' }, 's')).not.toBe(
+            userHandlerScript(handler, 's'),
+        );
+    });
+
+    it('stays scoped to the backend', () => {
+        expect(userHandlerScript(handler, 'https://a.example')).not.toBe(
+            userHandlerScript(handler, 'https://b.example'),
+        );
     });
 });
 

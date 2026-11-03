@@ -35,6 +35,7 @@ import { PuterClient } from '../types.js';
  *     x-puter-internal-auth:  <internal secret>
  *     x-puter-events-script:  <script the handler set deploys as>
  *     x-puter-events-app:     <app uid, for the deploy-on-miss callback>
+ *     x-puter-events-holder:  <holder uuid of a user scope; absent for app scope>
  *     x-puter-events-key:     <key derived for that script>
  *     { handler, event, ctx, token }
  *
@@ -48,7 +49,7 @@ import { PuterClient } from '../types.js';
  *
  *     POST <events dispatcher>/invoke-batch
  *     x-puter-internal-auth:  <internal secret>
- *     { calls: [{ script, appUid, key, deployed?, body, waitMs }] }
+ *     { calls: [{ script, appUid, holder?, key, deployed?, body, waitMs }] }
  *
  * The dispatcher runs a few at a time, in order, and streams NDJSON: `{ i,
  * started: true }` when a call goes to its worker, then `{ i, status, handled?,
@@ -128,6 +129,12 @@ const PLATFORM_ERROR_CODES = new Set([
 export const EVENTS_DEPLOYED_HEADER = 'x-puter-events-deployed';
 
 /**
+ * Names the user whose scope a script belongs to, so a miss deploys it from
+ * their handlers. Absent for an app's own scope.
+ */
+export const EVENTS_HOLDER_HEADER = 'x-puter-events-holder';
+
+/**
  * Dispatch-error reasons this backend can resolve itself by deploying, rather
  * than wait on the rehydrate callback finding a backend behind the dispatcher's
  * own hostname. `deploy-timeout` is not one of them: it is only ever answered
@@ -150,6 +157,11 @@ const ALREADY_DEPLOYED_MISS_REASONS = new Set(['deploy-timeout']);
 /** Whose call asked for the deploy, for the share of deploys it may take. */
 export interface WorkerMissOptions {
     lane?: InvokeLane;
+    /**
+     * Holder uuid of the user scope the script belongs to; absent for app
+     * scope.
+     */
+    holder?: string;
 }
 
 /** What a self-deploy attempt did, and to which app/script it applies. */
@@ -207,6 +219,8 @@ export interface WorkerInvokeRequest {
     /** Script the app's current handler set deploys as. */
     script: string;
     appUid: string;
+    /** Holder uuid, when the handler lives in a user scope. */
+    holder?: string;
     handler: string;
     /** The subscriber's app session token. */
     token: string;
@@ -220,6 +234,8 @@ export interface WorkerInvokeRequest {
 export interface EventsInvokeCall {
     script: string;
     appUid: string;
+    /** Holder uuid of the user scope the script belongs to. */
+    holder?: string;
     /** Value the script compares against its own invoke-key binding. */
     key: string;
     /** Serialized `{ handler, event, ctx, token }`. */
@@ -353,6 +369,7 @@ export class EventsWorkerInvokerClient extends PuterClient {
             transport.send({
                 script: request.script,
                 appUid: request.appUid,
+                ...(request.holder ? { holder: request.holder } : {}),
                 key: request.key,
                 body: render(),
                 timeoutMs: sendTimeoutMs,
@@ -387,7 +404,10 @@ export class EventsWorkerInvokerClient extends PuterClient {
             const outcome = await this.#missHandler(
                 request.appUid,
                 request.script,
-                { lane: options.lane },
+                {
+                    lane: options.lane,
+                    ...(request.holder ? { holder: request.holder } : {}),
+                },
             );
             if (outcome !== 'deployed')
                 return {
@@ -591,6 +611,9 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
                         'x-puter-internal-auth': this.#secret,
                         'x-puter-events-script': call.script,
                         'x-puter-events-app': call.appUid,
+                        ...(call.holder
+                            ? { [EVENTS_HOLDER_HEADER]: call.holder }
+                            : {}),
                         'x-puter-events-key': call.key,
                         ...(call.deployed
                             ? { [EVENTS_DEPLOYED_HEADER]: '1' }
@@ -655,6 +678,7 @@ export class DispatcherInvokeTransport implements EventsInvokeTransport {
             calls: batch.map(({ call }, i) => ({
                 script: call.script,
                 appUid: call.appUid,
+                ...(call.holder ? { holder: call.holder } : {}),
                 key: call.key,
                 ...(call.deployed ? { deployed: true } : {}),
                 body: call.render ? call.render() : call.body,

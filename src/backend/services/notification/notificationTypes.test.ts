@@ -53,6 +53,9 @@ describe('NOTIFICATION_TYPES', () => {
             audience: 'developer',
             appScoped: true,
         });
+        expect(
+            findNotificationType('app.events.handler_suspended'),
+        ).toMatchObject({ audience: 'app-user', appScoped: true });
         expect(findNotificationType('app.events.ended')).toMatchObject({
             audience: 'app-user',
             appScoped: false,

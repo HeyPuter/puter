@@ -64,6 +64,8 @@ const EVENTS_SCRIPT_REGEX = new RegExp(`^${EVENTS_WORKER_PREFIX}[a-f0-9]{32}$`);
 
 /** Matches the edge dispatcher's own validation of the app uid it forwards. */
 const APP_UID_REGEX = /^app-[A-Za-z0-9_-]{1,64}$/;
+/** A user uuid. */
+const HOLDER_REGEX = /^[A-Za-z0-9-]{1,64}$/;
 
 @Controller('/events')
 export class EventsController extends PuterController {
@@ -501,6 +503,15 @@ export class EventsController extends PuterController {
             throw new HttpError(400, 'Missing or invalid `script`/`appUid`', {
                 legacyCode: 'bad_request',
             });
+        // Absent or empty is the app's own scope.
+        const holder = body.holder === undefined ? '' : body.holder;
+        if (
+            typeof holder !== 'string' ||
+            !(holder === '' || HOLDER_REGEX.test(holder))
+        )
+            throw new HttpError(400, 'Invalid `holder`', {
+                legacyCode: 'bad_request',
+            });
 
         const deployer = this.#eventsWorkerDeployer();
         if (!deployer.enabled) {
@@ -508,7 +519,13 @@ export class EventsController extends PuterController {
             return;
         }
 
-        const outcome = await deployer.ensure(appUid, script);
+        const scope = await deployer.scopeFor(appUid, holder);
+        if (!scope) {
+            res.status(404).json({ deployed: false, reason: 'no-holder' });
+            return;
+        }
+
+        const outcome = await deployer.ensure(scope, script);
         if (outcome === 'deployed') {
             res.json({ deployed: true });
             return;
@@ -541,14 +558,22 @@ export class EventsController extends PuterController {
     override onServerStart(): void {
         const deployer = this.#eventsWorkerDeployer();
         if (!deployer.enabled) return;
+        this.services.events.useEagerDeploy((scope, script) =>
+            deployer.deployEagerly(scope, script),
+        );
         if (this.config.workers?.localServer) {
             this.services.events.useWorkerTransport(
                 new LocalEventsInvokeTransport(this.services, deployer),
             );
             return;
         }
-        this.services.events.useWorkerMissHandler((appUid, script, options) =>
-            deployer.ensure(appUid, script, options),
+        this.services.events.useWorkerMissHandler(
+            async (appUid, script, options) => {
+                const scope = await deployer.scopeFor(appUid, options.holder);
+                return scope
+                    ? deployer.ensure(scope, script, options)
+                    : 'no-holder';
+            },
         );
     }
 
