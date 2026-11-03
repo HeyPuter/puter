@@ -1121,6 +1121,7 @@ describe('onPush', () => {
                 pageEvent('pagehide', true);
                 await flush();
                 await tabB.off();
+                expect(store.has('handlers:chat')).toBe(false);
                 pageEvent('pageshow', true);
                 await vi.waitFor(() =>
                     expect(store.get('handlers:chat')).toBe(chat.toString()),
