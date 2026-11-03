@@ -836,6 +836,34 @@ describe('requireVerifiedAccount', () => {
         expectHttpError(got, 403, 'card_verification_required');
     });
 
+    it('asks an email-gate-last account for card, then phone, then email', () => {
+        const pending = {
+            uuid: 'u-1',
+            requires_email_confirmation: true,
+            email_confirmed: false,
+            requires_phone_verification: true,
+            requires_card_verification: true,
+            metadata: { emailGateLast: true },
+        };
+        const gateFor = (user: Record<string, unknown>) =>
+            runGate(requireVerifiedAccount(), { actor: { user } });
+        expectHttpError(gateFor(pending), 403, 'card_verification_required');
+        expectHttpError(
+            gateFor({ ...pending, requires_card_verification: false }),
+            403,
+            'phone_verification_required',
+        );
+        expectHttpError(
+            gateFor({
+                ...pending,
+                requires_card_verification: false,
+                requires_phone_verification: false,
+            }),
+            403,
+            'email_confirmation_required',
+        );
+    });
+
     it('returns 403 two_factor_required for a seat whose team requires 2FA', async () => {
         const teams = { getOrgSeat: async () => ({ require_2fa: 1 }) };
         const got = await runGateAsync(requireTeam2fa(teams), {

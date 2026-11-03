@@ -28,6 +28,7 @@ import {
     type CardFallbackClients,
 } from './cardFallback.js';
 import { getTaskbarItems } from './taskbarItems.js';
+import { isEmailGateLast } from './verificationOrder.js';
 
 type TaskbarDeps = Parameters<typeof getTaskbarItems>[1];
 
@@ -153,6 +154,8 @@ export async function buildUserDetails(
         // client reads it. Only the verification flag ships.
         requires_phone_verification: user.requires_phone_verification,
         requires_card_verification: user.requires_card_verification,
+        // Card and phone come before email for this account.
+        email_gate_last: isEmailGateLast(user),
         // A seat reaches nothing until it replaces its admin's password.
         requires_password_change: user.requires_password_change,
         // The SMS-to-card escape hatch. It ships here because by the time the

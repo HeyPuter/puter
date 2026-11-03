@@ -41,15 +41,29 @@ import {
     EVENTS_SINGLE_DELIVERY_LIMIT,
     EVENTS_WORKER_INVOCATION_LIMIT,
     limitFor,
+    tiered,
     type TieredLimit,
 } from './limits.js';
 
 const tiers: Array<[string, TieredLimit]> = [
-    ['durable subscriptions per account', EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER],
+    [
+        'durable subscriptions per account',
+        EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER,
+    ],
     ['durable subscriptions per app', EVENTS_DURABLE_SUBSCRIPTIONS_PER_APP],
     ['live share handles per account', EVENTS_KV_HANDLES_PER_USER],
     ['live share handles per app', EVENTS_KV_HANDLES_PER_APP],
 ];
+
+describe('tiered', () => {
+    it('gives paid plans the base, and the free and temporary tiers their own', () => {
+        const limit = tiered(30, 20, 10);
+        expect(limitFor(limit, null)).toBe(30);
+        expect(limitFor(limit, 'some_plan')).toBe(30);
+        expect(limitFor(limit, DEFAULT_FREE_SUBSCRIPTION)).toBe(20);
+        expect(limitFor(limit, DEFAULT_TEMP_SUBSCRIPTION)).toBe(10);
+    });
+});
 
 describe('the tiered subscription quotas', () => {
     it.each(tiers)('%s never lets a free tier exceed paid', (_name, tier) => {
@@ -105,9 +119,9 @@ describe('the tiered subscription quotas', () => {
     });
 
     it('holds an unrecognised plan to the paid base', () => {
-        expect(limitFor(EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER, 'some_plan')).toBe(
-            EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER.limit,
-        );
+        expect(
+            limitFor(EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER, 'some_plan'),
+        ).toBe(EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER.limit);
         expect(limitFor(EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER, null)).toBe(
             EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER.limit,
         );
@@ -131,9 +145,9 @@ describe('the delivery budgets', () => {
             expect(
                 limitFor(EVENTS_KV_MATCHED_SUBSCRIPTIONS_PER_EVENT, plan),
             ).toBe(matched);
-            expect(
-                limitFor(EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT, plan),
-            ).toBe(evaluated);
+            expect(limitFor(EVENTS_KV_FILTER_EVALUATIONS_PER_EVENT, plan)).toBe(
+                evaluated,
+            );
             expect(evaluated).toBeGreaterThanOrEqual(matched);
         }
     });

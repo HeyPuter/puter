@@ -1342,4 +1342,76 @@ export default suite('events', {
         );
         t.assert.equal(codeOf(error), 'events_handler_app_required');
     },
+
+    // -- Schedules ---------------------------------------------------
+    //
+    // This server has no schedules service, as a self-hosted one doesn't:
+    // every schedule call answers `events_disabled`.
+
+    'exposes the schedule surface': async (t) => {
+        for (const method of [
+            'onSchedule',
+            'listSchedules',
+            'getSchedule',
+            'removeSchedule',
+        ] as const) {
+            t.assert.equal(
+                typeof t.puter.events[method],
+                'function',
+                `puter.events.${method} is a function`,
+            );
+        }
+    },
+
+    'answers every schedule call events_disabled without schedules': async (
+        t,
+    ) => {
+        const appUid = await makeApp(t);
+        const scheduleId = '2f7c1b6e-4d1a-4c55-9a8e-0e6f3c2b1a90';
+        const calls: Array<[string, () => Promise<unknown>]> = [
+            [
+                'onSchedule',
+                () =>
+                    t.puter.events.onSchedule({
+                        every: '6h',
+                        handlerName: 'digest',
+                    }),
+            ],
+            ['listSchedules', () => t.puter.events.listSchedules()],
+            ['getSchedule', () => t.puter.events.getSchedule(scheduleId)],
+            ['removeSchedule', () => t.puter.events.removeSchedule(scheduleId)],
+        ];
+        for (const [name, call] of calls) {
+            // Final, not replayed as a transient 503.
+            const started = Date.now();
+            const asTheApp = await asApp(t, appUid, () =>
+                t.assert.rejects(call),
+            );
+            t.assert.equal(codeOf(asTheApp), 'events_disabled', name);
+            t.assert.ok(
+                Date.now() - started < 2_000,
+                `${name} answers at once`,
+            );
+            const asTheAccount = await t.assert.rejects(call);
+            t.assert.equal(codeOf(asTheAccount), 'events_disabled', name);
+        }
+    },
+
+    'checks schedule options in the client before asking': async (t) => {
+        const cases: Array<[Record<string, unknown>, string]> = [
+            [{ every: '1h' }, 'events_handler_required'],
+            [
+                { at: new Date(Number.NaN), handlerName: 'digest' },
+                'events_schedule_invalid',
+            ],
+        ];
+        for (const [options, code] of cases) {
+            const error = await t.assert.rejects(() =>
+                t.puter.events.onSchedule(
+                    options as Parameters<typeof t.puter.events.onSchedule>[0],
+                ),
+            );
+            t.assert.equal(codeOf(error), code, JSON.stringify(options));
+        }
+    },
 });

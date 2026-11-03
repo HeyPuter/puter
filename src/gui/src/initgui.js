@@ -2041,61 +2041,75 @@ window.initgui = async function (options) {
         }
 
         if (whoami) {
-            // Verification gates run in order: email → phone (SMS) → card,
-            // matching the server-side order in assertVerifiedAccount.
-            if (whoami.requires_email_confirmation) {
-                let is_verified;
-                do {
-                    is_verified = await UIWindowEmailConfirmationRequired({
-                        show_close_button: false,
-                        stay_on_top: true,
-                        has_head: false,
-                        window_options: {
-                            is_draggable: false,
-                        },
-                    });
-                } while (!is_verified);
-            }
-            // is phone verification required? (hard gate for low-rep signups)
-            // A user the SMS path keeps failing may be offered the card
-            // fallback instead; that resolves 'card' and clears the card gate
-            // too (see UIWindowPhoneVerificationRequired).
+            // Verification gates run in the server's order (see
+            // assertVerifiedAccount): email → phone (SMS) → card, or card →
+            // phone → email when the account clears email last.
             let card_gate_cleared_by_fallback = false;
-            if (whoami.requires_phone_verification) {
-                let is_verified;
-                do {
-                    is_verified = await UIWindowPhoneVerificationRequired({
-                        show_close_button: false,
-                        stay_on_top: true,
-                        has_head: false,
-                        // Already out of SMS attempts (the offer outlives the
-                        // send window, and no send can report it any more).
-                        card_fallback_available:
-                            whoami.card_fallback_available,
-                        window_options: {
-                            is_draggable: false,
-                        },
-                    });
-                } while (!is_verified);
-                card_gate_cleared_by_fallback = is_verified === 'card';
-            }
-            // Card verification is the last gate: only show it once the email and
-            // phone (SMS) gates are cleared, since those show up first.
-            if (
-                whoami.requires_card_verification &&
-                !card_gate_cleared_by_fallback
-            ) {
-                let is_verified;
-                do {
-                    is_verified = await UIWindowCardVerificationRequired({
-                        show_close_button: false,
-                        stay_on_top: true,
-                        has_head: false,
-                        window_options: {
-                            is_draggable: false,
-                        },
-                    });
-                } while (!is_verified);
+            const emailGate = async () => {
+                if (whoami.requires_email_confirmation) {
+                    let is_verified;
+                    do {
+                        is_verified = await UIWindowEmailConfirmationRequired({
+                            show_close_button: false,
+                            stay_on_top: true,
+                            has_head: false,
+                            window_options: {
+                                is_draggable: false,
+                            },
+                        });
+                    } while (!is_verified);
+                }
+            };
+            const phoneGate = async () => {
+                // is phone verification required? (hard gate for low-rep signups)
+                // A user the SMS path keeps failing may be offered the card
+                // fallback instead; that resolves 'card' and clears the card gate
+                // too (see UIWindowPhoneVerificationRequired).
+                if (whoami.requires_phone_verification) {
+                    let is_verified;
+                    do {
+                        is_verified = await UIWindowPhoneVerificationRequired({
+                            show_close_button: false,
+                            stay_on_top: true,
+                            has_head: false,
+                            // Already out of SMS attempts (the offer outlives the
+                            // send window, and no send can report it any more).
+                            card_fallback_available:
+                                whoami.card_fallback_available,
+                            window_options: {
+                                is_draggable: false,
+                            },
+                        });
+                    } while (!is_verified);
+                    card_gate_cleared_by_fallback = is_verified === 'card';
+                }
+            };
+            const cardGate = async () => {
+                if (
+                    whoami.requires_card_verification &&
+                    !card_gate_cleared_by_fallback
+                ) {
+                    let is_verified;
+                    do {
+                        is_verified = await UIWindowCardVerificationRequired({
+                            show_close_button: false,
+                            stay_on_top: true,
+                            has_head: false,
+                            window_options: {
+                                is_draggable: false,
+                            },
+                        });
+                    } while (!is_verified);
+                }
+            };
+            if (whoami.email_gate_last) {
+                await cardGate();
+                await phoneGate();
+                await emailGate();
+            } else {
+                await emailGate();
+                await phoneGate();
+                await cardGate();
             }
             // Last, matching assertVerifiedAccount's order.
             if (whoami.requires_password_change) {
@@ -2319,67 +2333,81 @@ window.initgui = async function (options) {
             // verification gates below: the landing's max z-index would cover
             // them.
             reveal_anonymous_markup(false);
-            // Verification gates run in order: email → phone (SMS) → card,
-            // matching the server-side order in assertVerifiedAccount.
-            if (whoami.requires_email_confirmation) {
-                let is_verified;
-                do {
-                    is_verified = await UIWindowEmailConfirmationRequired({
-                        show_close_button: false,
-                        stay_on_top: true,
-                        has_head: false,
-                        logout_in_footer: true,
-                        window_options: {
-                            is_draggable: false,
-                            cover_page: window.is_embedded,
-                        },
-                    });
-                } while (!is_verified);
-            }
-            // is phone verification required? (hard gate for low-rep signups)
-            // A user the SMS path keeps failing may be offered the card
-            // fallback instead; that resolves 'card' and clears the card gate
-            // too (see UIWindowPhoneVerificationRequired).
+            // Verification gates run in the server's order (see
+            // assertVerifiedAccount): email → phone (SMS) → card, or card →
+            // phone → email when the account clears email last.
             let card_gate_cleared_by_fallback = false;
-            if (whoami.requires_phone_verification) {
-                let is_verified;
-                do {
-                    is_verified = await UIWindowPhoneVerificationRequired({
-                        show_close_button: false,
-                        stay_on_top: true,
-                        has_head: false,
-                        logout_in_footer: true,
-                        // Already out of SMS attempts (the offer outlives the
-                        // send window, and no send can report it any more).
-                        card_fallback_available:
-                            whoami.card_fallback_available,
-                        window_options: {
-                            is_draggable: false,
-                            cover_page: window.is_embedded,
-                        },
-                    });
-                } while (!is_verified);
-                card_gate_cleared_by_fallback = is_verified === 'card';
-            }
-            // Card verification is the last gate: only show it once the email and
-            // phone (SMS) gates are cleared, since those show up first.
-            if (
-                whoami.requires_card_verification &&
-                !card_gate_cleared_by_fallback
-            ) {
-                let is_verified;
-                do {
-                    is_verified = await UIWindowCardVerificationRequired({
-                        show_close_button: false,
-                        stay_on_top: true,
-                        has_head: false,
-                        logout_in_footer: true,
-                        window_options: {
-                            is_draggable: false,
-                            cover_page: window.is_embedded,
-                        },
-                    });
-                } while (!is_verified);
+            const emailGate = async () => {
+                if (whoami.requires_email_confirmation) {
+                    let is_verified;
+                    do {
+                        is_verified = await UIWindowEmailConfirmationRequired({
+                            show_close_button: false,
+                            stay_on_top: true,
+                            has_head: false,
+                            logout_in_footer: true,
+                            window_options: {
+                                is_draggable: false,
+                                cover_page: window.is_embedded,
+                            },
+                        });
+                    } while (!is_verified);
+                }
+            };
+            const phoneGate = async () => {
+                // is phone verification required? (hard gate for low-rep signups)
+                // A user the SMS path keeps failing may be offered the card
+                // fallback instead; that resolves 'card' and clears the card gate
+                // too (see UIWindowPhoneVerificationRequired).
+                if (whoami.requires_phone_verification) {
+                    let is_verified;
+                    do {
+                        is_verified = await UIWindowPhoneVerificationRequired({
+                            show_close_button: false,
+                            stay_on_top: true,
+                            has_head: false,
+                            logout_in_footer: true,
+                            // Already out of SMS attempts (the offer outlives the
+                            // send window, and no send can report it any more).
+                            card_fallback_available:
+                                whoami.card_fallback_available,
+                            window_options: {
+                                is_draggable: false,
+                                cover_page: window.is_embedded,
+                            },
+                        });
+                    } while (!is_verified);
+                    card_gate_cleared_by_fallback = is_verified === 'card';
+                }
+            };
+            const cardGate = async () => {
+                if (
+                    whoami.requires_card_verification &&
+                    !card_gate_cleared_by_fallback
+                ) {
+                    let is_verified;
+                    do {
+                        is_verified = await UIWindowCardVerificationRequired({
+                            show_close_button: false,
+                            stay_on_top: true,
+                            has_head: false,
+                            logout_in_footer: true,
+                            window_options: {
+                                is_draggable: false,
+                                cover_page: window.is_embedded,
+                            },
+                        });
+                    } while (!is_verified);
+                }
+            };
+            if (whoami.email_gate_last) {
+                await cardGate();
+                await phoneGate();
+                await emailGate();
+            } else {
+                await emailGate();
+                await phoneGate();
+                await cardGate();
             }
             // Last, matching assertVerifiedAccount's order.
             if (whoami.requires_password_change) {
