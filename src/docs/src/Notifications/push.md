@@ -63,6 +63,18 @@ The worker follows the browser's service worker rules:
 
 To check the worker, open `https://<your site>/puter-sw.js` in a browser tab. It should show the `importScripts` line as plain text.
 
+#### Serving your own copy
+
+`https://js.puter.com/push-sw.js` always serves the current version, and Puter's CDN picks up a new one within five minutes. To decide when your worker changes, serve a fixed copy instead. The file ships in the [`@heyputer/puter.js`](https://www.npmjs.com/package/@heyputer/puter.js) npm package as `src/push-sw.js`. Copy it to your site, or import it from a CDN that serves npm packages, with the version in the URL:
+
+```js
+importScripts('https://cdn.jsdelivr.net/npm/@heyputer/puter.js@2.6.5/src/push-sw.js');
+```
+
+The worker and your pages share what [`onPush()`](/Notifications/onPush/) and [`enable()`](/Notifications/enable/) save in the browser, so update the copy together with the Puter.js your pages load, to the same version. A Content-Security-Policy on the worker has to allow the copy's origin instead of `https://js.puter.com`.
+
+A worker can also run only the handlers registered in it, and never the source your pages saved. [`onPush()`](/Notifications/onPush/#handler-limits) shows how.
+
 ### 2. Say what a push shows
 
 On every page load, register a handler with [`onPush()`](/Notifications/onPush/) for each kind of notification you send. The key is the `channel` you pass to [`notify()`](/Notifications/notify/).
