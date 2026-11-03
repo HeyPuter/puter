@@ -25,7 +25,16 @@
 
 import MockRedis from 'ioredis-mock';
 import { describe, expect, it } from 'vitest';
-import type { EventsInvokeCall } from '../../clients/events/EventsWorkerInvokerClient.js';
+import type { fetch as undiciFetch } from 'undici';
+import {
+    DispatcherInvokeTransport,
+    EVENTS_DEPLOYED_HEADER,
+    EVENTS_DISPATCH_ERROR_HEADER,
+    EVENTS_HANDLED_HEADER,
+    EVENTS_INVOKE_TIMEOUT_MS,
+    EventsWorkerInvokerClient,
+    type EventsInvokeCall,
+} from '../../clients/events/EventsWorkerInvokerClient.js';
 import { INTERNAL_DEPLOY_TARGET } from '../../drivers/workers/WorkerDriver.js';
 import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
 import {
@@ -358,5 +367,67 @@ describe('LocalEventsInvokeTransport', () => {
             status: 200,
         });
         expect(bodies).toEqual(['{"n":1}', '{"n":2}']);
+    });
+});
+
+describe('deploy-on-miss of an evicted script', () => {
+    it('redeploys the script and resends the run, inside one run budget', async () => {
+        const { layers, created } = makeLayers({ 'app-m': { ownerUserId: 8 } });
+        // The upload takes a moment, and the namespace only has the script
+        // once it lands: before that the dispatcher answers a miss.
+        let resident = false;
+        layers.drivers.workers.create = (async (args: {
+            workerName: string;
+        }) => {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            created.push(args.workerName);
+            resident = true;
+            return { success: true, errors: [] };
+        }) as never;
+        const deployer = new EventsWorkerDeployer(layers);
+
+        const sent: boolean[] = [];
+        const fetchImpl = (async (_url: string, init?: RequestInit) => {
+            const headers = (init?.headers ?? {}) as Record<string, string>;
+            sent.push(headers[EVENTS_DEPLOYED_HEADER] === '1');
+            if (resident)
+                return new Response(null, {
+                    status: 200,
+                    headers: { [EVENTS_HANDLED_HEADER]: '1' },
+                });
+            return new Response(null, {
+                status: 404,
+                headers: { [EVENTS_DISPATCH_ERROR_HEADER]: 'missing' },
+            });
+        }) as unknown as typeof undiciFetch;
+
+        const client = new EventsWorkerInvokerClient({
+            events: { workerRuntime: true },
+        } as IConfig);
+        client.setTransport(
+            new DispatcherInvokeTransport('http://dispatcher', 's', {
+                fetchImpl,
+            }),
+        );
+        client.setMissHandler((appUid, script, options) =>
+            deployer.ensure(appUid, script, options),
+        );
+
+        const started = Date.now();
+        const result = await client.invoke({
+            script: SCRIPT,
+            appUid: 'app-m',
+            handler: 'h',
+            token: 't',
+            key: 'k',
+            event: {},
+            ctx: {},
+        });
+
+        expect(result).toEqual({ outcome: 'settled', status: 200 });
+        expect(created).toEqual([SCRIPT]);
+        // One miss, then the resend carrying the deployed marker.
+        expect(sent).toEqual([false, true]);
+        expect(Date.now() - started).toBeLessThan(EVENTS_INVOKE_TIMEOUT_MS);
     });
 });
