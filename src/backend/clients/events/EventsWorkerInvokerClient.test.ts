@@ -28,6 +28,7 @@ import type { IConfig } from '../../types.js';
 import {
     DispatcherInvokeTransport,
     EVENTS_DEPLOYED_HEADER,
+    EVENTS_DISPATCH_BATCH_PATH,
     EVENTS_DISPATCH_ERROR_HEADER,
     EVENTS_DISPATCH_PATH,
     EVENTS_ERROR_HEADER,
@@ -36,6 +37,7 @@ import {
     INVOKE_CONNECTIONS,
     SCHEDULE_INVOKE_CONNECTIONS,
     outcomeForStatus,
+    parseAnswerLine,
     type WorkerInvokeRequest,
 } from './EventsWorkerInvokerClient.js';
 
@@ -275,10 +277,12 @@ describe('DispatcherInvokeTransport with every connection busy', () => {
     /** Every connection taken by a call nobody has answered yet. */
     const saturated = async () => {
         const { fetchImpl, held } = heldFetch();
+        // Slots are per call, batched or not; one request per call keeps
+        // the count readable.
         const transport = new DispatcherInvokeTransport(
             'http://dispatcher',
             's',
-            { fetchImpl },
+            { fetchImpl, batchSize: 1 },
         );
         const busy = Array.from({ length: INVOKE_CONNECTIONS }, () =>
             transport.send(CALL),
@@ -365,7 +369,7 @@ describe('DispatcherInvokeTransport schedule lane', () => {
         const transport = new DispatcherInvokeTransport(
             'http://dispatcher',
             's',
-            { fetchImpl },
+            { fetchImpl, batchSize: 1 },
         );
         const scheduled = Array.from(
             { length: SCHEDULE_INVOKE_CONNECTIONS + 5 },
@@ -400,7 +404,7 @@ describe('DispatcherInvokeTransport schedule lane', () => {
         const transport = new DispatcherInvokeTransport(
             'http://dispatcher',
             's',
-            { fetchImpl },
+            { fetchImpl, batchSize: 1 },
         );
         const busy = Array.from({ length: SCHEDULE_INVOKE_CONNECTIONS }, () =>
             transport.send({ ...CALL, lane: 'schedule' as const }),
@@ -421,6 +425,400 @@ describe('DispatcherInvokeTransport schedule lane', () => {
         expect(held[SCHEDULE_INVOKE_CONNECTIONS].body).toBe('{"n":1}');
         for (const call of held) call.answer();
         await Promise.all([...busy, stamped]);
+    });
+});
+
+describe('DispatcherInvokeTransport batches', () => {
+    interface BatchRequest {
+        url: string;
+        body: { calls: Array<Record<string, unknown>> };
+        signal: AbortSignal;
+        /** Streams one answer line back. */
+        answer: (line: Record<string, unknown>) => void;
+        end: () => void;
+    }
+
+    /**
+     * A fetch whose batch answers stream only when told to; single calls get a
+     * handled 200 straight away.
+     */
+    const streamingFetch = () => {
+        const batches: BatchRequest[] = [];
+        const singles: Array<{ url: string; headers: Record<string, string> }> =
+            [];
+        const fetchImpl = (async (url: string, init: RequestInit) => {
+            if (!url.endsWith(EVENTS_DISPATCH_BATCH_PATH)) {
+                singles.push({
+                    url,
+                    headers: init.headers as Record<string, string>,
+                });
+                return new Response(null, {
+                    status: 200,
+                    headers: { [EVENTS_HANDLED_HEADER]: '1' },
+                });
+            }
+            let controller!: ReadableStreamDefaultController<Uint8Array>;
+            const stream = new ReadableStream<Uint8Array>({
+                start: (c) => {
+                    controller = c;
+                },
+            });
+            const encoder = new TextEncoder();
+            init.signal?.addEventListener('abort', () => {
+                try {
+                    controller.error(init.signal!.reason);
+                } catch {
+                    // already closed
+                }
+            });
+            batches.push({
+                url,
+                body: JSON.parse(String(init.body)),
+                signal: init.signal!,
+                answer: (line) =>
+                    controller.enqueue(
+                        encoder.encode(`${JSON.stringify(line)}\n`),
+                    ),
+                end: () => controller.close(),
+            });
+            return new Response(stream, {
+                status: 200,
+                headers: { 'content-type': 'application/x-ndjson' },
+            });
+        }) as unknown as FetchImpl;
+        return { fetchImpl, batches, singles };
+    };
+
+    const transportFor = (
+        fetchImpl: FetchImpl,
+        options: { batchSize?: number; batchWindowMs?: number } = {},
+    ) =>
+        new DispatcherInvokeTransport('http://dispatcher', 's', {
+            fetchImpl,
+            ...options,
+        });
+
+    it('sends calls made together as one request, and answers each from its own line', async () => {
+        const { fetchImpl, batches, singles } = streamingFetch();
+        const transport = transportFor(fetchImpl);
+        const first = transport.send({ ...CALL, script: 'evw-a', key: 'k1:a' });
+        const second = transport.send({
+            ...CALL,
+            script: 'evw-b',
+            deployed: true,
+            body: '{"b":1}',
+        });
+        await vi.waitFor(() => expect(batches).toHaveLength(1));
+
+        expect(batches[0].url).toBe(
+            `http://dispatcher${EVENTS_DISPATCH_BATCH_PATH}`,
+        );
+        expect(batches[0].body.calls).toEqual([
+            {
+                script: 'evw-a',
+                appUid: 'app-test',
+                key: 'k1:a',
+                body: '{}',
+                waitMs: expect.any(Number),
+            },
+            {
+                script: 'evw-b',
+                appUid: 'app-test',
+                key: 'k1:test',
+                deployed: true,
+                body: '{"b":1}',
+                waitMs: expect.any(Number),
+            },
+        ]);
+        // What is left of half the timeout, the share a call may wait.
+        expect(batches[0].body.calls[0].waitMs).toBeLessThanOrEqual(2_500);
+        expect(batches[0].body.calls[0].waitMs).toBeGreaterThan(2_400);
+
+        // Out of order: each line names the call it answers.
+        batches[0].answer({ i: 1, status: 400, handled: true });
+        await expect(second).resolves.toEqual({ status: 400, handled: true });
+        batches[0].answer({
+            i: 0,
+            status: 503,
+            handled: true,
+            error: 'platform-error',
+            retryAfter: '3',
+        });
+        await expect(first).resolves.toEqual({
+            status: 503,
+            handled: true,
+            error: 'platform-error',
+            retryAfterMs: 3000,
+        });
+        // Every call answered, so the request is let go.
+        expect(batches[0].signal.aborted).toBe(true);
+        expect(singles).toEqual([]);
+    });
+
+    it('sends a call with nobody to batch with on the single route', async () => {
+        const { fetchImpl, batches, singles } = streamingFetch();
+        const transport = transportFor(fetchImpl);
+        await expect(transport.send(CALL)).resolves.toMatchObject({
+            status: 200,
+        });
+        expect(batches).toEqual([]);
+        expect(singles[0].url).toBe(`http://dispatcher${EVENTS_DISPATCH_PATH}`);
+    });
+
+    it('sends a full batch at once, without waiting out the window', async () => {
+        const { fetchImpl, batches } = streamingFetch();
+        const transport = transportFor(fetchImpl, {
+            batchSize: 2,
+            batchWindowMs: 60_000,
+        });
+        const sent = [transport.send(CALL), transport.send(CALL)];
+        const third = transport.send(CALL);
+        await vi.waitFor(() => expect(batches).toHaveLength(1));
+        expect(batches[0].body.calls).toHaveLength(2);
+        batches[0].answer({ i: 0, status: 200, handled: true });
+        batches[0].answer({ i: 1, status: 200, handled: true });
+        await Promise.all(sent);
+        transport.close();
+        await expect(third).resolves.toMatchObject({ status: 200 });
+    });
+
+    it('gives each call its own timeout, without failing the rest of the batch', async () => {
+        const { fetchImpl, batches } = streamingFetch();
+        const transport = transportFor(fetchImpl);
+        const quick = transport.send({ ...CALL, timeoutMs: 50 });
+        const slow = transport.send({ ...CALL, timeoutMs: 5_000 });
+        await vi.waitFor(() => expect(batches).toHaveLength(1));
+        batches[0].answer({ i: 0, started: true });
+        batches[0].answer({ i: 1, started: true });
+
+        await expect(quick).resolves.toMatchObject({
+            status: null,
+            timedOut: true,
+        });
+        expect(batches[0].signal.aborted).toBe(false);
+        batches[0].answer({ i: 1, status: 200, handled: true });
+        await expect(slow).resolves.toEqual({ status: 200, handled: true });
+    });
+
+    it('runs a call`s timeout from its started line, not from the send', async () => {
+        const { fetchImpl, batches } = streamingFetch();
+        const transport = transportFor(fetchImpl);
+        let settled = false;
+        const queued = transport
+            .send({ ...CALL, timeoutMs: 200 })
+            .then((answer) => {
+                settled = true;
+                return answer;
+            });
+        const other = transport.send(CALL);
+        await vi.waitFor(() => expect(batches).toHaveLength(1));
+
+        // Queued behind other calls for longer than its whole timeout.
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        expect(settled).toBe(false);
+        batches[0].answer({ i: 0, started: true });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(settled).toBe(false);
+        await expect(queued).resolves.toMatchObject({
+            status: null,
+            timedOut: true,
+        });
+
+        batches[0].answer({ i: 1, status: 200, handled: true });
+        await other;
+    });
+
+    it('puts a call that never started on Puter, not on its handler', async () => {
+        const { fetchImpl, batches } = streamingFetch();
+        const transport = transportFor(fetchImpl);
+        const never = transport.send({ ...CALL, timeoutMs: 20 });
+        const queueTimedOut = transport.send(CALL);
+        await vi.waitFor(() => expect(batches).toHaveLength(1));
+        batches[0].answer({ i: 1, status: 503, dispatch: 'queue-timeout' });
+
+        await expect(queueTimedOut).resolves.toEqual({
+            status: null,
+            error: 'dispatcher: queue-timeout (503)',
+            dispatchReason: 'queue-timeout',
+        });
+        // Its wait plus the grace for the started line to arrive.
+        await expect(never).resolves.toEqual({
+            status: null,
+            error: 'dispatcher: call never started',
+        });
+        const client = new EventsWorkerInvokerClient({} as IConfig);
+        client.setTransport({ send: async () => queueTimedOut });
+        await expect(client.invoke(REQUEST)).resolves.toMatchObject({
+            outcome: 'unavailable',
+        });
+    });
+
+    it('puts a call the stream ended without answering on Puter', async () => {
+        const { fetchImpl, batches } = streamingFetch();
+        const transport = transportFor(fetchImpl);
+        const answered = transport.send(CALL);
+        const dropped = transport.send(CALL);
+        await vi.waitFor(() => expect(batches).toHaveLength(1));
+        batches[0].answer({ i: 0, status: 200, handled: true });
+        batches[0].end();
+
+        await expect(answered).resolves.toEqual({ status: 200, handled: true });
+        await expect(dropped).resolves.toEqual({
+            status: null,
+            error: 'dispatcher: batch ended without an answer',
+        });
+    });
+
+    it('carries a dispatch failure in a line as that call`s reason', async () => {
+        const { fetchImpl, batches } = streamingFetch();
+        const transport = transportFor(fetchImpl);
+        const missing = transport.send(CALL);
+        const other = transport.send(CALL);
+        await vi.waitFor(() => expect(batches).toHaveLength(1));
+        batches[0].answer({ i: 0, status: 404, dispatch: 'missing' });
+        batches[0].answer({ i: 1, status: 200, handled: true });
+
+        await expect(missing).resolves.toEqual({
+            status: null,
+            error: 'dispatcher: missing (404)',
+            dispatchReason: 'missing',
+        });
+        await expect(other).resolves.toMatchObject({ status: 200 });
+    });
+
+    it('fails every call of a batch the dispatcher refused, or something else answered', async () => {
+        for (const [response, expected] of [
+            [
+                new Response('forbidden', {
+                    status: 403,
+                    headers: { [EVENTS_DISPATCH_ERROR_HEADER]: 'forbidden' },
+                }),
+                {
+                    status: null,
+                    error: 'dispatcher: forbidden (403)',
+                    dispatchReason: 'forbidden',
+                },
+            ],
+            [
+                new Response('not found', { status: 404 }),
+                {
+                    status: null,
+                    error: 'dispatcher: unmarked 404 for a batch',
+                },
+            ],
+        ] as const) {
+            const transport = transportFor(
+                (async () => response) as unknown as FetchImpl,
+            );
+            const answers = await Promise.all([
+                transport.send(CALL),
+                transport.send(CALL),
+            ]);
+            expect(answers).toEqual([expected, expected]);
+        }
+    });
+
+    it('fails every call when the batch request itself fails', async () => {
+        const transport = transportFor(refusedFetch);
+        const answers = await Promise.all([
+            transport.send(CALL),
+            transport.send(CALL),
+        ]);
+        expect(answers).toEqual([
+            { status: null, error: 'fetch failed' },
+            { status: null, error: 'fetch failed' },
+        ]);
+    });
+
+    it('falls back to single calls on a dispatcher without the batch route', async () => {
+        const urls: string[] = [];
+        const fetchImpl = (async (url: string) => {
+            urls.push(url);
+            if (url.endsWith(EVENTS_DISPATCH_BATCH_PATH))
+                return new Response('no-such-route', {
+                    status: 404,
+                    headers: {
+                        [EVENTS_DISPATCH_ERROR_HEADER]: 'no-such-route',
+                    },
+                });
+            return new Response(null, {
+                status: 200,
+                headers: { [EVENTS_HANDLED_HEADER]: '1' },
+            });
+        }) as unknown as FetchImpl;
+        const transport = transportFor(fetchImpl);
+
+        const first = await Promise.all([
+            transport.send(CALL),
+            transport.send(CALL),
+        ]);
+        expect(first).toEqual([
+            { status: 200, handled: true },
+            { status: 200, handled: true },
+        ]);
+        // The next pair goes straight to the single route.
+        await Promise.all([transport.send(CALL), transport.send(CALL)]);
+        expect(urls.map((url) => new URL(url).pathname)).toEqual([
+            EVENTS_DISPATCH_BATCH_PATH,
+            EVENTS_DISPATCH_PATH,
+            EVENTS_DISPATCH_PATH,
+            EVENTS_DISPATCH_PATH,
+            EVENTS_DISPATCH_PATH,
+        ]);
+    });
+
+    it('builds each body when the batch goes out', async () => {
+        const { fetchImpl, batches } = streamingFetch();
+        const transport = transportFor(fetchImpl);
+        let renders = 0;
+        const sent = [
+            transport.send({ ...CALL, render: () => `{"n":${++renders}}` }),
+            transport.send(CALL),
+        ];
+        expect(renders).toBe(0);
+        await vi.waitFor(() => expect(batches).toHaveLength(1));
+        expect(batches[0].body.calls[0].body).toBe('{"n":1}');
+        batches[0].answer({ i: 0, status: 200, handled: true });
+        batches[0].answer({ i: 1, status: 200, handled: true });
+        await Promise.all(sent);
+    });
+
+    it('deploys a call`s missing script and retries it, batched with the rest', async () => {
+        const { fetchImpl, batches } = streamingFetch();
+        const client = new EventsWorkerInvokerClient({
+            events: { invokeTimeoutMs: 5_000 },
+        } as unknown as IConfig);
+        client.setTransport(transportFor(fetchImpl));
+        const missHandler = vi.fn(async () => 'deployed' as const);
+        client.setMissHandler(missHandler);
+
+        const missing = client.invoke({ ...REQUEST, script: 'evw-gone' });
+        const resident = client.invoke(REQUEST);
+        await vi.waitFor(() => expect(batches).toHaveLength(1));
+        batches[0].answer({ i: 0, status: 404, dispatch: 'missing' });
+        batches[0].answer({ i: 1, status: 200, handled: true });
+        await expect(resident).resolves.toMatchObject({ outcome: 'settled' });
+
+        // The retry is alone, so it goes on the single route.
+        await expect(missing).resolves.toMatchObject({ outcome: 'settled' });
+        expect(missHandler).toHaveBeenCalledWith('app-test', 'evw-gone', {
+            lane: undefined,
+        });
+    });
+
+    it('reads only well-formed answer lines', () => {
+        expect(parseAnswerLine('not json')).toBeNull();
+        expect(parseAnswerLine('{"status":200}')).toBeNull();
+        expect(parseAnswerLine('{"i":-1,"status":200}')).toBeNull();
+        expect(parseAnswerLine('{"i":0}')).toBeNull();
+        expect(parseAnswerLine('{"i":1,"started":true}')).toEqual({
+            i: 1,
+            started: true,
+        });
+        expect(parseAnswerLine('{"i":2,"status":200}')).toEqual({
+            i: 2,
+            answer: { status: 200, handled: false },
+        });
     });
 });
 

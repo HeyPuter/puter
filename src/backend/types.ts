@@ -256,7 +256,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -1286,6 +1291,16 @@ interface IConfigOptional {
         /** How long a handler has to answer an invocation. Default 30 s. */
         invokeTimeoutMs?: number;
         /**
+         * Invocations sent to the dispatcher in one request. Default 60; 1
+         * sends each on its own.
+         */
+        invokeBatchSize?: number;
+        /**
+         * How long the first invocation of a batch waits for others to join it.
+         * Default 5 ms.
+         */
+        invokeBatchWindowMs?: number;
+        /**
          * Dispatch namespace events workers are deployed into. Must not be the
          * one the public worker dispatcher serves — that namespace is reachable
          * at `<script>.puter.work`, and an events worker must not be. No
@@ -1364,8 +1379,7 @@ export interface ServerDrainInfo {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];
