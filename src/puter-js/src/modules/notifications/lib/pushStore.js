@@ -7,6 +7,8 @@ export const CLICKS_STORE = 'clicks';
 // stays at the version workers already installed open.
 const OPT_IN_PREFIX = 'puter:opt-in:';
 export const SERVER_KEY_ENTRY = 'puter:server-key';
+/** Every key the server named as Puter's, the current one first. */
+export const SERVER_KEYS_ENTRY = 'puter:server-keys';
 /** Per user: `{ endpoint, at }` of the subscription the server last confirmed. */
 export const SYNCED_PREFIX = 'puter:synced:';
 /** Where a tap without a URL goes, per worker scope; read by `push-sw.js`. */

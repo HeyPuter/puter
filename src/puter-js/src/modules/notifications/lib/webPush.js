@@ -2,6 +2,7 @@ import { PuterJSError } from '../../../lib/PuterJSError.js';
 import { request } from './api.js';
 import {
     HANDLERS_STORE,
+    SERVER_KEYS_ENTRY,
     SERVER_KEY_ENTRY,
     idbGet,
     idbPut,
@@ -242,6 +243,17 @@ const turnedOff = () =>
         'push_verification_canceled',
     );
 
+/** The keys in `values` that decode, skipping anything else. */
+const decodeKeys = (values) =>
+    values.flatMap((value) => {
+        if (typeof value !== 'string' || value === '') return [];
+        try {
+            return [fromBase64Url(value)];
+        } catch {
+            return [];
+        }
+    });
+
 /** The key Puter last subscribed this origin with, or null. */
 const storedPuterKey = async () => {
     try {
@@ -252,29 +264,43 @@ const storedPuterKey = async () => {
     }
 };
 
-/** Whether `buffer` is the key Puter last subscribed this origin with. */
-const earlierPuterKey = async (buffer) => {
-    const stored = await storedPuterKey();
-    return !!stored && sameKey(buffer, stored);
+/** That key and every key the server listed as Puter's. */
+const storedPuterKeys = async () => {
+    let listed = [];
+    try {
+        const stored = await idbGet(HANDLERS_STORE, SERVER_KEYS_ENTRY);
+        if (Array.isArray(stored)) listed = decodeKeys(stored);
+    } catch {
+        // Only the last key is known then.
+    }
+    const last = await storedPuterKey();
+    return last ? [last, ...listed] : listed;
 };
 
-/** Puter's key as stored here, else as the server gives it, else null. */
-const puterKey = async (puter, authToken) => {
-    const stored = await storedPuterKey();
-    if (stored) return stored;
+/** Whether `buffer` is a key Puter subscribed with: stored here, or in `listed`. */
+const earlierPuterKey = async (buffer, listed = []) =>
+    [...listed, ...(await storedPuterKeys())].some((key) =>
+        sameKey(buffer, key),
+    );
+
+/** Puter's keys as stored here, else as the server gives them, else none. */
+const puterKeys = async (puter, authToken) => {
+    const stored = await storedPuterKeys();
+    if (stored.length > 0) return stored;
     try {
-        const { publicKey } = await request(
+        const { publicKey, previousKeys } = await request(
             puter,
             'GET',
             '/push/web/key',
             undefined,
             { authToken, interactiveReauth: false },
         );
-        return typeof publicKey === 'string' && publicKey !== ''
-            ? fromBase64Url(publicKey)
-            : null;
+        return decodeKeys([
+            publicKey,
+            ...(Array.isArray(previousKeys) ? previousKeys : []),
+        ]);
     } catch {
-        return null;
+        return [];
     }
 };
 
@@ -290,16 +316,23 @@ const puterSubscriptions = async (puter, { worker, authToken, nav }) => {
     ).filter(Boolean);
     // The GUI's own worker carries Puter's subscription only.
     if (subscriptions.length === 0 || puter.env === 'gui') return subscriptions;
-    const key = await puterKey(puter, authToken);
-    if (!key) return [];
+    const keys = await puterKeys(puter, authToken);
     return subscriptions.filter((subscription) =>
-        sameKey(subscription.options?.applicationServerKey, key),
+        keys.some((key) =>
+            sameKey(subscription.options?.applicationServerKey, key),
+        ),
     );
 };
 
-const rememberPuterKey = async (publicKey) => {
+const rememberPuterKey = async (publicKey, previousKeys) => {
     try {
         await idbPut(HANDLERS_STORE, SERVER_KEY_ENTRY, publicKey);
+        if (Array.isArray(previousKeys)) {
+            await idbPut(HANDLERS_STORE, SERVER_KEYS_ENTRY, [
+                publicKey,
+                ...previousKeys.filter((k) => typeof k === 'string'),
+            ]);
+        }
     } catch {
         // Only a later key rotation needs it.
     }
@@ -310,11 +343,15 @@ const rememberPuterKey = async (publicKey) => {
  * with Puter's earlier key is ended; on a website, one made with any other key
  * belongs to something else on the site and is left alone.
  */
-const currentSubscription = async (puter, registration, key) => {
+const currentSubscription = async (puter, registration, key, earlier) => {
     const subscription = await registration.pushManager.getSubscription();
     const existing = subscription?.options?.applicationServerKey;
     if (!subscription || sameKey(existing, key)) return subscription;
-    if (puter.env === 'web' && existing && !(await earlierPuterKey(existing))) {
+    if (
+        puter.env === 'web' &&
+        existing &&
+        !(await earlierPuterKey(existing, earlier))
+    ) {
         throw new PuterJSError(
             'This browser already has a push subscription from another service on this site',
             'push_subscription_conflict',
@@ -428,7 +465,7 @@ export async function syncWebPush(
         onSynced,
     },
 ) {
-    const { publicKey } = await request(
+    const { publicKey, previousKeys } = await request(
         puter,
         'GET',
         '/push/web/key',
@@ -442,6 +479,7 @@ export async function syncWebPush(
         );
     }
     const key = fromBase64Url(publicKey);
+    const earlier = decodeKeys(Array.isArray(previousKeys) ? previousKeys : []);
     const registration = await registerWorker(nav, worker, {
         keepSiteWorker: puter.env !== 'gui',
     });
@@ -468,9 +506,13 @@ export async function syncWebPush(
             nav,
             async () => {
                 subscription =
-                    (await currentSubscription(puter, registration, key)) ??
-                    (await subscribeWith(registration, key));
-                await rememberPuterKey(publicKey);
+                    (await currentSubscription(
+                        puter,
+                        registration,
+                        key,
+                        earlier,
+                    )) ?? (await subscribeWith(registration, key));
+                await rememberPuterKey(publicKey, previousKeys);
                 return subscription;
             },
             options,

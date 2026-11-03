@@ -18,6 +18,7 @@ vi.mock('./lib/pushStore.js', () => {
         HANDLERS_STORE: 'handlers',
         CLICKS_STORE: 'clicks',
         SERVER_KEY_ENTRY: 'puter:server-key',
+        SERVER_KEYS_ENTRY: 'puter:server-keys',
         SYNCED_PREFIX: 'puter:synced:',
         TAP_BASE_PREFIX: 'puter:tap-base:',
         CLICK_KEEP_MS: 5 * 60 * 1000,
@@ -283,6 +284,46 @@ describe('syncWebPush', () => {
         );
         expect(theirs.unsubscribe).not.toHaveBeenCalled();
         expect(nav.pushManager.subscribe).not.toHaveBeenCalled();
+    });
+
+    describe('with the earlier keys the server lists', () => {
+        const listing = () =>
+            mockRequest.mockImplementation(async (_p, method, route) =>
+                route === '/push/web/key'
+                    ? { publicKey: KEY, previousKeys: [OLD_KEY] }
+                    : { status: 'active', device: { uid: 'd1' } },
+            );
+
+        it('replaces a subscription made with one, though none is stored here', async () => {
+            const stale = makeSubscription(fromBase64Url(OLD_KEY));
+            const nav = makeNav({ existing: stale });
+            listing();
+            await syncWebPush(puter, { worker, nav });
+            expect(stale.unsubscribe).toHaveBeenCalled();
+            expect(nav.pushManager.subscribe).toHaveBeenCalled();
+            expect(store.get(SERVER_KEY)).toBe(KEY);
+            expect(store.get('handlers:puter:server-keys')).toEqual([
+                KEY,
+                OLD_KEY,
+            ]);
+        });
+
+        it('still leaves a subscription made with a key it doesn`t list', async () => {
+            const theirs = makeSubscription(new Uint8Array([4, 1, 2]));
+            const nav = makeNav({ existing: theirs });
+            listing();
+            await expect(
+                syncWebPush(puter, { worker, nav }),
+            ).rejects.toMatchObject({ code: 'push_subscription_conflict' });
+            expect(theirs.unsubscribe).not.toHaveBeenCalled();
+        });
+
+        it('stores none from a server that lists none', async () => {
+            const nav = makeNav({ existing: makeSubscription() });
+            server();
+            await syncWebPush(puter, { worker, nav });
+            expect(store.has('handlers:puter:server-keys')).toBe(false);
+        });
     });
 
     it('replaces any other subscription on the GUI`s own worker', async () => {
@@ -795,6 +836,30 @@ describe('removeWebPush', () => {
         ]);
         expect(ours.unsubscribe).toHaveBeenCalled();
         expect(theirs.unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('without a worker, also ends one made with a key the server listed as Puter`s', async () => {
+        store.set(SERVER_KEY, KEY);
+        store.set('handlers:puter:server-keys', [KEY, OLD_KEY]);
+        const theirs = makeSubscription(theirKey, 'https://push.example/site');
+        const older = makeSubscription(fromBase64Url(OLD_KEY));
+        const nav = navWith({ '/': theirs, '/push/': older });
+        mockRequest.mockResolvedValue({ removed: true });
+        await expect(removeWebPush(puter, { nav })).resolves.toBe(true);
+        expect(older.unsubscribe).toHaveBeenCalled();
+        expect(theirs.unsubscribe).not.toHaveBeenCalled();
+    });
+
+    it('takes the earlier keys from the server when none is stored', async () => {
+        const older = makeSubscription(fromBase64Url(OLD_KEY));
+        const nav = navWith({ '/push/': older });
+        mockRequest.mockImplementation(async (_p, method, route) =>
+            route === '/push/web/key'
+                ? { publicKey: KEY, previousKeys: [OLD_KEY] }
+                : { removed: true },
+        );
+        await expect(removeWebPush(puter, { nav })).resolves.toBe(true);
+        expect(older.unsubscribe).toHaveBeenCalled();
     });
 
     it('touches nothing when Puter`s key can`t be told', async () => {
