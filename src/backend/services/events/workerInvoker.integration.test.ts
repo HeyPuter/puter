@@ -60,6 +60,7 @@ import {
     eventsWorkerScript,
 } from './workerRuntime.js';
 import { handlerSetHash } from './workerSource.js';
+import { appHandlerScope } from '../../stores/events/EventHandlerStore.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 /** Short enough that a hung handler is a test case rather than a stall. */
@@ -233,7 +234,7 @@ const makeWorkerApp = async (): Promise<{
     );
     const token = await env.server.services.auth.getUserAppToken(actor!, uid);
     await env.server.stores.eventHandler.publish({
-        appUid: uid,
+        scope: appHandlerScope(uid),
         name: HANDLER,
         source: SOURCE,
     });
@@ -403,7 +404,7 @@ beforeAll(async () => {
     );
     appToken = await env.server.services.auth.getUserAppToken(actor!, appUid);
     await env.server.stores.eventHandler.publish({
-        appUid,
+        scope: appHandlerScope(appUid),
         name: HANDLER,
         source: SOURCE,
     });
@@ -471,7 +472,9 @@ describe('the call an owed delivery makes', () => {
 
         const script = eventsWorkerScript(
             handlerSetHash(
-                await env.server.stores.eventHandler.setForApp(appUid),
+                await env.server.stores.eventHandler.setForApp(
+                    appHandlerScope(appUid),
+                ),
             ),
             // No `workers.internetExposedUrl` in this test's config.
             '',
@@ -1014,7 +1017,10 @@ describe('with no events worker to address', () => {
         const subId = await subscribe();
         // Unpublished after the fact: the app's set now hashes to nothing, so
         // there is no script to name and nowhere to send the delivery.
-        await env.server.stores.eventHandler.remove(appUid, HANDLER);
+        await env.server.stores.eventHandler.remove(
+            appHandlerScope(appUid),
+            HANDLER,
+        );
 
         try {
             await touch('unresolved.txt');
@@ -1037,7 +1043,7 @@ describe('with no events worker to address', () => {
             expect(calls).toEqual([]);
         } finally {
             await env.server.stores.eventHandler.publish({
-                appUid,
+                scope: appHandlerScope(appUid),
                 name: HANDLER,
                 source: SOURCE,
             });

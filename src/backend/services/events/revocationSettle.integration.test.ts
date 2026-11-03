@@ -43,6 +43,7 @@ import type { AclMode } from '../acl/ACLService.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import type { DeliveryEnvelope } from './EventsService.js';
 import { fsAnchorToken } from './subjects.js';
+import { appHandlerScope } from '../../stores/events/EventHandlerStore.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 const TABLE = 'event_subscriptions';
@@ -206,7 +207,7 @@ const makeApp = async (path: string): Promise<Actor> => {
         EVENTS_BACKGROUND_PERMISSION,
     );
     await env.server.stores.eventHandler.publish({
-        appUid: uid,
+        scope: appHandlerScope(uid),
         name: 'onChange',
         source: 'async () => {}',
     });

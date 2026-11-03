@@ -73,6 +73,7 @@ import {
     type DurableReap,
 } from '../../stores/events/DurableSubscriptionStore.js';
 import {
+    appHandlerScope,
     type EventHandlerSummary,
     type EventsWorkerSummary,
     type PublishOutcome,
@@ -2345,7 +2346,9 @@ export class EventsService extends PuterService {
     ): Promise<PublishedHandlerView> {
         await this.#spendHandlerBudget(actor);
         const appUid = await this.#handlerApp(actor, request?.appUid);
-        const before = awaitLater(this.stores.eventHandler.countForApp(appUid));
+        const before = awaitLater(
+            this.stores.eventHandler.countForApp(appHandlerScope(appUid)),
+        );
         const result = await this.#publishOne(appUid, request, before);
         await this.#maybeAnnounceWorkerCreate(appUid, await before);
         return result;
@@ -2375,7 +2378,9 @@ export class EventsService extends PuterService {
                 'bad_request',
             );
 
-        const before = awaitLater(this.stores.eventHandler.countForApp(appUid));
+        const before = awaitLater(
+            this.stores.eventHandler.countForApp(appHandlerScope(appUid)),
+        );
         const published: PublishedHandlerView[] = [];
         try {
             for (const item of handlers) {
@@ -2415,7 +2420,7 @@ export class EventsService extends PuterService {
         request: HandlerScopeRequest = {},
     ): Promise<EventHandlerSummary[]> {
         return this.stores.eventHandler.listForApp(
-            await this.#handlerApp(actor, request?.appUid),
+            appHandlerScope(await this.#handlerApp(actor, request?.appUid)),
         );
     }
 
@@ -2434,7 +2439,10 @@ export class EventsService extends PuterService {
         const name = parseHandlerName(request?.name);
         if (!name) throw badRequest('name is required', 'bad_request');
 
-        const removed = await this.stores.eventHandler.remove(appUid, name);
+        const removed = await this.stores.eventHandler.remove(
+            appHandlerScope(appUid),
+            name,
+        );
         const suspended = await this.#suspendHandlerDependents(appUid, name);
         if (removed) await this.#maybeAnnounceWorkerDestroy(appUid);
         return { name, removed: removed !== null, suspended };
@@ -2485,7 +2493,7 @@ export class EventsService extends PuterService {
         const items: EventsWorkerView[] = [];
         for (const worker of page.items) {
             const handlers = await this.stores.eventHandler.setForApp(
-                worker.appUid,
+                appHandlerScope(worker.appUid),
             );
             items.push({
                 ...worker,
@@ -2515,9 +2523,9 @@ export class EventsService extends PuterService {
         await this.#spendHandlerBudget(actor);
         const appUid = await this.#handlerApp(actor, request?.appUid);
 
-        const names = (await this.stores.eventHandler.listForApp(appUid)).map(
-            (handler) => handler.name,
-        );
+        const names = (
+            await this.stores.eventHandler.listForApp(appHandlerScope(appUid))
+        ).map((handler) => handler.name);
         if (names.length === 0) throw noEventsWorker(appUid);
 
         let removed = 0;
@@ -2525,7 +2533,7 @@ export class EventsService extends PuterService {
         try {
             for (const name of names) {
                 const droppedRow = await this.stores.eventHandler.remove(
-                    appUid,
+                    appHandlerScope(appUid),
                     name,
                 );
                 if (droppedRow) removed += 1;
@@ -3058,7 +3066,7 @@ export class EventsService extends PuterService {
         await sizeChecked;
 
         const { handler, outcome } = await this.stores.eventHandler.publish({
-            appUid,
+            scope: appHandlerScope(appUid),
             name,
             source,
             ifHash: typeof item?.ifHash === 'string' ? item.ifHash : null,
@@ -3086,8 +3094,10 @@ export class EventsService extends PuterService {
         source: string,
     ): Promise<void> {
         const [totalBytes, existing] = await Promise.all([
-            this.stores.eventHandler.totalSourceBytesForApp(appUid),
-            this.stores.eventHandler.getByName(appUid, name),
+            this.stores.eventHandler.totalSourceBytesForApp(
+                appHandlerScope(appUid),
+            ),
+            this.stores.eventHandler.getByName(appHandlerScope(appUid), name),
         ]);
         const existingBytes = existing
             ? Buffer.byteLength(existing.source, 'utf8')
@@ -3150,7 +3160,9 @@ export class EventsService extends PuterService {
         try {
             // Only a count now on the far side of the transition is one: a
             // `create` needs a handler standing, a `destroy` needs none.
-            const count = await this.stores.eventHandler.countForApp(appUid);
+            const count = await this.stores.eventHandler.countForApp(
+                appHandlerScope(appUid),
+            );
             if (name === 'events.worker.create' ? count === 0 : count > 0)
                 return;
 
@@ -3189,6 +3201,8 @@ export class EventsService extends PuterService {
         for (;;) {
             const batch = await this.stores.durableSubscription.listByHandler(
                 appUid,
+                'app',
+                0,
                 name,
             );
             if (batch.length === 0) break;
@@ -3217,6 +3231,8 @@ export class EventsService extends PuterService {
                 const batch =
                     await this.stores.durableSubscription.listByHandler(
                         appUid,
+                        'app',
+                        0,
                         name,
                         { suspendedReason: reason },
                     );
@@ -3320,7 +3336,7 @@ export class EventsService extends PuterService {
         }
 
         const published = await this.stores.eventHandler.getByName(
-            appUid,
+            appHandlerScope(appUid),
             name,
         );
         if (!published) throw handlerNotFound(name);
@@ -6013,7 +6029,7 @@ export class EventsService extends PuterService {
         const secret = this.config.events!.internalSecret!;
 
         const set = await this.stores.eventHandler.cachedSetForApp(
-            appUid,
+            appHandlerScope(appUid),
             options,
         );
         if (set.length === 0) return null;

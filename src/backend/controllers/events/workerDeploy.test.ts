@@ -68,7 +68,7 @@ const makeLayers = (owners: Record<string, Owner | null>) => {
         stores: {
             eventHandler: {
                 setForApp: async () => [{ name: 'h', sourceHash: SOURCE_HASH }],
-                allForApp: async (appUid: string) => {
+                allForApp: async ({ appUid }: { appUid: string }) => {
                     sourceReads.push(appUid);
                     return [
                         {

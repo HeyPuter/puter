@@ -47,6 +47,7 @@ import {
     generateEventsWorkerSource,
     handlerSetHash,
 } from '../../services/events/workerSource.js';
+import { appHandlerScope } from '../../stores/events/EventHandlerStore.js';
 import type { puterStores } from '../../stores/index.js';
 import type { IConfig, LayerInstances } from '../../types.js';
 import { EVENTS_WORKER_DEPLOYS_PER_HOUR } from './limits.js';
@@ -208,7 +209,9 @@ export class EventsWorkerDeployer {
 
         // Names and hashes are enough to tell a stale request, so the set's
         // sources are read and built only once the throttle has let it through.
-        const set = await stores.eventHandler.setForApp(appUid);
+        const set = await stores.eventHandler.setForApp(
+            appHandlerScope(appUid),
+        );
         if (set.length === 0) return 'no-handlers';
         // Two apps that published byte-identical sets share one script, which
         // is sound: the source is the same, and everything per-app arrives with
@@ -218,7 +221,9 @@ export class EventsWorkerDeployer {
 
         if (await this.#tooManyDeploysThisHour(appUid)) return 'throttled';
 
-        const handlers = await stores.eventHandler.allForApp(appUid);
+        const handlers = await stores.eventHandler.allForApp(
+            appHandlerScope(appUid),
+        );
         const generated = generateEventsWorkerSource(handlers);
         // The set can move between the two reads.
         if (eventsWorkerScript(generated.setHash, scope) !== script)

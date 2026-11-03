@@ -539,6 +539,8 @@ describe('POST /events/workers/destroy', () => {
 
         const suspended = await env.server.stores.durableSubscription.listByHandler(
             app.uid,
+            'app',
+            0,
             'ingestUpload',
             { suspendedReason: 'handler_not_found' },
         );
@@ -554,6 +556,8 @@ describe('POST /events/workers/destroy', () => {
         const stillSuspended =
             await env.server.stores.durableSubscription.listByHandler(
                 app.uid,
+                'app',
+                0,
                 'ingestUpload',
                 { suspendedReason: 'handler_not_found' },
             );

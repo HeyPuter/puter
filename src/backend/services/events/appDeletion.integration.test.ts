@@ -33,6 +33,7 @@ import { testJobContext } from '../jobs/jobsTestUtil.js';
 import type { IConfig } from '../../types.js';
 import { EVENTS_BACKGROUND_PERMISSION } from './authorization.js';
 import { EVENTS_WORKER_SESSION_NAME } from './workerRuntime.js';
+import { appHandlerScope } from '../../stores/events/EventHandlerStore.js';
 
 const BOOT_TIMEOUT_MS = 120_000;
 
@@ -193,7 +194,7 @@ describe('an app deleted while it has events state', () => {
         );
         expect(listed.items).toEqual([]);
         expect(await env.server.stores.pendingDelivery.depth(subId)).toBe(0);
-        expect(await env.server.stores.eventHandler.listForApp(app.uid)).toEqual(
+        expect(await env.server.stores.eventHandler.listForApp(appHandlerScope(app.uid))).toEqual(
             [],
         );
     });
@@ -223,7 +224,7 @@ describe('an app deleted while it has events state', () => {
             { appUid: app.uid },
         );
         expect(listed.items).toEqual([]);
-        expect(await env.server.stores.eventHandler.listForApp(app.uid)).toEqual(
+        expect(await env.server.stores.eventHandler.listForApp(appHandlerScope(app.uid))).toEqual(
             [],
         );
         expect(
