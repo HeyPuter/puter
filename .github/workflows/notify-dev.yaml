@@ -2,6 +2,11 @@ name: Notify HeyPuter (dev)
 
 on:
   workflow_dispatch:
+    inputs:
+      puter_ref:
+        description: "puter branch, tag or SHA"
+        type: string
+        default: "main"
 
 jobs:
   notify:
@@ -9,9 +14,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger heyputer dev deploy
+        env:
+          PUTER_REF: ${{ inputs.puter_ref }}
+          TOKEN: ${{ secrets.HEYPUTER_DISPATCH_TOKEN }}
         run: |
+          jq -nc --arg ref "$PUTER_REF" \
+            '{event_type: "puter-dev-requested", client_payload: {puter_ref: $ref}}' |
           curl -fsS -X POST \
-            -H "Authorization: token ${{ secrets.HEYPUTER_DISPATCH_TOKEN }}" \
+            -H "Authorization: token $TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/HeyPuter/heyputer/dispatches \
-            -d '{"event_type":"puter-dev-requested"}'
+            -d @-
+          echo "Requested \`$PUTER_REF\`" >> "$GITHUB_STEP_SUMMARY"
