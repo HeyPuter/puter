@@ -388,20 +388,38 @@ export class EventHandlerStore extends PuterStore {
     /**
      * Drop every handler an app has published, in its own set and in every
      * user's scope — what a deleted app leaves behind. Returns the rows
-     * removed. User scopes' cached sets are left to expire, which they do
-     * within {@link HANDLER_SET_CACHE_TTL_SECONDS}.
+     * removed. User scopes go a batch of holders at a time, each batch's cached
+     * sets dropped here and on every peer.
      */
     async deleteForApp(appUid: string): Promise<number> {
         const result = await this.clients.db.write(
             `DELETE FROM \`${TABLE}\` WHERE \`app_uid\` = ?`,
             [appUid],
         );
-        const userResult = await this.clients.db.write(
-            `DELETE FROM \`${USER_TABLE}\` WHERE \`app_uid\` = ?`,
-            [appUid],
-        );
+        let removed = result.affectedRows ?? 0;
+        for (;;) {
+            const holders = (
+                await this.clients.db.pread(
+                    `SELECT DISTINCT \`holder_user_id\` FROM \`${USER_TABLE}\` ` +
+                        'WHERE `app_uid` = ? ORDER BY `holder_user_id` LIMIT ?',
+                    [appUid, USER_SCOPES_PAGE_DEFAULT],
+                )
+            ).map((row) => Number(row.holder_user_id));
+            if (holders.length === 0) break;
+            const batch = await this.clients.db.write(
+                `DELETE FROM \`${USER_TABLE}\` WHERE \`app_uid\` = ? ` +
+                    `AND \`holder_user_id\` IN (${holders.map(() => '?').join(', ')})`,
+                [appUid, ...holders],
+            );
+            await this.#forgetSets(
+                holders.map((holder) => ({ appUid, holder })),
+            );
+            const affected = batch.affectedRows ?? 0;
+            removed += affected;
+            if (affected === 0) break;
+        }
         await this.#forgetSet(appHandlerScope(appUid));
-        return (result.affectedRows ?? 0) + (userResult.affectedRows ?? 0);
+        return removed;
     }
 
     /** Drop one user's scope of one app. Returns the handlers removed. */
@@ -870,48 +888,57 @@ export class EventHandlerStore extends PuterStore {
     }
 
     /**
-     * The user scopes one app holds, ordered by holder. Walk it with
-     * `afterHolder` until a page comes back shorter than `limit`.
+     * The user scopes one app holds, ordered by holder. A batch scan: it
+     * carries no `total`, to spare a COUNT per page. `cursor` is null at the
+     * end.
      */
     async listUserScopes(
         appUid: string,
-        opts: { limit?: number; afterHolder?: number } = {},
-    ): Promise<AppUserScope[]> {
+        opts: { limit?: number; cursor?: string } = {},
+    ): Promise<{ items: AppUserScope[]; cursor: string | null }> {
         const limit = Math.min(
             Math.max(1, Math.floor(opts.limit ?? USER_SCOPES_PAGE_DEFAULT)),
             USER_SCOPES_PAGE_CAP,
         );
+        const after = Number(decodeCursor(opts.cursor)?.holder);
         const rows = await this.clients.db.read(
             'SELECT `holder_user_id`, COUNT(*) AS `handler_count`, ' +
                 'MIN(`created_at`) AS `created_at`, ' +
                 'MAX(`updated_at`) AS `updated_at` ' +
                 `FROM \`${USER_TABLE}\` WHERE \`app_uid\` = ? AND \`holder_user_id\` > ? ` +
                 'GROUP BY `holder_user_id` ORDER BY `holder_user_id` LIMIT ?',
-            [appUid, opts.afterHolder ?? 0, limit],
+            [appUid, Number.isFinite(after) ? after : 0, limit + 1],
         );
-        return rows.map((row) => ({
-            holder: Number(row.holder_user_id),
-            handlerCount: Number(row.handler_count) || 0,
-            createdAt: Number(row.created_at) || 0,
-            updatedAt: Number(row.updated_at) || 0,
+        const page = keysetPage(rows, limit, undefined, (last) => ({
+            holder: Number(last.holder_user_id),
         }));
+        return {
+            items: page.rows.map((row) => ({
+                holder: Number(row.holder_user_id),
+                handlerCount: Number(row.handler_count) || 0,
+                createdAt: Number(row.created_at) || 0,
+                updatedAt: Number(row.updated_at) || 0,
+            })),
+            cursor: page.cursor ?? null,
+        };
     }
 
     /**
-     * One keyset page (by row id) of user-scope handlers last touched before
-     * `olderThan` (unix seconds) that no subscription row of any state is bound
-     * to. A candidate may be bound before it is deleted, so delete through
-     * {@link deleteUserHandlerIfUnbound}. `nextId` is null once the scan is
-     * exhausted.
+     * One keyset page of user-scope handlers last touched before `olderThan`
+     * (unix seconds) that no subscription row of any state is bound to. A batch
+     * scan: it carries no `total`, to spare a COUNT per page. `cursor` is null
+     * at the end. A candidate may be bound before it is deleted, so delete
+     * through {@link deleteUserHandlerIfUnbound}.
      */
     async listUnboundUserHandlers(
         olderThan: number,
-        opts: { afterId?: number; limit?: number } = {},
-    ): Promise<{ items: UnboundUserHandler[]; nextId: number | null }> {
+        opts: { limit?: number; cursor?: string } = {},
+    ): Promise<{ items: UnboundUserHandler[]; cursor: string | null }> {
         const limit = Math.max(
             1,
             Math.floor(opts.limit ?? UNBOUND_HANDLERS_BATCH),
         );
+        const after = Number(decodeCursor(opts.cursor)?.id);
         const rows = await this.clients.db.read(
             'SELECT h.`id`, h.`app_uid`, h.`holder_user_id`, h.`name` ' +
                 `FROM \`${USER_TABLE}\` h ` +
@@ -921,17 +948,17 @@ export class EventHandlerStore extends PuterStore {
                 'AND s.`app_uid` = h.`app_uid` AND s.`handler_scope` = 1 ' +
                 'AND s.`handler_name` = h.`name`) ' +
                 'ORDER BY h.`id` LIMIT ?',
-            [opts.afterId ?? 0, olderThan, limit],
+            [Number.isFinite(after) ? after : 0, olderThan, limit + 1],
         );
-        const items = rows.map((row) => ({
-            id: Number(row.id),
-            appUid: String(row.app_uid),
-            holder: Number(row.holder_user_id),
-            name: String(row.name),
-        }));
+        const page = keysetPage(rows, limit, undefined);
         return {
-            items,
-            nextId: items.length === limit ? items[items.length - 1]!.id : null,
+            items: page.rows.map((row) => ({
+                id: Number(row.id),
+                appUid: String(row.app_uid),
+                holder: Number(row.holder_user_id),
+                name: String(row.name),
+            })),
+            cursor: page.cursor ?? null,
         };
     }
 
@@ -965,6 +992,22 @@ export class EventHandlerStore extends PuterStore {
             // the raw driver error.
             if (isUniqueViolation(err)) throw publishConflict(name);
             throw err;
+        }
+        // Concurrent creates can all pass the count above. Counted again with
+        // this row in it, each one past the cap takes itself back out — at the
+        // last slot that may refuse more than it had to, never fewer. User
+        // scopes only: reads stop at the cap, so a row past it would be unseen.
+        if (
+            isUserScope(scope) &&
+            (await this.countForApp(scope)) > handlerCapOf(scope)
+        ) {
+            const { where, params } = scopeFilter(scope);
+            await this.clients.db.write(
+                `DELETE FROM \`${tableOf(scope)}\` WHERE ${where} AND \`name\` = ?`,
+                [...params, name],
+            );
+            await this.#forgetSet(scope);
+            throw tooManyHandlers(scope);
         }
         await this.#forgetSet(scope, broadcast);
         return {
@@ -1016,6 +1059,17 @@ export class EventHandlerStore extends PuterStore {
         await this.publishCacheKeys({
             keys: [handlerSetCacheKey(scope), replicaSetCacheKey(scope)],
             broadcast,
+        });
+    }
+
+    /** {@link #forgetSet} for many scopes, as one peer message. */
+    async #forgetSets(scopes: HandlerScope[]): Promise<void> {
+        await this.publishCacheKeys({
+            keys: scopes.flatMap((scope) => [
+                handlerSetCacheKey(scope),
+                replicaSetCacheKey(scope),
+            ]),
+            broadcast: true,
         });
     }
 

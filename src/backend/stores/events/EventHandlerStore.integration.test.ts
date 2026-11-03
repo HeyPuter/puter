@@ -1481,16 +1481,114 @@ describe('user scopes', () => {
         });
 
         const all = await handlers().listUserScopes(appUid);
-        expect(all.map((scope) => [scope.holder, scope.handlerCount])).toEqual([
+        expect(all.cursor).toBeNull();
+        expect(
+            all.items.map((scope) => [scope.holder, scope.handlerCount]),
+        ).toEqual([
             [HOLDER_A, 2],
             [HOLDER_B, 1],
             [HOLDER_B + 1, 1],
         ]);
-        const next = await handlers().listUserScopes(appUid, {
-            limit: 1,
-            afterHolder: HOLDER_A,
-        });
-        expect(next.map((scope) => scope.holder)).toEqual([HOLDER_B]);
+        const seen: number[] = [];
+        let cursor: string | undefined;
+        for (let guard = 0; guard < 10; guard++) {
+            const page = await handlers().listUserScopes(appUid, {
+                limit: 1,
+                cursor,
+            });
+            expect(page.items).toHaveLength(1);
+            seen.push(page.items[0]!.holder);
+            if (page.cursor === null) break;
+            cursor = page.cursor;
+        }
+        expect(seen).toEqual([HOLDER_A, HOLDER_B, HOLDER_B + 1]);
+    });
+
+    it('refuses a create that raced past the cap, and keeps the scope at 20 or fewer', async () => {
+        const scope = userScope(appUid, HOLDER_A);
+        for (let i = 0; i < EVENTS_USER_HANDLERS_PER_SCOPE - 1; i++)
+            await handlers().publish({
+                scope,
+                name: `h${i}`,
+                source: `${SOURCE} // ${i}`,
+            });
+
+        // Hold both creates at the insert, so both passed the count first.
+        const db = env.server.clients.db;
+        const insert = db.insert.bind(db);
+        let arrived = 0;
+        let release!: () => void;
+        const barrier = new Promise<void>((resolve) => (release = resolve));
+        const spy = vi
+            .spyOn(db, 'insert')
+            .mockImplementation(async (table, row, ...rest) => {
+                if (table === 'event_user_handlers') {
+                    arrived += 1;
+                    if (arrived === 2) release();
+                    await barrier;
+                }
+                return insert(table, row, ...rest);
+            });
+        let results: PromiseSettledResult<unknown>[];
+        try {
+            results = await Promise.allSettled([
+                handlers().publish({ scope, name: 'x', source: SOURCE }),
+                handlers().publish({ scope, name: 'y', source: OTHER_SOURCE }),
+            ]);
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(await handlers().countForApp(scope)).toBeLessThanOrEqual(
+            EVENTS_USER_HANDLERS_PER_SCOPE,
+        );
+        for (const [i, name] of ['x', 'y'].entries()) {
+            const stored = await handlers().getByName(scope, name);
+            if (results[i]!.status === 'fulfilled')
+                expect(stored).not.toBeNull();
+            else {
+                expect(stored).toBeNull();
+                expect((results[i] as PromiseRejectedResult).reason).toSatisfy(
+                    codeOf('events_handler_limit'),
+                );
+            }
+        }
+        expect(
+            results.filter((result) => result.status === 'rejected').length,
+        ).toBeGreaterThanOrEqual(1);
+    });
+
+    it('drops every user scope cached set when the app is deleted', async () => {
+        const redis = env.server.clients.redis;
+        const scopes = [HOLDER_A, HOLDER_B].map((h) => userScope(appUid, h));
+        for (const scope of scopes) {
+            await handlers().publish({ scope, name: 'x', source: SOURCE });
+            expect(await handlers().cachedSetForApp(scope)).toHaveLength(1);
+        }
+        const emit = vi.spyOn(env.server.clients.event, 'emit');
+        try {
+            await handlers().deleteForApp(appUid);
+            expect(emit).toHaveBeenCalledWith(
+                'outer.cacheUpdate',
+                {
+                    cacheKey: expect.arrayContaining(
+                        scopes.flatMap((scope) => [
+                            `eventHandlers:uset:${appUid}:${scope.holder}`,
+                            `eventHandlers:uset:${appUid}:${scope.holder}:r`,
+                        ]),
+                    ),
+                },
+                {},
+            );
+        } finally {
+            emit.mockRestore();
+        }
+        for (const scope of scopes) {
+            expect(
+                await redis.get(`eventHandlers:uset:${appUid}:${scope.holder}`),
+            ).toBeNull();
+            expect(await handlers().cachedSetForApp(scope)).toEqual([]);
+        }
     });
 
     describe('what a user holds', () => {
@@ -1694,15 +1792,15 @@ describe('user scopes', () => {
                 await age(appUid, holder, OLD);
             }
             const seen: number[] = [];
-            let afterId = 0;
+            let cursor: string | undefined;
             for (let guard = 0; guard < 10; guard++) {
                 const page = await handlers().listUnboundUserHandlers(now(), {
-                    afterId,
+                    cursor,
                     limit: 2,
                 });
                 seen.push(...page.items.map((item) => item.holder));
-                if (page.nextId === null) break;
-                afterId = page.nextId;
+                if (page.cursor === null) break;
+                cursor = page.cursor;
             }
             expect(seen).toEqual([100, 101, 102, 103, 104]);
         });
@@ -1729,6 +1827,39 @@ describe('user scopes', () => {
                 handlers().deleteUserHandlerIfUnbound(scope, 'a', now() - 60),
             ).resolves.toBe(true);
             expect(await handlers().countForApp(scope)).toBe(0);
+        });
+
+        it('drops the scope cache on both keys, and tells peers, when it deletes', async () => {
+            const scope = userScope(appUid, HOLDER_A);
+            await handlers().publish({ scope, name: 'a', source: SOURCE });
+            await handlers().cachedSetForApp(scope);
+            await handlers().cachedSetForApp(scope, { missRead: 'replica' });
+            const key = `eventHandlers:uset:${appUid}:${HOLDER_A}`;
+            const redis = env.server.clients.redis;
+            expect(await redis.get(key)).not.toBeNull();
+            expect(await redis.get(`${key}:r`)).not.toBeNull();
+            await age(appUid, HOLDER_A, OLD);
+
+            const emit = vi.spyOn(env.server.clients.event, 'emit');
+            try {
+                await expect(
+                    handlers().deleteUserHandlerIfUnbound(
+                        scope,
+                        'a',
+                        now() - 60,
+                    ),
+                ).resolves.toBe(true);
+                expect(emit).toHaveBeenCalledWith(
+                    'outer.cacheUpdate',
+                    { cacheKey: [key, `${key}:r`] },
+                    {},
+                );
+            } finally {
+                emit.mockRestore();
+            }
+            expect(await redis.get(key)).toBeNull();
+            expect(await redis.get(`${key}:r`)).toBeNull();
+            expect(await handlers().cachedSetForApp(scope)).toEqual([]);
         });
 
         it('never touches app-scope handlers', async () => {

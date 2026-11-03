@@ -283,7 +283,9 @@ describe.skipIf(!process.env.PUTER_TEST_MYSQL_PORT)(
                 expect.objectContaining({ appUid: app, handlerCount: 2 }),
             ]);
             expect(
-                (await handlers().listUserScopes(app)).map((s) => s.holder),
+                (await handlers().listUserScopes(app)).items.map(
+                    (s) => s.holder,
+                ),
             ).toEqual([a, b].sort((x, y) => x - y));
 
             await bind(a, app, 'daily', 1);
