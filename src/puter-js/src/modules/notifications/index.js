@@ -7,14 +7,17 @@ import { enable } from './enable.js';
 import { enablePush } from './enablePush.js';
 import { request } from './lib/api.js';
 import {
-    CLICKS_STORE,
+    CLICK_KEEP_MS,
     HANDLERS_STORE,
+    TAP_BASE_PREFIX,
+    forgetOldClicks,
     forgetPushState,
     hasOptIn,
     idbDelete,
     idbGet,
     idbPut,
     setOptIn,
+    takeClick,
 } from './lib/pushStore.js';
 import { ReceiptLog } from './lib/receipts.js';
 import { toClick } from './lib/shapes.js';
@@ -26,6 +29,7 @@ import {
     webPushState,
     webPushSupported,
     workerFor,
+    workerScope,
 } from './lib/webPush.js';
 import { listDevices } from './listDevices.js';
 import { notify } from './notify.js';
@@ -57,6 +61,8 @@ const PUSH_LOCK = 'puter-push';
 const HANDLER_TIMEOUT_MS = 5_000;
 /** How long an older `push-sw.js`, which never answers, is waited for. */
 const WORKER_SHOW_TIMEOUT_MS = 2_000;
+/** How long after load a page a tap opened waits for a `click` handler. */
+const UNREAD_TAP_MS = 10_000;
 /** Sync failures that are the server's or the user's choice, not a fault. */
 const QUIET_SYNC_ERRORS = new Set([
     'push_device_removed',
@@ -124,18 +130,39 @@ const withinHandlerTime = async (promise) => {
     }
 };
 
-/**
- * Where a tap goes: on this origin, with relative paths read from the worker's
- * scope.
- */
-export const tapUrl = (url, scope) => {
-    const base = new URL(scope);
+/** Where a tap goes: on `base`'s origin, with relative paths read from it. */
+export const tapUrl = (url, base) => {
+    const from = new URL(base);
     try {
-        const resolved = new URL(url ?? '', base);
-        return resolved.origin === base.origin ? resolved.href : base.href;
+        const resolved = new URL(url ?? '', from);
+        return resolved.origin === from.origin ? resolved.href : from.href;
     } catch {
-        return base.href;
+        return from.href;
     }
+};
+
+/** Where taps resolve: the worker's scope if this page is in it, else `/`. */
+const tapBaseFor = (worker, pageUrl) => {
+    const scope = workerScope(worker);
+    return {
+        scope,
+        base: pageUrl.startsWith(scope) ? scope : new URL('/', scope).href,
+    };
+};
+
+/** The tap base a page saved for `scope`, else `scope`. */
+const savedTapBase = async (scope) => {
+    try {
+        const base = await idbGet(HANDLERS_STORE, TAP_BASE_PREFIX + scope);
+        if (
+            typeof base === 'string' &&
+            new URL(base).origin === new URL(scope).origin
+        )
+            return base;
+    } catch {
+        // Nothing saved, or IndexedDB is unavailable.
+    }
+    return scope;
 };
 
 /**
@@ -229,6 +256,7 @@ export class NotificationsModule extends EventListener {
     #userChange = Promise.resolve();
     /** The token whose push state sign-out already ended. */
     #forgottenToken = null;
+    #sweptClicks = false;
 
     /** @param {import('../../index.js').Puter} puter */
     constructor(puter) {
@@ -255,7 +283,10 @@ export class NotificationsModule extends EventListener {
         ]) {
             methods[name] = methods[name].bind(this);
         }
-        if (puter.env === 'web') this.#watchUser();
+        if (puter.env === 'web') {
+            this.#watchUser();
+            this.#dropUnreadTap();
+        }
     }
 
     /**
@@ -363,6 +394,10 @@ export class NotificationsModule extends EventListener {
      * @internal
      */
     _syncPushOnLoad(worker) {
+        if (!this.#sweptClicks) {
+            this.#sweptClicks = true;
+            forgetOldClicks().catch(() => {});
+        }
         if (!this.#syncs.has(worker.url)) {
             this.#syncs.set(worker.url, this.#syncIfOptedIn(worker));
         }
@@ -558,6 +593,7 @@ export class NotificationsModule extends EventListener {
 
     #useWorker(worker) {
         this.#worker = worker;
+        if (this.puter.env === 'web') void this.#saveTapBase(worker);
         void (async () => {
             try {
                 const registration =
@@ -570,6 +606,18 @@ export class NotificationsModule extends EventListener {
                 if (this.#worker === worker) this.#workerRegistered = false;
             }
         })();
+    }
+
+    async #saveTapBase(worker) {
+        try {
+            const { scope, base } = tapBaseFor(
+                worker,
+                globalThis.location.href,
+            );
+            await idbPut(HANDLERS_STORE, TAP_BASE_PREFIX + scope, base);
+        } catch {
+            // Taps then open the worker's scope.
+        }
     }
 
     /** Whether this page shows a browser notification itself while it is away. */
@@ -879,7 +927,7 @@ export class NotificationsModule extends EventListener {
                         uid: notification.uid,
                         target: sensitive ? null : notification.target,
                         data: sensitive ? null : notification.data,
-                        url: tapUrl(url, scope),
+                        url: tapUrl(url, await savedTapBase(scope)),
                     },
                 },
             };
@@ -904,21 +952,35 @@ export class NotificationsModule extends EventListener {
             if (event.data?.type !== WORKER_CLICK_MESSAGE) return;
             const click = toClick(event.data.notification);
             if (!click || !this._hasListeners('click')) return;
-            if (event.data.id !== undefined) {
-                event.source?.postMessage?.({
-                    type: WORKER_CLICK_ACK_MESSAGE,
-                    id: event.data.id,
-                });
+            const take = () => {
+                if (event.data.id !== undefined) {
+                    event.source?.postMessage?.({
+                        type: WORKER_CLICK_ACK_MESSAGE,
+                        id: event.data.id,
+                    });
+                }
+                this.emit('click', click);
+            };
+            if (event.data.kept !== true) {
+                take();
+                return;
             }
-            this.emit('click', click);
+            // A tap the worker kept runs only if this page takes it first.
+            void (async () => {
+                let claimed = false;
+                try {
+                    claimed = !!(await takeClick(click.uid, event.data.id));
+                } catch {
+                    // Left to the worker, which opens it when nobody acks.
+                }
+                if (claimed) take();
+            })();
         });
         container?.startMessages?.();
 
-        const url = globalThis.location
-            ? new URL(globalThis.location.href)
-            : null;
-        const uid = url?.searchParams.get(CLICK_PARAM);
+        const uid = this.#tapInUrl();
         if (!uid) return;
+        const url = new URL(globalThis.location.href);
         url.searchParams.delete(CLICK_PARAM);
         globalThis.history?.replaceState?.(
             globalThis.history.state,
@@ -927,8 +989,11 @@ export class NotificationsModule extends EventListener {
         );
         void (async () => {
             try {
-                const click = toClick(await idbGet(CLICKS_STORE, uid));
-                await idbDelete(CLICKS_STORE, uid);
+                const kept = await takeClick(uid);
+                const click =
+                    kept?.at > Date.now() - CLICK_KEEP_MS
+                        ? toClick(kept)
+                        : null;
                 if (click) firstHandler(click);
             } catch (error) {
                 console.warn(
@@ -937,6 +1002,29 @@ export class NotificationsModule extends EventListener {
                 );
             }
         })();
+    }
+
+    /** The tap this page was opened for, from its URL. */
+    #tapInUrl() {
+        try {
+            return new URL(globalThis.location.href).searchParams.get(
+                CLICK_PARAM,
+            );
+        } catch {
+            return null;
+        }
+    }
+
+    /** A tap that opened this page is dropped when no `click` handler reads it. */
+    #dropUnreadTap() {
+        const uid = this.#tapInUrl();
+        if (!uid) return;
+        const drop = () =>
+            setTimeout(() => {
+                if (!this.#listening) takeClick(uid).catch(() => {});
+            }, UNREAD_TAP_MS);
+        if (globalThis.document?.readyState === 'complete') drop();
+        else globalThis.addEventListener?.('load', drop, { once: true });
     }
 }
 

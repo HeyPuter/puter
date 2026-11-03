@@ -40,7 +40,7 @@ On a website, pushes arrive on your own domain through a small service worker, a
 
 - **HTTPS.** Browsers only allow service workers on `https://` pages, and on `http://localhost` for testing.
 - **A worker on your own origin.** The worker file has to come from the same origin as your pages. A worker on a CDN or another subdomain can't be registered.
-- **At the root of your site, by default.** [`enable()`](/Notifications/enable/) registers `/puter-sw.js`. A worker elsewhere, such as `/puter/puter-sw.js`, works when you pass its path as `serviceWorker`. A tap with no page open resolves relative URLs against the worker's folder.
+- **At the root of your site, by default.** [`enable()`](/Notifications/enable/) registers `/puter-sw.js`. A worker elsewhere, such as `/puter/puter-sw.js`, works when you pass its path as `serviceWorker`. A tap with no URL opens your site's root, and a relative URL is read from it. When the page that calls [`onPush()`](/Notifications/onPush/) or [`enable()`](/Notifications/enable/) is inside the worker's folder, such as an app at `/app/` with `/app/puter-sw.js`, taps use that folder instead.
 - **Served as JavaScript.** The response needs a JavaScript `Content-Type`, such as `text/javascript`, and a `200` status. Browsers refuse a worker that comes back as `text/html` or through a redirect.
 
 [Puter Hosting](/Hosting/) meets all of these when `puter-sw.js` is in the root of the folder you host. With a build tool, put the file in the folder it copies as is, such as `public/` in Vite or Next.js.
@@ -150,7 +150,7 @@ To notify another user, share data with them with `notify: true` and send throug
 
 ## When the user taps
 
-On a website, a tap on a push, or on a notification a page of your site showed itself, focuses an open page of your site and calls its [`on('click')`](/Notifications/on/) handlers. With no page open, it opens the handler's `url`, or else the notification's `target`, and the new page's first [`on('click')`](/Notifications/on/) handler gets the click. Inside the Puter desktop, a tap opens your app and hands the click to [`on('click')`](/Notifications/on/).
+On a website, a tap on a push, or on a notification a page of your site showed itself, focuses an open page of your site and calls its [`on('click')`](/Notifications/on/) handlers. With no page open, it opens the handler's `url`, or else the notification's `target`, and the new page's first [`on('click')`](/Notifications/on/) handler gets the click. A tap reaches one page, once: when an open page doesn't answer within about half a second, the tap opens its URL instead, and the slow page doesn't get it, unless that page is already at the tap's URL. If that page wasn't loaded through your worker, such as one opened before the worker was installed, the URL opens in a new tab. Inside the Puter desktop, a tap opens your app and hands the click to [`on('click')`](/Notifications/on/).
 
 ## Groups and sensitive notifications
 
@@ -310,5 +310,5 @@ The browser can be allowed to show notifications while the operating system hide
 - Say who did what. "Ana shared Q3-report.pdf" reads well as a push. A push that only says there's something new can be hidden as spam on Android.
 - The `data` field is handed back on click, and push services can read it, so put ids in it and fetch the rest. Set `sensitive: true` when the title and text shouldn't leave Puter.
 - A push carries about 4 KB, with `data` at most 1 KB. A push that doesn't fit has its text shortened.
-- A tap opens your domain. The `url` a handler returns has to be on your origin, and a tap on one from another origin opens your worker's folder instead.
+- A tap opens your domain. The `url` a handler returns has to be on your origin, and a tap on one from another origin opens your site's root instead, or the worker's folder when your pages are inside it.
 - Pushes from your app are billed to the user who receives them. See [What pushes cost](/rate-limits-and-quotas/#what-pushes-cost). Puter's own notifications are free.

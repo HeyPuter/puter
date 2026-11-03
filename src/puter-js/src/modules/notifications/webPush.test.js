@@ -18,6 +18,21 @@ vi.mock('./lib/pushStore.js', () => {
         HANDLERS_STORE: 'handlers',
         CLICKS_STORE: 'clicks',
         SERVER_KEY_ENTRY: 'puter:server-key',
+        TAP_BASE_PREFIX: 'puter:tap-base:',
+        CLICK_KEEP_MS: 5 * 60 * 1000,
+        takeClick: stored(async (uid, id) => {
+            const kept = store.get(`clicks:${uid}`);
+            if (!kept || (id !== undefined && kept.id !== id)) return null;
+            store.delete(`clicks:${uid}`);
+            return kept;
+        }),
+        forgetOldClicks: stored(async () => {
+            const cutoff = Date.now() - 5 * 60 * 1000;
+            for (const [key, value] of [...store.entries()]) {
+                if (key.startsWith('clicks:') && !(value?.at > cutoff))
+                    store.delete(key);
+            }
+        }),
         idbGet: stored(async (s, k) => store.get(`${s}:${k}`)),
         idbPut: stored(async (s, k, v) => void store.set(`${s}:${k}`, v)),
         idbDelete: stored(async (s, k) => void store.delete(`${s}:${k}`)),
@@ -1000,6 +1015,52 @@ describe('onPush', () => {
         expect(store.size).toBe(0);
     });
 
+    describe('tap base', () => {
+        const TAP_BASE = 'handlers:puter:tap-base:';
+
+        it.each([
+            [
+                'the worker`s folder for a page inside it',
+                `${ORIGIN}/app/index.html`,
+                '/app/puter-sw.js',
+                `${ORIGIN}/app/`,
+                `${ORIGIN}/app/`,
+            ],
+            [
+                'the site`s root for a page outside the folder',
+                `${ORIGIN}/`,
+                '/puter/puter-sw.js',
+                `${ORIGIN}/puter/`,
+                `${ORIGIN}/`,
+            ],
+            [
+                'the root for the default worker',
+                `${ORIGIN}/chat`,
+                undefined,
+                `${ORIGIN}/`,
+                `${ORIGIN}/`,
+            ],
+        ])('saves %s', async (_, href, serviceWorker, scope, base) => {
+            globalThis.location = { href, origin: ORIGIN };
+            const { module } = makeModule();
+            await module.onPush('chat', () => {}, { serviceWorker });
+            await flush();
+            expect(store.get(`${TAP_BASE}${scope}`)).toBe(base);
+        });
+
+        it('is saved by enable() too', async () => {
+            withBrowser(
+                makeNav({
+                    active: { scriptURL: `${ORIGIN}/puter/puter-sw.js` },
+                }),
+            );
+            server();
+            const { module } = makeModule();
+            await module.enable({ serviceWorker: '/puter/puter-sw.js' });
+            expect(store.get(`${TAP_BASE}${ORIGIN}/puter/`)).toBe(`${ORIGIN}/`);
+        });
+    });
+
     it('starts one feed for every key', async () => {
         const { module } = makeModule();
         await module.onPush('chat', () => {});
@@ -1099,6 +1160,21 @@ describe('onPush', () => {
             await flush();
             await flush();
             expect(theirs.unsubscribe).not.toHaveBeenCalled();
+        });
+
+        it('removes taps kept longer than five minutes', async () => {
+            store.set('clicks:old', {
+                uid: 'old',
+                at: Date.now() - 6 * 60 * 1000,
+            });
+            store.set('clicks:fresh', { uid: 'fresh', at: Date.now() });
+            withBrowser(makeNav());
+            server();
+            const { module } = makeModule();
+            await module.onPush('chat', () => {});
+            await flush();
+            expect(store.has('clicks:old')).toBe(false);
+            expect(store.has('clicks:fresh')).toBe(true);
         });
 
         it('syncs once for every onPush on the page when the user turned push on', async () => {
@@ -1389,6 +1465,20 @@ describe('onPush', () => {
             );
         });
 
+        it('reads the tap URL from the saved tap base', async () => {
+            away();
+            nav.registration.scope = `${ORIGIN}/puter/`;
+            const { module, feed } = makeModule();
+            await module.onPush('chat', () => ({ url: 'chat/1' }), {
+                serviceWorker: '/puter/puter-sw.js',
+            });
+            await feed.deliver({ uid: 'n1', channel: 'chat', title: 'Hi' });
+            expect(
+                nav.registration.showNotification.mock.calls[0][1].data.puter
+                    .url,
+            ).toBe(`${ORIGIN}/chat/1`);
+        });
+
         it('reads the tap URL from the worker`s scope', async () => {
             away();
             nav.registration.scope = `${ORIGIN}/app/`;
@@ -1586,6 +1676,139 @@ describe('clicks from push-sw.js', () => {
         module.off('click', handler);
         nav.post(tap, source);
         expect(source.postMessage).not.toHaveBeenCalled();
+    });
+
+    const keptTap = {
+        type: 'puter-notification-click',
+        id: 'click-1',
+        kept: true,
+        notification: { uid: 'n1', target: '/c', data: null },
+    };
+    const clickModule = () => {
+        const nav = makeNav();
+        withBrowser(nav);
+        const { module } = makeModule();
+        const handler = vi.fn();
+        module.on('click', handler);
+        return { nav, handler, source: { postMessage: vi.fn() } };
+    };
+
+    it('takes a tap the worker kept for it, then acknowledges it', async () => {
+        const { nav, handler, source } = clickModule();
+        store.set('clicks:n1', { uid: 'n1', at: Date.now(), id: 'click-1' });
+        nav.post(keptTap, source);
+        await flush();
+        expect(store.has('clicks:n1')).toBe(false);
+        expect(handler).toHaveBeenCalledTimes(1);
+        expect(source.postMessage).toHaveBeenCalledWith({
+            type: 'puter-notification-click-ack',
+            id: 'click-1',
+        });
+    });
+
+    it('leaves a tap the worker already took back', async () => {
+        const { nav, handler, source } = clickModule();
+        nav.post(keptTap, source);
+        await flush();
+        expect(handler).not.toHaveBeenCalled();
+        expect(source.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('leaves a tap the worker kept again for the page it opened', async () => {
+        const { nav, handler, source } = clickModule();
+        store.set('clicks:n1', { uid: 'n1', at: Date.now() });
+        nav.post(keptTap, source);
+        await flush();
+        expect(handler).not.toHaveBeenCalled();
+        expect(store.has('clicks:n1')).toBe(true);
+    });
+
+    it('leaves a kept tap to the worker when IndexedDB fails here', async () => {
+        const { nav, handler, source } = clickModule();
+        store.set('clicks:n1', { uid: 'n1', at: Date.now(), id: 'click-1' });
+        storage.broken = true;
+        nav.post(keptTap, source);
+        await flush();
+        expect(handler).not.toHaveBeenCalled();
+        expect(source.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('runs the tap once when the worker posts it twice', async () => {
+        const { nav, handler, source } = clickModule();
+        store.set('clicks:n1', { uid: 'n1', at: Date.now(), id: 'click-1' });
+        nav.post(keptTap, source);
+        nav.post(keptTap, source);
+        await flush();
+        expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    describe('in the URL of a page a tap opened', () => {
+        beforeEach(() => {
+            globalThis.location = {
+                href: `${ORIGIN}/chat?puter.notification=n1`,
+                origin: ORIGIN,
+            };
+        });
+
+        it('goes to the first click handler, once', async () => {
+            store.set('clicks:n1', {
+                uid: 'n1',
+                target: '/c',
+                data: 1,
+                at: Date.now(),
+            });
+            const { handler } = clickModule();
+            await flush();
+            expect(handler).toHaveBeenCalledWith({
+                uid: 'n1',
+                target: '/c',
+                data: 1,
+            });
+            expect(store.has('clicks:n1')).toBe(false);
+        });
+
+        it('is dropped once older than five minutes', async () => {
+            store.set('clicks:n1', {
+                uid: 'n1',
+                at: Date.now() - 6 * 60 * 1000,
+            });
+            const { handler } = clickModule();
+            await flush();
+            expect(handler).not.toHaveBeenCalled();
+            expect(store.has('clicks:n1')).toBe(false);
+        });
+
+        it('is removed when no click handler comes within 10 seconds of load', async () => {
+            vi.useFakeTimers();
+            globalThis.document = { readyState: 'complete' };
+            try {
+                store.set('clicks:n1', { uid: 'n1', at: Date.now() });
+                makeModule();
+                await vi.advanceTimersByTimeAsync(9_000);
+                expect(store.has('clicks:n1')).toBe(true);
+                await vi.advanceTimersByTimeAsync(1_000);
+                expect(store.has('clicks:n1')).toBe(false);
+            } finally {
+                delete globalThis.document;
+            }
+        });
+
+        it('stays for a click handler added within 10 seconds of load', async () => {
+            vi.useFakeTimers();
+            globalThis.document = { readyState: 'complete' };
+            try {
+                store.set('clicks:n1', { uid: 'n1', at: Date.now() });
+                withBrowser(makeNav());
+                const { module } = makeModule();
+                await vi.advanceTimersByTimeAsync(5_000);
+                const handler = vi.fn();
+                module.on('click', handler);
+                await vi.advanceTimersByTimeAsync(10_000);
+                expect(handler).toHaveBeenCalledTimes(1);
+            } finally {
+                delete globalThis.document;
+            }
+        });
     });
 });
 

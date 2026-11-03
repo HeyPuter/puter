@@ -10,13 +10,14 @@ const SOURCE = readFileSync(
 );
 const ORIGIN = 'https://app.example';
 
-/** Enough of IndexedDB for get/put and a cursor walk. */
+/** Enough of IndexedDB for this worker; logs transactions, fails while `broken`. */
 const fakeIndexedDB = (stores) => {
     const request = (run) => {
         const req = { listeners: [] };
         req.addEventListener = (_t, fn) => req.listeners.push(fn);
         queueMicrotask(() => {
             try {
+                if (stores.broken) throw new Error('IndexedDB is not available');
                 req.result = run(req);
                 req.onsuccess?.();
                 for (const fn of req.listeners) fn();
@@ -32,13 +33,32 @@ const fakeIndexedDB = (stores) => {
         return {
             get: (key) => request(() => map.get(key)),
             put: (value, key) => request(() => void map.set(key, value)),
-            openCursor: () => request(() => null),
+            delete: (key) => request(() => void map.delete(key)),
+            openCursor: () => {
+                const keys = [...map.keys()];
+                const cursorAt = (req, i) =>
+                    i < keys.length
+                        ? {
+                              value: map.get(keys[i]),
+                              delete: () => map.delete(keys[i]),
+                              continue: () =>
+                                  queueMicrotask(() => {
+                                      req.result = cursorAt(req, i + 1);
+                                      for (const fn of req.listeners) fn();
+                                  }),
+                          }
+                        : null;
+                return request((req) => cursorAt(req, 0));
+            },
         };
     };
     return {
         open: () => {
             const req = request(() => ({
-                transaction: (name) => ({ objectStore: () => objectStore(name) }),
+                transaction: (name, mode) => {
+                    stores.log.push({ name, mode });
+                    return { objectStore: () => objectStore(name) };
+                },
                 close: () => {},
                 createObjectStore: () => {},
             }));
@@ -60,12 +80,19 @@ const windowClient = (url, over = {}) => ({
 
 const loadWorker = ({
     handlers = {},
+    clicks = {},
     windows = [],
+    matchAllDelayMs = 0,
     scope: registrationScope = `${ORIGIN}/`,
 } = {}) => {
     const listeners = {};
     const shown = [];
-    const stores = { handlers: new Map(Object.entries(handlers)) };
+    const stores = {
+        handlers: new Map(Object.entries(handlers)),
+        clicks: new Map(Object.entries(clicks)),
+        log: [],
+        broken: false,
+    };
     const scope = {
         location: { origin: ORIGIN },
         addEventListener: (type, fn) => {
@@ -78,7 +105,10 @@ const loadWorker = ({
             }),
         },
         clients: {
-            matchAll: vi.fn(async () => windows),
+            matchAll: vi.fn(async () => {
+                if (matchAllDelayMs) await wait(matchAllDelayMs);
+                return windows;
+            }),
             openWindow: vi.fn(async () => null),
         },
     };
@@ -123,6 +153,8 @@ const loadWorker = ({
 };
 
 const pushData = (payload) => ({ json: () => payload });
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const TAP_BASE = 'puter:tap-base:';
 
 describe('push-sw push', () => {
     it('leaves a push without a Puter message to the app', async () => {
@@ -261,6 +293,60 @@ describe('push-sw push', () => {
         expect(worker.shown[0].options.data.puter.url).toBe(`${ORIGIN}/app/`);
     });
 
+    it('opens the site`s root for a folder worker when the page saved it as the tap base', async () => {
+        const worker = loadWorker({
+            scope: `${ORIGIN}/puter/`,
+            handlers: {
+                [`${TAP_BASE}${ORIGIN}/puter/`]: `${ORIGIN}/`,
+                chat: '() => ({ url: "chat/1" })',
+            },
+        });
+        await worker.fire('push', {
+            data: pushData({ puter: { uid: 'n1', title: 'Hi' } }),
+        });
+        await worker.fire('push', {
+            data: pushData({ puter: { uid: 'n2', title: 'Hi', channel: 'chat' } }),
+        });
+        expect(worker.shown.map((n) => n.options.data.puter.url)).toEqual([
+            `${ORIGIN}/`,
+            `${ORIGIN}/chat/1`,
+        ]);
+    });
+
+    it('keeps to the scope when the saved tap base is on another origin', async () => {
+        const worker = loadWorker({
+            scope: `${ORIGIN}/puter/`,
+            handlers: { [`${TAP_BASE}${ORIGIN}/puter/`]: 'https://elsewhere.example/' },
+        });
+        await worker.fire('push', {
+            data: pushData({ puter: { uid: 'n1', title: 'Hi' } }),
+        });
+        expect(worker.shown[0].options.data.puter.url).toBe(`${ORIGIN}/puter/`);
+    });
+
+    it('removes taps kept longer than five minutes', async () => {
+        const now = Date.now();
+        const worker = loadWorker({
+            clicks: {
+                old: { uid: 'old', at: now - 6 * 60 * 1000 },
+                fresh: { uid: 'fresh', at: now },
+            },
+        });
+        await worker.fire('push', {
+            data: pushData({ puter: { uid: 'n1', title: 'Hi' } }),
+        });
+        expect([...worker.stores.clicks.keys()]).toEqual(['fresh']);
+    });
+
+    it('hands a challenge to nested frames too', async () => {
+        const nested = windowClient(`${ORIGIN}/embed`, { frameType: 'nested' });
+        const worker = loadWorker({ windows: [nested] });
+        await worker.fire('push', {
+            data: pushData({ puter: { type: 'challenge', challenge: 'c.sig' } }),
+        });
+        expect(nested.postMessage).toHaveBeenCalledWith({ type: 'puter-push-challenge', challenge: 'c.sig' });
+    });
+
     it('shows a challenge and hands it to this origin`s windows', async () => {
         const mine = windowClient(`${ORIGIN}/`);
         const other = windowClient('https://elsewhere.example/');
@@ -294,6 +380,7 @@ describe('push-sw notificationclick', () => {
             type: 'puter-notification-click',
             id: expect.any(String),
             notification: { uid: 'n1', target: '/chat', data: { id: 1 } },
+            kept: true,
         });
         expect(open.focus).toHaveBeenCalled();
         expect(open.navigate).not.toHaveBeenCalled();
@@ -340,6 +427,121 @@ describe('push-sw notificationclick', () => {
         expect(worker.stores.clicks.get('n1')).toMatchObject({ uid: 'n1', target: '/chat' });
     });
 
+    it('removes the copy an older page acknowledged without taking it', async () => {
+        const open = windowClient(`${ORIGIN}/chat`);
+        const worker = loadWorker({ windows: [open] });
+        await worker.tap({ uid: 'n1', target: '/chat', data: null, url: `${ORIGIN}/chat` }, acks(worker));
+        expect(worker.stores.clicks.has('n1')).toBe(false);
+    });
+
+    it('skips nested frames and opens a window for the tap', async () => {
+        const nested = windowClient(`${ORIGIN}/chat`, { frameType: 'nested', focused: true });
+        const worker = loadWorker({ windows: [nested] });
+        await worker.tap({ uid: 'n1', target: '/chat', data: null, url: `${ORIGIN}/chat` }, acks(worker));
+        expect(nested.postMessage).not.toHaveBeenCalled();
+        expect(worker.scope.clients.openWindow).toHaveBeenCalledWith(`${ORIGIN}/chat?puter.notification=n1`);
+    });
+
+    it('removes taps kept longer than five minutes', async () => {
+        const worker = loadWorker({ clicks: { old: { uid: 'old', at: Date.now() - 6 * 60 * 1000 } } });
+        await worker.tap({ uid: 'n1', target: '/chat', data: null, url: `${ORIGIN}/chat` });
+        expect([...worker.stores.clicks.keys()]).toEqual(['n1']);
+    });
+
+    describe('delivers a tap once', () => {
+        /** A page that claims the kept tap after `claimAfter` ms and acks `ackAfter` ms after that. */
+        const slowPage = (worker, ran, { claimAfter, ackAfter = 0 }) => (win, message) => {
+            setTimeout(() => {
+                const kept = worker.stores.clicks.get(message.notification.uid);
+                if (message.kept) {
+                    if (kept?.id !== message.id) return;
+                    worker.stores.clicks.delete(message.notification.uid);
+                }
+                ran.push(message.notification.uid);
+                setTimeout(() => acks(worker)(win, message), ackAfter);
+            }, claimAfter);
+        };
+        /** Handler runs: in the open page, plus one for a page opened or navigated with the tap kept for it. */
+        const deliveries = (worker, open, ran) => {
+            const reopened = open.navigate.mock.calls.length + worker.scope.clients.openWindow.mock.calls.length;
+            return ran.length + (reopened && worker.stores.clicks.has('n1') ? 1 : 0);
+        };
+        const TAP = { uid: 'n1', target: '/chat', data: null, url: `${ORIGIN}/chat` };
+
+        it('when the page claims it after the worker gave up', async () => {
+            const open = windowClient(`${ORIGIN}/inbox`);
+            const worker = loadWorker({ windows: [open] });
+            const ran = [];
+            await worker.tap(TAP, slowPage(worker, ran, { claimAfter: 900 }));
+            await wait(1_000);
+            expect(open.navigate).toHaveBeenCalledWith(`${ORIGIN}/chat?puter.notification=n1`);
+            expect(deliveries(worker, open, ran)).toBe(1);
+        });
+
+        it('when the page is already at the tap`s URL and answers late', async () => {
+            const open = windowClient(`${ORIGIN}/chat`);
+            const worker = loadWorker({ windows: [open] });
+            const ran = [];
+            await worker.tap(TAP, slowPage(worker, ran, { claimAfter: 700 }));
+            await wait(800);
+            expect(ran).toEqual(['n1']);
+            expect(open.navigate).not.toHaveBeenCalled();
+            expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
+        });
+
+        it('when IndexedDB fails as the worker takes the tap back', async () => {
+            const open = windowClient(`${ORIGIN}/inbox`);
+            const worker = loadWorker({ windows: [open] });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            await worker.tap(TAP, () => {
+                worker.stores.broken = true;
+            });
+            warn.mockRestore();
+            expect(open.navigate).not.toHaveBeenCalled();
+            expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
+        });
+
+        it('taking it back and keeping it for the next page in one transaction', async () => {
+            const open = windowClient(`${ORIGIN}/inbox`);
+            const worker = loadWorker({ windows: [open] });
+            let posted = 0;
+            await worker.tap(TAP, () => {
+                posted = worker.stores.log.length;
+            });
+            await wait(10);
+            const after = worker.stores.log.slice(posted).filter((t) => t.name === 'clicks');
+            expect(after).toEqual([{ name: 'clicks', mode: 'readwrite' }]);
+            expect(open.navigate).toHaveBeenCalledWith(`${ORIGIN}/chat?puter.notification=n1`);
+            expect(worker.stores.clicks.get('n1')).toEqual({
+                uid: 'n1',
+                target: '/chat',
+                data: null,
+                at: expect.any(Number),
+            });
+        });
+
+        it('when the page claimed it but its ack came too late', async () => {
+            const open = windowClient(`${ORIGIN}/inbox`);
+            const worker = loadWorker({ windows: [open] });
+            const ran = [];
+            await worker.tap(TAP, slowPage(worker, ran, { claimAfter: 100, ackAfter: 800 }));
+            await wait(900);
+            expect(ran).toEqual(['n1']);
+            expect(open.navigate).not.toHaveBeenCalled();
+            expect(worker.scope.clients.openWindow).not.toHaveBeenCalled();
+            expect(deliveries(worker, open, ran)).toBe(1);
+        });
+
+        it('waiting for the ack from the post, when finding the windows was slow', async () => {
+            const open = windowClient(`${ORIGIN}/inbox`);
+            const worker = loadWorker({ windows: [open], matchAllDelayMs: 300 });
+            const ran = [];
+            await worker.tap(TAP, slowPage(worker, ran, { claimAfter: 350 }));
+            expect(ran).toEqual(['n1']);
+            expect(open.navigate).not.toHaveBeenCalled();
+        });
+    });
+
     it('ignores the app`s own notifications', async () => {
         const worker = loadWorker();
         await worker.fire('notificationclick', { notification: { data: { mine: true }, close: vi.fn() } });
@@ -378,6 +580,14 @@ describe('push-sw notifications a page shows', () => {
         });
         expect(await show(worker, away)).toEqual({ shown: false });
         expect(worker.shown).toEqual([]);
+    });
+
+    it('shows it while only a nested frame of the app has focus', async () => {
+        const away = windowClient(`${ORIGIN}/`);
+        const worker = loadWorker({
+            windows: [away, windowClient(`${ORIGIN}/embed`, { focused: true, frameType: 'nested' })],
+        });
+        expect(await show(worker, away)).toEqual({ shown: true });
     });
 
     it('ignores other messages', async () => {
