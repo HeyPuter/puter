@@ -25,6 +25,11 @@ import { bodyRecord } from '../../core/http/requestBody.js';
 import { DURABLE_LIST_LIMIT_CAP } from '../../stores/events/DurableSubscriptionStore.js';
 import { EVENTS_WORKERS_LIST_LIMIT_CAP } from '../../stores/events/EventHandlerStore.js';
 import { KV_HANDLE_LIST_LIMIT_CAP } from '../../stores/events/KvShareHandleStore.js';
+import {
+    SCHEDULE_LIST_LIMIT_CAP,
+    schedulesUnavailable,
+    type ScheduleServiceContract,
+} from '../../core/schedules.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
 import { EVENTS_WORKER_PREFIX } from '../../services/events/workerRuntime.js';
@@ -167,6 +172,88 @@ export class EventsController extends PuterController {
         const actor = this.#requireActor(req);
         await this.services.events.unsubscribeDurable(actor, bodyRecord(req));
         res.json({});
+    }
+
+    // -- Schedules ---------------------------------------------------
+    //
+    // An app's handler run on a timer, served by `services.schedules` when a
+    // server has it and answered `events_disabled` when it doesn't. Creating
+    // one needs an app context; listing, reading and removing are scoped the
+    // way the durable verbs are. The create and remove verbs spend the
+    // subscribe and unsubscribe budgets in the service, shared with those
+    // verbs.
+
+    #schedules(): ScheduleServiceContract {
+        const schedules = this.services.schedules;
+        if (!schedules) throw schedulesUnavailable();
+        return schedules;
+    }
+
+    /** POST /events/schedules — create a schedule for the calling app. */
+    @Post('/schedules', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async createSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(await this.#schedules().createFor(actor, bodyRecord(req)));
+    }
+
+    /** GET /events/schedules — the caller's schedules, one page at a time. */
+    @Get('/schedules', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+        rateLimit: EVENTS_LIST_LIMIT,
+    })
+    async listSchedules(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = (req.query ?? {}) as Record<string, unknown>;
+
+        const page = await this.#schedules().list(actor, {
+            limit: normalizeLimit(query.limit, {
+                cap: SCHEDULE_LIST_LIMIT_CAP,
+            }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
+
+        res.json({
+            items: page.items,
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
+
+    /**
+     * POST /events/schedules/remove — end one schedule. An id the caller does
+     * not hold reads as absent.
+     */
+    @Post('/schedules/remove', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async removeSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        await this.#schedules().remove(actor, bodyRecord(req).scheduleId);
+        res.json({});
+    }
+
+    /**
+     * GET /events/schedules/:scheduleId — one schedule, ended or not. An id the
+     * caller does not hold reads as absent.
+     */
+    @Get('/schedules/:scheduleId', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+        rateLimit: EVENTS_LIST_LIMIT,
+    })
+    async getSchedule(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(await this.#schedules().get(actor, req.params.scheduleId));
     }
 
     // -- Cross-user key-value handles --------------------------------
@@ -425,10 +512,14 @@ export class EventsController extends PuterController {
             res.json({ deployed: true });
             return;
         }
-        // `failed` and `throttled` are worth another attempt: the rest say
-        // this script is not what the app's handlers currently are.
+        // `failed`, `throttled` and `busy` are worth another attempt: the rest
+        // say this script is not what the app's handlers currently are.
         res.status(
-            outcome === 'failed' || outcome === 'throttled' ? 502 : 404,
+            outcome === 'failed' ||
+                outcome === 'throttled' ||
+                outcome === 'busy'
+                ? 502
+                : 404,
         ).json({
             deployed: false,
             reason: outcome,
@@ -455,8 +546,8 @@ export class EventsController extends PuterController {
             );
             return;
         }
-        this.services.events.useWorkerMissHandler((appUid, script) =>
-            deployer.ensure(appUid, script),
+        this.services.events.useWorkerMissHandler((appUid, script, options) =>
+            deployer.ensure(appUid, script, options),
         );
     }
 

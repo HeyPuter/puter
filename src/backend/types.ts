@@ -256,7 +256,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -640,6 +645,21 @@ export interface IDevWatcherConfig {
         directory: string;
         env?: Record<string, string>;
     }>;
+}
+
+/**
+ * System jobs config (`jobs`). An extension that runs jobs types its own keys
+ * by augmenting this interface.
+ *
+ * - `namespace` — keys this deployment's jobs and schedules, so deployments
+ *   sharing one database or Redis never run each other's. Defaults to `domain`;
+ *   one that can't be held falls back to `default` (`resolveJobsNamespace`).
+ * - `enabled` — `false` keeps this node from polling for jobs (logged at start);
+ *   the rest of the fleet still runs them. Test servers turn it off.
+ */
+export interface IJobsConfig {
+    namespace?: string;
+    enabled?: boolean;
 }
 
 /**
@@ -1271,6 +1291,16 @@ interface IConfigOptional {
         /** How long a handler has to answer an invocation. Default 30 s. */
         invokeTimeoutMs?: number;
         /**
+         * Invocations sent to the dispatcher in one request. Default 60; 1
+         * sends each on its own.
+         */
+        invokeBatchSize?: number;
+        /**
+         * How long the first invocation of a batch waits for others to join it.
+         * Default 5 ms.
+         */
+        invokeBatchWindowMs?: number;
+        /**
          * Dispatch namespace events workers are deployed into. Must not be the
          * one the public worker dispatcher serves — that namespace is reachable
          * at `<script>.puter.work`, and an events worker must not be. No
@@ -1290,6 +1320,9 @@ interface IConfigOptional {
          */
         internalSecret?: string;
     };
+
+    /** System jobs (`services.jobs`); see {@link IJobsConfig}. */
+    jobs?: IJobsConfig;
 
     /**
      * Key-value sharing beyond watching.
@@ -1346,8 +1379,7 @@ export interface ServerDrainInfo {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import type { ScheduleServiceContract } from '../core/schedules.js';
 import type { TeamServiceContract } from '../core/teams.js';
 
 import type { puterClients } from '../clients';
@@ -38,6 +39,8 @@ export interface IPuterServiceInstances {}
 export interface IExtensionServiceInstances {
     /** Teams ships separately; boot guarantees it when `teams_enabled` is on. */
     team?: TeamServiceContract;
+    /** Schedules ship separately; without them their routes answer 503. */
+    schedules?: ScheduleServiceContract;
     [key: string]: unknown;
 }
 

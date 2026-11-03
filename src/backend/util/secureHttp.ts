@@ -172,15 +172,21 @@ function proxyConfig(): ISecureCorsProxyConfig | undefined {
 interface SecureFetchInit extends Omit<RequestInit, 'redirect'> {
     /** Bypass the CORS proxy even if one is configured. Internal-only calls. */
     skipProxy?: boolean;
+    /**
+     * Follow up to this many http(s) redirects (default 0). Every hop goes
+     * through the same guards as the first request.
+     */
+    maxRedirects?: number;
 }
 
 /**
  * Fetch `url` with SSRF guards: • Rejects raw-IP / localhost hosts via
- * {@link validateUrlNoIP}. • Forces `redirect: 'manual'` and rejects any 3xx
- * response so a permissive target can't bounce us onto an internal endpoint. •
- * Re-checks DNS at connect time: every address the socket actually connects to
- * must pass {@link isPublicResolvedAddress}, so a hostname resolving to a
- * private/reserved address (including via DNS rebinding) is rejected. • If
+ * {@link validateUrlNoIP}. • Rejects any 3xx response so a permissive target
+ * can't bounce us onto an internal endpoint, unless `maxRedirects` allows it;
+ * each followed hop is re-validated. • Re-checks DNS at connect time: every
+ * address the socket actually connects to must pass
+ * {@link isPublicResolvedAddress}, so a hostname resolving to a private/reserved
+ * address (including via DNS rebinding) is rejected. • If
  * `config.secureCorsProxy` is set AND the URL isn't a `data:` URI, rewrites the
  * request through the configured signed Cloudflare Worker proxy (adds
  * `x-cors-proxy-auth-secret`).
@@ -192,6 +198,33 @@ interface SecureFetchInit extends Omit<RequestInit, 'redirect'> {
 export async function secureFetch(
     url: string,
     init: SecureFetchInit = {},
+): Promise<Response> {
+    const { maxRedirects = 0, ...rest } = init;
+    let current = url;
+    for (let hop = 0; ; hop++) {
+        const response = await secureFetchOnce(current, rest);
+        if (response.status < 300 || response.status >= 400) return response;
+        const location = response.headers.get('location');
+        const next = location ? new URL(location, current) : null;
+        if (
+            hop >= maxRedirects ||
+            !next ||
+            (next.protocol !== 'https:' && next.protocol !== 'http:')
+        ) {
+            throw new HttpError(
+                400,
+                `redirects are not allowed (target: ${location ?? 'unknown'})`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+        await response.body?.cancel();
+        current = next.href;
+    }
+}
+
+async function secureFetchOnce(
+    url: string,
+    init: Omit<SecureFetchInit, 'maxRedirects'>,
 ): Promise<Response> {
     // Data URIs bypass everything — nothing to resolve, nothing to proxy.
     if (url.startsWith('data:')) {
@@ -222,20 +255,10 @@ export async function secureFetch(
     const { skipProxy: _skip, ...rest } = init;
     // lib.dom and undici fetch types are structurally equivalent here but
     // nominally distinct; cast across the boundary.
-    const response = (await undiciFetch(finalUrl, {
+    return (await undiciFetch(finalUrl, {
         ...rest,
         headers,
         redirect: 'manual',
         dispatcher: proxied ? proxyDispatcher : ssrfGuardDispatcher,
     } as unknown as Parameters<typeof undiciFetch>[1])) as unknown as Response;
-
-    if (response.status >= 300 && response.status < 400) {
-        throw new HttpError(
-            400,
-            `redirects are not allowed (target: ${response.headers.get('location') ?? 'unknown'})`,
-            { legacyCode: 'bad_request' },
-        );
-    }
-
-    return response;
 }

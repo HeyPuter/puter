@@ -48,12 +48,16 @@ export type {
 } from './notificationTypes.js';
 export { canViewNotification } from './notificationAudience.js';
 
-/** How often the retention sweep runs. */
-const RETENTION_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+const RETENTION_SWEEP_JOB = 'notifications.retention';
+const RETENTION_SWEEP_EVERY_MS = 60 * 60 * 1000;
+const RETENTION_SWEEP_LEASE_MS = 15 * 60 * 1000;
 /** Rows one delete takes. Small enough not to hold a lock anyone waits on. */
 const RETENTION_BATCH_SIZE = 500;
-/** Batches one sweep takes, so a large backlog drains over several passes. */
-const RETENTION_MAX_BATCHES = 50;
+/**
+ * Batches one sweep takes at most. It runs once for the fleet, so this is the
+ * fleet's hourly drain; the job's signal stops it sooner.
+ */
+const RETENTION_MAX_BATCHES = 1000;
 /** Unread notifications one reconnect replays. */
 const UNREAD_REPLAY_LIMIT = 200;
 
@@ -69,11 +73,20 @@ const UNREAD_REPLAY_LIMIT = 200;
 export class NotificationService extends PuterService {
     /** User.id → debounce timeout */
     #connectTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
-    #retentionSweep: ReturnType<typeof setInterval> | null = null;
     #adapter: NotificationSocketAdapter | null = null;
 
     override onServerStart(): void {
-        this.#armRetentionSweep();
+        if (this.#retentionDays() > 0) {
+            this.services.jobs.register(RETENTION_SWEEP_JOB, {
+                every: RETENTION_SWEEP_EVERY_MS,
+                scope: 'fleet',
+                nearPrimary: true,
+                leaseMs: RETENTION_SWEEP_LEASE_MS,
+                run: async ({ signal }) => {
+                    await this.sweepExpired(signal);
+                },
+            });
+        }
         this.#socket().attach();
 
         // When a user opens the GUI, send their pending unreads.
@@ -101,11 +114,6 @@ export class NotificationService extends PuterService {
                 );
             },
         );
-    }
-
-    override onServerPrepareShutdown(): void {
-        if (this.#retentionSweep) clearInterval(this.#retentionSweep);
-        this.#retentionSweep = null;
     }
 
     // -- Public API --------------------------------------------------
@@ -176,25 +184,17 @@ export class NotificationService extends PuterService {
                 }
 
                 if (!opts.silent) {
-                    // Listeners get their own copy; the socket sends `payload`.
-                    this.clients.event.emit(
-                        'notif.written',
+                    await this.emitWritten(
                         {
                             userId,
                             uid,
                             type: registered.type,
                             audience: registered.audience,
                             appUid,
-                            value: structuredClone(payload),
-                            sendId: uuidv4(),
+                            value: payload,
                         },
-                        {},
+                        { sendId: uuidv4() },
                     );
-                    await this.#push(userId, uid, payload, {
-                        type: registered.type,
-                        audience: registered.audience,
-                        appUid,
-                    });
                 }
                 return uid;
             }),
@@ -241,50 +241,107 @@ export class NotificationService extends PuterService {
         if (!updated) return false;
         if (opts.silent) return true;
 
+        // Before the read, so the desktop copy updates even if it fails.
         const desktop = inAccountMailbox(registered.type);
-        if (desktop) {
-            // Same uid as the original: the client replaces what it is already
-            // showing rather than stacking another copy. It goes straight to
-            // the wire rather than through dispatch — the row was already
-            // published, and republishing it under its own id is a duplicate
-            // to anything deduplicating on `event.id`.
-            this.#socket().message(userId, uid, payload);
-            this.#markDelivered(uid, userId);
-        }
+        if (desktop) this.#sendRewrite(userId, uid, payload);
         const row = await this.stores.notification.getByUid(uid, { userId });
         const app = notification.app as { uid?: unknown } | undefined;
         const appUid =
             row?.app_uid ?? (typeof app?.uid === 'string' ? app.uid : null);
-        this.clients.event.emit(
-            'notif.written',
+        await this.emitWritten(
             {
                 userId,
                 uid,
                 type: registered.type,
                 audience: registered.audience,
                 appUid,
-                value: structuredClone(payload),
+                value: payload,
                 updated: true,
-                sendId: uuidv4(),
+                replacedAt,
+            },
+            { sendId: uuidv4(), rewriteSent: desktop },
+        );
+        return true;
+    }
+
+    /**
+     * Deliver a notification already written: `notif.written` for listeners,
+     * then the live copy. `sendId` names this one send; a delayed send passes
+     * the same one each time it delivers, so a listener can tell a repeat. An
+     * `updated` row is an earlier notification rewritten in place, and
+     * `replacedAt` marks it a replacement. `handlerDepth` is the depth the
+     * write was made at, when no actor in context carries it. `rewriteSent`
+     * says the caller already sent a desktop rewrite. `replayable` marks a send
+     * that may be emitted again under the same `sendId`. Called by extensions.
+     */
+    async emitWritten(
+        written: {
+            userId: number;
+            uid: string;
+            type: string;
+            audience: string;
+            appUid: string | null;
+            value: Record<string, unknown>;
+            updated?: boolean;
+            replacedAt?: number;
+        },
+        opts: {
+            sendId: string;
+            handlerDepth?: number;
+            rewriteSent?: boolean;
+            replayable?: boolean;
+        },
+    ): Promise<void> {
+        const { userId, uid, value: payload, updated } = written;
+        const scope = {
+            type: written.type,
+            audience: written.audience,
+            appUid: written.appUid,
+        };
+        const desktop = inAccountMailbox(scope.type);
+        if (updated && desktop && !opts.rewriteSent)
+            this.#sendRewrite(userId, uid, payload);
+        // Listeners get their own copy; the socket sends `payload`.
+        this.clients.event.emit(
+            'notif.written',
+            {
+                userId,
+                uid,
+                ...scope,
+                value: structuredClone(payload),
+                ...(updated ? { updated: true as const } : {}),
+                sendId: opts.sendId,
+                ...(opts.replayable ? { replayable: true as const } : {}),
             },
             {},
         );
-        // A type kept off the desktop has dispatch as its only live path, so
-        // the rewrite goes out there again, under the same uid.
-        if (!desktop) {
+        // A rewrite of a type kept off the desktop has dispatch as its only
+        // live path, so it goes out there again, under the same uid.
+        if (!updated || !desktop)
             await this.#push(
                 userId,
                 uid,
                 payload,
-                {
-                    type: registered.type,
-                    audience: registered.audience,
-                    appUid,
-                },
-                replacedAt,
+                scope,
+                written.replacedAt,
+                opts.handlerDepth,
             );
-        }
-        return true;
+    }
+
+    /**
+     * Same uid as the original: the client replaces what it is already showing
+     * rather than stacking another copy. It goes straight to the wire rather
+     * than through dispatch — the row was already published, and republishing
+     * it under its own id is a duplicate to anything deduplicating on
+     * `event.id`.
+     */
+    #sendRewrite(
+        userId: number,
+        uid: string,
+        payload: Record<string, unknown>,
+    ): void {
+        this.#socket().message(userId, uid, payload);
+        this.#markDelivered(uid, userId);
     }
 
     /**
@@ -348,17 +405,15 @@ export class NotificationService extends PuterService {
      * Drop notifications past the retention window, in batches, and report how
      * many went. Deleting is all there is to it: nothing is pushed, because a
      * two-week-old row is not news, and a client listing again simply stops
-     * seeing it.
-     *
-     * Every node sweeps. Batches are small and the delete is idempotent, so two
-     * nodes overlapping costs a few empty batches, not correctness.
+     * seeing it. Stops between batches once `signal` aborts.
      */
-    async sweepExpired(): Promise<number> {
+    async sweepExpired(signal?: AbortSignal): Promise<number> {
         const days = this.#retentionDays();
         if (days <= 0) return 0;
 
         let removed = 0;
         for (let pass = 0; pass < RETENTION_MAX_BATCHES; pass++) {
+            if (signal?.aborted) break;
             const batch = await this.stores.notification.deleteCreatedBefore(
                 days,
                 RETENTION_BATCH_SIZE,
@@ -411,6 +466,7 @@ export class NotificationService extends PuterService {
         payload: Record<string, unknown>,
         scope: { type: string; audience: string; appUid: string | null },
         replacedAt?: number,
+        depth?: number,
     ): Promise<void> {
         const desktop = inAccountMailbox(scope.type);
         if (!notificationsFoldInEnabled(this.config)) {
@@ -430,9 +486,8 @@ export class NotificationService extends PuterService {
             return;
         }
 
-        const handlerDepth = handlerDepthOf(
-            Context.get('actor') as Actor | undefined,
-        );
+        const handlerDepth =
+            depth ?? handlerDepthOf(Context.get('actor') as Actor | undefined);
         this.clients.event.emit(
             'notif.created',
             {
@@ -468,17 +523,6 @@ export class NotificationService extends PuterService {
     #retentionDays(): number {
         const configured = Number(this.config.notificationRetentionDays ?? 0);
         return Number.isFinite(configured) && configured > 0 ? configured : 0;
-    }
-
-    #armRetentionSweep(): void {
-        if (this.#retentionDays() <= 0) return;
-        const sweep = setInterval(() => {
-            void this.sweepExpired().catch((err) => {
-                console.warn('[notification] retention sweep failed', err);
-            });
-        }, RETENTION_SWEEP_INTERVAL_MS);
-        sweep.unref?.();
-        this.#retentionSweep = sweep;
     }
 
     /**
