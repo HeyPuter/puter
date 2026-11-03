@@ -738,6 +738,63 @@ describe('starting from the end', () => {
         });
         expect(start.status).toBe(200);
     });
+
+    it('starts the SDK feed without catch-up in one read', async () => {
+        await clearMailboxes();
+        for (let i = 0; i < 3; i++) await message(`before ${i}`);
+
+        const appActor = (await env.server.services.auth.authenticate(appToken))
+            .actor!;
+        const reads: Array<Record<string, unknown>> = [];
+        let receive: (delivery: { event: unknown }) => void = () => {};
+        const titles: string[] = [];
+        const feed = new NotificationFeed(
+            {
+                authToken: appToken,
+                events: {
+                    onLocal: async (
+                        _subject: string,
+                        handler: typeof receive,
+                    ) => {
+                        receive = handler;
+                        return { off: async () => {} };
+                    },
+                    fetch: async (options: Record<string, unknown>) => {
+                        reads.push(options);
+                        return env.server.services.events.fetchMissed(
+                            appActor,
+                            options,
+                        );
+                    },
+                },
+            } as never,
+            (notification: { title: string | null }) => {
+                titles.push(String(notification.title));
+            },
+            { catchUp: false },
+        );
+
+        try {
+            await feed.start();
+            expect(reads).toEqual([
+                { subject: SUBJECT, limit: 200, from: 'end' },
+            ]);
+
+            await message('after start');
+            receive({ event: { op: 'gap', reason: 'reconnect' } });
+            await vi.waitFor(() => expect(reads).toHaveLength(2));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+        } finally {
+            await feed.off();
+        }
+
+        expect(reads[1]).toEqual({
+            subject: SUBJECT,
+            limit: 200,
+            cursor: expect.any(String),
+        });
+        expect(titles).toEqual(['after start']);
+    });
 });
 
 describe('cross-user isolation', () => {

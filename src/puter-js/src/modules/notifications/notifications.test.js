@@ -600,6 +600,65 @@ describe('onNotification', () => {
         expect(seen).toEqual([['n-1', 'two']]);
     });
 
+    it('with catchUp: false, starts from the newest notification in one read', async () => {
+        const events = makeEvents({
+            pages: [{ items: [], cursor: 'end-1' }, { items: [event('n-9')] }],
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+        await notifications.onNotification((n) => seen.push(n.uid), {
+            catchUp: false,
+        });
+
+        expect(events.state.fetches).toEqual([
+            { subject: 'notif:app-user', limit: 200, from: 'end' },
+        ]);
+
+        events.state.push({ op: 'gap', reason: 'reconnect' });
+        await flush();
+
+        expect(events.state.fetches.at(-1)).toEqual({
+            subject: 'notif:app-user',
+            limit: 200,
+            cursor: 'end-1',
+        });
+        expect(seen).toEqual(['n-9']);
+    });
+
+    it('with catchUp: false, marks what is there on a server that ignores from', async () => {
+        const events = makeEvents({
+            pages: [
+                { items: [event('n-1')], cursor: 'c-1' },
+                { items: [event('n-2')] },
+                { items: [event('n-2'), event('n-3')] },
+            ],
+        });
+        const notifications = makeModule({ events });
+        const seen = [];
+        await notifications.onNotification((n) => seen.push(n.uid), {
+            catchUp: false,
+        });
+        events.state.push({ op: 'gap', reason: 'reconnect' });
+        await flush();
+
+        expect(events.state.fetches).toEqual([
+            { subject: 'notif:app-user', limit: 200, from: 'end' },
+            { subject: 'notif:app-user', limit: 200, cursor: 'c-1' },
+            { subject: 'notif:app-user', limit: 200, cursor: 'c-1' },
+        ]);
+        expect(seen).toEqual(['n-3']);
+    });
+
+    it('catching up reads from the oldest notification, not the end', async () => {
+        const events = makeEvents();
+        const notifications = makeModule({ events });
+        await notifications.onNotification(() => {});
+
+        expect(events.state.fetches).toEqual([
+            { subject: 'notif:app-user', limit: 200 },
+        ]);
+    });
+
     it('reads what it missed after a reconnect, from the last cursor', async () => {
         const events = makeEvents({
             pages: [
