@@ -765,6 +765,7 @@ export class NotificationsModule extends EventListener {
         } catch {
             return false;
         }
+        this.#checkWorkerUpdate(worker);
         const answer = await webPushCheck(this.puter, subscription.endpoint);
         if (signal.aborted) return true;
         if (answer?.state === 'removed') {
@@ -783,6 +784,18 @@ export class NotificationsModule extends EventListener {
             return false;
         this.#workerRegistered = true;
         return true;
+    }
+
+    /** Has the browser look for a newer worker script, as registering does. */
+    #checkWorkerUpdate(worker) {
+        try {
+            void globalThis.navigator.serviceWorker
+                .getRegistration(worker.scope ?? worker.url)
+                .then((registration) => registration?.update())
+                .catch(() => {});
+        } catch {
+            // No service workers here.
+        }
     }
 
     /** Remembers the subscription the server confirmed, for the next loads. */

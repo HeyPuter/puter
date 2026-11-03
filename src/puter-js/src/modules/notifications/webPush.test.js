@@ -1426,6 +1426,17 @@ describe('onPush', () => {
             },
         );
 
+        it('has the browser look for a newer worker script, without waiting for it', async () => {
+            confirmed();
+            const nav = makeNav({ existing: makeSubscription() });
+            nav.registration.update = vi.fn(() => new Promise(() => {}));
+            withBrowser(nav);
+            statusSays({ state: 'active' });
+            await load();
+            expect(nav.registration.update).toHaveBeenCalledTimes(1);
+            expect(routes()).toEqual(['/push/web/subscriptions/status']);
+        });
+
         it('ends a subscription the user removed in Puter, after only asking', async () => {
             confirmed();
             const subscription = makeSubscription();
