@@ -36,7 +36,8 @@ const assertScheduleId = (scheduleId) => {
  *
  * Give exactly one of `every`, `cron` or `at`. `handlerName` names the
  * published handler each run calls; passing `handler` too checks that it is
- * the source published under that name.
+ * the source published under that name. With `handler` and no `handlerName`,
+ * the source is sent and stored in the signed-in user's own scope.
  *
  * `context` is evaluated **here, now** and delivered to every run as a frozen
  * `ctx`. It can't be changed later: remove the schedule and create a new one.
@@ -59,15 +60,10 @@ export async function onSchedule (options) {
         );
     }
     const { handler, handlerName } = options;
-    if ( handler !== undefined && handler !== null && ! handlerName ) {
+    const hasHandler = handler !== undefined && handler !== null;
+    if ( ! handlerName && ! hasHandler ) {
         throw new PuterJSError(
-            'An inline `handler` needs a `handlerName` to check it against',
-            'events_handler_name_required',
-        );
-    }
-    if ( ! handlerName ) {
-        throw new PuterJSError(
-            'A schedule needs a `handlerName`',
+            'A schedule needs a `handlerName` or an inline `handler`',
             'events_handler_required',
         );
     }
@@ -81,18 +77,20 @@ export async function onSchedule (options) {
         }
     }
 
-    const inline = handler === undefined || handler === null
-        ? null
-        : await prepareHandler(puter, handler);
+    const inline = hasHandler ? await prepareHandler(puter, handler) : null;
     const handlerHash = inline?.hash ?? options.handlerHash;
 
     /** @type {Record<string, unknown>} */
-    const body = { handlerName };
+    const body = {};
+    if ( handlerName ) body.handlerName = handlerName;
+    if ( options.handlerScope ) body.handlerScope = options.handlerScope;
     for ( const key of TIMING_OPTIONS ) {
         if ( options[key] !== undefined && options[key] !== null )
             body[key] = options[key];
     }
-    if ( handlerHash !== undefined && handlerHash !== null )
+    // Unnamed: the source itself, which the server stores under its own hash.
+    if ( inline && ! handlerName ) body.handlerSource = inline.source;
+    else if ( handlerHash !== undefined && handlerHash !== null )
         body.handlerHash = handlerHash;
     // Serialized only to check it against the cap before the round trip.
     if ( serializeContext(options.context) !== undefined )
